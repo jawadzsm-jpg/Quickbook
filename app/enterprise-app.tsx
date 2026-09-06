@@ -5,7 +5,7 @@ import {
   BadgeDollarSign, Bell, BookOpen, Building2, CheckCircle2,
   ChevronRight, CircleDollarSign, Clock3, Download, FileBarChart2, Landmark,
   Eye, LayoutDashboard, PackageSearch, Plus, Printer, ReceiptText, RefreshCw,
-  Search, Settings, ShoppingCart, Trash2, Users, WalletCards,
+  Search, Settings, ShoppingCart, Trash2, Users, WalletCards, X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -100,6 +100,18 @@ const specificationPresets: Record<string, string[]> = {
   "Backlit Keyboard": ["Yes", "No", "RGB"],
   "Operating System": ["DOS", "Windows 11 Home", "Windows 11 Pro", "macOS", "Linux"],
   Warranty: ["Manufacturer Warranty", "1 Year Shop Warranty", "3 Months Shop Warranty", "1 Month Shop Warranty"],
+};
+
+type SpecificationOptionSettings = {
+  customFields: string[];
+  removedFields: string[];
+  customValues: Record<string, string[]>;
+  removedValues: Record<string, string[]>;
+};
+
+const specificationOptionStorageKey = "comnet-specification-dropdown-options";
+const emptySpecificationOptionSettings: SpecificationOptionSettings = {
+  customFields: [], removedFields: [], customValues: {}, removedValues: {},
 };
 
 const reports = [
@@ -424,7 +436,42 @@ function TransactionFields({ form, setForm, types, items, lines, setLines }: { f
 }
 function ContactFields({ form, setForm }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void }) { return <div className="grid gap-4 sm:grid-cols-2"><div className="sm:col-span-2"><Field label="Name" name="name" form={form} setForm={setForm} required /></div><Field label="Company" name="company" form={form} setForm={setForm} /><Field label="Opening balance" name="balance" type="number" form={form} setForm={setForm} /><Field label="Email" name="email" type="email" form={form} setForm={setForm} /><Field label="Phone" name="phone" form={form} setForm={setForm} /></div>; }
 function ItemFields({ form, setForm, items }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; items: DataRecord[] }) {
+  const [optionSettings, setOptionSettings] = useState<SpecificationOptionSettings>(emptySpecificationOptionSettings);
+  const [optionsLoaded, setOptionsLoaded] = useState(false);
+  const [optionEditor, setOptionEditor] = useState<{ kind: "field" | "value"; index: number } | null>(null);
+  const [newOption, setNewOption] = useState("");
   const count = Math.min(30, Math.max(1, Number(form.specCount ?? 8)));
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(specificationOptionStorageKey);
+      if (saved) setOptionSettings({ ...emptySpecificationOptionSettings, ...JSON.parse(saved) });
+    } catch { /* Keep the built-in choices if saved preferences are unavailable. */ }
+    setOptionsLoaded(true);
+  }, []);
+  useEffect(() => {
+    if (!optionsLoaded) return;
+    try {
+      window.localStorage.setItem(specificationOptionStorageKey, JSON.stringify(optionSettings));
+    } catch { /* Dropdown editing still works for this form when browser storage is unavailable. */ }
+  }, [optionSettings, optionsLoaded]);
+  const fieldOptions = useMemo(() => {
+    const removed = new Set(optionSettings.removedFields);
+    return [...new Set([...specificationFields.filter((field) => !removed.has(field)), ...optionSettings.customFields])];
+  }, [optionSettings]);
+  useEffect(() => {
+    if (!optionsLoaded || !fieldOptions.length) return;
+    const nextForm = { ...form };
+    let changed = false;
+    for (let index = 0; index < count; index += 1) {
+      const selected = nextForm[`specLabel${index}`];
+      if (selected && !fieldOptions.includes(selected)) {
+        nextForm[`specLabel${index}`] = fieldOptions[index] ?? fieldOptions[0];
+        nextForm[`specValue${index}`] = "";
+        changed = true;
+      }
+    }
+    if (changed) setForm(nextForm);
+  }, [fieldOptions, optionsLoaded]);
   const description = Array.from({ length: count }, (_, index) => {
     const label = form[`specLabel${index}`];
     const value = form[`specValue${index}`]?.trim();
@@ -432,13 +479,13 @@ function ItemFields({ form, setForm, items }: { form: Record<string, string>; se
   }).filter(Boolean).join(" | ");
   const addSpecification = () => {
     if (count >= 30) return;
-    setForm({ ...form, specCount: String(count + 1), [`specLabel${count}`]: specificationFields[count], [`specValue${count}`]: "" });
+    setForm({ ...form, specCount: String(count + 1), [`specLabel${count}`]: fieldOptions[count] ?? fieldOptions[0] ?? "Specification", [`specValue${count}`]: "" });
   };
   const removeSpecification = (index: number) => {
     if (count <= 1) return;
     const nextForm = { ...form };
     for (let position = index; position < count - 1; position += 1) {
-      nextForm[`specLabel${position}`] = nextForm[`specLabel${position + 1}`] ?? specificationFields[position];
+      nextForm[`specLabel${position}`] = nextForm[`specLabel${position + 1}`] ?? fieldOptions[position] ?? fieldOptions[0] ?? "Specification";
       nextForm[`specValue${position}`] = nextForm[`specValue${position + 1}`] ?? "";
     }
     delete nextForm[`specLabel${count - 1}`];
@@ -453,7 +500,59 @@ function ItemFields({ form, setForm, items }: { form: Record<string, string>; se
         return parsed.filter((specification) => specification.label === label && specification.value).map((specification) => specification.value!);
       } catch { return []; }
     });
-    return [...new Set([...(specificationPresets[label] ?? []), ...saved])];
+    const removed = new Set(optionSettings.removedValues[label] ?? []);
+    return [...new Set([...(specificationPresets[label] ?? []), ...(optionSettings.customValues[label] ?? []), ...saved])].filter((value) => !removed.has(value));
+  };
+  const openOptionEditor = (kind: "field" | "value", index: number) => {
+    setNewOption("");
+    setOptionEditor({ kind, index });
+  };
+  const addDropdownOption = () => {
+    if (!optionEditor) return;
+    const option = newOption.trim();
+    if (!option) return;
+    const index = optionEditor.index;
+    if (optionEditor.kind === "field") {
+      setOptionSettings((current) => ({
+        ...current,
+        customFields: [...new Set([...current.customFields, option])],
+        removedFields: current.removedFields.filter((field) => field !== option),
+      }));
+      setForm({ ...form, [`specLabel${index}`]: option, [`specValue${index}`]: "" });
+    } else {
+      const label = form[`specLabel${index}`] ?? fieldOptions[index] ?? fieldOptions[0] ?? "Specification";
+      setOptionSettings((current) => ({
+        ...current,
+        customValues: { ...current.customValues, [label]: [...new Set([...(current.customValues[label] ?? []), option])] },
+        removedValues: { ...current.removedValues, [label]: (current.removedValues[label] ?? []).filter((value) => value !== option) },
+      }));
+      setForm({ ...form, [`specValue${index}`]: option });
+    }
+    setOptionEditor(null);
+    setNewOption("");
+  };
+  const removeFieldOption = (index: number) => {
+    const field = form[`specLabel${index}`] ?? fieldOptions[index];
+    if (!field) return;
+    const replacement = fieldOptions.find((option) => option !== field);
+    if (!replacement) return;
+    setOptionSettings((current) => ({
+      ...current,
+      customFields: current.customFields.filter((option) => option !== field),
+      removedFields: [...new Set([...current.removedFields, field])],
+    }));
+    setForm({ ...form, [`specLabel${index}`]: replacement, [`specValue${index}`]: "" });
+  };
+  const removeValueOption = (index: number) => {
+    const label = form[`specLabel${index}`] ?? fieldOptions[index] ?? fieldOptions[0] ?? "Specification";
+    const value = form[`specValue${index}`]?.trim();
+    if (!value) return;
+    setOptionSettings((current) => ({
+      ...current,
+      customValues: { ...current.customValues, [label]: (current.customValues[label] ?? []).filter((option) => option !== value) },
+      removedValues: { ...current.removedValues, [label]: [...new Set([...(current.removedValues[label] ?? []), value])] },
+    }));
+    setForm({ ...form, [`specValue${index}`]: "" });
   };
   return <div className="grid gap-4 sm:grid-cols-2">
     <Field label="SKU / Part number" name="sku" form={form} setForm={setForm} required /><Field label="Item name" name="name" form={form} setForm={setForm} required />
@@ -462,15 +561,33 @@ function ItemFields({ form, setForm, items }: { form: Record<string, string>; se
     <Field label="Reorder point" name="reorderPoint" type="number" form={form} setForm={setForm} />
     <section className="space-y-3 rounded-xl border bg-slate-50 p-4 sm:col-span-2">
       <div className="flex flex-wrap items-center justify-between gap-3"><div><Label>Item description specifications</Label><p className="mt-1 text-xs text-slate-500">Choose a specification and enter its value. Maximum 30 fields.</p></div><Button type="button" variant="outline" size="sm" disabled={count >= 30} onClick={addSpecification}><Plus className="size-3" />Add specification ({count}/30)</Button></div>
-      <div className="grid gap-2 md:grid-cols-2">{Array.from({ length: count }, (_, index) => <div key={index} className="grid grid-cols-[minmax(130px,.8fr)_minmax(0,1.2fr)_auto] gap-2 rounded-lg border bg-white p-2">
-        <Select value={form[`specLabel${index}`] ?? specificationFields[index]} onValueChange={(value) => setForm({ ...form, [`specLabel${index}`]: value })}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{specificationFields.map((field) => <SelectItem key={field} value={field}>{field}</SelectItem>)}</SelectContent></Select>
-        <div>
-          <Input list={`spec-values-${index}`} aria-label={`${form[`specLabel${index}`] ?? "Specification"} value`} placeholder="Select or enter value" value={form[`specValue${index}`] ?? ""} onChange={(event) => setForm({ ...form, [`specValue${index}`]: event.target.value })} />
-          <datalist id={`spec-values-${index}`}>{valuesFor(form[`specLabel${index}`] ?? specificationFields[index]).map((value) => <option key={value} value={value} />)}</datalist>
+      <div className="grid gap-2 md:grid-cols-2">{Array.from({ length: count }, (_, index) => <div key={index} className="grid grid-cols-[minmax(0,.9fr)_minmax(0,1.1fr)_auto] gap-2 rounded-lg border bg-white p-2">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-1">
+          <Select value={form[`specLabel${index}`] ?? fieldOptions[index] ?? fieldOptions[0]} onValueChange={(value) => setForm({ ...form, [`specLabel${index}`]: value, [`specValue${index}`]: "" })}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{fieldOptions.map((field) => <SelectItem key={field} value={field}>{field}</SelectItem>)}</SelectContent></Select>
+          <Button type="button" variant="outline" size="icon" aria-label="Add specification dropdown option" title="Add dropdown option" onClick={() => openOptionEditor("field", index)}><Plus className="size-3.5" /></Button>
+          <Button type="button" variant="outline" size="icon" disabled={fieldOptions.length <= 1} aria-label={`Remove ${form[`specLabel${index}`] ?? "specification"} from dropdown`} title="Remove selected dropdown option" onClick={() => removeFieldOption(index)} className="text-slate-400 hover:text-rose-600"><Trash2 className="size-3.5" /></Button>
         </div>
-        <Button type="button" variant="ghost" size="icon" disabled={count <= 1} aria-label={`Remove ${form[`specLabel${index}`] ?? "specification"}`} title="Remove detail" onClick={() => removeSpecification(index)} className="text-slate-400 hover:text-rose-600"><Trash2 className="size-4" /></Button>
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-1">
+          <div>
+            <Input list={`spec-values-${index}`} aria-label={`${form[`specLabel${index}`] ?? "Specification"} value`} placeholder="Select or enter value" value={form[`specValue${index}`] ?? ""} onChange={(event) => setForm({ ...form, [`specValue${index}`]: event.target.value })} />
+            <datalist id={`spec-values-${index}`}>{valuesFor(form[`specLabel${index}`] ?? fieldOptions[index] ?? fieldOptions[0] ?? "Specification").map((value) => <option key={value} value={value} />)}</datalist>
+          </div>
+          <Button type="button" variant="outline" size="icon" aria-label="Add value dropdown option" title="Add dropdown option" onClick={() => openOptionEditor("value", index)}><Plus className="size-3.5" /></Button>
+          <Button type="button" variant="outline" size="icon" disabled={!form[`specValue${index}`]?.trim()} aria-label={`Remove ${form[`specValue${index}`] || "value"} from dropdown`} title="Remove selected dropdown option" onClick={() => removeValueOption(index)} className="text-slate-400 hover:text-rose-600"><Trash2 className="size-3.5" /></Button>
+        </div>
+        <Button type="button" variant="ghost" size="icon" disabled={count <= 1} aria-label={`Remove ${form[`specLabel${index}`] ?? "specification"} row`} title="Remove specification row" onClick={() => removeSpecification(index)} className="text-slate-400 hover:text-rose-600"><X className="size-4" /></Button>
       </div>)}</div>
       <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-3"><p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Generated description</p><p className="mt-2 min-h-6 text-sm leading-6 text-slate-700">{description || "Enter specification values to build the item description."}</p></div>
+      <Dialog open={Boolean(optionEditor)} onOpenChange={(open) => { if (!open) setOptionEditor(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add dropdown option</DialogTitle>
+            <DialogDescription>{optionEditor?.kind === "field" ? "Add a new specification name to the left dropdown." : `Add a new value to the ${optionEditor ? form[`specLabel${optionEditor.index}`] ?? "selected" : "selected"} dropdown.`}</DialogDescription>
+          </DialogHeader>
+          <Input autoFocus aria-label="New dropdown option" placeholder={optionEditor?.kind === "field" ? "Specification name" : "Specification value"} value={newOption} onChange={(event) => setNewOption(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addDropdownOption(); } }} />
+          <DialogFooter><Button type="button" variant="outline" onClick={() => setOptionEditor(null)}>Cancel</Button><Button type="button" disabled={!newOption.trim()} onClick={addDropdownOption}>Add option</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   </div>;
 }
