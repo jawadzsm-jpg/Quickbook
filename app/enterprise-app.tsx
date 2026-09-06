@@ -434,6 +434,18 @@ function ItemFields({ form, setForm, items }: { form: Record<string, string>; se
     if (count >= 30) return;
     setForm({ ...form, specCount: String(count + 1), [`specLabel${count}`]: specificationFields[count], [`specValue${count}`]: "" });
   };
+  const removeSpecification = (index: number) => {
+    if (count <= 1) return;
+    const nextForm = { ...form };
+    for (let position = index; position < count - 1; position += 1) {
+      nextForm[`specLabel${position}`] = nextForm[`specLabel${position + 1}`] ?? specificationFields[position];
+      nextForm[`specValue${position}`] = nextForm[`specValue${position + 1}`] ?? "";
+    }
+    delete nextForm[`specLabel${count - 1}`];
+    delete nextForm[`specValue${count - 1}`];
+    nextForm.specCount = String(count - 1);
+    setForm(nextForm);
+  };
   const valuesFor = (label: string) => {
     const saved = items.flatMap((item) => {
       try {
@@ -450,12 +462,13 @@ function ItemFields({ form, setForm, items }: { form: Record<string, string>; se
     <Field label="Reorder point" name="reorderPoint" type="number" form={form} setForm={setForm} />
     <section className="space-y-3 rounded-xl border bg-slate-50 p-4 sm:col-span-2">
       <div className="flex flex-wrap items-center justify-between gap-3"><div><Label>Item description specifications</Label><p className="mt-1 text-xs text-slate-500">Choose a specification and enter its value. Maximum 30 fields.</p></div><Button type="button" variant="outline" size="sm" disabled={count >= 30} onClick={addSpecification}><Plus className="size-3" />Add specification ({count}/30)</Button></div>
-      <div className="grid gap-2 md:grid-cols-2">{Array.from({ length: count }, (_, index) => <div key={index} className="grid grid-cols-[minmax(145px,.8fr)_minmax(0,1.2fr)] gap-2 rounded-lg border bg-white p-2">
+      <div className="grid gap-2 md:grid-cols-2">{Array.from({ length: count }, (_, index) => <div key={index} className="grid grid-cols-[minmax(130px,.8fr)_minmax(0,1.2fr)_auto] gap-2 rounded-lg border bg-white p-2">
         <Select value={form[`specLabel${index}`] ?? specificationFields[index]} onValueChange={(value) => setForm({ ...form, [`specLabel${index}`]: value })}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{specificationFields.map((field) => <SelectItem key={field} value={field}>{field}</SelectItem>)}</SelectContent></Select>
         <div>
           <Input list={`spec-values-${index}`} aria-label={`${form[`specLabel${index}`] ?? "Specification"} value`} placeholder="Select or enter value" value={form[`specValue${index}`] ?? ""} onChange={(event) => setForm({ ...form, [`specValue${index}`]: event.target.value })} />
           <datalist id={`spec-values-${index}`}>{valuesFor(form[`specLabel${index}`] ?? specificationFields[index]).map((value) => <option key={value} value={value} />)}</datalist>
         </div>
+        <Button type="button" variant="ghost" size="icon" disabled={count <= 1} aria-label={`Remove ${form[`specLabel${index}`] ?? "specification"}`} title="Remove detail" onClick={() => removeSpecification(index)} className="text-slate-400 hover:text-rose-600"><Trash2 className="size-4" /></Button>
       </div>)}</div>
       <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-3"><p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Generated description</p><p className="mt-2 min-h-6 text-sm leading-6 text-slate-700">{description || "Enter specification values to build the item description."}</p></div>
     </section>
