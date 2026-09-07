@@ -3,8 +3,8 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   BadgeDollarSign, Bell, BookOpen, Building2, CheckCircle2,
-  ChevronRight, CircleDollarSign, Clock3, Download, FileBarChart2, Landmark,
-  Eye, LayoutDashboard, PackageSearch, Plus, Printer, ReceiptText, RefreshCw,
+  Check, ChevronDown, ChevronRight, CircleDollarSign, Clock3, Download, FileBarChart2, Landmark,
+  Eye, LayoutDashboard, PackageSearch, Pencil, Plus, Printer, ReceiptText, RefreshCw,
   Search, Settings, ShoppingCart, Trash2, Users, WalletCards,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -15,7 +15,9 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
+import { specificationFields } from "@/lib/specification-presets";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -73,34 +75,6 @@ const transactionTypes: Record<string, string[]> = {
   purchases: ["purchase order", "bill", "expense", "vendor credit", "bill payment"],
   banking: ["deposit", "cheque", "transfer", "opening balance"],
   dashboard: ["invoice", "bill", "expense", "deposit", "cheque", "journal entry"],
-};
-
-const specificationFields = [
-  "Brand", "Model", "Part Number", "Condition", "Product Category", "Processor Brand",
-  "Processor Model", "Processor Generation", "RAM Capacity", "RAM Type", "Storage Capacity",
-  "Storage Type", "Graphics", "Graphics Memory", "Screen Size", "Resolution", "Touchscreen",
-  "Color", "Keyboard Language", "Backlit Keyboard", "Operating System", "Warranty", "Battery",
-  "Ports", "Wireless", "Camera", "Weight", "Included Accessories", "Country of Origin", "Notes",
-] as const;
-
-const specificationPresets: Record<string, string[]> = {
-  Brand: ["ASUS", "Acer", "Apple", "Dell", "HP", "Lenovo", "Microsoft", "MSI"],
-  Condition: ["Brand New", "Open Box", "Refurbished", "Used"],
-  "Product Category": ["Laptop", "Desktop", "All-in-One", "Monitor", "Printer", "Networking", "Storage", "Accessory"],
-  "Processor Brand": ["Intel", "AMD", "Apple", "Qualcomm"],
-  "Processor Generation": ["12th Gen", "13th Gen", "14th Gen", "Core Ultra Series 1", "Core Ultra Series 2"],
-  "RAM Capacity": ["8GB", "16GB", "24GB", "32GB", "48GB", "64GB", "128GB"],
-  "RAM Type": ["DDR4", "DDR5", "LPDDR5", "LPDDR5X"],
-  "Storage Capacity": ["256GB", "512GB", "1TB", "2TB", "4TB"],
-  "Storage Type": ["SSD NVMe", "SSD SATA", "HDD", "eMMC"],
-  "Graphics Memory": ["Integrated", "4GB", "6GB", "8GB", "12GB", "16GB", "24GB"],
-  "Screen Size": ["13.3 inch", "14 inch", "15.6 inch", "16 inch", "17.3 inch"],
-  Resolution: ["FHD (1920×1080)", "WUXGA (1920×1200)", "QHD (2560×1440)", "WQXGA (2560×1600)", "4K UHD (3840×2160)"],
-  Touchscreen: ["Yes", "No", "2-in-1 / x360"],
-  "Keyboard Language": ["English", "English / Arabic", "English / Russian"],
-  "Backlit Keyboard": ["Yes", "No", "RGB"],
-  "Operating System": ["DOS", "Windows 11 Home", "Windows 11 Pro", "macOS", "Linux"],
-  Warranty: ["Manufacturer Warranty", "1 Year Shop Warranty", "3 Months Shop Warranty", "1 Month Shop Warranty"],
 };
 
 const reports = [
@@ -459,13 +433,30 @@ function ContactFields({ form, setForm }: { form: Record<string, string>; setFor
 }
 function ItemFields({ form, setForm, items }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; items: DataRecord[] }) {
   const count = Math.min(30, Math.max(1, Number(form.specCount ?? 8)));
+  const [optionData, setOptionData] = useState<{ options: Record<string, string[]>; disabled: Record<string, string[]> }>({ options: {}, disabled: {} });
+  const loadOptions = useCallback(async () => {
+    try {
+      const response = await fetch("/api/spec-options");
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not load choices");
+      setOptionData(data);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not load choices"); }
+  }, []);
+  useEffect(() => { loadOptions(); }, [loadOptions]);
+
+  const changeOption = async (method: "POST" | "PATCH" | "DELETE", payload: Record<string, string>) => {
+    const response = await fetch("/api/spec-options", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Could not update the choice");
+    await loadOptions();
+  };
   const savedLabels = items.flatMap((item) => {
     try {
       const parsed = JSON.parse(String(item.specifications ?? "[]")) as Array<{ label?: string }>;
       return parsed.map((specification) => specification.label?.trim()).filter((label): label is string => Boolean(label));
     } catch { return []; }
   });
-  const labelOptions = [...new Set([...specificationFields, ...savedLabels])];
+  const labelOptions = [...new Set([...specificationFields, ...savedLabels, ...Object.keys(optionData.options)])];
   const description = Array.from({ length: count }, (_, index) => {
     const label = form[`specLabel${index}`];
     const value = form[`specValue${index}`]?.trim();
@@ -494,7 +485,8 @@ function ItemFields({ form, setForm, items }: { form: Record<string, string>; se
         return parsed.filter((specification) => specification.label === label && specification.value).map((specification) => specification.value!);
       } catch { return []; }
     });
-    return [...new Set([...(specificationPresets[label] ?? []), ...saved])];
+    const disabled = new Set(optionData.disabled[label] ?? []);
+    return [...new Set([...(optionData.options[label] ?? []), ...saved])].filter((value) => !disabled.has(value));
   };
   return <div className="grid gap-4 sm:grid-cols-2">
     <Field label="SKU / Part number" name="sku" form={form} setForm={setForm} required /><Field label="Item name" name="name" form={form} setForm={setForm} required />
@@ -508,14 +500,73 @@ function ItemFields({ form, setForm, items }: { form: Record<string, string>; se
           <Input list={`spec-labels-${index}`} aria-label={`Detail ${index + 1} name`} placeholder="Select or type detail" value={form[`specLabel${index}`] ?? specificationFields[index]} onChange={(event) => setForm({ ...form, [`specLabel${index}`]: event.target.value })} />
           <datalist id={`spec-labels-${index}`}>{labelOptions.map((field) => <option key={field} value={field} />)}</datalist>
         </div>
-        <div>
-          <Input list={`spec-values-${index}`} aria-label={`${form[`specLabel${index}`] ?? "Specification"} value`} placeholder="Select or enter value" value={form[`specValue${index}`] ?? ""} onChange={(event) => setForm({ ...form, [`specValue${index}`]: event.target.value })} />
-          <datalist id={`spec-values-${index}`}>{valuesFor(form[`specLabel${index}`] ?? specificationFields[index]).map((value) => <option key={value} value={value} />)}</datalist>
-        </div>
+        <SpecificationValuePicker
+          label={form[`specLabel${index}`] ?? specificationFields[index]}
+          value={form[`specValue${index}`] ?? ""}
+          options={valuesFor(form[`specLabel${index}`] ?? specificationFields[index])}
+          onChange={(value) => setForm({ ...form, [`specValue${index}`]: value })}
+          onAdd={(value) => changeOption("POST", { label: form[`specLabel${index}`] ?? specificationFields[index], value })}
+          onRename={(oldValue, newValue) => changeOption("PATCH", { label: form[`specLabel${index}`] ?? specificationFields[index], oldValue, newValue })}
+          onDelete={(value) => changeOption("DELETE", { label: form[`specLabel${index}`] ?? specificationFields[index], value })}
+        />
         <Button type="button" variant="ghost" size="icon" disabled={count <= 1} aria-label={`Remove ${form[`specLabel${index}`] ?? "specification"}`} title="Remove detail" onClick={() => removeSpecification(index)} className="text-slate-400 hover:text-rose-600"><Trash2 className="size-4" /></Button>
       </div>)}</div>
       <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-3"><p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Generated description</p><p className="mt-2 min-h-6 text-sm leading-6 text-slate-700">{description || "Enter specification values to build the item description."}</p></div>
     </section>
   </div>;
+}
+function SpecificationValuePicker({ label, value, options, onChange, onAdd, onRename, onDelete }: { label: string; value: string; options: string[]; onChange: (value: string) => void; onAdd: (value: string) => Promise<void>; onRename: (oldValue: string, newValue: string) => Promise<void>; onDelete: (value: string) => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [newValue, setNewValue] = useState("");
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editedValue, setEditedValue] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const run = async (action: () => Promise<void>, success: string) => {
+    setBusy(true);
+    try { await action(); toast.success(success); }
+    catch (error) { toast.error(error instanceof Error ? error.message : "Could not update the choice"); }
+    finally { setBusy(false); }
+  };
+
+  const add = () => {
+    const next = newValue.trim();
+    if (!next) return;
+    run(async () => { await onAdd(next); setNewValue(""); }, "Choice added");
+  };
+  const rename = (oldValue: string) => {
+    const next = editedValue.trim();
+    if (!next) return;
+    run(async () => {
+      await onRename(oldValue, next);
+      if (value === oldValue) onChange(next);
+      setEditing(null);
+    }, "Choice renamed");
+  };
+  const remove = (option: string) => run(async () => {
+    await onDelete(option);
+    if (value === option) onChange("");
+  }, "Choice removed");
+
+  return <Popover open={open} onOpenChange={setOpen}>
+    <div className="flex min-w-0">
+      <Input aria-label={`${label || "Specification"} value`} placeholder="Select or enter value" value={value} onChange={(event) => onChange(event.target.value)} className="rounded-r-none" />
+      <PopoverTrigger asChild><Button type="button" variant="outline" size="icon" title={`Manage ${label || "detail"} choices`} aria-label={`Manage ${label || "detail"} choices`} className="shrink-0 rounded-l-none border-l-0"><ChevronDown className="size-4" /></Button></PopoverTrigger>
+    </div>
+    <PopoverContent align="start" className="w-80 space-y-3 p-3">
+      <div><p className="text-sm font-bold text-slate-900">{label || "Detail"} choices</p><p className="text-xs text-slate-500">Select, add, rename or remove a choice.</p></div>
+      <div className="max-h-56 space-y-1 overflow-y-auto pr-1">
+        {options.length === 0 ? <p className="rounded-md bg-slate-50 p-3 text-xs text-slate-500">No saved choices yet.</p> : options.map((option) => editing === option ? <div key={option} className="flex gap-1">
+          <Input autoFocus value={editedValue} onChange={(event) => setEditedValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); rename(option); } }} className="h-8" />
+          <Button type="button" size="icon" variant="ghost" disabled={busy} onClick={() => rename(option)} aria-label="Save renamed choice" className="size-8 text-emerald-600"><Check className="size-4" /></Button>
+        </div> : <div key={option} className="group flex items-center gap-1 rounded-md hover:bg-slate-50">
+          <button type="button" onClick={() => { onChange(option); setOpen(false); }} className="min-w-0 flex-1 truncate px-2 py-2 text-left text-sm">{option}</button>
+          <Button type="button" size="icon" variant="ghost" disabled={busy} onClick={() => { setEditing(option); setEditedValue(option); }} aria-label={`Rename ${option}`} className="size-8 text-slate-400 hover:text-sky-600"><Pencil className="size-3.5" /></Button>
+          <Button type="button" size="icon" variant="ghost" disabled={busy} onClick={() => remove(option)} aria-label={`Remove ${option}`} className="size-8 text-slate-400 hover:text-rose-600"><Trash2 className="size-3.5" /></Button>
+        </div>)}
+      </div>
+      <div className="flex gap-2 border-t pt-3"><Input value={newValue} onChange={(event) => setNewValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); add(); } }} placeholder="Add new choice" className="h-9" /><Button type="button" size="sm" disabled={busy || !newValue.trim()} onClick={add}><Plus className="size-4" />Add</Button></div>
+    </PopoverContent>
+  </Popover>;
 }
 function AccountFields({ form, setForm }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void }) { return <div className="grid gap-4 sm:grid-cols-2"><Field label="Account code" name="code" form={form} setForm={setForm} required /><Field label="Account name" name="name" form={form} setForm={setForm} required /><Choice label="Account type" name="type" values={["Bank", "Accounts Receivable", "Current Asset", "Fixed Asset", "Accounts Payable", "Credit Card", "Liability", "Equity", "Income", "Cost of Goods Sold", "Expense"]} form={form} setForm={setForm} /><Field label="Opening balance" name="balance" type="number" form={form} setForm={setForm} /></div>; }

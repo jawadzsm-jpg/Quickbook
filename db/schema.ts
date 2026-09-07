@@ -36,6 +36,14 @@ export const items = pgTable("items", {
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 }, (table) => [uniqueIndex("idx_items_sku").on(table.sku), index("idx_items_name").on(table.name)]);
 
+export const specificationOptions = pgTable("specification_options", {
+  id: serial("id").primaryKey(),
+  label: text("label").notNull(),
+  value: text("value").notNull(),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("idx_specification_options_label_value").on(table.label, table.value)]);
+
 export const transactions = pgTable("transactions", {
   id: serial("id").primaryKey(),
   number: text("number").notNull(),
