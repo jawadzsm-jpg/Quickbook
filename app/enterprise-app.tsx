@@ -459,6 +459,13 @@ function ContactFields({ form, setForm }: { form: Record<string, string>; setFor
 }
 function ItemFields({ form, setForm, items }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; items: DataRecord[] }) {
   const count = Math.min(30, Math.max(1, Number(form.specCount ?? 8)));
+  const savedLabels = items.flatMap((item) => {
+    try {
+      const parsed = JSON.parse(String(item.specifications ?? "[]")) as Array<{ label?: string }>;
+      return parsed.map((specification) => specification.label?.trim()).filter((label): label is string => Boolean(label));
+    } catch { return []; }
+  });
+  const labelOptions = [...new Set([...specificationFields, ...savedLabels])];
   const description = Array.from({ length: count }, (_, index) => {
     const label = form[`specLabel${index}`];
     const value = form[`specValue${index}`]?.trim();
@@ -495,9 +502,12 @@ function ItemFields({ form, setForm, items }: { form: Record<string, string>; se
     <Field label="Sales price" name="salesPrice" type="number" form={form} setForm={setForm} /><Field label="Average cost" name="cost" type="number" form={form} setForm={setForm} />
     <Field label="Reorder point" name="reorderPoint" type="number" form={form} setForm={setForm} />
     <section className="space-y-3 rounded-xl border bg-slate-50 p-4 sm:col-span-2">
-      <div className="flex flex-wrap items-center justify-between gap-3"><div><Label>Item description specifications</Label><p className="mt-1 text-xs text-slate-500">Choose a specification and enter its value. Maximum 30 fields.</p></div><Button type="button" variant="outline" size="sm" disabled={count >= 30} onClick={addSpecification}><Plus className="size-3" />Add specification ({count}/30)</Button></div>
+      <div className="flex flex-wrap items-center justify-between gap-3"><div><Label>Item description specifications</Label><p className="mt-1 text-xs text-slate-500">Select or type any detail, then enter its value. Add or remove up to 30 fields.</p></div><Button type="button" variant="outline" size="sm" disabled={count >= 30} onClick={addSpecification}><Plus className="size-3" />Add detail ({count}/30)</Button></div>
       <div className="grid gap-2 md:grid-cols-2">{Array.from({ length: count }, (_, index) => <div key={index} className="grid grid-cols-[minmax(130px,.8fr)_minmax(0,1.2fr)_auto] gap-2 rounded-lg border bg-white p-2">
-        <Select value={form[`specLabel${index}`] ?? specificationFields[index]} onValueChange={(value) => setForm({ ...form, [`specLabel${index}`]: value })}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{specificationFields.map((field) => <SelectItem key={field} value={field}>{field}</SelectItem>)}</SelectContent></Select>
+        <div>
+          <Input list={`spec-labels-${index}`} aria-label={`Detail ${index + 1} name`} placeholder="Select or type detail" value={form[`specLabel${index}`] ?? specificationFields[index]} onChange={(event) => setForm({ ...form, [`specLabel${index}`]: event.target.value })} />
+          <datalist id={`spec-labels-${index}`}>{labelOptions.map((field) => <option key={field} value={field} />)}</datalist>
+        </div>
         <div>
           <Input list={`spec-values-${index}`} aria-label={`${form[`specLabel${index}`] ?? "Specification"} value`} placeholder="Select or enter value" value={form[`specValue${index}`] ?? ""} onChange={(event) => setForm({ ...form, [`specValue${index}`]: event.target.value })} />
           <datalist id={`spec-values-${index}`}>{valuesFor(form[`specLabel${index}`] ?? specificationFields[index]).map((value) => <option key={value} value={value} />)}</datalist>
