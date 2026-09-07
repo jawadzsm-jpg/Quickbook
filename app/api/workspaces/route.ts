@@ -54,3 +54,18 @@ export async function POST(request: Request) {
     return Response.json({ error: message(error) }, { status: 500 });
   }
 }
+
+export async function PATCH(request: Request) {
+  try {
+    const payload = (await request.json()) as Record<string, unknown>;
+    const companyId = Number(payload.companyId);
+    const baseCurrency = String(payload.baseCurrency ?? "").trim().toUpperCase();
+    if (!Number.isInteger(companyId) || !/^[A-Z]{3}$/.test(baseCurrency)) return Response.json({ error: "Company and a valid currency code are required." }, { status: 400 });
+    const db = getDb();
+    const [company] = await db.update(companies).set({ baseCurrency }).where(eq(companies.id, companyId)).returning();
+    if (!company) return Response.json({ error: "Company not found." }, { status: 404 });
+    return Response.json({ company });
+  } catch (error) {
+    return Response.json({ error: message(error) }, { status: 500 });
+  }
+}

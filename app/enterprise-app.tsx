@@ -31,7 +31,7 @@ import {
 } from "@/components/ui/table";
 import { Toaster, toast } from "sonner";
 
-type View = "dashboard" | "sales" | "purchases" | "customers" | "vendors" | "inventory" | "banking" | "accounts" | "employees" | "reports";
+type View = "dashboard" | "sales" | "purchases" | "customers" | "vendors" | "inventory" | "banking" | "accounts" | "employees" | "reports" | "companies" | "inventories" | "currencies";
 type Kind = "transactions" | "contacts" | "items" | "accounts";
 type DataRecord = Record<string, string | number | boolean> & { id: number };
 type LineForm = { itemId: string; description: string; quantity: string; unitPrice: string; unitCost: string; vatRate: string };
@@ -57,6 +57,11 @@ const navGroups = [
     { id: "employees", label: "Employees & HR", icon: WalletCards },
     { id: "reports", label: "Reports", icon: FileBarChart2 },
   ] },
+  { label: "MANAGEMENT", items: [
+    { id: "companies", label: "Companies", icon: Building2 },
+    { id: "inventories", label: "Inventories", icon: PackageSearch },
+    { id: "currencies", label: "Currencies", icon: CircleDollarSign },
+  ] },
 ] as const;
 
 const viewTitles: Record<View, { title: string; sub: string }> = {
@@ -70,6 +75,9 @@ const viewTitles: Record<View, { title: string; sub: string }> = {
   accounts: { title: "Chart of Accounts", sub: "Assets, liabilities, equity, income and expenses" },
   employees: { title: "Employees & HR", sub: "Employee records and balances" },
   reports: { title: "Report Center", sub: "Financial, sales, purchasing and inventory analysis" },
+  companies: { title: "Companies", sub: "Create and switch between separate company files" },
+  inventories: { title: "Inventories", sub: "Manage warehouses, showrooms and stock locations" },
+  currencies: { title: "Currencies", sub: "Set company currency and transaction currencies" },
 };
 
 const transactionTypes: Record<string, string[]> = {
@@ -182,6 +190,7 @@ export default function EnterpriseApp() {
   }, [records.transactions]);
 
   const currentKind: Kind = view === "customers" || view === "vendors" || view === "employees" ? "contacts" : view === "inventory" ? "items" : view === "accounts" ? "accounts" : "transactions";
+  const managementView = view === "companies" || view === "inventories" || view === "currencies";
 
   const filteredRecords = useMemo(() => {
     let list = records[currentKind];
@@ -323,12 +332,12 @@ export default function EnterpriseApp() {
             <Badge variant="outline" className="hidden sm:inline-flex">{baseCurrency}</Badge>
             <Select value={String(activeLocationId || "")} onValueChange={(value) => { setActiveLocationId(Number(value)); setSearch(""); }}><SelectTrigger className="w-[165px]"><SelectValue placeholder="Inventory" /></SelectTrigger><SelectContent>{activeLocations.map((location) => <SelectItem key={location.id} value={String(location.id)}>{location.name}</SelectItem>)}</SelectContent></Select>
             <Button variant="ghost" size="icon" aria-label="Notifications"><Bell className="size-4" /></Button>
-            <Button onClick={openCreate} className="bg-emerald-500 font-semibold text-slate-950 hover:bg-emerald-400"><Plus className="size-4" /><span className="hidden sm:inline">{createLabel}</span></Button>
+            {!managementView && <Button onClick={openCreate} className="bg-emerald-500 font-semibold text-slate-950 hover:bg-emerald-400"><Plus className="size-4" /><span className="hidden sm:inline">{createLabel}</span></Button>}
           </div>
         </header>
 
         <div className="mx-auto w-full max-w-[1500px] p-4 lg:p-7">
-          {view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} onNavigate={setView} onCreate={openCreate} onOpenDetail={openDetail} /> : view === "reports" ? <ReportCenter metrics={metrics} currency={baseCurrency} onOpen={openReport} loading={reportLoading} /> : (
+          {managementView ? <WorkspaceCenter mode={view as "companies" | "inventories" | "currencies"} companies={companies} activeCompanyId={activeCompanyId} onChanged={loadWorkspaces} /> : view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} onNavigate={setView} onCreate={openCreate} onOpenDetail={openDetail} /> : view === "reports" ? <ReportCenter metrics={metrics} currency={baseCurrency} onOpen={openReport} loading={reportLoading} /> : (
             <RecordView view={view} kind={currentKind} records={filteredRecords} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onEditItem={openItemEdit} onOpenDetail={openDetail} />
           )}
         </div>
@@ -429,6 +438,30 @@ function ReportDialog({ report, companyName, onClose }: { report: ReportData | n
     <DialogHeader><div className="flex items-start justify-between gap-4 pr-8"><div><p className="text-xs font-bold tracking-[.18em] text-emerald-600">{companyName.toUpperCase()}</p><DialogTitle className="mt-2">{report.title}</DialogTitle><DialogDescription>Generated {new Date(report.generatedAt).toLocaleString("en-AE")} · {report.currency} accrual basis</DialogDescription></div><Button variant="outline" onClick={() => window.print()}><Printer className="size-4" />Print / PDF</Button></div></DialogHeader>
     <div className="overflow-x-auto rounded-xl border"><Table><TableHeader><TableRow>{report.columns.map((column) => <TableHead key={column.key} className={column.type === "money" ? "text-right" : ""}>{column.label}</TableHead>)}</TableRow></TableHeader><TableBody>{report.rows.length ? report.rows.map((row, index) => <TableRow key={index}>{report.columns.map((column) => <TableCell key={column.key} className={column.type === "money" ? "text-right font-medium" : ""}>{column.type === "money" ? formatMoney(row[column.key], report.currency) : String(row[column.key] ?? "—")}</TableCell>)}</TableRow>) : <EmptyRow text="No posted data is available for this report." columns={report.columns.length} />}</TableBody></Table></div>
   </DialogContent></Dialog>;
+}
+
+function WorkspaceCenter({ mode, companies, activeCompanyId, onChanged }: { mode: "companies" | "inventories" | "currencies"; companies: CompanyWorkspace[]; activeCompanyId: number; onChanged: () => Promise<void> }) {
+  const activeCompany = companies.find((company) => company.id === activeCompanyId);
+  const [name, setName] = useState("");
+  const [code, setCode] = useState("");
+  const [currency, setCurrency] = useState(activeCompany?.baseCurrency ?? "AED");
+  const [saving, setSaving] = useState(false);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { setCurrency(activeCompany?.baseCurrency ?? "AED"); }, [activeCompany]);
+  const save = async (method: "POST" | "PATCH", payload: Record<string, string | number>) => {
+    setSaving(true);
+    try {
+      const response = await fetch("/api/workspaces", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not save");
+      await onChanged(); setName(""); setCode("");
+      toast.success(mode === "companies" ? "Company added" : mode === "inventories" ? "Inventory added" : "Base currency updated");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save"); }
+    finally { setSaving(false); }
+  };
+  if (mode === "companies") return <div className="grid gap-5 xl:grid-cols-[1fr_360px]"><section className="rounded-xl border bg-white shadow-sm"><div className="border-b p-5"><h2 className="font-bold">Company files</h2><p className="text-sm text-slate-500">Each company has separate customers, accounts, transactions and inventory.</p></div><div className="grid gap-3 p-5 md:grid-cols-2">{companies.map((company) => <article key={company.id} className={`rounded-xl border p-4 ${company.id === activeCompanyId ? "border-emerald-300 bg-emerald-50/50" : ""}`}><div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold">{company.name}</h3><p className="mt-1 text-sm text-slate-500">{company.locations.length} {company.locations.length === 1 ? "inventory" : "inventories"}</p></div><Badge variant="outline">{company.baseCurrency}</Badge></div>{company.id === activeCompanyId && <p className="mt-3 text-xs font-semibold text-emerald-700">Currently selected</p>}</article>)}</div></section><form className="space-y-4 rounded-xl border bg-white p-5 shadow-sm" onSubmit={(event) => { event.preventDefault(); save("POST", { type: "company", name, baseCurrency: currency }); }}><div><h2 className="font-bold">Add company</h2><p className="text-sm text-slate-500">A Main Inventory is included.</p></div><div className="space-y-2"><Label>Company name</Label><Input value={name} onChange={(event) => setName(event.target.value)} required placeholder="Company name" /></div><div className="space-y-2"><Label>Base currency</Label><Select value={currency} onValueChange={setCurrency}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{currencies.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div><Button disabled={saving} className="w-full"><Plus className="size-4" />Add company</Button></form></div>;
+  if (mode === "inventories") return <div className="grid gap-5 xl:grid-cols-[1fr_360px]"><section className="rounded-xl border bg-white shadow-sm"><div className="border-b p-5"><h2 className="font-bold">{activeCompany?.name} inventories</h2><p className="text-sm text-slate-500">Select an inventory from the top bar to view and post its stock.</p></div><div className="grid gap-3 p-5 md:grid-cols-2">{activeCompany?.locations.map((location) => <article key={location.id} className="rounded-xl border p-4"><PackageSearch className="size-5 text-emerald-600" /><h3 className="mt-3 font-semibold">{location.name}</h3><p className="mt-1 font-mono text-xs text-slate-500">{location.code}</p></article>)}</div></section><form className="space-y-4 rounded-xl border bg-white p-5 shadow-sm" onSubmit={(event) => { event.preventDefault(); save("POST", { type: "location", companyId: activeCompanyId, name, code }); }}><div><h2 className="font-bold">Add inventory</h2><p className="text-sm text-slate-500">Warehouse, showroom or store.</p></div><div className="space-y-2"><Label>Inventory name</Label><Input value={name} onChange={(event) => setName(event.target.value)} required placeholder="Jebel Ali Warehouse" /></div><div className="space-y-2"><Label>Code</Label><Input value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} required placeholder="JAFZA" /></div><Button disabled={saving || !activeCompanyId} className="w-full"><Plus className="size-4" />Add inventory</Button></form></div>;
+  return <div className="grid gap-5 xl:grid-cols-[1fr_360px]"><section className="rounded-xl border bg-white shadow-sm"><div className="border-b p-5"><h2 className="font-bold">Available transaction currencies</h2><p className="text-sm text-slate-500">Use any supported currency on invoices, bills and other transactions.</p></div><div className="flex flex-wrap gap-2 p-5">{currencies.map((value) => <Badge key={value} variant={value === activeCompany?.baseCurrency ? "default" : "outline"} className="px-3 py-1.5">{value}{value === activeCompany?.baseCurrency ? " · Base" : ""}</Badge>)}</div></section><form className="space-y-4 rounded-xl border bg-white p-5 shadow-sm" onSubmit={(event) => { event.preventDefault(); save("PATCH", { companyId: activeCompanyId, baseCurrency: currency }); }}><div><h2 className="font-bold">Company base currency</h2><p className="text-sm text-slate-500">Reports and accounting entries use this currency.</p></div><div className="space-y-2"><Label>{activeCompany?.name}</Label><Select value={currency} onValueChange={setCurrency}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{currencies.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div><Button disabled={saving || !activeCompanyId} className="w-full">Save currency</Button></form></div>;
 }
 
 function WorkspaceDialog({ open, companies, activeCompanyId, onClose, onChanged }: { open: boolean; companies: CompanyWorkspace[]; activeCompanyId: number; onClose: () => void; onChanged: () => Promise<void> }) {
