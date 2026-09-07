@@ -148,6 +148,36 @@ export async function POST(request: Request) {
   }
 }
 
+export async function PATCH(request: Request) {
+  try {
+    const payload = (await request.json()) as Record<string, unknown>;
+    if (payload.kind !== "items") return Response.json({ error: "Only inventory items can be updated here." }, { status: 400 });
+    const id = Number(payload.id);
+    if (!Number.isInteger(id) || id <= 0) return Response.json({ error: "A valid item is required." }, { status: 400 });
+    const db = getDb();
+    const [existing] = await db.select().from(items).where(eq(items.id, id));
+    if (!existing) return Response.json({ error: "Item not found." }, { status: 404 });
+    const specifications = Array.from({ length: 30 }, (_, index) => ({
+      label: String(payload[`specLabel${index}`] ?? "").trim(),
+      value: String(payload[`specValue${index}`] ?? "").trim(),
+    })).filter((specification) => specification.label && specification.value);
+    const specificationValue = (label: string) => specifications.find((specification) => specification.label.toLowerCase() === label.toLowerCase())?.value ?? "";
+    const category = String(payload.category ?? existing.category).trim() || existing.category;
+    const generatedName = [specificationValue("Brand"), specificationValue("Model") || specificationValue("Part Number")].filter(Boolean).join(" ");
+    const [record] = await db.update(items).set({
+      category,
+      sku: specificationValue("Part Number") || existing.sku,
+      name: generatedName || existing.name,
+      description: specifications.map((specification) => `${specification.label}: ${specification.value}`).join(" | "),
+      specifications: JSON.stringify(specifications),
+    }).where(eq(items.id, id)).returning();
+    await db.insert(auditLog).values({ action: "updated", entityType: "item", entityId: id, details: `${record.sku} ${record.name}` });
+    return Response.json({ record });
+  } catch (error) {
+    return Response.json({ error: errorMessage(error) }, { status: 500 });
+  }
+}
+
 function contactBalanceChange(type: string, total: number) {
   if (type === "invoice" || type === "bill") return total;
   if (["customer payment", "credit memo", "bill payment", "vendor payment", "vendor credit"].includes(type)) return -total;

@@ -114,6 +114,7 @@ export default function EnterpriseApp() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingItemId, setEditingItemId] = useState<number | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
   const [lines, setLines] = useState<LineForm[]>([]);
   const [saving, setSaving] = useState(false);
@@ -164,6 +165,7 @@ export default function EnterpriseApp() {
   }, [currentKind, records, search, view]);
 
   function openCreate() {
+    setEditingItemId(null);
     if (currentKind === "transactions") {
       const type = transactionTypes[view]?.[0] ?? "invoice";
       setForm({ type, number: `${type.slice(0, 3).toUpperCase()}-${String(records.transactions.length + 1).padStart(4, "0")}`, transactionDate: today(), dueDate: today(), status: "open", account: type === "bill" ? "Purchases" : "Sales Revenue", vatRate: "5" });
@@ -182,6 +184,20 @@ export default function EnterpriseApp() {
     setDialogOpen(true);
   }
 
+  function openItemEdit(item: DataRecord) {
+    let specifications: Array<{ label: string; value: string }> = [];
+    try { specifications = JSON.parse(String(item.specifications ?? "[]")); } catch { specifications = []; }
+    if (!specifications.length) specifications = specificationFields.filter((label) => label !== "Product Category").slice(0, 8).map((label) => ({ label, value: "" }));
+    const itemForm: Record<string, string> = { category: String(item.category ?? "Laptop"), specCount: String(Math.min(30, specifications.length)) };
+    specifications.slice(0, 30).forEach((specification, index) => {
+      itemForm[`specLabel${index}`] = specification.label;
+      itemForm[`specValue${index}`] = specification.value;
+    });
+    setEditingItemId(item.id);
+    setForm(itemForm);
+    setDialogOpen(true);
+  }
+
   async function saveRecord(event: FormEvent) {
     event.preventDefault();
     if (currentKind === "contacts" && form.type === "customer") {
@@ -190,11 +206,12 @@ export default function EnterpriseApp() {
     }
     setSaving(true);
     try {
-      const response = await fetch("/api/records", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: currentKind, ...form, ...(currentKind === "transactions" ? { lines } : {}) }) });
+      const editingItem = currentKind === "items" && editingItemId !== null;
+      const response = await fetch("/api/records", { method: editingItem ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: currentKind, ...(editingItem ? { id: editingItemId } : {}), ...form, ...(currentKind === "transactions" ? { lines } : {}) }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not save record");
-      setRecords((old) => ({ ...old, [currentKind]: [data.record, ...old[currentKind]] }));
-      setDialogOpen(false); toast.success("Record saved and posted");
+      setRecords((old) => ({ ...old, [currentKind]: editingItem ? old[currentKind].map((record) => record.id === data.record.id ? data.record : record) : [data.record, ...old[currentKind]] }));
+      setDialogOpen(false); setEditingItemId(null); toast.success(editingItem ? "Item updated" : "Record saved and posted");
       await loadData();
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save record"); }
     finally { setSaving(false); }
@@ -279,20 +296,20 @@ export default function EnterpriseApp() {
 
         <div className="mx-auto w-full max-w-[1500px] p-4 lg:p-7">
           {view === "dashboard" ? <Dashboard metrics={metrics} records={records} onNavigate={setView} onCreate={openCreate} onOpenDetail={openDetail} /> : view === "reports" ? <ReportCenter metrics={metrics} onOpen={openReport} loading={reportLoading} /> : (
-            <RecordView view={view} kind={currentKind} records={filteredRecords} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onOpenDetail={openDetail} />
+            <RecordView view={view} kind={currentKind} records={filteredRecords} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onEditItem={openItemEdit} onOpenDetail={openDetail} />
           )}
         </div>
       </SidebarInset>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) setEditingItemId(null); }}>
         <DialogContent className={`max-h-[90vh] overflow-y-auto ${currentKind === "transactions" || currentKind === "items" || (currentKind === "contacts" && view === "customers") ? "sm:max-w-5xl" : "sm:max-w-xl"}`}>
-          <DialogHeader><DialogTitle>{createLabel}</DialogTitle><DialogDescription>Enter the record details below. Required fields are marked.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>{editingItemId !== null && currentKind === "items" ? "Edit Item" : createLabel}</DialogTitle><DialogDescription>{editingItemId !== null && currentKind === "items" ? "Update the category and item description details." : "Enter the record details below. Required fields are marked."}</DialogDescription></DialogHeader>
           <form onSubmit={saveRecord} className="space-y-5">
             {currentKind === "transactions" && <TransactionFields form={form} setForm={setForm} types={transactionTypes[view] ?? transactionTypes.dashboard} items={records.items} lines={lines} setLines={setLines} />}
             {currentKind === "contacts" && <ContactFields form={form} setForm={setForm} />}
             {currentKind === "items" && <ItemFields form={form} setForm={setForm} items={records.items} />}
             {currentKind === "accounts" && <AccountFields form={form} setForm={setForm} />}
-            <DialogFooter><Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button><Button type="submit" disabled={saving} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400">{saving ? "Saving…" : "Save record"}</Button></DialogFooter>
+            <DialogFooter><Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button><Button type="submit" disabled={saving} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400">{saving ? "Saving…" : editingItemId !== null && currentKind === "items" ? "Save changes" : "Save record"}</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
@@ -328,7 +345,7 @@ function Dashboard({ metrics, records, onNavigate, onCreate, onOpenDetail }: { m
 
 function StatusLine({ label, value, action }: { label: string; value: number; action: () => void }) { return <button onClick={action} className="flex w-full items-center justify-between rounded-lg border border-slate-100 p-3 text-left hover:border-emerald-200 hover:bg-emerald-50/50"><span className="text-sm text-slate-600">{label}</span><span className="flex items-center gap-2 font-bold text-slate-900">{value}<ChevronRight className="size-4 text-slate-400" /></span></button>; }
 
-function RecordView({ view, kind, records, loading, search, setSearch, onRefresh, onCreate, onDelete, onOpenDetail }: { view: View; kind: Kind; records: DataRecord[]; loading: boolean; search: string; setSearch: (v: string) => void; onRefresh: () => void; onCreate: () => void; onDelete: (id: number) => void; onOpenDetail: (id: number) => void }) {
+function RecordView({ view, kind, records, loading, search, setSearch, onRefresh, onCreate, onDelete, onEditItem, onOpenDetail }: { view: View; kind: Kind; records: DataRecord[]; loading: boolean; search: string; setSearch: (v: string) => void; onRefresh: () => void; onCreate: () => void; onDelete: (id: number) => void; onEditItem: (item: DataRecord) => void; onOpenDetail: (id: number) => void }) {
   function exportCsv() {
     if (!records.length) return toast.error("There are no records to export.");
     const headers = Array.from(new Set(records.flatMap((record) => Object.keys(record))));
@@ -343,7 +360,7 @@ function RecordView({ view, kind, records, loading, search, setSearch, onRefresh
     toast.success("CSV exported");
   }
   return <section className="rounded-xl border border-slate-200 bg-white shadow-sm"><div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between"><div className="relative w-full sm:max-w-sm"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={`Search ${view}…`} className="pl-9" /></div><div className="flex gap-2"><Button variant="outline" size="icon" onClick={onRefresh} aria-label="Refresh"><RefreshCw className="size-4" /></Button><Button variant="outline" onClick={exportCsv}><Download className="size-4" />Export</Button><Button onClick={onCreate} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400"><Plus className="size-4" />Add new</Button></div></div>
-    {kind === "transactions" ? <TransactionTable records={records} empty={loading ? "Loading records…" : "No transactions found."} onDelete={onDelete} onOpen={onOpenDetail} /> : kind === "contacts" ? <ContactTable records={records} empty={loading ? "Loading records…" : "No contacts found."} onDelete={onDelete} /> : kind === "items" ? <ItemTable records={records} empty={loading ? "Loading records…" : "No inventory items found."} onDelete={onDelete} /> : <AccountTable records={records} empty={loading ? "Loading records…" : "No accounts found."} onDelete={onDelete} />}
+    {kind === "transactions" ? <TransactionTable records={records} empty={loading ? "Loading records…" : "No transactions found."} onDelete={onDelete} onOpen={onOpenDetail} /> : kind === "contacts" ? <ContactTable records={records} empty={loading ? "Loading records…" : "No contacts found."} onDelete={onDelete} /> : kind === "items" ? <ItemTable records={records} empty={loading ? "Loading records…" : "No inventory items found."} onDelete={onDelete} onEdit={onEditItem} /> : <AccountTable records={records} empty={loading ? "Loading records…" : "No accounts found."} onDelete={onDelete} />}
   </section>;
 }
 
@@ -351,7 +368,7 @@ function EmptyRow({ text, columns }: { text: string; columns: number }) { return
 function DeleteButton({ id, onDelete }: { id: number; onDelete?: (id: number) => void }) { return onDelete ? <Button variant="ghost" size="icon" onClick={() => onDelete(id)} aria-label="Delete record" className="text-slate-400 hover:text-rose-600"><Trash2 className="size-4" /></Button> : null; }
 function TransactionTable({ records, empty, onDelete, onOpen }: { records: DataRecord[]; empty: string; onDelete?: (id: number) => void; onOpen?: (id: number) => void }) { return <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead>No.</TableHead><TableHead>Name</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Amount</TableHead><TableHead className="w-24" /></TableRow></TableHeader><TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={7} /> : records.map((r) => <TableRow key={r.id} className="cursor-pointer" onDoubleClick={() => onOpen?.(r.id)}><TableCell className="text-slate-500">{String(r.transactionDate)}</TableCell><TableCell className="font-medium capitalize">{String(r.type)}</TableCell><TableCell className="font-mono text-xs text-slate-500">{String(r.number)}</TableCell><TableCell>{String(r.party)}</TableCell><TableCell><StatusBadge value={String(r.status)} /></TableCell><TableCell className="text-right font-semibold">{formatMoney(r.total)}</TableCell><TableCell><div className="flex"><Button variant="ghost" size="icon" onClick={() => onOpen?.(r.id)} aria-label="Open document" className="text-slate-400 hover:text-emerald-600"><Eye className="size-4" /></Button><DeleteButton id={r.id} onDelete={onDelete} /></div></TableCell></TableRow>)}</TableBody></Table>; }
 function ContactTable({ records, empty, onDelete }: { records: DataRecord[]; empty: string; onDelete: (id: number) => void }) { return <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Company</TableHead><TableHead>Email</TableHead><TableHead>Phone</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Balance</TableHead><TableHead className="w-12" /></TableRow></TableHeader><TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={7} /> : records.map((r) => <TableRow key={r.id}><TableCell className="font-semibold">{String(r.name)}</TableCell><TableCell>{String(r.company || "—")}</TableCell><TableCell>{String(r.email || "—")}</TableCell><TableCell>{String(r.phone || "—")}</TableCell><TableCell><StatusBadge value={String(r.status)} /></TableCell><TableCell className="text-right font-semibold">{formatMoney(r.balance)}</TableCell><TableCell><DeleteButton id={r.id} onDelete={onDelete} /></TableCell></TableRow>)}</TableBody></Table>; }
-function ItemTable({ records, empty, onDelete }: { records: DataRecord[]; empty: string; onDelete: (id: number) => void }) { return <Table><TableHeader><TableRow><TableHead>SKU</TableHead><TableHead>Item & description</TableHead><TableHead>Category</TableHead><TableHead className="text-right">On hand</TableHead><TableHead className="text-right">Reorder</TableHead><TableHead className="text-right">Sales price</TableHead><TableHead className="text-right">Avg. cost</TableHead><TableHead className="w-12" /></TableRow></TableHeader><TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={8} /> : records.map((r) => <TableRow key={r.id}><TableCell className="font-mono text-xs">{String(r.sku)}</TableCell><TableCell><p className="font-semibold">{String(r.name)}</p>{r.description ? <p className="mt-1 max-w-lg truncate text-xs text-slate-500" title={String(r.description)}>{String(r.description)}</p> : null}</TableCell><TableCell>{String(r.category)}</TableCell><TableCell className="text-right">{String(r.quantity)}</TableCell><TableCell className="text-right">{String(r.reorderPoint)}</TableCell><TableCell className="text-right">{formatMoney(r.salesPrice)}</TableCell><TableCell className="text-right">{formatMoney(r.cost)}</TableCell><TableCell><DeleteButton id={r.id} onDelete={onDelete} /></TableCell></TableRow>)}</TableBody></Table>; }
+function ItemTable({ records, empty, onDelete, onEdit }: { records: DataRecord[]; empty: string; onDelete: (id: number) => void; onEdit: (item: DataRecord) => void }) { return <Table><TableHeader><TableRow><TableHead>SKU</TableHead><TableHead>Item & description</TableHead><TableHead>Category</TableHead><TableHead className="text-right">On hand</TableHead><TableHead className="text-right">Reorder</TableHead><TableHead className="text-right">Sales price</TableHead><TableHead className="text-right">Avg. cost</TableHead><TableHead className="w-24" /></TableRow></TableHeader><TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={8} /> : records.map((r) => <TableRow key={r.id}><TableCell className="font-mono text-xs">{String(r.sku)}</TableCell><TableCell><p className="font-semibold">{String(r.name)}</p>{r.description ? <p className="mt-1 max-w-lg truncate text-xs text-slate-500" title={String(r.description)}>{String(r.description)}</p> : null}</TableCell><TableCell>{String(r.category)}</TableCell><TableCell className="text-right">{String(r.quantity)}</TableCell><TableCell className="text-right">{String(r.reorderPoint)}</TableCell><TableCell className="text-right">{formatMoney(r.salesPrice)}</TableCell><TableCell className="text-right">{formatMoney(r.cost)}</TableCell><TableCell><div className="flex"><Button type="button" variant="ghost" size="icon" onClick={() => onEdit(r)} aria-label={`Edit ${String(r.name)}`} className="text-slate-400 hover:text-sky-600"><Pencil className="size-4" /></Button><DeleteButton id={r.id} onDelete={onDelete} /></div></TableCell></TableRow>)}</TableBody></Table>; }
 function AccountTable({ records, empty, onDelete }: { records: DataRecord[]; empty: string; onDelete: (id: number) => void }) { return <Table><TableHeader><TableRow><TableHead>Code</TableHead><TableHead>Account name</TableHead><TableHead>Type</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Balance</TableHead><TableHead className="w-12" /></TableRow></TableHeader><TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={6} /> : records.map((r) => <TableRow key={r.id}><TableCell className="font-mono text-xs">{String(r.code)}</TableCell><TableCell className="font-semibold">{String(r.name)}</TableCell><TableCell>{String(r.type)}</TableCell><TableCell><Badge variant="outline">{r.active ? "Active" : "Inactive"}</Badge></TableCell><TableCell className="text-right font-semibold">{formatMoney(r.balance)}</TableCell><TableCell><DeleteButton id={r.id} onDelete={onDelete} /></TableCell></TableRow>)}</TableBody></Table>; }
 function StatusBadge({ value }: { value: string }) { const good = value === "paid" || value === "active" || value === "cleared"; return <Badge variant="outline" className={good ? "border-emerald-200 bg-emerald-50 text-emerald-700" : value === "overdue" ? "border-rose-200 bg-rose-50 text-rose-700" : "border-amber-200 bg-amber-50 text-amber-700"}>{value}</Badge>; }
 
