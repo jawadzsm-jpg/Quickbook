@@ -48,9 +48,17 @@ export async function POST(request: Request) {
     if (kind === "contacts") {
       const name = String(payload.name ?? "").trim();
       if (!name) return Response.json({ error: "Name is required." }, { status: 400 });
+      if (payload.type === "customer") {
+        const required = [payload.company, payload.phone, payload.whatsapp, payload.country, payload.reseller, payload.planet, payload.currency];
+        if (required.some((value) => !String(value ?? "").trim())) return Response.json({ error: "Complete all required customer fields." }, { status: 400 });
+      }
       const [record] = await db.insert(contacts).values({
         type: (payload.type as "customer" | "vendor" | "employee") ?? "customer", name,
-        company: String(payload.company ?? ""), email: String(payload.email ?? ""), phone: String(payload.phone ?? ""), balance: Number(payload.balance ?? 0),
+        company: String(payload.company ?? ""), billingName: String(payload.billingName ?? name),
+        email: String(payload.email ?? ""), phone: String(payload.phone ?? ""), whatsapp: String(payload.whatsapp ?? ""),
+        country: String(payload.country ?? ""), trn: String(payload.trn ?? ""), reseller: String(payload.reseller ?? "Reseller"),
+        planet: String(payload.planet ?? "No"), passport: String(payload.passport ?? ""), currency: String(payload.currency ?? "AED"),
+        description: String(payload.description ?? ""), balance: Number(payload.balance ?? 0),
       }).returning();
       return Response.json({ record }, { status: 201 });
     }

@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -193,7 +194,10 @@ export default function EnterpriseApp() {
       const type = transactionTypes[view]?.[0] ?? "invoice";
       setForm({ type, number: `${type.slice(0, 3).toUpperCase()}-${String(records.transactions.length + 1).padStart(4, "0")}`, transactionDate: today(), dueDate: today(), status: "open", account: type === "bill" ? "Purchases" : "Sales Revenue", vatRate: "5" });
       setLines([{ itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatRate: "5" }]);
-    } else if (currentKind === "contacts") setForm({ type: view === "customers" ? "customer" : view === "vendors" ? "vendor" : "employee" });
+    } else if (currentKind === "contacts") {
+      const type = view === "customers" ? "customer" : view === "vendors" ? "vendor" : "employee";
+      setForm(type === "customer" ? { type, currency: "AED", reseller: "Reseller", planet: "No", balance: "0" } : { type, balance: "0" });
+    }
     else if (currentKind === "items") {
       const itemForm: Record<string, string> = { category: "Laptop", quantity: "0", reorderPoint: "2", salesPrice: "0", cost: "0", specCount: "8" };
       specificationFields.slice(0, 8).forEach((label, index) => { itemForm[`specLabel${index}`] = label; itemForm[`specValue${index}`] = ""; });
@@ -204,7 +208,12 @@ export default function EnterpriseApp() {
   }
 
   async function saveRecord(event: FormEvent) {
-    event.preventDefault(); setSaving(true);
+    event.preventDefault();
+    if (currentKind === "contacts" && form.type === "customer") {
+      const required = [form.company, form.name, form.phone, form.whatsapp, form.country, form.reseller, form.planet, form.currency];
+      if (required.some((value) => !value?.trim())) return toast.error("Complete all required customer fields.");
+    }
+    setSaving(true);
     try {
       const response = await fetch("/api/records", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: currentKind, ...form, ...(currentKind === "transactions" ? { lines } : {}) }) });
       const data = await response.json();
@@ -301,7 +310,7 @@ export default function EnterpriseApp() {
       </SidebarInset>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className={`max-h-[90vh] overflow-y-auto ${currentKind === "transactions" || currentKind === "items" ? "sm:max-w-5xl" : "sm:max-w-xl"}`}>
+        <DialogContent className={`max-h-[90vh] overflow-y-auto ${currentKind === "transactions" || currentKind === "items" || (currentKind === "contacts" && view === "customers") ? "sm:max-w-5xl" : "sm:max-w-xl"}`}>
           <DialogHeader><DialogTitle>{createLabel}</DialogTitle><DialogDescription>Enter the record details below. Required fields are marked.</DialogDescription></DialogHeader>
           <form onSubmit={saveRecord} className="space-y-5">
             {currentKind === "transactions" && <TransactionFields form={form} setForm={setForm} types={transactionTypes[view] ?? transactionTypes.dashboard} items={records.items} lines={lines} setLines={setLines} />}
@@ -396,8 +405,8 @@ function ReportDialog({ report, onClose }: { report: ReportData | null; onClose:
   </DialogContent></Dialog>;
 }
 
-function Field({ label, name, form, setForm, type = "text", required = false }: { label: string; name: string; form: Record<string, string>; setForm: (f: Record<string, string>) => void; type?: string; required?: boolean }) { return <div className="space-y-2"><Label htmlFor={name}>{label}{required ? " *" : ""}</Label><Input id={name} name={name} type={type} required={required} value={form[name] ?? ""} onChange={(e) => setForm({ ...form, [name]: e.target.value })} /></div>; }
-function Choice({ label, name, values, form, setForm }: { label: string; name: string; values: string[]; form: Record<string, string>; setForm: (f: Record<string, string>) => void }) { return <div className="space-y-2"><Label>{label}</Label><Select value={form[name]} onValueChange={(value) => setForm({ ...form, [name]: value })}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{values.map((value) => <SelectItem key={value} value={value}><span className="capitalize">{value}</span></SelectItem>)}</SelectContent></Select></div>; }
+function Field({ label, name, form, setForm, type = "text", required = false, placeholder }: { label: string; name: string; form: Record<string, string>; setForm: (f: Record<string, string>) => void; type?: string; required?: boolean; placeholder?: string }) { return <div className="space-y-2"><Label htmlFor={name}>{label}{required ? " *" : ""}</Label><Input id={name} name={name} type={type} required={required} placeholder={placeholder} value={form[name] ?? ""} onChange={(e) => setForm({ ...form, [name]: e.target.value })} /></div>; }
+function Choice({ label, name, values, form, setForm, placeholder }: { label: string; name: string; values: string[]; form: Record<string, string>; setForm: (f: Record<string, string>) => void; placeholder?: string }) { return <div className="space-y-2"><Label>{label}</Label><Select value={form[name]} onValueChange={(value) => setForm({ ...form, [name]: value })}><SelectTrigger className="w-full"><SelectValue placeholder={placeholder} /></SelectTrigger><SelectContent>{values.map((value) => <SelectItem key={value} value={value}><span className="capitalize">{value}</span></SelectItem>)}</SelectContent></Select></div>; }
 function TransactionFields({ form, setForm, types, items, lines, setLines }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; types: string[]; items: DataRecord[]; lines: LineForm[]; setLines: (lines: LineForm[]) => void }) {
   const update = (index: number, changes: Partial<LineForm>) => setLines(lines.map((line, position) => position === index ? { ...line, ...changes } : line));
   const subtotal = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0), 0);
@@ -422,7 +431,32 @@ function TransactionFields({ form, setForm, types, items, lines, setLines }: { f
     <div className="sm:col-span-2"><Field label="Memo" name="memo" form={form} setForm={setForm} /></div>
   </div>;
 }
-function ContactFields({ form, setForm }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void }) { return <div className="grid gap-4 sm:grid-cols-2"><div className="sm:col-span-2"><Field label="Name" name="name" form={form} setForm={setForm} required /></div><Field label="Company" name="company" form={form} setForm={setForm} /><Field label="Opening balance" name="balance" type="number" form={form} setForm={setForm} /><Field label="Email" name="email" type="email" form={form} setForm={setForm} /><Field label="Phone" name="phone" form={form} setForm={setForm} /></div>; }
+function ContactFields({ form, setForm }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void }) {
+  if (form.type !== "customer") return <div className="grid gap-4 sm:grid-cols-2"><div className="sm:col-span-2"><Field label="Name" name="name" form={form} setForm={setForm} required /></div><Field label="Company" name="company" form={form} setForm={setForm} /><Field label="Opening balance" name="balance" type="number" form={form} setForm={setForm} /><Field label="Email" name="email" type="email" form={form} setForm={setForm} /><Field label="Phone" name="phone" form={form} setForm={setForm} /></div>;
+
+  const countries = ["United Arab Emirates", "Saudi Arabia", "Oman", "Qatar", "Bahrain", "Kuwait", "India", "Pakistan", "China", "Hong Kong", "United Kingdom", "United States", "Other"];
+  return <div className="space-y-5">
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <p className="text-sm font-bold text-slate-900">Customer details</p>
+      <p className="mt-1 text-xs text-slate-500">Add billing, contact and tax information for this customer.</p>
+    </div>
+    <div className="grid gap-x-5 gap-y-4 md:grid-cols-2">
+      <Field label="Company Name" name="company" form={form} setForm={setForm} required placeholder="Enter company name" />
+      <Choice label="Country *" name="country" values={countries} form={form} setForm={setForm} placeholder="Select country" />
+      <Field label="Billing Name" name="name" form={form} setForm={(next) => setForm({ ...next, billingName: next.name })} required placeholder="Enter billing name" />
+      <Field label="TRN" name="trn" form={form} setForm={setForm} placeholder="Enter TRN" />
+      <Field label="Contact Number" name="phone" form={form} setForm={setForm} required placeholder="Format +9713456789" />
+      <Choice label="Reseller *" name="reseller" values={["Reseller", "End User"]} form={form} setForm={setForm} />
+      <Field label="WhatsApp Number" name="whatsapp" form={form} setForm={setForm} required placeholder="Format +9713456789" />
+      <Choice label="Planet *" name="planet" values={["No", "Yes"]} form={form} setForm={setForm} />
+      <Field label="Email Address" name="email" type="email" form={form} setForm={setForm} placeholder="Enter email address" />
+      <Field label="Passport #" name="passport" form={form} setForm={setForm} placeholder="Enter passport #" />
+      <Choice label="Currency *" name="currency" values={["AED", "USD", "EUR", "GBP", "SAR", "OMR", "QAR", "BHD", "KWD", "INR", "CNY"]} form={form} setForm={setForm} />
+      <Field label="Opening Balance" name="balance" type="number" form={form} setForm={setForm} />
+      <div className="space-y-2 md:col-span-2"><Label htmlFor="description">Description</Label><Textarea id="description" name="description" rows={4} placeholder="Add customer notes" value={form.description ?? ""} onChange={(event) => setForm({ ...form, description: event.target.value })} /></div>
+    </div>
+  </div>;
+}
 function ItemFields({ form, setForm, items }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; items: DataRecord[] }) {
   const count = Math.min(30, Math.max(1, Number(form.specCount ?? 8)));
   const description = Array.from({ length: count }, (_, index) => {
