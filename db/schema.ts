@@ -73,7 +73,7 @@ export const stockTransfers = pgTable("stock_transfers", {
   transferDate: text("transfer_date").notNull(),
   notes: text("notes").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
-}, (table) => [uniqueIndex("idx_stock_transfers_reference").on(table.reference), index("idx_stock_transfers_source_date").on(table.sourceCompanyId, table.transferDate), index("idx_stock_transfers_destination_date").on(table.destinationCompanyId, table.transferDate)]);
+}, (table) => [index("idx_stock_transfers_reference").on(table.reference), index("idx_stock_transfers_source_date").on(table.sourceCompanyId, table.transferDate), index("idx_stock_transfers_destination_date").on(table.destinationCompanyId, table.transferDate)]);
 
 export const specificationOptions = pgTable("specification_options", {
   id: serial("id").primaryKey(),

@@ -30,6 +30,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Toaster, toast } from "sonner";
+import { MultiLineTransferCenter } from "@/app/transfer-center";
 
 type View = "dashboard" | "sales" | "purchases" | "customers" | "vendors" | "inventory" | "transfers" | "banking" | "accounts" | "employees" | "reports" | "companies" | "inventories" | "invoice-series" | "currencies";
 type Kind = "transactions" | "contacts" | "items" | "accounts";
@@ -39,7 +40,6 @@ type InventoryLocation = { id: number; companyId: number; name: string; code: st
 type CompanyWorkspace = { id: number; name: string; baseCurrency: string; locations: InventoryLocation[] };
 type ReportData = { title: string; generatedAt: string; currency: string; columns: Array<{ key: string; label: string; type?: "money" }>; rows: Array<Record<string, string | number>> };
 type TransactionDetail = { record: DataRecord; lines: DataRecord[]; journal: DataRecord[] };
-type TransferRecord = { id: number; reference: string; transferDate: string; itemNumber: string | null; sku: string; itemName: string; quantity: number; notes: string; sourceCompany: string; sourceLocation: string; destinationCompany: string; destinationLocation: string };
 
 const invoiceNumberPreview = (companyId: number, location: InventoryLocation) =>
   `C${String(companyId).padStart(3, "0")}-${location.invoicePrefix}-INV-${String(location.nextInvoiceNumber).padStart(4, "0")}`;
@@ -360,7 +360,7 @@ export default function EnterpriseApp() {
         </header>
 
         <div className="mx-auto w-full max-w-[1500px] p-4 lg:p-7">
-          {view === "transfers" ? <TransferCenter key={`${activeCompanyId}-${activeLocationId}`} companies={companies} activeCompanyId={activeCompanyId} activeLocationId={activeLocationId} onTransferred={loadData} /> : managementView ? <WorkspaceCenter mode={view as "companies" | "inventories" | "invoice-series" | "currencies"} companies={companies} activeCompanyId={activeCompanyId} onChanged={loadWorkspaces} /> : view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} onNavigate={setView} onCreate={openCreate} onOpenDetail={openDetail} /> : view === "reports" ? <ReportCenter metrics={metrics} currency={baseCurrency} onOpen={openReport} loading={reportLoading} /> : (
+          {view === "transfers" ? <MultiLineTransferCenter key={`${activeCompanyId}-${activeLocationId}`} companies={companies} activeLocationId={activeLocationId} onTransferred={loadData} /> : managementView ? <WorkspaceCenter mode={view as "companies" | "inventories" | "invoice-series" | "currencies"} companies={companies} activeCompanyId={activeCompanyId} onChanged={loadWorkspaces} /> : view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} onNavigate={setView} onCreate={openCreate} onOpenDetail={openDetail} /> : view === "reports" ? <ReportCenter metrics={metrics} currency={baseCurrency} onOpen={openReport} loading={reportLoading} /> : (
             <RecordView view={view} kind={currentKind} records={filteredRecords} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onEditItem={openItemEdit} onOpenDetail={openDetail} />
           )}
         </div>
@@ -464,85 +464,6 @@ function ReportDialog({ report, companyName, onClose }: { report: ReportData | n
     <DialogHeader><div className="flex items-start justify-between gap-4 pr-8"><div><p className="text-xs font-bold tracking-[.18em] text-emerald-600">{companyName.toUpperCase()}</p><DialogTitle className="mt-2">{report.title}</DialogTitle><DialogDescription>Generated {new Date(report.generatedAt).toLocaleString("en-AE")} · {report.currency} accrual basis</DialogDescription></div><Button variant="outline" onClick={() => window.print()}><Printer className="size-4" />Print / PDF</Button></div></DialogHeader>
     <div className="overflow-x-auto rounded-xl border"><Table><TableHeader><TableRow>{report.columns.map((column) => <TableHead key={column.key} className={column.type === "money" ? "text-right" : ""}>{column.label}</TableHead>)}</TableRow></TableHeader><TableBody>{report.rows.length ? report.rows.map((row, index) => <TableRow key={index}>{report.columns.map((column) => <TableCell key={column.key} className={column.type === "money" ? "text-right font-medium" : ""}>{column.type === "money" ? formatMoney(row[column.key], report.currency) : String(row[column.key] ?? "—")}</TableCell>)}</TableRow>) : <EmptyRow text="No posted data is available for this report." columns={report.columns.length} />}</TableBody></Table></div>
   </DialogContent></Dialog>;
-}
-
-function TransferCenter({ companies, activeCompanyId, activeLocationId, onTransferred }: { companies: CompanyWorkspace[]; activeCompanyId: number; activeLocationId: number; onTransferred: () => Promise<void> }) {
-  const allLocations = companies.flatMap((company) => company.locations.map((location) => ({ ...location, companyName: company.name })));
-  const initialDestination = allLocations.find((location) => location.companyId !== activeCompanyId || location.id !== activeLocationId);
-  const [sourceCompanyId, setSourceCompanyId] = useState(activeCompanyId);
-  const [sourceLocationId, setSourceLocationId] = useState(activeLocationId);
-  const [destinationCompanyId, setDestinationCompanyId] = useState(initialDestination?.companyId ?? activeCompanyId);
-  const [destinationLocationId, setDestinationLocationId] = useState(initialDestination?.id ?? 0);
-  const [sourceItems, setSourceItems] = useState<DataRecord[]>([]);
-  const [itemId, setItemId] = useState("");
-  const [quantity, setQuantity] = useState("1");
-  const [transferDate, setTransferDate] = useState(today());
-  const [reference, setReference] = useState("");
-  const [notes, setNotes] = useState("");
-  const [history, setHistory] = useState<TransferRecord[]>([]);
-  const [saving, setSaving] = useState(false);
-  const sourceLocations = companies.find((company) => company.id === sourceCompanyId)?.locations ?? [];
-  const destinationLocations = companies.find((company) => company.id === destinationCompanyId)?.locations ?? [];
-  const selectedItem = sourceItems.find((item) => String(item.id) === itemId);
-
-  const loadHistory = useCallback(async () => {
-    try {
-      const response = await fetch("/api/transfers");
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not load transfers");
-      setHistory(data.records);
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not load transfers"); }
-  }, []);
-  const loadItems = useCallback(async () => {
-    if (!sourceCompanyId || !sourceLocationId) return setSourceItems([]);
-    try {
-      const response = await fetch(`/api/records?kind=items&companyId=${sourceCompanyId}&locationId=${sourceLocationId}`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not load source inventory");
-      setSourceItems(data.records.filter((item: DataRecord) => Number(item.quantity) > 0));
-      setItemId("");
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not load source inventory"); }
-  }, [sourceCompanyId, sourceLocationId]);
-  // Load persisted transfer history and source stock for this working screen.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { loadHistory(); }, [loadHistory]);
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { loadItems(); }, [loadItems]);
-
-  const chooseAvailableDestination = (nextSourceCompanyId: number, nextSourceLocationId: number) => {
-    if (destinationCompanyId !== nextSourceCompanyId || destinationLocationId !== nextSourceLocationId) return;
-    const next = allLocations.find((location) => location.companyId !== nextSourceCompanyId || location.id !== nextSourceLocationId);
-    setDestinationCompanyId(next?.companyId ?? 0);
-    setDestinationLocationId(next?.id ?? 0);
-  };
-
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    setSaving(true);
-    try {
-      const response = await fetch("/api/transfers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sourceCompanyId, sourceLocationId, destinationCompanyId, destinationLocationId, itemId: Number(itemId), quantity: Number(quantity), transferDate, reference, notes }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not transfer stock");
-      toast.success(`Stock transferred · ${data.transfer.reference}`);
-      setQuantity("1"); setReference(""); setNotes(""); setItemId("");
-      await Promise.all([loadItems(), loadHistory(), onTransferred()]);
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not transfer stock"); }
-    finally { setSaving(false); }
-  };
-
-  return <div className="space-y-5">
-    <form onSubmit={submit} className="rounded-xl border bg-white shadow-sm">
-      <div className="border-b p-5"><h2 className="font-bold">New stock transfer</h2><p className="text-sm text-slate-500">Move an item between any company inventories. Quantities update immediately.</p></div>
-      <div className="grid gap-5 p-5 xl:grid-cols-[1fr_auto_1fr]">
-        <section className="space-y-4 rounded-xl border bg-slate-50 p-4"><div><p className="text-xs font-bold uppercase tracking-wider text-slate-500">From</p><h3 className="mt-1 font-semibold">Source inventory</h3></div><div className="space-y-2"><Label>Company</Label><Select value={String(sourceCompanyId)} onValueChange={(value) => { const companyId = Number(value); const locationId = companies.find((company) => company.id === companyId)?.locations[0]?.id ?? 0; setSourceCompanyId(companyId); setSourceLocationId(locationId); chooseAvailableDestination(companyId, locationId); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{companies.map((company) => <SelectItem key={company.id} value={String(company.id)}>{company.name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Inventory</Label><Select value={String(sourceLocationId)} onValueChange={(value) => { const locationId = Number(value); setSourceLocationId(locationId); chooseAvailableDestination(sourceCompanyId, locationId); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{sourceLocations.map((location) => <SelectItem key={location.id} value={String(location.id)}>{location.name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Item</Label><Select value={itemId} onValueChange={setItemId}><SelectTrigger><SelectValue placeholder="Select item" /></SelectTrigger><SelectContent>{sourceItems.map((item) => <SelectItem key={item.id} value={String(item.id)}>{String(item.sku)} · {String(item.name)} · Qty {String(item.quantity)}</SelectItem>)}</SelectContent></Select>{sourceItems.length === 0 && <p className="text-xs text-amber-700">No available stock in this inventory.</p>}</div></section>
-        <div className="hidden items-center xl:flex"><div className="rounded-full border bg-white p-3 text-emerald-600 shadow-sm"><ArrowRightLeft className="size-5" /></div></div>
-        <section className="space-y-4 rounded-xl border bg-emerald-50/40 p-4"><div><p className="text-xs font-bold uppercase tracking-wider text-emerald-700">To</p><h3 className="mt-1 font-semibold">Destination inventory</h3></div><div className="space-y-2"><Label>Company</Label><Select value={String(destinationCompanyId || "")} onValueChange={(value) => { const companyId = Number(value); setDestinationCompanyId(companyId); setDestinationLocationId(companies.find((company) => company.id === companyId)?.locations.find((location) => location.id !== sourceLocationId || companyId !== sourceCompanyId)?.id ?? 0); }}><SelectTrigger><SelectValue placeholder="Select company" /></SelectTrigger><SelectContent>{companies.map((company) => <SelectItem key={company.id} value={String(company.id)}>{company.name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Inventory</Label><Select value={String(destinationLocationId || "")} onValueChange={(value) => setDestinationLocationId(Number(value))}><SelectTrigger><SelectValue placeholder="Select inventory" /></SelectTrigger><SelectContent>{destinationLocations.filter((location) => location.id !== sourceLocationId || destinationCompanyId !== sourceCompanyId).map((location) => <SelectItem key={location.id} value={String(location.id)}>{location.name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Quantity</Label><Input type="number" min="0.01" max={selectedItem ? Number(selectedItem.quantity) : undefined} step="0.01" value={quantity} onChange={(event) => setQuantity(event.target.value)} required /><p className="text-xs text-slate-500">Available: {selectedItem ? String(selectedItem.quantity) : "—"}</p></div></section>
-      </div>
-      <div className="grid gap-4 border-t p-5 md:grid-cols-3"><div className="space-y-2"><Label>Transfer date</Label><Input type="date" value={transferDate} onChange={(event) => setTransferDate(event.target.value)} required /></div><div className="space-y-2"><Label>Reference</Label><Input value={reference} onChange={(event) => setReference(event.target.value.toUpperCase())} maxLength={40} placeholder="Automatic if blank" /></div><div className="space-y-2"><Label>Notes</Label><Input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Optional transfer note" /></div></div>
-      <div className="flex justify-end border-t bg-slate-50 p-4"><Button disabled={saving || !itemId || !destinationLocationId} className="bg-emerald-500 font-semibold text-slate-950 hover:bg-emerald-400"><ArrowRightLeft className="size-4" />{saving ? "Transferring…" : "Transfer stock"}</Button></div>
-    </form>
-    <section className="rounded-xl border bg-white shadow-sm"><div className="border-b p-5"><h2 className="font-bold">Transfer history</h2><p className="text-sm text-slate-500">Complete movement history across all companies and inventories.</p></div><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Reference</TableHead><TableHead>Item</TableHead><TableHead>From</TableHead><TableHead>To</TableHead><TableHead className="text-right">Quantity</TableHead></TableRow></TableHeader><TableBody>{history.length ? history.map((transfer) => <TableRow key={transfer.id}><TableCell>{transfer.transferDate}</TableCell><TableCell className="font-mono text-xs">{transfer.reference}</TableCell><TableCell><p className="font-medium">{transfer.itemName}</p><p className="text-xs text-slate-500">{transfer.sku}{transfer.itemNumber ? ` · ${transfer.itemNumber}` : ""}</p></TableCell><TableCell><p>{transfer.sourceCompany}</p><p className="text-xs text-slate-500">{transfer.sourceLocation}</p></TableCell><TableCell><p>{transfer.destinationCompany}</p><p className="text-xs text-slate-500">{transfer.destinationLocation}</p></TableCell><TableCell className="text-right font-semibold">{transfer.quantity}</TableCell></TableRow>) : <EmptyRow text="No stock transfers yet." columns={6} />}</TableBody></Table></div></section>
-  </div>;
 }
 
 function WorkspaceCenter({ mode, companies, activeCompanyId, onChanged }: { mode: "companies" | "inventories" | "invoice-series" | "currencies"; companies: CompanyWorkspace[]; activeCompanyId: number; onChanged: () => Promise<void> }) {

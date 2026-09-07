@@ -64,6 +64,13 @@
       "when": 1788822428031,
       "tag": "0008_public_dexter_bennett",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1788823845459,
+      "tag": "0009_peaceful_blindfold",
+      "breakpoints": true
     }
   ]
 }
