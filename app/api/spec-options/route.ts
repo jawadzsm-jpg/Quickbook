@@ -5,6 +5,8 @@ import { specificationFields, specificationPresets } from "@/lib/specification-p
 
 type OptionPayload = { type?: unknown; label?: unknown; value?: unknown; oldValue?: unknown; newValue?: unknown };
 const LABEL_SCOPE = "__specification_detail_names__";
+const CATEGORY_SCOPE = "__item_categories__";
+const defaultCategories = ["Laptop", "Desktop", "All-in-One", "Monitor", "Printer", "Networking", "Storage", "Accessory"];
 
 function text(value: unknown) {
   return String(value ?? "").trim();
@@ -25,7 +27,18 @@ export async function GET() {
     const disabled: Record<string, string[]> = {};
     const labels = [...specificationFields] as string[];
     const disabledLabels: string[] = [];
+    const categories = [...defaultCategories];
+    const disabledCategories: string[] = [];
     for (const row of rows) {
+      if (row.label === CATEGORY_SCOPE) {
+        if (row.active && !categories.includes(row.value)) categories.push(row.value);
+        if (!row.active) {
+          const index = categories.indexOf(row.value);
+          if (index >= 0) categories.splice(index, 1);
+          disabledCategories.push(row.value);
+        }
+        continue;
+      }
       if (row.label === LABEL_SCOPE) {
         if (row.active && !labels.includes(row.value)) labels.push(row.value);
         if (!row.active) {
@@ -43,7 +56,7 @@ export async function GET() {
         (disabled[row.label] ??= []).push(row.value);
       }
     }
-    return Response.json({ options, disabled, labels, disabledLabels });
+    return Response.json({ options, disabled, labels, disabledLabels, categories, disabledCategories });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not load specification choices." }, { status: 500 });
   }
@@ -52,7 +65,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const payload = await request.json() as OptionPayload;
-    const label = payload.type === "label" ? LABEL_SCOPE : text(payload.label);
+    const label = payload.type === "label" ? LABEL_SCOPE : payload.type === "category" ? CATEGORY_SCOPE : text(payload.label);
     const value = text(payload.value);
     if (!label || !value) return Response.json({ error: "Detail and value are required." }, { status: 400 });
     await setOption(label, value, true);
@@ -66,7 +79,7 @@ export async function PATCH(request: Request) {
   try {
     const payload = await request.json() as OptionPayload;
     const isLabel = payload.type === "label";
-    const label = isLabel ? LABEL_SCOPE : text(payload.label);
+    const label = isLabel ? LABEL_SCOPE : payload.type === "category" ? CATEGORY_SCOPE : text(payload.label);
     const oldValue = text(payload.oldValue);
     const newValue = text(payload.newValue);
     if (!label || !oldValue || !newValue) return Response.json({ error: "Detail, old value and new value are required." }, { status: 400 });
@@ -91,7 +104,7 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const payload = await request.json() as OptionPayload;
-    const label = payload.type === "label" ? LABEL_SCOPE : text(payload.label);
+    const label = payload.type === "label" ? LABEL_SCOPE : payload.type === "category" ? CATEGORY_SCOPE : text(payload.label);
     const value = text(payload.value);
     if (!label || !value) return Response.json({ error: "Detail and value are required." }, { status: 400 });
     await setOption(label, value, false);

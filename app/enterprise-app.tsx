@@ -173,8 +173,9 @@ export default function EnterpriseApp() {
       setForm(type === "customer" ? { type, currency: "AED", reseller: "Reseller", planet: "No", balance: "0" } : { type, balance: "0" });
     }
     else if (currentKind === "items") {
-      const itemForm: Record<string, string> = { category: "Laptop", quantity: "0", reorderPoint: "2", salesPrice: "0", cost: "0", specCount: "8" };
-      specificationFields.slice(0, 8).forEach((label, index) => { itemForm[`specLabel${index}`] = label; itemForm[`specValue${index}`] = ""; });
+      const initialFields = specificationFields.filter((label) => label !== "Product Category").slice(0, 8);
+      const itemForm: Record<string, string> = { category: "Laptop", quantity: "0", reorderPoint: "0", salesPrice: "0", cost: "0", specCount: String(initialFields.length) };
+      initialFields.forEach((label, index) => { itemForm[`specLabel${index}`] = label; itemForm[`specValue${index}`] = ""; });
       setForm(itemForm);
     }
     else setForm({ type: "Expense", balance: "0" });
@@ -433,7 +434,7 @@ function ContactFields({ form, setForm }: { form: Record<string, string>; setFor
 }
 function ItemFields({ form, setForm, items }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; items: DataRecord[] }) {
   const count = Math.min(30, Math.max(1, Number(form.specCount ?? 8)));
-  const [optionData, setOptionData] = useState<{ options: Record<string, string[]>; disabled: Record<string, string[]>; labels: string[]; disabledLabels: string[] }>({ options: {}, disabled: {}, labels: [...specificationFields], disabledLabels: [] });
+  const [optionData, setOptionData] = useState<{ options: Record<string, string[]>; disabled: Record<string, string[]>; labels: string[]; disabledLabels: string[]; categories: string[]; disabledCategories: string[] }>({ options: {}, disabled: {}, labels: [...specificationFields], disabledLabels: [], categories: ["Laptop"], disabledCategories: [] });
   const loadOptions = useCallback(async () => {
     try {
       const response = await fetch("/api/spec-options");
@@ -458,6 +459,9 @@ function ItemFields({ form, setForm, items }: { form: Record<string, string>; se
   });
   const disabledLabels = new Set(optionData.disabledLabels);
   const labelOptions = [...new Set([...optionData.labels, ...savedLabels, ...Object.keys(optionData.options)])].filter((label) => !disabledLabels.has(label));
+  const disabledCategories = new Set(optionData.disabledCategories);
+  const savedCategories = items.map((item) => String(item.category ?? "").trim()).filter(Boolean);
+  const categoryOptions = [...new Set([...optionData.categories, ...savedCategories])].filter((category) => !disabledCategories.has(category));
   const description = Array.from({ length: count }, (_, index) => {
     const label = form[`specLabel${index}`];
     const value = form[`specValue${index}`]?.trim();
@@ -490,10 +494,16 @@ function ItemFields({ form, setForm, items }: { form: Record<string, string>; se
     return [...new Set([...(optionData.options[label] ?? []), ...saved])].filter((value) => !disabled.has(value));
   };
   return <div className="grid gap-4 sm:grid-cols-2">
-    <Field label="SKU / Part number" name="sku" form={form} setForm={setForm} required /><Field label="Item name" name="name" form={form} setForm={setForm} required />
-    <Field label="Category" name="category" form={form} setForm={setForm} /><Field label="Quantity on hand" name="quantity" type="number" form={form} setForm={setForm} />
-    <Field label="Sales price" name="salesPrice" type="number" form={form} setForm={setForm} /><Field label="Average cost" name="cost" type="number" form={form} setForm={setForm} />
-    <Field label="Reorder point" name="reorderPoint" type="number" form={form} setForm={setForm} />
+    <div className="space-y-2 sm:col-span-2"><Label>Category</Label><SpecificationValuePicker
+      label="Item category"
+      placeholder="Select or type category"
+      value={form.category ?? ""}
+      options={categoryOptions}
+      onChange={(value) => setForm({ ...form, category: value })}
+      onAdd={(value) => changeOption("POST", { type: "category", value })}
+      onRename={(oldValue, newValue) => changeOption("PATCH", { type: "category", oldValue, newValue })}
+      onDelete={(value) => changeOption("DELETE", { type: "category", value })}
+    /></div>
     <section className="space-y-3 rounded-xl border bg-slate-50 p-4 sm:col-span-2">
       <div className="flex flex-wrap items-center justify-between gap-3"><div><Label>Item description specifications</Label><p className="mt-1 text-xs text-slate-500">Select or type any detail, then enter its value. Add or remove up to 30 fields.</p></div><Button type="button" variant="outline" size="sm" disabled={count >= 30} onClick={addSpecification}><Plus className="size-3" />Add detail ({count}/30)</Button></div>
       <div className="grid gap-2 md:grid-cols-2">{Array.from({ length: count }, (_, index) => <div key={index} className="grid grid-cols-[minmax(130px,.8fr)_minmax(0,1.2fr)_auto] gap-2 rounded-lg border bg-white p-2">

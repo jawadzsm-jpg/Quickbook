@@ -64,16 +64,17 @@ export async function POST(request: Request) {
     }
 
     if (kind === "items") {
-      const name = String(payload.name ?? "").trim();
-      const sku = String(payload.sku ?? "").trim();
-      if (!name || !sku) return Response.json({ error: "Item name and SKU are required." }, { status: 400 });
       const specifications = Array.from({ length: 30 }, (_, index) => ({
         label: String(payload[`specLabel${index}`] ?? "").trim(),
         value: String(payload[`specValue${index}`] ?? "").trim(),
       })).filter((specification) => specification.label && specification.value);
+      const specificationValue = (label: string) => specifications.find((specification) => specification.label.toLowerCase() === label.toLowerCase())?.value ?? "";
+      const category = String(payload.category ?? "General").trim() || "General";
+      const sku = String(payload.sku ?? "").trim() || specificationValue("Part Number") || `ITEM-${Date.now()}`;
+      const name = String(payload.name ?? "").trim() || [specificationValue("Brand"), specificationValue("Model") || specificationValue("Part Number")].filter(Boolean).join(" ") || `${category} Item`;
       const description = specifications.map((specification) => `${specification.label}: ${specification.value}`).join(" | ");
       const [record] = await db.insert(items).values({
-        name, sku, category: String(payload.category ?? "General"), description,
+        name, sku, category, description,
         specifications: JSON.stringify(specifications), quantity: Number(payload.quantity ?? 0),
         reorderPoint: Number(payload.reorderPoint ?? 0), salesPrice: Number(payload.salesPrice ?? 0), cost: Number(payload.cost ?? 0),
       }).returning();
