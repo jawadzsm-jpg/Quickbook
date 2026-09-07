@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
-  BadgeDollarSign, Bell, BookOpen, Building2, CheckCircle2,
+  ArrowRightLeft, BadgeDollarSign, Bell, BookOpen, Building2, CheckCircle2,
   Check, ChevronDown, ChevronRight, CircleDollarSign, Clock3, Download, FileBarChart2, Landmark,
   Eye, LayoutDashboard, PackageSearch, Pencil, Plus, Printer, ReceiptText, RefreshCw,
   Search, Settings, ShoppingCart, Trash2, Users, WalletCards,
@@ -31,14 +31,18 @@ import {
 } from "@/components/ui/table";
 import { Toaster, toast } from "sonner";
 
-type View = "dashboard" | "sales" | "purchases" | "customers" | "vendors" | "inventory" | "banking" | "accounts" | "employees" | "reports" | "companies" | "inventories" | "currencies";
+type View = "dashboard" | "sales" | "purchases" | "customers" | "vendors" | "inventory" | "transfers" | "banking" | "accounts" | "employees" | "reports" | "companies" | "inventories" | "invoice-series" | "currencies";
 type Kind = "transactions" | "contacts" | "items" | "accounts";
 type DataRecord = Record<string, string | number | boolean> & { id: number };
 type LineForm = { itemId: string; description: string; quantity: string; unitPrice: string; unitCost: string; vatRate: string };
-type InventoryLocation = { id: number; companyId: number; name: string; code: string };
+type InventoryLocation = { id: number; companyId: number; name: string; code: string; invoicePrefix: string; nextInvoiceNumber: number };
 type CompanyWorkspace = { id: number; name: string; baseCurrency: string; locations: InventoryLocation[] };
 type ReportData = { title: string; generatedAt: string; currency: string; columns: Array<{ key: string; label: string; type?: "money" }>; rows: Array<Record<string, string | number>> };
 type TransactionDetail = { record: DataRecord; lines: DataRecord[]; journal: DataRecord[] };
+type TransferRecord = { id: number; reference: string; transferDate: string; itemNumber: string | null; sku: string; itemName: string; quantity: number; notes: string; sourceCompany: string; sourceLocation: string; destinationCompany: string; destinationLocation: string };
+
+const invoiceNumberPreview = (companyId: number, location: InventoryLocation) =>
+  `C${String(companyId).padStart(3, "0")}-${location.invoicePrefix}-INV-${String(location.nextInvoiceNumber).padStart(4, "0")}`;
 
 const navGroups = [
   { label: "OVERVIEW", items: [{ id: "dashboard", label: "Company Home", icon: LayoutDashboard }] },
@@ -52,6 +56,7 @@ const navGroups = [
   ] },
   { label: "COMPANY", items: [
     { id: "inventory", label: "Inventory", icon: PackageSearch },
+    { id: "transfers", label: "Stock Transfers", icon: ArrowRightLeft },
     { id: "banking", label: "Banking", icon: Landmark },
     { id: "accounts", label: "Chart of Accounts", icon: BookOpen },
     { id: "employees", label: "Employees & HR", icon: WalletCards },
@@ -60,6 +65,7 @@ const navGroups = [
   { label: "MANAGEMENT", items: [
     { id: "companies", label: "Companies", icon: Building2 },
     { id: "inventories", label: "Inventories", icon: PackageSearch },
+    { id: "invoice-series", label: "Invoice Series", icon: ReceiptText },
     { id: "currencies", label: "Currencies", icon: CircleDollarSign },
   ] },
 ] as const;
@@ -71,12 +77,14 @@ const viewTitles: Record<View, { title: string; sub: string }> = {
   customers: { title: "Customer Center", sub: "Customer balances, contacts and activity" },
   vendors: { title: "Vendor Center", sub: "Suppliers, payables and purchasing history" },
   inventory: { title: "Inventory Center", sub: "Stock levels, pricing, costs and reorder controls" },
+  transfers: { title: "Stock Transfers", sub: "Move stock between companies and inventory locations" },
   banking: { title: "Banking", sub: "Deposits, cheques, transfers and account activity" },
   accounts: { title: "Chart of Accounts", sub: "Assets, liabilities, equity, income and expenses" },
   employees: { title: "Employees & HR", sub: "Employee records and balances" },
   reports: { title: "Report Center", sub: "Financial, sales, purchasing and inventory analysis" },
   companies: { title: "Companies", sub: "Create and switch between separate company files" },
   inventories: { title: "Inventories", sub: "Manage warehouses, showrooms and stock locations" },
+  "invoice-series": { title: "Invoice Series", sub: "Customize invoice numbering for every company inventory" },
   currencies: { title: "Currencies", sub: "Set company currency and transaction currencies" },
 };
 
@@ -135,6 +143,7 @@ export default function EnterpriseApp() {
   const [activeCompanyId, setActiveCompanyId] = useState(0);
   const [activeLocationId, setActiveLocationId] = useState(0);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [invoiceInventoryOpen, setInvoiceInventoryOpen] = useState(false);
 
   const activeCompany = companies.find((company) => company.id === activeCompanyId);
   const activeLocations = useMemo(() => activeCompany?.locations ?? [], [activeCompany]);
@@ -190,7 +199,7 @@ export default function EnterpriseApp() {
   }, [records.transactions]);
 
   const currentKind: Kind = view === "customers" || view === "vendors" || view === "employees" ? "contacts" : view === "inventory" ? "items" : view === "accounts" ? "accounts" : "transactions";
-  const managementView = view === "companies" || view === "inventories" || view === "currencies";
+  const managementView = view === "transfers" || view === "companies" || view === "inventories" || view === "invoice-series" || view === "currencies";
 
   const filteredRecords = useMemo(() => {
     let list = records[currentKind];
@@ -207,6 +216,10 @@ export default function EnterpriseApp() {
     setEditingItemId(null);
     if (currentKind === "transactions") {
       const type = transactionTypes[view]?.[0] ?? "invoice";
+      if (type === "invoice") {
+        setInvoiceInventoryOpen(true);
+        return;
+      }
       setForm({ type, number: `${type.slice(0, 3).toUpperCase()}-${String(records.transactions.length + 1).padStart(4, "0")}`, transactionDate: today(), dueDate: today(), status: "open", account: type === "bill" ? "Purchases" : "Sales Revenue", vatRate: "5", currency: baseCurrency, exchangeRate: "1" });
       setLines([{ itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatRate: "5" }]);
     } else if (currentKind === "contacts") {
@@ -220,6 +233,15 @@ export default function EnterpriseApp() {
       setForm(itemForm);
     }
     else setForm({ type: "Expense", balance: "0" });
+    setDialogOpen(true);
+  }
+
+  function startInvoice(location: InventoryLocation) {
+    setActiveLocationId(location.id);
+    setRecords((current) => ({ ...current, items: [] }));
+    setForm({ type: "invoice", number: invoiceNumberPreview(activeCompanyId, location), transactionDate: today(), dueDate: today(), status: "open", account: "Sales Revenue", vatRate: "5", currency: baseCurrency, exchangeRate: "1" });
+    setLines([{ itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatRate: "5" }]);
+    setInvoiceInventoryOpen(false);
     setDialogOpen(true);
   }
 
@@ -252,6 +274,7 @@ export default function EnterpriseApp() {
       setRecords((old) => ({ ...old, [currentKind]: editingItem ? old[currentKind].map((record) => record.id === data.record.id ? data.record : record) : [data.record, ...old[currentKind]] }));
       setDialogOpen(false); setEditingItemId(null); toast.success(editingItem ? "Item updated" : "Record saved and posted");
       await loadData();
+      if (currentKind === "transactions" && form.type === "invoice") await loadWorkspaces();
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save record"); }
     finally { setSaving(false); }
   }
@@ -337,7 +360,7 @@ export default function EnterpriseApp() {
         </header>
 
         <div className="mx-auto w-full max-w-[1500px] p-4 lg:p-7">
-          {managementView ? <WorkspaceCenter mode={view as "companies" | "inventories" | "currencies"} companies={companies} activeCompanyId={activeCompanyId} onChanged={loadWorkspaces} /> : view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} onNavigate={setView} onCreate={openCreate} onOpenDetail={openDetail} /> : view === "reports" ? <ReportCenter metrics={metrics} currency={baseCurrency} onOpen={openReport} loading={reportLoading} /> : (
+          {view === "transfers" ? <TransferCenter key={`${activeCompanyId}-${activeLocationId}`} companies={companies} activeCompanyId={activeCompanyId} activeLocationId={activeLocationId} onTransferred={loadData} /> : managementView ? <WorkspaceCenter mode={view as "companies" | "inventories" | "invoice-series" | "currencies"} companies={companies} activeCompanyId={activeCompanyId} onChanged={loadWorkspaces} /> : view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} onNavigate={setView} onCreate={openCreate} onOpenDetail={openDetail} /> : view === "reports" ? <ReportCenter metrics={metrics} currency={baseCurrency} onOpen={openReport} loading={reportLoading} /> : (
             <RecordView view={view} kind={currentKind} records={filteredRecords} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onEditItem={openItemEdit} onOpenDetail={openDetail} />
           )}
         </div>
@@ -354,6 +377,9 @@ export default function EnterpriseApp() {
             <DialogFooter><Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button><Button type="submit" disabled={saving} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400">{saving ? "Saving…" : editingItemId !== null && currentKind === "items" ? "Save changes" : "Save record"}</Button></DialogFooter>
           </form>
         </DialogContent>
+      </Dialog>
+      <Dialog open={invoiceInventoryOpen} onOpenChange={setInvoiceInventoryOpen}>
+        <DialogContent className="sm:max-w-3xl"><DialogHeader><DialogTitle>Select Inventory</DialogTitle><DialogDescription>Choose which company inventory will issue this invoice. Every company and inventory combination has its own invoice-number series.</DialogDescription></DialogHeader><div className="grid gap-3 py-3 sm:grid-cols-2 lg:grid-cols-3">{activeLocations.map((location) => <button type="button" key={location.id} onClick={() => startInvoice(location)} className="rounded-xl border-2 border-slate-200 bg-white p-5 text-left transition hover:border-emerald-400 hover:bg-emerald-50"><p className="font-semibold text-slate-900">{location.name}</p><p className="mt-2 font-mono text-xs text-slate-500">Next: {invoiceNumberPreview(activeCompanyId, location)}</p></button>)}</div>{activeLocations.length === 0 && <p className="rounded-lg bg-amber-50 p-4 text-sm text-amber-800">Add an inventory location before creating an invoice.</p>}</DialogContent>
       </Dialog>
       <DocumentDialog detail={detail} companyName={activeCompany?.name ?? "Company"} baseCurrency={baseCurrency} onClose={() => setDetail(null)} />
       <ReportDialog report={report} companyName={activeCompany?.name ?? "Company"} onClose={() => setReport(null)} />
@@ -440,11 +466,93 @@ function ReportDialog({ report, companyName, onClose }: { report: ReportData | n
   </DialogContent></Dialog>;
 }
 
-function WorkspaceCenter({ mode, companies, activeCompanyId, onChanged }: { mode: "companies" | "inventories" | "currencies"; companies: CompanyWorkspace[]; activeCompanyId: number; onChanged: () => Promise<void> }) {
+function TransferCenter({ companies, activeCompanyId, activeLocationId, onTransferred }: { companies: CompanyWorkspace[]; activeCompanyId: number; activeLocationId: number; onTransferred: () => Promise<void> }) {
+  const allLocations = companies.flatMap((company) => company.locations.map((location) => ({ ...location, companyName: company.name })));
+  const initialDestination = allLocations.find((location) => location.companyId !== activeCompanyId || location.id !== activeLocationId);
+  const [sourceCompanyId, setSourceCompanyId] = useState(activeCompanyId);
+  const [sourceLocationId, setSourceLocationId] = useState(activeLocationId);
+  const [destinationCompanyId, setDestinationCompanyId] = useState(initialDestination?.companyId ?? activeCompanyId);
+  const [destinationLocationId, setDestinationLocationId] = useState(initialDestination?.id ?? 0);
+  const [sourceItems, setSourceItems] = useState<DataRecord[]>([]);
+  const [itemId, setItemId] = useState("");
+  const [quantity, setQuantity] = useState("1");
+  const [transferDate, setTransferDate] = useState(today());
+  const [reference, setReference] = useState("");
+  const [notes, setNotes] = useState("");
+  const [history, setHistory] = useState<TransferRecord[]>([]);
+  const [saving, setSaving] = useState(false);
+  const sourceLocations = companies.find((company) => company.id === sourceCompanyId)?.locations ?? [];
+  const destinationLocations = companies.find((company) => company.id === destinationCompanyId)?.locations ?? [];
+  const selectedItem = sourceItems.find((item) => String(item.id) === itemId);
+
+  const loadHistory = useCallback(async () => {
+    try {
+      const response = await fetch("/api/transfers");
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not load transfers");
+      setHistory(data.records);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not load transfers"); }
+  }, []);
+  const loadItems = useCallback(async () => {
+    if (!sourceCompanyId || !sourceLocationId) return setSourceItems([]);
+    try {
+      const response = await fetch(`/api/records?kind=items&companyId=${sourceCompanyId}&locationId=${sourceLocationId}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not load source inventory");
+      setSourceItems(data.records.filter((item: DataRecord) => Number(item.quantity) > 0));
+      setItemId("");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not load source inventory"); }
+  }, [sourceCompanyId, sourceLocationId]);
+  // Load persisted transfer history and source stock for this working screen.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { loadHistory(); }, [loadHistory]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { loadItems(); }, [loadItems]);
+
+  const chooseAvailableDestination = (nextSourceCompanyId: number, nextSourceLocationId: number) => {
+    if (destinationCompanyId !== nextSourceCompanyId || destinationLocationId !== nextSourceLocationId) return;
+    const next = allLocations.find((location) => location.companyId !== nextSourceCompanyId || location.id !== nextSourceLocationId);
+    setDestinationCompanyId(next?.companyId ?? 0);
+    setDestinationLocationId(next?.id ?? 0);
+  };
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      const response = await fetch("/api/transfers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sourceCompanyId, sourceLocationId, destinationCompanyId, destinationLocationId, itemId: Number(itemId), quantity: Number(quantity), transferDate, reference, notes }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not transfer stock");
+      toast.success(`Stock transferred · ${data.transfer.reference}`);
+      setQuantity("1"); setReference(""); setNotes(""); setItemId("");
+      await Promise.all([loadItems(), loadHistory(), onTransferred()]);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not transfer stock"); }
+    finally { setSaving(false); }
+  };
+
+  return <div className="space-y-5">
+    <form onSubmit={submit} className="rounded-xl border bg-white shadow-sm">
+      <div className="border-b p-5"><h2 className="font-bold">New stock transfer</h2><p className="text-sm text-slate-500">Move an item between any company inventories. Quantities update immediately.</p></div>
+      <div className="grid gap-5 p-5 xl:grid-cols-[1fr_auto_1fr]">
+        <section className="space-y-4 rounded-xl border bg-slate-50 p-4"><div><p className="text-xs font-bold uppercase tracking-wider text-slate-500">From</p><h3 className="mt-1 font-semibold">Source inventory</h3></div><div className="space-y-2"><Label>Company</Label><Select value={String(sourceCompanyId)} onValueChange={(value) => { const companyId = Number(value); const locationId = companies.find((company) => company.id === companyId)?.locations[0]?.id ?? 0; setSourceCompanyId(companyId); setSourceLocationId(locationId); chooseAvailableDestination(companyId, locationId); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{companies.map((company) => <SelectItem key={company.id} value={String(company.id)}>{company.name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Inventory</Label><Select value={String(sourceLocationId)} onValueChange={(value) => { const locationId = Number(value); setSourceLocationId(locationId); chooseAvailableDestination(sourceCompanyId, locationId); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{sourceLocations.map((location) => <SelectItem key={location.id} value={String(location.id)}>{location.name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Item</Label><Select value={itemId} onValueChange={setItemId}><SelectTrigger><SelectValue placeholder="Select item" /></SelectTrigger><SelectContent>{sourceItems.map((item) => <SelectItem key={item.id} value={String(item.id)}>{String(item.sku)} · {String(item.name)} · Qty {String(item.quantity)}</SelectItem>)}</SelectContent></Select>{sourceItems.length === 0 && <p className="text-xs text-amber-700">No available stock in this inventory.</p>}</div></section>
+        <div className="hidden items-center xl:flex"><div className="rounded-full border bg-white p-3 text-emerald-600 shadow-sm"><ArrowRightLeft className="size-5" /></div></div>
+        <section className="space-y-4 rounded-xl border bg-emerald-50/40 p-4"><div><p className="text-xs font-bold uppercase tracking-wider text-emerald-700">To</p><h3 className="mt-1 font-semibold">Destination inventory</h3></div><div className="space-y-2"><Label>Company</Label><Select value={String(destinationCompanyId || "")} onValueChange={(value) => { const companyId = Number(value); setDestinationCompanyId(companyId); setDestinationLocationId(companies.find((company) => company.id === companyId)?.locations.find((location) => location.id !== sourceLocationId || companyId !== sourceCompanyId)?.id ?? 0); }}><SelectTrigger><SelectValue placeholder="Select company" /></SelectTrigger><SelectContent>{companies.map((company) => <SelectItem key={company.id} value={String(company.id)}>{company.name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Inventory</Label><Select value={String(destinationLocationId || "")} onValueChange={(value) => setDestinationLocationId(Number(value))}><SelectTrigger><SelectValue placeholder="Select inventory" /></SelectTrigger><SelectContent>{destinationLocations.filter((location) => location.id !== sourceLocationId || destinationCompanyId !== sourceCompanyId).map((location) => <SelectItem key={location.id} value={String(location.id)}>{location.name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Quantity</Label><Input type="number" min="0.01" max={selectedItem ? Number(selectedItem.quantity) : undefined} step="0.01" value={quantity} onChange={(event) => setQuantity(event.target.value)} required /><p className="text-xs text-slate-500">Available: {selectedItem ? String(selectedItem.quantity) : "—"}</p></div></section>
+      </div>
+      <div className="grid gap-4 border-t p-5 md:grid-cols-3"><div className="space-y-2"><Label>Transfer date</Label><Input type="date" value={transferDate} onChange={(event) => setTransferDate(event.target.value)} required /></div><div className="space-y-2"><Label>Reference</Label><Input value={reference} onChange={(event) => setReference(event.target.value.toUpperCase())} maxLength={40} placeholder="Automatic if blank" /></div><div className="space-y-2"><Label>Notes</Label><Input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Optional transfer note" /></div></div>
+      <div className="flex justify-end border-t bg-slate-50 p-4"><Button disabled={saving || !itemId || !destinationLocationId} className="bg-emerald-500 font-semibold text-slate-950 hover:bg-emerald-400"><ArrowRightLeft className="size-4" />{saving ? "Transferring…" : "Transfer stock"}</Button></div>
+    </form>
+    <section className="rounded-xl border bg-white shadow-sm"><div className="border-b p-5"><h2 className="font-bold">Transfer history</h2><p className="text-sm text-slate-500">Complete movement history across all companies and inventories.</p></div><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Reference</TableHead><TableHead>Item</TableHead><TableHead>From</TableHead><TableHead>To</TableHead><TableHead className="text-right">Quantity</TableHead></TableRow></TableHeader><TableBody>{history.length ? history.map((transfer) => <TableRow key={transfer.id}><TableCell>{transfer.transferDate}</TableCell><TableCell className="font-mono text-xs">{transfer.reference}</TableCell><TableCell><p className="font-medium">{transfer.itemName}</p><p className="text-xs text-slate-500">{transfer.sku}{transfer.itemNumber ? ` · ${transfer.itemNumber}` : ""}</p></TableCell><TableCell><p>{transfer.sourceCompany}</p><p className="text-xs text-slate-500">{transfer.sourceLocation}</p></TableCell><TableCell><p>{transfer.destinationCompany}</p><p className="text-xs text-slate-500">{transfer.destinationLocation}</p></TableCell><TableCell className="text-right font-semibold">{transfer.quantity}</TableCell></TableRow>) : <EmptyRow text="No stock transfers yet." columns={6} />}</TableBody></Table></div></section>
+  </div>;
+}
+
+function WorkspaceCenter({ mode, companies, activeCompanyId, onChanged }: { mode: "companies" | "inventories" | "invoice-series" | "currencies"; companies: CompanyWorkspace[]; activeCompanyId: number; onChanged: () => Promise<void> }) {
   const activeCompany = companies.find((company) => company.id === activeCompanyId);
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [currency, setCurrency] = useState(activeCompany?.baseCurrency ?? "AED");
+  const [editingSeries, setEditingSeries] = useState<InventoryLocation | null>(null);
+  const [seriesPrefix, setSeriesPrefix] = useState("");
+  const [seriesNextNumber, setSeriesNextNumber] = useState("1");
   const [saving, setSaving] = useState(false);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setCurrency(activeCompany?.baseCurrency ?? "AED"); }, [activeCompany]);
@@ -455,12 +563,23 @@ function WorkspaceCenter({ mode, companies, activeCompanyId, onChanged }: { mode
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not save");
       await onChanged(); setName(""); setCode("");
-      toast.success(mode === "companies" ? "Company added" : mode === "inventories" ? "Inventory added" : "Base currency updated");
+      if (payload.type === "invoiceSeries") setEditingSeries(null);
+      toast.success(payload.type === "invoiceSeries" ? "Invoice series updated" : mode === "companies" ? "Company added" : mode === "inventories" ? "Inventory added" : "Base currency updated");
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save"); }
     finally { setSaving(false); }
   };
+  const openSeriesEditor = (location: InventoryLocation) => {
+    setEditingSeries(location);
+    setSeriesPrefix(location.invoicePrefix);
+    setSeriesNextNumber(String(location.nextInvoiceNumber));
+  };
+  const seriesEditor = <Dialog open={Boolean(editingSeries)} onOpenChange={(open) => { if (!open) setEditingSeries(null); }}><DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>Customize invoice series</DialogTitle><DialogDescription>Set the prefix and next invoice number for {editingSeries?.name}. This affects only this company inventory.</DialogDescription></DialogHeader><form className="space-y-4" onSubmit={(event) => { event.preventDefault(); if (!editingSeries) return; save("PATCH", { type: "invoiceSeries", companyId: activeCompanyId, locationId: editingSeries.id, invoicePrefix: seriesPrefix, nextInvoiceNumber: Number(seriesNextNumber) }); }}><div className="space-y-2"><Label>Invoice series prefix</Label><Input value={seriesPrefix} onChange={(event) => setSeriesPrefix(event.target.value.toUpperCase())} required maxLength={20} placeholder="JAFZA" /><p className="text-xs text-slate-500">Letters, numbers, hyphens and slashes are allowed.</p></div><div className="space-y-2"><Label>Next invoice number</Label><Input type="number" min="1" max="999999999" step="1" value={seriesNextNumber} onChange={(event) => setSeriesNextNumber(event.target.value)} required /></div><div className="rounded-lg border bg-slate-50 p-3"><p className="text-xs font-medium text-slate-500">Preview</p><p className="mt-1 font-mono text-sm font-semibold text-emerald-700">C{String(activeCompanyId).padStart(3, "0")}-{seriesPrefix || "PREFIX"}-INV-{String(Math.max(1, Number(seriesNextNumber) || 1)).padStart(4, "0")}</p></div><DialogFooter><Button type="button" variant="outline" onClick={() => setEditingSeries(null)}>Cancel</Button><Button type="submit" disabled={saving}>Save series</Button></DialogFooter></form></DialogContent></Dialog>;
   if (mode === "companies") return <div className="grid gap-5 xl:grid-cols-[1fr_360px]"><section className="rounded-xl border bg-white shadow-sm"><div className="border-b p-5"><h2 className="font-bold">Company files</h2><p className="text-sm text-slate-500">Each company has separate customers, accounts, transactions and inventory.</p></div><div className="grid gap-3 p-5 md:grid-cols-2">{companies.map((company) => <article key={company.id} className={`rounded-xl border p-4 ${company.id === activeCompanyId ? "border-emerald-300 bg-emerald-50/50" : ""}`}><div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold">{company.name}</h3><p className="mt-1 text-sm text-slate-500">{company.locations.length} {company.locations.length === 1 ? "inventory" : "inventories"}</p></div><Badge variant="outline">{company.baseCurrency}</Badge></div>{company.id === activeCompanyId && <p className="mt-3 text-xs font-semibold text-emerald-700">Currently selected</p>}</article>)}</div></section><form className="space-y-4 rounded-xl border bg-white p-5 shadow-sm" onSubmit={(event) => { event.preventDefault(); save("POST", { type: "company", name, baseCurrency: currency }); }}><div><h2 className="font-bold">Add company</h2><p className="text-sm text-slate-500">A Main Inventory is included.</p></div><div className="space-y-2"><Label>Company name</Label><Input value={name} onChange={(event) => setName(event.target.value)} required placeholder="Company name" /></div><div className="space-y-2"><Label>Base currency</Label><Select value={currency} onValueChange={setCurrency}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{currencies.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div><Button disabled={saving} className="w-full"><Plus className="size-4" />Add company</Button></form></div>;
-  if (mode === "inventories") return <div className="grid gap-5 xl:grid-cols-[1fr_360px]"><section className="rounded-xl border bg-white shadow-sm"><div className="border-b p-5"><h2 className="font-bold">{activeCompany?.name} inventories</h2><p className="text-sm text-slate-500">Select an inventory from the top bar to view and post its stock.</p></div><div className="grid gap-3 p-5 md:grid-cols-2">{activeCompany?.locations.map((location) => <article key={location.id} className="rounded-xl border p-4"><PackageSearch className="size-5 text-emerald-600" /><h3 className="mt-3 font-semibold">{location.name}</h3><p className="mt-1 font-mono text-xs text-slate-500">{location.code}</p></article>)}</div></section><form className="space-y-4 rounded-xl border bg-white p-5 shadow-sm" onSubmit={(event) => { event.preventDefault(); save("POST", { type: "location", companyId: activeCompanyId, name, code }); }}><div><h2 className="font-bold">Add inventory</h2><p className="text-sm text-slate-500">Warehouse, showroom or store.</p></div><div className="space-y-2"><Label>Inventory name</Label><Input value={name} onChange={(event) => setName(event.target.value)} required placeholder="Jebel Ali Warehouse" /></div><div className="space-y-2"><Label>Code</Label><Input value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} required placeholder="JAFZA" /></div><Button disabled={saving || !activeCompanyId} className="w-full"><Plus className="size-4" />Add inventory</Button></form></div>;
+  if (mode === "inventories") return <>
+    <div className="grid gap-5 xl:grid-cols-[1fr_360px]"><section className="rounded-xl border bg-white shadow-sm"><div className="border-b p-5"><h2 className="font-bold">{activeCompany?.name} inventories</h2><p className="text-sm text-slate-500">Select an inventory from the top bar to view and post its stock.</p></div><div className="grid gap-3 p-5 md:grid-cols-2">{activeCompany?.locations.map((location) => <article key={location.id} className="rounded-xl border p-4"><div className="flex items-start justify-between gap-3"><PackageSearch className="size-5 text-emerald-600" /><Button type="button" variant="outline" size="sm" onClick={() => openSeriesEditor(location)}><Pencil className="size-3" />Edit series</Button></div><h3 className="mt-3 font-semibold">{location.name}</h3><p className="mt-1 font-mono text-xs text-slate-500">{location.code}</p><p className="mt-3 text-xs font-medium text-slate-500">Next invoice</p><p className="mt-1 font-mono text-sm text-emerald-700">{invoiceNumberPreview(activeCompanyId, location)}</p></article>)}</div></section><form className="space-y-4 rounded-xl border bg-white p-5 shadow-sm" onSubmit={(event) => { event.preventDefault(); save("POST", { type: "location", companyId: activeCompanyId, name, code }); }}><div><h2 className="font-bold">Add inventory</h2><p className="text-sm text-slate-500">Warehouse, showroom or store. Its code becomes part of the invoice series.</p></div><div className="space-y-2"><Label>Inventory name</Label><Input value={name} onChange={(event) => setName(event.target.value)} required placeholder="Jebel Ali Warehouse" /></div><div className="space-y-2"><Label>Code / invoice prefix</Label><Input value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} required placeholder="JAFZA" /></div><Button disabled={saving || !activeCompanyId} className="w-full"><Plus className="size-4" />Add inventory</Button></form></div>
+    {seriesEditor}
+  </>;
+  if (mode === "invoice-series") return <><section className="rounded-xl border bg-white shadow-sm"><div className="border-b p-5"><h2 className="font-bold">{activeCompany?.name} invoice series</h2><p className="text-sm text-slate-500">Every inventory has an independent prefix and next invoice number.</p></div><div className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-3">{activeCompany?.locations.map((location) => <article key={location.id} className="rounded-xl border p-5"><div className="flex items-start justify-between gap-3"><div className="rounded-lg bg-emerald-50 p-2 text-emerald-700"><ReceiptText className="size-5" /></div><Badge variant="outline">{location.code}</Badge></div><h3 className="mt-4 font-semibold">{location.name}</h3><p className="mt-1 text-sm text-slate-500">Next invoice</p><p className="mt-2 break-all font-mono text-base font-semibold text-emerald-700">{invoiceNumberPreview(activeCompanyId, location)}</p><Button type="button" className="mt-5 w-full" variant="outline" onClick={() => openSeriesEditor(location)}><Pencil className="size-4" />Customize series</Button></article>)}</div></section>{seriesEditor}</>;
   return <div className="grid gap-5 xl:grid-cols-[1fr_360px]"><section className="rounded-xl border bg-white shadow-sm"><div className="border-b p-5"><h2 className="font-bold">Available transaction currencies</h2><p className="text-sm text-slate-500">Use any supported currency on invoices, bills and other transactions.</p></div><div className="flex flex-wrap gap-2 p-5">{currencies.map((value) => <Badge key={value} variant={value === activeCompany?.baseCurrency ? "default" : "outline"} className="px-3 py-1.5">{value}{value === activeCompany?.baseCurrency ? " · Base" : ""}</Badge>)}</div></section><form className="space-y-4 rounded-xl border bg-white p-5 shadow-sm" onSubmit={(event) => { event.preventDefault(); save("PATCH", { companyId: activeCompanyId, baseCurrency: currency }); }}><div><h2 className="font-bold">Company base currency</h2><p className="text-sm text-slate-500">Reports and accounting entries use this currency.</p></div><div className="space-y-2"><Label>{activeCompany?.name}</Label><Select value={currency} onValueChange={setCurrency}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{currencies.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div><Button disabled={saving || !activeCompanyId} className="w-full">Save currency</Button></form></div>;
 }
 

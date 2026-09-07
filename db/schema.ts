@@ -13,6 +13,8 @@ export const inventoryLocations = pgTable("inventory_locations", {
   companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   code: text("code").notNull(),
+  invoicePrefix: text("invoice_prefix").notNull(),
+  nextInvoiceNumber: integer("next_invoice_number").notNull().default(1),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 }, (table) => [uniqueIndex("idx_inventory_locations_company_code").on(table.companyId, table.code)]);
@@ -55,7 +57,23 @@ export const items = pgTable("items", {
   cost: doublePrecision("cost").notNull().default(0),
   status: text("status", { enum: ["active", "inactive"] }).notNull().default("active"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
-}, (table) => [uniqueIndex("idx_items_item_number").on(table.itemNumber), uniqueIndex("idx_items_sku").on(table.sku), index("idx_items_company_location_name").on(table.companyId, table.locationId, table.name)]);
+}, (table) => [uniqueIndex("idx_items_location_item_number").on(table.companyId, table.locationId, table.itemNumber), uniqueIndex("idx_items_location_sku").on(table.companyId, table.locationId, table.sku), index("idx_items_company_location_name").on(table.companyId, table.locationId, table.name)]);
+
+export const stockTransfers = pgTable("stock_transfers", {
+  id: serial("id").primaryKey(),
+  reference: text("reference").notNull(),
+  sourceCompanyId: integer("source_company_id").notNull().references(() => companies.id, { onDelete: "restrict" }),
+  sourceLocationId: integer("source_location_id").notNull().references(() => inventoryLocations.id, { onDelete: "restrict" }),
+  destinationCompanyId: integer("destination_company_id").notNull().references(() => companies.id, { onDelete: "restrict" }),
+  destinationLocationId: integer("destination_location_id").notNull().references(() => inventoryLocations.id, { onDelete: "restrict" }),
+  itemNumber: text("item_number"),
+  sku: text("sku").notNull(),
+  itemName: text("item_name").notNull(),
+  quantity: doublePrecision("quantity").notNull(),
+  transferDate: text("transfer_date").notNull(),
+  notes: text("notes").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("idx_stock_transfers_reference").on(table.reference), index("idx_stock_transfers_source_date").on(table.sourceCompanyId, table.transferDate), index("idx_stock_transfers_destination_date").on(table.destinationCompanyId, table.transferDate)]);
 
 export const specificationOptions = pgTable("specification_options", {
   id: serial("id").primaryKey(),

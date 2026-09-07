@@ -9,8 +9,8 @@ await sql.query(`WITH company AS (
   INSERT INTO companies (name, base_currency) VALUES ('ComNet International', 'AED')
   ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id
 )
-INSERT INTO inventory_locations (company_id, name, code)
-SELECT id, 'Main Inventory', 'MAIN' FROM company
+INSERT INTO inventory_locations (company_id, name, code, invoice_prefix)
+SELECT id, 'Main Inventory', 'MAIN', 'MAIN' FROM company
 ON CONFLICT (company_id, code) DO NOTHING`, []);
 
 await sql.query(`WITH company AS (SELECT id FROM companies WHERE name = 'ComNet International')

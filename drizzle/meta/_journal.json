@@ -50,6 +50,20 @@
       "when": 1788803634824,
       "tag": "0006_green_the_hood",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788820917061,
+      "tag": "0007_hesitant_nick_fury",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1788822428031,
+      "tag": "0008_public_dexter_bennett",
+      "breakpoints": true
     }
   ]
 }

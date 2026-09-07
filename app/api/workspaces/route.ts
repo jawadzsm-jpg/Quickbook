@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { accounts, companies, inventoryLocations } from "../../../db/schema";
 
@@ -40,7 +40,7 @@ export async function POST(request: Request) {
       const baseCurrency = String(payload.baseCurrency ?? "AED").trim().toUpperCase();
       if (!name || !/^[A-Z]{3}$/.test(baseCurrency)) return Response.json({ error: "Company name and a valid currency code are required." }, { status: 400 });
       const [company] = await db.insert(companies).values({ name, baseCurrency }).returning();
-      const [location] = await db.insert(inventoryLocations).values({ companyId: company.id, name: "Main Inventory", code: "MAIN" }).returning();
+      const [location] = await db.insert(inventoryLocations).values({ companyId: company.id, name: "Main Inventory", code: "MAIN", invoicePrefix: "MAIN" }).returning();
       await db.insert(accounts).values(standardAccounts.map(([code, accountName, accountType]) => ({ companyId: company.id, code, name: accountName, type: accountType })));
       return Response.json({ company: { ...company, locations: [location] } }, { status: 201 });
     }
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
     const name = String(payload.name ?? "").trim();
     const code = String(payload.code ?? "").trim().toUpperCase();
     if (!Number.isInteger(companyId) || !name || !code) return Response.json({ error: "Company, location name and code are required." }, { status: 400 });
-    const [location] = await db.insert(inventoryLocations).values({ companyId, name, code }).returning();
+    const [location] = await db.insert(inventoryLocations).values({ companyId, name, code, invoicePrefix: code }).returning();
     return Response.json({ location }, { status: 201 });
   } catch (error) {
     return Response.json({ error: message(error) }, { status: 500 });
@@ -58,6 +58,19 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const payload = (await request.json()) as Record<string, unknown>;
+    if (payload.type === "invoiceSeries") {
+      const companyId = Number(payload.companyId);
+      const locationId = Number(payload.locationId);
+      const invoicePrefix = String(payload.invoicePrefix ?? "").trim().toUpperCase();
+      const nextInvoiceNumber = Number(payload.nextInvoiceNumber);
+      if (!Number.isInteger(companyId) || !Number.isInteger(locationId) || !/^[A-Z0-9][A-Z0-9/-]{0,19}$/.test(invoicePrefix) || !Number.isInteger(nextInvoiceNumber) || nextInvoiceNumber < 1 || nextInvoiceNumber > 999999999) {
+        return Response.json({ error: "Enter a valid invoice prefix and next invoice number." }, { status: 400 });
+      }
+      const db = getDb();
+      const [location] = await db.update(inventoryLocations).set({ invoicePrefix, nextInvoiceNumber }).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).returning();
+      if (!location) return Response.json({ error: "Inventory not found." }, { status: 404 });
+      return Response.json({ location });
+    }
     const companyId = Number(payload.companyId);
     const baseCurrency = String(payload.baseCurrency ?? "").trim().toUpperCase();
     if (!Number.isInteger(companyId) || !/^[A-Z]{3}$/.test(baseCurrency)) return Response.json({ error: "Company and a valid currency code are required." }, { status: 400 });

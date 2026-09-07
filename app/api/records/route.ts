@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import {
-  accounts, auditLog, contacts, inventoryMovements, items, journalEntries,
+  accounts, auditLog, contacts, inventoryLocations, inventoryMovements, items, journalEntries,
   journalLines, transactionLines, transactions,
 } from "../../../db/schema";
 
@@ -137,7 +137,14 @@ export async function POST(request: Request) {
     const baseVatAmount = round(vatAmount * exchangeRate);
     const baseTotal = round(total * exchangeRate);
     const transactionDate = String(payload.transactionDate ?? new Date().toISOString().slice(0, 10));
-    const number = String(payload.number ?? `TX-${Date.now()}`);
+    let number = String(payload.number ?? `TX-${Date.now()}`);
+    if (type === "invoice") {
+      if (!Number.isInteger(locationId) || locationId <= 0) return Response.json({ error: "Select an inventory before creating the invoice." }, { status: 400 });
+      const [sequence] = await db.update(inventoryLocations).set({ nextInvoiceNumber: sql`${inventoryLocations.nextInvoiceNumber} + 1` }).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).returning();
+      if (!sequence) return Response.json({ error: "The selected inventory was not found." }, { status: 404 });
+      const companyPrefix = `C${String(companyId).padStart(3, "0")}`;
+      number = `${companyPrefix}-${sequence.invoicePrefix}-INV-${String(sequence.nextInvoiceNumber - 1).padStart(4, "0")}`;
+    }
     const [record] = await db.insert(transactions).values({
       companyId, locationId: Number.isInteger(locationId) ? locationId : null, number, type, party, transactionDate, dueDate: String(payload.dueDate ?? ""),
       account: String(payload.account ?? "Accounts Receivable"), status: String(payload.status ?? "open"), memo: String(payload.memo ?? ""),
