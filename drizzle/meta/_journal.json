@@ -43,6 +43,13 @@
       "when": 1788802171331,
       "tag": "0005_worthless_sandman",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788803634824,
+      "tag": "0006_green_the_hood",
+      "breakpoints": true
     }
   ]
 }

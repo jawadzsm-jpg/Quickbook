@@ -1,7 +1,25 @@
 import { boolean, doublePrecision, index, integer, pgTable, serial, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
+export const companies = pgTable("companies", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  baseCurrency: text("base_currency").notNull().default("AED"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("idx_companies_name").on(table.name)]);
+
+export const inventoryLocations = pgTable("inventory_locations", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  code: text("code").notNull(),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("idx_inventory_locations_company_code").on(table.companyId, table.code)]);
+
 export const contacts = pgTable("contacts", {
   id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   type: text("type", { enum: ["customer", "vendor", "employee"] }).notNull(),
   name: text("name").notNull(),
   company: text("company").notNull().default(""),
@@ -19,10 +37,12 @@ export const contacts = pgTable("contacts", {
   balance: doublePrecision("balance").notNull().default(0),
   status: text("status", { enum: ["active", "inactive"] }).notNull().default("active"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
-}, (table) => [index("idx_contacts_type_name").on(table.type, table.name)]);
+}, (table) => [index("idx_contacts_company_type_name").on(table.companyId, table.type, table.name)]);
 
 export const items = pgTable("items", {
   id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  locationId: integer("location_id").notNull().references(() => inventoryLocations.id, { onDelete: "cascade" }),
   itemNumber: text("item_number"),
   sku: text("sku").notNull(),
   name: text("name").notNull(),
@@ -35,7 +55,7 @@ export const items = pgTable("items", {
   cost: doublePrecision("cost").notNull().default(0),
   status: text("status", { enum: ["active", "inactive"] }).notNull().default("active"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
-}, (table) => [uniqueIndex("idx_items_item_number").on(table.itemNumber), uniqueIndex("idx_items_sku").on(table.sku), index("idx_items_name").on(table.name)]);
+}, (table) => [uniqueIndex("idx_items_item_number").on(table.itemNumber), uniqueIndex("idx_items_sku").on(table.sku), index("idx_items_company_location_name").on(table.companyId, table.locationId, table.name)]);
 
 export const specificationOptions = pgTable("specification_options", {
   id: serial("id").primaryKey(),
@@ -47,6 +67,8 @@ export const specificationOptions = pgTable("specification_options", {
 
 export const transactions = pgTable("transactions", {
   id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  locationId: integer("location_id").references(() => inventoryLocations.id, { onDelete: "set null" }),
   number: text("number").notNull(),
   type: text("type").notNull(),
   party: text("party").notNull(),
@@ -60,8 +82,10 @@ export const transactions = pgTable("transactions", {
   vatAmount: doublePrecision("vat_amount").notNull().default(0),
   total: doublePrecision("total").notNull().default(0),
   currency: text("currency").notNull().default("AED"),
+  exchangeRate: doublePrecision("exchange_rate").notNull().default(1),
+  baseTotal: doublePrecision("base_total").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
-}, (table) => [index("idx_transactions_date").on(table.transactionDate), index("idx_transactions_type_status").on(table.type, table.status)]);
+}, (table) => [index("idx_transactions_company_date").on(table.companyId, table.transactionDate), index("idx_transactions_company_type_status").on(table.companyId, table.type, table.status)]);
 
 export const transactionLines = pgTable("transaction_lines", {
   id: serial("id").primaryKey(),
@@ -90,23 +114,25 @@ export const inventoryMovements = pgTable("inventory_movements", {
 
 export const accounts = pgTable("accounts", {
   id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   code: text("code").notNull(),
   name: text("name").notNull(),
   type: text("type").notNull(),
   balance: doublePrecision("balance").notNull().default(0),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
-}, (table) => [uniqueIndex("idx_accounts_code").on(table.code)]);
+}, (table) => [uniqueIndex("idx_accounts_company_code").on(table.companyId, table.code)]);
 
 export const journalEntries = pgTable("journal_entries", {
   id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   transactionId: integer("transaction_id").references(() => transactions.id, { onDelete: "cascade" }),
   entryDate: text("entry_date").notNull(),
   reference: text("reference").notNull(),
   description: text("description").notNull().default(""),
   posted: boolean("posted").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
-}, (table) => [index("idx_journal_entries_date").on(table.entryDate)]);
+}, (table) => [index("idx_journal_entries_company_date").on(table.companyId, table.entryDate)]);
 
 export const journalLines = pgTable("journal_lines", {
   id: serial("id").primaryKey(),
@@ -118,6 +144,7 @@ export const journalLines = pgTable("journal_lines", {
 
 export const auditLog = pgTable("audit_log", {
   id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   action: text("action").notNull(),
   entityType: text("entity_type").notNull(),
   entityId: integer("entity_id").notNull(),

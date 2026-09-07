@@ -30,9 +30,12 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const kind = url.searchParams.get("kind") as RecordKind | null;
     const id = Number(url.searchParams.get("id"));
+    const companyId = Number(url.searchParams.get("companyId"));
+    const locationId = Number(url.searchParams.get("locationId"));
+    if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     const db = getDb();
     if (kind === "transactions" && id) {
-      const [record] = await db.select().from(transactions).where(eq(transactions.id, id));
+      const [record] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId)));
       if (!record) return Response.json({ error: "Transaction not found." }, { status: 404 });
       const lines = await db.select().from(transactionLines).where(eq(transactionLines.transactionId, id)).orderBy(asc(transactionLines.id));
       const journal = await db.select({
@@ -40,10 +43,10 @@ export async function GET(request: Request) {
       }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(eq(journalEntries.transactionId, id)).orderBy(asc(journalLines.id));
       return Response.json({ record, lines, journal });
     }
-    if (kind === "contacts") return Response.json({ records: await db.select().from(contacts).orderBy(asc(contacts.name)) });
-    if (kind === "items") return Response.json({ records: await db.select().from(items).orderBy(asc(items.name)) });
-    if (kind === "accounts") return Response.json({ records: await db.select().from(accounts).orderBy(asc(accounts.code)) });
-    return Response.json({ records: await db.select().from(transactions).orderBy(desc(transactions.transactionDate), desc(transactions.id)).limit(500) });
+    if (kind === "contacts") return Response.json({ records: await db.select().from(contacts).where(eq(contacts.companyId, companyId)).orderBy(asc(contacts.name)) });
+    if (kind === "items") return Response.json({ records: await db.select().from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId))).orderBy(asc(items.name)) });
+    if (kind === "accounts") return Response.json({ records: await db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(asc(accounts.code)) });
+    return Response.json({ records: await db.select().from(transactions).where(eq(transactions.companyId, companyId)).orderBy(desc(transactions.transactionDate), desc(transactions.id)).limit(500) });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
   }
@@ -53,6 +56,9 @@ export async function POST(request: Request) {
   try {
     const payload = (await request.json()) as Record<string, unknown>;
     const kind = payload.kind as RecordKind;
+    const companyId = Number(payload.companyId);
+    const locationId = Number(payload.locationId);
+    if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     const db = getDb();
 
     if (kind === "contacts") {
@@ -63,7 +69,7 @@ export async function POST(request: Request) {
         if (required.some((value) => !String(value ?? "").trim())) return Response.json({ error: "Complete all required customer fields." }, { status: 400 });
       }
       const [record] = await db.insert(contacts).values({
-        type: (payload.type as "customer" | "vendor" | "employee") ?? "customer", name,
+        companyId, type: (payload.type as "customer" | "vendor" | "employee") ?? "customer", name,
         company: String(payload.company ?? ""), billingName: String(payload.billingName ?? name),
         email: String(payload.email ?? ""), phone: String(payload.phone ?? ""), whatsapp: String(payload.whatsapp ?? ""),
         country: String(payload.country ?? ""), trn: String(payload.trn ?? ""), reseller: String(payload.reseller ?? "Reseller"),
@@ -74,6 +80,7 @@ export async function POST(request: Request) {
     }
 
     if (kind === "items") {
+      if (!Number.isInteger(locationId) || locationId <= 0) return Response.json({ error: "Select an inventory location." }, { status: 400 });
       const specifications = Array.from({ length: 30 }, (_, index) => ({
         label: String(payload[`specLabel${index}`] ?? "").trim(),
         value: String(payload[`specValue${index}`] ?? "").trim(),
@@ -84,7 +91,7 @@ export async function POST(request: Request) {
       const name = String(payload.name ?? "").trim() || [specificationValue("Brand"), specificationValue("Model") || specificationValue("Part Number")].filter(Boolean).join(" ") || `${category} Item`;
       const description = specifications.map((specification) => `${specification.label}: ${specification.value}`).join(" | ");
       const [created] = await db.insert(items).values({
-        name, sku, category, description,
+        companyId, locationId, name, sku, category, description,
         specifications: JSON.stringify(specifications), quantity: Number(payload.quantity ?? 0),
         reorderPoint: Number(payload.reorderPoint ?? 0), salesPrice: Number(payload.salesPrice ?? 0), cost: Number(payload.cost ?? 0),
       }).returning();
@@ -96,7 +103,7 @@ export async function POST(request: Request) {
       const name = String(payload.name ?? "").trim();
       const code = String(payload.code ?? "").trim();
       if (!name || !code) return Response.json({ error: "Account code and name are required." }, { status: 400 });
-      const [record] = await db.insert(accounts).values({ code, name, type: String(payload.type ?? "Expense"), balance: Number(payload.balance ?? 0) }).returning();
+      const [record] = await db.insert(accounts).values({ companyId, code, name, type: String(payload.type ?? "Expense"), balance: Number(payload.balance ?? 0) }).returning();
       return Response.json({ record }, { status: 201 });
     }
 
@@ -123,20 +130,26 @@ export async function POST(request: Request) {
     const subtotal = round(prepared.reduce((sum, line) => sum + line.subtotal, 0));
     const vatAmount = round(prepared.reduce((sum, line) => sum + line.vatAmount, 0));
     const total = round(subtotal + vatAmount);
+    const currency = String(payload.currency ?? "AED").trim().toUpperCase();
+    const exchangeRate = Number(payload.exchangeRate ?? 1);
+    if (!/^[A-Z]{3}$/.test(currency) || !Number.isFinite(exchangeRate) || exchangeRate <= 0) return Response.json({ error: "Choose a valid currency and exchange rate." }, { status: 400 });
+    const baseSubtotal = round(subtotal * exchangeRate);
+    const baseVatAmount = round(vatAmount * exchangeRate);
+    const baseTotal = round(total * exchangeRate);
     const transactionDate = String(payload.transactionDate ?? new Date().toISOString().slice(0, 10));
     const number = String(payload.number ?? `TX-${Date.now()}`);
     const [record] = await db.insert(transactions).values({
-      number, type, party, transactionDate, dueDate: String(payload.dueDate ?? ""),
+      companyId, locationId: Number.isInteger(locationId) ? locationId : null, number, type, party, transactionDate, dueDate: String(payload.dueDate ?? ""),
       account: String(payload.account ?? "Accounts Receivable"), status: String(payload.status ?? "open"), memo: String(payload.memo ?? ""),
-      subtotal, vatRate: Number(payload.vatRate ?? 5), vatAmount, total,
+      subtotal, vatRate: Number(payload.vatRate ?? 5), vatAmount, total, currency, exchangeRate, baseTotal,
     }).returning();
     await db.insert(transactionLines).values(prepared.map((line) => ({ ...line, transactionId: record.id })));
 
     const nonPosting = ["estimate", "sales order", "purchase order"].includes(type);
     if (!nonPosting) {
-      const [entry] = await db.insert(journalEntries).values({ transactionId: record.id, entryDate: transactionDate, reference: number, description: `${type}: ${party}` }).returning();
-      const baseLines = postingLines(type, record.account, subtotal, vatAmount, total);
-      const cogs = ["invoice", "sales receipt"].includes(type) ? round(prepared.reduce((sum, line) => sum + line.quantity * line.unitCost, 0)) : 0;
+      const [entry] = await db.insert(journalEntries).values({ companyId, transactionId: record.id, entryDate: transactionDate, reference: number, description: `${type}: ${party}` }).returning();
+      const baseLines = postingLines(type, record.account, baseSubtotal, baseVatAmount, baseTotal);
+      const cogs = ["invoice", "sales receipt"].includes(type) ? round(prepared.reduce((sum, line) => sum + line.quantity * line.unitCost, 0) * exchangeRate) : 0;
       if (cogs) baseLines.push({ accountName: "Cost of Goods Sold", debit: cogs, credit: 0 }, { accountName: "Inventory Asset", debit: 0, credit: cogs });
       await db.insert(journalLines).values(baseLines.map((line) => ({ ...line, journalEntryId: entry.id })));
     }
@@ -150,9 +163,9 @@ export async function POST(request: Request) {
       }
       const balanceChange = contactBalanceChange(type, total);
       const contactType = ["invoice", "sales receipt", "customer payment", "credit memo"].includes(type) ? "customer" : "vendor";
-      if (balanceChange) await db.update(contacts).set({ balance: sql`${contacts.balance} + ${balanceChange}` }).where(and(eq(contacts.name, party), eq(contacts.type, contactType)));
+      if (balanceChange) await db.update(contacts).set({ balance: sql`${contacts.balance} + ${balanceChange}` }).where(and(eq(contacts.companyId, companyId), eq(contacts.name, party), eq(contacts.type, contactType)));
     }
-    await db.insert(auditLog).values({ action: "created", entityType: "transaction", entityId: record.id, details: `${number} ${type}; ${prepared.length} line(s)` });
+    await db.insert(auditLog).values({ companyId, action: "created", entityType: "transaction", entityId: record.id, details: `${number} ${type}; ${prepared.length} line(s)` });
     return Response.json({ record }, { status: 201 });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
@@ -164,9 +177,10 @@ export async function PATCH(request: Request) {
     const payload = (await request.json()) as Record<string, unknown>;
     if (payload.kind !== "items") return Response.json({ error: "Only inventory items can be updated here." }, { status: 400 });
     const id = Number(payload.id);
+    const companyId = Number(payload.companyId);
     if (!Number.isInteger(id) || id <= 0) return Response.json({ error: "A valid item is required." }, { status: 400 });
     const db = getDb();
-    const [existing] = await db.select().from(items).where(eq(items.id, id));
+    const [existing] = await db.select().from(items).where(and(eq(items.id, id), eq(items.companyId, companyId)));
     if (!existing) return Response.json({ error: "Item not found." }, { status: 404 });
     const specifications = Array.from({ length: 30 }, (_, index) => ({
       label: String(payload[`specLabel${index}`] ?? "").trim(),
@@ -182,7 +196,7 @@ export async function PATCH(request: Request) {
       description: specifications.map((specification) => `${specification.label}: ${specification.value}`).join(" | "),
       specifications: JSON.stringify(specifications),
     }).where(eq(items.id, id)).returning();
-    await db.insert(auditLog).values({ action: "updated", entityType: "item", entityId: id, details: `${record.sku} ${record.name}` });
+    await db.insert(auditLog).values({ companyId, action: "updated", entityType: "item", entityId: id, details: `${record.sku} ${record.name}` });
     return Response.json({ record });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
@@ -219,21 +233,21 @@ function postingLines(type: string, account: string, subtotal: number, vatAmount
 
 export async function DELETE(request: Request) {
   try {
-    const { kind, id } = (await request.json()) as { kind: RecordKind; id: number };
+    const { kind, id, companyId } = (await request.json()) as { kind: RecordKind; id: number; companyId: number };
     const db = getDb();
-    if (kind === "contacts") await db.delete(contacts).where(eq(contacts.id, id));
-    else if (kind === "items") await db.delete(items).where(eq(items.id, id));
-    else if (kind === "accounts") await db.delete(accounts).where(eq(accounts.id, id));
+    if (kind === "contacts") await db.delete(contacts).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId)));
+    else if (kind === "items") await db.delete(items).where(and(eq(items.id, id), eq(items.companyId, companyId)));
+    else if (kind === "accounts") await db.delete(accounts).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId)));
     else {
-      const [record] = await db.select().from(transactions).where(eq(transactions.id, id));
+      const [record] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId)));
       if (record) {
         const movements = await db.select().from(inventoryMovements).where(eq(inventoryMovements.transactionId, id));
         for (const movement of movements) await db.update(items).set({ quantity: sql`${items.quantity} - ${movement.quantity}` }).where(eq(items.id, movement.itemId));
         const balanceChange = contactBalanceChange(record.type, record.total);
         const contactType = ["invoice", "sales receipt", "customer payment", "credit memo"].includes(record.type) ? "customer" : "vendor";
-        if (balanceChange) await db.update(contacts).set({ balance: sql`${contacts.balance} - ${balanceChange}` }).where(and(eq(contacts.name, record.party), eq(contacts.type, contactType)));
+        if (balanceChange) await db.update(contacts).set({ balance: sql`${contacts.balance} - ${balanceChange}` }).where(and(eq(contacts.companyId, companyId), eq(contacts.name, record.party), eq(contacts.type, contactType)));
         await db.delete(transactions).where(eq(transactions.id, id));
-        await db.insert(auditLog).values({ action: "deleted", entityType: "transaction", entityId: id, details: `${record.number} reversed` });
+        await db.insert(auditLog).values({ companyId, action: "deleted", entityType: "transaction", entityId: id, details: `${record.number} reversed` });
       }
     }
     return Response.json({ ok: true });
