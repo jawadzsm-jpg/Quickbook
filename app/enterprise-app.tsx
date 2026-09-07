@@ -433,7 +433,7 @@ function ContactFields({ form, setForm }: { form: Record<string, string>; setFor
 }
 function ItemFields({ form, setForm, items }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; items: DataRecord[] }) {
   const count = Math.min(30, Math.max(1, Number(form.specCount ?? 8)));
-  const [optionData, setOptionData] = useState<{ options: Record<string, string[]>; disabled: Record<string, string[]> }>({ options: {}, disabled: {} });
+  const [optionData, setOptionData] = useState<{ options: Record<string, string[]>; disabled: Record<string, string[]>; labels: string[]; disabledLabels: string[] }>({ options: {}, disabled: {}, labels: [...specificationFields], disabledLabels: [] });
   const loadOptions = useCallback(async () => {
     try {
       const response = await fetch("/api/spec-options");
@@ -456,7 +456,8 @@ function ItemFields({ form, setForm, items }: { form: Record<string, string>; se
       return parsed.map((specification) => specification.label?.trim()).filter((label): label is string => Boolean(label));
     } catch { return []; }
   });
-  const labelOptions = [...new Set([...specificationFields, ...savedLabels, ...Object.keys(optionData.options)])];
+  const disabledLabels = new Set(optionData.disabledLabels);
+  const labelOptions = [...new Set([...optionData.labels, ...savedLabels, ...Object.keys(optionData.options)])].filter((label) => !disabledLabels.has(label));
   const description = Array.from({ length: count }, (_, index) => {
     const label = form[`specLabel${index}`];
     const value = form[`specValue${index}`]?.trim();
@@ -496,10 +497,16 @@ function ItemFields({ form, setForm, items }: { form: Record<string, string>; se
     <section className="space-y-3 rounded-xl border bg-slate-50 p-4 sm:col-span-2">
       <div className="flex flex-wrap items-center justify-between gap-3"><div><Label>Item description specifications</Label><p className="mt-1 text-xs text-slate-500">Select or type any detail, then enter its value. Add or remove up to 30 fields.</p></div><Button type="button" variant="outline" size="sm" disabled={count >= 30} onClick={addSpecification}><Plus className="size-3" />Add detail ({count}/30)</Button></div>
       <div className="grid gap-2 md:grid-cols-2">{Array.from({ length: count }, (_, index) => <div key={index} className="grid grid-cols-[minmax(130px,.8fr)_minmax(0,1.2fr)_auto] gap-2 rounded-lg border bg-white p-2">
-        <div>
-          <Input list={`spec-labels-${index}`} aria-label={`Detail ${index + 1} name`} placeholder="Select or type detail" value={form[`specLabel${index}`] ?? specificationFields[index]} onChange={(event) => setForm({ ...form, [`specLabel${index}`]: event.target.value })} />
-          <datalist id={`spec-labels-${index}`}>{labelOptions.map((field) => <option key={field} value={field} />)}</datalist>
-        </div>
+        <SpecificationValuePicker
+          label="Specification detail"
+          placeholder="Select or type detail"
+          value={form[`specLabel${index}`] ?? specificationFields[index]}
+          options={labelOptions}
+          onChange={(value) => setForm({ ...form, [`specLabel${index}`]: value })}
+          onAdd={(value) => changeOption("POST", { type: "label", value })}
+          onRename={(oldValue, newValue) => changeOption("PATCH", { type: "label", oldValue, newValue })}
+          onDelete={(value) => changeOption("DELETE", { type: "label", value })}
+        />
         <SpecificationValuePicker
           label={form[`specLabel${index}`] ?? specificationFields[index]}
           value={form[`specValue${index}`] ?? ""}
@@ -515,7 +522,7 @@ function ItemFields({ form, setForm, items }: { form: Record<string, string>; se
     </section>
   </div>;
 }
-function SpecificationValuePicker({ label, value, options, onChange, onAdd, onRename, onDelete }: { label: string; value: string; options: string[]; onChange: (value: string) => void; onAdd: (value: string) => Promise<void>; onRename: (oldValue: string, newValue: string) => Promise<void>; onDelete: (value: string) => Promise<void> }) {
+function SpecificationValuePicker({ label, value, options, onChange, onAdd, onRename, onDelete, placeholder = "Select or enter value" }: { label: string; value: string; options: string[]; onChange: (value: string) => void; onAdd: (value: string) => Promise<void>; onRename: (oldValue: string, newValue: string) => Promise<void>; onDelete: (value: string) => Promise<void>; placeholder?: string }) {
   const [open, setOpen] = useState(false);
   const [newValue, setNewValue] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
@@ -550,7 +557,7 @@ function SpecificationValuePicker({ label, value, options, onChange, onAdd, onRe
 
   return <Popover open={open} onOpenChange={setOpen}>
     <div className="flex min-w-0">
-      <Input aria-label={`${label || "Specification"} value`} placeholder="Select or enter value" value={value} onChange={(event) => onChange(event.target.value)} className="rounded-r-none" />
+      <Input aria-label={`${label || "Specification"} value`} placeholder={placeholder} value={value} onChange={(event) => onChange(event.target.value)} className="rounded-r-none" />
       <PopoverTrigger asChild><Button type="button" variant="outline" size="icon" title={`Manage ${label || "detail"} choices`} aria-label={`Manage ${label || "detail"} choices`} className="shrink-0 rounded-l-none border-l-0"><ChevronDown className="size-4" /></Button></PopoverTrigger>
     </div>
     <PopoverContent align="start" className="w-80 space-y-3 p-3">
