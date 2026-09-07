@@ -23,6 +23,7 @@ export const contacts = pgTable("contacts", {
 
 export const items = pgTable("items", {
   id: serial("id").primaryKey(),
+  itemNumber: text("item_number"),
   sku: text("sku").notNull(),
   name: text("name").notNull(),
   category: text("category").notNull().default("General"),
@@ -34,7 +35,7 @@ export const items = pgTable("items", {
   cost: doublePrecision("cost").notNull().default(0),
   status: text("status", { enum: ["active", "inactive"] }).notNull().default("active"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
-}, (table) => [uniqueIndex("idx_items_sku").on(table.sku), index("idx_items_name").on(table.name)]);
+}, (table) => [uniqueIndex("idx_items_item_number").on(table.itemNumber), uniqueIndex("idx_items_sku").on(table.sku), index("idx_items_name").on(table.name)]);
 
 export const specificationOptions = pgTable("specification_options", {
   id: serial("id").primaryKey(),

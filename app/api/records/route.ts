@@ -15,6 +15,16 @@ function errorMessage(error: unknown) {
 
 const round = (value: number) => Math.round(value * 100) / 100;
 
+async function createUniqueItemSku() {
+  const db = getDb();
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const sku = crypto.randomUUID().replaceAll("-", "").slice(0, 6).toUpperCase();
+    const match = await db.select({ id: items.id }).from(items).where(eq(items.sku, sku)).limit(1);
+    if (!match.length) return sku;
+  }
+  throw new Error("Could not generate a unique SKU. Please try again.");
+}
+
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
@@ -70,14 +80,15 @@ export async function POST(request: Request) {
       })).filter((specification) => specification.label && specification.value);
       const specificationValue = (label: string) => specifications.find((specification) => specification.label.toLowerCase() === label.toLowerCase())?.value ?? "";
       const category = String(payload.category ?? "General").trim() || "General";
-      const sku = String(payload.sku ?? "").trim() || specificationValue("Part Number") || `ITEM-${Date.now()}`;
+      const sku = await createUniqueItemSku();
       const name = String(payload.name ?? "").trim() || [specificationValue("Brand"), specificationValue("Model") || specificationValue("Part Number")].filter(Boolean).join(" ") || `${category} Item`;
       const description = specifications.map((specification) => `${specification.label}: ${specification.value}`).join(" | ");
-      const [record] = await db.insert(items).values({
+      const [created] = await db.insert(items).values({
         name, sku, category, description,
         specifications: JSON.stringify(specifications), quantity: Number(payload.quantity ?? 0),
         reorderPoint: Number(payload.reorderPoint ?? 0), salesPrice: Number(payload.salesPrice ?? 0), cost: Number(payload.cost ?? 0),
       }).returning();
+      const [record] = await db.update(items).set({ itemNumber: String(13000 + created.id) }).where(eq(items.id, created.id)).returning();
       return Response.json({ record }, { status: 201 });
     }
 
@@ -166,7 +177,7 @@ export async function PATCH(request: Request) {
     const generatedName = [specificationValue("Brand"), specificationValue("Model") || specificationValue("Part Number")].filter(Boolean).join(" ");
     const [record] = await db.update(items).set({
       category,
-      sku: specificationValue("Part Number") || existing.sku,
+      sku: existing.sku,
       name: generatedName || existing.name,
       description: specifications.map((specification) => `${specification.label}: ${specification.value}`).join(" | "),
       specifications: JSON.stringify(specifications),

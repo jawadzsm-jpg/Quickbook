@@ -36,6 +36,13 @@
       "when": 1788798202542,
       "tag": "0004_absent_black_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788802171331,
+      "tag": "0005_worthless_sandman",
+      "breakpoints": true
     }
   ]
 }
