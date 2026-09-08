@@ -34,11 +34,11 @@ import { Toaster, toast } from "sonner";
 import { MultiLineTransferCenter } from "@/app/transfer-center";
 import { InventoryOverview } from "@/app/inventory-overview";
 
-type View = "dashboard" | "inventory-overview" | "sales" | "purchases" | "customers" | "vendors" | "inventory" | "transfers" | "banking" | "accounts" | "employees" | "reports" | "companies" | "inventories" | "invoice-series" | "currencies" | "admin-controls";
+type View = "dashboard" | "inventory-overview" | "sales" | "receive-payment" | "purchases" | "write-cheque" | "customers" | "vendors" | "inventory" | "transfers" | "banking" | "accounts" | "employees" | "reports" | "companies" | "inventories" | "invoice-series" | "currencies" | "admin-controls";
 type Kind = "transactions" | "contacts" | "items" | "accounts";
 type DataRecord = Record<string, string | number | boolean> & { id: number };
 type LineForm = { itemId: string; description: string; quantity: string; unitPrice: string; unitCost: string; vatRate: string };
-type InventoryLocation = { id: number; companyId: number; name: string; code: string; invoicePrefix: string; nextInvoiceNumber: number };
+type InventoryLocation = { id: number; companyId: number; name: string; code: string; invoicePrefix: string; nextInvoiceNumber: number; receivable?: number; payable?: number };
 type CompanyWorkspace = { id: number; name: string; baseCurrency: string; locations: InventoryLocation[] };
 type ReportData = { title: string; generatedAt: string; currency: string; columns: Array<{ key: string; label: string; type?: "money" }>; rows: Array<Record<string, string | number>> };
 type TransactionDetail = { record: DataRecord; lines: DataRecord[]; journal: DataRecord[] };
@@ -53,10 +53,12 @@ const navGroups = [
   ] },
   { label: "CUSTOMERS", items: [
     { id: "sales", label: "Sales & Invoicing", icon: ReceiptText },
+    { id: "receive-payment", label: "Receive Payment", icon: CircleDollarSign },
     { id: "customers", label: "Customer Center", icon: Users },
   ] },
   { label: "VENDORS", items: [
     { id: "purchases", label: "Purchases & Bills", icon: ShoppingCart },
+    { id: "write-cheque", label: "Write Cheque", icon: WalletCards },
     { id: "vendors", label: "Vendor Center", icon: Building2 },
   ] },
   { label: "COMPANY", items: [
@@ -80,7 +82,9 @@ const viewTitles: Record<View, { title: string; sub: string }> = {
   dashboard: { title: "Company Home", sub: "Your financial position at a glance" },
   "inventory-overview": { title: "Inventory Overview", sub: "All company stock, specifications, quantities and prices" },
   sales: { title: "Sales & Invoicing", sub: "Estimates, sales orders, invoices, receipts and credits" },
+  "receive-payment": { title: "Receive Payment", sub: "Record customer payments for the selected inventory" },
   purchases: { title: "Purchases & Bills", sub: "Purchase orders, bills, expenses and vendor payments" },
+  "write-cheque": { title: "Write Cheque", sub: "Pay vendors and reduce payables for the selected inventory" },
   customers: { title: "Customer Center", sub: "Customer balances, contacts and activity" },
   vendors: { title: "Vendor Center", sub: "Suppliers, payables and purchasing history" },
   inventory: { title: "Inventory Center", sub: "Stock levels, pricing, costs and reorder controls" },
@@ -98,7 +102,9 @@ const viewTitles: Record<View, { title: string; sub: string }> = {
 
 const transactionTypes: Record<string, string[]> = {
   sales: ["invoice", "estimate", "sales order", "sales receipt", "credit memo", "customer payment"],
+  "receive-payment": ["customer payment"],
   purchases: ["bill", "purchase order", "expense", "vendor credit", "bill payment"],
+  "write-cheque": ["cheque"],
   banking: ["deposit", "cheque", "transfer", "opening balance"],
   dashboard: ["invoice", "bill", "expense", "deposit", "cheque", "journal entry"],
 };
@@ -209,8 +215,8 @@ export default function EnterpriseApp() {
     const tx = records.transactions;
     const sales = tx.filter((r) => ["invoice", "sales receipt", "customer payment", "deposit"].includes(String(r.type))).reduce((n, r) => n + Number(r.baseTotal ?? r.total), 0);
     const expenses = tx.filter((r) => ["bill", "expense", "cheque", "bill payment"].includes(String(r.type))).reduce((n, r) => n + Number(r.baseTotal ?? r.total), 0);
-    const receivable = tx.filter((r) => r.type === "invoice" && r.status !== "paid").reduce((n, r) => n + Number(r.baseTotal ?? r.total), 0);
-    const payable = tx.filter((r) => r.type === "bill" && r.status !== "paid").reduce((n, r) => n + Number(r.baseTotal ?? r.total), 0);
+    const receivable = tx.reduce((balance, transaction) => transaction.type === "invoice" ? balance + Number(transaction.baseTotal ?? transaction.total) : ["customer payment", "credit memo"].includes(String(transaction.type)) ? balance - Number(transaction.baseTotal ?? transaction.total) : balance, 0);
+    const payable = tx.reduce((balance, transaction) => transaction.type === "bill" ? balance + Number(transaction.baseTotal ?? transaction.total) : ["bill payment", "vendor payment", "vendor credit"].includes(String(transaction.type)) || (transaction.type === "cheque" && transaction.account === "Accounts Payable") ? balance - Number(transaction.baseTotal ?? transaction.total) : balance, 0);
     return { sales, expenses, receivable, payable, cash: sales - expenses };
   }, [records.transactions]);
 
@@ -236,8 +242,11 @@ export default function EnterpriseApp() {
         setInvoiceInventoryOpen(true);
         return;
       }
-      setForm({ type, number: `${type.slice(0, 3).toUpperCase()}-${String(records.transactions.length + 1).padStart(4, "0")}`, transactionDate: today(), dueDate: today(), status: "open", account: type === "bill" ? "Purchases" : "Sales Revenue", vatRate: type === "bill" ? "0" : "5", currency: baseCurrency, exchangeRate: "1", billLocationId: String(activeLocationId), salesman: "", isImport: "false", freightCharges: "0" });
-      setLines([{ itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatRate: type === "bill" ? "0" : "5" }]);
+      const prefix = type === "customer payment" ? "PAY" : type === "cheque" ? "CHQ" : type.slice(0, 3).toUpperCase();
+      const taxFree = ["bill", "customer payment", "bill payment"].includes(type);
+      const description = type === "customer payment" ? "Payment received" : type === "cheque" ? "Cheque payment" : "";
+      setForm({ type, number: `${prefix}-${String(records.transactions.length + 1).padStart(4, "0")}`, transactionDate: today(), dueDate: today(), status: "open", account: type === "bill" ? "Purchases" : type === "cheque" ? "Accounts Payable" : type === "customer payment" ? "Business Bank" : "Sales Revenue", vatRate: taxFree ? "0" : "5", currency: baseCurrency, exchangeRate: "1", billLocationId: String(activeLocationId), transactionLocationId: String(activeLocationId), salesman: "", isImport: "false", freightCharges: "0" });
+      setLines([{ itemId: "", description, quantity: "1", unitPrice: "0", unitCost: "0", vatRate: taxFree ? "0" : "5" }]);
     } else if (currentKind === "contacts") {
       const type = view === "customers" ? "customer" : view === "vendors" ? "vendor" : "employee";
       setForm(type === "customer" ? { type, currency: baseCurrency, reseller: "Reseller", planet: "No", balance: "0" } : { type, currency: baseCurrency, balance: "0" });
@@ -291,19 +300,25 @@ export default function EnterpriseApp() {
       if (Number(form.freightCharges ?? 0) < 0) return toast.error("Freight charges cannot be negative.");
       if (lines.some((line) => !line.description.trim() || Number(line.quantity) <= 0 || Number(line.unitPrice) < 0)) return toast.error("Complete every bill line with a description, positive quantity and valid rate.");
     }
+    if (currentKind === "transactions" && ["customer payment", "cheque"].includes(form.type)) {
+      const required = [form.party, form.number, form.transactionDate, form.currency, form.transactionLocationId];
+      if (required.some((value) => !value?.trim())) return toast.error("Complete the party, reference, date, inventory and currency.");
+      if (Number(lines[0]?.unitPrice ?? 0) <= 0) return toast.error("Enter an amount greater than zero.");
+    }
     setSaving(true);
     try {
       const editingItem = currentKind === "items" && editingItemId !== null;
       const billFreightCharge = currentKind === "transactions" && form.type === "bill" ? Number(form.freightCharges ?? 0) : 0;
       const billVatRate = form.isImport === "true" ? "5" : "0";
       const submittedLines = billFreightCharge > 0 ? [...lines, { itemId: "", description: "Freight Charges", quantity: "1", unitPrice: String(billFreightCharge), unitCost: String(billFreightCharge), vatRate: billVatRate }] : lines;
-      const selectedLocationId = currentKind === "transactions" && form.type === "bill" ? Number(form.billLocationId || activeLocationId) : activeLocationId;
+      const selectedLocationId = currentKind === "transactions" && form.type === "bill" ? Number(form.billLocationId || activeLocationId) : currentKind === "transactions" ? Number(form.transactionLocationId || activeLocationId) : activeLocationId;
       const response = await fetch("/api/records", { method: editingItem ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: currentKind, companyId: activeCompanyId, locationId: selectedLocationId, ...(editingItem ? { id: editingItemId } : {}), ...form, ...(currentKind === "transactions" ? { lines: submittedLines } : {}) }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not save record");
       setRecords((old) => ({ ...old, [currentKind]: editingItem ? old[currentKind].map((record) => record.id === data.record.id ? data.record : record) : [data.record, ...old[currentKind]] }));
       setDialogOpen(false); setEditingItemId(null); toast.success(editingItem ? "Item updated" : "Record saved and posted");
-      await loadData();
+      if (currentKind === "transactions" && selectedLocationId !== activeLocationId) setActiveLocationId(selectedLocationId);
+      else await loadData();
       if (currentKind === "transactions" && form.type === "invoice") await loadWorkspaces();
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save record"); }
     finally { setSaving(false); }
@@ -350,7 +365,7 @@ export default function EnterpriseApp() {
   }
 
   const heading = viewTitles[view];
-  const createLabel = currentKind === "contacts" ? `New ${view === "employees" ? "Employee" : view === "vendors" ? "Vendor" : "Customer"}` : currentKind === "items" ? "New Item" : currentKind === "accounts" ? "New Account" : view === "purchases" ? "Enter Bill" : `New ${transactionTypes[view]?.[0] ?? "Transaction"}`;
+  const createLabel = currentKind === "contacts" ? `New ${view === "employees" ? "Employee" : view === "vendors" ? "Vendor" : "Customer"}` : currentKind === "items" ? "New Item" : currentKind === "accounts" ? "New Account" : view === "purchases" ? "Enter Bill" : view === "receive-payment" ? "Receive Payment" : view === "write-cheque" ? "Write Cheque" : `New ${transactionTypes[view]?.[0] ?? "Transaction"}`;
 
   return (
     <SidebarProvider>
@@ -598,7 +613,7 @@ function WorkspaceCenter({ mode, companies, activeCompanyId, onChanged }: { mode
   const seriesEditor = <Dialog open={Boolean(editingSeries)} onOpenChange={(open) => { if (!open) setEditingSeries(null); }}><DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>Customize invoice series</DialogTitle><DialogDescription>Set the prefix and next invoice number for {editingSeries?.name}. This affects only this company inventory.</DialogDescription></DialogHeader><form className="space-y-4" onSubmit={(event) => { event.preventDefault(); if (!editingSeries) return; save("PATCH", { type: "invoiceSeries", companyId: activeCompanyId, locationId: editingSeries.id, invoicePrefix: seriesPrefix, nextInvoiceNumber: Number(seriesNextNumber) }); }}><div className="space-y-2"><Label>Invoice series prefix</Label><Input value={seriesPrefix} onChange={(event) => setSeriesPrefix(event.target.value.toUpperCase())} required maxLength={20} placeholder="JAFZA" /><p className="text-xs text-slate-500">Letters, numbers, hyphens and slashes are allowed.</p></div><div className="space-y-2"><Label>Next invoice number</Label><Input type="number" min="1" max="999999999" step="1" value={seriesNextNumber} onChange={(event) => setSeriesNextNumber(event.target.value)} required /></div><div className="rounded-lg border bg-slate-50 p-3"><p className="text-xs font-medium text-slate-500">Preview</p><p className="mt-1 font-mono text-sm font-semibold text-emerald-700">C{String(activeCompanyId).padStart(3, "0")}-{seriesPrefix || "PREFIX"}-INV-{String(Math.max(1, Number(seriesNextNumber) || 1)).padStart(4, "0")}</p></div><DialogFooter><Button type="button" variant="outline" onClick={() => setEditingSeries(null)}>Cancel</Button><Button type="submit" disabled={saving}>Save series</Button></DialogFooter></form></DialogContent></Dialog>;
   if (mode === "companies") return <div className="grid gap-5 xl:grid-cols-[1fr_360px]"><section className="rounded-xl border bg-white shadow-sm"><div className="border-b p-5"><h2 className="font-bold">Company files</h2><p className="text-sm text-slate-500">Each company has separate customers, accounts, transactions and inventory.</p></div><div className="grid gap-3 p-5 md:grid-cols-2">{companies.map((company) => <article key={company.id} className={`rounded-xl border p-4 ${company.id === activeCompanyId ? "border-emerald-300 bg-emerald-50/50" : ""}`}><div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold">{company.name}</h3><p className="mt-1 text-sm text-slate-500">{company.locations.length} {company.locations.length === 1 ? "inventory" : "inventories"}</p></div><Badge variant="outline">{company.baseCurrency}</Badge></div>{company.id === activeCompanyId && <p className="mt-3 text-xs font-semibold text-emerald-700">Currently selected</p>}</article>)}</div></section><form className="space-y-4 rounded-xl border bg-white p-5 shadow-sm" onSubmit={(event) => { event.preventDefault(); save("POST", { type: "company", name, baseCurrency: currency }); }}><div><h2 className="font-bold">Add company</h2><p className="text-sm text-slate-500">A Main Inventory is included.</p></div><div className="space-y-2"><Label>Company name</Label><Input value={name} onChange={(event) => setName(event.target.value)} required placeholder="Company name" /></div><div className="space-y-2"><Label>Base currency</Label><Select value={currency} onValueChange={setCurrency}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{currencies.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div><Button disabled={saving} className="w-full"><Plus className="size-4" />Add company</Button></form></div>;
   if (mode === "inventories") return <>
-    <div className="grid gap-5 xl:grid-cols-[1fr_360px]"><section className="rounded-xl border bg-white shadow-sm"><div className="border-b p-5"><h2 className="font-bold">{activeCompany?.name} inventories</h2><p className="text-sm text-slate-500">Select an inventory from the top bar to view and post its stock.</p></div><div className="grid gap-3 p-5 md:grid-cols-2">{activeCompany?.locations.map((location) => <article key={location.id} className="rounded-xl border p-4"><div className="flex items-start justify-between gap-3"><PackageSearch className="size-5 text-emerald-600" /><Button type="button" variant="outline" size="sm" onClick={() => openSeriesEditor(location)}><Pencil className="size-3" />Edit series</Button></div><h3 className="mt-3 font-semibold">{location.name}</h3><p className="mt-1 font-mono text-xs text-slate-500">{location.code}</p><p className="mt-3 text-xs font-medium text-slate-500">Next invoice</p><p className="mt-1 font-mono text-sm text-emerald-700">{invoiceNumberPreview(activeCompanyId, location)}</p></article>)}</div></section><form className="space-y-4 rounded-xl border bg-white p-5 shadow-sm" onSubmit={(event) => { event.preventDefault(); save("POST", { type: "location", companyId: activeCompanyId, name, code }); }}><div><h2 className="font-bold">Add inventory</h2><p className="text-sm text-slate-500">Warehouse, showroom or store. Its code becomes part of the invoice series.</p></div><div className="space-y-2"><Label>Inventory name</Label><Input value={name} onChange={(event) => setName(event.target.value)} required placeholder="Jebel Ali Warehouse" /></div><div className="space-y-2"><Label>Code / invoice prefix</Label><Input value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} required placeholder="JAFZA" /></div><Button disabled={saving || !activeCompanyId} className="w-full"><Plus className="size-4" />Add inventory</Button></form></div>
+    <div className="grid gap-5 xl:grid-cols-[1fr_360px]"><section className="rounded-xl border bg-white shadow-sm"><div className="border-b p-5"><h2 className="font-bold">{activeCompany?.name} inventories</h2><p className="text-sm text-slate-500">Each inventory has separate stock, Accounts Receivable and Accounts Payable balances.</p></div><div className="grid gap-3 p-5 md:grid-cols-2">{activeCompany?.locations.map((location) => <article key={location.id} className="rounded-xl border p-4"><div className="flex items-start justify-between gap-3"><PackageSearch className="size-5 text-emerald-600" /><Button type="button" variant="outline" size="sm" onClick={() => openSeriesEditor(location)}><Pencil className="size-3" />Edit series</Button></div><h3 className="mt-3 font-semibold">{location.name}</h3><p className="mt-1 font-mono text-xs text-slate-500">{location.code}</p><div className="mt-4 grid grid-cols-2 gap-2"><div className="rounded-lg bg-sky-50 p-3"><p className="text-xs font-medium text-sky-700">Receivable</p><p className="mt-1 text-sm font-bold text-sky-950">{formatMoney(location.receivable, activeCompany?.baseCurrency)}</p></div><div className="rounded-lg bg-amber-50 p-3"><p className="text-xs font-medium text-amber-700">Payable</p><p className="mt-1 text-sm font-bold text-amber-950">{formatMoney(location.payable, activeCompany?.baseCurrency)}</p></div></div><p className="mt-3 text-xs font-medium text-slate-500">Next invoice</p><p className="mt-1 font-mono text-sm text-emerald-700">{invoiceNumberPreview(activeCompanyId, location)}</p></article>)}</div></section><form className="space-y-4 rounded-xl border bg-white p-5 shadow-sm" onSubmit={(event) => { event.preventDefault(); save("POST", { type: "location", companyId: activeCompanyId, name, code }); }}><div><h2 className="font-bold">Add inventory</h2><p className="text-sm text-slate-500">Warehouse, showroom or store. Its code becomes part of the invoice series.</p></div><div className="space-y-2"><Label>Inventory name</Label><Input value={name} onChange={(event) => setName(event.target.value)} required placeholder="Jebel Ali Warehouse" /></div><div className="space-y-2"><Label>Code / invoice prefix</Label><Input value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} required placeholder="JAFZA" /></div><Button disabled={saving || !activeCompanyId} className="w-full"><Plus className="size-4" />Add inventory</Button></form></div>
     {seriesEditor}
   </>;
   if (mode === "invoice-series") return <><section className="rounded-xl border bg-white shadow-sm"><div className="border-b p-5"><h2 className="font-bold">{activeCompany?.name} invoice series</h2><p className="text-sm text-slate-500">Every inventory has an independent prefix and next invoice number.</p></div><div className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-3">{activeCompany?.locations.map((location) => <article key={location.id} className="rounded-xl border p-5"><div className="flex items-start justify-between gap-3"><div className="rounded-lg bg-emerald-50 p-2 text-emerald-700"><ReceiptText className="size-5" /></div><Badge variant="outline">{location.code}</Badge></div><h3 className="mt-4 font-semibold">{location.name}</h3><p className="mt-1 text-sm text-slate-500">Next invoice</p><p className="mt-2 break-all font-mono text-base font-semibold text-emerald-700">{invoiceNumberPreview(activeCompanyId, location)}</p><Button type="button" className="mt-5 w-full" variant="outline" onClick={() => openSeriesEditor(location)}><Pencil className="size-4" />Customize series</Button></article>)}</div></section>{seriesEditor}</>;
@@ -680,8 +695,35 @@ function BillFields({ form, setForm, items, vendors, salesmen, locations, lines,
     </div>
   </div>;
 }
+function CashTransactionFields({ form, setForm, contacts, locations, lines, setLines }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; contacts: DataRecord[]; locations: InventoryLocation[]; lines: LineForm[]; setLines: (lines: LineForm[]) => void }) {
+  const receivePayment = form.type === "customer payment";
+  const parties = contacts.filter((contact) => contact.type === (receivePayment ? "customer" : "vendor"));
+  const line = lines[0] ?? { itemId: "", description: receivePayment ? "Payment received" : "Cheque payment", quantity: "1", unitPrice: "0", unitCost: "0", vatRate: "0" };
+  const updateLine = (changes: Partial<LineForm>) => setLines([{ ...line, ...changes }]);
+  const amount = Number(line.unitPrice || 0);
+  const vat = amount * Number(line.vatRate || 0) / 100;
+  return <div className="space-y-5">
+    <div className="grid gap-4 rounded-xl border bg-slate-50 p-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="space-y-2"><Label>{receivePayment ? "Customer" : "Vendor / Payee"} *</Label><Select value={form.party || undefined} onValueChange={(value) => setForm({ ...form, party: value })}><SelectTrigger className="w-full"><SelectValue placeholder={receivePayment ? "Select customer" : "Select vendor"} /></SelectTrigger><SelectContent>{parties.length ? parties.map((party) => <SelectItem key={party.id} value={String(party.name)}>{String(party.company || party.name)}</SelectItem>) : <SelectItem value="no-parties" disabled>No {receivePayment ? "customers" : "vendors"} available</SelectItem>}</SelectContent></Select></div>
+      <Field label={receivePayment ? "Payment Reference" : "Cheque Number"} name="number" form={form} setForm={setForm} required placeholder={receivePayment ? "Enter payment reference" : "Enter cheque number"} />
+      <Field label={receivePayment ? "Payment Date" : "Cheque Date"} name="transactionDate" type="date" form={form} setForm={setForm} required />
+      <div className="space-y-2"><Label>Inventory *</Label><Select value={form.transactionLocationId || String(locations[0]?.id ?? "")} onValueChange={(value) => setForm({ ...form, transactionLocationId: value })}><SelectTrigger className="w-full"><SelectValue placeholder="Select inventory" /></SelectTrigger><SelectContent>{locations.map((location) => <SelectItem key={location.id} value={String(location.id)}>{location.name}</SelectItem>)}</SelectContent></Select></div>
+      <Choice label="Currency" name="currency" values={currencies} form={form} setForm={setForm} />
+      {receivePayment ? <div className="space-y-2"><Label>Deposit To</Label><Input readOnly value="Business Bank" className="bg-slate-100" /></div> : <div className="space-y-2"><Label>Pay From / Account</Label><Select value={form.account || "Accounts Payable"} onValueChange={(value) => { setForm({ ...form, account: value, ...(value === "Accounts Payable" ? { vatRate: "0" } : {}) }); if (value === "Accounts Payable") updateLine({ vatRate: "0" }); }}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Accounts Payable">Accounts Payable</SelectItem><SelectItem value="Operating Expenses">Operating Expenses</SelectItem><SelectItem value="Purchases">Purchases</SelectItem></SelectContent></Select></div>}
+    </div>
+    <div className="grid gap-4 rounded-xl border bg-white p-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="space-y-2"><Label>Amount *</Label><Input type="number" min="0.01" step="0.01" value={line.unitPrice} onChange={(event) => updateLine({ unitPrice: event.target.value, unitCost: event.target.value })} required /></div>
+      {receivePayment || form.account === "Accounts Payable" ? <div className="space-y-2"><Label>VAT</Label><Input readOnly value="0%" className="bg-slate-100" /></div> : <div className="space-y-2"><Label>VAT</Label><Select value={line.vatRate} onValueChange={(value) => { updateLine({ vatRate: value }); setForm({ ...form, vatRate: value }); }}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="0">0%</SelectItem><SelectItem value="5">5%</SelectItem></SelectContent></Select></div>}
+      <div className="space-y-2"><Label>VAT Amount</Label><Input readOnly value={formatMoney(vat, form.currency)} className="bg-slate-100" /></div>
+      <div className="space-y-2"><Label>Total</Label><Input readOnly value={formatMoney(amount + vat, form.currency)} className="bg-slate-100 font-bold" /></div>
+      <div className="md:col-span-2 xl:col-span-4"><Field label="Memo" name="memo" form={form} setForm={setForm} placeholder="Optional note" /></div>
+    </div>
+    <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">This {receivePayment ? "payment reduces Accounts Receivable" : form.account === "Accounts Payable" ? "cheque reduces Accounts Payable" : "cheque posts to the selected expense account"} for the selected inventory.</div>
+  </div>;
+}
 function TransactionFields({ form, setForm, types, items, contacts, locations, lines, setLines }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; types: string[]; items: DataRecord[]; contacts: DataRecord[]; locations: InventoryLocation[]; lines: LineForm[]; setLines: (lines: LineForm[]) => void }) {
   if (form.type === "bill") return <BillFields form={form} setForm={setForm} items={items} vendors={contacts.filter((contact) => contact.type === "vendor")} salesmen={contacts.filter((contact) => contact.type === "employee")} locations={locations} lines={lines} setLines={setLines} />;
+  if (["customer payment", "cheque"].includes(form.type)) return <CashTransactionFields form={form} setForm={setForm} contacts={contacts} locations={locations} lines={lines} setLines={setLines} />;
   const update = (index: number, changes: Partial<LineForm>) => setLines(lines.map((line, position) => position === index ? { ...line, ...changes } : line));
   const subtotal = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0), 0);
   const vat = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0) * Number(line.vatRate || 0) / 100, 0);
