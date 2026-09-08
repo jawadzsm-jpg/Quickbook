@@ -27,6 +27,16 @@ export const vatCodes = pgTable("vat_codes", {
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 }, (table) => [uniqueIndex("idx_vat_codes_company_code").on(table.companyId, table.code), index("idx_vat_codes_company_active").on(table.companyId, table.active)]);
 
+export const exchangeRates = pgTable("exchange_rates", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  currencyCode: text("currency_code").notNull(),
+  rate: doublePrecision("rate").notNull(),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("idx_exchange_rates_company_currency").on(table.companyId, table.currencyCode), index("idx_exchange_rates_company_active").on(table.companyId, table.active)]);
+
 export const appUsers = pgTable("app_users", {
   id: serial("id").primaryKey(),
   fullName: text("full_name").notNull().default(""),

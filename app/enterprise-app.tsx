@@ -36,6 +36,7 @@ import { MultiLineTransferCenter } from "@/app/transfer-center";
 import { InventoryOverview } from "@/app/inventory-overview";
 import { UserRoleCenter } from "@/app/user-role-center";
 import { VatCodeCenter, type VatCodeRecord } from "@/app/vat-code-center";
+import { CurrencyRateCenter, type ExchangeRateRecord } from "@/app/currency-rate-center";
 
 type View = "dashboard" | "inventory-overview" | "sales" | "receive-payment" | "purchases" | "write-cheque" | "customers" | "vendors" | "inventory" | "transfers" | "banking" | "accounts" | "employees" | "reports" | "companies" | "inventories" | "invoice-series" | "currencies" | "vat-codes" | "admin-controls";
 type AppRole = "admin" | "accountant" | "sales" | "purchasing" | "inventory" | "viewer";
@@ -226,6 +227,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [invoiceInventoryOpen, setInvoiceInventoryOpen] = useState(false);
   const [vatCodeOptions, setVatCodeOptions] = useState<VatCodeOption[]>(defaultVatCodeOptions);
+  const [exchangeRates, setExchangeRates] = useState<ExchangeRateRecord[]>([]);
 
   const activeCompany = companies.find((company) => company.id === activeCompanyId);
   const activeLocations = useMemo(() => activeCompany?.locations ?? [], [activeCompany]);
@@ -274,6 +276,16 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not load VAT codes"); }
   }, [activeCompanyId]);
 
+  const loadExchangeRates = useCallback(async () => {
+    if (!activeCompanyId) return;
+    try {
+      const response = await fetch(`/api/exchange-rates?companyId=${activeCompanyId}`, { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not load exchange rates");
+      setExchangeRates((data.rates as ExchangeRateRecord[]).filter((rate) => rate.active));
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not load exchange rates"); }
+  }, [activeCompanyId]);
+
   // Initial load synchronizes the client workspace with the persisted company file.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadWorkspaces(); }, [loadWorkspaces]);
@@ -288,6 +300,8 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   useEffect(() => { if (activeCompanyId && activeLocationId) loadData(); }, [activeCompanyId, activeLocationId, loadData]);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (activeCompanyId) loadVatCodes(); }, [activeCompanyId, loadVatCodes]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { if (activeCompanyId) loadExchangeRates(); }, [activeCompanyId, loadExchangeRates]);
 
   const metrics = useMemo(() => {
     const tx = records.transactions;
@@ -499,7 +513,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
         </header>
 
         <div className="mx-auto w-full max-w-[1500px] p-4 lg:p-7">
-          {view === "inventory-overview" ? <InventoryOverview /> : view === "transfers" ? <MultiLineTransferCenter key={`${activeCompanyId}-${activeLocationId}`} companies={companies} activeLocationId={activeLocationId} onTransferred={loadData} /> : view === "vat-codes" ? <VatCodeCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} onChanged={loadVatCodes} /> : view === "admin-controls" ? <AdminSettingsCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} currentUserEmail={currentUser.email} /> : managementView ? <WorkspaceCenter mode={view as "companies" | "inventories" | "invoice-series" | "currencies"} companies={companies} activeCompanyId={activeCompanyId} onChanged={loadWorkspaces} /> : view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} onNavigate={(next) => { if (roleViews[currentUser.role].includes(next)) setView(next); }} onCreate={openCreate} onOpenDetail={openDetail} canCreate={roleWriteViews[currentUser.role].includes("sales")} canViewReports={roleViews[currentUser.role].includes("reports")} /> : view === "reports" ? <ReportCenter metrics={metrics} currency={baseCurrency} onOpen={openReport} loading={reportLoading} /> : (
+          {view === "inventory-overview" ? <InventoryOverview /> : view === "transfers" ? <MultiLineTransferCenter key={`${activeCompanyId}-${activeLocationId}`} companies={companies} activeLocationId={activeLocationId} onTransferred={loadData} /> : view === "currencies" ? <CurrencyRateCenter key={activeCompanyId} company={activeCompany} currencies={currencies} onCompanyChanged={loadWorkspaces} onRatesChanged={loadExchangeRates} /> : view === "vat-codes" ? <VatCodeCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} onChanged={loadVatCodes} /> : view === "admin-controls" ? <AdminSettingsCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} currentUserEmail={currentUser.email} /> : managementView ? <WorkspaceCenter mode={view as "companies" | "inventories" | "invoice-series" | "currencies"} companies={companies} activeCompanyId={activeCompanyId} onChanged={loadWorkspaces} /> : view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} onNavigate={(next) => { if (roleViews[currentUser.role].includes(next)) setView(next); }} onCreate={openCreate} onOpenDetail={openDetail} canCreate={roleWriteViews[currentUser.role].includes("sales")} canViewReports={roleViews[currentUser.role].includes("reports")} /> : view === "reports" ? <ReportCenter metrics={metrics} currency={baseCurrency} onOpen={openReport} loading={reportLoading} /> : (
             <RecordView view={view} kind={currentKind} records={filteredRecords} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onEditItem={openItemEdit} onDuplicateItem={duplicateItem} onOpenDetail={openDetail} canWrite={canWriteCurrentView} canDelete={currentUser.role === "admin"} />
           )}
         </div>
@@ -509,7 +523,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
         <DialogContent className={`max-h-[90vh] overflow-y-auto ${currentKind === "transactions" || currentKind === "items" || (currentKind === "contacts" && view === "customers") ? "sm:max-w-5xl" : "sm:max-w-xl"}`}>
           <DialogHeader><DialogTitle>{editingItemId !== null && currentKind === "items" ? "Edit Item" : createLabel}</DialogTitle><DialogDescription>{editingItemId !== null && currentKind === "items" ? "Update the category and item description details." : currentKind === "transactions" && form.type === "bill" ? "Select the vendor and enter the bill items below." : "Enter the record details below. Required fields are marked."}</DialogDescription></DialogHeader>
           <form onSubmit={saveRecord} className="space-y-5">
-            {currentKind === "transactions" && <TransactionFields form={form} setForm={setForm} types={transactionTypes[view] ?? transactionTypes.dashboard} items={records.items} contacts={records.contacts} accounts={records.accounts} locations={activeLocations} lines={lines} setLines={setLines} vatCodeOptions={vatCodeOptions} />}
+            {currentKind === "transactions" && <TransactionFields form={form} setForm={setForm} types={transactionTypes[view] ?? transactionTypes.dashboard} items={records.items} contacts={records.contacts} accounts={records.accounts} locations={activeLocations} lines={lines} setLines={setLines} vatCodeOptions={vatCodeOptions} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />}
             {currentKind === "contacts" && <ContactFields form={form} setForm={setForm} />}
             {currentKind === "items" && <ItemFields form={form} setForm={setForm} items={records.items} />}
             {currentKind === "accounts" && <AccountFields form={form} setForm={setForm} accounts={records.accounts} />}
@@ -759,7 +773,11 @@ function WorkspaceDialog({ open, companies, activeCompanyId, onClose, onChanged 
 
 function Field({ label, name, form, setForm, type = "text", required = false, placeholder }: { label: string; name: string; form: Record<string, string>; setForm: (f: Record<string, string>) => void; type?: string; required?: boolean; placeholder?: string }) { return <div className="space-y-2"><Label htmlFor={name}>{label}{required ? " *" : ""}</Label><Input id={name} name={name} type={type} required={required} placeholder={placeholder} value={form[name] ?? ""} onChange={(e) => setForm({ ...form, [name]: e.target.value })} /></div>; }
 function Choice({ label, name, values, form, setForm, placeholder }: { label: string; name: string; values: string[]; form: Record<string, string>; setForm: (f: Record<string, string>) => void; placeholder?: string }) { return <div className="space-y-2"><Label>{label}</Label><Select value={form[name]} onValueChange={(value) => setForm({ ...form, [name]: value })}><SelectTrigger className="w-full"><SelectValue placeholder={placeholder} /></SelectTrigger><SelectContent>{values.map((value) => <SelectItem key={value} value={value}><span className="capitalize">{value}</span></SelectItem>)}</SelectContent></Select></div>; }
-function BillFields({ form, setForm, items, vendors, salesmen, accounts, locations, lines, setLines, vatCodeOptions }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; items: DataRecord[]; vendors: DataRecord[]; salesmen: DataRecord[]; accounts: DataRecord[]; locations: InventoryLocation[]; lines: LineForm[]; setLines: (lines: LineForm[]) => void; vatCodeOptions: VatCodeOption[] }) {
+function CurrencyExchangeChoice({ form, setForm, exchangeRates, baseCurrency }: { form: Record<string, string>; setForm: (form: Record<string, string>) => void; exchangeRates: ExchangeRateRecord[]; baseCurrency: string }) {
+  const selectedRate = exchangeRates.find((rate) => rate.currencyCode === form.currency)?.rate;
+  return <div className="space-y-2"><Label>Currency *</Label><Select value={form.currency} onValueChange={(currency) => { const savedRate = exchangeRates.find((entry) => entry.currencyCode === currency)?.rate; setForm({ ...form, currency, exchangeRate: currency === baseCurrency ? "1" : savedRate ? String(savedRate) : "" }); }}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{currencies.map((currency) => <SelectItem key={currency} value={currency}><span className="flex w-full items-center justify-between gap-3"><span>{currency}</span><span className="text-xs text-slate-500">{currency === baseCurrency ? "Base · 1.000000" : exchangeRates.find((entry) => entry.currencyCode === currency)?.rate ? `Rate ${exchangeRates.find((entry) => entry.currencyCode === currency)?.rate}` : "Rate not set"}</span></span></SelectItem>)}</SelectContent></Select>{form.currency !== baseCurrency && selectedRate ? <p className="text-xs text-emerald-700">Saved rate applied: 1 {form.currency} = {selectedRate} {baseCurrency}</p> : form.currency !== baseCurrency ? <p className="text-xs text-amber-700">No saved rate. Enter the document rate manually.</p> : null}</div>;
+}
+function BillFields({ form, setForm, items, vendors, salesmen, accounts, locations, lines, setLines, vatCodeOptions, exchangeRates, baseCurrency }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; items: DataRecord[]; vendors: DataRecord[]; salesmen: DataRecord[]; accounts: DataRecord[]; locations: InventoryLocation[]; lines: LineForm[]; setLines: (lines: LineForm[]) => void; vatCodeOptions: VatCodeOption[]; exchangeRates: ExchangeRateRecord[]; baseCurrency: string }) {
   const update = (index: number, changes: Partial<LineForm>) => setLines(lines.map((line, position) => position === index ? { ...line, ...changes } : line));
   const subtotal = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0), 0);
   const vat = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0) * Number(line.vatRate || 0) / 100, 0);
@@ -775,8 +793,8 @@ function BillFields({ form, setForm, items, vendors, salesmen, accounts, locatio
       <Field label="Reference No." name="number" form={form} setForm={setForm} required placeholder="Enter reference no." />
       <div className="space-y-2"><Label>Inventory *</Label><Select value={form.billLocationId || String(locations[0]?.id ?? "")} onValueChange={(value) => setForm({ ...form, billLocationId: value })}><SelectTrigger className="w-full"><SelectValue placeholder="Select inventory" /></SelectTrigger><SelectContent>{locations.map((location) => <SelectItem key={location.id} value={String(location.id)}>{location.name}</SelectItem>)}</SelectContent></Select></div>
       <div className="space-y-2"><Label>Import</Label><Select value={form.isImport ?? "false"} onValueChange={(value) => { const vatRate = value === "true" ? "5" : "0"; const vatCode = value === "true" ? "STANDARD" : "ZERO"; setForm({ ...form, isImport: value, vatRate }); setLines(lines.map((line) => ({ ...line, vatCode, vatRate }))); }}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="true">Yes — 5% VAT</SelectItem><SelectItem value="false">No — 0% VAT</SelectItem></SelectContent></Select></div>
-      <Choice label="Currency *" name="currency" values={currencies} form={form} setForm={setForm} />
-      <Field label="Exchange Rate *" name="exchangeRate" type="number" form={form} setForm={setForm} required placeholder="1.0000" />
+      <CurrencyExchangeChoice form={form} setForm={setForm} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />
+      <Field label={`Exchange Rate to ${baseCurrency}`} name="exchangeRate" type="number" form={form} setForm={setForm} required placeholder="1.000000" />
     </div>
     <div className="grid gap-4 md:grid-cols-3">
       <div className="space-y-2"><Label>Vendor *</Label><Select value={form.party} onValueChange={(value) => setForm({ ...form, party: value })}><SelectTrigger className="w-full"><SelectValue placeholder="Select vendor" /></SelectTrigger><SelectContent>{vendors.length ? vendors.map((vendor) => <SelectItem key={vendor.id} value={String(vendor.name)}>{String(vendor.company || vendor.name)}</SelectItem>) : <SelectItem value="no-vendors" disabled>No vendors available</SelectItem>}</SelectContent></Select></div>
@@ -838,8 +856,8 @@ function CashTransactionFields({ form, setForm, contacts, accounts, locations, l
     <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">This {receivePayment ? "payment reduces Accounts Receivable" : isAccountsPayable ? "cheque reduces Accounts Payable" : "cheque posts to the selected expense account"} for the selected inventory.</div>
   </div>;
 }
-function TransactionFields({ form, setForm, types, items, contacts, accounts, locations, lines, setLines, vatCodeOptions }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; types: string[]; items: DataRecord[]; contacts: DataRecord[]; accounts: DataRecord[]; locations: InventoryLocation[]; lines: LineForm[]; setLines: (lines: LineForm[]) => void; vatCodeOptions: VatCodeOption[] }) {
-  if (form.type === "bill") return <BillFields form={form} setForm={setForm} items={items} vendors={contacts.filter((contact) => contact.type === "vendor")} salesmen={contacts.filter((contact) => contact.type === "employee")} accounts={accounts} locations={locations} lines={lines} setLines={setLines} vatCodeOptions={vatCodeOptions} />;
+function TransactionFields({ form, setForm, types, items, contacts, accounts, locations, lines, setLines, vatCodeOptions, exchangeRates, baseCurrency }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; types: string[]; items: DataRecord[]; contacts: DataRecord[]; accounts: DataRecord[]; locations: InventoryLocation[]; lines: LineForm[]; setLines: (lines: LineForm[]) => void; vatCodeOptions: VatCodeOption[]; exchangeRates: ExchangeRateRecord[]; baseCurrency: string }) {
+  if (form.type === "bill") return <BillFields form={form} setForm={setForm} items={items} vendors={contacts.filter((contact) => contact.type === "vendor")} salesmen={contacts.filter((contact) => contact.type === "employee")} accounts={accounts} locations={locations} lines={lines} setLines={setLines} vatCodeOptions={vatCodeOptions} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />;
   if (["customer payment", "cheque"].includes(form.type)) return <CashTransactionFields form={form} setForm={setForm} contacts={contacts} accounts={accounts} locations={locations} lines={lines} setLines={setLines} vatCodeOptions={vatCodeOptions} />;
   const update = (index: number, changes: Partial<LineForm>) => setLines(lines.map((line, position) => position === index ? { ...line, ...changes } : line));
   const subtotal = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0), 0);
@@ -848,7 +866,7 @@ function TransactionFields({ form, setForm, types, items, contacts, accounts, lo
     <Choice label="Transaction type" name="type" values={types} form={form} setForm={setForm} /><Field label="Document number" name="number" form={form} setForm={setForm} required />
     <div className="sm:col-span-2"><Field label="Customer / vendor / payee" name="party" form={form} setForm={setForm} required /></div>
     <Field label="Transaction date" name="transactionDate" type="date" form={form} setForm={setForm} required /><Field label="Due date" name="dueDate" type="date" form={form} setForm={setForm} />
-    <Choice label="Currency" name="currency" values={currencies} form={form} setForm={setForm} /><Field label="Exchange rate to company currency" name="exchangeRate" type="number" form={form} setForm={setForm} required />
+    <CurrencyExchangeChoice form={form} setForm={setForm} exchangeRates={exchangeRates} baseCurrency={baseCurrency} /><Field label={`Exchange rate to ${baseCurrency}`} name="exchangeRate" type="number" form={form} setForm={setForm} required />
     <div className="space-y-3 rounded-xl border bg-slate-50 p-3 sm:col-span-2">
       <div className="flex items-center justify-between"><div><Label>Items and services</Label><p className="text-xs text-slate-500">Stock quantities update when invoices and bills post.</p></div><Button type="button" variant="outline" size="sm" onClick={() => setLines([...lines, { itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatCode: form.vatRate === "0" ? "ZERO" : "STANDARD", vatRate: form.vatRate ?? "5" }])}><Plus className="size-3" />Line</Button></div>
       {lines.map((line, index) => <div key={index} className="grid gap-2 rounded-lg border bg-white p-3 sm:grid-cols-[1.15fr_1.6fr_.55fr_.75fr_.55fr_auto]">

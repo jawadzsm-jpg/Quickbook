@@ -1,6 +1,6 @@
 import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { accounts, companies, inventoryLocations, transactions, vatCodes } from "../../../db/schema";
+import { accounts, companies, exchangeRates, inventoryLocations, transactions, vatCodes } from "../../../db/schema";
 import { requireApiUser } from "@/lib/auth";
 
 const standardAccounts = [
@@ -63,6 +63,7 @@ export async function POST(request: Request) {
       const [location] = await db.insert(inventoryLocations).values({ companyId: company.id, name: "Main Inventory", code: "MAIN", invoicePrefix: "MAIN" }).returning();
       await db.insert(accounts).values(standardAccounts.map(([code, accountName, accountType, systemRole]) => ({ companyId: company.id, code, name: accountName, type: accountType, systemRole })));
       await db.insert(vatCodes).values(standardVatCodes.map((vatCode) => ({ companyId: company.id, ...vatCode })));
+      await db.insert(exchangeRates).values({ companyId: company.id, currencyCode: baseCurrency, rate: 1 });
       return Response.json({ company: { ...company, locations: [location] } }, { status: 201 });
     }
     const companyId = Number(payload.companyId);
@@ -100,6 +101,7 @@ export async function PATCH(request: Request) {
     const db = getDb();
     const [company] = await db.update(companies).set({ baseCurrency }).where(eq(companies.id, companyId)).returning();
     if (!company) return Response.json({ error: "Company not found." }, { status: 404 });
+    await db.insert(exchangeRates).values({ companyId, currencyCode: baseCurrency, rate: 1 }).onConflictDoUpdate({ target: [exchangeRates.companyId, exchangeRates.currencyCode], set: { rate: 1, active: true, updatedAt: new Date().toISOString() } });
     return Response.json({ company });
   } catch (error) {
     return Response.json({ error: message(error) }, { status: 500 });
