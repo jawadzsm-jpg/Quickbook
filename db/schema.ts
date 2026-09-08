@@ -8,6 +8,12 @@ export const companies = pgTable("companies", {
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 }, (table) => [uniqueIndex("idx_companies_name").on(table.name)]);
 
+export const companySettings = pgTable("company_settings", {
+  companyId: integer("company_id").primaryKey().references(() => companies.id, { onDelete: "cascade" }),
+  negativeStockPinHash: text("negative_stock_pin_hash").notNull().default(""),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+});
+
 export const inventoryLocations = pgTable("inventory_locations", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),

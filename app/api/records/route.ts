@@ -1,9 +1,10 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import {
-  accounts, auditLog, contacts, inventoryLocations, inventoryMovements, items, journalEntries,
+  accounts, auditLog, companySettings, contacts, inventoryLocations, inventoryMovements, items, journalEntries,
   journalLines, transactionLines, transactions,
 } from "../../../db/schema";
+import { verifyAdminPin } from "../../../lib/admin-pin";
 
 type RecordKind = "transactions" | "contacts" | "items" | "accounts";
 type InputLine = { itemId?: number | string | null; description?: string; quantity?: number | string; unitPrice?: number | string; unitCost?: number | string; vatRate?: number | string };
@@ -81,6 +82,20 @@ export async function POST(request: Request) {
 
     if (kind === "items") {
       if (!Number.isInteger(locationId) || locationId <= 0) return Response.json({ error: "Select an inventory location." }, { status: 400 });
+      const duplicateItemId = Number(payload.duplicateItemId);
+      if (Number.isInteger(duplicateItemId) && duplicateItemId > 0) {
+        const [source] = await db.select().from(items).where(and(eq(items.id, duplicateItemId), eq(items.companyId, companyId), eq(items.locationId, locationId)));
+        if (!source) return Response.json({ error: "The item to duplicate was not found." }, { status: 404 });
+        const sku = await createUniqueItemSku();
+        const [created] = await db.insert(items).values({
+          companyId, locationId, sku, name: source.name, category: source.category, description: source.description,
+          specifications: source.specifications, quantity: 0, reorderPoint: source.reorderPoint,
+          salesPrice: source.salesPrice, cost: source.cost, status: source.status,
+        }).returning();
+        const [record] = await db.update(items).set({ itemNumber: String(13000 + created.id) }).where(eq(items.id, created.id)).returning();
+        await db.insert(auditLog).values({ companyId, action: "duplicated", entityType: "item", entityId: record.id, details: `${source.sku} duplicated as ${record.sku}; opening quantity 0` });
+        return Response.json({ record }, { status: 201 });
+      }
       const specifications = Array.from({ length: 30 }, (_, index) => ({
         label: String(payload[`specLabel${index}`] ?? "").trim(),
         value: String(payload[`specValue${index}`] ?? "").trim(),
@@ -128,6 +143,38 @@ export async function POST(request: Request) {
     if (!party || !prepared.length || prepared.some((line) => !Number.isFinite(line.quantity) || line.quantity <= 0 || !Number.isFinite(line.unitPrice) || line.unitPrice < 0)) {
       return Response.json({ error: "Party and at least one valid document line are required." }, { status: 400 });
     }
+    if (prepared.some((line) => line.itemId !== null && (!Number.isInteger(line.itemId) || line.itemId <= 0))) {
+      return Response.json({ error: "Select a valid inventory item on every stock line." }, { status: 400 });
+    }
+    const stockReducing = ["invoice", "sales receipt"].includes(type);
+    let usedAdminNegativeStockOverride = false;
+    if (stockReducing) {
+      if (!Number.isInteger(locationId) || locationId <= 0) return Response.json({ error: "Select an inventory before creating the document." }, { status: 400 });
+      const requestedByItem = new Map<number, number>();
+      for (const line of prepared) if (line.itemId) requestedByItem.set(line.itemId, (requestedByItem.get(line.itemId) ?? 0) + line.quantity);
+      const itemIds = [...requestedByItem.keys()];
+      if (itemIds.length) {
+        const available = await db.select({ id: items.id, sku: items.sku, name: items.name, quantity: items.quantity }).from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId), inArray(items.id, itemIds)));
+        if (available.length !== itemIds.length) return Response.json({ error: "One or more selected items do not belong to this company inventory." }, { status: 400 });
+        const wantsOverride = payload.allowNegativeStock === true || String(payload.allowNegativeStock) === "true";
+        let overrideApproved = false;
+        if (wantsOverride) {
+          const suppliedPin = String(payload.adminOverridePin ?? "");
+          const [settings] = await db.select({ pinHash: companySettings.negativeStockPinHash }).from(companySettings).where(eq(companySettings.companyId, companyId)).limit(1);
+          if (!settings?.pinHash) return Response.json({ error: "Admin PIN is not configured. Open Management > Admin Controls." }, { status: 403 });
+          if (!verifyAdminPin(suppliedPin, settings.pinHash)) return Response.json({ error: "Incorrect admin PIN. Negative stock was not allowed." }, { status: 403 });
+          overrideApproved = true;
+          usedAdminNegativeStockOverride = true;
+        }
+        if (!overrideApproved) {
+          const shortages = available.filter((item) => Number(item.quantity) < (requestedByItem.get(item.id) ?? 0));
+          if (shortages.length) {
+            const detail = shortages.map((item) => `${item.sku} ${item.name}: available ${item.quantity}, requested ${requestedByItem.get(item.id)}`).join("; ");
+            return Response.json({ error: `Invoice blocked to prevent negative stock. ${detail}` }, { status: 409 });
+          }
+        }
+      }
+    }
     const subtotal = round(prepared.reduce((sum, line) => sum + line.subtotal, 0));
     const vatAmount = round(prepared.reduce((sum, line) => sum + line.vatAmount, 0));
     const total = round(subtotal + vatAmount);
@@ -173,7 +220,7 @@ export async function POST(request: Request) {
       const contactType = ["invoice", "sales receipt", "customer payment", "credit memo"].includes(type) ? "customer" : "vendor";
       if (balanceChange) await db.update(contacts).set({ balance: sql`${contacts.balance} + ${balanceChange}` }).where(and(eq(contacts.companyId, companyId), eq(contacts.name, party), eq(contacts.type, contactType)));
     }
-    await db.insert(auditLog).values({ companyId, action: "created", entityType: "transaction", entityId: record.id, details: `${number} ${type}; ${prepared.length} line(s)` });
+    await db.insert(auditLog).values({ companyId, action: "created", entityType: "transaction", entityId: record.id, details: `${number} ${type}; ${prepared.length} line(s)${usedAdminNegativeStockOverride ? "; admin negative-stock override used" : ""}` });
     return Response.json({ record }, { status: 201 });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });

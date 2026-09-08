@@ -2,13 +2,14 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ArrowRightLeft, BadgeDollarSign, Bell, BookOpen, Boxes, Building2, CheckCircle2,
+  ArrowRightLeft, BadgeDollarSign, Bell, BookOpen, Boxes, Building2, CheckCircle2, Copy,
   Check, ChevronDown, ChevronRight, CircleDollarSign, Clock3, Download, FileBarChart2, Landmark,
-  Eye, LayoutDashboard, PackageSearch, Pencil, Plus, Printer, ReceiptText, RefreshCw,
-  Search, Settings, ShoppingCart, Trash2, Users, WalletCards,
+  Eye, KeyRound, LayoutDashboard, PackageSearch, Pencil, Plus, Printer, ReceiptText, RefreshCw,
+  Search, Settings, ShieldCheck, ShoppingCart, Trash2, Users, WalletCards,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader,
   DialogTitle,
@@ -33,7 +34,7 @@ import { Toaster, toast } from "sonner";
 import { MultiLineTransferCenter } from "@/app/transfer-center";
 import { InventoryOverview } from "@/app/inventory-overview";
 
-type View = "dashboard" | "inventory-overview" | "sales" | "purchases" | "customers" | "vendors" | "inventory" | "transfers" | "banking" | "accounts" | "employees" | "reports" | "companies" | "inventories" | "invoice-series" | "currencies";
+type View = "dashboard" | "inventory-overview" | "sales" | "purchases" | "customers" | "vendors" | "inventory" | "transfers" | "banking" | "accounts" | "employees" | "reports" | "companies" | "inventories" | "invoice-series" | "currencies" | "admin-controls";
 type Kind = "transactions" | "contacts" | "items" | "accounts";
 type DataRecord = Record<string, string | number | boolean> & { id: number };
 type LineForm = { itemId: string; description: string; quantity: string; unitPrice: string; unitCost: string; vatRate: string };
@@ -71,6 +72,7 @@ const navGroups = [
     { id: "inventories", label: "Inventories", icon: PackageSearch },
     { id: "invoice-series", label: "Invoice Series", icon: ReceiptText },
     { id: "currencies", label: "Currencies", icon: CircleDollarSign },
+    { id: "admin-controls", label: "Admin Controls", icon: ShieldCheck },
   ] },
 ] as const;
 
@@ -91,6 +93,7 @@ const viewTitles: Record<View, { title: string; sub: string }> = {
   inventories: { title: "Inventories", sub: "Manage warehouses, showrooms and stock locations" },
   "invoice-series": { title: "Invoice Series", sub: "Customize invoice numbering for every company inventory" },
   currencies: { title: "Currencies", sub: "Set company currency and transaction currencies" },
+  "admin-controls": { title: "Admin Controls", sub: "Protect restricted inventory operations for this company" },
 };
 
 const transactionTypes: Record<string, string[]> = {
@@ -212,7 +215,7 @@ export default function EnterpriseApp() {
   }, [records.transactions]);
 
   const currentKind: Kind = view === "customers" || view === "vendors" || view === "employees" ? "contacts" : view === "inventory" ? "items" : view === "accounts" ? "accounts" : "transactions";
-  const managementView = view === "inventory-overview" || view === "transfers" || view === "companies" || view === "inventories" || view === "invoice-series" || view === "currencies";
+  const managementView = view === "inventory-overview" || view === "transfers" || view === "companies" || view === "inventories" || view === "invoice-series" || view === "currencies" || view === "admin-controls";
 
   const filteredRecords = useMemo(() => {
     let list = records[currentKind];
@@ -252,7 +255,7 @@ export default function EnterpriseApp() {
   function startInvoice(location: InventoryLocation) {
     setActiveLocationId(location.id);
     setRecords((current) => ({ ...current, items: [] }));
-    setForm({ type: "invoice", number: invoiceNumberPreview(activeCompanyId, location), transactionDate: today(), dueDate: today(), status: "open", account: "Sales Revenue", vatRate: "5", currency: baseCurrency, exchangeRate: "1" });
+    setForm({ type: "invoice", number: invoiceNumberPreview(activeCompanyId, location), transactionDate: today(), dueDate: today(), status: "open", account: "Sales Revenue", vatRate: "5", currency: baseCurrency, exchangeRate: "1", allowNegativeStock: "false", adminOverridePin: "" });
     setLines([{ itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatRate: "5" }]);
     setInvoiceInventoryOpen(false);
     setDialogOpen(true);
@@ -299,6 +302,16 @@ export default function EnterpriseApp() {
       setRecords((old) => ({ ...old, [currentKind]: old[currentKind].filter((r) => r.id !== id) }));
       toast.success("Record deleted");
     } catch { toast.error("Could not delete record"); }
+  }
+
+  async function duplicateItem(id: number) {
+    try {
+      const response = await fetch("/api/records", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "items", companyId: activeCompanyId, locationId: activeLocationId, duplicateItemId: id }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not duplicate item");
+      toast.success(`Item duplicated with SKU ${data.record.sku}`);
+      await loadData();
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not duplicate item"); }
   }
 
   async function openDetail(id: number) {
@@ -373,8 +386,8 @@ export default function EnterpriseApp() {
         </header>
 
         <div className="mx-auto w-full max-w-[1500px] p-4 lg:p-7">
-          {view === "inventory-overview" ? <InventoryOverview /> : view === "transfers" ? <MultiLineTransferCenter key={`${activeCompanyId}-${activeLocationId}`} companies={companies} activeLocationId={activeLocationId} onTransferred={loadData} /> : managementView ? <WorkspaceCenter mode={view as "companies" | "inventories" | "invoice-series" | "currencies"} companies={companies} activeCompanyId={activeCompanyId} onChanged={loadWorkspaces} /> : view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} onNavigate={setView} onCreate={openCreate} onOpenDetail={openDetail} /> : view === "reports" ? <ReportCenter metrics={metrics} currency={baseCurrency} onOpen={openReport} loading={reportLoading} /> : (
-            <RecordView view={view} kind={currentKind} records={filteredRecords} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onEditItem={openItemEdit} onOpenDetail={openDetail} />
+          {view === "inventory-overview" ? <InventoryOverview /> : view === "transfers" ? <MultiLineTransferCenter key={`${activeCompanyId}-${activeLocationId}`} companies={companies} activeLocationId={activeLocationId} onTransferred={loadData} /> : view === "admin-controls" ? <AdminSettingsCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} /> : managementView ? <WorkspaceCenter mode={view as "companies" | "inventories" | "invoice-series" | "currencies"} companies={companies} activeCompanyId={activeCompanyId} onChanged={loadWorkspaces} /> : view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} onNavigate={setView} onCreate={openCreate} onOpenDetail={openDetail} /> : view === "reports" ? <ReportCenter metrics={metrics} currency={baseCurrency} onOpen={openReport} loading={reportLoading} /> : (
+            <RecordView view={view} kind={currentKind} records={filteredRecords} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onEditItem={openItemEdit} onDuplicateItem={duplicateItem} onOpenDetail={openDetail} />
           )}
         </div>
       </SidebarInset>
@@ -427,7 +440,7 @@ function Dashboard({ metrics, records, companyName, currency, onNavigate, onCrea
 
 function StatusLine({ label, value, action }: { label: string; value: number; action: () => void }) { return <button onClick={action} className="flex w-full items-center justify-between rounded-lg border border-slate-100 p-3 text-left hover:border-emerald-200 hover:bg-emerald-50/50"><span className="text-sm text-slate-600">{label}</span><span className="flex items-center gap-2 font-bold text-slate-900">{value}<ChevronRight className="size-4 text-slate-400" /></span></button>; }
 
-function RecordView({ view, kind, records, currency, loading, search, setSearch, onRefresh, onCreate, onDelete, onEditItem, onOpenDetail }: { view: View; kind: Kind; records: DataRecord[]; currency: string; loading: boolean; search: string; setSearch: (v: string) => void; onRefresh: () => void; onCreate: () => void; onDelete: (id: number) => void; onEditItem: (item: DataRecord) => void; onOpenDetail: (id: number) => void }) {
+function RecordView({ view, kind, records, currency, loading, search, setSearch, onRefresh, onCreate, onDelete, onEditItem, onDuplicateItem, onOpenDetail }: { view: View; kind: Kind; records: DataRecord[]; currency: string; loading: boolean; search: string; setSearch: (v: string) => void; onRefresh: () => void; onCreate: () => void; onDelete: (id: number) => void; onEditItem: (item: DataRecord) => void; onDuplicateItem: (id: number) => void; onOpenDetail: (id: number) => void }) {
   function exportCsv() {
     if (!records.length) return toast.error("There are no records to export.");
     const headers = Array.from(new Set(records.flatMap((record) => Object.keys(record))));
@@ -442,7 +455,7 @@ function RecordView({ view, kind, records, currency, loading, search, setSearch,
     toast.success("CSV exported");
   }
   return <section className="rounded-xl border border-slate-200 bg-white shadow-sm"><div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between"><div className="relative w-full sm:max-w-sm"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={`Search ${view}…`} className="pl-9" /></div><div className="flex gap-2"><Button variant="outline" size="icon" onClick={onRefresh} aria-label="Refresh"><RefreshCw className="size-4" /></Button><Button variant="outline" onClick={exportCsv}><Download className="size-4" />Export</Button><Button onClick={onCreate} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400"><Plus className="size-4" />Add new</Button></div></div>
-    {kind === "transactions" ? <TransactionTable records={records} empty={loading ? "Loading records…" : "No transactions found."} onDelete={onDelete} onOpen={onOpenDetail} /> : kind === "contacts" ? <ContactTable records={records} empty={loading ? "Loading records…" : "No contacts found."} onDelete={onDelete} /> : kind === "items" ? <ItemTable records={records} currency={currency} empty={loading ? "Loading records…" : "No inventory items found."} onDelete={onDelete} onEdit={onEditItem} /> : <AccountTable records={records} currency={currency} empty={loading ? "Loading records…" : "No accounts found."} onDelete={onDelete} />}
+    {kind === "transactions" ? <TransactionTable records={records} empty={loading ? "Loading records…" : "No transactions found."} onDelete={onDelete} onOpen={onOpenDetail} /> : kind === "contacts" ? <ContactTable records={records} empty={loading ? "Loading records…" : "No contacts found."} onDelete={onDelete} /> : kind === "items" ? <ItemTable records={records} currency={currency} empty={loading ? "Loading records…" : "No inventory items found."} onDelete={onDelete} onEdit={onEditItem} onDuplicate={onDuplicateItem} /> : <AccountTable records={records} currency={currency} empty={loading ? "Loading records…" : "No accounts found."} onDelete={onDelete} />}
   </section>;
 }
 
@@ -450,7 +463,7 @@ function EmptyRow({ text, columns }: { text: string; columns: number }) { return
 function DeleteButton({ id, onDelete }: { id: number; onDelete?: (id: number) => void }) { return onDelete ? <Button variant="ghost" size="icon" onClick={() => onDelete(id)} aria-label="Delete record" className="text-slate-400 hover:text-rose-600"><Trash2 className="size-4" /></Button> : null; }
 function TransactionTable({ records, empty, onDelete, onOpen }: { records: DataRecord[]; empty: string; onDelete?: (id: number) => void; onOpen?: (id: number) => void }) { return <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead>No.</TableHead><TableHead>Name</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Amount</TableHead><TableHead className="w-24" /></TableRow></TableHeader><TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={7} /> : records.map((r) => <TableRow key={r.id} className="cursor-pointer" onDoubleClick={() => onOpen?.(r.id)}><TableCell className="text-slate-500">{String(r.transactionDate)}</TableCell><TableCell className="font-medium capitalize">{String(r.type)}</TableCell><TableCell className="font-mono text-xs text-slate-500">{String(r.number)}</TableCell><TableCell>{String(r.party)}</TableCell><TableCell><StatusBadge value={String(r.status)} /></TableCell><TableCell className="text-right font-semibold">{formatMoney(r.total, String(r.currency || "AED"))}</TableCell><TableCell><div className="flex"><Button variant="ghost" size="icon" onClick={() => onOpen?.(r.id)} aria-label="Open document" className="text-slate-400 hover:text-emerald-600"><Eye className="size-4" /></Button><DeleteButton id={r.id} onDelete={onDelete} /></div></TableCell></TableRow>)}</TableBody></Table>; }
 function ContactTable({ records, empty, onDelete }: { records: DataRecord[]; empty: string; onDelete: (id: number) => void }) { return <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Company</TableHead><TableHead>Email</TableHead><TableHead>Phone</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Balance</TableHead><TableHead className="w-12" /></TableRow></TableHeader><TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={7} /> : records.map((r) => <TableRow key={r.id}><TableCell className="font-semibold">{String(r.name)}</TableCell><TableCell>{String(r.company || "—")}</TableCell><TableCell>{String(r.email || "—")}</TableCell><TableCell>{String(r.phone || "—")}</TableCell><TableCell><StatusBadge value={String(r.status)} /></TableCell><TableCell className="text-right font-semibold">{formatMoney(r.balance, String(r.currency || "AED"))}</TableCell><TableCell><DeleteButton id={r.id} onDelete={onDelete} /></TableCell></TableRow>)}</TableBody></Table>; }
-function ItemTable({ records, currency, empty, onDelete, onEdit }: { records: DataRecord[]; currency: string; empty: string; onDelete: (id: number) => void; onEdit: (item: DataRecord) => void }) { return <Table><TableHeader><TableRow><TableHead>Item No.</TableHead><TableHead>SKU</TableHead><TableHead>Item & description</TableHead><TableHead>Category</TableHead><TableHead className="text-right">On hand</TableHead><TableHead className="text-right">Reorder</TableHead><TableHead className="text-right">Sales price</TableHead><TableHead className="text-right">Avg. cost</TableHead><TableHead className="w-24" /></TableRow></TableHeader><TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={9} /> : records.map((r) => { const description = itemDisplayDescription(r); return <TableRow key={r.id}><TableCell className="font-mono text-xs">{String(r.itemNumber || 13000 + r.id)}</TableCell><TableCell className="font-mono text-xs">{String(r.sku)}</TableCell><TableCell><p className="font-semibold">{String(r.name)}</p>{description ? <p className="mt-1 max-w-lg truncate text-xs text-slate-500" title={description}>{description}</p> : null}</TableCell><TableCell>{String(r.category)}</TableCell><TableCell className="text-right">{String(r.quantity)}</TableCell><TableCell className="text-right">{String(r.reorderPoint)}</TableCell><TableCell className="text-right">{formatMoney(r.salesPrice, currency)}</TableCell><TableCell className="text-right">{formatMoney(r.cost, currency)}</TableCell><TableCell><div className="flex"><Button type="button" variant="ghost" size="icon" onClick={() => onEdit(r)} aria-label={`Edit ${String(r.name)}`} className="text-slate-400 hover:text-sky-600"><Pencil className="size-4" /></Button><DeleteButton id={r.id} onDelete={onDelete} /></div></TableCell></TableRow>; })}</TableBody></Table>; }
+function ItemTable({ records, currency, empty, onDelete, onEdit, onDuplicate }: { records: DataRecord[]; currency: string; empty: string; onDelete: (id: number) => void; onEdit: (item: DataRecord) => void; onDuplicate: (id: number) => void }) { return <Table><TableHeader><TableRow><TableHead>Item No.</TableHead><TableHead>SKU</TableHead><TableHead>Item & description</TableHead><TableHead>Category</TableHead><TableHead className="text-right">On hand</TableHead><TableHead className="text-right">Reorder</TableHead><TableHead className="text-right">Sales price</TableHead><TableHead className="text-right">Avg. cost</TableHead><TableHead className="w-32" /></TableRow></TableHeader><TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={9} /> : records.map((r) => { const description = itemDisplayDescription(r); return <TableRow key={r.id}><TableCell className="font-mono text-xs">{String(r.itemNumber || 13000 + r.id)}</TableCell><TableCell className="font-mono text-xs">{String(r.sku)}</TableCell><TableCell><p className="font-semibold">{String(r.name)}</p>{description ? <p className="mt-1 max-w-lg truncate text-xs text-slate-500" title={description}>{description}</p> : null}</TableCell><TableCell>{String(r.category)}</TableCell><TableCell className="text-right">{String(r.quantity)}</TableCell><TableCell className="text-right">{String(r.reorderPoint)}</TableCell><TableCell className="text-right">{formatMoney(r.salesPrice, currency)}</TableCell><TableCell className="text-right">{formatMoney(r.cost, currency)}</TableCell><TableCell><div className="flex"><Button type="button" variant="ghost" size="icon" onClick={() => onDuplicate(r.id)} aria-label={`Duplicate ${String(r.name)}`} title="Duplicate item" className="text-slate-400 hover:text-violet-600"><Copy className="size-4" /></Button><Button type="button" variant="ghost" size="icon" onClick={() => onEdit(r)} aria-label={`Edit ${String(r.name)}`} className="text-slate-400 hover:text-sky-600"><Pencil className="size-4" /></Button><DeleteButton id={r.id} onDelete={onDelete} /></div></TableCell></TableRow>; })}</TableBody></Table>; }
 function AccountTable({ records, currency, empty, onDelete }: { records: DataRecord[]; currency: string; empty: string; onDelete: (id: number) => void }) { return <Table><TableHeader><TableRow><TableHead>Code</TableHead><TableHead>Account name</TableHead><TableHead>Type</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Balance</TableHead><TableHead className="w-12" /></TableRow></TableHeader><TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={6} /> : records.map((r) => <TableRow key={r.id}><TableCell className="font-mono text-xs">{String(r.code)}</TableCell><TableCell className="font-semibold">{String(r.name)}</TableCell><TableCell>{String(r.type)}</TableCell><TableCell><Badge variant="outline">{r.active ? "Active" : "Inactive"}</Badge></TableCell><TableCell className="text-right font-semibold">{formatMoney(r.balance, currency)}</TableCell><TableCell><DeleteButton id={r.id} onDelete={onDelete} /></TableCell></TableRow>)}</TableBody></Table>; }
 function StatusBadge({ value }: { value: string }) { const good = value === "paid" || value === "active" || value === "cleared"; return <Badge variant="outline" className={good ? "border-emerald-200 bg-emerald-50 text-emerald-700" : value === "overdue" ? "border-rose-200 bg-rose-50 text-rose-700" : "border-amber-200 bg-amber-50 text-amber-700"}>{value}</Badge>; }
 
@@ -477,6 +490,66 @@ function ReportDialog({ report, companyName, onClose }: { report: ReportData | n
     <DialogHeader><div className="flex items-start justify-between gap-4 pr-8"><div><p className="text-xs font-bold tracking-[.18em] text-emerald-600">{companyName.toUpperCase()}</p><DialogTitle className="mt-2">{report.title}</DialogTitle><DialogDescription>Generated {new Date(report.generatedAt).toLocaleString("en-AE")} · {report.currency} accrual basis</DialogDescription></div><Button variant="outline" onClick={() => window.print()}><Printer className="size-4" />Print / PDF</Button></div></DialogHeader>
     <div className="overflow-x-auto rounded-xl border"><Table><TableHeader><TableRow>{report.columns.map((column) => <TableHead key={column.key} className={column.type === "money" ? "text-right" : ""}>{column.label}</TableHead>)}</TableRow></TableHeader><TableBody>{report.rows.length ? report.rows.map((row, index) => <TableRow key={index}>{report.columns.map((column) => <TableCell key={column.key} className={column.type === "money" ? "text-right font-medium" : ""}>{column.type === "money" ? formatMoney(row[column.key], report.currency) : String(row[column.key] ?? "—")}</TableCell>)}</TableRow>) : <EmptyRow text="No posted data is available for this report." columns={report.columns.length} />}</TableBody></Table></div>
   </DialogContent></Dialog>;
+}
+
+function AdminSettingsCenter({ companyId, companyName }: { companyId: number; companyName: string }) {
+  const [configured, setConfigured] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [currentPin, setCurrentPin] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    async function loadSettings() {
+      setLoading(true);
+      try {
+        const response = await fetch(`/api/admin-settings?companyId=${companyId}`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not load admin controls");
+        if (active) setConfigured(Boolean(data.configured));
+      } catch (error) {
+        if (active) toast.error(error instanceof Error ? error.message : "Could not load admin controls");
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+    if (companyId) loadSettings();
+    return () => { active = false; };
+  }, [companyId]);
+
+  async function savePin(event: FormEvent) {
+    event.preventDefault();
+    if (!/^\d{4,12}$/.test(newPin)) return toast.error("The new PIN must contain 4 to 12 numbers.");
+    if (newPin !== confirmPin) return toast.error("The new PIN and confirmation do not match.");
+    setSaving(true);
+    try {
+      const response = await fetch("/api/admin-settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, currentPin, newPin }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not save the admin PIN");
+      setConfigured(true);
+      setCurrentPin(""); setNewPin(""); setConfirmPin("");
+      toast.success("Admin PIN saved");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not save the admin PIN");
+    } finally { setSaving(false); }
+  }
+
+  return <div className="grid gap-5 xl:grid-cols-[1fr_420px]">
+    <section className="rounded-xl border bg-white shadow-sm">
+      <div className="flex items-start justify-between gap-4 border-b p-5"><div><h2 className="font-bold">Restricted stock operations</h2><p className="mt-1 text-sm text-slate-500">Security controls apply separately to {companyName}.</p></div><Badge className={configured ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100" : "bg-amber-100 text-amber-900 hover:bg-amber-100"}>{loading ? "Checking…" : configured ? "PIN configured" : "Setup required"}</Badge></div>
+      <div className="p-5"><div className="flex gap-4 rounded-xl border border-amber-200 bg-amber-50 p-4"><div className="grid size-11 shrink-0 place-items-center rounded-lg bg-amber-100 text-amber-800"><ShieldCheck className="size-6" /></div><div><h3 className="font-semibold text-amber-950">Negative-stock invoice override</h3><p className="mt-1 text-sm leading-6 text-amber-900">Invoices and sales receipts are blocked when stock is insufficient. A company admin can enter this PIN on the document to approve an exception.</p><p className="mt-2 text-sm font-medium text-amber-950">Every override is recorded in the audit log.</p></div></div></div>
+    </section>
+    <form onSubmit={savePin} className="space-y-4 rounded-xl border bg-white p-5 shadow-sm">
+      <div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-lg bg-slate-100 text-slate-700"><KeyRound className="size-5" /></div><div><h2 className="font-bold">{configured ? "Change admin PIN" : "Set admin PIN"}</h2><p className="text-sm text-slate-500">Use 4 to 12 numbers.</p></div></div>
+      {configured && <div className="space-y-2"><Label htmlFor="currentAdminPin">Current PIN</Label><Input id="currentAdminPin" type="password" inputMode="numeric" autoComplete="current-password" pattern="[0-9]{4,12}" value={currentPin} onChange={(event) => setCurrentPin(event.target.value.replace(/\D/g, "").slice(0, 12))} required placeholder="Enter current PIN" /></div>}
+      <div className="space-y-2"><Label htmlFor="newAdminPin">New PIN</Label><Input id="newAdminPin" type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,12}" value={newPin} onChange={(event) => setNewPin(event.target.value.replace(/\D/g, "").slice(0, 12))} required placeholder="Enter new PIN" /></div>
+      <div className="space-y-2"><Label htmlFor="confirmAdminPin">Confirm new PIN</Label><Input id="confirmAdminPin" type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,12}" value={confirmPin} onChange={(event) => setConfirmPin(event.target.value.replace(/\D/g, "").slice(0, 12))} required placeholder="Re-enter new PIN" /></div>
+      <Button type="submit" disabled={loading || saving || !companyId} className="w-full bg-emerald-500 font-semibold text-slate-950 hover:bg-emerald-400">{saving ? "Saving…" : configured ? "Change admin PIN" : "Set admin PIN"}</Button>
+      <p className="text-sm leading-5 text-slate-500">The PIN is securely hashed before storage and is never displayed. Only authorized company administrators should change it.</p>
+    </form>
+  </div>;
 }
 
 function WorkspaceCenter({ mode, companies, activeCompanyId, onChanged }: { mode: "companies" | "inventories" | "invoice-series" | "currencies"; companies: CompanyWorkspace[]; activeCompanyId: number; onChanged: () => Promise<void> }) {
@@ -568,6 +641,10 @@ function TransactionFields({ form, setForm, types, items, lines, setLines }: { f
       </div>)}
       <div className="ml-auto grid max-w-xs gap-2 pt-2 text-sm"><div className="flex justify-between text-slate-500"><span>Subtotal</span><span>{formatMoney(subtotal, form.currency)}</span></div><div className="flex justify-between text-slate-500"><span>VAT</span><span>{formatMoney(vat, form.currency)}</span></div><div className="flex justify-between border-t pt-2 text-base font-bold"><span>Total</span><span>{formatMoney(subtotal + vat, form.currency)}</span></div></div>
     </div>
+    {["invoice", "sales receipt"].includes(form.type) && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 sm:col-span-2">
+      <label className="flex cursor-pointer items-start gap-3"><Checkbox checked={form.allowNegativeStock === "true"} onCheckedChange={(checked) => setForm({ ...form, allowNegativeStock: checked === true ? "true" : "false", adminOverridePin: checked === true ? form.adminOverridePin ?? "" : "" })} /><span><span className="block text-sm font-semibold text-amber-950">Admin override: allow negative stock</span><span className="mt-1 block text-xs text-amber-800">Normally blocked when stock is insufficient. Configure or change the PIN in Management &gt; Admin Controls.</span></span></label>
+      {form.allowNegativeStock === "true" && <div className="mt-3 max-w-sm space-y-2"><Label htmlFor="adminOverridePin">Admin PIN</Label><Input id="adminOverridePin" name="adminOverridePin" type="password" inputMode="numeric" autoComplete="off" required value={form.adminOverridePin ?? ""} onChange={(event) => setForm({ ...form, adminOverridePin: event.target.value })} placeholder="Enter admin PIN" /></div>}
+    </div>}
     <Choice label="Status" name="status" values={["open", "paid", "overdue", "cleared"]} form={form} setForm={setForm} /><Field label="Posting account" name="account" form={form} setForm={setForm} />
     <div className="sm:col-span-2"><Field label="Memo" name="memo" form={form} setForm={setForm} /></div>
   </div>;
