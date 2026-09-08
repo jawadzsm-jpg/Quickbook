@@ -1,6 +1,6 @@
 import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { accounts, companies, inventoryLocations, transactions } from "../../../db/schema";
+import { accounts, companies, inventoryLocations, transactions, vatCodes } from "../../../db/schema";
 import { requireApiUser } from "@/lib/auth";
 
 const standardAccounts = [
@@ -11,6 +11,13 @@ const standardAccounts = [
   ["4100", "Other Income", "Other Income", "OTHER_INCOME"], ["5000", "Cost of Goods Sold", "Cost of Goods Sold", "COGS"],
   ["6000", "Purchases", "Expense", "PURCHASES"], ["6100", "Operating Expenses", "Expense", "EXPENSE"],
   ["6200", "Payroll Expense", "Expense", "PAYROLL"], ["9999", "Suspense", "Other Current Asset", "SUSPENSE"],
+] as const;
+
+const standardVatCodes = [
+  { code: "STANDARD", name: "Standard rated", rate: 5, description: "Standard UAE VAT rate", system: true },
+  { code: "ZERO", name: "Zero rated", rate: 0, description: "Taxable supply charged at 0%", system: true },
+  { code: "EXEMPT", name: "Exempt", rate: 0, description: "Supply exempt from VAT", system: true },
+  { code: "OUT_OF_SCOPE", name: "Out of scope", rate: 0, description: "Transaction outside the scope of VAT", system: true },
 ] as const;
 
 function message(error: unknown) {
@@ -55,6 +62,7 @@ export async function POST(request: Request) {
       const [company] = await db.insert(companies).values({ name, baseCurrency }).returning();
       const [location] = await db.insert(inventoryLocations).values({ companyId: company.id, name: "Main Inventory", code: "MAIN", invoicePrefix: "MAIN" }).returning();
       await db.insert(accounts).values(standardAccounts.map(([code, accountName, accountType, systemRole]) => ({ companyId: company.id, code, name: accountName, type: accountType, systemRole })));
+      await db.insert(vatCodes).values(standardVatCodes.map((vatCode) => ({ companyId: company.id, ...vatCode })));
       return Response.json({ company: { ...company, locations: [location] } }, { status: 201 });
     }
     const companyId = Number(payload.companyId);

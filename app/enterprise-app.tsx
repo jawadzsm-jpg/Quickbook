@@ -6,7 +6,7 @@ import {
   ArrowRightLeft, BadgeDollarSign, Bell, BookOpen, Boxes, Building2, CheckCircle2, Copy,
   Check, ChevronDown, ChevronRight, CircleDollarSign, Clock3, Download, FileBarChart2, Landmark,
   Eye, KeyRound, LayoutDashboard, LogOut, PackageSearch, Pencil, Plus, Printer, ReceiptText, RefreshCw,
-  Search, Settings, ShieldCheck, ShoppingCart, Trash2, Users, WalletCards,
+  Search, Settings, ShieldCheck, ShoppingCart, Trash2, Users, WalletCards, Percent,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,8 +35,9 @@ import { Toaster, toast } from "sonner";
 import { MultiLineTransferCenter } from "@/app/transfer-center";
 import { InventoryOverview } from "@/app/inventory-overview";
 import { UserRoleCenter } from "@/app/user-role-center";
+import { VatCodeCenter, type VatCodeRecord } from "@/app/vat-code-center";
 
-type View = "dashboard" | "inventory-overview" | "sales" | "receive-payment" | "purchases" | "write-cheque" | "customers" | "vendors" | "inventory" | "transfers" | "banking" | "accounts" | "employees" | "reports" | "companies" | "inventories" | "invoice-series" | "currencies" | "admin-controls";
+type View = "dashboard" | "inventory-overview" | "sales" | "receive-payment" | "purchases" | "write-cheque" | "customers" | "vendors" | "inventory" | "transfers" | "banking" | "accounts" | "employees" | "reports" | "companies" | "inventories" | "invoice-series" | "currencies" | "vat-codes" | "admin-controls";
 type AppRole = "admin" | "accountant" | "sales" | "purchasing" | "inventory" | "viewer";
 type CurrentUser = { id: number; fullName: string; email: string; avatarData: string; role: AppRole; mustChangePassword: boolean };
 type Kind = "transactions" | "contacts" | "items" | "accounts";
@@ -78,6 +79,7 @@ const navGroups = [
     { id: "inventories", label: "Inventories", icon: PackageSearch },
     { id: "invoice-series", label: "Invoice Series", icon: ReceiptText },
     { id: "currencies", label: "Currencies", icon: CircleDollarSign },
+    { id: "vat-codes", label: "VAT Codes", icon: Percent },
     { id: "admin-controls", label: "Admin Controls", icon: ShieldCheck },
   ] },
 ] as const;
@@ -101,7 +103,7 @@ const roleViews: Record<AppRole, readonly View[]> = {
 };
 
 const roleWriteViews: Record<AppRole, readonly View[]> = {
-  admin: ["sales", "receive-payment", "customers", "purchases", "write-cheque", "vendors", "inventory", "transfers", "banking", "accounts", "employees", "companies", "inventories", "invoice-series", "currencies", "admin-controls"],
+  admin: ["sales", "receive-payment", "customers", "purchases", "write-cheque", "vendors", "inventory", "transfers", "banking", "accounts", "employees", "companies", "inventories", "invoice-series", "currencies", "vat-codes", "admin-controls"],
   accountant: ["sales", "receive-payment", "customers", "purchases", "write-cheque", "vendors", "banking", "accounts"],
   sales: ["sales", "receive-payment", "customers"],
   purchasing: ["purchases", "write-cheque", "vendors"],
@@ -128,6 +130,7 @@ const viewTitles: Record<View, { title: string; sub: string }> = {
   inventories: { title: "Inventories", sub: "Manage warehouses, showrooms and stock locations" },
   "invoice-series": { title: "Invoice Series", sub: "Customize invoice numbering for every company inventory" },
   currencies: { title: "Currencies", sub: "Set company currency and transaction currencies" },
+  "vat-codes": { title: "VAT Codes", sub: "Manage tax rates and usage details for transaction dropdowns" },
   "admin-controls": { title: "Admin Controls", sub: "Protect restricted inventory operations for this company" },
 };
 
@@ -170,13 +173,14 @@ const reports = [
 const currencies = ["AED", "USD", "EUR", "GBP", "SAR", "OMR", "QAR", "BHD", "KWD", "INR", "CNY", "HKD", "JPY", "CAD", "AUD"];
 const formatMoney = (value: unknown, currency = "AED") => new Intl.NumberFormat("en-AE", { style: "currency", currency, maximumFractionDigits: 2 }).format(Number(value ?? 0));
 const today = () => new Date().toISOString().slice(0, 10);
-const vatCodeOptions = [
-  { code: "STANDARD", label: "STANDARD · 5%", rate: "5" },
-  { code: "ZERO", label: "ZERO · 0%", rate: "0" },
-  { code: "EXEMPT", label: "EXEMPT · 0%", rate: "0" },
-  { code: "OUT_OF_SCOPE", label: "OUT OF SCOPE · 0%", rate: "0" },
+type VatCodeOption = VatCodeRecord & { label: string };
+const defaultVatCodeOptions: VatCodeOption[] = [
+  { id: -1, companyId: 0, code: "STANDARD", name: "Standard rated", label: "STANDARD · Standard rated · 5%", rate: 5, description: "Standard UAE VAT rate", active: true, system: true },
+  { id: -2, companyId: 0, code: "ZERO", name: "Zero rated", label: "ZERO · Zero rated · 0%", rate: 0, description: "Taxable supply charged at 0%", active: true, system: true },
+  { id: -3, companyId: 0, code: "EXEMPT", name: "Exempt", label: "EXEMPT · Exempt · 0%", rate: 0, description: "Supply exempt from VAT", active: true, system: true },
+  { id: -4, companyId: 0, code: "OUT_OF_SCOPE", name: "Out of scope", label: "OUT OF SCOPE · Out of scope · 0%", rate: 0, description: "Transaction outside the scope of VAT", active: true, system: true },
 ];
-const vatRateForCode = (code: string) => vatCodeOptions.find((option) => option.code === code)?.rate ?? "0";
+const vatRateForCode = (code: string, options: VatCodeOption[]) => String(options.find((option) => option.code === code)?.rate ?? 0);
 const accountRoleOptions = [
   ["BANK", "Bank / cash"], ["AR", "Accounts Receivable (A/R)"], ["AP", "Accounts Payable (A/P)"],
   ["INVENTORY", "Inventory asset"], ["INPUT_VAT", "Recoverable VAT"], ["OUTPUT_VAT", "VAT payable"],
@@ -221,6 +225,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   const [activeLocationId, setActiveLocationId] = useState(0);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [invoiceInventoryOpen, setInvoiceInventoryOpen] = useState(false);
+  const [vatCodeOptions, setVatCodeOptions] = useState<VatCodeOption[]>(defaultVatCodeOptions);
 
   const activeCompany = companies.find((company) => company.id === activeCompanyId);
   const activeLocations = useMemo(() => activeCompany?.locations ?? [], [activeCompany]);
@@ -258,6 +263,17 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     } finally { setLoading(false); }
   }, [activeCompanyId, activeLocationId]);
 
+  const loadVatCodes = useCallback(async () => {
+    if (!activeCompanyId) return;
+    try {
+      const response = await fetch(`/api/vat-codes?companyId=${activeCompanyId}`, { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not load VAT codes");
+      const activeCodes = (data.codes as VatCodeRecord[]).filter((code) => code.active).map((code) => ({ ...code, label: `${code.code} · ${code.name} · ${Number(code.rate).toLocaleString()}%` }));
+      setVatCodeOptions(activeCodes.length ? activeCodes : defaultVatCodeOptions);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not load VAT codes"); }
+  }, [activeCompanyId]);
+
   // Initial load synchronizes the client workspace with the persisted company file.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadWorkspaces(); }, [loadWorkspaces]);
@@ -270,6 +286,8 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   // Refresh the selected company file whenever its company or warehouse changes.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (activeCompanyId && activeLocationId) loadData(); }, [activeCompanyId, activeLocationId, loadData]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { if (activeCompanyId) loadVatCodes(); }, [activeCompanyId, loadVatCodes]);
 
   const metrics = useMemo(() => {
     const tx = records.transactions;
@@ -282,7 +300,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   }, [records.accounts, records.transactions]);
 
   const currentKind: Kind = view === "customers" || view === "vendors" || view === "employees" ? "contacts" : view === "inventory" ? "items" : view === "accounts" ? "accounts" : "transactions";
-  const managementView = view === "inventory-overview" || view === "transfers" || view === "companies" || view === "inventories" || view === "invoice-series" || view === "currencies" || view === "admin-controls";
+  const managementView = view === "inventory-overview" || view === "transfers" || view === "companies" || view === "inventories" || view === "invoice-series" || view === "currencies" || view === "vat-codes" || view === "admin-controls";
   const visibleNavGroups = navGroups.map((group) => ({ ...group, items: group.items.filter((item) => roleViews[currentUser.role].includes(item.id)) })).filter((group) => group.items.length > 0);
   const canWriteCurrentView = roleWriteViews[currentUser.role].includes(view);
 
@@ -481,7 +499,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
         </header>
 
         <div className="mx-auto w-full max-w-[1500px] p-4 lg:p-7">
-          {view === "inventory-overview" ? <InventoryOverview /> : view === "transfers" ? <MultiLineTransferCenter key={`${activeCompanyId}-${activeLocationId}`} companies={companies} activeLocationId={activeLocationId} onTransferred={loadData} /> : view === "admin-controls" ? <AdminSettingsCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} currentUserEmail={currentUser.email} /> : managementView ? <WorkspaceCenter mode={view as "companies" | "inventories" | "invoice-series" | "currencies"} companies={companies} activeCompanyId={activeCompanyId} onChanged={loadWorkspaces} /> : view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} onNavigate={(next) => { if (roleViews[currentUser.role].includes(next)) setView(next); }} onCreate={openCreate} onOpenDetail={openDetail} canCreate={roleWriteViews[currentUser.role].includes("sales")} canViewReports={roleViews[currentUser.role].includes("reports")} /> : view === "reports" ? <ReportCenter metrics={metrics} currency={baseCurrency} onOpen={openReport} loading={reportLoading} /> : (
+          {view === "inventory-overview" ? <InventoryOverview /> : view === "transfers" ? <MultiLineTransferCenter key={`${activeCompanyId}-${activeLocationId}`} companies={companies} activeLocationId={activeLocationId} onTransferred={loadData} /> : view === "vat-codes" ? <VatCodeCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} onChanged={loadVatCodes} /> : view === "admin-controls" ? <AdminSettingsCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} currentUserEmail={currentUser.email} /> : managementView ? <WorkspaceCenter mode={view as "companies" | "inventories" | "invoice-series" | "currencies"} companies={companies} activeCompanyId={activeCompanyId} onChanged={loadWorkspaces} /> : view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} onNavigate={(next) => { if (roleViews[currentUser.role].includes(next)) setView(next); }} onCreate={openCreate} onOpenDetail={openDetail} canCreate={roleWriteViews[currentUser.role].includes("sales")} canViewReports={roleViews[currentUser.role].includes("reports")} /> : view === "reports" ? <ReportCenter metrics={metrics} currency={baseCurrency} onOpen={openReport} loading={reportLoading} /> : (
             <RecordView view={view} kind={currentKind} records={filteredRecords} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onEditItem={openItemEdit} onDuplicateItem={duplicateItem} onOpenDetail={openDetail} canWrite={canWriteCurrentView} canDelete={currentUser.role === "admin"} />
           )}
         </div>
@@ -491,7 +509,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
         <DialogContent className={`max-h-[90vh] overflow-y-auto ${currentKind === "transactions" || currentKind === "items" || (currentKind === "contacts" && view === "customers") ? "sm:max-w-5xl" : "sm:max-w-xl"}`}>
           <DialogHeader><DialogTitle>{editingItemId !== null && currentKind === "items" ? "Edit Item" : createLabel}</DialogTitle><DialogDescription>{editingItemId !== null && currentKind === "items" ? "Update the category and item description details." : currentKind === "transactions" && form.type === "bill" ? "Select the vendor and enter the bill items below." : "Enter the record details below. Required fields are marked."}</DialogDescription></DialogHeader>
           <form onSubmit={saveRecord} className="space-y-5">
-            {currentKind === "transactions" && <TransactionFields form={form} setForm={setForm} types={transactionTypes[view] ?? transactionTypes.dashboard} items={records.items} contacts={records.contacts} accounts={records.accounts} locations={activeLocations} lines={lines} setLines={setLines} />}
+            {currentKind === "transactions" && <TransactionFields form={form} setForm={setForm} types={transactionTypes[view] ?? transactionTypes.dashboard} items={records.items} contacts={records.contacts} accounts={records.accounts} locations={activeLocations} lines={lines} setLines={setLines} vatCodeOptions={vatCodeOptions} />}
             {currentKind === "contacts" && <ContactFields form={form} setForm={setForm} />}
             {currentKind === "items" && <ItemFields form={form} setForm={setForm} items={records.items} />}
             {currentKind === "accounts" && <AccountFields form={form} setForm={setForm} accounts={records.accounts} />}
@@ -741,7 +759,7 @@ function WorkspaceDialog({ open, companies, activeCompanyId, onClose, onChanged 
 
 function Field({ label, name, form, setForm, type = "text", required = false, placeholder }: { label: string; name: string; form: Record<string, string>; setForm: (f: Record<string, string>) => void; type?: string; required?: boolean; placeholder?: string }) { return <div className="space-y-2"><Label htmlFor={name}>{label}{required ? " *" : ""}</Label><Input id={name} name={name} type={type} required={required} placeholder={placeholder} value={form[name] ?? ""} onChange={(e) => setForm({ ...form, [name]: e.target.value })} /></div>; }
 function Choice({ label, name, values, form, setForm, placeholder }: { label: string; name: string; values: string[]; form: Record<string, string>; setForm: (f: Record<string, string>) => void; placeholder?: string }) { return <div className="space-y-2"><Label>{label}</Label><Select value={form[name]} onValueChange={(value) => setForm({ ...form, [name]: value })}><SelectTrigger className="w-full"><SelectValue placeholder={placeholder} /></SelectTrigger><SelectContent>{values.map((value) => <SelectItem key={value} value={value}><span className="capitalize">{value}</span></SelectItem>)}</SelectContent></Select></div>; }
-function BillFields({ form, setForm, items, vendors, salesmen, accounts, locations, lines, setLines }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; items: DataRecord[]; vendors: DataRecord[]; salesmen: DataRecord[]; accounts: DataRecord[]; locations: InventoryLocation[]; lines: LineForm[]; setLines: (lines: LineForm[]) => void }) {
+function BillFields({ form, setForm, items, vendors, salesmen, accounts, locations, lines, setLines, vatCodeOptions }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; items: DataRecord[]; vendors: DataRecord[]; salesmen: DataRecord[]; accounts: DataRecord[]; locations: InventoryLocation[]; lines: LineForm[]; setLines: (lines: LineForm[]) => void; vatCodeOptions: VatCodeOption[] }) {
   const update = (index: number, changes: Partial<LineForm>) => setLines(lines.map((line, position) => position === index ? { ...line, ...changes } : line));
   const subtotal = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0), 0);
   const vat = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0) * Number(line.vatRate || 0) / 100, 0);
@@ -775,7 +793,7 @@ function BillFields({ form, setForm, items, vendors, salesmen, accounts, locatio
           <div className="space-y-2"><Label className="md:hidden">QTY</Label><Input aria-label="Quantity" type="number" min="0.01" step="0.01" value={line.quantity} onChange={(event) => update(index, { quantity: event.target.value })} /></div>
           <div className="space-y-2"><Label className="md:hidden">Rate</Label><Input aria-label="Rate" type="number" min="0" step="0.01" value={line.unitPrice} onChange={(event) => update(index, { unitPrice: event.target.value, unitCost: event.target.value })} /></div>
           <div className="space-y-2"><Label className="md:hidden">Subtotal</Label><Input aria-label="Subtotal" readOnly value={lineSubtotal.toFixed(2)} className="bg-slate-50 font-semibold" /></div>
-          <div className="space-y-2"><Label className="md:hidden">VAT code</Label><Select value={line.vatCode} onValueChange={(vatCode) => update(index, { vatCode, vatRate: vatRateForCode(vatCode) })}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{vatCodeOptions.map((option) => <SelectItem key={option.code} value={option.code}>{option.label}</SelectItem>)}</SelectContent></Select></div>
+          <div className="space-y-2"><Label className="md:hidden">VAT code</Label><Select value={line.vatCode} onValueChange={(vatCode) => update(index, { vatCode, vatRate: vatRateForCode(vatCode, vatCodeOptions) })}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{vatCodeOptions.map((option) => <SelectItem key={option.code} value={option.code}><span className="flex flex-col"><span>{option.label}</span>{option.description ? <span className="text-xs text-slate-500">{option.description}</span> : null}</span></SelectItem>)}</SelectContent></Select></div>
           <Button type="button" variant="ghost" size="icon" disabled={lines.length === 1} onClick={() => setLines(lines.filter((_, position) => position !== index))} className="text-slate-400 hover:text-rose-600"><Trash2 className="size-4" /></Button>
         </div>;
       })}</div>
@@ -790,7 +808,7 @@ function BillFields({ form, setForm, items, vendors, salesmen, accounts, locatio
     </div>
   </div>;
 }
-function CashTransactionFields({ form, setForm, contacts, accounts, locations, lines, setLines }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; contacts: DataRecord[]; accounts: DataRecord[]; locations: InventoryLocation[]; lines: LineForm[]; setLines: (lines: LineForm[]) => void }) {
+function CashTransactionFields({ form, setForm, contacts, accounts, locations, lines, setLines, vatCodeOptions }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; contacts: DataRecord[]; accounts: DataRecord[]; locations: InventoryLocation[]; lines: LineForm[]; setLines: (lines: LineForm[]) => void; vatCodeOptions: VatCodeOption[] }) {
   const receivePayment = form.type === "customer payment";
   const parties = contacts.filter((contact) => contact.type === (receivePayment ? "customer" : "vendor"));
   const line = lines[0] ?? { itemId: "", description: receivePayment ? "Payment received" : "Cheque payment", quantity: "1", unitPrice: "0", unitCost: "0", vatCode: "ZERO", vatRate: "0" };
@@ -812,7 +830,7 @@ function CashTransactionFields({ form, setForm, contacts, accounts, locations, l
     </div>
     <div className="grid gap-4 rounded-xl border bg-white p-4 md:grid-cols-2 xl:grid-cols-4">
       <div className="space-y-2"><Label>Amount *</Label><Input type="number" min="0.01" step="0.01" value={line.unitPrice} onChange={(event) => updateLine({ unitPrice: event.target.value, unitCost: event.target.value })} required /></div>
-      {receivePayment || isAccountsPayable ? <div className="space-y-2"><Label>VAT code</Label><Input readOnly value="ZERO · 0%" className="bg-slate-100" /></div> : <div className="space-y-2"><Label>VAT code</Label><Select value={line.vatCode} onValueChange={(vatCode) => { const vatRate = vatRateForCode(vatCode); updateLine({ vatCode, vatRate }); setForm({ ...form, vatRate }); }}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{vatCodeOptions.map((option) => <SelectItem key={option.code} value={option.code}>{option.label}</SelectItem>)}</SelectContent></Select></div>}
+      {receivePayment || isAccountsPayable ? <div className="space-y-2"><Label>VAT code</Label><Input readOnly value={vatCodeOptions.find((option) => option.code === "ZERO")?.label ?? "ZERO · 0%"} className="bg-slate-100" /></div> : <div className="space-y-2"><Label>VAT code</Label><Select value={line.vatCode} onValueChange={(vatCode) => { const vatRate = vatRateForCode(vatCode, vatCodeOptions); updateLine({ vatCode, vatRate }); setForm({ ...form, vatRate }); }}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{vatCodeOptions.map((option) => <SelectItem key={option.code} value={option.code}><span className="flex flex-col"><span>{option.label}</span>{option.description ? <span className="text-xs text-slate-500">{option.description}</span> : null}</span></SelectItem>)}</SelectContent></Select></div>}
       <div className="space-y-2"><Label>VAT Amount</Label><Input readOnly value={formatMoney(vat, form.currency)} className="bg-slate-100" /></div>
       <div className="space-y-2"><Label>Total</Label><Input readOnly value={formatMoney(amount + vat, form.currency)} className="bg-slate-100 font-bold" /></div>
       <div className="md:col-span-2 xl:col-span-4"><Field label="Memo" name="memo" form={form} setForm={setForm} placeholder="Optional note" /></div>
@@ -820,9 +838,9 @@ function CashTransactionFields({ form, setForm, contacts, accounts, locations, l
     <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">This {receivePayment ? "payment reduces Accounts Receivable" : isAccountsPayable ? "cheque reduces Accounts Payable" : "cheque posts to the selected expense account"} for the selected inventory.</div>
   </div>;
 }
-function TransactionFields({ form, setForm, types, items, contacts, accounts, locations, lines, setLines }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; types: string[]; items: DataRecord[]; contacts: DataRecord[]; accounts: DataRecord[]; locations: InventoryLocation[]; lines: LineForm[]; setLines: (lines: LineForm[]) => void }) {
-  if (form.type === "bill") return <BillFields form={form} setForm={setForm} items={items} vendors={contacts.filter((contact) => contact.type === "vendor")} salesmen={contacts.filter((contact) => contact.type === "employee")} accounts={accounts} locations={locations} lines={lines} setLines={setLines} />;
-  if (["customer payment", "cheque"].includes(form.type)) return <CashTransactionFields form={form} setForm={setForm} contacts={contacts} accounts={accounts} locations={locations} lines={lines} setLines={setLines} />;
+function TransactionFields({ form, setForm, types, items, contacts, accounts, locations, lines, setLines, vatCodeOptions }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; types: string[]; items: DataRecord[]; contacts: DataRecord[]; accounts: DataRecord[]; locations: InventoryLocation[]; lines: LineForm[]; setLines: (lines: LineForm[]) => void; vatCodeOptions: VatCodeOption[] }) {
+  if (form.type === "bill") return <BillFields form={form} setForm={setForm} items={items} vendors={contacts.filter((contact) => contact.type === "vendor")} salesmen={contacts.filter((contact) => contact.type === "employee")} accounts={accounts} locations={locations} lines={lines} setLines={setLines} vatCodeOptions={vatCodeOptions} />;
+  if (["customer payment", "cheque"].includes(form.type)) return <CashTransactionFields form={form} setForm={setForm} contacts={contacts} accounts={accounts} locations={locations} lines={lines} setLines={setLines} vatCodeOptions={vatCodeOptions} />;
   const update = (index: number, changes: Partial<LineForm>) => setLines(lines.map((line, position) => position === index ? { ...line, ...changes } : line));
   const subtotal = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0), 0);
   const vat = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0) * Number(line.vatRate || 0) / 100, 0);
@@ -838,7 +856,7 @@ function TransactionFields({ form, setForm, types, items, contacts, accounts, lo
         <Input placeholder="Description" required value={line.description} onChange={(e) => update(index, { description: e.target.value })} />
         <Input aria-label="Quantity" title="Quantity" type="number" min="0.01" step="0.01" value={line.quantity} onChange={(e) => update(index, { quantity: e.target.value })} />
         <Input aria-label="Unit price" title="Unit price" type="number" min="0" step="0.01" value={line.unitPrice} onChange={(e) => update(index, { unitPrice: e.target.value })} />
-        <Select value={line.vatCode} onValueChange={(vatCode) => update(index, { vatCode, vatRate: vatRateForCode(vatCode) })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{vatCodeOptions.map((option) => <SelectItem key={option.code} value={option.code}>{option.label}</SelectItem>)}</SelectContent></Select>
+        <Select value={line.vatCode} onValueChange={(vatCode) => update(index, { vatCode, vatRate: vatRateForCode(vatCode, vatCodeOptions) })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{vatCodeOptions.map((option) => <SelectItem key={option.code} value={option.code}><span className="flex flex-col"><span>{option.label}</span>{option.description ? <span className="text-xs text-slate-500">{option.description}</span> : null}</span></SelectItem>)}</SelectContent></Select>
         <Button type="button" variant="ghost" size="icon" disabled={lines.length === 1} onClick={() => setLines(lines.filter((_, position) => position !== index))} className="text-slate-400 hover:text-rose-600"><Trash2 className="size-4" /></Button>
       </div>)}
       <div className="ml-auto grid max-w-xs gap-2 pt-2 text-sm"><div className="flex justify-between text-slate-500"><span>Subtotal</span><span>{formatMoney(subtotal, form.currency)}</span></div><div className="flex justify-between text-slate-500"><span>VAT</span><span>{formatMoney(vat, form.currency)}</span></div><div className="flex justify-between border-t pt-2 text-base font-bold"><span>Total</span><span>{formatMoney(subtotal + vat, form.currency)}</span></div></div>

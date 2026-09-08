@@ -14,6 +14,19 @@ export const companySettings = pgTable("company_settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 });
 
+export const vatCodes = pgTable("vat_codes", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  rate: doublePrecision("rate").notNull().default(0),
+  description: text("description").notNull().default(""),
+  active: boolean("active").notNull().default(true),
+  system: boolean("system").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("idx_vat_codes_company_code").on(table.companyId, table.code), index("idx_vat_codes_company_active").on(table.companyId, table.active)]);
+
 export const appUsers = pgTable("app_users", {
   id: serial("id").primaryKey(),
   fullName: text("full_name").notNull().default(""),

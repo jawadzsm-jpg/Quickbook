@@ -2,7 +2,7 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import {
   accounts, auditLog, companySettings, contacts, inventoryLocations, inventoryMovements, items, journalEntries,
-  journalLines, transactionLines, transactions,
+  journalLines, transactionLines, transactions, vatCodes,
 } from "../../../db/schema";
 import { verifyAdminPin } from "../../../lib/admin-pin";
 import { hasPermission, requireApiUser, type Permission, type SessionUser } from "@/lib/auth";
@@ -16,7 +16,7 @@ function errorMessage(error: unknown) {
 }
 
 const round = (value: number) => Math.round(value * 100) / 100;
-const vatRates: Record<string, number> = { STANDARD: 5, ZERO: 0, EXEMPT: 0, OUT_OF_SCOPE: 0 };
+const fallbackVatRates: Record<string, number> = { STANDARD: 5, ZERO: 0, EXEMPT: 0, OUT_OF_SCOPE: 0 };
 const accountRoles = ["BANK", "AR", "AP", "INVENTORY", "INPUT_VAT", "OUTPUT_VAT", "EQUITY", "SALES", "OTHER_INCOME", "COGS", "PURCHASES", "EXPENSE", "PAYROLL", "SUSPENSE"];
 
 function writePermission(kind: RecordKind, payload: Record<string, unknown>): Permission | "admin" {
@@ -178,12 +178,14 @@ export async function POST(request: Request) {
     const party = String(payload.party ?? "").trim();
     const type = String(payload.type ?? "invoice");
     const rawLines = Array.isArray(payload.lines) ? payload.lines as InputLine[] : [];
+    const configuredVatCodes = await db.select({ code: vatCodes.code, rate: vatCodes.rate }).from(vatCodes).where(and(eq(vatCodes.companyId, companyId), eq(vatCodes.active, true)));
+    const vatRates = configuredVatCodes.length ? Object.fromEntries(configuredVatCodes.map((vatCode) => [vatCode.code, Number(vatCode.rate)])) : fallbackVatRates;
     const prepared = rawLines.map((line) => {
       const quantity = Number(line.quantity ?? 1);
       const unitPrice = Number(line.unitPrice ?? 0);
       const unitCost = Number(line.unitCost ?? 0);
       const requestedVatCode = String(line.vatCode ?? (Number(line.vatRate ?? payload.vatRate ?? 5) === 5 ? "STANDARD" : "ZERO")).trim().toUpperCase();
-      const vatCode = Object.hasOwn(vatRates, requestedVatCode) ? requestedVatCode : "STANDARD";
+      const vatCode = Object.hasOwn(vatRates, requestedVatCode) ? requestedVatCode : Object.hasOwn(vatRates, "STANDARD") ? "STANDARD" : Object.keys(vatRates)[0];
       const vatRate = vatRates[vatCode];
       const subtotal = round(quantity * unitPrice);
       const vatAmount = round(subtotal * vatRate / 100);
@@ -191,8 +193,10 @@ export async function POST(request: Request) {
     }).filter((line) => line.description || line.itemId || line.subtotal > 0);
     if (!prepared.length && Number(payload.total) > 0) {
       const subtotal = Number(payload.total);
-      const vatRate = Number(payload.vatRate ?? 5);
-      prepared.push({ itemId: null, description: String(payload.memo ?? type), quantity: 1, unitPrice: subtotal, unitCost: 0, vatCode: vatRate === 5 ? "STANDARD" : "ZERO", vatRate, subtotal, vatAmount: round(subtotal * vatRate / 100), total: round(subtotal * (1 + vatRate / 100)) });
+      const requestedVatCode = Number(payload.vatRate ?? 5) === 5 ? "STANDARD" : "ZERO";
+      const vatCode = Object.hasOwn(vatRates, requestedVatCode) ? requestedVatCode : Object.keys(vatRates)[0];
+      const vatRate = vatRates[vatCode];
+      prepared.push({ itemId: null, description: String(payload.memo ?? type), quantity: 1, unitPrice: subtotal, unitCost: 0, vatCode, vatRate, subtotal, vatAmount: round(subtotal * vatRate / 100), total: round(subtotal * (1 + vatRate / 100)) });
     }
     if (!party || !prepared.length || prepared.some((line) => !Number.isFinite(line.quantity) || line.quantity <= 0 || !Number.isFinite(line.unitPrice) || line.unitPrice < 0)) {
       return Response.json({ error: "Party and at least one valid document line are required." }, { status: 400 });
