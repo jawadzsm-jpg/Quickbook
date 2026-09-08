@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ArrowRightLeft, BadgeDollarSign, Bell, BookOpen, Building2, CheckCircle2,
+  ArrowRightLeft, BadgeDollarSign, Bell, BookOpen, Boxes, Building2, CheckCircle2,
   Check, ChevronDown, ChevronRight, CircleDollarSign, Clock3, Download, FileBarChart2, Landmark,
   Eye, LayoutDashboard, PackageSearch, Pencil, Plus, Printer, ReceiptText, RefreshCw,
   Search, Settings, ShoppingCart, Trash2, Users, WalletCards,
@@ -31,8 +31,9 @@ import {
 } from "@/components/ui/table";
 import { Toaster, toast } from "sonner";
 import { MultiLineTransferCenter } from "@/app/transfer-center";
+import { InventoryOverview } from "@/app/inventory-overview";
 
-type View = "dashboard" | "sales" | "purchases" | "customers" | "vendors" | "inventory" | "transfers" | "banking" | "accounts" | "employees" | "reports" | "companies" | "inventories" | "invoice-series" | "currencies";
+type View = "dashboard" | "inventory-overview" | "sales" | "purchases" | "customers" | "vendors" | "inventory" | "transfers" | "banking" | "accounts" | "employees" | "reports" | "companies" | "inventories" | "invoice-series" | "currencies";
 type Kind = "transactions" | "contacts" | "items" | "accounts";
 type DataRecord = Record<string, string | number | boolean> & { id: number };
 type LineForm = { itemId: string; description: string; quantity: string; unitPrice: string; unitCost: string; vatRate: string };
@@ -45,7 +46,10 @@ const invoiceNumberPreview = (companyId: number, location: InventoryLocation) =>
   `C${String(companyId).padStart(3, "0")}-${location.invoicePrefix}-INV-${String(location.nextInvoiceNumber).padStart(4, "0")}`;
 
 const navGroups = [
-  { label: "OVERVIEW", items: [{ id: "dashboard", label: "Company Home", icon: LayoutDashboard }] },
+  { label: "OVERVIEW", items: [
+    { id: "dashboard", label: "Company Home", icon: LayoutDashboard },
+    { id: "inventory-overview", label: "Inventory Overview", icon: Boxes },
+  ] },
   { label: "CUSTOMERS", items: [
     { id: "sales", label: "Sales & Invoicing", icon: ReceiptText },
     { id: "customers", label: "Customer Center", icon: Users },
@@ -72,6 +76,7 @@ const navGroups = [
 
 const viewTitles: Record<View, { title: string; sub: string }> = {
   dashboard: { title: "Company Home", sub: "Your financial position at a glance" },
+  "inventory-overview": { title: "Inventory Overview", sub: "All company stock, specifications, quantities and prices" },
   sales: { title: "Sales & Invoicing", sub: "Estimates, sales orders, invoices, receipts and credits" },
   purchases: { title: "Purchases & Bills", sub: "Purchase orders, bills, expenses and vendor payments" },
   customers: { title: "Customer Center", sub: "Customer balances, contacts and activity" },
@@ -199,7 +204,7 @@ export default function EnterpriseApp() {
   }, [records.transactions]);
 
   const currentKind: Kind = view === "customers" || view === "vendors" || view === "employees" ? "contacts" : view === "inventory" ? "items" : view === "accounts" ? "accounts" : "transactions";
-  const managementView = view === "transfers" || view === "companies" || view === "inventories" || view === "invoice-series" || view === "currencies";
+  const managementView = view === "inventory-overview" || view === "transfers" || view === "companies" || view === "inventories" || view === "invoice-series" || view === "currencies";
 
   const filteredRecords = useMemo(() => {
     let list = records[currentKind];
@@ -360,7 +365,7 @@ export default function EnterpriseApp() {
         </header>
 
         <div className="mx-auto w-full max-w-[1500px] p-4 lg:p-7">
-          {view === "transfers" ? <MultiLineTransferCenter key={`${activeCompanyId}-${activeLocationId}`} companies={companies} activeLocationId={activeLocationId} onTransferred={loadData} /> : managementView ? <WorkspaceCenter mode={view as "companies" | "inventories" | "invoice-series" | "currencies"} companies={companies} activeCompanyId={activeCompanyId} onChanged={loadWorkspaces} /> : view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} onNavigate={setView} onCreate={openCreate} onOpenDetail={openDetail} /> : view === "reports" ? <ReportCenter metrics={metrics} currency={baseCurrency} onOpen={openReport} loading={reportLoading} /> : (
+          {view === "inventory-overview" ? <InventoryOverview /> : view === "transfers" ? <MultiLineTransferCenter key={`${activeCompanyId}-${activeLocationId}`} companies={companies} activeLocationId={activeLocationId} onTransferred={loadData} /> : managementView ? <WorkspaceCenter mode={view as "companies" | "inventories" | "invoice-series" | "currencies"} companies={companies} activeCompanyId={activeCompanyId} onChanged={loadWorkspaces} /> : view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} onNavigate={setView} onCreate={openCreate} onOpenDetail={openDetail} /> : view === "reports" ? <ReportCenter metrics={metrics} currency={baseCurrency} onOpen={openReport} loading={reportLoading} /> : (
             <RecordView view={view} kind={currentKind} records={filteredRecords} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onEditItem={openItemEdit} onOpenDetail={openDetail} />
           )}
         </div>
