@@ -154,14 +154,11 @@ export function InventoryOverview() {
     if (!selectedRecords.length) return "";
     const items = selectedRecords.map((record) => {
       const title = channel === "whatsapp"
-        ? `🔺 *${record.name} - ${record.sku}* 🔺`
+        ? `🔺 _*${record.name} - ${record.sku}*_ 🔺`
         : channel === "telegram"
-          ? `🔺 ${record.name} - ${record.sku} 🔺`
-          : `${record.name} - ${record.sku}`;
-      const location = channel === "telegram"
-        ? `🏢 ${record.companyName} | ${record.locationName}`
-        : `${record.companyName} | ${record.locationName}`;
-      const lines = [title, specificationText(record), location];
+          ? `🔺 ***${record.name} - ${record.sku}*** 🔺`
+          : `***${record.name} - ${record.sku}***`;
+      const lines = [title, specificationText(record)];
       const details: string[] = [];
       if (showQuantity) {
         const quantity = plainMoney(Number(record.quantity));
