@@ -7,7 +7,7 @@ import {
 import { verifyAdminPin } from "../../../lib/admin-pin";
 
 type RecordKind = "transactions" | "contacts" | "items" | "accounts";
-type InputLine = { itemId?: number | string | null; description?: string; quantity?: number | string; unitPrice?: number | string; unitCost?: number | string; vatRate?: number | string };
+type InputLine = { itemId?: number | string | null; description?: string; quantity?: number | string; unitPrice?: number | string; unitCost?: number | string; vatCode?: string; vatRate?: number | string };
 
 function errorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : "Unexpected database error";
@@ -15,6 +15,7 @@ function errorMessage(error: unknown) {
 }
 
 const round = (value: number) => Math.round(value * 100) / 100;
+const vatRates: Record<string, number> = { STANDARD: 5, ZERO: 0, EXEMPT: 0, OUT_OF_SCOPE: 0 };
 
 async function createUniqueItemSku() {
   const db = getDb();
@@ -103,7 +104,7 @@ export async function POST(request: Request) {
         const [created] = await db.insert(items).values({
           companyId, locationId, sku, name: source.name, category: source.category, description: source.description,
           specifications: source.specifications, quantity: 0, reorderPoint: source.reorderPoint,
-          salesPrice: source.salesPrice, cost: source.cost, status: source.status,
+          salesPrice: source.salesPrice, cost: source.cost, lastPurchasePrice: source.lastPurchasePrice, status: source.status,
         }).returning();
         const [record] = await db.update(items).set({ itemNumber: String(13000 + created.id) }).where(eq(items.id, created.id)).returning();
         await db.insert(auditLog).values({ companyId, action: "duplicated", entityType: "item", entityId: record.id, details: `${source.sku} duplicated as ${record.sku}; opening quantity 0` });
@@ -132,7 +133,12 @@ export async function POST(request: Request) {
       const name = String(payload.name ?? "").trim();
       const code = String(payload.code ?? "").trim();
       if (!name || !code) return Response.json({ error: "Account code and name are required." }, { status: 400 });
-      const [record] = await db.insert(accounts).values({ companyId, code, name, type: String(payload.type ?? "Expense"), balance: Number(payload.balance ?? 0) }).returning();
+      const parentAccountId = Number(payload.parentAccountId);
+      if (Number.isInteger(parentAccountId) && parentAccountId > 0) {
+        const [parent] = await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.id, parentAccountId), eq(accounts.companyId, companyId))).limit(1);
+        if (!parent) return Response.json({ error: "Select a valid parent account from this company." }, { status: 400 });
+      }
+      const [record] = await db.insert(accounts).values({ companyId, code, name, type: String(payload.type ?? "Expense"), parentAccountId: Number.isInteger(parentAccountId) && parentAccountId > 0 ? parentAccountId : null, balance: Number(payload.balance ?? 0) }).returning();
       return Response.json({ record }, { status: 201 });
     }
 
@@ -143,15 +149,17 @@ export async function POST(request: Request) {
       const quantity = Number(line.quantity ?? 1);
       const unitPrice = Number(line.unitPrice ?? 0);
       const unitCost = Number(line.unitCost ?? 0);
-      const vatRate = Number(line.vatRate ?? payload.vatRate ?? 5);
+      const requestedVatCode = String(line.vatCode ?? (Number(line.vatRate ?? payload.vatRate ?? 5) === 5 ? "STANDARD" : "ZERO")).trim().toUpperCase();
+      const vatCode = Object.hasOwn(vatRates, requestedVatCode) ? requestedVatCode : "STANDARD";
+      const vatRate = vatRates[vatCode];
       const subtotal = round(quantity * unitPrice);
       const vatAmount = round(subtotal * vatRate / 100);
-      return { itemId: line.itemId ? Number(line.itemId) : null, description: String(line.description ?? "").trim(), quantity, unitPrice, unitCost, vatRate, subtotal, vatAmount, total: round(subtotal + vatAmount) };
+      return { itemId: line.itemId ? Number(line.itemId) : null, description: String(line.description ?? "").trim(), quantity, unitPrice, unitCost, vatCode, vatRate, subtotal, vatAmount, total: round(subtotal + vatAmount) };
     }).filter((line) => line.description || line.itemId || line.subtotal > 0);
     if (!prepared.length && Number(payload.total) > 0) {
       const subtotal = Number(payload.total);
       const vatRate = Number(payload.vatRate ?? 5);
-      prepared.push({ itemId: null, description: String(payload.memo ?? type), quantity: 1, unitPrice: subtotal, unitCost: 0, vatRate, subtotal, vatAmount: round(subtotal * vatRate / 100), total: round(subtotal * (1 + vatRate / 100)) });
+      prepared.push({ itemId: null, description: String(payload.memo ?? type), quantity: 1, unitPrice: subtotal, unitCost: 0, vatCode: vatRate === 5 ? "STANDARD" : "ZERO", vatRate, subtotal, vatAmount: round(subtotal * vatRate / 100), total: round(subtotal * (1 + vatRate / 100)) });
     }
     if (!party || !prepared.length || prepared.some((line) => !Number.isFinite(line.quantity) || line.quantity <= 0 || !Number.isFinite(line.unitPrice) || line.unitPrice < 0)) {
       return Response.json({ error: "Party and at least one valid document line are required." }, { status: 400 });
@@ -228,7 +236,7 @@ export async function POST(request: Request) {
       const direction = ["invoice", "sales receipt"].includes(type) ? -1 : type === "bill" ? 1 : 0;
       if (direction) for (const line of prepared.filter((entry) => entry.itemId)) {
         const quantity = direction * line.quantity;
-        await db.update(items).set({ quantity: sql`${items.quantity} + ${quantity}` }).where(eq(items.id, line.itemId!));
+        await db.update(items).set(type === "bill" ? { quantity: sql`${items.quantity} + ${quantity}`, lastPurchasePrice: line.unitPrice } : { quantity: sql`${items.quantity} + ${quantity}` }).where(eq(items.id, line.itemId!));
         await db.insert(inventoryMovements).values({ itemId: line.itemId!, transactionId: record.id, movementDate: transactionDate, movementType: type, quantity, unitCost: line.unitCost, reference: number });
       }
       const balanceChange = contactBalanceChange(type, total, record.account);
