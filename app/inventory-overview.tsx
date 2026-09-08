@@ -30,7 +30,7 @@ type OverviewItem = {
   locationCode: string;
 };
 
-type StockFilter = "all" | "in" | "low" | `location:${number}`;
+type StockFilter = "all" | "in" | "low" | "out" | `location:${number}`;
 type ShareChannel = "whatsapp" | "telegram" | "email";
 
 function money(value: number, currency: string) {
@@ -109,18 +109,20 @@ export function InventoryOverview() {
     inStock: inStockRecords.length,
     healthy: inStockRecords.filter((record) => Number(record.quantity) > Number(record.reorderPoint)).length,
     low: inStockRecords.filter((record) => Number(record.quantity) <= Number(record.reorderPoint)).length,
-  }), [inStockRecords]);
+    out: records.filter((record) => Number(record.quantity) <= 0).length,
+  }), [inStockRecords, records]);
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return inStockRecords.filter((record) => {
+    const source = filter === "out" ? records.filter((record) => Number(record.quantity) <= 0) : inStockRecords;
+    return source.filter((record) => {
       if (filter === "low" && !(Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint))) return false;
       if (filter.startsWith("location:") && record.locationId !== Number(filter.split(":")[1])) return false;
       if (!term) return true;
       return [record.name, record.sku, record.itemNumber, record.category, record.description, record.specifications, record.companyName, record.locationName]
         .some((value) => String(value ?? "").toLowerCase().includes(term));
     });
-  }, [filter, inStockRecords, search]);
+  }, [filter, inStockRecords, records, search]);
 
   const categories = useMemo(() => {
     const grouped = new Map<string, OverviewItem[]>();
@@ -131,7 +133,7 @@ export function InventoryOverview() {
     return [...grouped.entries()];
   }, [filtered]);
 
-  const selectedRecords = useMemo(() => inStockRecords.filter((record) => selectedIds.has(record.id)), [inStockRecords, selectedIds]);
+  const selectedRecords = useMemo(() => records.filter((record) => selectedIds.has(record.id)), [records, selectedIds]);
   const allVisibleSelected = filtered.length > 0 && filtered.every((record) => selectedIds.has(record.id));
   const someVisibleSelected = filtered.some((record) => selectedIds.has(record.id));
 
@@ -235,6 +237,7 @@ export function InventoryOverview() {
         </Button>)}
         <Button variant="outline" onClick={() => setFilter("in")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "in")}`}><PackageCheck className="size-5" /><span className="font-semibold">In stock</span><Badge className="bg-emerald-500 text-white hover:bg-emerald-500">{totals.inStock}</Badge></Button>
         <Button variant="outline" onClick={() => setFilter("low")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "low")}`}><AlertTriangle className="size-5" /><span className="font-semibold">Low stock</span><Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">{totals.low}</Badge></Button>
+        <Button variant="outline" onClick={() => setFilter("out")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "out")}`}><AlertTriangle className="size-5" /><span className="font-semibold">Out of stock</span><Badge className="bg-rose-500 text-white hover:bg-rose-500">{totals.out}</Badge></Button>
       </div>
     </section>
 
@@ -273,13 +276,14 @@ export function InventoryOverview() {
             {loading ? <TableRow><TableCell colSpan={columnCount} className="h-40 text-center text-slate-500"><RefreshCw className="mx-auto mb-2 size-5 animate-spin" />Loading all inventories…</TableCell></TableRow> : categories.length === 0 ? <TableRow><TableCell colSpan={columnCount} className="h-40 text-center text-slate-500">No products match this view.</TableCell></TableRow> : categories.flatMap(([category, items]) => [
               <TableRow key={`category-${category}`} className="border-slate-800 bg-slate-950 hover:bg-slate-950"><TableCell colSpan={columnCount} className="py-3 font-bold text-white"><span className="mr-2 text-emerald-400">●</span>{category}<Badge className="ml-3 bg-white/15 text-white hover:bg-white/15">{items.length} items</Badge></TableCell></TableRow>,
               ...items.map((record) => {
+                const out = Number(record.quantity) <= 0;
                 const low = Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint);
                 const description = specificationText(record);
                 return <TableRow key={record.id} data-state={selectedIds.has(record.id) ? "selected" : undefined} className="align-top data-[state=selected]:bg-sky-50 hover:bg-slate-50/80">
                   <TableCell className="py-5"><Checkbox aria-label={`Select ${record.name}`} checked={selectedIds.has(record.id)} onCheckedChange={(checked) => toggleSelected(record.id, checked === true)} /></TableCell>
-                  <TableCell className="py-4"><div className="flex flex-wrap items-center gap-2"><span className="text-base font-bold text-blue-700 underline decoration-blue-300 underline-offset-2">{record.name}</span>{low ? <Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">Low stock</Badge> : <Badge variant="outline" className="border-emerald-200 text-emerald-700"><PackageCheck className="mr-1 size-3" />In stock</Badge>}</div>{description && <p className="mt-1 line-clamp-2 text-sm font-medium leading-5 text-slate-700">{description}</p>}<div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs"><span className="font-semibold text-slate-600">SKU: {record.sku}</span>{record.itemNumber && <span className="font-bold text-rose-600">#{record.itemNumber}</span>}</div></TableCell>
+                  <TableCell className="py-4"><div className="flex flex-wrap items-center gap-2"><span className="text-base font-bold text-blue-700 underline decoration-blue-300 underline-offset-2">{record.name}</span>{out ? <Badge className="bg-rose-500 text-white hover:bg-rose-500">Out of stock</Badge> : low ? <Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">Low stock</Badge> : <Badge variant="outline" className="border-emerald-200 text-emerald-700"><PackageCheck className="mr-1 size-3" />In stock</Badge>}</div>{description && <p className="mt-1 line-clamp-2 text-sm font-medium leading-5 text-slate-700">{description}</p>}<div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs"><span className="font-semibold text-slate-600">SKU: {record.sku}</span>{record.itemNumber && <span className="font-bold text-rose-600">#{record.itemNumber}</span>}</div></TableCell>
                   <TableCell className="py-4"><p className="font-semibold text-slate-900">{record.companyName}</p><p className="mt-1 text-sm text-slate-500"><Warehouse className="mr-1 inline size-3.5" />{record.locationName} · {record.locationCode}</p></TableCell>
-                  {showQuantity && <TableCell className={`py-4 text-right text-base font-black ${low ? "text-amber-600" : "text-slate-900"}`}>{Number(record.quantity).toLocaleString()}</TableCell>}
+                  {showQuantity && <TableCell className={`py-4 text-right text-base font-black ${out ? "text-rose-600" : low ? "text-amber-600" : "text-slate-900"}`}>{Number(record.quantity).toLocaleString()}</TableCell>}
                   {showPrice && <TableCell className="py-4 text-right text-base font-black text-rose-600">{money(Number(record.salesPrice) * (includeVat ? 1.05 : 1), record.currency)}{includeVat && <span className="mt-1 block text-[11px] font-semibold text-emerald-600">VAT included</span>}</TableCell>}
                 </TableRow>;
               }),
@@ -287,7 +291,7 @@ export function InventoryOverview() {
           </TableBody>
         </Table>
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-slate-50 px-4 py-3 text-xs text-slate-500"><span>Showing {filtered.length} of {inStockRecords.length} in-stock products</span><span>{totals.healthy} healthy · {totals.low} low stock</span></div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-slate-50 px-4 py-3 text-xs text-slate-500"><span>Showing {filtered.length} products</span><span>{totals.healthy} healthy · {totals.low} low · {totals.out} out of stock</span></div>
     </section>
   </div>;
 }
