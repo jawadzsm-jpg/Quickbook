@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Boxes, ClipboardCopy, Download, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PackageX, RefreshCw, Search, Send, Warehouse } from "lucide-react";
+import { AlertTriangle, Boxes, Download, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PackageX, RefreshCw, Search, Send, Warehouse } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -31,6 +31,7 @@ type OverviewItem = {
 };
 
 type StockFilter = "all" | "in" | "low" | "out" | `location:${number}`;
+type ShareChannel = "whatsapp" | "telegram" | "email";
 
 function money(value: number, currency: string) {
   try {
@@ -149,42 +150,40 @@ export function InventoryOverview() {
     return next;
   });
 
-  const shareText = () => {
+  const shareText = (channel: ShareChannel) => {
     if (!selectedRecords.length) return "";
     const items = selectedRecords.map((record) => {
-      const lines = [`🔺 *${record.name} - ${record.sku}* 🔺`, specificationText(record)];
-      if (record.itemNumber) lines.push(`Item No: #${record.itemNumber}`);
-      lines.push(`${record.companyName} | ${record.locationName}`);
+      const title = channel === "whatsapp"
+        ? `🔺 *${record.name} - ${record.sku}* 🔺`
+        : channel === "telegram"
+          ? `🔺 ${record.name} - ${record.sku} 🔺`
+          : `${record.name} - ${record.sku}`;
+      const location = channel === "telegram"
+        ? `🏢 ${record.companyName} | ${record.locationName}`
+        : `${record.companyName} | ${record.locationName}`;
+      const lines = [title, specificationText(record), location];
       const details: string[] = [];
-      if (showQuantity) details.push(`Qty: ${plainMoney(Number(record.quantity))}`);
+      if (showQuantity) {
+        const quantity = plainMoney(Number(record.quantity));
+        details.push(channel === "telegram" ? `📦 Qty: ${quantity}` : channel === "email" ? `Quantity: ${quantity}` : `Qty: ${quantity}`);
+      }
       if (showPrice) {
         const price = Number(record.salesPrice) * (includeVat ? 1.05 : 1);
-        details.push(`${record.currency}: ${plainMoney(price)}${includeVat ? " (VAT included)" : " (VAT excluded)"}`);
+        const value = `${record.currency} ${plainMoney(price)}${includeVat ? " (VAT included)" : " (VAT excluded)"}`;
+        details.push(channel === "telegram" ? `💰 ${value}` : channel === "email" ? `Price: ${value}` : value);
       }
       if (details.length) lines.push(details.join(" | "));
       return lines.filter(Boolean).join("\n");
     });
-    return `*COMNET STOCK LIST*\n\n${items.join("\n-------------------\n")}`;
+    return items.join(channel === "telegram" ? "\n──────────────\n" : "\n-------------------\n");
   };
 
-  const openShare = (channel: "whatsapp" | "telegram" | "email") => {
-    const text = shareText();
-    if (!text) return toast.error("Select at least one item to share.");
-    const encoded = encodeURIComponent(text);
-    const url = channel === "whatsapp"
-      ? `https://wa.me/?text=${encoded}`
-      : channel === "telegram"
-        ? `https://t.me/share/url?url=&text=${encoded}`
-        : `mailto:?subject=${encodeURIComponent("ComNet stock list")}&body=${encoded}`;
-    window.open(url, "_blank", "noopener,noreferrer");
-  };
-
-  const copyShareText = async () => {
-    const text = shareText();
+  const copyForChannel = async (channel: ShareChannel) => {
+    const text = shareText(channel);
     if (!text) return toast.error("Select at least one item to copy.");
+    const channelName = channel === "whatsapp" ? "WhatsApp" : channel === "telegram" ? "Telegram" : "Email";
     try {
       await navigator.clipboard.writeText(text);
-      toast.success(`${selectedRecords.length} selected items copied as text`);
     } catch {
       const textarea = document.createElement("textarea");
       textarea.value = text;
@@ -194,8 +193,8 @@ export function InventoryOverview() {
       textarea.select();
       document.execCommand("copy");
       textarea.remove();
-      toast.success(`${selectedRecords.length} selected items copied as text`);
     }
+    toast.success(`${channelName} format copied for ${selectedRecords.length} selected ${selectedRecords.length === 1 ? "item" : "items"}`);
   };
 
   const exportExcel = (withVat: boolean) => {
@@ -264,10 +263,9 @@ export function InventoryOverview() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" disabled={!selectedRecords.length} onClick={copyShareText}><ClipboardCopy />Copy text</Button>
-          <Button size="sm" disabled={!selectedRecords.length} onClick={() => openShare("whatsapp")} className="bg-[#25D366] text-white hover:bg-[#1fb558]"><MessageCircle />WhatsApp</Button>
-          <Button size="sm" disabled={!selectedRecords.length} onClick={() => openShare("telegram")} className="bg-[#229ED9] text-white hover:bg-[#1987bb]"><Send />Telegram</Button>
-          <Button size="sm" variant="outline" disabled={!selectedRecords.length} onClick={() => openShare("email")}><Mail />Email</Button>
+          <Button size="sm" disabled={!selectedRecords.length} onClick={() => copyForChannel("whatsapp")} title="Copy WhatsApp format" className="bg-[#25D366] text-white hover:bg-[#1fb558]"><MessageCircle />WhatsApp</Button>
+          <Button size="sm" disabled={!selectedRecords.length} onClick={() => copyForChannel("telegram")} title="Copy Telegram format" className="bg-[#229ED9] text-white hover:bg-[#1987bb]"><Send />Telegram</Button>
+          <Button size="sm" variant="outline" disabled={!selectedRecords.length} onClick={() => copyForChannel("email")} title="Copy email format"><Mail />Email</Button>
           <Button size="sm" variant="outline" disabled={!selectedRecords.length} onClick={() => exportExcel(false)}><Download />Excel no VAT</Button>
           <Button size="sm" variant="outline" disabled={!selectedRecords.length} onClick={() => exportExcel(true)}><FileSpreadsheet />Excel + VAT</Button>
         </div>
