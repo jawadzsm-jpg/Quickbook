@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { auditLog, companies, companySettings } from "../../../db/schema";
 import { hashAdminPin, isValidAdminPin, verifyAdminPin } from "../../../lib/admin-pin";
+import { requireApiUser } from "@/lib/auth";
 
 function errorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : "Unexpected database error";
@@ -9,6 +10,8 @@ function errorMessage(error: unknown) {
 }
 
 export async function GET(request: Request) {
+  const authorization = await requireApiUser(request, true);
+  if (authorization instanceof Response) return authorization;
   try {
     const companyId = Number(new URL(request.url).searchParams.get("companyId"));
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
@@ -21,6 +24,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const authorization = await requireApiUser(request, true, true);
+  if (authorization instanceof Response) return authorization;
   try {
     const payload = (await request.json()) as Record<string, unknown>;
     const companyId = Number(payload.companyId);

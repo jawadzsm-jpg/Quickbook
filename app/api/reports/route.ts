@@ -1,6 +1,7 @@
 import { and, asc, eq, sum } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { contacts, items, journalEntries, journalLines, transactionLines, transactions } from "../../../db/schema";
+import { requireApiUser } from "@/lib/auth";
 
 type Row = Record<string, string | number>;
 const money = { type: "money" as const };
@@ -9,6 +10,8 @@ const amountColumns = (first = "Account") => [
 ];
 
 export async function GET(request: Request) {
+  const authorization = await requireApiUser(request);
+  if (authorization instanceof Response) return authorization;
   try {
     const key = new URL(request.url).searchParams.get("type") ?? "profit-loss";
     const url = new URL(request.url);

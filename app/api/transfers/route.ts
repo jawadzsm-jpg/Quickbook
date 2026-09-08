@@ -2,6 +2,7 @@ import { desc, eq, gt, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { getDb } from "../../../db";
 import { companies, contacts, inventoryLocations, items, stockTransfers } from "../../../db/schema";
+import { requireApiUser } from "@/lib/auth";
 
 type TransferLine = { itemId?: unknown; sourceLocationId?: unknown; destinationLocationId?: unknown; quantity?: unknown };
 
@@ -10,6 +11,8 @@ function errorMessage(error: unknown) {
 }
 
 export async function GET(request: Request) {
+  const authorization = await requireApiUser(request);
+  if (authorization instanceof Response) return authorization;
   try {
     const db = getDb();
     if (new URL(request.url).searchParams.get("catalog") === "1") {
@@ -39,6 +42,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const authorization = await requireApiUser(request, true, true);
+  if (authorization instanceof Response) return authorization;
   try {
     const payload = (await request.json()) as Record<string, unknown>;
     const rawLines = Array.isArray(payload.lines) ? payload.lines as TransferLine[] : [];

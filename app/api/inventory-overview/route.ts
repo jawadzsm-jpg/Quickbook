@@ -1,12 +1,15 @@
 import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { companies, inventoryLocations, items } from "../../../db/schema";
+import { requireApiUser } from "@/lib/auth";
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Could not load the inventory overview.";
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const authorization = await requireApiUser(request);
+  if (authorization instanceof Response) return authorization;
   try {
     const db = getDb();
     const records = await db.select({

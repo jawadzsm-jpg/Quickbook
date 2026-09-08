@@ -5,6 +5,7 @@ import {
   journalLines, transactionLines, transactions,
 } from "../../../db/schema";
 import { verifyAdminPin } from "../../../lib/admin-pin";
+import { requireApiUser } from "@/lib/auth";
 
 type RecordKind = "transactions" | "contacts" | "items" | "accounts";
 type InputLine = { itemId?: number | string | null; description?: string; quantity?: number | string; unitPrice?: number | string; unitCost?: number | string; vatCode?: string; vatRate?: number | string };
@@ -29,6 +30,8 @@ async function createUniqueItemSku() {
 }
 
 export async function GET(request: Request) {
+  const authorization = await requireApiUser(request);
+  if (authorization instanceof Response) return authorization;
   try {
     const url = new URL(request.url);
     const kind = url.searchParams.get("kind") as RecordKind | null;
@@ -66,6 +69,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const authorization = await requireApiUser(request, true, true);
+  if (authorization instanceof Response) return authorization;
   try {
     const payload = (await request.json()) as Record<string, unknown>;
     const kind = payload.kind as RecordKind;
@@ -262,6 +267,8 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+  const authorization = await requireApiUser(request, true, true);
+  if (authorization instanceof Response) return authorization;
   try {
     const payload = (await request.json()) as Record<string, unknown>;
     if (payload.kind !== "items") return Response.json({ error: "Only inventory items can be updated here." }, { status: 400 });
@@ -324,6 +331,8 @@ function postingLines(type: string, account: string, subtotal: number, vatAmount
 }
 
 export async function DELETE(request: Request) {
+  const authorization = await requireApiUser(request, true, true);
+  if (authorization instanceof Response) return authorization;
   try {
     const { kind, id, companyId } = (await request.json()) as { kind: RecordKind; id: number; companyId: number };
     const db = getDb();

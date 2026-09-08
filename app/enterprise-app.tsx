@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowRightLeft, BadgeDollarSign, Bell, BookOpen, Boxes, Building2, CheckCircle2, Copy,
   Check, ChevronDown, ChevronRight, CircleDollarSign, Clock3, Download, FileBarChart2, Landmark,
-  Eye, KeyRound, LayoutDashboard, PackageSearch, Pencil, Plus, Printer, ReceiptText, RefreshCw,
+  Eye, KeyRound, LayoutDashboard, LogOut, PackageSearch, Pencil, Plus, Printer, ReceiptText, RefreshCw,
   Search, Settings, ShieldCheck, ShoppingCart, Trash2, Users, WalletCards,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -172,7 +172,7 @@ const itemDisplayDescription = (item: DataRecord) => {
   return String(item.description ?? "");
 };
 
-export default function EnterpriseApp() {
+export default function EnterpriseApp({ currentUser }: { currentUser: { email: string; role: "admin" | "user" } }) {
   const [view, setView] = useState<View>("dashboard");
   const [records, setRecords] = useState<Record<Kind, DataRecord[]>>({ transactions: [], contacts: [], items: [], accounts: [] });
   const [loading, setLoading] = useState(true);
@@ -194,6 +194,11 @@ export default function EnterpriseApp() {
   const activeCompany = companies.find((company) => company.id === activeCompanyId);
   const activeLocations = useMemo(() => activeCompany?.locations ?? [], [activeCompany]);
   const baseCurrency = activeCompany?.baseCurrency ?? "AED";
+
+  async function signOut() {
+    await fetch("/api/auth/session", { method: "DELETE" });
+    window.location.reload();
+  }
 
   const loadWorkspaces = useCallback(async () => {
     try {
@@ -424,7 +429,8 @@ export default function EnterpriseApp() {
           <SidebarMenu><SidebarMenuItem><SidebarMenuButton tooltip="Companies & inventory" onClick={() => setWorkspaceOpen(true)} className="text-slate-400"><Settings /><span>Companies & inventory</span></SidebarMenuButton></SidebarMenuItem></SidebarMenu>
           <div className="mt-1 flex items-center gap-3 rounded-lg bg-white/5 p-2 group-data-[collapsible=icon]:hidden">
             <div className="grid size-8 place-items-center rounded-full bg-slate-700 text-xs font-bold">MS</div>
-            <div className="min-w-0"><p className="truncate text-xs font-semibold text-white">Company Admin</p><p className="truncate text-[11px] text-slate-500">{activeCompany?.name ?? "Select company"}</p></div>
+            <div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold text-white">{currentUser.role === "admin" ? "Company Admin" : "User"}</p><p className="truncate text-[11px] text-slate-500">{currentUser.email}</p></div>
+            <Button type="button" variant="ghost" size="icon" aria-label="Sign out" title="Sign out" onClick={signOut} className="size-8 shrink-0 text-slate-400 hover:bg-white/10 hover:text-white"><LogOut className="size-4" /></Button>
           </div>
         </SidebarFooter>
         <SidebarRail />
@@ -442,7 +448,7 @@ export default function EnterpriseApp() {
         </header>
 
         <div className="mx-auto w-full max-w-[1500px] p-4 lg:p-7">
-          {view === "inventory-overview" ? <InventoryOverview /> : view === "transfers" ? <MultiLineTransferCenter key={`${activeCompanyId}-${activeLocationId}`} companies={companies} activeLocationId={activeLocationId} onTransferred={loadData} /> : view === "admin-controls" ? <AdminSettingsCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} /> : managementView ? <WorkspaceCenter mode={view as "companies" | "inventories" | "invoice-series" | "currencies"} companies={companies} activeCompanyId={activeCompanyId} onChanged={loadWorkspaces} /> : view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} onNavigate={setView} onCreate={openCreate} onOpenDetail={openDetail} /> : view === "reports" ? <ReportCenter metrics={metrics} currency={baseCurrency} onOpen={openReport} loading={reportLoading} /> : (
+          {view === "inventory-overview" ? <InventoryOverview /> : view === "transfers" ? <MultiLineTransferCenter key={`${activeCompanyId}-${activeLocationId}`} companies={companies} activeLocationId={activeLocationId} onTransferred={loadData} /> : view === "admin-controls" ? <AdminSettingsCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} currentUserEmail={currentUser.email} /> : managementView ? <WorkspaceCenter mode={view as "companies" | "inventories" | "invoice-series" | "currencies"} companies={companies} activeCompanyId={activeCompanyId} onChanged={loadWorkspaces} /> : view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} onNavigate={setView} onCreate={openCreate} onOpenDetail={openDetail} /> : view === "reports" ? <ReportCenter metrics={metrics} currency={baseCurrency} onOpen={openReport} loading={reportLoading} /> : (
             <RecordView view={view} kind={currentKind} records={filteredRecords} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onEditItem={openItemEdit} onDuplicateItem={duplicateItem} onOpenDetail={openDetail} />
           )}
         </div>
@@ -548,13 +554,17 @@ function ReportDialog({ report, companyName, onClose }: { report: ReportData | n
   </DialogContent></Dialog>;
 }
 
-function AdminSettingsCenter({ companyId, companyName }: { companyId: number; companyName: string }) {
+function AdminSettingsCenter({ companyId, companyName, currentUserEmail }: { companyId: number; companyName: string; currentUserEmail: string }) {
   const [configured, setConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [currentPin, setCurrentPin] = useState("");
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordSaving, setPasswordSaving] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -592,12 +602,26 @@ function AdminSettingsCenter({ companyId, companyName }: { companyId: number; co
     } finally { setSaving(false); }
   }
 
+  async function savePassword(event: FormEvent) {
+    event.preventDefault();
+    if (newPassword.length < 12) return toast.error("The new password must contain at least 12 characters.");
+    if (newPassword !== confirmPassword) return toast.error("The new password and confirmation do not match.");
+    setPasswordSaving(true);
+    try {
+      const response = await fetch("/api/auth/session", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ currentPassword, newPassword }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not change the password");
+      toast.success("Password changed. Sign in again.");
+      window.setTimeout(() => window.location.reload(), 700);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not change the password"); setPasswordSaving(false); }
+  }
+
   return <div className="grid gap-5 xl:grid-cols-[1fr_420px]">
     <section className="rounded-xl border bg-white shadow-sm">
       <div className="flex items-start justify-between gap-4 border-b p-5"><div><h2 className="font-bold">Restricted stock operations</h2><p className="mt-1 text-sm text-slate-500">Security controls apply separately to {companyName}.</p></div><Badge className={configured ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100" : "bg-amber-100 text-amber-900 hover:bg-amber-100"}>{loading ? "Checking…" : configured ? "PIN configured" : "Setup required"}</Badge></div>
       <div className="p-5"><div className="flex gap-4 rounded-xl border border-amber-200 bg-amber-50 p-4"><div className="grid size-11 shrink-0 place-items-center rounded-lg bg-amber-100 text-amber-800"><ShieldCheck className="size-6" /></div><div><h3 className="font-semibold text-amber-950">Negative-stock invoice override</h3><p className="mt-1 text-sm leading-6 text-amber-900">Invoices and sales receipts are blocked when stock is insufficient. A company admin can enter this PIN on the document to approve an exception.</p><p className="mt-2 text-sm font-medium text-amber-950">Every override is recorded in the audit log.</p></div></div></div>
     </section>
-    <form onSubmit={savePin} className="space-y-4 rounded-xl border bg-white p-5 shadow-sm">
+    <div className="space-y-5"><form onSubmit={savePin} className="space-y-4 rounded-xl border bg-white p-5 shadow-sm">
       <div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-lg bg-slate-100 text-slate-700"><KeyRound className="size-5" /></div><div><h2 className="font-bold">{configured ? "Change admin PIN" : "Set admin PIN"}</h2><p className="text-sm text-slate-500">Use 4 to 12 numbers.</p></div></div>
       {configured && <div className="space-y-2"><Label htmlFor="currentAdminPin">Current PIN</Label><Input id="currentAdminPin" type="password" inputMode="numeric" autoComplete="current-password" pattern="[0-9]{4,12}" value={currentPin} onChange={(event) => setCurrentPin(event.target.value.replace(/\D/g, "").slice(0, 12))} required placeholder="Enter current PIN" /></div>}
       <div className="space-y-2"><Label htmlFor="newAdminPin">New PIN</Label><Input id="newAdminPin" type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,12}" value={newPin} onChange={(event) => setNewPin(event.target.value.replace(/\D/g, "").slice(0, 12))} required placeholder="Enter new PIN" /></div>
@@ -605,6 +629,14 @@ function AdminSettingsCenter({ companyId, companyName }: { companyId: number; co
       <Button type="submit" disabled={loading || saving || !companyId} className="w-full bg-emerald-500 font-semibold text-slate-950 hover:bg-emerald-400">{saving ? "Saving…" : configured ? "Change admin PIN" : "Set admin PIN"}</Button>
       <p className="text-sm leading-5 text-slate-500">The PIN is securely hashed before storage and is never displayed. Only authorized company administrators should change it.</p>
     </form>
+    <form onSubmit={savePassword} className="space-y-4 rounded-xl border bg-white p-5 shadow-sm">
+      <div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-lg bg-emerald-100 text-emerald-700"><ShieldCheck className="size-5" /></div><div><h2 className="font-bold">Change login password</h2><p className="text-sm text-slate-500">{currentUserEmail}</p></div></div>
+      <div className="space-y-2"><Label htmlFor="currentLoginPassword">Current password</Label><Input id="currentLoginPassword" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></div>
+      <div className="space-y-2"><Label htmlFor="newLoginPassword">New password</Label><Input id="newLoginPassword" type="password" autoComplete="new-password" minLength={12} maxLength={128} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required /></div>
+      <div className="space-y-2"><Label htmlFor="confirmLoginPassword">Confirm new password</Label><Input id="confirmLoginPassword" type="password" autoComplete="new-password" minLength={12} maxLength={128} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required /></div>
+      <Button type="submit" disabled={passwordSaving} className="w-full">{passwordSaving ? "Changing…" : "Change login password"}</Button>
+      <p className="text-sm leading-5 text-slate-500">Changing the password signs out every active session.</p>
+    </form></div>
   </div>;
 }
 

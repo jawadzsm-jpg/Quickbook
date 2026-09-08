@@ -1,6 +1,7 @@
 import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { accounts, companies, inventoryLocations, transactions } from "../../../db/schema";
+import { requireApiUser } from "@/lib/auth";
 
 const standardAccounts = [
   ["1000", "Business Bank", "Bank", "BANK"], ["1100", "Accounts Receivable", "Accounts Receivable", "AR"],
@@ -16,7 +17,9 @@ function message(error: unknown) {
   return error instanceof Error ? error.message : "Could not update companies and inventory locations.";
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const authorization = await requireApiUser(request);
+  if (authorization instanceof Response) return authorization;
   try {
     const db = getDb();
     const [companyRows, locationRows, transactionRows, accountRows] = await Promise.all([
@@ -40,6 +43,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const authorization = await requireApiUser(request, true, true);
+  if (authorization instanceof Response) return authorization;
   try {
     const payload = (await request.json()) as Record<string, unknown>;
     const db = getDb();
@@ -64,6 +69,8 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+  const authorization = await requireApiUser(request, true, true);
+  if (authorization instanceof Response) return authorization;
   try {
     const payload = (await request.json()) as Record<string, unknown>;
     if (payload.type === "invoiceSeries") {

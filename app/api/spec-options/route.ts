@@ -2,6 +2,7 @@ import { asc } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { specificationOptions } from "../../../db/schema";
 import { specificationFields, specificationPresets } from "@/lib/specification-presets";
+import { requireApiUser } from "@/lib/auth";
 
 type OptionPayload = { type?: unknown; label?: unknown; value?: unknown; oldValue?: unknown; newValue?: unknown };
 const LABEL_SCOPE = "__specification_detail_names__";
@@ -20,7 +21,9 @@ async function setOption(label: string, value: string, active: boolean) {
   });
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const authorization = await requireApiUser(request);
+  if (authorization instanceof Response) return authorization;
   try {
     const rows = await getDb().select().from(specificationOptions).orderBy(asc(specificationOptions.label), asc(specificationOptions.value));
     const options: Record<string, string[]> = Object.fromEntries(Object.entries(specificationPresets).map(([label, values]) => [label, [...values]]));
@@ -63,6 +66,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const authorization = await requireApiUser(request, true, true);
+  if (authorization instanceof Response) return authorization;
   try {
     const payload = await request.json() as OptionPayload;
     const label = payload.type === "label" ? LABEL_SCOPE : payload.type === "category" ? CATEGORY_SCOPE : text(payload.label);
@@ -76,6 +81,8 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+  const authorization = await requireApiUser(request, true, true);
+  if (authorization instanceof Response) return authorization;
   try {
     const payload = await request.json() as OptionPayload;
     const isLabel = payload.type === "label";
@@ -102,6 +109,8 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const authorization = await requireApiUser(request, true, true);
+  if (authorization instanceof Response) return authorization;
   try {
     const payload = await request.json() as OptionPayload;
     const label = payload.type === "label" ? LABEL_SCOPE : payload.type === "category" ? CATEGORY_SCOPE : text(payload.label);
