@@ -40,13 +40,14 @@ function money(value: number, currency: string) {
 }
 
 function specificationText(record: OverviewItem) {
-  if (record.description.trim()) return record.description.trim();
   try {
     const parsed = JSON.parse(record.specifications) as Array<{ label?: string; value?: string }>;
-    return parsed.filter((entry) => entry?.value).map((entry) => `${entry.label ? `${entry.label}: ` : ""}${entry.value}`).join(" | ");
+    const values = parsed.filter((entry) => entry?.value).map((entry) => entry.value).join(" | ");
+    if (values) return values;
   } catch {
-    return "";
+    // Older records can still fall back to their saved description.
   }
+  return record.description.trim();
 }
 
 export function InventoryOverview() {

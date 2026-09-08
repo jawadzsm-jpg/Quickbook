@@ -89,7 +89,8 @@ export async function POST(request: Request) {
       const category = String(payload.category ?? "General").trim() || "General";
       const sku = await createUniqueItemSku();
       const name = String(payload.name ?? "").trim() || [specificationValue("Brand"), specificationValue("Model") || specificationValue("Part Number")].filter(Boolean).join(" ") || `${category} Item`;
-      const description = specifications.map((specification) => `${specification.label}: ${specification.value}`).join(" | ");
+      // Keep labels in structured specifications for editing/filtering; the customer-facing description contains values only.
+      const description = specifications.map((specification) => specification.value).join(" | ");
       const [created] = await db.insert(items).values({
         companyId, locationId, name, sku, category, description,
         specifications: JSON.stringify(specifications), quantity: Number(payload.quantity ?? 0),
@@ -200,7 +201,8 @@ export async function PATCH(request: Request) {
       category,
       sku: existing.sku,
       name: generatedName || existing.name,
-      description: specifications.map((specification) => `${specification.label}: ${specification.value}`).join(" | "),
+      // Keep labels in structured specifications for editing/filtering; the customer-facing description contains values only.
+      description: specifications.map((specification) => specification.value).join(" | "),
       specifications: JSON.stringify(specifications),
     }).where(eq(items.id, id)).returning();
     await db.insert(auditLog).values({ companyId, action: "updated", entityType: "item", entityId: id, details: `${record.sku} ${record.name}` });
