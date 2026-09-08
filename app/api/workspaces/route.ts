@@ -3,13 +3,13 @@ import { getDb } from "../../../db";
 import { accounts, companies, inventoryLocations, transactions } from "../../../db/schema";
 
 const standardAccounts = [
-  ["1000", "Business Bank", "Bank"], ["1100", "Accounts Receivable", "Accounts Receivable"],
-  ["1200", "Inventory Asset", "Current Asset"], ["1300", "Recoverable VAT", "Current Asset"],
-  ["2000", "Accounts Payable", "Accounts Payable"], ["2100", "VAT Payable", "Current Liability"],
-  ["3000", "Opening Balance Equity", "Equity"], ["4000", "Sales Revenue", "Income"],
-  ["4100", "Other Income", "Income"], ["5000", "Cost of Goods Sold", "Cost of Goods Sold"],
-  ["6000", "Purchases", "Expense"], ["6100", "Operating Expenses", "Expense"],
-  ["6200", "Payroll Expense", "Expense"], ["9999", "Suspense", "Other Current Asset"],
+  ["1000", "Business Bank", "Bank", "BANK"], ["1100", "Accounts Receivable", "Accounts Receivable", "AR"],
+  ["1200", "Inventory Asset", "Other Current Asset", "INVENTORY"], ["1300", "Recoverable VAT", "Other Current Asset", "INPUT_VAT"],
+  ["2000", "Accounts Payable", "Accounts Payable", "AP"], ["2100", "VAT Payable", "Other Current Liability", "OUTPUT_VAT"],
+  ["3000", "Opening Balance Equity", "Equity", "EQUITY"], ["4000", "Sales Revenue", "Income", "SALES"],
+  ["4100", "Other Income", "Other Income", "OTHER_INCOME"], ["5000", "Cost of Goods Sold", "Cost of Goods Sold", "COGS"],
+  ["6000", "Purchases", "Expense", "PURCHASES"], ["6100", "Operating Expenses", "Expense", "EXPENSE"],
+  ["6200", "Payroll Expense", "Expense", "PAYROLL"], ["9999", "Suspense", "Other Current Asset", "SUSPENSE"],
 ] as const;
 
 function message(error: unknown) {
@@ -19,16 +19,18 @@ function message(error: unknown) {
 export async function GET() {
   try {
     const db = getDb();
-    const [companyRows, locationRows, transactionRows] = await Promise.all([
+    const [companyRows, locationRows, transactionRows, accountRows] = await Promise.all([
       db.select().from(companies).where(eq(companies.active, true)).orderBy(asc(companies.name)),
       db.select().from(inventoryLocations).where(eq(inventoryLocations.active, true)).orderBy(asc(inventoryLocations.name)),
       db.select().from(transactions),
+      db.select({ companyId: accounts.companyId, name: accounts.name, systemRole: accounts.systemRole }).from(accounts),
     ]);
     return Response.json({
       companies: companyRows.map((company) => ({ ...company, locations: locationRows.filter((location) => location.companyId === company.id).map((location) => {
         const activity = transactionRows.filter((transaction) => transaction.companyId === company.id && transaction.locationId === location.id);
         const receivable = activity.reduce((balance, transaction) => transaction.type === "invoice" ? balance + Number(transaction.baseTotal) : ["customer payment", "credit memo"].includes(transaction.type) ? balance - Number(transaction.baseTotal) : balance, 0);
-        const payable = activity.reduce((balance, transaction) => transaction.type === "bill" ? balance + Number(transaction.baseTotal) : ["bill payment", "vendor payment", "vendor credit"].includes(transaction.type) || (transaction.type === "cheque" && transaction.account === "Accounts Payable") ? balance - Number(transaction.baseTotal) : balance, 0);
+        const apName = accountRows.find((account) => account.companyId === company.id && account.systemRole === "AP")?.name ?? "Accounts Payable";
+        const payable = activity.reduce((balance, transaction) => transaction.type === "bill" ? balance + Number(transaction.baseTotal) : ["bill payment", "vendor payment", "vendor credit"].includes(transaction.type) || (transaction.type === "cheque" && transaction.account === apName) ? balance - Number(transaction.baseTotal) : balance, 0);
         return { ...location, receivable, payable };
       }) })),
     });
@@ -47,7 +49,7 @@ export async function POST(request: Request) {
       if (!name || !/^[A-Z]{3}$/.test(baseCurrency)) return Response.json({ error: "Company name and a valid currency code are required." }, { status: 400 });
       const [company] = await db.insert(companies).values({ name, baseCurrency }).returning();
       const [location] = await db.insert(inventoryLocations).values({ companyId: company.id, name: "Main Inventory", code: "MAIN", invoicePrefix: "MAIN" }).returning();
-      await db.insert(accounts).values(standardAccounts.map(([code, accountName, accountType]) => ({ companyId: company.id, code, name: accountName, type: accountType })));
+      await db.insert(accounts).values(standardAccounts.map(([code, accountName, accountType, systemRole]) => ({ companyId: company.id, code, name: accountName, type: accountType, systemRole })));
       return Response.json({ company: { ...company, locations: [location] } }, { status: 201 });
     }
     const companyId = Number(payload.companyId);
