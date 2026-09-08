@@ -1,6 +1,6 @@
 import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { accounts, companies, inventoryLocations } from "../../../db/schema";
+import { accounts, companies, inventoryLocations, transactions } from "../../../db/schema";
 
 const standardAccounts = [
   ["1000", "Business Bank", "Bank"], ["1100", "Accounts Receivable", "Accounts Receivable"],
@@ -19,12 +19,18 @@ function message(error: unknown) {
 export async function GET() {
   try {
     const db = getDb();
-    const [companyRows, locationRows] = await Promise.all([
+    const [companyRows, locationRows, transactionRows] = await Promise.all([
       db.select().from(companies).where(eq(companies.active, true)).orderBy(asc(companies.name)),
       db.select().from(inventoryLocations).where(eq(inventoryLocations.active, true)).orderBy(asc(inventoryLocations.name)),
+      db.select().from(transactions),
     ]);
     return Response.json({
-      companies: companyRows.map((company) => ({ ...company, locations: locationRows.filter((location) => location.companyId === company.id) })),
+      companies: companyRows.map((company) => ({ ...company, locations: locationRows.filter((location) => location.companyId === company.id).map((location) => {
+        const activity = transactionRows.filter((transaction) => transaction.companyId === company.id && transaction.locationId === location.id);
+        const receivable = activity.reduce((balance, transaction) => transaction.type === "invoice" ? balance + Number(transaction.baseTotal) : ["customer payment", "credit memo"].includes(transaction.type) ? balance - Number(transaction.baseTotal) : balance, 0);
+        const payable = activity.reduce((balance, transaction) => transaction.type === "bill" ? balance + Number(transaction.baseTotal) : ["bill payment", "vendor payment", "vendor credit"].includes(transaction.type) || (transaction.type === "cheque" && transaction.account === "Accounts Payable") ? balance - Number(transaction.baseTotal) : balance, 0);
+        return { ...location, receivable, payable };
+      }) })),
     });
   } catch (error) {
     return Response.json({ error: message(error) }, { status: 500 });
