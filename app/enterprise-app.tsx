@@ -309,8 +309,9 @@ export default function EnterpriseApp() {
       const response = await fetch("/api/records", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "items", companyId: activeCompanyId, locationId: activeLocationId, duplicateItemId: id }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not duplicate item");
-      toast.success(`Item duplicated with SKU ${data.record.sku}`);
       await loadData();
+      openItemEdit(data.record as DataRecord);
+      toast.success(`Duplicate ${data.record.sku} is ready to edit and save`);
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not duplicate item"); }
   }
 
