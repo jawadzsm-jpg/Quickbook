@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Boxes, Download, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PackageX, RefreshCw, Search, Send, Warehouse } from "lucide-react";
+import { AlertTriangle, Boxes, ClipboardCopy, Download, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PackageX, RefreshCw, Search, Send, Warehouse } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -159,7 +159,7 @@ export function InventoryOverview() {
       if (showQuantity) details.push(`Qty: ${plainMoney(Number(record.quantity))}`);
       if (showPrice) {
         const price = Number(record.salesPrice) * (includeVat ? 1.05 : 1);
-        details.push(`${record.currency}: ${plainMoney(price)}${includeVat ? " VAT included" : " + VAT"}`);
+        details.push(`${record.currency}: ${plainMoney(price)}${includeVat ? " (VAT included)" : " (VAT excluded)"}`);
       }
       if (details.length) lines.push(details.join(" | "));
       return lines.filter(Boolean).join("\n");
@@ -177,6 +177,25 @@ export function InventoryOverview() {
         ? `https://t.me/share/url?url=&text=${encoded}`
         : `mailto:?subject=${encodeURIComponent("ComNet stock list")}&body=${encoded}`;
     window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const copyShareText = async () => {
+    const text = shareText();
+    if (!text) return toast.error("Select at least one item to copy.");
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(`${selectedRecords.length} selected items copied as text`);
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      textarea.remove();
+      toast.success(`${selectedRecords.length} selected items copied as text`);
+    }
   };
 
   const exportExcel = (withVat: boolean) => {
@@ -208,6 +227,7 @@ export function InventoryOverview() {
   const summaryButton = (active: boolean) => active
     ? "border-slate-950 bg-slate-950 text-white shadow-sm hover:bg-slate-800 hover:text-white"
     : "border-slate-200 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50";
+  const columnCount = 3 + Number(showQuantity) + Number(showPrice);
 
   return <div className="space-y-5">
     <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
@@ -236,11 +256,15 @@ export function InventoryOverview() {
       <div className="flex flex-col gap-3 border-b bg-slate-50 px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex flex-wrap items-center gap-4">
           <Badge className="bg-slate-950 text-white hover:bg-slate-950">{selectedRecords.length} selected</Badge>
-          <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700"><Checkbox checked={showQuantity} onCheckedChange={(checked) => setShowQuantity(checked === true)} />Show quantity</label>
-          <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700"><Checkbox checked={showPrice} onCheckedChange={(checked) => setShowPrice(checked === true)} />Show price</label>
-          <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700"><Checkbox checked={includeVat} onCheckedChange={(checked) => setIncludeVat(checked === true)} disabled={!showPrice} />Share price includes 5% VAT</label>
+          <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700"><Checkbox checked={!showQuantity} onCheckedChange={(checked) => setShowQuantity(checked !== true)} />Hide quantity</label>
+          <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700"><Checkbox checked={!showPrice} onCheckedChange={(checked) => setShowPrice(checked !== true)} />Hide price</label>
+          <div className="flex rounded-lg border bg-white p-1" aria-label="Shared price VAT format">
+            <Button type="button" size="sm" variant={!includeVat ? "default" : "ghost"} disabled={!showPrice} onClick={() => setIncludeVat(false)} className={!includeVat ? "bg-slate-950 text-white hover:bg-slate-800" : ""}>No VAT</Button>
+            <Button type="button" size="sm" variant={includeVat ? "default" : "ghost"} disabled={!showPrice} onClick={() => setIncludeVat(true)} className={includeVat ? "bg-emerald-500 text-slate-950 hover:bg-emerald-400" : ""}>Including VAT</Button>
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" disabled={!selectedRecords.length} onClick={copyShareText}><ClipboardCopy />Copy text</Button>
           <Button size="sm" disabled={!selectedRecords.length} onClick={() => openShare("whatsapp")} className="bg-[#25D366] text-white hover:bg-[#1fb558]"><MessageCircle />WhatsApp</Button>
           <Button size="sm" disabled={!selectedRecords.length} onClick={() => openShare("telegram")} className="bg-[#229ED9] text-white hover:bg-[#1987bb]"><Send />Telegram</Button>
           <Button size="sm" variant="outline" disabled={!selectedRecords.length} onClick={() => openShare("email")}><Mail />Email</Button>
@@ -251,10 +275,10 @@ export function InventoryOverview() {
 
       <div className="overflow-x-auto">
         <Table className="min-w-[900px]">
-          <TableHeader><TableRow className="bg-slate-50"><TableHead className="w-12"><Checkbox aria-label="Select all visible items" checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false} onCheckedChange={(checked) => toggleAllVisible(checked === true)} /></TableHead><TableHead className="w-[55%] font-bold text-slate-900">Product specifications</TableHead><TableHead className="font-bold text-slate-900">Company / inventory</TableHead><TableHead className="w-24 text-right font-bold text-slate-900">Qty</TableHead><TableHead className="w-36 text-right font-bold text-slate-900">Price</TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow className="bg-slate-50"><TableHead className="w-12"><Checkbox aria-label="Select all visible items" checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false} onCheckedChange={(checked) => toggleAllVisible(checked === true)} /></TableHead><TableHead className="w-[55%] font-bold text-slate-900">Product specifications</TableHead><TableHead className="font-bold text-slate-900">Company / inventory</TableHead>{showQuantity && <TableHead className="w-24 text-right font-bold text-slate-900">Qty</TableHead>}{showPrice && <TableHead className="w-36 text-right font-bold text-slate-900">Price</TableHead>}</TableRow></TableHeader>
           <TableBody>
-            {loading ? <TableRow><TableCell colSpan={5} className="h-40 text-center text-slate-500"><RefreshCw className="mx-auto mb-2 size-5 animate-spin" />Loading all inventories…</TableCell></TableRow> : categories.length === 0 ? <TableRow><TableCell colSpan={5} className="h-40 text-center text-slate-500">No products match this view.</TableCell></TableRow> : categories.flatMap(([category, items]) => [
-              <TableRow key={`category-${category}`} className="border-slate-800 bg-slate-950 hover:bg-slate-950"><TableCell colSpan={5} className="py-3 font-bold text-white"><span className="mr-2 text-emerald-400">●</span>{category}<Badge className="ml-3 bg-white/15 text-white hover:bg-white/15">{items.length} items</Badge></TableCell></TableRow>,
+            {loading ? <TableRow><TableCell colSpan={columnCount} className="h-40 text-center text-slate-500"><RefreshCw className="mx-auto mb-2 size-5 animate-spin" />Loading all inventories…</TableCell></TableRow> : categories.length === 0 ? <TableRow><TableCell colSpan={columnCount} className="h-40 text-center text-slate-500">No products match this view.</TableCell></TableRow> : categories.flatMap(([category, items]) => [
+              <TableRow key={`category-${category}`} className="border-slate-800 bg-slate-950 hover:bg-slate-950"><TableCell colSpan={columnCount} className="py-3 font-bold text-white"><span className="mr-2 text-emerald-400">●</span>{category}<Badge className="ml-3 bg-white/15 text-white hover:bg-white/15">{items.length} items</Badge></TableCell></TableRow>,
               ...items.map((record) => {
                 const low = Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint);
                 const out = Number(record.quantity) <= 0;
@@ -263,8 +287,8 @@ export function InventoryOverview() {
                   <TableCell className="py-5"><Checkbox aria-label={`Select ${record.name}`} checked={selectedIds.has(record.id)} onCheckedChange={(checked) => toggleSelected(record.id, checked === true)} /></TableCell>
                   <TableCell className="py-4"><div className="flex flex-wrap items-center gap-2"><span className="text-base font-bold text-blue-700 underline decoration-blue-300 underline-offset-2">{record.name}</span>{out ? <Badge variant="destructive">Out of stock</Badge> : low ? <Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">Low stock</Badge> : <Badge variant="outline" className="border-emerald-200 text-emerald-700"><PackageCheck className="mr-1 size-3" />In stock</Badge>}</div>{description && <p className="mt-1 line-clamp-2 text-sm font-medium leading-5 text-slate-700">{description}</p>}<div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs"><span className="font-semibold text-slate-600">SKU: {record.sku}</span>{record.itemNumber && <span className="font-bold text-rose-600">#{record.itemNumber}</span>}</div></TableCell>
                   <TableCell className="py-4"><p className="font-semibold text-slate-900">{record.companyName}</p><p className="mt-1 text-sm text-slate-500"><Warehouse className="mr-1 inline size-3.5" />{record.locationName} · {record.locationCode}</p></TableCell>
-                  <TableCell className={`py-4 text-right text-base font-black ${out ? "text-rose-600" : low ? "text-amber-600" : "text-slate-900"}`}>{Number(record.quantity).toLocaleString()}</TableCell>
-                  <TableCell className="py-4 text-right text-base font-black text-rose-600">{money(Number(record.salesPrice), record.currency)}</TableCell>
+                  {showQuantity && <TableCell className={`py-4 text-right text-base font-black ${out ? "text-rose-600" : low ? "text-amber-600" : "text-slate-900"}`}>{Number(record.quantity).toLocaleString()}</TableCell>}
+                  {showPrice && <TableCell className="py-4 text-right text-base font-black text-rose-600">{money(Number(record.salesPrice) * (includeVat ? 1.05 : 1), record.currency)}{includeVat && <span className="mt-1 block text-[11px] font-semibold text-emerald-600">VAT included</span>}</TableCell>}
                 </TableRow>;
               }),
             ])}
