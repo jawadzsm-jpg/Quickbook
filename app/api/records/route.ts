@@ -198,7 +198,9 @@ export async function POST(request: Request) {
       number = `${companyPrefix}-${sequence.invoicePrefix}-INV-${String(sequence.nextInvoiceNumber - 1).padStart(4, "0")}`;
     }
     const [record] = await db.insert(transactions).values({
-      companyId, locationId: Number.isInteger(locationId) ? locationId : null, number, type, party, transactionDate, dueDate: String(payload.dueDate ?? ""),
+      companyId, locationId: Number.isInteger(locationId) ? locationId : null, number, type, party,
+      salesman: String(payload.salesman ?? ""), isImport: payload.isImport === true || String(payload.isImport) === "true",
+      transactionDate, dueDate: String(payload.dueDate ?? ""),
       account: String(payload.account ?? "Accounts Receivable"), status: String(payload.status ?? "open"), memo: String(payload.memo ?? ""),
       subtotal, vatRate: Number(payload.vatRate ?? 5), vatAmount, total, currency, exchangeRate, baseTotal,
     }).returning();
