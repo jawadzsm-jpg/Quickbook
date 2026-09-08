@@ -22,7 +22,7 @@ async function setOption(label: string, value: string, active: boolean) {
 }
 
 export async function GET(request: Request) {
-  const authorization = await requireApiUser(request);
+  const authorization = await requireApiUser(request, "inventory:read");
   if (authorization instanceof Response) return authorization;
   try {
     const rows = await getDb().select().from(specificationOptions).orderBy(asc(specificationOptions.label), asc(specificationOptions.value));
@@ -66,7 +66,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const authorization = await requireApiUser(request, true, true);
+  const authorization = await requireApiUser(request, "inventory:manage", true);
   if (authorization instanceof Response) return authorization;
   try {
     const payload = await request.json() as OptionPayload;
@@ -81,7 +81,7 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const authorization = await requireApiUser(request, true, true);
+  const authorization = await requireApiUser(request, "inventory:manage", true);
   if (authorization instanceof Response) return authorization;
   try {
     const payload = await request.json() as OptionPayload;
@@ -109,7 +109,7 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const authorization = await requireApiUser(request, true, true);
+  const authorization = await requireApiUser(request, "inventory:manage", true);
   if (authorization instanceof Response) return authorization;
   try {
     const payload = await request.json() as OptionPayload;

@@ -35,20 +35,20 @@ export async function POST(request: Request) {
   }
   await getDb().update(appUsers).set({ failedLoginAttempts: 0, lockedUntil: null, updatedAt: new Date().toISOString() }).where(eq(appUsers.id, user.id));
   const token = await createSession(user.id);
-  return Response.json({ user: { id: user.id, email: user.email, role: user.role } }, { headers: { "Set-Cookie": sessionCookie(token), "Cache-Control": "no-store" } });
+  return Response.json({ user: { id: user.id, fullName: user.fullName, email: user.email, role: user.role, mustChangePassword: user.mustChangePassword } }, { headers: { "Set-Cookie": sessionCookie(token), "Cache-Control": "no-store" } });
 }
 
 export async function PATCH(request: Request) {
   if (!sameOrigin(request)) return Response.json({ error: "Invalid request origin." }, { status: 403 });
   const user = await getRequestUser(request);
-  if (!user || user.role !== "admin") return Response.json({ error: "Administrator permission required." }, { status: user ? 403 : 401 });
+  if (!user) return Response.json({ error: "Authentication required." }, { status: 401 });
   const payload = await request.json() as Record<string, unknown>;
   const currentPassword = String(payload.currentPassword ?? "");
   const newPassword = String(payload.newPassword ?? "");
   if (newPassword.length < 12 || newPassword.length > 128) return Response.json({ error: "The new password must contain 12 to 128 characters." }, { status: 400 });
   const [record] = await getDb().select().from(appUsers).where(eq(appUsers.id, user.id)).limit(1);
   if (!record || !verifyPassword(currentPassword, record.passwordHash)) return Response.json({ error: "The current password is incorrect." }, { status: 403 });
-  await getDb().update(appUsers).set({ passwordHash: hashPassword(newPassword), updatedAt: new Date().toISOString() }).where(eq(appUsers.id, user.id));
+  await getDb().update(appUsers).set({ passwordHash: hashPassword(newPassword), mustChangePassword: false, updatedAt: new Date().toISOString() }).where(eq(appUsers.id, user.id));
   await getDb().delete(authSessions).where(eq(authSessions.userId, user.id));
   return Response.json({ ok: true }, { headers: { "Set-Cookie": sessionCookie("", 0), "Cache-Control": "no-store" } });
 }

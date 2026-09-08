@@ -16,10 +16,12 @@ export const companySettings = pgTable("company_settings", {
 
 export const appUsers = pgTable("app_users", {
   id: serial("id").primaryKey(),
+  fullName: text("full_name").notNull().default(""),
   email: text("email").notNull(),
   passwordHash: text("password_hash").notNull(),
-  role: text("role", { enum: ["admin", "user"] }).notNull().default("user"),
+  role: text("role", { enum: ["admin", "accountant", "sales", "purchasing", "inventory", "viewer"] }).notNull().default("viewer"),
   active: boolean("active").notNull().default(true),
+  mustChangePassword: boolean("must_change_password").notNull().default(false),
   failedLoginAttempts: integer("failed_login_attempts").notNull().default(0),
   lockedUntil: timestamp("locked_until", { withTimezone: true, mode: "string" }),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),

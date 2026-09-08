@@ -10,7 +10,7 @@ const amountColumns = (first = "Account") => [
 ];
 
 export async function GET(request: Request) {
-  const authorization = await requireApiUser(request);
+  const authorization = await requireApiUser(request, "reports:read");
   if (authorization instanceof Response) return authorization;
   try {
     const key = new URL(request.url).searchParams.get("type") ?? "profit-loss";

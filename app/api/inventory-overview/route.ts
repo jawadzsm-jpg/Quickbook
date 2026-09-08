@@ -8,7 +8,7 @@ function errorMessage(error: unknown) {
 }
 
 export async function GET(request: Request) {
-  const authorization = await requireApiUser(request);
+  const authorization = await requireApiUser(request, "inventory:read");
   if (authorization instanceof Response) return authorization;
   try {
     const db = getDb();

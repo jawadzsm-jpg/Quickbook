@@ -9,7 +9,23 @@ import { appUsers, authSessions } from "@/db/schema";
 const SESSION_COOKIE = "comnet_session";
 const SESSION_HOURS = 12;
 
-export type SessionUser = { id: number; email: string; role: "admin" | "user" };
+export const appRoles = ["admin", "accountant", "sales", "purchasing", "inventory", "viewer"] as const;
+export type AppRole = typeof appRoles[number];
+export type Permission = "workspace:read" | "inventory:read" | "inventory:manage" | "inventory:transfer" | "reports:read" | "sales:write" | "purchases:write" | "banking:write" | "accounting:manage" | "customers:manage" | "vendors:manage";
+export type SessionUser = { id: number; fullName: string; email: string; role: AppRole; mustChangePassword: boolean };
+
+const rolePermissions: Record<AppRole, Permission[]> = {
+  admin: ["workspace:read", "inventory:read", "inventory:manage", "inventory:transfer", "reports:read", "sales:write", "purchases:write", "banking:write", "accounting:manage", "customers:manage", "vendors:manage"],
+  accountant: ["workspace:read", "inventory:read", "reports:read", "sales:write", "purchases:write", "banking:write", "accounting:manage", "customers:manage", "vendors:manage"],
+  sales: ["workspace:read", "inventory:read", "sales:write", "customers:manage"],
+  purchasing: ["workspace:read", "inventory:read", "purchases:write", "vendors:manage"],
+  inventory: ["workspace:read", "inventory:read", "inventory:manage", "inventory:transfer"],
+  viewer: ["workspace:read", "inventory:read", "reports:read"],
+};
+
+export function hasPermission(user: SessionUser, permission: Permission) {
+  return rolePermissions[user.role]?.includes(permission) ?? false;
+}
 
 const tokenDigest = (token: string) => createHash("sha256").update(token).digest("hex");
 
@@ -47,12 +63,12 @@ export async function createSession(userId: number) {
 async function findSessionUser(token: string | undefined): Promise<SessionUser | null> {
   if (!token) return null;
   const [row] = await getDb().select({
-    id: appUsers.id, email: appUsers.email, role: appUsers.role,
+    id: appUsers.id, fullName: appUsers.fullName, email: appUsers.email, role: appUsers.role, mustChangePassword: appUsers.mustChangePassword,
   }).from(authSessions)
     .innerJoin(appUsers, eq(authSessions.userId, appUsers.id))
     .where(and(eq(authSessions.tokenHash, tokenDigest(token)), gt(authSessions.expiresAt, new Date().toISOString()), eq(appUsers.active, true)))
     .limit(1);
-  return row ? { ...row, role: row.role as "admin" | "user" } : null;
+  return row ? { ...row, role: row.role as AppRole } : null;
 }
 
 export async function getSessionUser() {
@@ -72,11 +88,13 @@ export function sameOrigin(request: Request) {
   try { return new URL(origin).host === host; } catch { return false; }
 }
 
-export async function requireApiUser(request: Request, admin = false, mutating = false): Promise<SessionUser | Response> {
+export async function requireApiUser(request: Request, required: boolean | Permission = false, mutating = false): Promise<SessionUser | Response> {
   if (mutating && !sameOrigin(request)) return Response.json({ error: "Invalid request origin." }, { status: 403 });
   const user = await getRequestUser(request);
   if (!user) return Response.json({ error: "Authentication required." }, { status: 401 });
-  if (admin && user.role !== "admin") return Response.json({ error: "Administrator permission required." }, { status: 403 });
+  if (user.mustChangePassword) return Response.json({ error: "Change your temporary password before using the application." }, { status: 403 });
+  if (required === true && user.role !== "admin") return Response.json({ error: "Administrator permission required." }, { status: 403 });
+  if (typeof required === "string" && !hasPermission(user, required)) return Response.json({ error: "Your role does not allow this action." }, { status: 403 });
   return user;
 }
 

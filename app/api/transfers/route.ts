@@ -11,7 +11,7 @@ function errorMessage(error: unknown) {
 }
 
 export async function GET(request: Request) {
-  const authorization = await requireApiUser(request);
+  const authorization = await requireApiUser(request, "inventory:read");
   if (authorization instanceof Response) return authorization;
   try {
     const db = getDb();
@@ -42,7 +42,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const authorization = await requireApiUser(request, true, true);
+  const authorization = await requireApiUser(request, "inventory:transfer", true);
   if (authorization instanceof Response) return authorization;
   try {
     const payload = (await request.json()) as Record<string, unknown>;

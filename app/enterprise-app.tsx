@@ -33,8 +33,11 @@ import {
 import { Toaster, toast } from "sonner";
 import { MultiLineTransferCenter } from "@/app/transfer-center";
 import { InventoryOverview } from "@/app/inventory-overview";
+import { UserRoleCenter } from "@/app/user-role-center";
 
 type View = "dashboard" | "inventory-overview" | "sales" | "receive-payment" | "purchases" | "write-cheque" | "customers" | "vendors" | "inventory" | "transfers" | "banking" | "accounts" | "employees" | "reports" | "companies" | "inventories" | "invoice-series" | "currencies" | "admin-controls";
+type AppRole = "admin" | "accountant" | "sales" | "purchasing" | "inventory" | "viewer";
+type CurrentUser = { id: number; fullName: string; email: string; role: AppRole; mustChangePassword: boolean };
 type Kind = "transactions" | "contacts" | "items" | "accounts";
 type DataRecord = Record<string, string | number | boolean> & { id: number };
 type LineForm = { itemId: string; description: string; quantity: string; unitPrice: string; unitCost: string; vatCode: string; vatRate: string };
@@ -77,6 +80,33 @@ const navGroups = [
     { id: "admin-controls", label: "Admin Controls", icon: ShieldCheck },
   ] },
 ] as const;
+
+const roleLabels: Record<AppRole, string> = {
+  admin: "Administrator",
+  accountant: "Accountant",
+  sales: "Sales",
+  purchasing: "Purchasing",
+  inventory: "Inventory Manager",
+  viewer: "Viewer",
+};
+
+const roleViews: Record<AppRole, readonly View[]> = {
+  admin: navGroups.flatMap((group) => group.items.map((item) => item.id)),
+  accountant: ["dashboard", "inventory-overview", "sales", "receive-payment", "customers", "purchases", "write-cheque", "vendors", "banking", "accounts", "reports"],
+  sales: ["dashboard", "inventory-overview", "sales", "receive-payment", "customers"],
+  purchasing: ["dashboard", "inventory-overview", "purchases", "write-cheque", "vendors"],
+  inventory: ["dashboard", "inventory-overview", "inventory", "transfers"],
+  viewer: ["dashboard", "inventory-overview", "reports"],
+};
+
+const roleWriteViews: Record<AppRole, readonly View[]> = {
+  admin: ["sales", "receive-payment", "customers", "purchases", "write-cheque", "vendors", "inventory", "transfers", "banking", "accounts", "employees", "companies", "inventories", "invoice-series", "currencies", "admin-controls"],
+  accountant: ["sales", "receive-payment", "customers", "purchases", "write-cheque", "vendors", "banking", "accounts"],
+  sales: ["sales", "receive-payment", "customers"],
+  purchasing: ["purchases", "write-cheque", "vendors"],
+  inventory: ["inventory", "transfers"],
+  viewer: [],
+};
 
 const viewTitles: Record<View, { title: string; sub: string }> = {
   dashboard: { title: "Company Home", sub: "Your financial position at a glance" },
@@ -172,7 +202,7 @@ const itemDisplayDescription = (item: DataRecord) => {
   return String(item.description ?? "");
 };
 
-export default function EnterpriseApp({ currentUser }: { currentUser: { email: string; role: "admin" | "user" } }) {
+export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUser }) {
   const [view, setView] = useState<View>("dashboard");
   const [records, setRecords] = useState<Record<Kind, DataRecord[]>>({ transactions: [], contacts: [], items: [], accounts: [] });
   const [loading, setLoading] = useState(true);
@@ -252,6 +282,8 @@ export default function EnterpriseApp({ currentUser }: { currentUser: { email: s
 
   const currentKind: Kind = view === "customers" || view === "vendors" || view === "employees" ? "contacts" : view === "inventory" ? "items" : view === "accounts" ? "accounts" : "transactions";
   const managementView = view === "inventory-overview" || view === "transfers" || view === "companies" || view === "inventories" || view === "invoice-series" || view === "currencies" || view === "admin-controls";
+  const visibleNavGroups = navGroups.map((group) => ({ ...group, items: group.items.filter((item) => roleViews[currentUser.role].includes(item.id)) })).filter((group) => group.items.length > 0);
+  const canWriteCurrentView = roleWriteViews[currentUser.role].includes(view);
 
   const filteredRecords = useMemo(() => {
     let list = records[currentKind];
@@ -412,7 +444,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: { email: s
           <div className="mt-3 group-data-[collapsible=icon]:hidden"><Select value={String(activeCompanyId || "")} onValueChange={(value) => { const company = companies.find((entry) => entry.id === Number(value)); setActiveCompanyId(Number(value)); setActiveLocationId(company?.locations[0]?.id ?? 0); setSearch(""); }}><SelectTrigger className="w-full border-white/10 bg-white/5 text-white"><SelectValue placeholder="Select company" /></SelectTrigger><SelectContent>{companies.map((company) => <SelectItem key={company.id} value={String(company.id)}>{company.name}</SelectItem>)}</SelectContent></Select></div>
         </SidebarHeader>
         <SidebarContent className="px-2 py-3">
-          {navGroups.map((group) => (
+          {visibleNavGroups.map((group) => (
             <SidebarGroup key={group.label}>
               <SidebarGroupLabel className="text-[11px] tracking-[.16em] text-slate-500">{group.label}</SidebarGroupLabel>
               <SidebarGroupContent><SidebarMenu>
@@ -426,10 +458,10 @@ export default function EnterpriseApp({ currentUser }: { currentUser: { email: s
           ))}
         </SidebarContent>
         <SidebarFooter className="border-t border-white/10 p-3">
-          <SidebarMenu><SidebarMenuItem><SidebarMenuButton tooltip="Companies & inventory" onClick={() => setWorkspaceOpen(true)} className="text-slate-400"><Settings /><span>Companies & inventory</span></SidebarMenuButton></SidebarMenuItem></SidebarMenu>
+          {currentUser.role === "admin" && <SidebarMenu><SidebarMenuItem><SidebarMenuButton tooltip="Companies & inventory" onClick={() => setWorkspaceOpen(true)} className="text-slate-400"><Settings /><span>Companies & inventory</span></SidebarMenuButton></SidebarMenuItem></SidebarMenu>}
           <div className="mt-1 flex items-center gap-3 rounded-lg bg-white/5 p-2 group-data-[collapsible=icon]:hidden">
-            <div className="grid size-8 place-items-center rounded-full bg-slate-700 text-xs font-bold">MS</div>
-            <div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold text-white">{currentUser.role === "admin" ? "Company Admin" : "User"}</p><p className="truncate text-[11px] text-slate-500">{currentUser.email}</p></div>
+            <div className="grid size-8 place-items-center rounded-full bg-slate-700 text-xs font-bold">{(currentUser.fullName || currentUser.email).slice(0, 2).toUpperCase()}</div>
+            <div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold text-white">{currentUser.fullName || roleLabels[currentUser.role]}</p><p className="truncate text-[11px] text-slate-500">{roleLabels[currentUser.role]} · {currentUser.email}</p></div>
             <Button type="button" variant="ghost" size="icon" aria-label="Sign out" title="Sign out" onClick={signOut} className="size-8 shrink-0 text-slate-400 hover:bg-white/10 hover:text-white"><LogOut className="size-4" /></Button>
           </div>
         </SidebarFooter>
@@ -443,13 +475,13 @@ export default function EnterpriseApp({ currentUser }: { currentUser: { email: s
             <Badge variant="outline" className="hidden sm:inline-flex">{baseCurrency}</Badge>
             <Select value={String(activeLocationId || "")} onValueChange={(value) => { setActiveLocationId(Number(value)); setSearch(""); }}><SelectTrigger className="w-[165px]"><SelectValue placeholder="Inventory" /></SelectTrigger><SelectContent>{activeLocations.map((location) => <SelectItem key={location.id} value={String(location.id)}>{location.name}</SelectItem>)}</SelectContent></Select>
             <Button variant="ghost" size="icon" aria-label="Notifications"><Bell className="size-4" /></Button>
-            {!managementView && <Button onClick={openCreate} className="bg-emerald-500 font-semibold text-slate-950 hover:bg-emerald-400"><Plus className="size-4" /><span className="hidden sm:inline">{createLabel}</span></Button>}
+            {!managementView && canWriteCurrentView && <Button onClick={openCreate} className="bg-emerald-500 font-semibold text-slate-950 hover:bg-emerald-400"><Plus className="size-4" /><span className="hidden sm:inline">{createLabel}</span></Button>}
           </div>
         </header>
 
         <div className="mx-auto w-full max-w-[1500px] p-4 lg:p-7">
-          {view === "inventory-overview" ? <InventoryOverview /> : view === "transfers" ? <MultiLineTransferCenter key={`${activeCompanyId}-${activeLocationId}`} companies={companies} activeLocationId={activeLocationId} onTransferred={loadData} /> : view === "admin-controls" ? <AdminSettingsCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} currentUserEmail={currentUser.email} /> : managementView ? <WorkspaceCenter mode={view as "companies" | "inventories" | "invoice-series" | "currencies"} companies={companies} activeCompanyId={activeCompanyId} onChanged={loadWorkspaces} /> : view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} onNavigate={setView} onCreate={openCreate} onOpenDetail={openDetail} /> : view === "reports" ? <ReportCenter metrics={metrics} currency={baseCurrency} onOpen={openReport} loading={reportLoading} /> : (
-            <RecordView view={view} kind={currentKind} records={filteredRecords} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onEditItem={openItemEdit} onDuplicateItem={duplicateItem} onOpenDetail={openDetail} />
+          {view === "inventory-overview" ? <InventoryOverview /> : view === "transfers" ? <MultiLineTransferCenter key={`${activeCompanyId}-${activeLocationId}`} companies={companies} activeLocationId={activeLocationId} onTransferred={loadData} /> : view === "admin-controls" ? <AdminSettingsCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} currentUserEmail={currentUser.email} /> : managementView ? <WorkspaceCenter mode={view as "companies" | "inventories" | "invoice-series" | "currencies"} companies={companies} activeCompanyId={activeCompanyId} onChanged={loadWorkspaces} /> : view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} onNavigate={(next) => { if (roleViews[currentUser.role].includes(next)) setView(next); }} onCreate={openCreate} onOpenDetail={openDetail} canCreate={roleWriteViews[currentUser.role].includes("sales")} canViewReports={roleViews[currentUser.role].includes("reports")} /> : view === "reports" ? <ReportCenter metrics={metrics} currency={baseCurrency} onOpen={openReport} loading={reportLoading} /> : (
+            <RecordView view={view} kind={currentKind} records={filteredRecords} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onEditItem={openItemEdit} onDuplicateItem={duplicateItem} onOpenDetail={openDetail} canWrite={canWriteCurrentView} canDelete={currentUser.role === "admin"} />
           )}
         </div>
       </SidebarInset>
@@ -477,7 +509,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: { email: s
   );
 }
 
-function Dashboard({ metrics, records, companyName, currency, onNavigate, onCreate, onOpenDetail }: { metrics: Record<string, number>; records: Record<Kind, DataRecord[]>; companyName: string; currency: string; onNavigate: (v: View) => void; onCreate: () => void; onOpenDetail: (id: number) => void }) {
+function Dashboard({ metrics, records, companyName, currency, onNavigate, onCreate, onOpenDetail, canCreate, canViewReports }: { metrics: Record<string, number>; records: Record<Kind, DataRecord[]>; companyName: string; currency: string; onNavigate: (v: View) => void; onCreate: () => void; onOpenDetail: (id: number) => void; canCreate: boolean; canViewReports: boolean }) {
   const recent = records.transactions.slice(0, 6);
   const cards = [
     ["Cash position", metrics.cash, CircleDollarSign, "Available net cash", "emerald"],
@@ -489,7 +521,7 @@ function Dashboard({ metrics, records, companyName, currency, onNavigate, onCrea
   return <div className="space-y-6">
     <section className="rounded-2xl bg-gradient-to-r from-[#111d30] to-[#172c3f] p-6 text-white shadow-sm lg:flex lg:items-center lg:justify-between">
       <div><div className="mb-3 flex items-center gap-2 text-xs font-semibold tracking-[.15em] text-emerald-300"><span className="size-2 rounded-full bg-emerald-400" /> COMPANY FILE ACTIVE</div><h2 className="text-2xl font-bold">{companyName}</h2><p className="mt-1 text-sm text-slate-300">Post transactions, control stock and close your books from one workspace.</p></div>
-      <div className="mt-5 flex flex-wrap gap-2 lg:mt-0"><Button variant="outline" onClick={() => onNavigate("reports")} className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white"><FileBarChart2 />View reports</Button><Button onClick={onCreate} className="bg-emerald-400 text-slate-950 hover:bg-emerald-300"><Plus />Record transaction</Button></div>
+      <div className="mt-5 flex flex-wrap gap-2 lg:mt-0">{canViewReports && <Button variant="outline" onClick={() => onNavigate("reports")} className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white"><FileBarChart2 />View reports</Button>}{canCreate && <Button onClick={onCreate} className="bg-emerald-400 text-slate-950 hover:bg-emerald-300"><Plus />Record transaction</Button>}</div>
     </section>
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{cards.map(([label, value, Icon, detail, color]) => <article key={label} className="rounded-xl border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,.04)]"><div className="flex items-start justify-between"><div><p className="text-sm font-medium text-slate-500">{label}</p><p className="mt-2 text-2xl font-bold tracking-tight text-slate-900">{formatMoney(value, currency)}</p></div><div className={`metric-icon metric-${color}`}><Icon className="size-5" /></div></div><p className="mt-4 text-xs text-slate-500">{detail}</p></article>)}</section>
     <section className="grid gap-5 xl:grid-cols-[1.35fr_.65fr]">
@@ -502,7 +534,7 @@ function Dashboard({ metrics, records, companyName, currency, onNavigate, onCrea
 
 function StatusLine({ label, value, action }: { label: string; value: number; action: () => void }) { return <button onClick={action} className="flex w-full items-center justify-between rounded-lg border border-slate-100 p-3 text-left hover:border-emerald-200 hover:bg-emerald-50/50"><span className="text-sm text-slate-600">{label}</span><span className="flex items-center gap-2 font-bold text-slate-900">{value}<ChevronRight className="size-4 text-slate-400" /></span></button>; }
 
-function RecordView({ view, kind, records, currency, loading, search, setSearch, onRefresh, onCreate, onDelete, onEditItem, onDuplicateItem, onOpenDetail }: { view: View; kind: Kind; records: DataRecord[]; currency: string; loading: boolean; search: string; setSearch: (v: string) => void; onRefresh: () => void; onCreate: () => void; onDelete: (id: number) => void; onEditItem: (item: DataRecord) => void; onDuplicateItem: (id: number) => void; onOpenDetail: (id: number) => void }) {
+function RecordView({ view, kind, records, currency, loading, search, setSearch, onRefresh, onCreate, onDelete, onEditItem, onDuplicateItem, onOpenDetail, canWrite, canDelete }: { view: View; kind: Kind; records: DataRecord[]; currency: string; loading: boolean; search: string; setSearch: (v: string) => void; onRefresh: () => void; onCreate: () => void; onDelete: (id: number) => void; onEditItem: (item: DataRecord) => void; onDuplicateItem: (id: number) => void; onOpenDetail: (id: number) => void; canWrite: boolean; canDelete: boolean }) {
   function exportCsv() {
     if (!records.length) return toast.error("There are no records to export.");
     const headers = Array.from(new Set(records.flatMap((record) => Object.keys(record))));
@@ -516,17 +548,17 @@ function RecordView({ view, kind, records, currency, loading, search, setSearch,
     URL.revokeObjectURL(url);
     toast.success("CSV exported");
   }
-  return <section className="rounded-xl border border-slate-200 bg-white shadow-sm"><div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between"><div className="relative w-full sm:max-w-sm"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={`Search ${view}…`} className="pl-9" /></div><div className="flex gap-2"><Button variant="outline" size="icon" onClick={onRefresh} aria-label="Refresh"><RefreshCw className="size-4" /></Button><Button variant="outline" onClick={exportCsv}><Download className="size-4" />Export</Button><Button onClick={onCreate} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400"><Plus className="size-4" />Add new</Button></div></div>
-    {kind === "transactions" ? <TransactionTable records={records} empty={loading ? "Loading records…" : "No transactions found."} onDelete={onDelete} onOpen={onOpenDetail} /> : kind === "contacts" ? <ContactTable records={records} empty={loading ? "Loading records…" : "No contacts found."} onDelete={onDelete} /> : kind === "items" ? <ItemTable records={records} currency={currency} empty={loading ? "Loading records…" : "No inventory items found."} onDelete={onDelete} onEdit={onEditItem} onDuplicate={onDuplicateItem} /> : <AccountTable records={records} currency={currency} empty={loading ? "Loading records…" : "No accounts found."} onDelete={onDelete} />}
+  return <section className="rounded-xl border border-slate-200 bg-white shadow-sm"><div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between"><div className="relative w-full sm:max-w-sm"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={`Search ${view}…`} className="pl-9" /></div><div className="flex gap-2"><Button variant="outline" size="icon" onClick={onRefresh} aria-label="Refresh"><RefreshCw className="size-4" /></Button><Button variant="outline" onClick={exportCsv}><Download className="size-4" />Export</Button>{canWrite && <Button onClick={onCreate} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400"><Plus className="size-4" />Add new</Button>}</div></div>
+    {kind === "transactions" ? <TransactionTable records={records} empty={loading ? "Loading records…" : "No transactions found."} onDelete={canDelete ? onDelete : undefined} onOpen={onOpenDetail} /> : kind === "contacts" ? <ContactTable records={records} empty={loading ? "Loading records…" : "No contacts found."} onDelete={canDelete ? onDelete : undefined} /> : kind === "items" ? <ItemTable records={records} currency={currency} empty={loading ? "Loading records…" : "No inventory items found."} onDelete={canDelete ? onDelete : undefined} onEdit={canWrite ? onEditItem : undefined} onDuplicate={canWrite ? onDuplicateItem : undefined} /> : <AccountTable records={records} currency={currency} empty={loading ? "Loading records…" : "No accounts found."} onDelete={canDelete ? onDelete : undefined} />}
   </section>;
 }
 
 function EmptyRow({ text, columns }: { text: string; columns: number }) { return <TableRow><TableCell colSpan={columns} className="h-40 text-center text-sm text-slate-500">{text}</TableCell></TableRow>; }
 function DeleteButton({ id, onDelete }: { id: number; onDelete?: (id: number) => void }) { return onDelete ? <Button variant="ghost" size="icon" onClick={() => onDelete(id)} aria-label="Delete record" className="text-slate-400 hover:text-rose-600"><Trash2 className="size-4" /></Button> : null; }
 function TransactionTable({ records, empty, onDelete, onOpen }: { records: DataRecord[]; empty: string; onDelete?: (id: number) => void; onOpen?: (id: number) => void }) { return <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead>No.</TableHead><TableHead>Name</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Amount</TableHead><TableHead className="w-24" /></TableRow></TableHeader><TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={7} /> : records.map((r) => <TableRow key={r.id} className="cursor-pointer" onDoubleClick={() => onOpen?.(r.id)}><TableCell className="text-slate-500">{String(r.transactionDate)}</TableCell><TableCell className="font-medium capitalize">{String(r.type)}</TableCell><TableCell className="font-mono text-xs text-slate-500">{String(r.number)}</TableCell><TableCell>{String(r.party)}</TableCell><TableCell><StatusBadge value={String(r.status)} /></TableCell><TableCell className="text-right font-semibold">{formatMoney(r.total, String(r.currency || "AED"))}</TableCell><TableCell><div className="flex"><Button variant="ghost" size="icon" onClick={() => onOpen?.(r.id)} aria-label="Open document" className="text-slate-400 hover:text-emerald-600"><Eye className="size-4" /></Button><DeleteButton id={r.id} onDelete={onDelete} /></div></TableCell></TableRow>)}</TableBody></Table>; }
-function ContactTable({ records, empty, onDelete }: { records: DataRecord[]; empty: string; onDelete: (id: number) => void }) { return <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Company</TableHead><TableHead>Email</TableHead><TableHead>Phone</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Balance</TableHead><TableHead className="w-12" /></TableRow></TableHeader><TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={7} /> : records.map((r) => <TableRow key={r.id}><TableCell className="font-semibold">{String(r.name)}</TableCell><TableCell>{String(r.company || "—")}</TableCell><TableCell>{String(r.email || "—")}</TableCell><TableCell>{String(r.phone || "—")}</TableCell><TableCell><StatusBadge value={String(r.status)} /></TableCell><TableCell className="text-right font-semibold">{formatMoney(r.balance, String(r.currency || "AED"))}</TableCell><TableCell><DeleteButton id={r.id} onDelete={onDelete} /></TableCell></TableRow>)}</TableBody></Table>; }
-function ItemTable({ records, currency, empty, onDelete, onEdit, onDuplicate }: { records: DataRecord[]; currency: string; empty: string; onDelete: (id: number) => void; onEdit: (item: DataRecord) => void; onDuplicate: (id: number) => void }) { return <Table><TableHeader><TableRow><TableHead>Item No.</TableHead><TableHead>SKU</TableHead><TableHead>Item & description</TableHead><TableHead>Category</TableHead><TableHead className="text-right">On hand</TableHead><TableHead className="text-right">Reorder</TableHead><TableHead className="text-right">Sales price</TableHead><TableHead className="text-right">Avg. cost</TableHead><TableHead className="w-32" /></TableRow></TableHeader><TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={9} /> : records.map((r) => { const description = itemDisplayDescription(r); return <TableRow key={r.id}><TableCell className="font-mono text-xs">{String(r.itemNumber || 13000 + r.id)}</TableCell><TableCell className="font-mono text-xs">{String(r.sku)}</TableCell><TableCell><p className="font-semibold">{String(r.name)}</p>{description ? <p className="mt-1 max-w-lg truncate text-xs text-slate-500" title={description}>{description}</p> : null}</TableCell><TableCell>{String(r.category)}</TableCell><TableCell className="text-right">{String(r.quantity)}</TableCell><TableCell className="text-right">{String(r.reorderPoint)}</TableCell><TableCell className="text-right">{formatMoney(r.salesPrice, currency)}</TableCell><TableCell className="text-right">{formatMoney(r.cost, currency)}</TableCell><TableCell><div className="flex"><Button type="button" variant="ghost" size="icon" onClick={() => onDuplicate(r.id)} aria-label={`Duplicate ${String(r.name)}`} title="Duplicate item" className="text-slate-400 hover:text-violet-600"><Copy className="size-4" /></Button><Button type="button" variant="ghost" size="icon" onClick={() => onEdit(r)} aria-label={`Edit ${String(r.name)}`} className="text-slate-400 hover:text-sky-600"><Pencil className="size-4" /></Button><DeleteButton id={r.id} onDelete={onDelete} /></div></TableCell></TableRow>; })}</TableBody></Table>; }
-function AccountTable({ records, currency, empty, onDelete }: { records: DataRecord[]; currency: string; empty: string; onDelete: (id: number) => void }) { return <Table><TableHeader><TableRow><TableHead>Code</TableHead><TableHead>Account name</TableHead><TableHead>Linked use</TableHead><TableHead>Sub-account of</TableHead><TableHead>Type</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Balance</TableHead><TableHead className="w-12" /></TableRow></TableHeader><TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={8} /> : records.map((r) => { const parent = records.find((candidate) => candidate.id === Number(r.parentAccountId)); const role = accountRoleOptions.find(([value]) => value === r.systemRole); return <TableRow key={r.id}><TableCell className="font-mono text-xs">{String(r.code)}</TableCell><TableCell className="font-semibold">{String(r.name)}</TableCell><TableCell>{role ? <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">{role[1]}</Badge> : <span className="text-slate-400">Unlinked</span>}</TableCell><TableCell className="text-slate-500">{parent ? String(parent.name) : "—"}</TableCell><TableCell>{String(r.type)}</TableCell><TableCell><Badge variant="outline">{r.active ? "Active" : "Inactive"}</Badge></TableCell><TableCell className="text-right font-semibold">{formatMoney(r.balance, currency)}</TableCell><TableCell><DeleteButton id={r.id} onDelete={onDelete} /></TableCell></TableRow>; })}</TableBody></Table>; }
+function ContactTable({ records, empty, onDelete }: { records: DataRecord[]; empty: string; onDelete?: (id: number) => void }) { return <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Company</TableHead><TableHead>Email</TableHead><TableHead>Phone</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Balance</TableHead><TableHead className="w-12" /></TableRow></TableHeader><TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={7} /> : records.map((r) => <TableRow key={r.id}><TableCell className="font-semibold">{String(r.name)}</TableCell><TableCell>{String(r.company || "—")}</TableCell><TableCell>{String(r.email || "—")}</TableCell><TableCell>{String(r.phone || "—")}</TableCell><TableCell><StatusBadge value={String(r.status)} /></TableCell><TableCell className="text-right font-semibold">{formatMoney(r.balance, String(r.currency || "AED"))}</TableCell><TableCell><DeleteButton id={r.id} onDelete={onDelete} /></TableCell></TableRow>)}</TableBody></Table>; }
+function ItemTable({ records, currency, empty, onDelete, onEdit, onDuplicate }: { records: DataRecord[]; currency: string; empty: string; onDelete?: (id: number) => void; onEdit?: (item: DataRecord) => void; onDuplicate?: (id: number) => void }) { return <Table><TableHeader><TableRow><TableHead>Item No.</TableHead><TableHead>SKU</TableHead><TableHead>Item & description</TableHead><TableHead>Category</TableHead><TableHead className="text-right">On hand</TableHead><TableHead className="text-right">Reorder</TableHead><TableHead className="text-right">Sales price</TableHead><TableHead className="text-right">Avg. cost</TableHead><TableHead className="w-32" /></TableRow></TableHeader><TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={9} /> : records.map((r) => { const description = itemDisplayDescription(r); return <TableRow key={r.id}><TableCell className="font-mono text-xs">{String(r.itemNumber || 13000 + r.id)}</TableCell><TableCell className="font-mono text-xs">{String(r.sku)}</TableCell><TableCell><p className="font-semibold">{String(r.name)}</p>{description ? <p className="mt-1 max-w-lg truncate text-xs text-slate-500" title={description}>{description}</p> : null}</TableCell><TableCell>{String(r.category)}</TableCell><TableCell className="text-right">{String(r.quantity)}</TableCell><TableCell className="text-right">{String(r.reorderPoint)}</TableCell><TableCell className="text-right">{formatMoney(r.salesPrice, currency)}</TableCell><TableCell className="text-right">{formatMoney(r.cost, currency)}</TableCell><TableCell><div className="flex">{onDuplicate && <Button type="button" variant="ghost" size="icon" onClick={() => onDuplicate(r.id)} aria-label={`Duplicate ${String(r.name)}`} title="Duplicate item" className="text-slate-400 hover:text-violet-600"><Copy className="size-4" /></Button>}{onEdit && <Button type="button" variant="ghost" size="icon" onClick={() => onEdit(r)} aria-label={`Edit ${String(r.name)}`} className="text-slate-400 hover:text-sky-600"><Pencil className="size-4" /></Button>}<DeleteButton id={r.id} onDelete={onDelete} /></div></TableCell></TableRow>; })}</TableBody></Table>; }
+function AccountTable({ records, currency, empty, onDelete }: { records: DataRecord[]; currency: string; empty: string; onDelete?: (id: number) => void }) { return <Table><TableHeader><TableRow><TableHead>Code</TableHead><TableHead>Account name</TableHead><TableHead>Linked use</TableHead><TableHead>Sub-account of</TableHead><TableHead>Type</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Balance</TableHead><TableHead className="w-12" /></TableRow></TableHeader><TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={8} /> : records.map((r) => { const parent = records.find((candidate) => candidate.id === Number(r.parentAccountId)); const role = accountRoleOptions.find(([value]) => value === r.systemRole); return <TableRow key={r.id}><TableCell className="font-mono text-xs">{String(r.code)}</TableCell><TableCell className="font-semibold">{String(r.name)}</TableCell><TableCell>{role ? <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">{role[1]}</Badge> : <span className="text-slate-400">Unlinked</span>}</TableCell><TableCell className="text-slate-500">{parent ? String(parent.name) : "—"}</TableCell><TableCell>{String(r.type)}</TableCell><TableCell><Badge variant="outline">{r.active ? "Active" : "Inactive"}</Badge></TableCell><TableCell className="text-right font-semibold">{formatMoney(r.balance, currency)}</TableCell><TableCell><DeleteButton id={r.id} onDelete={onDelete} /></TableCell></TableRow>; })}</TableBody></Table>; }
 function StatusBadge({ value }: { value: string }) { const good = value === "paid" || value === "active" || value === "cleared"; return <Badge variant="outline" className={good ? "border-emerald-200 bg-emerald-50 text-emerald-700" : value === "overdue" ? "border-rose-200 bg-rose-50 text-rose-700" : "border-amber-200 bg-amber-50 text-amber-700"}>{value}</Badge>; }
 
 function ReportCenter({ metrics, currency, onOpen, loading }: { metrics: Record<string, number>; currency: string; onOpen: (key: string) => void; loading: boolean }) {
@@ -616,7 +648,7 @@ function AdminSettingsCenter({ companyId, companyName, currentUserEmail }: { com
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not change the password"); setPasswordSaving(false); }
   }
 
-  return <div className="grid gap-5 xl:grid-cols-[1fr_420px]">
+  return <div className="space-y-5"><div className="grid gap-5 xl:grid-cols-[1fr_420px]">
     <section className="rounded-xl border bg-white shadow-sm">
       <div className="flex items-start justify-between gap-4 border-b p-5"><div><h2 className="font-bold">Restricted stock operations</h2><p className="mt-1 text-sm text-slate-500">Security controls apply separately to {companyName}.</p></div><Badge className={configured ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100" : "bg-amber-100 text-amber-900 hover:bg-amber-100"}>{loading ? "Checking…" : configured ? "PIN configured" : "Setup required"}</Badge></div>
       <div className="p-5"><div className="flex gap-4 rounded-xl border border-amber-200 bg-amber-50 p-4"><div className="grid size-11 shrink-0 place-items-center rounded-lg bg-amber-100 text-amber-800"><ShieldCheck className="size-6" /></div><div><h3 className="font-semibold text-amber-950">Negative-stock invoice override</h3><p className="mt-1 text-sm leading-6 text-amber-900">Invoices and sales receipts are blocked when stock is insufficient. A company admin can enter this PIN on the document to approve an exception.</p><p className="mt-2 text-sm font-medium text-amber-950">Every override is recorded in the audit log.</p></div></div></div>
@@ -637,7 +669,7 @@ function AdminSettingsCenter({ companyId, companyName, currentUserEmail }: { com
       <Button type="submit" disabled={passwordSaving} className="w-full">{passwordSaving ? "Changing…" : "Change login password"}</Button>
       <p className="text-sm leading-5 text-slate-500">Changing the password signs out every active session.</p>
     </form></div>
-  </div>;
+  </div><UserRoleCenter /></div>;
 }
 
 function WorkspaceCenter({ mode, companies, activeCompanyId, onChanged }: { mode: "companies" | "inventories" | "invoice-series" | "currencies"; companies: CompanyWorkspace[]; activeCompanyId: number; onChanged: () => Promise<void> }) {

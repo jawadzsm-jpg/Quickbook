@@ -5,7 +5,7 @@ import {
   journalLines, transactionLines, transactions,
 } from "../../../db/schema";
 import { verifyAdminPin } from "../../../lib/admin-pin";
-import { requireApiUser } from "@/lib/auth";
+import { hasPermission, requireApiUser, type Permission, type SessionUser } from "@/lib/auth";
 
 type RecordKind = "transactions" | "contacts" | "items" | "accounts";
 type InputLine = { itemId?: number | string | null; description?: string; quantity?: number | string; unitPrice?: number | string; unitCost?: number | string; vatCode?: string; vatRate?: number | string };
@@ -19,6 +19,25 @@ const round = (value: number) => Math.round(value * 100) / 100;
 const vatRates: Record<string, number> = { STANDARD: 5, ZERO: 0, EXEMPT: 0, OUT_OF_SCOPE: 0 };
 const accountRoles = ["BANK", "AR", "AP", "INVENTORY", "INPUT_VAT", "OUTPUT_VAT", "EQUITY", "SALES", "OTHER_INCOME", "COGS", "PURCHASES", "EXPENSE", "PAYROLL", "SUSPENSE"];
 
+function writePermission(kind: RecordKind, payload: Record<string, unknown>): Permission | "admin" {
+  if (kind === "items") return "inventory:manage";
+  if (kind === "accounts") return "accounting:manage";
+  if (kind === "contacts") {
+    if (payload.type === "customer") return "customers:manage";
+    if (payload.type === "vendor") return "vendors:manage";
+    return "admin";
+  }
+  const type = String(payload.type ?? "");
+  if (["invoice", "estimate", "sales order", "sales receipt", "credit memo", "customer payment"].includes(type)) return "sales:write";
+  if (["bill", "purchase order", "vendor credit", "bill payment", "vendor payment"].includes(type)) return "purchases:write";
+  if (["expense", "deposit", "cheque", "transfer", "opening balance", "journal entry"].includes(type)) return "banking:write";
+  return "accounting:manage";
+}
+
+function mayWrite(user: SessionUser, permission: Permission | "admin") {
+  return permission === "admin" ? user.role === "admin" : hasPermission(user, permission);
+}
+
 async function createUniqueItemSku() {
   const db = getDb();
   for (let attempt = 0; attempt < 10; attempt += 1) {
@@ -30,7 +49,7 @@ async function createUniqueItemSku() {
 }
 
 export async function GET(request: Request) {
-  const authorization = await requireApiUser(request);
+  const authorization = await requireApiUser(request, "workspace:read");
   if (authorization instanceof Response) return authorization;
   try {
     const url = new URL(request.url);
@@ -69,11 +88,12 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const authorization = await requireApiUser(request, true, true);
+  const authorization = await requireApiUser(request, false, true);
   if (authorization instanceof Response) return authorization;
   try {
     const payload = (await request.json()) as Record<string, unknown>;
     const kind = payload.kind as RecordKind;
+    if (!mayWrite(authorization, writePermission(kind, payload))) return Response.json({ error: "Your role does not allow this action." }, { status: 403 });
     const companyId = Number(payload.companyId);
     const locationId = Number(payload.locationId);
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
@@ -267,7 +287,7 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const authorization = await requireApiUser(request, true, true);
+  const authorization = await requireApiUser(request, "inventory:manage", true);
   if (authorization instanceof Response) return authorization;
   try {
     const payload = (await request.json()) as Record<string, unknown>;
