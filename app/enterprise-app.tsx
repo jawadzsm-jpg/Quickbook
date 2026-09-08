@@ -236,8 +236,8 @@ export default function EnterpriseApp() {
         setInvoiceInventoryOpen(true);
         return;
       }
-      setForm({ type, number: `${type.slice(0, 3).toUpperCase()}-${String(records.transactions.length + 1).padStart(4, "0")}`, transactionDate: today(), dueDate: today(), status: "open", account: type === "bill" ? "Purchases" : "Sales Revenue", vatRate: "5", currency: baseCurrency, exchangeRate: "1", billLocationId: String(activeLocationId), additionalCharges: "0" });
-      setLines([{ itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatRate: "5" }]);
+      setForm({ type, number: `${type.slice(0, 3).toUpperCase()}-${String(records.transactions.length + 1).padStart(4, "0")}`, transactionDate: today(), dueDate: today(), status: "open", account: type === "bill" ? "Purchases" : "Sales Revenue", vatRate: type === "bill" ? "0" : "5", currency: baseCurrency, exchangeRate: "1", billLocationId: String(activeLocationId), salesman: "", isImport: "false", freightCharges: "0" });
+      setLines([{ itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatRate: type === "bill" ? "0" : "5" }]);
     } else if (currentKind === "contacts") {
       const type = view === "customers" ? "customer" : view === "vendors" ? "vendor" : "employee";
       setForm(type === "customer" ? { type, currency: baseCurrency, reseller: "Reseller", planet: "No", balance: "0" } : { type, currency: baseCurrency, balance: "0" });
@@ -288,14 +288,15 @@ export default function EnterpriseApp() {
     if (currentKind === "transactions" && form.type === "bill") {
       const required = [form.party, form.number, form.transactionDate, form.currency, form.billLocationId];
       if (required.some((value) => !value?.trim())) return toast.error("Complete the vendor, reference, date, inventory and currency.");
-      if (Number(form.additionalCharges ?? 0) < 0) return toast.error("Additional charges cannot be negative.");
+      if (Number(form.freightCharges ?? 0) < 0) return toast.error("Freight charges cannot be negative.");
       if (lines.some((line) => !line.description.trim() || Number(line.quantity) <= 0 || Number(line.unitPrice) < 0)) return toast.error("Complete every bill line with a description, positive quantity and valid rate.");
     }
     setSaving(true);
     try {
       const editingItem = currentKind === "items" && editingItemId !== null;
-      const billAdditionalCharge = currentKind === "transactions" && form.type === "bill" ? Number(form.additionalCharges ?? 0) : 0;
-      const submittedLines = billAdditionalCharge > 0 ? [...lines, { itemId: "", description: "Additional Charges", quantity: "1", unitPrice: String(billAdditionalCharge), unitCost: String(billAdditionalCharge), vatRate: "5" }] : lines;
+      const billFreightCharge = currentKind === "transactions" && form.type === "bill" ? Number(form.freightCharges ?? 0) : 0;
+      const billVatRate = form.isImport === "true" ? "5" : "0";
+      const submittedLines = billFreightCharge > 0 ? [...lines, { itemId: "", description: "Freight Charges", quantity: "1", unitPrice: String(billFreightCharge), unitCost: String(billFreightCharge), vatRate: billVatRate }] : lines;
       const selectedLocationId = currentKind === "transactions" && form.type === "bill" ? Number(form.billLocationId || activeLocationId) : activeLocationId;
       const response = await fetch("/api/records", { method: editingItem ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: currentKind, companyId: activeCompanyId, locationId: selectedLocationId, ...(editingItem ? { id: editingItemId } : {}), ...form, ...(currentKind === "transactions" ? { lines: submittedLines } : {}) }) });
       const data = await response.json();
@@ -634,18 +635,21 @@ function WorkspaceDialog({ open, companies, activeCompanyId, onClose, onChanged 
 
 function Field({ label, name, form, setForm, type = "text", required = false, placeholder }: { label: string; name: string; form: Record<string, string>; setForm: (f: Record<string, string>) => void; type?: string; required?: boolean; placeholder?: string }) { return <div className="space-y-2"><Label htmlFor={name}>{label}{required ? " *" : ""}</Label><Input id={name} name={name} type={type} required={required} placeholder={placeholder} value={form[name] ?? ""} onChange={(e) => setForm({ ...form, [name]: e.target.value })} /></div>; }
 function Choice({ label, name, values, form, setForm, placeholder }: { label: string; name: string; values: string[]; form: Record<string, string>; setForm: (f: Record<string, string>) => void; placeholder?: string }) { return <div className="space-y-2"><Label>{label}</Label><Select value={form[name]} onValueChange={(value) => setForm({ ...form, [name]: value })}><SelectTrigger className="w-full"><SelectValue placeholder={placeholder} /></SelectTrigger><SelectContent>{values.map((value) => <SelectItem key={value} value={value}><span className="capitalize">{value}</span></SelectItem>)}</SelectContent></Select></div>; }
-function BillFields({ form, setForm, items, vendors, locations, lines, setLines }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; items: DataRecord[]; vendors: DataRecord[]; locations: InventoryLocation[]; lines: LineForm[]; setLines: (lines: LineForm[]) => void }) {
+function BillFields({ form, setForm, items, vendors, salesmen, locations, lines, setLines }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; items: DataRecord[]; vendors: DataRecord[]; salesmen: DataRecord[]; locations: InventoryLocation[]; lines: LineForm[]; setLines: (lines: LineForm[]) => void }) {
   const update = (index: number, changes: Partial<LineForm>) => setLines(lines.map((line, position) => position === index ? { ...line, ...changes } : line));
   const subtotal = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0), 0);
   const vat = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0) * Number(line.vatRate || 0) / 100, 0);
-  const additionalCharges = Math.max(0, Number(form.additionalCharges || 0));
+  const freightCharges = Math.max(0, Number(form.freightCharges || 0));
   const totalQuantity = lines.reduce((sum, line) => sum + Number(line.quantity || 0), 0);
-  const totalVat = vat + additionalCharges * 0.05;
-  const total = subtotal + additionalCharges + totalVat;
+  const freightVat = freightCharges * (form.isImport === "true" ? 0.05 : 0);
+  const totalVat = vat + freightVat;
+  const total = subtotal + freightCharges + totalVat;
   return <div className="space-y-5">
-    <div className="grid gap-4 rounded-xl border bg-slate-50 p-4 md:grid-cols-3">
-      <Field label="Reference" name="number" form={form} setForm={setForm} required placeholder="Bill reference" />
+    <div className="grid gap-4 rounded-xl border bg-slate-50 p-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="space-y-2"><Label>Salesman Name</Label><Select value={form.salesman || undefined} onValueChange={(value) => setForm({ ...form, salesman: value })}><SelectTrigger className="w-full"><SelectValue placeholder="Select salesman" /></SelectTrigger><SelectContent>{salesmen.length ? salesmen.map((salesman) => <SelectItem key={salesman.id} value={String(salesman.name)}>{String(salesman.name)}</SelectItem>) : <SelectItem value="no-salesmen" disabled>No salesmen available</SelectItem>}</SelectContent></Select></div>
+      <Field label="Reference No." name="number" form={form} setForm={setForm} required placeholder="Enter reference no." />
       <div className="space-y-2"><Label>Inventory *</Label><Select value={form.billLocationId || String(locations[0]?.id ?? "")} onValueChange={(value) => setForm({ ...form, billLocationId: value })}><SelectTrigger className="w-full"><SelectValue placeholder="Select inventory" /></SelectTrigger><SelectContent>{locations.map((location) => <SelectItem key={location.id} value={String(location.id)}>{location.name}</SelectItem>)}</SelectContent></Select></div>
+      <div className="space-y-2"><Label>Import</Label><Select value={form.isImport ?? "false"} onValueChange={(value) => { const vatRate = value === "true" ? "5" : "0"; setForm({ ...form, isImport: value, vatRate }); setLines(lines.map((line) => ({ ...line, vatRate }))); }}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="true">Yes — 5% VAT</SelectItem><SelectItem value="false">No — 0% VAT</SelectItem></SelectContent></Select></div>
       <Choice label="Currency *" name="currency" values={currencies} form={form} setForm={setForm} />
     </div>
     <div className="grid gap-4 md:grid-cols-2">
@@ -661,23 +665,23 @@ function BillFields({ form, setForm, items, vendors, locations, lines, setLines 
           <div className="space-y-2"><Label className="md:hidden">QTY</Label><Input aria-label="Quantity" type="number" min="0.01" step="0.01" value={line.quantity} onChange={(event) => update(index, { quantity: event.target.value })} /></div>
           <div className="space-y-2"><Label className="md:hidden">Rate</Label><Input aria-label="Rate" type="number" min="0" step="0.01" value={line.unitPrice} onChange={(event) => update(index, { unitPrice: event.target.value, unitCost: event.target.value })} /></div>
           <div className="space-y-2"><Label className="md:hidden">Subtotal</Label><Input aria-label="Subtotal" readOnly value={lineSubtotal.toFixed(2)} className="bg-slate-50 font-semibold" /></div>
-          <div className="space-y-2"><Label className="md:hidden">VAT</Label><Select value={line.vatRate} onValueChange={(value) => update(index, { vatRate: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="0">0%</SelectItem><SelectItem value="5">5%</SelectItem></SelectContent></Select></div>
+          <div className="space-y-2"><Label className="md:hidden">VAT</Label><Input aria-label="VAT rate" readOnly value={`${line.vatRate}%`} className="bg-slate-50 font-semibold" /></div>
           <Button type="button" variant="ghost" size="icon" disabled={lines.length === 1} onClick={() => setLines(lines.filter((_, position) => position !== index))} className="text-slate-400 hover:text-rose-600"><Trash2 className="size-4" /></Button>
         </div>;
       })}</div>
-      <div className="flex justify-end border-t bg-slate-50 p-3"><Button type="button" variant="outline" size="sm" onClick={() => setLines([...lines, { itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatRate: "5" }])}><Plus className="size-4" />Add line</Button></div>
+      <div className="flex justify-end border-t bg-slate-50 p-3"><Button type="button" variant="outline" size="sm" onClick={() => setLines([...lines, { itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatRate: form.isImport === "true" ? "5" : "0" }])}><Plus className="size-4" />Add line</Button></div>
     </div>
     <div className="grid gap-5 lg:grid-cols-[1fr_420px]">
       <div />
       <div className="space-y-4 rounded-xl border bg-slate-50 p-4">
-        <Field label="Additional Charges" name="additionalCharges" type="number" form={form} setForm={setForm} placeholder="0.00" />
-        <div className="space-y-3 text-sm"><div className="flex justify-between"><span className="text-slate-500">Total quantity</span><strong>{totalQuantity.toLocaleString()}</strong></div><div className="flex justify-between"><span className="text-slate-500">Subtotal</span><strong>{formatMoney(subtotal + additionalCharges, form.currency)}</strong></div><div className="flex justify-between"><span className="text-slate-500">VAT (5%)</span><strong>{formatMoney(totalVat, form.currency)}</strong></div><div className="flex justify-between border-t pt-3 text-lg"><span className="font-bold">Total</span><strong>{formatMoney(total, form.currency)}</strong></div></div>
+        <Field label="Freight Charges" name="freightCharges" type="number" form={form} setForm={setForm} placeholder="0.00" />
+        <div className="space-y-3 text-sm"><div className="flex justify-between"><span className="text-slate-500">Total quantity</span><strong>{totalQuantity.toLocaleString()}</strong></div><div className="flex justify-between"><span className="text-slate-500">Subtotal</span><strong>{formatMoney(subtotal + freightCharges, form.currency)}</strong></div><div className="flex justify-between"><span className="text-slate-500">VAT ({form.isImport === "true" ? "5" : "0"}%)</span><strong>{formatMoney(totalVat, form.currency)}</strong></div><div className="flex justify-between border-t pt-3 text-lg"><span className="font-bold">Total</span><strong>{formatMoney(total, form.currency)}</strong></div></div>
       </div>
     </div>
   </div>;
 }
 function TransactionFields({ form, setForm, types, items, contacts, locations, lines, setLines }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; types: string[]; items: DataRecord[]; contacts: DataRecord[]; locations: InventoryLocation[]; lines: LineForm[]; setLines: (lines: LineForm[]) => void }) {
-  if (form.type === "bill") return <BillFields form={form} setForm={setForm} items={items} vendors={contacts.filter((contact) => contact.type === "vendor")} locations={locations} lines={lines} setLines={setLines} />;
+  if (form.type === "bill") return <BillFields form={form} setForm={setForm} items={items} vendors={contacts.filter((contact) => contact.type === "vendor")} salesmen={contacts.filter((contact) => contact.type === "employee")} locations={locations} lines={lines} setLines={setLines} />;
   const update = (index: number, changes: Partial<LineForm>) => setLines(lines.map((line, position) => position === index ? { ...line, ...changes } : line));
   const subtotal = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0), 0);
   const vat = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0) * Number(line.vatRate || 0) / 100, 0);
