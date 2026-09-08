@@ -281,6 +281,10 @@ export default function EnterpriseApp() {
       const required = [form.company, form.name, form.phone, form.whatsapp, form.country, form.reseller, form.planet, form.currency];
       if (required.some((value) => !value?.trim())) return toast.error("Complete all required customer fields.");
     }
+    if (currentKind === "contacts" && form.type === "vendor") {
+      const required = [form.company, form.name, form.phone, form.country, form.currency];
+      if (required.some((value) => !value?.trim())) return toast.error("Complete all required vendor fields.");
+    }
     setSaving(true);
     try {
       const editingItem = currentKind === "items" && editingItemId !== null;
@@ -651,9 +655,24 @@ function TransactionFields({ form, setForm, types, items, lines, setLines }: { f
   </div>;
 }
 function ContactFields({ form, setForm }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void }) {
+  const countries = ["United Arab Emirates", "Saudi Arabia", "Oman", "Qatar", "Bahrain", "Kuwait", "India", "Pakistan", "China", "Hong Kong", "United Kingdom", "United States", "Other"];
+  if (form.type === "vendor") return <div className="space-y-5">
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <p className="text-sm font-bold text-slate-900">Vendor details</p>
+      <p className="mt-1 text-xs text-slate-500">Add company, contact, currency and tax information for this vendor.</p>
+    </div>
+    <div className="space-y-4">
+      <Field label="Company Name" name="company" form={form} setForm={(next) => setForm({ ...next, name: next.company })} required placeholder="Enter company name" />
+      <Field label="Telephone" name="phone" form={form} setForm={setForm} required placeholder="Format +9713456789" />
+      <Field label="Mobile Number" name="whatsapp" form={form} setForm={setForm} placeholder="Format +971501234567" />
+      <Field label="Email Address" name="email" type="email" form={form} setForm={setForm} placeholder="Enter email address" />
+      <Choice label="Currency *" name="currency" values={currencies} form={form} setForm={setForm} />
+      <Choice label="Country *" name="country" values={countries} form={form} setForm={setForm} placeholder="Select country" />
+      <Field label="TRN" name="trn" form={form} setForm={setForm} placeholder="Enter TRN" />
+    </div>
+  </div>;
   if (form.type !== "customer") return <div className="grid gap-4 sm:grid-cols-2"><div className="sm:col-span-2"><Field label="Name" name="name" form={form} setForm={setForm} required /></div><Field label="Company" name="company" form={form} setForm={setForm} /><Field label="Opening balance" name="balance" type="number" form={form} setForm={setForm} /><Field label="Email" name="email" type="email" form={form} setForm={setForm} /><Field label="Phone" name="phone" form={form} setForm={setForm} /></div>;
 
-  const countries = ["United Arab Emirates", "Saudi Arabia", "Oman", "Qatar", "Bahrain", "Kuwait", "India", "Pakistan", "China", "Hong Kong", "United Kingdom", "United States", "Other"];
   return <div className="space-y-5">
     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
       <p className="text-sm font-bold text-slate-900">Customer details</p>

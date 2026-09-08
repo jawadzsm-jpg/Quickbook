@@ -69,6 +69,10 @@ export async function POST(request: Request) {
         const required = [payload.company, payload.phone, payload.whatsapp, payload.country, payload.reseller, payload.planet, payload.currency];
         if (required.some((value) => !String(value ?? "").trim())) return Response.json({ error: "Complete all required customer fields." }, { status: 400 });
       }
+      if (payload.type === "vendor") {
+        const required = [payload.company, payload.phone, payload.country, payload.currency];
+        if (required.some((value) => !String(value ?? "").trim())) return Response.json({ error: "Complete all required vendor fields." }, { status: 400 });
+      }
       const [record] = await db.insert(contacts).values({
         companyId, type: (payload.type as "customer" | "vendor" | "employee") ?? "customer", name,
         company: String(payload.company ?? ""), billingName: String(payload.billingName ?? name),
