@@ -30,7 +30,7 @@ type OverviewItem = {
   locationCode: string;
 };
 
-type StockFilter = "all" | "in" | "low" | "out" | `location:${number}`;
+type StockFilter = "all" | "in" | "low" | `location:${number}`;
 type ShareChannel = "whatsapp" | "telegram" | "email";
 
 function money(value: number, currency: string) {
@@ -109,20 +109,18 @@ export function InventoryOverview() {
     inStock: inStockRecords.length,
     healthy: inStockRecords.filter((record) => Number(record.quantity) > Number(record.reorderPoint)).length,
     low: inStockRecords.filter((record) => Number(record.quantity) <= Number(record.reorderPoint)).length,
-    out: records.filter((record) => Number(record.quantity) <= 0).length,
-  }), [inStockRecords, records]);
+  }), [inStockRecords]);
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
-    const source = filter === "out" ? records.filter((record) => Number(record.quantity) <= 0) : inStockRecords;
-    return source.filter((record) => {
+    return inStockRecords.filter((record) => {
       if (filter === "low" && !(Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint))) return false;
       if (filter.startsWith("location:") && record.locationId !== Number(filter.split(":")[1])) return false;
       if (!term) return true;
       return [record.name, record.sku, record.itemNumber, record.category, record.description, record.specifications, record.companyName, record.locationName]
         .some((value) => String(value ?? "").toLowerCase().includes(term));
     });
-  }, [filter, inStockRecords, records, search]);
+  }, [filter, inStockRecords, search]);
 
   const categories = useMemo(() => {
     const grouped = new Map<string, OverviewItem[]>();
@@ -237,7 +235,6 @@ export function InventoryOverview() {
         </Button>)}
         <Button variant="outline" onClick={() => setFilter("in")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "in")}`}><PackageCheck className="size-5" /><span className="font-semibold">In stock</span><Badge className="bg-emerald-500 text-white hover:bg-emerald-500">{totals.inStock}</Badge></Button>
         <Button variant="outline" onClick={() => setFilter("low")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "low")}`}><AlertTriangle className="size-5" /><span className="font-semibold">Low stock</span><Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">{totals.low}</Badge></Button>
-        <Button variant="outline" onClick={() => setFilter("out")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "out")}`}><AlertTriangle className="size-5" /><span className="font-semibold">Out of stock</span><Badge className="bg-rose-500 text-white hover:bg-rose-500">{totals.out}</Badge></Button>
       </div>
     </section>
 
@@ -291,7 +288,7 @@ export function InventoryOverview() {
           </TableBody>
         </Table>
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-slate-50 px-4 py-3 text-xs text-slate-500"><span>Showing {filtered.length} products</span><span>{totals.healthy} healthy · {totals.low} low · {totals.out} out of stock</span></div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-slate-50 px-4 py-3 text-xs text-slate-500"><span>Showing {filtered.length} products</span><span>{totals.healthy} healthy · {totals.low} low stock</span></div>
     </section>
   </div>;
 }
