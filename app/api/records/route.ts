@@ -16,6 +16,7 @@ function errorMessage(error: unknown) {
 
 const round = (value: number) => Math.round(value * 100) / 100;
 const vatRates: Record<string, number> = { STANDARD: 5, ZERO: 0, EXEMPT: 0, OUT_OF_SCOPE: 0 };
+const accountRoles = ["BANK", "AR", "AP", "INVENTORY", "INPUT_VAT", "OUTPUT_VAT", "EQUITY", "SALES", "OTHER_INCOME", "COGS", "PURCHASES", "EXPENSE", "PAYROLL", "SUSPENSE"];
 
 async function createUniqueItemSku() {
   const db = getDb();
@@ -53,8 +54,9 @@ export async function GET(request: Request) {
         ? await db.select().from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId)))
         : [];
       const receivable = locationTransactions.reduce((balance, transaction) => transaction.type === "invoice" ? balance + Number(transaction.baseTotal) : ["customer payment", "credit memo"].includes(transaction.type) ? balance - Number(transaction.baseTotal) : balance, 0);
-      const payable = locationTransactions.reduce((balance, transaction) => transaction.type === "bill" ? balance + Number(transaction.baseTotal) : ["bill payment", "vendor payment", "vendor credit"].includes(transaction.type) || (transaction.type === "cheque" && transaction.account === "Accounts Payable") ? balance - Number(transaction.baseTotal) : balance, 0);
-      return Response.json({ records: accountRows.map((account) => account.name === "Accounts Receivable" ? { ...account, balance: receivable } : account.name === "Accounts Payable" ? { ...account, balance: payable } : account) });
+      const apName = accountRows.find((account) => account.systemRole === "AP")?.name ?? "Accounts Payable";
+      const payable = locationTransactions.reduce((balance, transaction) => transaction.type === "bill" ? balance + Number(transaction.baseTotal) : ["bill payment", "vendor payment", "vendor credit"].includes(transaction.type) || (transaction.type === "cheque" && transaction.account === apName) ? balance - Number(transaction.baseTotal) : balance, 0);
+      return Response.json({ records: accountRows.map((account) => account.systemRole === "AR" ? { ...account, balance: receivable } : account.systemRole === "AP" ? { ...account, balance: payable } : account) });
     }
     const transactionFilter = Number.isInteger(locationId) && locationId > 0 ? and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId)) : eq(transactions.companyId, companyId);
     return Response.json({ records: await db.select().from(transactions).where(transactionFilter).orderBy(desc(transactions.transactionDate), desc(transactions.id)).limit(500) });
@@ -134,11 +136,17 @@ export async function POST(request: Request) {
       const code = String(payload.code ?? "").trim();
       if (!name || !code) return Response.json({ error: "Account code and name are required." }, { status: 400 });
       const parentAccountId = Number(payload.parentAccountId);
+      const requestedRole = String(payload.systemRole ?? "").trim().toUpperCase();
+      const systemRole = accountRoles.includes(requestedRole) ? requestedRole : null;
       if (Number.isInteger(parentAccountId) && parentAccountId > 0) {
         const [parent] = await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.id, parentAccountId), eq(accounts.companyId, companyId))).limit(1);
         if (!parent) return Response.json({ error: "Select a valid parent account from this company." }, { status: 400 });
       }
-      const [record] = await db.insert(accounts).values({ companyId, code, name, type: String(payload.type ?? "Expense"), parentAccountId: Number.isInteger(parentAccountId) && parentAccountId > 0 ? parentAccountId : null, balance: Number(payload.balance ?? 0) }).returning();
+      if (systemRole) {
+        const [linked] = await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.systemRole, systemRole))).limit(1);
+        if (linked) return Response.json({ error: "That system use is already linked to another account." }, { status: 409 });
+      }
+      const [record] = await db.insert(accounts).values({ companyId, code, name, type: String(payload.type ?? "Expense"), systemRole, parentAccountId: Number.isInteger(parentAccountId) && parentAccountId > 0 ? parentAccountId : null, balance: Number(payload.balance ?? 0) }).returning();
       return Response.json({ record }, { status: 201 });
     }
 
@@ -224,11 +232,14 @@ export async function POST(request: Request) {
     await db.insert(transactionLines).values(prepared.map((line) => ({ ...line, transactionId: record.id })));
 
     const nonPosting = ["estimate", "sales order", "purchase order"].includes(type);
+    const linkedRows = await db.select({ name: accounts.name, systemRole: accounts.systemRole }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true)));
+    const linkedAccounts = Object.fromEntries(linkedRows.filter((account) => account.systemRole).map((account) => [account.systemRole!, account.name]));
+    const postingAccountRole = linkedRows.find((account) => account.name.toLowerCase() === record.account.toLowerCase())?.systemRole ?? "";
     if (!nonPosting) {
       const [entry] = await db.insert(journalEntries).values({ companyId, transactionId: record.id, entryDate: transactionDate, reference: number, description: `${type}: ${party}` }).returning();
-      const baseLines = postingLines(type, record.account, baseSubtotal, baseVatAmount, baseTotal);
+      const baseLines = postingLines(type, record.account, baseSubtotal, baseVatAmount, baseTotal, linkedAccounts);
       const cogs = ["invoice", "sales receipt"].includes(type) ? round(prepared.reduce((sum, line) => sum + line.quantity * line.unitCost, 0) * exchangeRate) : 0;
-      if (cogs) baseLines.push({ accountName: "Cost of Goods Sold", debit: cogs, credit: 0 }, { accountName: "Inventory Asset", debit: 0, credit: cogs });
+      if (cogs) baseLines.push({ accountName: linkedAccounts.COGS ?? "Cost of Goods Sold", debit: cogs, credit: 0 }, { accountName: linkedAccounts.INVENTORY ?? "Inventory Asset", debit: 0, credit: cogs });
       await db.insert(journalLines).values(baseLines.map((line) => ({ ...line, journalEntryId: entry.id })));
     }
 
@@ -239,7 +250,7 @@ export async function POST(request: Request) {
         await db.update(items).set(type === "bill" ? { quantity: sql`${items.quantity} + ${quantity}`, lastPurchasePrice: line.unitPrice } : { quantity: sql`${items.quantity} + ${quantity}` }).where(eq(items.id, line.itemId!));
         await db.insert(inventoryMovements).values({ itemId: line.itemId!, transactionId: record.id, movementDate: transactionDate, movementType: type, quantity, unitCost: line.unitCost, reference: number });
       }
-      const balanceChange = contactBalanceChange(type, total, record.account);
+      const balanceChange = contactBalanceChange(type, total, postingAccountRole);
       const contactType = ["invoice", "sales receipt", "customer payment", "credit memo"].includes(type) ? "customer" : "vendor";
       if (balanceChange) await db.update(contacts).set({ balance: sql`${contacts.balance} + ${balanceChange}` }).where(and(eq(contacts.companyId, companyId), eq(contacts.name, party), eq(contacts.type, contactType)));
     }
@@ -282,33 +293,34 @@ export async function PATCH(request: Request) {
   }
 }
 
-function contactBalanceChange(type: string, total: number, account = "") {
+function contactBalanceChange(type: string, total: number, accountRole = "") {
   if (type === "invoice" || type === "bill") return total;
-  if (type === "cheque" && account === "Accounts Payable") return -total;
+  if (type === "cheque" && accountRole === "AP") return -total;
   if (["customer payment", "credit memo", "bill payment", "vendor payment", "vendor credit"].includes(type)) return -total;
   return 0;
 }
 
-function postingLines(type: string, account: string, subtotal: number, vatAmount: number, total: number) {
+function postingLines(type: string, account: string, subtotal: number, vatAmount: number, total: number, linked: Record<string, string>) {
+  const named = (role: string, fallback: string) => linked[role] ?? fallback;
   if (["invoice", "sales receipt"].includes(type)) return [
-    { accountName: type === "invoice" ? "Accounts Receivable" : "Business Bank", debit: total, credit: 0 },
-    { accountName: "Sales Revenue", debit: 0, credit: subtotal },
-    ...(vatAmount ? [{ accountName: "VAT Payable", debit: 0, credit: vatAmount }] : []),
+    { accountName: type === "invoice" ? named("AR", "Accounts Receivable") : named("BANK", "Business Bank"), debit: total, credit: 0 },
+    { accountName: named("SALES", "Sales Revenue"), debit: 0, credit: subtotal },
+    ...(vatAmount ? [{ accountName: named("OUTPUT_VAT", "VAT Payable"), debit: 0, credit: vatAmount }] : []),
   ];
-  if (type === "customer payment") return [{ accountName: "Business Bank", debit: total, credit: 0 }, { accountName: "Accounts Receivable", debit: 0, credit: total }];
+  if (type === "customer payment") return [{ accountName: named("BANK", "Business Bank"), debit: total, credit: 0 }, { accountName: named("AR", "Accounts Receivable"), debit: 0, credit: total }];
   if (type === "bill") return [
-    { accountName: account || "Purchases", debit: subtotal, credit: 0 },
-    ...(vatAmount ? [{ accountName: "Recoverable VAT", debit: vatAmount, credit: 0 }] : []),
-    { accountName: "Accounts Payable", debit: 0, credit: total },
+    { accountName: account || named("PURCHASES", "Purchases"), debit: subtotal, credit: 0 },
+    ...(vatAmount ? [{ accountName: named("INPUT_VAT", "Recoverable VAT"), debit: vatAmount, credit: 0 }] : []),
+    { accountName: named("AP", "Accounts Payable"), debit: 0, credit: total },
   ];
-  if (["bill payment", "vendor payment"].includes(type)) return [{ accountName: "Accounts Payable", debit: total, credit: 0 }, { accountName: "Business Bank", debit: 0, credit: total }];
+  if (["bill payment", "vendor payment"].includes(type)) return [{ accountName: named("AP", "Accounts Payable"), debit: total, credit: 0 }, { accountName: named("BANK", "Business Bank"), debit: 0, credit: total }];
   if (["expense", "cheque"].includes(type)) return [
-    { accountName: account || "Operating Expenses", debit: subtotal, credit: 0 },
-    ...(vatAmount ? [{ accountName: "Recoverable VAT", debit: vatAmount, credit: 0 }] : []),
-    { accountName: "Business Bank", debit: 0, credit: total },
+    { accountName: account || named("EXPENSE", "Operating Expenses"), debit: subtotal, credit: 0 },
+    ...(vatAmount ? [{ accountName: named("INPUT_VAT", "Recoverable VAT"), debit: vatAmount, credit: 0 }] : []),
+    { accountName: named("BANK", "Business Bank"), debit: 0, credit: total },
   ];
-  if (type === "deposit") return [{ accountName: "Business Bank", debit: total, credit: 0 }, { accountName: account || "Other Income", debit: 0, credit: total }];
-  return [{ accountName: account || "Suspense", debit: total, credit: 0 }, { accountName: "Opening Balance Equity", debit: 0, credit: total }];
+  if (type === "deposit") return [{ accountName: named("BANK", "Business Bank"), debit: total, credit: 0 }, { accountName: account || named("OTHER_INCOME", "Other Income"), debit: 0, credit: total }];
+  return [{ accountName: account || named("SUSPENSE", "Suspense"), debit: total, credit: 0 }, { accountName: named("EQUITY", "Opening Balance Equity"), debit: 0, credit: total }];
 }
 
 export async function DELETE(request: Request) {
@@ -317,13 +329,18 @@ export async function DELETE(request: Request) {
     const db = getDb();
     if (kind === "contacts") await db.delete(contacts).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId)));
     else if (kind === "items") await db.delete(items).where(and(eq(items.id, id), eq(items.companyId, companyId)));
-    else if (kind === "accounts") await db.delete(accounts).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId)));
+    else if (kind === "accounts") {
+      const [account] = await db.select({ systemRole: accounts.systemRole }).from(accounts).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId))).limit(1);
+      if (account?.systemRole) return Response.json({ error: "Linked system accounts cannot be deleted." }, { status: 409 });
+      await db.delete(accounts).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId)));
+    }
     else {
       const [record] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId)));
       if (record) {
         const movements = await db.select().from(inventoryMovements).where(eq(inventoryMovements.transactionId, id));
         for (const movement of movements) await db.update(items).set({ quantity: sql`${items.quantity} - ${movement.quantity}` }).where(eq(items.id, movement.itemId));
-        const balanceChange = contactBalanceChange(record.type, record.total, record.account);
+        const [postingAccount] = await db.select({ systemRole: accounts.systemRole }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.name, record.account))).limit(1);
+        const balanceChange = contactBalanceChange(record.type, record.total, postingAccount?.systemRole ?? "");
         const contactType = ["invoice", "sales receipt", "customer payment", "credit memo"].includes(record.type) ? "customer" : "vendor";
         if (balanceChange) await db.update(contacts).set({ balance: sql`${contacts.balance} - ${balanceChange}` }).where(and(eq(contacts.companyId, companyId), eq(contacts.name, record.party), eq(contacts.type, contactType)));
         await db.delete(transactions).where(eq(transactions.id, id));
