@@ -1,4 +1,4 @@
-import { boolean, doublePrecision, index, integer, pgTable, serial, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { boolean, doublePrecision, index, integer, pgTable, serial, text, timestamp, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
 
 export const companies = pgTable("companies", {
   id: serial("id").primaryKey(),
@@ -61,6 +61,7 @@ export const items = pgTable("items", {
   reorderPoint: doublePrecision("reorder_point").notNull().default(0),
   salesPrice: doublePrecision("sales_price").notNull().default(0),
   cost: doublePrecision("cost").notNull().default(0),
+  lastPurchasePrice: doublePrecision("last_purchase_price").notNull().default(0),
   status: text("status", { enum: ["active", "inactive"] }).notNull().default("active"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 }, (table) => [uniqueIndex("idx_items_location_item_number").on(table.companyId, table.locationId, table.itemNumber), uniqueIndex("idx_items_location_sku").on(table.companyId, table.locationId, table.sku), index("idx_items_company_location_name").on(table.companyId, table.locationId, table.name)]);
@@ -77,6 +78,7 @@ export const stockTransfers = pgTable("stock_transfers", {
   itemName: text("item_name").notNull(),
   quantity: doublePrecision("quantity").notNull(),
   transferDate: text("transfer_date").notNull(),
+  salesman: text("salesman").notNull().default(""),
   notes: text("notes").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 }, (table) => [index("idx_stock_transfers_reference").on(table.reference), index("idx_stock_transfers_source_date").on(table.sourceCompanyId, table.transferDate), index("idx_stock_transfers_destination_date").on(table.destinationCompanyId, table.transferDate)]);
@@ -121,6 +123,7 @@ export const transactionLines = pgTable("transaction_lines", {
   quantity: doublePrecision("quantity").notNull().default(1),
   unitPrice: doublePrecision("unit_price").notNull().default(0),
   unitCost: doublePrecision("unit_cost").notNull().default(0),
+  vatCode: text("vat_code").notNull().default("STANDARD"),
   vatRate: doublePrecision("vat_rate").notNull().default(5),
   subtotal: doublePrecision("subtotal").notNull().default(0),
   vatAmount: doublePrecision("vat_amount").notNull().default(0),
@@ -144,10 +147,11 @@ export const accounts = pgTable("accounts", {
   code: text("code").notNull(),
   name: text("name").notNull(),
   type: text("type").notNull(),
+  parentAccountId: integer("parent_account_id").references((): AnyPgColumn => accounts.id, { onDelete: "set null" }),
   balance: doublePrecision("balance").notNull().default(0),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
-}, (table) => [uniqueIndex("idx_accounts_company_code").on(table.companyId, table.code)]);
+}, (table) => [uniqueIndex("idx_accounts_company_code").on(table.companyId, table.code), index("idx_accounts_parent").on(table.parentAccountId)]);
 
 export const journalEntries = pgTable("journal_entries", {
   id: serial("id").primaryKey(),
