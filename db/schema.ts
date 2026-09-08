@@ -18,15 +18,33 @@ export const appUsers = pgTable("app_users", {
   id: serial("id").primaryKey(),
   fullName: text("full_name").notNull().default(""),
   email: text("email").notNull(),
+  phone: text("phone").notNull().default(""),
+  whatsapp: text("whatsapp").notNull().default(""),
+  avatarData: text("avatar_data").notNull().default(""),
   passwordHash: text("password_hash").notNull(),
   role: text("role", { enum: ["admin", "accountant", "sales", "purchasing", "inventory", "viewer"] }).notNull().default("viewer"),
   active: boolean("active").notNull().default(true),
   mustChangePassword: boolean("must_change_password").notNull().default(false),
   failedLoginAttempts: integer("failed_login_attempts").notNull().default(0),
   lockedUntil: timestamp("locked_until", { withTimezone: true, mode: "string" }),
+  lastLoginAt: timestamp("last_login_at", { withTimezone: true, mode: "string" }),
+  lastLoginIp: text("last_login_ip").notNull().default(""),
+  lastLoginUserAgent: text("last_login_user_agent").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 }, (table) => [uniqueIndex("idx_app_users_email").on(table.email)]);
+
+export const emailSettings = pgTable("email_settings", {
+  id: integer("id").primaryKey(),
+  host: text("host").notNull().default("smtp.gmail.com"),
+  port: integer("port").notNull().default(465),
+  secure: boolean("secure").notNull().default(true),
+  username: text("username").notNull().default(""),
+  passwordEncrypted: text("password_encrypted").notNull().default(""),
+  fromName: text("from_name").notNull().default("ComNet Accounting"),
+  fromEmail: text("from_email").notNull().default(""),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+});
 
 export const authSessions = pgTable("auth_sessions", {
   id: serial("id").primaryKey(),

@@ -12,7 +12,7 @@ const SESSION_HOURS = 12;
 export const appRoles = ["admin", "accountant", "sales", "purchasing", "inventory", "viewer"] as const;
 export type AppRole = typeof appRoles[number];
 export type Permission = "workspace:read" | "inventory:read" | "inventory:manage" | "inventory:transfer" | "reports:read" | "sales:write" | "purchases:write" | "banking:write" | "accounting:manage" | "customers:manage" | "vendors:manage";
-export type SessionUser = { id: number; fullName: string; email: string; role: AppRole; mustChangePassword: boolean };
+export type SessionUser = { id: number; fullName: string; email: string; avatarData: string; role: AppRole; mustChangePassword: boolean };
 
 const rolePermissions: Record<AppRole, Permission[]> = {
   admin: ["workspace:read", "inventory:read", "inventory:manage", "inventory:transfer", "reports:read", "sales:write", "purchases:write", "banking:write", "accounting:manage", "customers:manage", "vendors:manage"],
@@ -63,7 +63,7 @@ export async function createSession(userId: number) {
 async function findSessionUser(token: string | undefined): Promise<SessionUser | null> {
   if (!token) return null;
   const [row] = await getDb().select({
-    id: appUsers.id, fullName: appUsers.fullName, email: appUsers.email, role: appUsers.role, mustChangePassword: appUsers.mustChangePassword,
+    id: appUsers.id, fullName: appUsers.fullName, email: appUsers.email, avatarData: appUsers.avatarData, role: appUsers.role, mustChangePassword: appUsers.mustChangePassword,
   }).from(authSessions)
     .innerJoin(appUsers, eq(authSessions.userId, appUsers.id))
     .where(and(eq(authSessions.tokenHash, tokenDigest(token)), gt(authSessions.expiresAt, new Date().toISOString()), eq(appUsers.active, true)))

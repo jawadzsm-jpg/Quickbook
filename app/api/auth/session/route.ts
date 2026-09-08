@@ -33,9 +33,13 @@ export async function POST(request: Request) {
     }
     return Response.json({ error: "Incorrect email or password." }, { status: 401 });
   }
-  await getDb().update(appUsers).set({ failedLoginAttempts: 0, lockedUntil: null, updatedAt: new Date().toISOString() }).where(eq(appUsers.id, user.id));
+  const forwardedIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  const loginIp = (forwardedIp || request.headers.get("x-real-ip") || "Unknown").slice(0, 64);
+  const loginUserAgent = (request.headers.get("user-agent") || "Unknown device").slice(0, 500);
+  const lastLoginAt = new Date().toISOString();
+  await getDb().update(appUsers).set({ failedLoginAttempts: 0, lockedUntil: null, lastLoginAt, lastLoginIp: loginIp, lastLoginUserAgent: loginUserAgent, updatedAt: lastLoginAt }).where(eq(appUsers.id, user.id));
   const token = await createSession(user.id);
-  return Response.json({ user: { id: user.id, fullName: user.fullName, email: user.email, role: user.role, mustChangePassword: user.mustChangePassword } }, { headers: { "Set-Cookie": sessionCookie(token), "Cache-Control": "no-store" } });
+  return Response.json({ user: { id: user.id, fullName: user.fullName, email: user.email, avatarData: user.avatarData, role: user.role, mustChangePassword: user.mustChangePassword } }, { headers: { "Set-Cookie": sessionCookie(token), "Cache-Control": "no-store" } });
 }
 
 export async function PATCH(request: Request) {
