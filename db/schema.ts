@@ -96,6 +96,8 @@ export const transactions = pgTable("transactions", {
   number: text("number").notNull(),
   type: text("type").notNull(),
   party: text("party").notNull(),
+  salesman: text("salesman").notNull().default(""),
+  isImport: boolean("is_import").notNull().default(false),
   transactionDate: text("transaction_date").notNull(),
   dueDate: text("due_date").notNull().default(""),
   account: text("account").notNull().default("Accounts Receivable"),
