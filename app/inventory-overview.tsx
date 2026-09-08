@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Boxes, PackageCheck, PackageX, RefreshCw, Search, Warehouse } from "lucide-react";
+import { AlertTriangle, Boxes, Download, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PackageX, RefreshCw, Search, Send, Warehouse } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
@@ -29,7 +30,7 @@ type OverviewItem = {
   locationCode: string;
 };
 
-type StockFilter = "all" | "low" | "out" | `location:${number}`;
+type StockFilter = "all" | "in" | "low" | "out" | `location:${number}`;
 
 function money(value: number, currency: string) {
   try {
@@ -50,11 +51,23 @@ function specificationText(record: OverviewItem) {
   return record.description.trim();
 }
 
+function plainMoney(value: number) {
+  return value.toLocaleString("en-AE", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+function xml(value: unknown) {
+  return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&apos;");
+}
+
 export function InventoryOverview() {
   const [records, setRecords] = useState<OverviewItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<StockFilter>("all");
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [showQuantity, setShowQuantity] = useState(true);
+  const [showPrice, setShowPrice] = useState(true);
+  const [includeVat, setIncludeVat] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -90,7 +103,8 @@ export function InventoryOverview() {
 
   const totals = useMemo(() => ({
     quantity: records.reduce((sum, record) => sum + Number(record.quantity), 0),
-    inStock: records.filter((record) => Number(record.quantity) > Number(record.reorderPoint)).length,
+    inStock: records.filter((record) => Number(record.quantity) > 0).length,
+    healthy: records.filter((record) => Number(record.quantity) > Number(record.reorderPoint)).length,
     low: records.filter((record) => Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint)).length,
     out: records.filter((record) => Number(record.quantity) <= 0).length,
   }), [records]);
@@ -98,6 +112,7 @@ export function InventoryOverview() {
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return records.filter((record) => {
+      if (filter === "in" && Number(record.quantity) <= 0) return false;
       if (filter === "low" && !(Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint))) return false;
       if (filter === "out" && Number(record.quantity) > 0) return false;
       if (filter.startsWith("location:") && record.locationId !== Number(filter.split(":")[1])) return false;
@@ -116,6 +131,80 @@ export function InventoryOverview() {
     return [...grouped.entries()];
   }, [filtered]);
 
+  const selectedRecords = useMemo(() => records.filter((record) => selectedIds.has(record.id)), [records, selectedIds]);
+  const allVisibleSelected = filtered.length > 0 && filtered.every((record) => selectedIds.has(record.id));
+  const someVisibleSelected = filtered.some((record) => selectedIds.has(record.id));
+
+  const toggleSelected = (id: number, checked: boolean) => setSelectedIds((current) => {
+    const next = new Set(current);
+    if (checked) next.add(id); else next.delete(id);
+    return next;
+  });
+
+  const toggleAllVisible = (checked: boolean) => setSelectedIds((current) => {
+    const next = new Set(current);
+    for (const record of filtered) {
+      if (checked) next.add(record.id); else next.delete(record.id);
+    }
+    return next;
+  });
+
+  const shareText = () => {
+    if (!selectedRecords.length) return "";
+    const items = selectedRecords.map((record) => {
+      const lines = [`🔺 *${record.name} - ${record.sku}* 🔺`, specificationText(record)];
+      if (record.itemNumber) lines.push(`Item No: #${record.itemNumber}`);
+      lines.push(`${record.companyName} | ${record.locationName}`);
+      const details: string[] = [];
+      if (showQuantity) details.push(`Qty: ${plainMoney(Number(record.quantity))}`);
+      if (showPrice) {
+        const price = Number(record.salesPrice) * (includeVat ? 1.05 : 1);
+        details.push(`${record.currency}: ${plainMoney(price)}${includeVat ? " VAT included" : " + VAT"}`);
+      }
+      if (details.length) lines.push(details.join(" | "));
+      return lines.filter(Boolean).join("\n");
+    });
+    return `*COMNET STOCK LIST*\n\n${items.join("\n-------------------\n")}`;
+  };
+
+  const openShare = (channel: "whatsapp" | "telegram" | "email") => {
+    const text = shareText();
+    if (!text) return toast.error("Select at least one item to share.");
+    const encoded = encodeURIComponent(text);
+    const url = channel === "whatsapp"
+      ? `https://wa.me/?text=${encoded}`
+      : channel === "telegram"
+        ? `https://t.me/share/url?url=&text=${encoded}`
+        : `mailto:?subject=${encodeURIComponent("ComNet stock list")}&body=${encoded}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const exportExcel = (withVat: boolean) => {
+    if (!selectedRecords.length) return toast.error("Select at least one item to export.");
+    const headers = ["Company", "Inventory", "Category", "Item No.", "SKU", "Item", "Specifications"];
+    if (showQuantity) headers.push("Quantity");
+    if (showPrice) headers.push(withVat ? "Price including 5% VAT" : "Export price excluding VAT", "Currency");
+    const headerRow = headers.map((header) => `<Cell ss:StyleID="Header"><Data ss:Type="String">${xml(header)}</Data></Cell>`).join("");
+    const bodyRows = selectedRecords.map((record) => {
+      const values: Array<{ value: unknown; type?: "Number"; style?: string }> = [
+        { value: record.companyName }, { value: record.locationName }, { value: record.category },
+        { value: record.itemNumber ?? "" }, { value: record.sku }, { value: record.name }, { value: specificationText(record) },
+      ];
+      if (showQuantity) values.push({ value: Number(record.quantity), type: "Number", style: "Number" });
+      if (showPrice) values.push({ value: Number(record.salesPrice) * (withVat ? 1.05 : 1), type: "Number", style: "Money" }, { value: record.currency });
+      return `<Row>${values.map((entry) => `<Cell${entry.style ? ` ss:StyleID="${entry.style}"` : ""}><Data ss:Type="${entry.type ?? "String"}">${xml(entry.value)}</Data></Cell>`).join("")}</Row>`;
+    }).join("");
+    const workbook = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Styles><Style ss:ID="Default"><Alignment ss:Vertical="Top"/><Font ss:FontName="Arial" ss:Size="10"/></Style><Style ss:ID="Header"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#0F172A" ss:Pattern="Solid"/></Style><Style ss:ID="Number"><NumberFormat ss:Format="#,##0.##"/></Style><Style ss:ID="Money"><NumberFormat ss:Format="#,##0.00"/></Style></Styles><Worksheet ss:Name="Stock List"><Table><Column ss:Width="120"/><Column ss:Width="110"/><Column ss:Width="90"/><Column ss:Width="75"/><Column ss:Width="90"/><Column ss:Width="190"/><Column ss:Width="420"/><Row>${headerRow}</Row>${bodyRows}</Table></Worksheet></Workbook>`;
+    const blob = new Blob([workbook], { type: "application/vnd.ms-excel;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `comnet-stock-${withVat ? "vat-included" : "export-no-vat"}.xls`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    toast.success(`${selectedRecords.length} items exported for Excel`);
+  };
+
   const summaryButton = (active: boolean) => active
     ? "border-slate-950 bg-slate-950 text-white shadow-sm hover:bg-slate-800 hover:text-white"
     : "border-slate-200 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50";
@@ -129,6 +218,7 @@ export function InventoryOverview() {
         {locations.map((location) => <Button key={location.id} variant="outline" onClick={() => setFilter(`location:${location.id}`)} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === `location:${location.id}`)}`}>
           <Warehouse className="size-5" /><span className="font-semibold">{location.company}</span><span className="text-xs opacity-70">{location.location}</span><Badge variant="secondary">{location.quantity.toLocaleString()}</Badge>
         </Button>)}
+        <Button variant="outline" onClick={() => setFilter("in")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "in")}`}><PackageCheck className="size-5" /><span className="font-semibold">In stock</span><Badge className="bg-emerald-500 text-white hover:bg-emerald-500">{totals.inStock}</Badge></Button>
         <Button variant="outline" onClick={() => setFilter("low")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "low")}`}><AlertTriangle className="size-5" /><span className="font-semibold">Low stock</span><Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">{totals.low}</Badge></Button>
         <Button variant="outline" onClick={() => setFilter("out")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "out")}`}><PackageX className="size-5" /><span className="font-semibold">Out of stock</span><Badge variant="destructive">{totals.out}</Badge></Button>
       </div>
@@ -143,17 +233,34 @@ export function InventoryOverview() {
         </div>
       </div>
 
+      <div className="flex flex-col gap-3 border-b bg-slate-50 px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
+        <div className="flex flex-wrap items-center gap-4">
+          <Badge className="bg-slate-950 text-white hover:bg-slate-950">{selectedRecords.length} selected</Badge>
+          <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700"><Checkbox checked={showQuantity} onCheckedChange={(checked) => setShowQuantity(checked === true)} />Show quantity</label>
+          <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700"><Checkbox checked={showPrice} onCheckedChange={(checked) => setShowPrice(checked === true)} />Show price</label>
+          <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700"><Checkbox checked={includeVat} onCheckedChange={(checked) => setIncludeVat(checked === true)} disabled={!showPrice} />Share price includes 5% VAT</label>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" disabled={!selectedRecords.length} onClick={() => openShare("whatsapp")} className="bg-[#25D366] text-white hover:bg-[#1fb558]"><MessageCircle />WhatsApp</Button>
+          <Button size="sm" disabled={!selectedRecords.length} onClick={() => openShare("telegram")} className="bg-[#229ED9] text-white hover:bg-[#1987bb]"><Send />Telegram</Button>
+          <Button size="sm" variant="outline" disabled={!selectedRecords.length} onClick={() => openShare("email")}><Mail />Email</Button>
+          <Button size="sm" variant="outline" disabled={!selectedRecords.length} onClick={() => exportExcel(false)}><Download />Excel no VAT</Button>
+          <Button size="sm" variant="outline" disabled={!selectedRecords.length} onClick={() => exportExcel(true)}><FileSpreadsheet />Excel + VAT</Button>
+        </div>
+      </div>
+
       <div className="overflow-x-auto">
         <Table className="min-w-[900px]">
-          <TableHeader><TableRow className="bg-slate-50"><TableHead className="w-[58%] font-bold text-slate-900">Product specifications</TableHead><TableHead className="font-bold text-slate-900">Company / inventory</TableHead><TableHead className="w-24 text-right font-bold text-slate-900">Qty</TableHead><TableHead className="w-36 text-right font-bold text-slate-900">Price</TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow className="bg-slate-50"><TableHead className="w-12"><Checkbox aria-label="Select all visible items" checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false} onCheckedChange={(checked) => toggleAllVisible(checked === true)} /></TableHead><TableHead className="w-[55%] font-bold text-slate-900">Product specifications</TableHead><TableHead className="font-bold text-slate-900">Company / inventory</TableHead><TableHead className="w-24 text-right font-bold text-slate-900">Qty</TableHead><TableHead className="w-36 text-right font-bold text-slate-900">Price</TableHead></TableRow></TableHeader>
           <TableBody>
-            {loading ? <TableRow><TableCell colSpan={4} className="h-40 text-center text-slate-500"><RefreshCw className="mx-auto mb-2 size-5 animate-spin" />Loading all inventories…</TableCell></TableRow> : categories.length === 0 ? <TableRow><TableCell colSpan={4} className="h-40 text-center text-slate-500">No products match this view.</TableCell></TableRow> : categories.flatMap(([category, items]) => [
-              <TableRow key={`category-${category}`} className="border-slate-800 bg-slate-950 hover:bg-slate-950"><TableCell colSpan={4} className="py-3 font-bold text-white"><span className="mr-2 text-emerald-400">●</span>{category}<Badge className="ml-3 bg-white/15 text-white hover:bg-white/15">{items.length} items</Badge></TableCell></TableRow>,
+            {loading ? <TableRow><TableCell colSpan={5} className="h-40 text-center text-slate-500"><RefreshCw className="mx-auto mb-2 size-5 animate-spin" />Loading all inventories…</TableCell></TableRow> : categories.length === 0 ? <TableRow><TableCell colSpan={5} className="h-40 text-center text-slate-500">No products match this view.</TableCell></TableRow> : categories.flatMap(([category, items]) => [
+              <TableRow key={`category-${category}`} className="border-slate-800 bg-slate-950 hover:bg-slate-950"><TableCell colSpan={5} className="py-3 font-bold text-white"><span className="mr-2 text-emerald-400">●</span>{category}<Badge className="ml-3 bg-white/15 text-white hover:bg-white/15">{items.length} items</Badge></TableCell></TableRow>,
               ...items.map((record) => {
                 const low = Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint);
                 const out = Number(record.quantity) <= 0;
                 const description = specificationText(record);
-                return <TableRow key={record.id} className="align-top hover:bg-slate-50/80">
+                return <TableRow key={record.id} data-state={selectedIds.has(record.id) ? "selected" : undefined} className="align-top data-[state=selected]:bg-sky-50 hover:bg-slate-50/80">
+                  <TableCell className="py-5"><Checkbox aria-label={`Select ${record.name}`} checked={selectedIds.has(record.id)} onCheckedChange={(checked) => toggleSelected(record.id, checked === true)} /></TableCell>
                   <TableCell className="py-4"><div className="flex flex-wrap items-center gap-2"><span className="text-base font-bold text-blue-700 underline decoration-blue-300 underline-offset-2">{record.name}</span>{out ? <Badge variant="destructive">Out of stock</Badge> : low ? <Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">Low stock</Badge> : <Badge variant="outline" className="border-emerald-200 text-emerald-700"><PackageCheck className="mr-1 size-3" />In stock</Badge>}</div>{description && <p className="mt-1 line-clamp-2 text-sm font-medium leading-5 text-slate-700">{description}</p>}<div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs"><span className="font-semibold text-slate-600">SKU: {record.sku}</span>{record.itemNumber && <span className="font-bold text-rose-600">#{record.itemNumber}</span>}</div></TableCell>
                   <TableCell className="py-4"><p className="font-semibold text-slate-900">{record.companyName}</p><p className="mt-1 text-sm text-slate-500"><Warehouse className="mr-1 inline size-3.5" />{record.locationName} · {record.locationCode}</p></TableCell>
                   <TableCell className={`py-4 text-right text-base font-black ${out ? "text-rose-600" : low ? "text-amber-600" : "text-slate-900"}`}>{Number(record.quantity).toLocaleString()}</TableCell>
@@ -164,7 +271,7 @@ export function InventoryOverview() {
           </TableBody>
         </Table>
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-slate-50 px-4 py-3 text-xs text-slate-500"><span>Showing {filtered.length} of {records.length} products</span><span>{totals.inStock} healthy · {totals.low} low · {totals.out} out of stock</span></div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-slate-50 px-4 py-3 text-xs text-slate-500"><span>Showing {filtered.length} of {records.length} products</span><span>{totals.healthy} healthy · {totals.low} low · {totals.out} out of stock</span></div>
     </section>
   </div>;
 }
