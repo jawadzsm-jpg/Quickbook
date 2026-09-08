@@ -46,8 +46,17 @@ export async function GET(request: Request) {
     }
     if (kind === "contacts") return Response.json({ records: await db.select().from(contacts).where(eq(contacts.companyId, companyId)).orderBy(asc(contacts.name)) });
     if (kind === "items") return Response.json({ records: await db.select().from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId))).orderBy(asc(items.name)) });
-    if (kind === "accounts") return Response.json({ records: await db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(asc(accounts.code)) });
-    return Response.json({ records: await db.select().from(transactions).where(eq(transactions.companyId, companyId)).orderBy(desc(transactions.transactionDate), desc(transactions.id)).limit(500) });
+    if (kind === "accounts") {
+      const accountRows = await db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(asc(accounts.code));
+      const locationTransactions = Number.isInteger(locationId) && locationId > 0
+        ? await db.select().from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId)))
+        : [];
+      const receivable = locationTransactions.reduce((balance, transaction) => transaction.type === "invoice" ? balance + Number(transaction.baseTotal) : ["customer payment", "credit memo"].includes(transaction.type) ? balance - Number(transaction.baseTotal) : balance, 0);
+      const payable = locationTransactions.reduce((balance, transaction) => transaction.type === "bill" ? balance + Number(transaction.baseTotal) : ["bill payment", "vendor payment", "vendor credit"].includes(transaction.type) || (transaction.type === "cheque" && transaction.account === "Accounts Payable") ? balance - Number(transaction.baseTotal) : balance, 0);
+      return Response.json({ records: accountRows.map((account) => account.name === "Accounts Receivable" ? { ...account, balance: receivable } : account.name === "Accounts Payable" ? { ...account, balance: payable } : account) });
+    }
+    const transactionFilter = Number.isInteger(locationId) && locationId > 0 ? and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId)) : eq(transactions.companyId, companyId);
+    return Response.json({ records: await db.select().from(transactions).where(transactionFilter).orderBy(desc(transactions.transactionDate), desc(transactions.id)).limit(500) });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
   }
@@ -222,7 +231,7 @@ export async function POST(request: Request) {
         await db.update(items).set({ quantity: sql`${items.quantity} + ${quantity}` }).where(eq(items.id, line.itemId!));
         await db.insert(inventoryMovements).values({ itemId: line.itemId!, transactionId: record.id, movementDate: transactionDate, movementType: type, quantity, unitCost: line.unitCost, reference: number });
       }
-      const balanceChange = contactBalanceChange(type, total);
+      const balanceChange = contactBalanceChange(type, total, record.account);
       const contactType = ["invoice", "sales receipt", "customer payment", "credit memo"].includes(type) ? "customer" : "vendor";
       if (balanceChange) await db.update(contacts).set({ balance: sql`${contacts.balance} + ${balanceChange}` }).where(and(eq(contacts.companyId, companyId), eq(contacts.name, party), eq(contacts.type, contactType)));
     }
@@ -265,8 +274,9 @@ export async function PATCH(request: Request) {
   }
 }
 
-function contactBalanceChange(type: string, total: number) {
+function contactBalanceChange(type: string, total: number, account = "") {
   if (type === "invoice" || type === "bill") return total;
+  if (type === "cheque" && account === "Accounts Payable") return -total;
   if (["customer payment", "credit memo", "bill payment", "vendor payment", "vendor credit"].includes(type)) return -total;
   return 0;
 }
@@ -305,7 +315,7 @@ export async function DELETE(request: Request) {
       if (record) {
         const movements = await db.select().from(inventoryMovements).where(eq(inventoryMovements.transactionId, id));
         for (const movement of movements) await db.update(items).set({ quantity: sql`${items.quantity} - ${movement.quantity}` }).where(eq(items.id, movement.itemId));
-        const balanceChange = contactBalanceChange(record.type, record.total);
+        const balanceChange = contactBalanceChange(record.type, record.total, record.account);
         const contactType = ["invoice", "sales receipt", "customer payment", "credit memo"].includes(record.type) ? "customer" : "vendor";
         if (balanceChange) await db.update(contacts).set({ balance: sql`${contacts.balance} - ${balanceChange}` }).where(and(eq(contacts.companyId, companyId), eq(contacts.name, record.party), eq(contacts.type, contactType)));
         await db.delete(transactions).where(eq(transactions.id, id));
