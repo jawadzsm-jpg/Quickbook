@@ -422,10 +422,36 @@ export async function GET(request: Request) {
       title = key === "sales-by-item" ? "Sales by Item" : key === "purchases-by-item" ? "Purchases by Item Summary" : "Item Profitability";
       rows = groupLines(key === "purchases-by-item" ? ["bill", "received item bill"] : ["invoice", "sales receipt"]);
       columns = [{ key: "name", label: "Item" }, { key: "quantity", label: "Quantity" }, { key: "amount", label: "Sales / Purchases", ...money }, ...(key === "item-profitability" ? [{ key: "profit", label: "Gross Profit", ...money }] : [])];
-    } else if (key === "inventory-valuation" || key === "inventory-status" || key === "physical-inventory") {
-      title = key === "inventory-valuation" ? "Inventory Valuation" : key === "inventory-status" ? "Inventory Stock Status" : "Physical Inventory Worksheet";
-      rows = allItems.map((row) => ({ sku: row.sku, name: row.name, quantity: row.quantity, reorder: row.reorderPoint, cost: row.cost, value: row.quantity * row.cost, count: "" }));
-      columns = [{ key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "quantity", label: "On Hand" }, { key: "reorder", label: "Reorder" }, { key: "cost", label: "Avg. Cost", ...money }, { key: "value", label: "Value", ...money }];
+    } else if (key === "inventory-valuation") {
+      title = "Stock Valuation Summary";
+      const grouped = new Map<string, { items: number; quantity: number; value: number }>();
+      allItems.filter((row) => row.status === "active").forEach((row) => { const category = row.category || "General"; const old = grouped.get(category) ?? { items: 0, quantity: 0, value: 0 }; grouped.set(category, { items: old.items + 1, quantity: old.quantity + row.quantity, value: old.value + row.quantity * row.cost }); });
+      rows = [...grouped].map(([category, value]) => ({ category, ...value })).sort((a, b) => b.value - a.value);
+      columns = [{ key: "category", label: "Category" }, { key: "items", label: "Items" }, { key: "quantity", label: "On Hand" }, { key: "value", label: "Stock Value", ...money }];
+    } else if (key === "inventory-valuation-detail") {
+      title = "Stock Valuation Detail";
+      rows = allItems.filter((row) => row.status === "active").map((row) => ({ itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, category: row.category, quantity: row.quantity, cost: row.cost, value: row.quantity * row.cost }));
+      columns = [{ key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "category", label: "Category" }, { key: "quantity", label: "On Hand" }, { key: "cost", label: "Avg. Cost", ...money }, { key: "value", label: "Stock Value", ...money }];
+    } else if (key === "inventory-status") {
+      title = "Stock Status by Item";
+      rows = allItems.filter((row) => row.status === "active").map((row) => ({ itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, quantity: row.quantity, reorder: row.reorderPoint, available: Math.max(0, row.quantity), status: row.quantity <= 0 ? "Out of Stock" : row.quantity <= row.reorderPoint ? "Low Stock" : "In Stock", value: row.quantity * row.cost }));
+      columns = [{ key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "quantity", label: "On Hand" }, { key: "available", label: "Available" }, { key: "reorder", label: "Reorder" }, { key: "status", label: "Status" }, { key: "value", label: "Stock Value", ...money }];
+    } else if (key === "inventory-status-supplier") {
+      title = "Stock Status by Supplier";
+      const latestSupplier = new Map<number, { date: string; supplier: string }>();
+      lines.filter((line) => line.itemId && ["bill", "received item bill"].includes(line.type)).forEach((line) => { const itemId = Number(line.itemId); const old = latestSupplier.get(itemId); if (!old || line.date >= old.date) latestSupplier.set(itemId, { date: line.date, supplier: line.party }); });
+      const grouped = new Map<string, { items: number; quantity: number; lowStock: number; outOfStock: number; value: number }>();
+      allItems.filter((row) => row.status === "active").forEach((row) => { const supplier = latestSupplier.get(row.id)?.supplier ?? "Unassigned"; const old = grouped.get(supplier) ?? { items: 0, quantity: 0, lowStock: 0, outOfStock: 0, value: 0 }; grouped.set(supplier, { items: old.items + 1, quantity: old.quantity + row.quantity, lowStock: old.lowStock + (row.quantity > 0 && row.quantity <= row.reorderPoint ? 1 : 0), outOfStock: old.outOfStock + (row.quantity <= 0 ? 1 : 0), value: old.value + row.quantity * row.cost }); });
+      rows = [...grouped].map(([supplier, value]) => ({ supplier, ...value })).sort((a, b) => b.value - a.value);
+      columns = [{ key: "supplier", label: "Latest Supplier" }, { key: "items", label: "Items" }, { key: "quantity", label: "On Hand" }, { key: "lowStock", label: "Low Stock" }, { key: "outOfStock", label: "Out of Stock" }, { key: "value", label: "Stock Value", ...money }];
+    } else if (key === "physical-inventory") {
+      title = "Physical Stock Worksheet";
+      rows = allItems.filter((row) => row.status === "active").map((row) => ({ itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, category: row.category, quantity: row.quantity, count: "", difference: "" }));
+      columns = [{ key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "category", label: "Category" }, { key: "quantity", label: "System Qty" }, { key: "count", label: "Physical Count" }, { key: "difference", label: "Difference" }];
+    } else if (key === "pending-builds") {
+      title = "Pending Builds";
+      rows = allItems.filter((row) => row.status === "active" && row.quantity < row.reorderPoint).map((row) => ({ itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, category: row.category, onHand: row.quantity, buildLevel: row.reorderPoint, required: Math.max(0, row.reorderPoint - row.quantity), status: row.quantity <= 0 ? "Required" : "Below Level" }));
+      columns = [{ key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item / Assembly" }, { key: "category", label: "Category" }, { key: "onHand", label: "On Hand" }, { key: "buildLevel", label: "Build Level" }, { key: "required", label: "Required Qty" }, { key: "status", label: "Status" }];
     } else if (key === "open-invoices") { title = "Open Invoices"; rows = txRows(["invoice"]).filter((row) => !["paid", "cleared"].includes(String(row.status))); }
     else if (key === "sales-orders") { title = "Sales Order Fulfilment"; rows = txRows(["sales order"]); }
     else if (key === "open-purchase-orders") {
