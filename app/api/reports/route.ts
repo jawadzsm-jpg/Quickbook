@@ -268,6 +268,17 @@ export async function GET(request: Request) {
       title = "Transaction List by Date";
       rows = scopedTransactions.map((row) => ({ date: row.transactionDate, number: row.number, type: row.type, name: row.party || "—", account: row.account, status: row.status, currency: row.currency, amount: row.baseTotal }));
       columns = [{ key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "name", label: "Name" }, { key: "account", label: "Account" }, { key: "status", label: "Status" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Amount", ...money }];
+    } else if (key === "transaction-history") {
+      title = "Transaction History";
+      const documentHistory: Row[] = scopedTransactions.map((row) => ({ date: row.transactionDate, event: "Document", reference: row.number, type: row.type, name: row.party || "—", details: row.memo || row.status, amount: row.baseTotal }));
+      const auditHistory: Row[] = auditRows.map((entry) => ({ date: String(entry.createdAt), event: entry.action.replace(/^./, (letter) => letter.toUpperCase()), reference: `${entry.entityType.replaceAll("_", " ")} #${entry.entityId}`, type: entry.entityType.replaceAll("_", " "), name: "—", details: entry.details || "—", amount: 0 }));
+      rows = [...documentHistory, ...auditHistory].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+      columns = [{ key: "date", label: "Date / Time" }, { key: "event", label: "Event" }, { key: "reference", label: "Reference" }, { key: "type", label: "Record Type" }, { key: "name", label: "Name" }, { key: "details", label: "Details" }, { key: "amount", label: "Amount", ...money }];
+    } else if (key === "transaction-journal") {
+      title = "Transaction Journal";
+      const transactionByNumber = new Map(scopedTransactions.map((row) => [row.number, row]));
+      rows = journal.filter((entry) => transactionByNumber.has(entry.reference)).map((entry) => { const source = transactionByNumber.get(entry.reference)!; return { date: entry.date, reference: entry.reference, type: source.type, name: source.party || "—", account: entry.account, description: entry.description, debit: entry.debit, credit: entry.credit, status: source.status }; });
+      columns = [{ key: "date", label: "Date" }, { key: "reference", label: "Transaction No." }, { key: "type", label: "Type" }, { key: "name", label: "Name" }, { key: "account", label: "Account" }, { key: "description", label: "Description" }, { key: "debit", label: "Debit", ...money }, { key: "credit", label: "Credit", ...money }, { key: "status", label: "Status" }];
     } else if (key === "account-listing") {
       title = "Account Listing";
       const namesById = new Map(allAccounts.map((account) => [account.id, account.name]));
