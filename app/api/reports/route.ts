@@ -71,6 +71,31 @@ export async function GET(request: Request) {
       return { name: row.party, current: age <= 0 ? row.baseTotal : 0, days30: age > 0 && age <= 30 ? row.baseTotal : 0, days60: age > 30 && age <= 60 ? row.baseTotal : 0, days90: age > 60 ? row.baseTotal : 0, total: row.baseTotal };
     });
     const agingColumns = [{ key: "name", label: "Name" }, { key: "current", label: "Current", ...money }, { key: "days30", label: "1–30", ...money }, { key: "days60", label: "31–60", ...money }, { key: "days90", label: "61+", ...money }, { key: "total", label: "Total", ...money }];
+    const customerTypes = new Set(["invoice", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"]);
+    const customerActivities = scopedTransactions.filter((row) => customerTypes.has(row.type));
+    const customerImpact = (row: typeof allTransactions[number]) => ["customer payment", "credit memo"].includes(row.type) ? -row.baseTotal : row.baseTotal;
+    const customerSettlements: Array<{ customer: string; invoice: string; invoiceDate: string; payment: string; paymentDate: string; days: number; amount: number }> = [];
+    const activityByCustomer = new Map<string, typeof customerActivities>();
+    customerActivities.forEach((row) => activityByCustomer.set(row.party, [...(activityByCustomer.get(row.party) ?? []), row]));
+    activityByCustomer.forEach((activity, customer) => {
+      const openInvoices: Array<{ number: string; date: string; remaining: number; total: number }> = [];
+      activity.sort((a, b) => a.transactionDate.localeCompare(b.transactionDate) || a.id - b.id).forEach((row) => {
+        if (["invoice", "statement charge", "finance charge"].includes(row.type)) openInvoices.push({ number: row.number, date: row.transactionDate, remaining: row.baseTotal, total: row.baseTotal });
+        if (row.type !== "customer payment") return;
+        let paymentRemaining = row.baseTotal;
+        while (paymentRemaining > 0.005 && openInvoices.length) {
+          const invoice = openInvoices[0];
+          const applied = Math.min(paymentRemaining, invoice.remaining);
+          paymentRemaining -= applied;
+          invoice.remaining -= applied;
+          if (invoice.remaining <= 0.005) {
+            const days = Math.max(0, Math.floor((new Date(row.transactionDate).getTime() - new Date(invoice.date).getTime()) / 86400000));
+            customerSettlements.push({ customer, invoice: invoice.number, invoiceDate: invoice.date, payment: row.number, paymentDate: row.transactionDate, days, amount: invoice.total });
+            openInvoices.shift();
+          }
+        }
+      });
+    });
     const vatDocumentTypes = new Set(["invoice", "sales receipt", "statement charge", "credit memo", "bill", "received item bill", "expense", "vendor credit"]);
     const vatLines = lines.filter((line) => vatDocumentTypes.has(line.type) && (!periodStart || line.date >= periodStart) && (!periodEnd || line.date <= periodEnd));
     const outputVat = vatLines.reduce((sum, line) => sum + (line.type === "credit memo" ? -1 : ["invoice", "sales receipt", "statement charge"].includes(line.type) ? 1 : 0) * line.vatAmount * line.exchangeRate, 0);
@@ -202,8 +227,16 @@ export async function GET(request: Request) {
       title = "Bank Reconciliation";
       rows = allTransactions.filter((row) => (!Number.isInteger(locationId) || locationId <= 0 || row.locationId === locationId) && ["deposit", "cheque", "transfer", "credit card charge", "customer payment", "bill payment"].includes(row.type)).map((row) => ({ date: row.transactionDate, number: row.number, type: row.type, party: row.party, status: row.status === "cleared" ? "Cleared" : "Uncleared", amount: row.baseTotal }));
       columns = [{ key: "date", label: "Date" }, { key: "number", label: "Reference" }, { key: "type", label: "Type" }, { key: "party", label: "Name / Account" }, { key: "status", label: "Reconciliation Status" }, { key: "amount", label: "Amount", ...money }];
-    } else if (key.startsWith("ar-aging")) {
-      title = key.endsWith("detail") ? "A/R Aging Detail" : "A/R Aging Summary"; rows = aged(["invoice", "statement charge", "finance charge"]); columns = agingColumns;
+    } else if (key === "ar-aging-summary") {
+      title = "A/R Aging Summary";
+      const grouped = new Map<string, { current: number; days30: number; days60: number; days90: number; total: number }>();
+      aged(["invoice", "statement charge", "finance charge"]).forEach((row) => { const old = grouped.get(row.name) ?? { current: 0, days30: 0, days60: 0, days90: 0, total: 0 }; grouped.set(row.name, { current: old.current + row.current, days30: old.days30 + row.days30, days60: old.days60 + row.days60, days90: old.days90 + row.days90, total: old.total + row.total }); });
+      rows = [...grouped].map(([name, values]) => ({ name, ...values })).sort((a, b) => b.total - a.total);
+      columns = agingColumns;
+    } else if (key === "ar-aging-detail") {
+      title = "A/R Aging Detail";
+      rows = scopedTransactions.filter((row) => ["invoice", "statement charge", "finance charge"].includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => { const age = row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0; return { customer: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, status: row.status, age, amount: row.baseTotal }; });
+      columns = [{ key: "customer", label: "Customer" }, { key: "date", label: "Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "No." }, { key: "status", label: "Status" }, { key: "age", label: "Days Overdue" }, { key: "amount", label: "Open Amount", ...money }];
     } else if (key.startsWith("ap-aging")) {
       title = key.endsWith("detail") ? "A/P Aging Detail" : "A/P Aging Summary"; rows = aged(["bill", "received item bill"]); columns = agingColumns;
     } else if (key === "customer-statements") {
@@ -217,6 +250,63 @@ export async function GET(request: Request) {
         return { customer: row.party, date: row.transactionDate, number: row.number, type: row.type, debit, credit, balance };
       });
       columns = [{ key: "customer", label: "Customer" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Activity" }, { key: "debit", label: "Charge", ...money }, { key: "credit", label: "Payment / Credit", ...money }, { key: "balance", label: "Balance", ...money }];
+    } else if (key === "customer-balance-detail") {
+      title = "Customer Balance Detail";
+      const balances = new Map<string, number>();
+      rows = customerActivities.map((row) => { const amount = customerImpact(row); const balance = (balances.get(row.party) ?? 0) + amount; balances.set(row.party, balance); return { customer: row.party, date: row.transactionDate, number: row.number, type: row.type, charge: amount > 0 ? amount : 0, payment: amount < 0 ? -amount : 0, balance }; });
+      columns = [{ key: "customer", label: "Customer" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "charge", label: "Charge", ...money }, { key: "payment", label: "Payment / Credit", ...money }, { key: "balance", label: "Balance", ...money }];
+    } else if (key === "collections-report") {
+      title = "Collections Report";
+      const contactByName = new Map(allContacts.filter((contact) => contact.type === "customer").map((contact) => [contact.name, contact]));
+      const grouped = new Map<string, { openInvoices: number; overdueInvoices: number; oldestDueDate: string; balance: number }>();
+      customerActivities.forEach((row) => { const old = grouped.get(row.party) ?? { openInvoices: 0, overdueInvoices: 0, oldestDueDate: "", balance: 0 }; old.balance += customerImpact(row); if (["invoice", "statement charge", "finance charge"].includes(row.type) && !["paid", "cleared"].includes(row.status)) { old.openInvoices += 1; if (row.dueDate && row.dueDate < new Date().toISOString().slice(0, 10)) old.overdueInvoices += 1; if (row.dueDate && (!old.oldestDueDate || row.dueDate < old.oldestDueDate)) old.oldestDueDate = row.dueDate; } grouped.set(row.party, old); });
+      rows = [...grouped].filter(([, value]) => value.balance > 0.005).map(([customer, value]) => ({ customer, phone: contactByName.get(customer)?.phone || "—", email: contactByName.get(customer)?.email || "—", openInvoices: value.openInvoices, overdueInvoices: value.overdueInvoices, oldestDueDate: value.oldestDueDate || "—", balance: value.balance })).sort((a, b) => b.balance - a.balance);
+      columns = [{ key: "customer", label: "Customer" }, { key: "phone", label: "Phone" }, { key: "email", label: "Email" }, { key: "openInvoices", label: "Open" }, { key: "overdueInvoices", label: "Overdue" }, { key: "oldestDueDate", label: "Oldest Due" }, { key: "balance", label: "Balance", ...money }];
+    } else if (key === "average-days-to-pay-summary") {
+      title = "Average Days to Pay Summary";
+      const grouped = new Map<string, { invoices: number; days: number; amount: number }>();
+      customerSettlements.forEach((row) => { const old = grouped.get(row.customer) ?? { invoices: 0, days: 0, amount: 0 }; grouped.set(row.customer, { invoices: old.invoices + 1, days: old.days + row.days, amount: old.amount + row.amount }); });
+      rows = [...grouped].map(([customer, value]) => ({ customer, invoices: value.invoices, averageDays: Math.round(value.days / value.invoices), paidAmount: value.amount })).sort((a, b) => b.averageDays - a.averageDays);
+      columns = [{ key: "customer", label: "Customer" }, { key: "invoices", label: "Paid Invoices" }, { key: "averageDays", label: "Average Days" }, { key: "paidAmount", label: "Paid Amount", ...money }];
+    } else if (key === "average-days-to-pay-detail") {
+      title = "Average Days to Pay";
+      rows = customerSettlements;
+      columns = [{ key: "customer", label: "Customer" }, { key: "invoice", label: "Invoice" }, { key: "invoiceDate", label: "Invoice Date" }, { key: "payment", label: "Payment" }, { key: "paymentDate", label: "Payment Date" }, { key: "days", label: "Days to Pay" }, { key: "amount", label: "Invoice Amount", ...money }];
+    } else if (key === "accounts-receivable-graph") {
+      title = "Accounts Receivable Graph";
+      const months = new Map<string, { charges: number; payments: number }>();
+      customerActivities.forEach((row) => { const month = row.transactionDate.slice(0, 7); const old = months.get(month) ?? { charges: 0, payments: 0 }; if (["customer payment", "credit memo"].includes(row.type)) old.payments += row.baseTotal; else old.charges += row.baseTotal; months.set(month, old); });
+      let balance = 0;
+      rows = [...months].sort(([a], [b]) => a.localeCompare(b)).map(([month, value]) => { balance += value.charges - value.payments; return { month, ...value, balance }; });
+      columns = [{ key: "month", label: "Month" }, { key: "charges", label: "Charges", ...money }, { key: "payments", label: "Payments", ...money }, { key: "balance", label: "A/R Balance", ...money }];
+      chart = { labelKey: "month", incomeKey: "charges", expenseKey: "payments" };
+    } else if (key === "unbilled-costs-job") {
+      title = "Unbilled Costs by Job";
+      const locationNames = new Map(locations.map((location) => [location.id, location.name]));
+      const grouped = new Map<string, { documents: number; amount: number }>();
+      scopedTransactions.filter((row) => ["purchase order", "item receipt"].includes(row.type) && !["paid", "closed", "billed", "cancelled"].includes(row.status)).forEach((row) => { const job = locationNames.get(row.locationId ?? 0) ?? "Unassigned"; const old = grouped.get(job) ?? { documents: 0, amount: 0 }; grouped.set(job, { documents: old.documents + 1, amount: old.amount + row.baseTotal }); });
+      rows = [...grouped].map(([job, value]) => ({ job, ...value })).sort((a, b) => b.amount - a.amount);
+      columns = [{ key: "job", label: "Job / Inventory" }, { key: "documents", label: "Open Documents" }, { key: "amount", label: "Unbilled Cost", ...money }];
+    } else if (key === "customer-transactions") {
+      title = "Transaction List by Customer";
+      rows = customerActivities.map((row) => ({ customer: row.party, date: row.transactionDate, number: row.number, type: row.type, status: row.status, amount: customerImpact(row) }));
+      columns = [{ key: "customer", label: "Customer" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "status", label: "Status" }, { key: "amount", label: "Net Amount", ...money }];
+    } else if (key === "online-received-payments") {
+      title = "Online Received Payments";
+      rows = scopedTransactions.filter((row) => row.type === "customer payment").map((row) => ({ date: row.transactionDate, number: row.number, customer: row.party, account: row.account, status: row.status, currency: row.currency, amount: row.baseTotal }));
+      columns = [{ key: "date", label: "Date" }, { key: "number", label: "Payment No." }, { key: "customer", label: "Customer" }, { key: "account", label: "Deposit Account" }, { key: "status", label: "Status" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Amount", ...money }];
+    } else if (key === "customer-phone-list") {
+      title = "Customer Phone List";
+      rows = allContacts.filter((row) => row.type === "customer").map((row) => ({ customer: row.name, company: row.company || "—", phone: row.phone || "—", whatsapp: row.whatsapp || "—", country: row.country || "—" }));
+      columns = [{ key: "customer", label: "Customer" }, { key: "company", label: "Company" }, { key: "phone", label: "Phone" }, { key: "whatsapp", label: "WhatsApp" }, { key: "country", label: "Country" }];
+    } else if (key === "customer-contact-list") {
+      title = "Customer Contact List";
+      rows = allContacts.filter((row) => row.type === "customer").map((row) => ({ customer: row.name, company: row.company || "—", email: row.email || "—", phone: row.phone || "—", whatsapp: row.whatsapp || "—", country: row.country || "—", currency: row.currency, status: row.status }));
+      columns = [{ key: "customer", label: "Customer" }, { key: "company", label: "Company" }, { key: "email", label: "Email" }, { key: "phone", label: "Phone" }, { key: "whatsapp", label: "WhatsApp" }, { key: "country", label: "Country" }, { key: "currency", label: "Currency" }, { key: "status", label: "Status" }];
+    } else if (key === "item-price-list") {
+      title = "Item Price List";
+      rows = allItems.filter((row) => row.status === "active").map((row) => ({ itemNumber: row.itemNumber || "—", sku: row.sku, item: row.name, category: row.category, quantity: row.quantity, price: row.salesPrice }));
+      columns = [{ key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "item", label: "Item" }, { key: "category", label: "Category" }, { key: "quantity", label: "On Hand" }, { key: "price", label: "Sales Price", ...money }];
     } else if (key === "daily-sales-summary") {
       title = "Daily Sales Summary";
       const grouped = new Map<string, { documents: Set<string>; quantity: number; sales: number; vat: number; total: number }>();
