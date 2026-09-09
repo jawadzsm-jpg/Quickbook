@@ -440,11 +440,11 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   async function saveRecord(event: FormEvent) {
     event.preventDefault();
     if (currentKind === "contacts" && form.type === "customer") {
-      const required = [form.company, form.name, form.phone, form.whatsapp, form.country, form.reseller, form.planet, form.currency, form.ledgerAccountId];
+      const required = [form.company, form.name, form.phone, form.whatsapp, form.country, form.reseller, form.planet, form.currency];
       if (required.some((value) => !value?.trim())) return toast.error("Complete all required customer fields.");
     }
     if (currentKind === "contacts" && form.type === "vendor") {
-      const required = [form.company, form.name, form.phone, form.country, form.currency, form.ledgerAccountId];
+      const required = [form.company, form.name, form.phone, form.country, form.currency];
       if (required.some((value) => !value?.trim())) return toast.error("Complete all required vendor fields.");
     }
     if (currentKind === "transactions" && form.type === "bill") {
@@ -469,7 +469,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not save record");
       setRecords((old) => ({ ...old, [currentKind]: editingItem ? old[currentKind].map((record) => record.id === data.record.id ? data.record : record) : [data.record, ...old[currentKind]] }));
-      setDialogOpen(false); setEditingItemId(null); toast.success(editingItem ? "Item updated" : "Record saved and posted");
+      setDialogOpen(false); setEditingItemId(null); toast.success(data.generatedAccount ? `${data.generatedAccount.name} created and linked automatically` : editingItem ? "Item updated" : "Record saved and posted");
       if (currentKind === "transactions" && selectedLocationId !== activeLocationId) setActiveLocationId(selectedLocationId);
       else await loadData();
       if (currentKind === "transactions" && form.type === "invoice") await loadWorkspaces();
@@ -975,7 +975,7 @@ function ContactFields({ form, setForm, accounts }: { form: Record<string, strin
   const matchingAccounts = ledgerRole ? accounts.filter((account) => account.active && account.systemRole === ledgerRole && String(account.currency) === form.currency) : [];
   const currencyAndAccount = ledgerRole ? <>
     <div className="space-y-2"><Label>Currency *</Label><Select value={form.currency} onValueChange={(currency) => { const match = controlAccountFor(accounts, ledgerRole, currency); setForm({ ...form, currency, ledgerAccountId: match ? String(match.id) : "" }); }}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{currencies.map((currency) => <SelectItem key={currency} value={currency}>{currency}</SelectItem>)}</SelectContent></Select></div>
-    <div className="space-y-2"><Label>{ledgerRole === "AR" ? "Accounts Receivable" : "Accounts Payable"} account *</Label><Select value={form.ledgerAccountId || undefined} onValueChange={(ledgerAccountId) => setForm({ ...form, ledgerAccountId })}><SelectTrigger className="w-full"><SelectValue placeholder={`Select ${form.currency} account`} /></SelectTrigger><SelectContent>{matchingAccounts.length ? matchingAccounts.map((account) => <SelectItem key={account.id} value={String(account.id)}>{String(account.code)} · {String(account.name)}</SelectItem>) : <SelectItem value="no-control-account" disabled>No {form.currency} account available</SelectItem>}</SelectContent></Select>{matchingAccounts.length === 0 ? <p className="text-xs text-amber-700">Create a {form.currency} {ledgerRole === "AR" ? "A/R" : "A/P"} account in Chart of Accounts first.</p> : <p className="text-xs text-slate-500">Transactions for this contact post to this control account.</p>}</div>
+    <div className="space-y-2"><Label>{ledgerRole === "AR" ? "Accounts Receivable" : "Accounts Payable"} account</Label>{matchingAccounts.length ? <Select value={form.ledgerAccountId || String(matchingAccounts[0].id)} onValueChange={(ledgerAccountId) => setForm({ ...form, ledgerAccountId })}><SelectTrigger className="w-full"><SelectValue placeholder={`Select ${form.currency} account`} /></SelectTrigger><SelectContent>{matchingAccounts.map((account) => <SelectItem key={account.id} value={String(account.id)}>{String(account.code)} · {String(account.name)}</SelectItem>)}</SelectContent></Select> : <div className="rounded-lg border border-dashed border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{ledgerRole}-{form.currency} will be created automatically.</div>}<p className="text-xs text-slate-500">Transactions for this contact post to the matching currency control account.</p></div>
   </> : null;
   if (form.type === "vendor") return <div className="space-y-5">
     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">

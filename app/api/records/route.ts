@@ -48,6 +48,50 @@ async function createUniqueItemSku() {
   throw new Error("Could not generate a unique SKU. Please try again.");
 }
 
+async function ensureCurrencyControlAccount(companyId: number, role: "AR" | "AP", currency: string) {
+  const db = getDb();
+  const [existing] = await db.select().from(accounts).where(and(
+    eq(accounts.companyId, companyId),
+    eq(accounts.systemRole, role),
+    eq(accounts.currency, currency),
+  )).limit(1);
+  if (existing) {
+    if (existing.active) return { account: existing, created: false };
+    const [account] = await db.update(accounts).set({ active: true }).where(eq(accounts.id, existing.id)).returning();
+    return { account, created: false };
+  }
+
+  const baseCode = `${role}-${currency}`;
+  const [codeConflict] = await db.select({ id: accounts.id }).from(accounts).where(and(
+    eq(accounts.companyId, companyId),
+    eq(accounts.code, baseCode),
+  )).limit(1);
+  const code = codeConflict ? `${baseCode}-${crypto.randomUUID().replaceAll("-", "").slice(0, 4).toUpperCase()}` : baseCode;
+  const name = `${role === "AR" ? "Accounts Receivable" : "Accounts Payable"} - ${currency}`;
+
+  try {
+    const [account] = await db.insert(accounts).values({
+      companyId,
+      code,
+      name,
+      type: role === "AR" ? "Accounts Receivable" : "Accounts Payable",
+      systemRole: role,
+      currency,
+      balance: 0,
+      active: true,
+    }).returning();
+    return { account, created: true };
+  } catch (error) {
+    const [account] = await db.select().from(accounts).where(and(
+      eq(accounts.companyId, companyId),
+      eq(accounts.systemRole, role),
+      eq(accounts.currency, currency),
+    )).limit(1);
+    if (account) return { account, created: false };
+    throw error;
+  }
+}
+
 export async function GET(request: Request) {
   const authorization = await requireApiUser(request, "workspace:read");
   if (authorization instanceof Response) return authorization;
@@ -111,12 +155,19 @@ export async function POST(request: Request) {
         if (required.some((value) => !String(value ?? "").trim())) return Response.json({ error: "Complete all required vendor fields." }, { status: 400 });
       }
       let ledgerAccountId: number | null = null;
+      let generatedAccount: { id: number; code: string; name: string; currency: string } | null = null;
       if (contactType === "customer" || contactType === "vendor") {
-        ledgerAccountId = Number(payload.ledgerAccountId);
         const requiredRole = contactType === "customer" ? "AR" : "AP";
-        if (!Number.isInteger(ledgerAccountId) || ledgerAccountId <= 0) return Response.json({ error: `Select an active ${currency} ${contactType === "customer" ? "Accounts Receivable" : "Accounts Payable"} account.` }, { status: 400 });
-        const [linkedAccount] = await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.id, ledgerAccountId), eq(accounts.companyId, companyId), eq(accounts.systemRole, requiredRole), eq(accounts.currency, currency), eq(accounts.active, true))).limit(1);
-        if (!linkedAccount) return Response.json({ error: `The selected account must be an active ${currency} ${requiredRole === "AR" ? "Accounts Receivable" : "Accounts Payable"} account.` }, { status: 400 });
+        const requestedAccountId = Number(payload.ledgerAccountId);
+        const [selectedAccount] = Number.isInteger(requestedAccountId) && requestedAccountId > 0
+          ? await db.select().from(accounts).where(and(eq(accounts.id, requestedAccountId), eq(accounts.companyId, companyId), eq(accounts.systemRole, requiredRole), eq(accounts.currency, currency), eq(accounts.active, true))).limit(1)
+          : [];
+        if (selectedAccount) ledgerAccountId = selectedAccount.id;
+        else {
+          const ensured = await ensureCurrencyControlAccount(companyId, requiredRole, currency);
+          ledgerAccountId = ensured.account.id;
+          if (ensured.created) generatedAccount = { id: ensured.account.id, code: ensured.account.code, name: ensured.account.name, currency: ensured.account.currency };
+        }
       }
       const [record] = await db.insert(contacts).values({
         companyId, type: contactType, name,
@@ -126,7 +177,7 @@ export async function POST(request: Request) {
         planet: String(payload.planet ?? "No"), passport: String(payload.passport ?? ""), currency, ledgerAccountId,
         description: String(payload.description ?? ""), balance: Number(payload.balance ?? 0),
       }).returning();
-      return Response.json({ record }, { status: 201 });
+      return Response.json({ record, generatedAccount }, { status: 201 });
     }
 
     if (kind === "items") {
