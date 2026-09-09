@@ -90,6 +90,24 @@ export const inventoryLocations = pgTable("inventory_locations", {
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 }, (table) => [uniqueIndex("idx_inventory_locations_company_code").on(table.companyId, table.code)]);
 
+export const memorisedReports = pgTable("memorised_reports", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => appUsers.id, { onDelete: "cascade" }),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  locationId: integer("location_id").references(() => inventoryLocations.id, { onDelete: "set null" }),
+  name: text("name").notNull(),
+  reportKey: text("report_key").notNull(),
+  category: text("category").notNull(),
+  currency: text("currency").notNull().default("AED"),
+  periodStart: text("period_start").notNull().default(""),
+  periodEnd: text("period_end").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("idx_memorised_reports_user_company_report").on(table.userId, table.companyId, table.reportKey),
+  index("idx_memorised_reports_user_company_category").on(table.userId, table.companyId, table.category),
+]);
+
 export const vatAdjustments = pgTable("vat_adjustments", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
