@@ -29,7 +29,7 @@ function writePermission(kind: RecordKind, payload: Record<string, unknown>): Pe
   }
   const type = String(payload.type ?? "");
   if (["invoice", "estimate", "sales order", "sales receipt", "statement charge", "finance charge", "credit memo", "customer payment"].includes(type)) return "sales:write";
-  if (["bill", "purchase order", "vendor credit", "bill payment", "vendor payment"].includes(type)) return "purchases:write";
+  if (["bill", "purchase order", "item receipt", "received item bill", "vendor credit", "bill payment", "vendor payment"].includes(type)) return "purchases:write";
   if (["expense", "deposit", "cheque", "transfer", "opening balance", "journal entry"].includes(type)) return "banking:write";
   return "accounting:manage";
 }
@@ -251,7 +251,7 @@ export async function POST(request: Request) {
       const quantity = Number(line.quantity ?? 1);
       const unitPrice = Number(line.unitPrice ?? 0);
       const unitCost = Number(line.unitCost ?? 0);
-      const requestedVatCode = String(line.vatCode ?? (Number(line.vatRate ?? payload.vatRate ?? 5) === 5 ? "STANDARD" : "ZERO")).trim().toUpperCase();
+      const requestedVatCode = type === "item receipt" ? "ZERO" : String(line.vatCode ?? (Number(line.vatRate ?? payload.vatRate ?? 5) === 5 ? "STANDARD" : "ZERO")).trim().toUpperCase();
       const vatCode = Object.hasOwn(vatRates, requestedVatCode) ? requestedVatCode : Object.hasOwn(vatRates, "STANDARD") ? "STANDARD" : Object.keys(vatRates)[0];
       const vatRate = vatRates[vatCode];
       const subtotal = round(quantity * unitPrice);
@@ -328,7 +328,7 @@ export async function POST(request: Request) {
     await db.insert(transactionLines).values(prepared.map((line) => ({ ...line, transactionId: record.id })));
 
     const nonPosting = ["estimate", "sales order", "purchase order"].includes(type);
-    const partyContactType = ["invoice", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(type) ? "customer" : ["bill", "purchase order", "vendor credit", "bill payment", "vendor payment", "cheque"].includes(type) ? "vendor" : null;
+    const partyContactType = ["invoice", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(type) ? "customer" : ["bill", "purchase order", "item receipt", "received item bill", "vendor credit", "bill payment", "vendor payment", "cheque"].includes(type) ? "vendor" : null;
     const [partyContact] = partyContactType ? await db.select({ ledgerAccountId: contacts.ledgerAccountId }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.name, party), eq(contacts.type, partyContactType))).limit(1) : [];
     const linkedRows = await db.select({ id: accounts.id, name: accounts.name, systemRole: accounts.systemRole, currency: accounts.currency }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true)));
     const linkedAccounts: Record<string, string> = {};
@@ -348,10 +348,10 @@ export async function POST(request: Request) {
     }
 
     if (!nonPosting) {
-      const direction = ["invoice", "sales receipt"].includes(type) ? -1 : type === "bill" ? 1 : 0;
+      const direction = ["invoice", "sales receipt"].includes(type) ? -1 : ["bill", "item receipt"].includes(type) ? 1 : 0;
       if (direction) for (const line of prepared.filter((entry) => entry.itemId)) {
         const quantity = direction * line.quantity;
-        await db.update(items).set(type === "bill" ? { quantity: sql`${items.quantity} + ${quantity}`, lastPurchasePrice: line.unitPrice } : { quantity: sql`${items.quantity} + ${quantity}` }).where(eq(items.id, line.itemId!));
+        await db.update(items).set(["bill", "item receipt"].includes(type) ? { quantity: sql`${items.quantity} + ${quantity}`, lastPurchasePrice: line.unitPrice } : { quantity: sql`${items.quantity} + ${quantity}` }).where(eq(items.id, line.itemId!));
         await db.insert(inventoryMovements).values({ itemId: line.itemId!, transactionId: record.id, movementDate: transactionDate, movementType: type, quantity, unitCost: line.unitCost, reference: number });
       }
       const balanceChange = contactBalanceChange(type, total, postingAccountRole);
@@ -399,7 +399,7 @@ export async function PATCH(request: Request) {
 }
 
 function contactBalanceChange(type: string, total: number, accountRole = "") {
-  if (["invoice", "statement charge", "finance charge", "bill"].includes(type)) return total;
+  if (["invoice", "statement charge", "finance charge", "bill", "received item bill"].includes(type)) return total;
   if (type === "cheque" && accountRole === "AP") return -total;
   if (["customer payment", "credit memo", "bill payment", "vendor payment", "vendor credit"].includes(type)) return -total;
   return 0;
@@ -429,6 +429,15 @@ function postingLines(type: string, account: string, subtotal: number, vatAmount
   if (type === "customer payment") return [{ accountName: named("BANK", "Business Bank"), debit: total, credit: 0 }, { accountName: named("AR", "Accounts Receivable"), debit: 0, credit: total }];
   if (type === "bill") return [
     { accountName: account || named("PURCHASES", "Purchases"), debit: subtotal, credit: 0 },
+    ...(vatAmount ? [{ accountName: named("INPUT_VAT", "Recoverable VAT"), debit: vatAmount, credit: 0 }] : []),
+    { accountName: named("AP", "Accounts Payable"), debit: 0, credit: total },
+  ];
+  if (type === "item receipt") return [
+    { accountName: named("INVENTORY", "Inventory Asset"), debit: subtotal, credit: 0 },
+    { accountName: account || named("SUSPENSE", "Suspense"), debit: 0, credit: subtotal },
+  ];
+  if (type === "received item bill") return [
+    { accountName: account || named("SUSPENSE", "Suspense"), debit: subtotal, credit: 0 },
     ...(vatAmount ? [{ accountName: named("INPUT_VAT", "Recoverable VAT"), debit: vatAmount, credit: 0 }] : []),
     { accountName: named("AP", "Accounts Payable"), debit: 0, credit: total },
   ];
