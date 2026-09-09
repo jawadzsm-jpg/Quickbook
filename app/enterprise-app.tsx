@@ -197,8 +197,21 @@ const allReports = [
   ["Voided/Deleted Transactions Summary", "Deleted transaction totals grouped by action", "Accountant", "deleted-transactions-summary"],
   ["Voided/Deleted Transactions Detail", "Detailed history of voided and deleted transactions", "Accountant", "deleted-transactions-detail"],
   ["Transaction List by Date", "All activity in chronological order", "Accountant", "transactions"],
-  ["Account Listing", "Chart of Accounts with type, currency, and hierarchy", "Accountant", "account-listing"],
-  ["Fixed Asset Listing", "Fixed-asset accounts and their current balances", "Accountant", "fixed-asset-listing"],
+  ["Account Listing", "Chart of Accounts with type, currency, and hierarchy", "Lists", "account-listing"],
+  ["Item Price List", "Current selling prices by item", "Lists", "item-price-list"],
+  ["Item Price List for Price Level", "Selling prices, costs, and margins by price level", "Lists", "item-price-level-list"],
+  ["Item Listing", "Complete inventory item directory", "Lists", "item-listing"],
+  ["Fixed Asset Listing", "Fixed-asset accounts and their current balances", "Lists", "fixed-asset-listing"],
+  ["Customer Phone List", "Customer telephone and WhatsApp directory", "Lists", "customer-phone-list"],
+  ["Customer Contact List", "Complete customer contact directory", "Lists", "customer-contact-list"],
+  ["Supplier Phone List", "Supplier telephone and WhatsApp directory", "Lists", "supplier-phone-list"],
+  ["Supplier Contact List", "Complete supplier contact directory", "Lists", "supplier-contact-list"],
+  ["Employee Contact List", "Employee telephone and email directory", "Lists", "employee-contact-list"],
+  ["Other Names Phone List", "Telephone directory for transaction names not saved as contacts", "Lists", "other-names-phone-list"],
+  ["Other Names Contact List", "Transaction names not saved as customers, suppliers, or employees", "Lists", "other-names-contact-list"],
+  ["Terms Listing", "Payment terms found across sales and purchase documents", "Lists", "terms-listing"],
+  ["To Do Notes", "Open transaction notes and due dates", "Lists", "to-do-notes"],
+  ["Memorised Transaction Listing", "Transactions marked as memorised, recurring, or templates", "Lists", "memorised-transactions"],
   ["Bank Register", "Bank account debits, credits and running balances", "Banking", "bank-register"],
   ["Bank Reconciliation", "Cleared and uncleared banking activity", "Banking", "bank-reconciliation"],
   ["VAT Summary Report", "VAT collected, recoverable, and net VAT due", "VAT", "vat-summary"],
@@ -221,9 +234,6 @@ const allReports = [
   ["Unbilled Costs by Job", "Open purchase commitments grouped by inventory or job", "Customers", "unbilled-costs-job"],
   ["Transaction List by Customer", "Customer activity in chronological order", "Customers", "customer-transactions"],
   ["Online Received Payments", "Customer payments received and posted", "Customers", "online-received-payments"],
-  ["Customer Phone List", "Customer telephone and WhatsApp directory", "Customers", "customer-phone-list"],
-  ["Customer Contact List", "Complete customer contact directory", "Customers", "customer-contact-list"],
-  ["Item Price List", "Current selling prices by item", "Customers", "item-price-list"],
   ["Customer Statements", "Charges, payments, credits and running balances", "Customers", "customer-statements"],
   ["Daily Sales Summary", "Daily document count, quantity, and sales totals", "Sales", "daily-sales-summary"],
   ["Daily Sales Detail", "Every invoice and sales receipt by date", "Sales", "daily-sales-detail"],
@@ -244,8 +254,6 @@ const allReports = [
   ["Unpaid Bills Detail", "Open and overdue supplier bills", "Vendors", "unpaid-bills-detail"],
   ["Accounts Payable Graph", "Monthly payable charges and supplier payments", "Vendors", "accounts-payable-graph"],
   ["Transaction List by Supplier", "Supplier activity in chronological order", "Vendors", "supplier-transactions"],
-  ["Supplier Phone List", "Supplier telephone and WhatsApp directory", "Vendors", "supplier-phone-list"],
-  ["Supplier Contact List", "Complete supplier contact directory", "Vendors", "supplier-contact-list"],
   ["Purchases by Supplier Summary", "Purchase totals grouped by supplier", "Purchases", "purchases-by-vendor"],
   ["Purchases by Supplier Detail", "Supplier purchase documents by date", "Purchases", "purchases-by-supplier-detail"],
   ["Purchases by Item Summary", "Purchased quantity and cost grouped by item", "Purchases", "purchases-by-item"],
@@ -262,7 +270,7 @@ const allReports = [
   ["Item Profitability", "Gross profit by inventory item", "Inventory", "item-profitability"],
 ] as const;
 
-const reportCategoryOrder = ["Financial", "Budgets", "Sales", "Customers", "Vendors", "Purchases", "Inventory", "Banking", "VAT", "Accountant", "Company"] as const;
+const reportCategoryOrder = ["Financial", "Budgets", "Sales", "Customers", "Vendors", "Purchases", "Inventory", "Banking", "VAT", "Accountant", "Lists", "Company"] as const;
 type ReportCategory = (typeof reportCategoryOrder)[number];
 
 const currencies = ["AED", "USD", "EUR", "GBP", "SAR", "OMR", "QAR", "BHD", "KWD", "INR", "CNY", "HKD", "JPY", "CAD", "AUD"];

@@ -393,6 +393,40 @@ export async function GET(request: Request) {
       title = "Item Price List";
       rows = allItems.filter((row) => row.status === "active").map((row) => ({ itemNumber: row.itemNumber || "—", sku: row.sku, item: row.name, category: row.category, quantity: row.quantity, price: row.salesPrice }));
       columns = [{ key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "item", label: "Item" }, { key: "category", label: "Category" }, { key: "quantity", label: "On Hand" }, { key: "price", label: "Sales Price", ...money }];
+    } else if (key === "item-price-level-list") {
+      title = "Item Price List for Price Level";
+      rows = allItems.map((item) => ({ itemNumber: item.itemNumber || "—", sku: item.sku, item: item.name, level: "Default Selling Price", cost: item.cost, price: item.salesPrice, margin: item.salesPrice ? `${((item.salesPrice - item.cost) / item.salesPrice * 100).toFixed(1)}%` : "—", status: item.status }));
+      columns = [{ key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "item", label: "Item" }, { key: "level", label: "Price Level" }, { key: "cost", label: "Cost", ...money }, { key: "price", label: "Selling Price", ...money }, { key: "margin", label: "Margin" }, { key: "status", label: "Status" }];
+    } else if (key === "item-listing") {
+      title = "Item Listing";
+      rows = allItems.map((item) => ({ itemNumber: item.itemNumber || "—", sku: item.sku, item: item.name, category: item.category, quantity: item.quantity, reorder: item.reorderPoint, cost: item.cost, price: item.salesPrice, status: item.status }));
+      columns = [{ key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "item", label: "Item" }, { key: "category", label: "Category" }, { key: "quantity", label: "On Hand" }, { key: "reorder", label: "Reorder" }, { key: "cost", label: "Cost", ...money }, { key: "price", label: "Selling Price", ...money }, { key: "status", label: "Status" }];
+    } else if (key === "employee-contact-list") {
+      title = "Employee Contact List";
+      rows = allContacts.filter((contact) => contact.type === "employee").map((contact) => ({ name: contact.name, company: contact.company || "—", phone: contact.phone || "—", whatsapp: contact.whatsapp || "—", email: contact.email || "—", country: contact.country || "—", status: contact.status }));
+      columns = [{ key: "name", label: "Employee" }, { key: "company", label: "Company" }, { key: "phone", label: "Phone" }, { key: "whatsapp", label: "WhatsApp" }, { key: "email", label: "Email" }, { key: "country", label: "Country" }, { key: "status", label: "Status" }];
+    } else if (key === "other-names-phone-list" || key === "other-names-contact-list") {
+      const phoneOnly = key === "other-names-phone-list";
+      title = phoneOnly ? "Other Names Phone List" : "Other Names Contact List";
+      const savedNames = new Set(allContacts.map((contact) => contact.name.trim().toLowerCase()));
+      const names = new Map<string, { transactions: number; lastActivity: string }>();
+      scopedTransactions.filter((row) => row.party.trim() && !savedNames.has(row.party.trim().toLowerCase())).forEach((row) => { const old = names.get(row.party) ?? { transactions: 0, lastActivity: "" }; names.set(row.party, { transactions: old.transactions + 1, lastActivity: row.transactionDate > old.lastActivity ? row.transactionDate : old.lastActivity }); });
+      rows = [...names].map(([name, value]) => ({ name, phone: "—", ...value })).sort((a, b) => a.name.localeCompare(b.name));
+      columns = phoneOnly ? [{ key: "name", label: "Other Name" }, { key: "phone", label: "Phone" }, { key: "lastActivity", label: "Last Activity" }] : [{ key: "name", label: "Other Name" }, { key: "transactions", label: "Transactions" }, { key: "lastActivity", label: "Last Activity" }];
+    } else if (key === "terms-listing") {
+      title = "Terms Listing";
+      const grouped = new Map<number, { documents: number; names: Set<string> }>();
+      scopedTransactions.filter((row) => row.dueDate).forEach((row) => { const days = Math.max(0, Math.round((new Date(row.dueDate).getTime() - new Date(row.transactionDate).getTime()) / 86400000)); const old = grouped.get(days) ?? { documents: 0, names: new Set<string>() }; old.documents += 1; old.names.add(row.party); grouped.set(days, old); });
+      rows = [...grouped].sort(([a], [b]) => a - b).map(([days, value]) => ({ terms: days === 0 ? "Due on receipt" : `Net ${days}`, days, documents: value.documents, names: value.names.size }));
+      columns = [{ key: "terms", label: "Terms" }, { key: "days", label: "Due Days" }, { key: "documents", label: "Documents" }, { key: "names", label: "Customers / Suppliers" }];
+    } else if (key === "to-do-notes") {
+      title = "To Do Notes";
+      rows = scopedTransactions.filter((row) => row.memo.trim() && !["paid", "cleared", "closed", "cancelled"].includes(row.status)).map((row) => ({ dueDate: row.dueDate || "—", date: row.transactionDate, number: row.number, type: row.type, name: row.party || "—", note: row.memo, status: row.status }));
+      columns = [{ key: "dueDate", label: "Due Date" }, { key: "date", label: "Created" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "name", label: "Name" }, { key: "note", label: "Note" }, { key: "status", label: "Status" }];
+    } else if (key === "memorised-transactions") {
+      title = "Memorised Transaction Listing";
+      rows = scopedTransactions.filter((row) => /memorised|memorized|recurring|template/i.test(row.memo)).map((row) => ({ date: row.transactionDate, number: row.number, type: row.type, name: row.party || "—", account: row.account, memo: row.memo, currency: row.currency, amount: row.baseTotal }));
+      columns = [{ key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "name", label: "Name" }, { key: "account", label: "Account" }, { key: "memo", label: "Template / Frequency" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Amount", ...money }];
     } else if (key === "daily-sales-summary") {
       title = "Daily Sales Summary";
       const grouped = new Map<string, { documents: Set<string>; quantity: number; sales: number; vat: number; total: number }>();
