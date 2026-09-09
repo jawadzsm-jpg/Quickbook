@@ -5,7 +5,7 @@ import Image from "next/image";
 import {
   AlertTriangle, ArrowRightLeft, BadgeDollarSign, Bell, BookOpen, Boxes, Building2, CheckCircle2, Copy,
   Check, ChevronDown, ChevronRight, CircleDollarSign, Clock3, Download, FileBarChart2, Landmark,
-  Eye, KeyRound, LayoutDashboard, LogOut, PackageCheck, PackageSearch, PackageX, Pencil, Plus, Printer, ReceiptText, RefreshCw,
+  Eye, KeyRound, LayoutDashboard, LogOut, PackageCheck, PackageSearch, PackageX, Palette, Pencil, Plus, Printer, ReceiptText, RefreshCw,
   Search, Settings, ShieldCheck, ShoppingCart, Trash2, Users, WalletCards, Percent,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -40,7 +40,8 @@ import { CurrencyRateCenter, type ExchangeRateRecord } from "@/app/currency-rate
 
 type View = "dashboard" | "inventory-overview" | "sales" | "receive-payment" | "purchases" | "write-cheque" | "customers" | "vendors" | "inventory" | "transfers" | "banking" | "accounts" | "employees" | "reports" | "companies" | "inventories" | "invoice-series" | "currencies" | "vat-codes" | "admin-controls";
 type AppRole = "admin" | "accountant" | "sales" | "purchasing" | "inventory" | "viewer";
-type CurrentUser = { id: number; fullName: string; email: string; avatarData: string; role: AppRole; mustChangePassword: boolean };
+type UserTheme = "emerald" | "ocean" | "indigo" | "violet" | "rose" | "amber";
+type CurrentUser = { id: number; fullName: string; email: string; avatarData: string; themeColor: string; role: AppRole; mustChangePassword: boolean };
 type Kind = "transactions" | "contacts" | "items" | "accounts";
 type DataRecord = Record<string, string | number | boolean> & { id: number };
 type LineForm = { itemId: string; description: string; quantity: string; unitPrice: string; unitCost: string; vatCode: string; vatRate: string };
@@ -48,6 +49,16 @@ type InventoryLocation = { id: number; companyId: number; name: string; code: st
 type CompanyWorkspace = { id: number; name: string; baseCurrency: string; locations: InventoryLocation[] };
 type ReportData = { title: string; generatedAt: string; currency: string; columns: Array<{ key: string; label: string; type?: "money" }>; rows: Array<Record<string, string | number>> };
 type TransactionDetail = { record: DataRecord; lines: DataRecord[]; journal: DataRecord[] };
+
+const userThemes: Array<{ value: UserTheme; label: string; color: string }> = [
+  { value: "emerald", label: "Emerald", color: "#10b981" },
+  { value: "ocean", label: "Ocean", color: "#0ea5e9" },
+  { value: "indigo", label: "Indigo", color: "#6366f1" },
+  { value: "violet", label: "Violet", color: "#8b5cf6" },
+  { value: "rose", label: "Rose", color: "#f43f5e" },
+  { value: "amber", label: "Amber", color: "#f59e0b" },
+];
+const isUserTheme = (value: string): value is UserTheme => userThemes.some((theme) => theme.value === value);
 
 const invoiceNumberPreview = (companyId: number, location: InventoryLocation) =>
   `C${String(companyId).padStart(3, "0")}-${location.invoicePrefix}-INV-${String(location.nextInvoiceNumber).padStart(4, "0")}`;
@@ -228,6 +239,8 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   const [invoiceInventoryOpen, setInvoiceInventoryOpen] = useState(false);
   const [vatCodeOptions, setVatCodeOptions] = useState<VatCodeOption[]>(defaultVatCodeOptions);
   const [exchangeRates, setExchangeRates] = useState<ExchangeRateRecord[]>([]);
+  const [themeColor, setThemeColor] = useState<UserTheme>(isUserTheme(currentUser.themeColor) ? currentUser.themeColor : "emerald");
+  const [themeSaving, setThemeSaving] = useState(false);
 
   const activeCompany = companies.find((company) => company.id === activeCompanyId);
   const activeLocations = useMemo(() => activeCompany?.locations ?? [], [activeCompany]);
@@ -236,6 +249,22 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   async function signOut() {
     await fetch("/api/auth/session", { method: "DELETE" });
     window.location.reload();
+  }
+
+  async function changeTheme(nextTheme: UserTheme) {
+    if (nextTheme === themeColor || themeSaving) return;
+    const previousTheme = themeColor;
+    setThemeColor(nextTheme);
+    setThemeSaving(true);
+    try {
+      const response = await fetch("/api/user-preferences", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ themeColor: nextTheme }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not save interface color");
+      toast.success(`${userThemes.find((theme) => theme.value === nextTheme)?.label} theme saved`);
+    } catch (error) {
+      setThemeColor(previousTheme);
+      toast.error(error instanceof Error ? error.message : "Could not save interface color");
+    } finally { setThemeSaving(false); }
   }
 
   const loadWorkspaces = useCallback(async () => {
@@ -464,11 +493,11 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   const createLabel = currentKind === "contacts" ? `New ${view === "employees" ? "Employee" : view === "vendors" ? "Vendor" : "Customer"}` : currentKind === "items" ? "New Item" : currentKind === "accounts" ? "New Account" : view === "purchases" ? "Enter Bill" : view === "receive-payment" ? "Receive Payment" : view === "write-cheque" ? "Write Cheque" : `New ${transactionTypes[view]?.[0] ?? "Transaction"}`;
 
   return (
-    <SidebarProvider>
-      <Sidebar collapsible="icon" className="border-r border-slate-800 bg-[#0d1726] text-slate-100">
+    <SidebarProvider data-user-theme={themeColor}>
+      <Sidebar collapsible="icon" className="brand-sidebar border-r border-slate-800 bg-[#0d1726] text-slate-100">
         <SidebarHeader className="border-b border-white/10 p-4">
           <div className="flex items-center gap-3 overflow-hidden">
-            <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-emerald-400 text-sm font-black text-slate-950">CN</div>
+            <div className="brand-logo grid size-9 shrink-0 place-items-center rounded-xl text-sm font-black">CN</div>
             <div className="min-w-0 group-data-[collapsible=icon]:hidden">
               <p className="truncate text-sm font-bold tracking-wide text-white">COMNET ENTERPRISE</p>
               <p className="truncate text-xs text-slate-400">Accounting Suite</p>
@@ -482,7 +511,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
               <SidebarGroupLabel className="text-[11px] tracking-[.16em] text-slate-500">{group.label}</SidebarGroupLabel>
               <SidebarGroupContent><SidebarMenu>
                 {group.items.map((item) => <SidebarMenuItem key={item.id}>
-                  <SidebarMenuButton tooltip={item.label} isActive={view === item.id} onClick={() => { setView(item.id as View); setSearch(""); }} className="h-10 text-slate-300 hover:bg-white/8 hover:text-white data-[active=true]:bg-emerald-400/15 data-[active=true]:text-emerald-300">
+                  <SidebarMenuButton tooltip={item.label} isActive={view === item.id} onClick={() => { setView(item.id as View); setSearch(""); }} className="brand-nav-item h-10 text-slate-300 hover:bg-white/8 hover:text-white">
                     <item.icon /><span>{item.label}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>)}
@@ -501,19 +530,19 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
         <SidebarRail />
       </Sidebar>
 
-      <SidebarInset className="min-w-0 bg-[#f4f6f8]">
+      <SidebarInset className="brand-workspace min-w-0">
         <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur lg:px-7">
           <div className="flex min-w-0 items-center gap-3"><SidebarTrigger className="text-slate-600" /><div className="hidden h-5 w-px bg-slate-200 sm:block" /><div className="min-w-0"><h1 className="truncate text-lg font-bold text-slate-900">{heading.title}</h1><p className="hidden truncate text-xs text-slate-500 sm:block">{heading.sub}</p></div></div>
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="hidden sm:inline-flex">{baseCurrency}</Badge>
             <Select value={String(activeLocationId || "")} onValueChange={(value) => { setActiveLocationId(Number(value)); setSearch(""); }}><SelectTrigger className="w-[165px]"><SelectValue placeholder="Inventory" /></SelectTrigger><SelectContent>{activeLocations.map((location) => <SelectItem key={location.id} value={String(location.id)}>{location.name}</SelectItem>)}</SelectContent></Select>
             <Button variant="ghost" size="icon" aria-label="Notifications"><Bell className="size-4" /></Button>
-            {!managementView && canWriteCurrentView && <Button onClick={openCreate} className="bg-emerald-500 font-semibold text-slate-950 hover:bg-emerald-400"><Plus className="size-4" /><span className="hidden sm:inline">{createLabel}</span></Button>}
+            {!managementView && canWriteCurrentView && <Button onClick={openCreate} className="brand-primary-button font-semibold"><Plus className="size-4" /><span className="hidden sm:inline">{createLabel}</span></Button>}
           </div>
         </header>
 
         <div className="mx-auto w-full max-w-[1500px] p-4 lg:p-7">
-          {view === "inventory-overview" ? <InventoryOverview /> : view === "transfers" ? <MultiLineTransferCenter key={`${activeCompanyId}-${activeLocationId}`} companies={companies} activeLocationId={activeLocationId} onTransferred={loadData} /> : view === "currencies" ? <CurrencyRateCenter key={activeCompanyId} company={activeCompany} currencies={currencies} onCompanyChanged={loadWorkspaces} onRatesChanged={loadExchangeRates} /> : view === "vat-codes" ? <VatCodeCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} onChanged={loadVatCodes} /> : view === "admin-controls" ? <AdminSettingsCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} currentUserEmail={currentUser.email} /> : managementView ? <WorkspaceCenter mode={view as "companies" | "inventories" | "invoice-series" | "currencies"} companies={companies} activeCompanyId={activeCompanyId} onChanged={loadWorkspaces} /> : view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} onNavigate={(next) => { if (roleViews[currentUser.role].includes(next)) setView(next); }} onCreate={openCreate} onOpenDetail={openDetail} canCreate={roleWriteViews[currentUser.role].includes("sales")} canViewReports={roleViews[currentUser.role].includes("reports")} /> : view === "reports" ? <ReportCenter metrics={metrics} currency={baseCurrency} onOpen={openReport} loading={reportLoading} /> : (
+          {view === "inventory-overview" ? <InventoryOverview /> : view === "transfers" ? <MultiLineTransferCenter key={`${activeCompanyId}-${activeLocationId}`} companies={companies} activeLocationId={activeLocationId} onTransferred={loadData} /> : view === "currencies" ? <CurrencyRateCenter key={activeCompanyId} company={activeCompany} currencies={currencies} onCompanyChanged={loadWorkspaces} onRatesChanged={loadExchangeRates} /> : view === "vat-codes" ? <VatCodeCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} onChanged={loadVatCodes} /> : view === "admin-controls" ? <AdminSettingsCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} currentUserEmail={currentUser.email} /> : managementView ? <WorkspaceCenter mode={view as "companies" | "inventories" | "invoice-series" | "currencies"} companies={companies} activeCompanyId={activeCompanyId} onChanged={loadWorkspaces} /> : view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} themeColor={themeColor} themeSaving={themeSaving} onThemeChange={changeTheme} onNavigate={(next) => { if (roleViews[currentUser.role].includes(next)) setView(next); }} onCreate={openCreate} onOpenDetail={openDetail} canCreate={roleWriteViews[currentUser.role].includes("sales")} canViewReports={roleViews[currentUser.role].includes("reports")} /> : view === "reports" ? <ReportCenter metrics={metrics} currency={baseCurrency} onOpen={openReport} loading={reportLoading} /> : (
             <RecordView view={view} kind={currentKind} records={filteredRecords} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onEditItem={openItemEdit} onDuplicateItem={duplicateItem} onOpenDetail={openDetail} canWrite={canWriteCurrentView} canDelete={currentUser.role === "admin"} />
           )}
         </div>
@@ -542,7 +571,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   );
 }
 
-function Dashboard({ metrics, records, companyName, currency, onNavigate, onCreate, onOpenDetail, canCreate, canViewReports }: { metrics: Record<string, number>; records: Record<Kind, DataRecord[]>; companyName: string; currency: string; onNavigate: (v: View) => void; onCreate: () => void; onOpenDetail: (id: number) => void; canCreate: boolean; canViewReports: boolean }) {
+function Dashboard({ metrics, records, companyName, currency, themeColor, themeSaving, onThemeChange, onNavigate, onCreate, onOpenDetail, canCreate, canViewReports }: { metrics: Record<string, number>; records: Record<Kind, DataRecord[]>; companyName: string; currency: string; themeColor: UserTheme; themeSaving: boolean; onThemeChange: (theme: UserTheme) => void; onNavigate: (v: View) => void; onCreate: () => void; onOpenDetail: (id: number) => void; canCreate: boolean; canViewReports: boolean }) {
   const recent = records.transactions.slice(0, 6);
   const cards = [
     ["Cash position", metrics.cash, CircleDollarSign, "Available net cash", "emerald"],
@@ -552,20 +581,24 @@ function Dashboard({ metrics, records, companyName, currency, onNavigate, onCrea
   ] as const;
   const max = Math.max(metrics.sales, metrics.expenses, 1);
   return <div className="space-y-6">
-    <section className="rounded-2xl bg-gradient-to-r from-[#111d30] to-[#172c3f] p-6 text-white shadow-sm lg:flex lg:items-center lg:justify-between">
-      <div><div className="mb-3 flex items-center gap-2 text-xs font-semibold tracking-[.15em] text-emerald-300"><span className="size-2 rounded-full bg-emerald-400" /> COMPANY FILE ACTIVE</div><h2 className="text-2xl font-bold">{companyName}</h2><p className="mt-1 text-sm text-slate-300">Post transactions, control stock and close your books from one workspace.</p></div>
-      <div className="mt-5 flex flex-wrap gap-2 lg:mt-0">{canViewReports && <Button variant="outline" onClick={() => onNavigate("reports")} className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white"><FileBarChart2 />View reports</Button>}{canCreate && <Button onClick={onCreate} className="bg-emerald-400 text-slate-950 hover:bg-emerald-300"><Plus />Record transaction</Button>}</div>
+    <section className="brand-hero rounded-2xl p-6 text-white shadow-sm lg:flex lg:items-center lg:justify-between">
+      <div><div className="brand-hero-signal mb-3 flex items-center gap-2 text-xs font-semibold tracking-[.15em]"><span className="brand-hero-dot size-2 rounded-full" /> COMPANY FILE ACTIVE</div><h2 className="text-2xl font-bold">{companyName}</h2><p className="mt-1 text-sm text-slate-300">Post transactions, control stock and close your books from one workspace.</p></div>
+      <div className="mt-5 flex flex-wrap gap-2 lg:mt-0">{canViewReports && <Button variant="outline" onClick={() => onNavigate("reports")} className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white"><FileBarChart2 />View reports</Button>}{canCreate && <Button onClick={onCreate} className="brand-primary-button"><Plus />Record transaction</Button>}</div>
+    </section>
+    <section className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex items-center gap-3"><div className="brand-soft-icon grid size-10 shrink-0 place-items-center rounded-xl"><Palette className="size-5" /></div><div><h3 className="text-sm font-bold text-slate-900">Your interface color</h3><p className="text-xs text-slate-500">Saved privately to your user account.</p></div></div>
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Choose interface color">{userThemes.map((theme) => <button type="button" key={theme.value} disabled={themeSaving} aria-pressed={themeColor === theme.value} onClick={() => onThemeChange(theme.value)} className={`flex min-h-10 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition disabled:opacity-60 ${themeColor === theme.value ? "border-slate-900 bg-slate-900 text-white shadow-sm" : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"}`}><span className="size-4 rounded-full border border-black/10" style={{ backgroundColor: theme.color }} />{theme.label}{themeColor === theme.value ? <Check className="size-3.5" /> : null}</button>)}</div>
     </section>
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{cards.map(([label, value, Icon, detail, color]) => <article key={label} className="rounded-xl border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,.04)]"><div className="flex items-start justify-between"><div><p className="text-sm font-medium text-slate-500">{label}</p><p className="mt-2 text-2xl font-bold tracking-tight text-slate-900">{formatMoney(value, currency)}</p></div><div className={`metric-icon metric-${color}`}><Icon className="size-5" /></div></div><p className="mt-4 text-xs text-slate-500">{detail}</p></article>)}</section>
     <section className="grid gap-5 xl:grid-cols-[1.35fr_.65fr]">
-      <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><div><h3 className="font-bold text-slate-900">Income vs expenses</h3><p className="text-xs text-slate-500">All posted company transactions</p></div><Badge variant="outline">{currency}</Badge></div><div className="mt-8 grid grid-cols-[80px_1fr] gap-x-4 gap-y-5 text-sm"><span className="text-slate-500">Income</span><div className="flex items-center gap-3"><div className="h-8 rounded-r-md bg-emerald-400" style={{ width: `${Math.max((metrics.sales / max) * 100, metrics.sales ? 6 : 1)}%` }} /><strong className="whitespace-nowrap text-slate-800">{formatMoney(metrics.sales, currency)}</strong></div><span className="text-slate-500">Expenses</span><div className="flex items-center gap-3"><div className="h-8 rounded-r-md bg-sky-400" style={{ width: `${Math.max((metrics.expenses / max) * 100, metrics.expenses ? 6 : 1)}%` }} /><strong className="whitespace-nowrap text-slate-800">{formatMoney(metrics.expenses, currency)}</strong></div></div><div className="mt-7 flex items-center justify-between border-t pt-4"><span className="text-sm text-slate-500">Net result</span><strong className={metrics.sales - metrics.expenses >= 0 ? "text-emerald-600" : "text-rose-600"}>{formatMoney(metrics.sales - metrics.expenses, currency)}</strong></div></article>
+      <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><div><h3 className="font-bold text-slate-900">Income vs expenses</h3><p className="text-xs text-slate-500">All posted company transactions</p></div><Badge variant="outline">{currency}</Badge></div><div className="mt-8 grid grid-cols-[80px_1fr] gap-x-4 gap-y-5 text-sm"><span className="text-slate-500">Income</span><div className="flex items-center gap-3"><div className="brand-chart-bar h-8 rounded-r-md" style={{ width: `${Math.max((metrics.sales / max) * 100, metrics.sales ? 6 : 1)}%` }} /><strong className="whitespace-nowrap text-slate-800">{formatMoney(metrics.sales, currency)}</strong></div><span className="text-slate-500">Expenses</span><div className="flex items-center gap-3"><div className="h-8 rounded-r-md bg-sky-400" style={{ width: `${Math.max((metrics.expenses / max) * 100, metrics.expenses ? 6 : 1)}%` }} /><strong className="whitespace-nowrap text-slate-800">{formatMoney(metrics.expenses, currency)}</strong></div></div><div className="mt-7 flex items-center justify-between border-t pt-4"><span className="text-sm text-slate-500">Net result</span><strong className={metrics.sales - metrics.expenses >= 0 ? "brand-accent-text" : "text-rose-600"}>{formatMoney(metrics.sales - metrics.expenses, currency)}</strong></div></article>
       <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><h3 className="font-bold text-slate-900">Business status</h3><div className="mt-5 space-y-4"><StatusLine label="Customers" value={records.contacts.filter((r) => r.type === "customer").length} action={() => onNavigate("customers")} /><StatusLine label="Vendors" value={records.contacts.filter((r) => r.type === "vendor").length} action={() => onNavigate("vendors")} /><StatusLine label="Inventory items" value={records.items.length} action={() => onNavigate("inventory")} /><StatusLine label="Transactions" value={records.transactions.length} action={() => onNavigate("sales")} /></div></article>
     </section>
     <article className="rounded-xl border border-slate-200 bg-white shadow-sm"><div className="flex items-center justify-between border-b px-5 py-4"><div><h3 className="font-bold text-slate-900">Recent activity</h3><p className="text-xs text-slate-500">Latest entries across the company file</p></div><Button variant="ghost" size="sm" onClick={() => onNavigate("sales")}>View all <ChevronRight /></Button></div><TransactionTable records={recent} empty="No transactions yet. Use Record transaction to add your first entry." onOpen={onOpenDetail} /></article>
   </div>;
 }
 
-function StatusLine({ label, value, action }: { label: string; value: number; action: () => void }) { return <button onClick={action} className="flex w-full items-center justify-between rounded-lg border border-slate-100 p-3 text-left hover:border-emerald-200 hover:bg-emerald-50/50"><span className="text-sm text-slate-600">{label}</span><span className="flex items-center gap-2 font-bold text-slate-900">{value}<ChevronRight className="size-4 text-slate-400" /></span></button>; }
+function StatusLine({ label, value, action }: { label: string; value: number; action: () => void }) { return <button onClick={action} className="brand-status-line flex w-full items-center justify-between rounded-lg border border-slate-100 p-3 text-left"><span className="text-sm text-slate-600">{label}</span><span className="flex items-center gap-2 font-bold text-slate-900">{value}<ChevronRight className="size-4 text-slate-400" /></span></button>; }
 
 function RecordView({ view, kind, records, currency, loading, search, setSearch, onRefresh, onCreate, onDelete, onEditItem, onDuplicateItem, onOpenDetail, canWrite, canDelete }: { view: View; kind: Kind; records: DataRecord[]; currency: string; loading: boolean; search: string; setSearch: (v: string) => void; onRefresh: () => void; onCreate: () => void; onDelete: (id: number) => void; onEditItem: (item: DataRecord) => void; onDuplicateItem: (id: number) => void; onOpenDetail: (id: number) => void; canWrite: boolean; canDelete: boolean }) {
   const [stockFilter, setStockFilter] = useState<"all" | "in" | "low" | "out">("all");

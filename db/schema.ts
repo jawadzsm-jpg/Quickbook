@@ -44,6 +44,7 @@ export const appUsers = pgTable("app_users", {
   phone: text("phone").notNull().default(""),
   whatsapp: text("whatsapp").notNull().default(""),
   avatarData: text("avatar_data").notNull().default(""),
+  themeColor: text("theme_color").notNull().default("emerald"),
   passwordHash: text("password_hash").notNull(),
   role: text("role", { enum: ["admin", "accountant", "sales", "purchasing", "inventory", "viewer"] }).notNull().default("viewer"),
   active: boolean("active").notNull().default(true),
