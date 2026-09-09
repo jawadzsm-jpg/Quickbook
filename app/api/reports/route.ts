@@ -32,7 +32,7 @@ export async function GET(request: Request) {
       db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(asc(accounts.code)),
       db.select({ name: journalLines.accountName, debit: sum(journalLines.debit), credit: sum(journalLines.credit) }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(journalFilter).groupBy(journalLines.accountName).orderBy(asc(journalLines.accountName)),
       db.select({ date: journalEntries.entryDate, reference: journalEntries.reference, description: journalEntries.description, account: journalLines.accountName, debit: journalLines.debit, credit: journalLines.credit }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(journalFilter).orderBy(asc(journalEntries.entryDate), asc(journalLines.id)),
-      db.select({ itemId: transactionLines.itemId, description: transactionLines.description, quantity: transactionLines.quantity, subtotal: transactionLines.subtotal, unitCost: transactionLines.unitCost, vatCode: transactionLines.vatCode, vatRate: transactionLines.vatRate, vatAmount: transactionLines.vatAmount, type: transactions.type, party: transactions.party, date: transactions.transactionDate, number: transactions.number, transactionCurrency: transactions.currency, exchangeRate: transactions.exchangeRate, isImport: transactions.isImport }).from(transactionLines).innerJoin(transactions, eq(transactionLines.transactionId, transactions.id)).where(and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId))),
+      db.select({ itemId: transactionLines.itemId, description: transactionLines.description, quantity: transactionLines.quantity, subtotal: transactionLines.subtotal, unitCost: transactionLines.unitCost, vatCode: transactionLines.vatCode, vatRate: transactionLines.vatRate, vatAmount: transactionLines.vatAmount, type: transactions.type, status: transactions.status, locationId: transactions.locationId, party: transactions.party, date: transactions.transactionDate, number: transactions.number, transactionCurrency: transactions.currency, exchangeRate: transactions.exchangeRate, isImport: transactions.isImport }).from(transactionLines).innerJoin(transactions, eq(transactionLines.transactionId, transactions.id)).where(and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId))),
       db.select().from(vatCodes).where(eq(vatCodes.companyId, companyId)).orderBy(asc(vatCodes.code)),
       db.select().from(exchangeRates).where(and(eq(exchangeRates.companyId, companyId), eq(exchangeRates.active, true))),
       db.select().from(inventoryLocations).where(eq(inventoryLocations.companyId, companyId)),
@@ -372,8 +372,12 @@ export async function GET(request: Request) {
       title = key === "sales-by-customer" ? "Sales by Customer" : "Customer Balance Summary";
       rows = key === "sales-by-customer" ? groupTransactions(["invoice", "sales receipt"]) : allContacts.filter((row) => row.type === "customer").map((row) => ({ name: row.name, amount: row.balance }));
       columns = [{ key: "name", label: "Customer" }, { key: "amount", label: "Amount", ...money }];
+    } else if (key === "purchases-by-supplier-detail") {
+      title = "Purchases by Supplier Detail";
+      rows = scopedTransactions.filter((row) => ["bill", "received item bill", "expense"].includes(row.type)).map((row) => ({ supplier: row.party, date: row.transactionDate, number: row.number, type: row.type, status: row.status, currency: row.currency, subtotal: baseSubtotal(row), vat: row.vatAmount * row.exchangeRate, total: row.baseTotal }));
+      columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "status", label: "Status" }, { key: "currency", label: "Currency" }, { key: "subtotal", label: "Purchases", ...money }, { key: "vat", label: "VAT", ...money }, { key: "total", label: "Total", ...money }];
     } else if (key === "purchases-by-vendor" || key === "vendor-balances") {
-      title = key === "purchases-by-vendor" ? "Purchases by Vendor" : "Supplier Balance Summary";
+      title = key === "purchases-by-vendor" ? "Purchases by Supplier Summary" : "Supplier Balance Summary";
       if (key === "purchases-by-vendor") rows = groupTransactions(["bill", "received item bill", "expense"]);
       else {
         const grouped = new Map<string, number>();
@@ -410,8 +414,12 @@ export async function GET(request: Request) {
       title = "Supplier Contact List";
       rows = allContacts.filter((row) => row.type === "vendor").map((row) => ({ supplier: row.name, company: row.company || "—", email: row.email || "—", phone: row.phone || "—", whatsapp: row.whatsapp || "—", country: row.country || "—", trn: row.trn || "—", currency: row.currency, status: row.status }));
       columns = [{ key: "supplier", label: "Supplier" }, { key: "company", label: "Company" }, { key: "email", label: "Email" }, { key: "phone", label: "Phone" }, { key: "whatsapp", label: "WhatsApp" }, { key: "country", label: "Country" }, { key: "trn", label: "TRN" }, { key: "currency", label: "Currency" }, { key: "status", label: "Status" }];
+    } else if (key === "purchases-by-item-detail") {
+      title = "Purchases by Item Detail";
+      rows = lines.filter((line) => ["bill", "received item bill"].includes(line.type)).map((line) => ({ supplier: line.party, date: line.date, number: line.number, item: line.description, quantity: line.quantity, unitCost: line.quantity ? line.subtotal * line.exchangeRate / line.quantity : 0, vat: line.vatAmount * line.exchangeRate, total: (line.subtotal + line.vatAmount) * line.exchangeRate }));
+      columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "item", label: "Item" }, { key: "quantity", label: "Quantity" }, { key: "unitCost", label: "Unit Cost", ...money }, { key: "vat", label: "VAT", ...money }, { key: "total", label: "Total", ...money }];
     } else if (["sales-by-item", "purchases-by-item", "item-profitability"].includes(key)) {
-      title = key === "sales-by-item" ? "Sales by Item" : key === "purchases-by-item" ? "Purchases by Item" : "Item Profitability";
+      title = key === "sales-by-item" ? "Sales by Item" : key === "purchases-by-item" ? "Purchases by Item Summary" : "Item Profitability";
       rows = groupLines(key === "purchases-by-item" ? ["bill", "received item bill"] : ["invoice", "sales receipt"]);
       columns = [{ key: "name", label: "Item" }, { key: "quantity", label: "Quantity" }, { key: "amount", label: "Sales / Purchases", ...money }, ...(key === "item-profitability" ? [{ key: "profit", label: "Gross Profit", ...money }] : [])];
     } else if (key === "inventory-valuation" || key === "inventory-status" || key === "physical-inventory") {
@@ -420,7 +428,22 @@ export async function GET(request: Request) {
       columns = [{ key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "quantity", label: "On Hand" }, { key: "reorder", label: "Reorder" }, { key: "cost", label: "Avg. Cost", ...money }, { key: "value", label: "Value", ...money }];
     } else if (key === "open-invoices") { title = "Open Invoices"; rows = txRows(["invoice"]).filter((row) => !["paid", "cleared"].includes(String(row.status))); }
     else if (key === "sales-orders") { title = "Sales Order Fulfilment"; rows = txRows(["sales order"]); }
-    else if (key === "open-purchase-orders") { title = "Open Purchase Orders"; rows = txRows(["purchase order"]); }
+    else if (key === "open-purchase-orders") {
+      title = "Open Purchase Orders";
+      rows = scopedTransactions.filter((row) => row.type === "purchase order" && !["paid", "closed", "received", "cancelled"].includes(row.status)).map((row) => ({ date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, supplier: row.party, status: row.status, currency: row.currency, amount: row.baseTotal }));
+      columns = [{ key: "date", label: "Date" }, { key: "dueDate", label: "Expected Date" }, { key: "number", label: "PO No." }, { key: "supplier", label: "Supplier" }, { key: "status", label: "Status" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Amount", ...money }];
+    } else if (key === "open-purchase-orders-detail") {
+      title = "Open Purchase Orders Detail";
+      rows = lines.filter((line) => line.type === "purchase order" && !["paid", "closed", "received", "cancelled"].includes(line.status)).map((line) => ({ supplier: line.party, date: line.date, number: line.number, item: line.description, quantity: line.quantity, unitCost: line.quantity ? line.subtotal * line.exchangeRate / line.quantity : 0, amount: line.subtotal * line.exchangeRate }));
+      columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Date" }, { key: "number", label: "PO No." }, { key: "item", label: "Item" }, { key: "quantity", label: "Open Quantity" }, { key: "unitCost", label: "Unit Cost", ...money }, { key: "amount", label: "Open Amount", ...money }];
+    } else if (key === "open-purchase-orders-job") {
+      title = "Open Purchase Orders by Job";
+      const locationNames = new Map(locations.map((location) => [location.id, location.name]));
+      const grouped = new Map<string, { orders: number; suppliers: Set<string>; amount: number }>();
+      scopedTransactions.filter((row) => row.type === "purchase order" && !["paid", "closed", "received", "cancelled"].includes(row.status)).forEach((row) => { const job = locationNames.get(row.locationId ?? 0) ?? "Unassigned"; const old = grouped.get(job) ?? { orders: 0, suppliers: new Set<string>(), amount: 0 }; old.orders += 1; old.suppliers.add(row.party); old.amount += row.baseTotal; grouped.set(job, old); });
+      rows = [...grouped].map(([job, value]) => ({ job, orders: value.orders, suppliers: value.suppliers.size, amount: value.amount })).sort((a, b) => b.amount - a.amount);
+      columns = [{ key: "job", label: "Job / Inventory" }, { key: "orders", label: "Open Orders" }, { key: "suppliers", label: "Suppliers" }, { key: "amount", label: "Open Amount", ...money }];
+    }
     else if (key === "vat-summary") {
       title = "VAT Summary Report";
       rows = [{ name: "Output VAT on sales", amount: outputVat }, { name: "Recoverable input VAT", amount: inputVat }, { name: "Net VAT due", amount: outputVat - inputVat }];
