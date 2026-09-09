@@ -227,6 +227,13 @@ const allReports = [
   ["Sales Order Fulfilment", "Open and fulfilled orders", "Sales", "sales-orders"],
   ["A/P Aging Summary", "Outstanding vendor balances by age", "Vendors", "ap-aging-summary"],
   ["A/P Aging Detail", "Open bills and credits", "Vendors", "ap-aging-detail"],
+  ["Supplier Balance Summary", "Accounts Payable totals by supplier", "Vendors", "vendor-balances"],
+  ["Supplier Balance Detail", "Supplier bills, payments, credits, and running balances", "Vendors", "supplier-balance-detail"],
+  ["Unpaid Bills Detail", "Open and overdue supplier bills", "Vendors", "unpaid-bills-detail"],
+  ["Accounts Payable Graph", "Monthly payable charges and supplier payments", "Vendors", "accounts-payable-graph"],
+  ["Transaction List by Supplier", "Supplier activity in chronological order", "Vendors", "supplier-transactions"],
+  ["Supplier Phone List", "Supplier telephone and WhatsApp directory", "Vendors", "supplier-phone-list"],
+  ["Supplier Contact List", "Complete supplier contact directory", "Vendors", "supplier-contact-list"],
   ["Purchases by Vendor", "Spending grouped by supplier", "Purchases", "purchases-by-vendor"],
   ["Purchases by Item", "Purchased quantity and cost by item", "Purchases", "purchases-by-item"],
   ["Open Purchase Orders", "Committed purchases not received", "Purchases", "open-purchase-orders"],
@@ -234,7 +241,6 @@ const allReports = [
   ["Inventory Stock Status", "Available and reorder position", "Inventory", "inventory-status"],
   ["Physical Inventory Worksheet", "Count sheet for stock verification", "Inventory", "physical-inventory"],
   ["Item Profitability", "Gross profit by inventory item", "Inventory", "item-profitability"],
-  ["Vendor Balance Summary", "Balance totals by vendor", "Vendors", "vendor-balances"],
   ["Transaction List by Date", "All activity in chronological order", "Company", "transactions"],
 ] as const;
 

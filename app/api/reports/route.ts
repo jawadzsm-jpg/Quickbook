@@ -66,7 +66,7 @@ export async function GET(request: Request) {
       });
       return [...grouped].map(([name, value]) => ({ name, ...value, profit: value.amount - value.cost }));
     };
-    const aged = (types: string[]) => allTransactions.filter((row) => types.includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => {
+    const aged = (types: string[]) => scopedTransactions.filter((row) => types.includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => {
       const age = row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0;
       return { name: row.party, current: age <= 0 ? row.baseTotal : 0, days30: age > 0 && age <= 30 ? row.baseTotal : 0, days60: age > 30 && age <= 60 ? row.baseTotal : 0, days90: age > 60 ? row.baseTotal : 0, total: row.baseTotal };
     });
@@ -96,6 +96,10 @@ export async function GET(request: Request) {
         }
       });
     });
+    const supplierTypes = new Set(["bill", "received item bill", "expense", "cheque", "bill payment", "vendor credit", "purchase order", "item receipt"]);
+    const supplierActivities = scopedTransactions.filter((row) => supplierTypes.has(row.type));
+    const payableAccounts = new Set(allAccounts.filter((account) => account.systemRole === "AP" || account.type === "Accounts Payable").map((account) => account.name));
+    const supplierImpact = (row: typeof allTransactions[number]) => ["bill payment", "vendor credit"].includes(row.type) || (row.type === "cheque" && payableAccounts.has(row.account)) ? -row.baseTotal : ["purchase order", "item receipt", "cheque"].includes(row.type) ? 0 : row.baseTotal;
     const vatDocumentTypes = new Set(["invoice", "sales receipt", "statement charge", "credit memo", "bill", "received item bill", "expense", "vendor credit"]);
     const vatLines = lines.filter((line) => vatDocumentTypes.has(line.type) && (!periodStart || line.date >= periodStart) && (!periodEnd || line.date <= periodEnd));
     const outputVat = vatLines.reduce((sum, line) => sum + (line.type === "credit memo" ? -1 : ["invoice", "sales receipt", "statement charge"].includes(line.type) ? 1 : 0) * line.vatAmount * line.exchangeRate, 0);
@@ -237,8 +241,16 @@ export async function GET(request: Request) {
       title = "A/R Aging Detail";
       rows = scopedTransactions.filter((row) => ["invoice", "statement charge", "finance charge"].includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => { const age = row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0; return { customer: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, status: row.status, age, amount: row.baseTotal }; });
       columns = [{ key: "customer", label: "Customer" }, { key: "date", label: "Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "No." }, { key: "status", label: "Status" }, { key: "age", label: "Days Overdue" }, { key: "amount", label: "Open Amount", ...money }];
-    } else if (key.startsWith("ap-aging")) {
-      title = key.endsWith("detail") ? "A/P Aging Detail" : "A/P Aging Summary"; rows = aged(["bill", "received item bill"]); columns = agingColumns;
+    } else if (key === "ap-aging-summary") {
+      title = "A/P Aging Summary";
+      const grouped = new Map<string, { current: number; days30: number; days60: number; days90: number; total: number }>();
+      aged(["bill", "received item bill"]).forEach((row) => { const old = grouped.get(row.name) ?? { current: 0, days30: 0, days60: 0, days90: 0, total: 0 }; grouped.set(row.name, { current: old.current + row.current, days30: old.days30 + row.days30, days60: old.days60 + row.days60, days90: old.days90 + row.days90, total: old.total + row.total }); });
+      rows = [...grouped].map(([name, values]) => ({ name, ...values })).sort((a, b) => b.total - a.total);
+      columns = agingColumns;
+    } else if (key === "ap-aging-detail") {
+      title = "A/P Aging Detail";
+      rows = scopedTransactions.filter((row) => ["bill", "received item bill"].includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => { const age = row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0; return { supplier: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, status: row.status, age, amount: row.baseTotal }; });
+      columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "No." }, { key: "status", label: "Status" }, { key: "age", label: "Days Overdue" }, { key: "amount", label: "Open Amount", ...money }];
     } else if (key === "customer-statements") {
       title = "Customer Statements";
       const balances = new Map<string, number>();
@@ -361,9 +373,43 @@ export async function GET(request: Request) {
       rows = key === "sales-by-customer" ? groupTransactions(["invoice", "sales receipt"]) : allContacts.filter((row) => row.type === "customer").map((row) => ({ name: row.name, amount: row.balance }));
       columns = [{ key: "name", label: "Customer" }, { key: "amount", label: "Amount", ...money }];
     } else if (key === "purchases-by-vendor" || key === "vendor-balances") {
-      title = key === "purchases-by-vendor" ? "Purchases by Vendor" : "Vendor Balance Summary";
-      rows = key === "purchases-by-vendor" ? groupTransactions(["bill", "received item bill", "expense"]) : allContacts.filter((row) => row.type === "vendor").map((row) => ({ name: row.name, amount: row.balance }));
-      columns = [{ key: "name", label: "Vendor" }, { key: "amount", label: "Amount", ...money }];
+      title = key === "purchases-by-vendor" ? "Purchases by Vendor" : "Supplier Balance Summary";
+      if (key === "purchases-by-vendor") rows = groupTransactions(["bill", "received item bill", "expense"]);
+      else {
+        const grouped = new Map<string, number>();
+        supplierActivities.forEach((row) => grouped.set(row.party, (grouped.get(row.party) ?? 0) + supplierImpact(row)));
+        rows = [...grouped].map(([name, amount]) => ({ name, amount })).sort((a, b) => b.amount - a.amount);
+      }
+      columns = [{ key: "name", label: "Supplier" }, { key: "amount", label: "Amount", ...money }];
+    } else if (key === "supplier-balance-detail") {
+      title = "Supplier Balance Detail";
+      const balances = new Map<string, number>();
+      rows = supplierActivities.filter((row) => !["purchase order", "item receipt"].includes(row.type)).map((row) => { const amount = supplierImpact(row); const balance = (balances.get(row.party) ?? 0) + amount; balances.set(row.party, balance); return { supplier: row.party, date: row.transactionDate, number: row.number, type: row.type, charge: amount > 0 ? amount : 0, payment: amount < 0 ? -amount : 0, balance }; });
+      columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "charge", label: "Bill / Charge", ...money }, { key: "payment", label: "Payment / Credit", ...money }, { key: "balance", label: "Balance", ...money }];
+    } else if (key === "unpaid-bills-detail") {
+      title = "Unpaid Bills Detail";
+      rows = scopedTransactions.filter((row) => ["bill", "received item bill"].includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => ({ supplier: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, type: row.type, status: row.status, overdueDays: row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0, currency: row.currency, amount: row.baseTotal }));
+      columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Bill Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "Bill No." }, { key: "type", label: "Type" }, { key: "status", label: "Status" }, { key: "overdueDays", label: "Days Overdue" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Open Amount", ...money }];
+    } else if (key === "accounts-payable-graph") {
+      title = "Accounts Payable Graph";
+      const months = new Map<string, { bills: number; payments: number }>();
+      supplierActivities.filter((row) => supplierImpact(row) !== 0).forEach((row) => { const month = row.transactionDate.slice(0, 7); const old = months.get(month) ?? { bills: 0, payments: 0 }; if (supplierImpact(row) < 0) old.payments += row.baseTotal; else old.bills += row.baseTotal; months.set(month, old); });
+      let balance = 0;
+      rows = [...months].sort(([a], [b]) => a.localeCompare(b)).map(([month, value]) => { balance += value.bills - value.payments; return { month, ...value, balance }; });
+      columns = [{ key: "month", label: "Month" }, { key: "bills", label: "Bills / Charges", ...money }, { key: "payments", label: "Payments / Credits", ...money }, { key: "balance", label: "A/P Balance", ...money }];
+      chart = { labelKey: "month", incomeKey: "bills", expenseKey: "payments" };
+    } else if (key === "supplier-transactions") {
+      title = "Transaction List by Supplier";
+      rows = supplierActivities.map((row) => ({ supplier: row.party, date: row.transactionDate, number: row.number, type: row.type, status: row.status, currency: row.currency, amount: supplierImpact(row) }));
+      columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "status", label: "Status" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Net Amount", ...money }];
+    } else if (key === "supplier-phone-list") {
+      title = "Supplier Phone List";
+      rows = allContacts.filter((row) => row.type === "vendor").map((row) => ({ supplier: row.name, company: row.company || "—", phone: row.phone || "—", whatsapp: row.whatsapp || "—", country: row.country || "—" }));
+      columns = [{ key: "supplier", label: "Supplier" }, { key: "company", label: "Company" }, { key: "phone", label: "Phone" }, { key: "whatsapp", label: "WhatsApp" }, { key: "country", label: "Country" }];
+    } else if (key === "supplier-contact-list") {
+      title = "Supplier Contact List";
+      rows = allContacts.filter((row) => row.type === "vendor").map((row) => ({ supplier: row.name, company: row.company || "—", email: row.email || "—", phone: row.phone || "—", whatsapp: row.whatsapp || "—", country: row.country || "—", trn: row.trn || "—", currency: row.currency, status: row.status }));
+      columns = [{ key: "supplier", label: "Supplier" }, { key: "company", label: "Company" }, { key: "email", label: "Email" }, { key: "phone", label: "Phone" }, { key: "whatsapp", label: "WhatsApp" }, { key: "country", label: "Country" }, { key: "trn", label: "TRN" }, { key: "currency", label: "Currency" }, { key: "status", label: "Status" }];
     } else if (["sales-by-item", "purchases-by-item", "item-profitability"].includes(key)) {
       title = key === "sales-by-item" ? "Sales by Item" : key === "purchases-by-item" ? "Purchases by Item" : "Item Profitability";
       rows = groupLines(key === "purchases-by-item" ? ["bill", "received item bill"] : ["invoice", "sales receipt"]);
