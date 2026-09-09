@@ -1,6 +1,6 @@
 import { and, asc, eq, sum } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { accounts, contacts, exchangeRates, inventoryLocations, items, journalEntries, journalLines, transactionLines, transactions, vatCodes } from "../../../db/schema";
+import { accounts, auditLog, contacts, exchangeRates, inventoryLocations, items, journalEntries, journalLines, transactionLines, transactions, vatCodes } from "../../../db/schema";
 import { hasPermission, requireApiUser } from "@/lib/auth";
 
 type Row = Record<string, string | number>;
@@ -25,7 +25,7 @@ export async function GET(request: Request) {
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     const db = getDb();
     const journalFilter = Number.isInteger(locationId) && locationId > 0 ? and(eq(journalEntries.companyId, companyId), eq(journalEntries.locationId, locationId)) : eq(journalEntries.companyId, companyId);
-    const [allTransactions, allContacts, allItems, allAccounts, ledger, journal, lines, configuredVatCodes, currentRates, locations] = await Promise.all([
+    const [allTransactions, allContacts, allItems, allAccounts, ledger, journal, lines, configuredVatCodes, currentRates, locations, auditRows] = await Promise.all([
       db.select().from(transactions).where(eq(transactions.companyId, companyId)).orderBy(asc(transactions.transactionDate)),
       db.select().from(contacts).where(eq(contacts.companyId, companyId)).orderBy(asc(contacts.name)),
       db.select().from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId))).orderBy(asc(items.name)),
@@ -36,6 +36,7 @@ export async function GET(request: Request) {
       db.select().from(vatCodes).where(eq(vatCodes.companyId, companyId)).orderBy(asc(vatCodes.code)),
       db.select().from(exchangeRates).where(and(eq(exchangeRates.companyId, companyId), eq(exchangeRates.active, true))),
       db.select().from(inventoryLocations).where(eq(inventoryLocations.companyId, companyId)),
+      db.select().from(auditLog).where(eq(auditLog.companyId, companyId)).orderBy(asc(auditLog.createdAt), asc(auditLog.id)),
     ]);
     const accountTypes = new Map(allAccounts.map((account) => [account.name, account.type]));
     const ledgerRows = ledger.map((row) => ({ name: row.name, type: accountTypes.get(row.name) ?? "Unclassified", debit: Number(row.debit ?? 0), credit: Number(row.credit ?? 0), balance: Number(row.debit ?? 0) - Number(row.credit ?? 0) }));
@@ -203,7 +204,46 @@ export async function GET(request: Request) {
       title = "Trial Balance"; rows = ledgerRows; columns = amountColumns();
     } else if (key === "general-ledger" || key === "journal") {
       title = key === "journal" ? "Journal" : "General Ledger";
-      rows = journal; columns = [{ key: "date", label: "Date" }, { key: "reference", label: "Reference" }, { key: "description", label: "Description" }, { key: "account", label: "Account" }, { key: "debit", label: "Debit", ...money }, { key: "credit", label: "Credit", ...money }];
+      const balances = new Map<string, number>();
+      rows = journal.map((entry) => { const balance = (balances.get(entry.account) ?? 0) + Number(entry.debit) - Number(entry.credit); balances.set(entry.account, balance); return { ...entry, balance }; });
+      columns = [{ key: "date", label: "Date" }, { key: "reference", label: "Reference" }, { key: "description", label: "Description" }, { key: "account", label: "Account" }, { key: "debit", label: "Debit", ...money }, { key: "credit", label: "Credit", ...money }, ...(key === "general-ledger" ? [{ key: "balance", label: "Running Balance", ...money }] : [])];
+    } else if (key === "transaction-detail-account") {
+      title = "Transaction Detail by Account";
+      const balances = new Map<string, number>();
+      rows = journal.map((entry) => { const balance = (balances.get(entry.account) ?? 0) + Number(entry.debit) - Number(entry.credit); balances.set(entry.account, balance); return { account: entry.account, date: entry.date, reference: entry.reference, description: entry.description, debit: entry.debit, credit: entry.credit, balance }; }).sort((a, b) => a.account.localeCompare(b.account) || a.date.localeCompare(b.date));
+      columns = [{ key: "account", label: "Account" }, { key: "date", label: "Date" }, { key: "reference", label: "Reference" }, { key: "description", label: "Description" }, { key: "debit", label: "Debit", ...money }, { key: "credit", label: "Credit", ...money }, { key: "balance", label: "Running Balance", ...money }];
+    } else if (key === "audit-trail") {
+      title = "Audit Trail";
+      rows = auditRows.map((entry) => ({ date: String(entry.createdAt), action: entry.action, entity: entry.entityType.replaceAll("_", " "), entityId: entry.entityId, details: entry.details || "—" })).reverse();
+      columns = [{ key: "date", label: "Date / Time" }, { key: "action", label: "Action" }, { key: "entity", label: "Record Type" }, { key: "entityId", label: "Record ID" }, { key: "details", label: "Details" }];
+    } else if (key === "customer-credit-card-audit") {
+      title = "Customer Credit Card Audit Trail";
+      rows = scopedTransactions.filter((row) => row.type === "credit card charge" || row.account.toLowerCase().includes("credit card")).map((row) => ({ date: row.transactionDate, number: row.number, customer: row.party || "—", account: row.account, status: row.status, currency: row.currency, amount: row.baseTotal }));
+      columns = [{ key: "date", label: "Date" }, { key: "number", label: "Reference" }, { key: "customer", label: "Customer / Payee" }, { key: "account", label: "Credit Card Account" }, { key: "status", label: "Status" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Amount", ...money }];
+    } else if (key === "deleted-transactions-summary") {
+      title = "Voided/Deleted Transactions Summary";
+      const grouped = new Map<string, { records: number; details: string }>();
+      auditRows.filter((entry) => entry.entityType === "transaction" && ["deleted", "voided"].includes(entry.action)).forEach((entry) => { const action = entry.action === "voided" ? "Voided" : "Deleted"; const old = grouped.get(action) ?? { records: 0, details: "Transaction records preserved in audit history" }; old.records += 1; grouped.set(action, old); });
+      rows = [...grouped].map(([action, value]) => ({ action, ...value }));
+      columns = [{ key: "action", label: "Action" }, { key: "records", label: "Transactions" }, { key: "details", label: "Audit Status" }];
+    } else if (key === "deleted-transactions-detail") {
+      title = "Voided/Deleted Transactions Detail";
+      rows = auditRows.filter((entry) => entry.entityType === "transaction" && ["deleted", "voided"].includes(entry.action)).map((entry) => ({ date: String(entry.createdAt), action: entry.action === "voided" ? "Voided" : "Deleted", transactionId: entry.entityId, details: entry.details || "—" })).reverse();
+      columns = [{ key: "date", label: "Date / Time" }, { key: "action", label: "Action" }, { key: "transactionId", label: "Transaction ID" }, { key: "details", label: "Transaction Details" }];
+    } else if (key === "transactions") {
+      title = "Transaction List by Date";
+      rows = scopedTransactions.map((row) => ({ date: row.transactionDate, number: row.number, type: row.type, name: row.party || "—", account: row.account, status: row.status, currency: row.currency, amount: row.baseTotal }));
+      columns = [{ key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "name", label: "Name" }, { key: "account", label: "Account" }, { key: "status", label: "Status" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Amount", ...money }];
+    } else if (key === "account-listing") {
+      title = "Account Listing";
+      const namesById = new Map(allAccounts.map((account) => [account.id, account.name]));
+      rows = allAccounts.map((account) => ({ code: account.code, name: account.name, type: account.type, parent: account.parentAccountId ? namesById.get(account.parentAccountId) ?? "—" : "—", role: account.systemRole ?? "—", currency: account.currency, status: account.active ? "Active" : "Inactive", balance: account.balance }));
+      columns = [{ key: "code", label: "Code" }, { key: "name", label: "Account" }, { key: "type", label: "Type" }, { key: "parent", label: "Sub-account Of" }, { key: "role", label: "System Link" }, { key: "currency", label: "Currency" }, { key: "status", label: "Status" }, { key: "balance", label: "Opening Balance", ...money }];
+    } else if (key === "fixed-asset-listing") {
+      title = "Fixed Asset Listing";
+      const balancesByAccount = new Map(ledgerRows.map((row) => [row.name, row]));
+      rows = allAccounts.filter((account) => account.type === "Fixed Asset").map((account) => { const posted = balancesByAccount.get(account.name); return { code: account.code, name: account.name, currency: account.currency, debit: posted?.debit ?? 0, credit: posted?.credit ?? 0, balance: (posted?.balance ?? 0) + account.balance, status: account.active ? "Active" : "Inactive" }; });
+      columns = [{ key: "code", label: "Code" }, { key: "name", label: "Fixed Asset Account" }, { key: "currency", label: "Currency" }, { key: "debit", label: "Debit", ...money }, { key: "credit", label: "Credit", ...money }, { key: "balance", label: "Book Balance", ...money }, { key: "status", label: "Status" }];
     } else if (key === "cash-flow") {
       title = "Statement of Cash Flows";
       const bankAccounts = new Set(allAccounts.filter((account) => account.systemRole === "BANK" || account.type === "Bank").map((account) => account.name));

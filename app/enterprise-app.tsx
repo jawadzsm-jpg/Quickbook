@@ -186,7 +186,15 @@ const allReports = [
   ["Cash Flow Forecast", "Projected cash from open receivables and payables", "Financial", "cash-flow-forecast"],
   ["Trial Balance", "Debit and credit balances by account", "Accountant", "trial-balance"],
   ["General Ledger", "Complete account transaction detail", "Accountant", "general-ledger"],
+  ["Transaction Detail by Account", "Account activity with a running balance", "Accountant", "transaction-detail-account"],
   ["Journal", "Posted debits and credits", "Accountant", "journal"],
+  ["Audit Trail", "Recorded changes across accounting and inventory", "Accountant", "audit-trail"],
+  ["Customer Credit Card Audit Trail", "Customer credit-card activity and status", "Accountant", "customer-credit-card-audit"],
+  ["Voided/Deleted Transactions Summary", "Deleted transaction totals grouped by action", "Accountant", "deleted-transactions-summary"],
+  ["Voided/Deleted Transactions Detail", "Detailed history of voided and deleted transactions", "Accountant", "deleted-transactions-detail"],
+  ["Transaction List by Date", "All activity in chronological order", "Accountant", "transactions"],
+  ["Account Listing", "Chart of Accounts with type, currency, and hierarchy", "Accountant", "account-listing"],
+  ["Fixed Asset Listing", "Fixed-asset accounts and their current balances", "Accountant", "fixed-asset-listing"],
   ["Bank Register", "Bank account debits, credits and running balances", "Banking", "bank-register"],
   ["Bank Reconciliation", "Cleared and uncleared banking activity", "Banking", "bank-reconciliation"],
   ["VAT Summary Report", "VAT collected, recoverable, and net VAT due", "VAT", "vat-summary"],
@@ -248,7 +256,6 @@ const allReports = [
   ["Physical Stock Worksheet", "Printable count sheet for stock verification", "Inventory", "physical-inventory"],
   ["Pending Builds", "Items below their reorder or build level", "Inventory", "pending-builds"],
   ["Item Profitability", "Gross profit by inventory item", "Inventory", "item-profitability"],
-  ["Transaction List by Date", "All activity in chronological order", "Company", "transactions"],
 ] as const;
 
 const reportCategoryOrder = ["Financial", "Sales", "Customers", "Vendors", "Purchases", "Inventory", "Banking", "VAT", "Accountant", "Company"] as const;
