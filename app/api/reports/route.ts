@@ -1,7 +1,7 @@
 import { and, asc, eq, sum } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { accounts, contacts, items, journalEntries, journalLines, transactionLines, transactions, vatCodes } from "../../../db/schema";
-import { requireApiUser } from "@/lib/auth";
+import { hasPermission, requireApiUser } from "@/lib/auth";
 
 type Row = Record<string, string | number>;
 const money = { type: "money" as const };
@@ -10,10 +10,12 @@ const amountColumns = (first = "Account") => [
 ];
 
 export async function GET(request: Request) {
-  const authorization = await requireApiUser(request, "reports:read");
+  const key = new URL(request.url).searchParams.get("type") ?? "profit-loss";
+  const authorization = await requireApiUser(request);
   if (authorization instanceof Response) return authorization;
+  const canOpen = key === "customer-statements" ? hasPermission(authorization, "sales:write") || hasPermission(authorization, "reports:read") : hasPermission(authorization, "reports:read");
+  if (!canOpen) return Response.json({ error: "Your role does not allow this report." }, { status: 403 });
   try {
-    const key = new URL(request.url).searchParams.get("type") ?? "profit-loss";
     const url = new URL(request.url);
     const companyId = Number(url.searchParams.get("companyId"));
     const locationId = Number(url.searchParams.get("locationId"));
@@ -59,9 +61,9 @@ export async function GET(request: Request) {
       return { name: row.party, current: age <= 0 ? row.baseTotal : 0, days30: age > 0 && age <= 30 ? row.baseTotal : 0, days60: age > 30 && age <= 60 ? row.baseTotal : 0, days90: age > 60 ? row.baseTotal : 0, total: row.baseTotal };
     });
     const agingColumns = [{ key: "name", label: "Name" }, { key: "current", label: "Current", ...money }, { key: "days30", label: "1–30", ...money }, { key: "days60", label: "31–60", ...money }, { key: "days90", label: "61+", ...money }, { key: "total", label: "Total", ...money }];
-    const vatDocumentTypes = new Set(["invoice", "sales receipt", "credit memo", "bill", "expense", "vendor credit"]);
+    const vatDocumentTypes = new Set(["invoice", "sales receipt", "statement charge", "credit memo", "bill", "expense", "vendor credit"]);
     const vatLines = lines.filter((line) => vatDocumentTypes.has(line.type) && (!periodStart || line.date >= periodStart) && (!periodEnd || line.date <= periodEnd));
-    const outputVat = vatLines.reduce((sum, line) => sum + (line.type === "credit memo" ? -1 : ["invoice", "sales receipt"].includes(line.type) ? 1 : 0) * line.vatAmount * line.exchangeRate, 0);
+    const outputVat = vatLines.reduce((sum, line) => sum + (line.type === "credit memo" ? -1 : ["invoice", "sales receipt", "statement charge"].includes(line.type) ? 1 : 0) * line.vatAmount * line.exchangeRate, 0);
     const inputVat = vatLines.reduce((sum, line) => sum + (line.type === "vendor credit" ? -1 : ["bill", "expense"].includes(line.type) ? 1 : 0) * line.vatAmount * line.exchangeRate, 0);
     let title = "Transaction List by Date";
     let columns: Array<{ key: string; label: string; type?: "money" }> = txColumns;
@@ -92,6 +94,17 @@ export async function GET(request: Request) {
       title = key.endsWith("detail") ? "A/R Aging Detail" : "A/R Aging Summary"; rows = aged("invoice"); columns = agingColumns;
     } else if (key.startsWith("ap-aging")) {
       title = key.endsWith("detail") ? "A/P Aging Detail" : "A/P Aging Summary"; rows = aged("bill"); columns = agingColumns;
+    } else if (key === "customer-statements") {
+      title = "Customer Statements";
+      const balances = new Map<string, number>();
+      rows = allTransactions.filter((row) => (!Number.isInteger(locationId) || locationId <= 0 || row.locationId === locationId) && ["invoice", "statement charge", "finance charge", "customer payment", "credit memo"].includes(row.type)).map((row) => {
+        const debit = ["invoice", "statement charge", "finance charge"].includes(row.type) ? row.baseTotal : 0;
+        const credit = ["customer payment", "credit memo"].includes(row.type) ? row.baseTotal : 0;
+        const balance = (balances.get(row.party) ?? 0) + debit - credit;
+        balances.set(row.party, balance);
+        return { customer: row.party, date: row.transactionDate, number: row.number, type: row.type, debit, credit, balance };
+      });
+      columns = [{ key: "customer", label: "Customer" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Activity" }, { key: "debit", label: "Charge", ...money }, { key: "credit", label: "Payment / Credit", ...money }, { key: "balance", label: "Balance", ...money }];
     } else if (key === "sales-by-customer" || key === "customer-balances") {
       title = key === "sales-by-customer" ? "Sales by Customer" : "Customer Balance Summary";
       rows = key === "sales-by-customer" ? groupTransactions(["invoice", "sales receipt"]) : allContacts.filter((row) => row.type === "customer").map((row) => ({ name: row.name, amount: row.balance }));
