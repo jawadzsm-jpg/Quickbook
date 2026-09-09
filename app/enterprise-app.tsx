@@ -154,7 +154,7 @@ const viewTitles: Record<View, { title: string; sub: string }> = {
 };
 
 const transactionTypes: Record<string, string[]> = {
-  sales: ["invoice", "estimate", "sales order", "sales receipt", "credit memo", "customer payment"],
+  sales: ["invoice", "estimate", "sales order", "sales receipt", "statement charge", "finance charge", "credit memo", "customer payment"],
   "receive-payment": ["customer payment"],
   purchases: ["bill", "purchase order", "expense", "vendor credit", "bill payment"],
   "write-cheque": ["cheque"],
@@ -171,6 +171,7 @@ const allReports = [
   ["Journal", "Posted debits and credits", "Accountant", "journal"],
   ["A/R Aging Summary", "Outstanding customer balances by age", "Customers", "ar-aging-summary"],
   ["A/R Aging Detail", "Open invoices and credit detail", "Customers", "ar-aging-detail"],
+  ["Customer Statements", "Charges, payments, credits and running balances", "Customers", "customer-statements"],
   ["Sales by Customer", "Revenue grouped by customer", "Sales", "sales-by-customer"],
   ["Sales by Item", "Quantity and revenue by product", "Sales", "sales-by-item"],
   ["Open Invoices", "Unpaid and partially paid invoices", "Sales", "open-invoices"],
@@ -213,7 +214,8 @@ const defaultPostingAccount = (type: string, accounts: DataRecord[]) => {
   if (type === "bill") return linkedAccountName(accounts, "PURCHASES", "Purchases");
   if (type === "cheque") return linkedAccountName(accounts, "AP", "Accounts Payable");
   if (type === "customer payment") return linkedAccountName(accounts, "BANK", "Business Bank");
-  if (["invoice", "sales receipt"].includes(type)) return linkedAccountName(accounts, "SALES", "Sales Revenue");
+  if (["invoice", "estimate", "sales order", "sales receipt", "statement charge", "credit memo"].includes(type)) return linkedAccountName(accounts, "SALES", "Sales Revenue");
+  if (type === "finance charge") return linkedAccountName(accounts, "OTHER_INCOME", "Other Income");
   if (type === "expense") return linkedAccountName(accounts, "EXPENSE", "Operating Expenses");
   if (type === "deposit") return linkedAccountName(accounts, "OTHER_INCOME", "Other Income");
   return linkedAccountName(accounts, "SUSPENSE", "Suspense");
@@ -233,6 +235,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editorKind, setEditorKind] = useState<Kind | null>(null);
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
   const [lines, setLines] = useState<LineForm[]>([]);
@@ -367,7 +370,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     const tx = records.transactions;
     const sales = tx.filter((r) => ["invoice", "sales receipt", "customer payment", "deposit"].includes(String(r.type))).reduce((n, r) => n + Number(r.baseTotal ?? r.total), 0);
     const expenses = tx.filter((r) => ["bill", "expense", "cheque", "bill payment"].includes(String(r.type))).reduce((n, r) => n + Number(r.baseTotal ?? r.total), 0);
-    const receivable = tx.reduce((balance, transaction) => transaction.type === "invoice" ? balance + Number(transaction.baseTotal ?? transaction.total) : ["customer payment", "credit memo"].includes(String(transaction.type)) ? balance - Number(transaction.baseTotal ?? transaction.total) : balance, 0);
+    const receivable = tx.reduce((balance, transaction) => ["invoice", "statement charge", "finance charge"].includes(String(transaction.type)) ? balance + Number(transaction.baseTotal ?? transaction.total) : ["customer payment", "credit memo"].includes(String(transaction.type)) ? balance - Number(transaction.baseTotal ?? transaction.total) : balance, 0);
     const payableAccounts = new Set(records.accounts.filter((account) => account.active && account.systemRole === "AP").map((account) => String(account.name)));
     const payable = tx.reduce((balance, transaction) => transaction.type === "bill" ? balance + Number(transaction.baseTotal ?? transaction.total) : ["bill payment", "vendor payment", "vendor credit"].includes(String(transaction.type)) || (transaction.type === "cheque" && payableAccounts.has(String(transaction.account))) ? balance - Number(transaction.baseTotal ?? transaction.total) : balance, 0);
     return { sales, expenses, receivable, payable, cash: sales - expenses };
@@ -377,6 +380,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   const managementView = view === "inventory-overview" || view === "transfers" || view === "journal-entries" || view === "vat-management" || view === "companies" || view === "inventories" || view === "invoice-series" || view === "currencies" || view === "vat-codes" || view === "admin-controls";
   const visibleNavGroups = navGroups.map((group) => ({ ...group, items: group.items.filter((item) => roleViews[currentUser.role].includes(item.id)) })).filter((group) => group.items.length > 0);
   const canWriteCurrentView = roleWriteViews[currentUser.role].includes(view);
+  const activeEditorKind = editorKind ?? currentKind;
 
   const filteredRecords = useMemo(() => {
     let list = records[currentKind];
@@ -389,19 +393,28 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     return term ? list.filter((r) => Object.values(r).some((v) => String(v).toLowerCase().includes(term))) : list;
   }, [currentKind, records, search, view]);
 
+  function openTransaction(type: string) {
+    setEditingItemId(null);
+    setEditorKind("transactions");
+    if (type === "invoice") {
+      setInvoiceInventoryOpen(true);
+      return;
+    }
+    const prefix = type === "customer payment" ? "PAY" : type === "cheque" ? "CHQ" : type === "statement charge" ? "STC" : type === "finance charge" ? "FIN" : type.slice(0, 3).toUpperCase();
+    const taxFree = ["bill", "customer payment", "bill payment", "finance charge"].includes(type);
+    const descriptions: Record<string, string> = { "customer payment": "Payment received", cheque: "Cheque payment", "statement charge": "Statement charge", "finance charge": "Finance charge", "credit memo": "Credit note / refund" };
+    setForm({ type, number: `${prefix}-${String(records.transactions.length + 1).padStart(4, "0")}`, transactionDate: today(), dueDate: today(), status: "open", account: defaultPostingAccount(type, records.accounts), vatRate: taxFree ? "0" : "5", currency: baseCurrency, exchangeRate: "1", billLocationId: String(activeLocationId), transactionLocationId: String(activeLocationId), salesman: "", isImport: "false", freightCharges: "0" });
+    setLines([{ itemId: "", description: descriptions[type] ?? "", quantity: "1", unitPrice: "0", unitCost: "0", vatCode: taxFree ? "ZERO" : "STANDARD", vatRate: taxFree ? "0" : "5" }]);
+    setDialogOpen(true);
+  }
+
   function openCreate() {
     setEditingItemId(null);
+    setEditorKind(currentKind);
     if (currentKind === "transactions") {
       const type = transactionTypes[view]?.[0] ?? "invoice";
-      if (type === "invoice") {
-        setInvoiceInventoryOpen(true);
-        return;
-      }
-      const prefix = type === "customer payment" ? "PAY" : type === "cheque" ? "CHQ" : type.slice(0, 3).toUpperCase();
-      const taxFree = ["bill", "customer payment", "bill payment"].includes(type);
-      const description = type === "customer payment" ? "Payment received" : type === "cheque" ? "Cheque payment" : "";
-      setForm({ type, number: `${prefix}-${String(records.transactions.length + 1).padStart(4, "0")}`, transactionDate: today(), dueDate: today(), status: "open", account: defaultPostingAccount(type, records.accounts), vatRate: taxFree ? "0" : "5", currency: baseCurrency, exchangeRate: "1", billLocationId: String(activeLocationId), transactionLocationId: String(activeLocationId), salesman: "", isImport: "false", freightCharges: "0" });
-      setLines([{ itemId: "", description, quantity: "1", unitPrice: "0", unitCost: "0", vatCode: taxFree ? "ZERO" : "STANDARD", vatRate: taxFree ? "0" : "5" }]);
+      openTransaction(type);
+      return;
     } else if (currentKind === "contacts") {
       const type = view === "customers" ? "customer" : view === "vendors" ? "vendor" : "employee";
       const controlAccount = type === "customer" ? controlAccountFor(records.accounts, "AR", baseCurrency) : type === "vendor" ? controlAccountFor(records.accounts, "AP", baseCurrency) : undefined;
@@ -418,6 +431,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   }
 
   function startInvoice(location: InventoryLocation) {
+    setEditorKind("transactions");
     setActiveLocationId(location.id);
     setRecords((current) => ({ ...current, items: [] }));
     setForm({ type: "invoice", number: invoiceNumberPreview(activeCompanyId, location), transactionDate: today(), dueDate: today(), status: "open", account: linkedAccountName(records.accounts, "SALES", "Sales Revenue"), vatRate: "5", currency: baseCurrency, exchangeRate: "1", allowNegativeStock: "false", adminOverridePin: "" });
@@ -436,46 +450,48 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
       itemForm[`specValue${index}`] = specification.value;
     });
     setEditingItemId(item.id);
+    setEditorKind("items");
     setForm(itemForm);
     setDialogOpen(true);
   }
 
   async function saveRecord(event: FormEvent) {
     event.preventDefault();
-    if (currentKind === "contacts" && form.type === "customer") {
+    const saveKind = activeEditorKind;
+    if (saveKind === "contacts" && form.type === "customer") {
       const required = [form.company, form.name, form.phone, form.whatsapp, form.country, form.reseller, form.planet, form.currency];
       if (required.some((value) => !value?.trim())) return toast.error("Complete all required customer fields.");
     }
-    if (currentKind === "contacts" && form.type === "vendor") {
+    if (saveKind === "contacts" && form.type === "vendor") {
       const required = [form.company, form.name, form.phone, form.country, form.currency];
       if (required.some((value) => !value?.trim())) return toast.error("Complete all required vendor fields.");
     }
-    if (currentKind === "transactions" && form.type === "bill") {
+    if (saveKind === "transactions" && form.type === "bill") {
       const required = [form.party, form.number, form.transactionDate, form.currency, form.exchangeRate, form.billLocationId];
       if (required.some((value) => !value?.trim()) || Number(form.exchangeRate) <= 0) return toast.error("Complete the vendor, reference, date, inventory, currency and exchange rate.");
       if (Number(form.freightCharges ?? 0) < 0) return toast.error("Freight charges cannot be negative.");
       if (lines.some((line) => !line.description.trim() || Number(line.quantity) <= 0 || Number(line.unitPrice) < 0)) return toast.error("Complete every bill line with a description, positive quantity and valid rate.");
     }
-    if (currentKind === "transactions" && ["customer payment", "cheque"].includes(form.type)) {
+    if (saveKind === "transactions" && ["customer payment", "cheque"].includes(form.type)) {
       const required = [form.party, form.number, form.transactionDate, form.currency, form.exchangeRate, form.transactionLocationId];
       if (required.some((value) => !value?.trim()) || Number(form.exchangeRate) <= 0) return toast.error("Complete the party, reference, date, inventory, currency and exchange rate.");
       if (Number(lines[0]?.unitPrice ?? 0) <= 0) return toast.error("Enter an amount greater than zero.");
     }
     setSaving(true);
     try {
-      const editingItem = currentKind === "items" && editingItemId !== null;
-      const billFreightCharge = currentKind === "transactions" && form.type === "bill" ? Number(form.freightCharges ?? 0) : 0;
+      const editingItem = saveKind === "items" && editingItemId !== null;
+      const billFreightCharge = saveKind === "transactions" && form.type === "bill" ? Number(form.freightCharges ?? 0) : 0;
       const billVatRate = form.isImport === "true" ? "5" : "0";
       const submittedLines = billFreightCharge > 0 ? [...lines, { itemId: "", description: "Freight Charges", quantity: "1", unitPrice: String(billFreightCharge), unitCost: String(billFreightCharge), vatCode: billVatRate === "5" ? "STANDARD" : "ZERO", vatRate: billVatRate }] : lines;
-      const selectedLocationId = currentKind === "transactions" && form.type === "bill" ? Number(form.billLocationId || activeLocationId) : currentKind === "transactions" ? Number(form.transactionLocationId || activeLocationId) : activeLocationId;
-      const response = await fetch("/api/records", { method: editingItem ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: currentKind, companyId: activeCompanyId, locationId: selectedLocationId, ...(editingItem ? { id: editingItemId } : {}), ...form, ...(currentKind === "transactions" ? { lines: submittedLines } : {}) }) });
+      const selectedLocationId = saveKind === "transactions" && form.type === "bill" ? Number(form.billLocationId || activeLocationId) : saveKind === "transactions" ? Number(form.transactionLocationId || activeLocationId) : activeLocationId;
+      const response = await fetch("/api/records", { method: editingItem ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: saveKind, companyId: activeCompanyId, locationId: selectedLocationId, ...(editingItem ? { id: editingItemId } : {}), ...form, ...(saveKind === "transactions" ? { lines: submittedLines } : {}) }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not save record");
-      setRecords((old) => ({ ...old, [currentKind]: editingItem ? old[currentKind].map((record) => record.id === data.record.id ? data.record : record) : [data.record, ...old[currentKind]] }));
-      setDialogOpen(false); setEditingItemId(null); toast.success(data.generatedAccount ? `${data.generatedAccount.name} created and linked automatically` : editingItem ? "Item updated" : "Record saved and posted");
-      if (currentKind === "transactions" && selectedLocationId !== activeLocationId) setActiveLocationId(selectedLocationId);
+      setRecords((old) => ({ ...old, [saveKind]: editingItem ? old[saveKind].map((record) => record.id === data.record.id ? data.record : record) : [data.record, ...old[saveKind]] }));
+      setDialogOpen(false); setEditorKind(null); setEditingItemId(null); toast.success(data.generatedAccount ? `${data.generatedAccount.name} created and linked automatically` : editingItem ? "Item updated" : "Record saved and posted");
+      if (saveKind === "transactions" && selectedLocationId !== activeLocationId) setActiveLocationId(selectedLocationId);
       else await loadData();
-      if (currentKind === "transactions" && form.type === "invoice") await loadWorkspaces();
+      if (saveKind === "transactions" && form.type === "invoice") await loadWorkspaces();
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save record"); }
     finally { setSaving(false); }
   }
@@ -524,6 +540,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
 
   const heading = viewTitles[view];
   const createLabel = currentKind === "contacts" ? `New ${view === "employees" ? "Employee" : view === "vendors" ? "Vendor" : "Customer"}` : currentKind === "items" ? "New Item" : currentKind === "accounts" ? "New Account" : view === "purchases" ? "Enter Bill" : view === "receive-payment" ? "Receive Payment" : view === "write-cheque" ? "Write Cheque" : `New ${transactionTypes[view]?.[0] ?? "Transaction"}`;
+  const editorLabel = activeEditorKind === "transactions" && editorKind === "transactions" ? form.type?.split(" ").map((word) => word[0]?.toUpperCase() + word.slice(1)).join(" ") : createLabel;
 
   return (
     <SidebarProvider data-user-theme={themeColor} data-appearance={appearanceMode}>
@@ -578,21 +595,21 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
         </header>
 
         <div className="mx-auto w-full max-w-[1500px] p-4 lg:p-7">
-          {view === "inventory-overview" ? <InventoryOverview /> : view === "transfers" ? <MultiLineTransferCenter key={`${activeCompanyId}-${activeLocationId}`} companies={companies} activeLocationId={activeLocationId} onTransferred={loadData} /> : view === "journal-entries" ? <JournalEntryCenter key={`${activeCompanyId}-${activeLocationId}`} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} locationId={activeLocationId} locationName={activeLocations.find((location) => location.id === activeLocationId)?.name ?? "Inventory"} currency={baseCurrency} accounts={records.accounts.map((account) => ({ id: account.id, code: String(account.code), name: String(account.name), type: String(account.type), active: Boolean(account.active) }))} onPosted={loadData} /> : view === "vat-management" ? <VatManagementCenter key={`${activeCompanyId}-${activeLocationId}`} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} locationId={activeLocationId} locationName={activeLocations.find((location) => location.id === activeLocationId)?.name ?? "Inventory"} currency={baseCurrency} canWrite={canWriteCurrentView} canManageCodes={currentUser.role === "admin"} onOpenReport={openReport} onManageCodes={() => setView("vat-codes")} /> : view === "currencies" ? <CurrencyRateCenter key={activeCompanyId} company={activeCompany} currencies={currencies} onCompanyChanged={loadWorkspaces} onRatesChanged={loadExchangeRates} /> : view === "vat-codes" ? <VatCodeCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} onChanged={loadVatCodes} /> : view === "admin-controls" ? <AdminSettingsCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} currentUserEmail={currentUser.email} /> : managementView ? <WorkspaceCenter mode={view as "companies" | "inventories" | "invoice-series" | "currencies"} companies={companies} activeCompanyId={activeCompanyId} onChanged={loadWorkspaces} /> : view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} themeColor={themeColor} themeSaving={themeSaving} onThemeChange={changeTheme} onNavigate={(next) => { if (roleViews[currentUser.role].includes(next)) setView(next); }} onCreate={openCreate} onOpenDetail={openDetail} canCreate={roleWriteViews[currentUser.role].includes("sales")} canViewReports={roleViews[currentUser.role].includes("reports")} /> : view === "reports" ? <ReportCenter metrics={metrics} currency={baseCurrency} onOpen={openReport} loading={reportLoading} /> : (
+          {view === "inventory-overview" ? <InventoryOverview /> : view === "transfers" ? <MultiLineTransferCenter key={`${activeCompanyId}-${activeLocationId}`} companies={companies} activeLocationId={activeLocationId} onTransferred={loadData} /> : view === "journal-entries" ? <JournalEntryCenter key={`${activeCompanyId}-${activeLocationId}`} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} locationId={activeLocationId} locationName={activeLocations.find((location) => location.id === activeLocationId)?.name ?? "Inventory"} currency={baseCurrency} accounts={records.accounts.map((account) => ({ id: account.id, code: String(account.code), name: String(account.name), type: String(account.type), active: Boolean(account.active) }))} onPosted={loadData} /> : view === "vat-management" ? <VatManagementCenter key={`${activeCompanyId}-${activeLocationId}`} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} locationId={activeLocationId} locationName={activeLocations.find((location) => location.id === activeLocationId)?.name ?? "Inventory"} currency={baseCurrency} canWrite={canWriteCurrentView} canManageCodes={currentUser.role === "admin"} onOpenReport={openReport} onManageCodes={() => setView("vat-codes")} /> : view === "currencies" ? <CurrencyRateCenter key={activeCompanyId} company={activeCompany} currencies={currencies} onCompanyChanged={loadWorkspaces} onRatesChanged={loadExchangeRates} /> : view === "vat-codes" ? <VatCodeCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} onChanged={loadVatCodes} /> : view === "admin-controls" ? <AdminSettingsCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} currentUserEmail={currentUser.email} /> : managementView ? <WorkspaceCenter mode={view as "companies" | "inventories" | "invoice-series" | "currencies"} companies={companies} activeCompanyId={activeCompanyId} onChanged={loadWorkspaces} /> : view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} themeColor={themeColor} themeSaving={themeSaving} onThemeChange={changeTheme} onNavigate={(next) => { if (roleViews[currentUser.role].includes(next)) setView(next); }} onCreate={openCreate} onOpenDetail={openDetail} canCreate={roleWriteViews[currentUser.role].includes("sales")} canViewReports={roleViews[currentUser.role].includes("reports")} /> : view === "reports" ? <ReportCenter metrics={metrics} currency={baseCurrency} onOpen={openReport} loading={reportLoading} /> : view === "customers" ? <CustomerCenter records={filteredRecords} accounts={records.accounts} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreateCustomer={openCreate} onDelete={removeRecord} onTransaction={openTransaction} onStatement={() => openReport("customer-statements")} onOpenDetail={openDetail} canWrite={canWriteCurrentView} canDelete={currentUser.role === "admin"} reportLoading={reportLoading} /> : (
             <RecordView view={view} kind={currentKind} records={filteredRecords} accounts={records.accounts} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onEditItem={openItemEdit} onDuplicateItem={duplicateItem} onOpenDetail={openDetail} canWrite={canWriteCurrentView} canDelete={currentUser.role === "admin"} />
           )}
         </div>
       </SidebarInset>
 
-      <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) setEditingItemId(null); }}>
-        <DialogContent className={`max-h-[90vh] overflow-y-auto ${currentKind === "transactions" || currentKind === "items" || (currentKind === "contacts" && view === "customers") ? "sm:max-w-5xl" : "sm:max-w-xl"}`}>
-          <DialogHeader><DialogTitle>{editingItemId !== null && currentKind === "items" ? "Edit Item" : createLabel}</DialogTitle><DialogDescription>{editingItemId !== null && currentKind === "items" ? "Update the category and item description details." : currentKind === "transactions" && form.type === "bill" ? "Select the vendor and enter the bill items below." : "Enter the record details below. Required fields are marked."}</DialogDescription></DialogHeader>
+      <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) { setEditingItemId(null); setEditorKind(null); } }}>
+        <DialogContent className={`max-h-[90vh] overflow-y-auto ${activeEditorKind === "transactions" || activeEditorKind === "items" || (activeEditorKind === "contacts" && view === "customers") ? "sm:max-w-5xl" : "sm:max-w-xl"}`}>
+          <DialogHeader><DialogTitle>{editingItemId !== null && activeEditorKind === "items" ? "Edit Item" : editorLabel}</DialogTitle><DialogDescription>{editingItemId !== null && activeEditorKind === "items" ? "Update the category and item description details." : activeEditorKind === "transactions" && form.type === "bill" ? "Select the vendor and enter the bill items below." : "Enter the record details below. Required fields are marked."}</DialogDescription></DialogHeader>
           <form onSubmit={saveRecord} className="space-y-5">
-            {currentKind === "transactions" && <TransactionFields form={form} setForm={setForm} types={transactionTypes[view] ?? transactionTypes.dashboard} items={records.items} contacts={records.contacts} accounts={records.accounts} locations={activeLocations} lines={lines} setLines={setLines} vatCodeOptions={vatCodeOptions} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />}
-            {currentKind === "contacts" && <ContactFields form={form} setForm={setForm} accounts={records.accounts} />}
-            {currentKind === "items" && <ItemFields form={form} setForm={setForm} items={records.items} />}
-            {currentKind === "accounts" && <AccountFields form={form} setForm={setForm} accounts={records.accounts} />}
-            <DialogFooter><Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button><Button type="submit" disabled={saving} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400">{saving ? "Saving…" : editingItemId !== null && currentKind === "items" ? "Save changes" : "Save record"}</Button></DialogFooter>
+            {activeEditorKind === "transactions" && <TransactionFields form={form} setForm={setForm} types={view === "customers" ? [form.type] : transactionTypes[view] ?? transactionTypes.dashboard} items={records.items} contacts={records.contacts} accounts={records.accounts} locations={activeLocations} lines={lines} setLines={setLines} vatCodeOptions={vatCodeOptions} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />}
+            {activeEditorKind === "contacts" && <ContactFields form={form} setForm={setForm} accounts={records.accounts} />}
+            {activeEditorKind === "items" && <ItemFields form={form} setForm={setForm} items={records.items} />}
+            {activeEditorKind === "accounts" && <AccountFields form={form} setForm={setForm} accounts={records.accounts} />}
+            <DialogFooter><Button type="button" variant="outline" onClick={() => { setDialogOpen(false); setEditorKind(null); }}>Cancel</Button><Button type="submit" disabled={saving} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400">{saving ? "Saving…" : editingItemId !== null && activeEditorKind === "items" ? "Save changes" : "Save record"}</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
@@ -635,6 +652,26 @@ function Dashboard({ metrics, records, companyName, currency, themeColor, themeS
 }
 
 function StatusLine({ label, value, action }: { label: string; value: number; action: () => void }) { return <button onClick={action} className="brand-status-line flex w-full items-center justify-between rounded-lg border border-slate-100 p-3 text-left"><span className="text-sm text-slate-600">{label}</span><span className="flex items-center gap-2 font-bold text-slate-900">{value}<ChevronRight className="size-4 text-slate-400" /></span></button>; }
+
+function CustomerCenter({ records, accounts, currency, loading, search, setSearch, onRefresh, onCreateCustomer, onDelete, onTransaction, onStatement, onOpenDetail, canWrite, canDelete, reportLoading }: { records: DataRecord[]; accounts: DataRecord[]; currency: string; loading: boolean; search: string; setSearch: (v: string) => void; onRefresh: () => void; onCreateCustomer: () => void; onDelete: (id: number) => void; onTransaction: (type: string) => void; onStatement: () => void; onOpenDetail: (id: number) => void; canWrite: boolean; canDelete: boolean; reportLoading: boolean }) {
+  const actions = [
+    { label: "Create Estimates", detail: "Prepare a customer quotation", type: "estimate", icon: FileBarChart2 },
+    { label: "Create Invoices", detail: "Post sales and accounts receivable", type: "invoice", shortcut: "Ctrl+I", icon: ReceiptText },
+    { label: "Enter Sales Receipts", detail: "Record an immediate customer sale", type: "sales receipt", icon: CircleDollarSign },
+    { label: "Enter Statement Charges", detail: "Add a charge directly to a statement", type: "statement charge", icon: Plus },
+    { label: "Create Statements", detail: "Review and print customer activity", report: true, icon: FileBarChart2 },
+    { label: "Assess Finance Charges", detail: "Post a finance charge to receivables", type: "finance charge", icon: BadgeDollarSign },
+    { label: "Receive Payments", detail: "Reduce the customer's open balance", type: "customer payment", icon: WalletCards },
+    { label: "Create Credit Notes / Refunds", detail: "Reduce receivables with a customer credit", type: "credit memo", icon: RefreshCw },
+  ];
+  return <div className="space-y-6">
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-b bg-slate-50/80 p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-slate-900">Customer workflows</h2><p className="mt-1 text-sm text-slate-500">Create and post every customer document from one place.</p></div><Badge variant="outline" className="w-fit">Customer Centre · Ctrl+J</Badge></div>
+      <div className="grid gap-px bg-slate-200 sm:grid-cols-2 xl:grid-cols-4">{actions.map((action) => <button key={action.label} type="button" disabled={(action.report ? reportLoading : false) || (!action.report && !canWrite)} onClick={() => action.report ? onStatement() : action.type && onTransaction(action.type)} className="group min-h-32 bg-white p-5 text-left transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"><div className="flex items-start justify-between gap-3"><span className="grid size-10 place-items-center rounded-lg bg-slate-100 text-slate-600 group-hover:bg-emerald-100 group-hover:text-emerald-700"><action.icon className="size-5" /></span>{action.shortcut && <span className="text-xs font-medium text-slate-400">{action.shortcut}</span>}</div><p className="mt-4 text-sm font-bold text-slate-900">{action.label}</p><p className="mt-1 text-xs leading-5 text-slate-500">{action.detail}</p></button>)}</div>
+    </section>
+    <RecordView view="customers" kind="contacts" records={records} accounts={accounts} currency={currency} loading={loading} search={search} setSearch={setSearch} onRefresh={onRefresh} onCreate={onCreateCustomer} onDelete={onDelete} onEditItem={() => {}} onDuplicateItem={() => {}} onOpenDetail={onOpenDetail} canWrite={canWrite} canDelete={canDelete} />
+  </div>;
+}
 
 function RecordView({ view, kind, records, accounts, currency, loading, search, setSearch, onRefresh, onCreate, onDelete, onEditItem, onDuplicateItem, onOpenDetail, canWrite, canDelete }: { view: View; kind: Kind; records: DataRecord[]; accounts: DataRecord[]; currency: string; loading: boolean; search: string; setSearch: (v: string) => void; onRefresh: () => void; onCreate: () => void; onDelete: (id: number) => void; onEditItem: (item: DataRecord) => void; onDuplicateItem: (id: number) => void; onOpenDetail: (id: number) => void; canWrite: boolean; canDelete: boolean }) {
   const [stockFilter, setStockFilter] = useState<"all" | "in" | "low" | "out">("all");
@@ -946,11 +983,12 @@ function TransactionFields({ form, setForm, types, items, contacts, accounts, lo
   if (form.type === "bill") return <BillFields form={form} setForm={setForm} items={items} vendors={contacts.filter((contact) => contact.type === "vendor")} salesmen={contacts.filter((contact) => contact.type === "employee")} accounts={accounts} locations={locations} lines={lines} setLines={setLines} vatCodeOptions={vatCodeOptions} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />;
   if (["customer payment", "cheque"].includes(form.type)) return <CashTransactionFields form={form} setForm={setForm} contacts={contacts} accounts={accounts} locations={locations} lines={lines} setLines={setLines} vatCodeOptions={vatCodeOptions} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />;
   const update = (index: number, changes: Partial<LineForm>) => setLines(lines.map((line, position) => position === index ? { ...line, ...changes } : line));
+  const customerDocument = ["invoice", "sales receipt", "estimate", "sales order", "credit memo", "statement charge", "finance charge"].includes(form.type);
   const subtotal = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0), 0);
   const vat = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0) * Number(line.vatRate || 0) / 100, 0);
   return <div className="grid gap-4 sm:grid-cols-2">
     <Choice label="Transaction type" name="type" values={types} form={form} setForm={setForm} /><Field label="Document number" name="number" form={form} setForm={setForm} required />
-    <div className="space-y-2 sm:col-span-2"><Label>{["invoice", "sales receipt", "estimate", "sales order", "credit memo"].includes(form.type) ? "Customer" : "Vendor / payee"} *</Label><Select value={form.party || undefined} onValueChange={(value) => { const contactType = ["invoice", "sales receipt", "estimate", "sales order", "credit memo"].includes(form.type) ? "customer" : "vendor"; const party = contacts.find((entry) => entry.type === contactType && String(entry.name) === value); const currency = String(party?.currency || form.currency); const savedRate = exchangeRates.find((entry) => entry.currencyCode === currency)?.rate; setForm({ ...form, party: value, currency, exchangeRate: currency === baseCurrency ? "1" : savedRate ? String(savedRate) : "" }); }}><SelectTrigger className="w-full"><SelectValue placeholder="Select customer or vendor" /></SelectTrigger><SelectContent>{contacts.filter((contact) => contact.type === (["invoice", "sales receipt", "estimate", "sales order", "credit memo"].includes(form.type) ? "customer" : "vendor")).map((contact) => <SelectItem key={contact.id} value={String(contact.name)}>{String(contact.company || contact.name)} · {String(contact.currency)}</SelectItem>)}</SelectContent></Select></div>
+    <div className="space-y-2 sm:col-span-2"><Label>{customerDocument ? "Customer" : "Vendor / payee"} *</Label><Select value={form.party || undefined} onValueChange={(value) => { const contactType = customerDocument ? "customer" : "vendor"; const party = contacts.find((entry) => entry.type === contactType && String(entry.name) === value); const currency = String(party?.currency || form.currency); const savedRate = exchangeRates.find((entry) => entry.currencyCode === currency)?.rate; setForm({ ...form, party: value, currency, exchangeRate: currency === baseCurrency ? "1" : savedRate ? String(savedRate) : "" }); }}><SelectTrigger className="w-full"><SelectValue placeholder={customerDocument ? "Select customer" : "Select vendor or payee"} /></SelectTrigger><SelectContent>{contacts.filter((contact) => contact.type === (customerDocument ? "customer" : "vendor")).map((contact) => <SelectItem key={contact.id} value={String(contact.name)}>{String(contact.company || contact.name)} · {String(contact.currency)}</SelectItem>)}</SelectContent></Select></div>
     <Field label="Transaction date" name="transactionDate" type="date" form={form} setForm={setForm} required /><Field label="Due date" name="dueDate" type="date" form={form} setForm={setForm} />
     <CurrencyExchangeChoice form={form} setForm={setForm} exchangeRates={exchangeRates} baseCurrency={baseCurrency} /><Field label={`Exchange rate to ${baseCurrency}`} name="exchangeRate" type="number" form={form} setForm={setForm} required />
     <div className="space-y-3 rounded-xl border bg-slate-50 p-3 sm:col-span-2">
