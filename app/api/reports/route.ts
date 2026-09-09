@@ -90,6 +90,20 @@ export async function GET(request: Request) {
       const bankAccounts = new Set(allAccounts.filter((account) => account.systemRole === "BANK" || account.type === "Bank").map((account) => account.name));
       rows = ledgerRows.filter((row) => bankAccounts.has(row.name)).map((row) => ({ name: row.name, amount: row.balance }));
       columns = [{ key: "name", label: "Activity" }, { key: "amount", label: "Amount", ...money }];
+    } else if (key === "bank-register") {
+      title = "Bank Register";
+      const bankAccounts = new Set(allAccounts.filter((account) => account.systemRole === "BANK" || account.type === "Bank").map((account) => account.name));
+      const balances = new Map<string, number>();
+      rows = journal.filter((row) => bankAccounts.has(row.account)).map((row) => {
+        const balance = (balances.get(row.account) ?? 0) + Number(row.debit) - Number(row.credit);
+        balances.set(row.account, balance);
+        return { account: row.account, date: row.date, reference: row.reference, description: row.description, debit: row.debit, credit: row.credit, balance };
+      });
+      columns = [{ key: "account", label: "Bank Account" }, { key: "date", label: "Date" }, { key: "reference", label: "Reference" }, { key: "description", label: "Description" }, { key: "debit", label: "Debit", ...money }, { key: "credit", label: "Credit", ...money }, { key: "balance", label: "Balance", ...money }];
+    } else if (key === "bank-reconciliation") {
+      title = "Bank Reconciliation";
+      rows = allTransactions.filter((row) => (!Number.isInteger(locationId) || locationId <= 0 || row.locationId === locationId) && ["deposit", "cheque", "transfer", "credit card charge", "customer payment", "bill payment"].includes(row.type)).map((row) => ({ date: row.transactionDate, number: row.number, type: row.type, party: row.party, status: row.status === "cleared" ? "Cleared" : "Uncleared", amount: row.baseTotal }));
+      columns = [{ key: "date", label: "Date" }, { key: "number", label: "Reference" }, { key: "type", label: "Type" }, { key: "party", label: "Name / Account" }, { key: "status", label: "Reconciliation Status" }, { key: "amount", label: "Amount", ...money }];
     } else if (key.startsWith("ar-aging")) {
       title = key.endsWith("detail") ? "A/R Aging Detail" : "A/R Aging Summary"; rows = aged(["invoice", "statement charge", "finance charge"]); columns = agingColumns;
     } else if (key.startsWith("ap-aging")) {

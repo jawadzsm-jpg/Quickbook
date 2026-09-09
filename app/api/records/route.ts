@@ -30,7 +30,7 @@ function writePermission(kind: RecordKind, payload: Record<string, unknown>): Pe
   const type = String(payload.type ?? "");
   if (["invoice", "estimate", "sales order", "sales receipt", "statement charge", "finance charge", "credit memo", "customer payment"].includes(type)) return "sales:write";
   if (["bill", "purchase order", "item receipt", "received item bill", "vendor credit", "bill payment", "vendor payment"].includes(type)) return "purchases:write";
-  if (["expense", "deposit", "cheque", "transfer", "opening balance", "journal entry"].includes(type)) return "banking:write";
+  if (["expense", "deposit", "cheque", "credit card charge", "cheque order", "transfer", "opening balance", "journal entry"].includes(type)) return "banking:write";
   return "accounting:manage";
 }
 
@@ -318,6 +318,14 @@ export async function POST(request: Request) {
       const companyPrefix = `C${String(companyId).padStart(3, "0")}`;
       number = `${companyPrefix}-${sequence.invoicePrefix}-INV-${String(sequence.nextInvoiceNumber - 1).padStart(4, "0")}`;
     }
+    if (["transfer", "credit card charge"].includes(type)) {
+      const bankingAccounts = await db.select({ name: accounts.name, type: accounts.type, systemRole: accounts.systemRole }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true)));
+      if (type === "transfer") {
+        const selected = bankingAccounts.filter((candidate) => [recordAccount(payload), party].includes(candidate.name) && (candidate.type === "Bank" || candidate.systemRole === "BANK"));
+        if (selected.length !== 2 || recordAccount(payload) === party) return Response.json({ error: "Choose two different active bank accounts for the transfer." }, { status: 400 });
+      }
+      if (type === "credit card charge" && !bankingAccounts.some((candidate) => candidate.type === "Credit Card")) return Response.json({ error: "Add an active Credit Card account in the Chart of Accounts before entering card charges." }, { status: 400 });
+    }
     const [record] = await db.insert(transactions).values({
       companyId, locationId: Number.isInteger(locationId) ? locationId : null, number, type, party,
       salesman: String(payload.salesman ?? ""), isImport: payload.isImport === true || String(payload.isImport) === "true",
@@ -327,10 +335,10 @@ export async function POST(request: Request) {
     }).returning();
     await db.insert(transactionLines).values(prepared.map((line) => ({ ...line, transactionId: record.id })));
 
-    const nonPosting = ["estimate", "sales order", "purchase order"].includes(type);
-    const partyContactType = ["invoice", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(type) ? "customer" : ["bill", "purchase order", "item receipt", "received item bill", "vendor credit", "bill payment", "vendor payment", "cheque"].includes(type) ? "vendor" : null;
+    const nonPosting = ["estimate", "sales order", "purchase order", "cheque order"].includes(type);
+    const partyContactType = ["invoice", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(type) ? "customer" : ["bill", "purchase order", "item receipt", "received item bill", "vendor credit", "bill payment", "vendor payment", "cheque", "credit card charge", "cheque order"].includes(type) ? "vendor" : null;
     const [partyContact] = partyContactType ? await db.select({ ledgerAccountId: contacts.ledgerAccountId }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.name, party), eq(contacts.type, partyContactType))).limit(1) : [];
-    const linkedRows = await db.select({ id: accounts.id, name: accounts.name, systemRole: accounts.systemRole, currency: accounts.currency }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true)));
+    const linkedRows = await db.select({ id: accounts.id, name: accounts.name, type: accounts.type, systemRole: accounts.systemRole, currency: accounts.currency }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true)));
     const linkedAccounts: Record<string, string> = {};
     for (const account of linkedRows.filter((entry) => entry.systemRole && !["AR", "AP"].includes(entry.systemRole))) linkedAccounts[account.systemRole!] = account.name;
     for (const role of ["AR", "AP"]) {
@@ -338,10 +346,12 @@ export async function POST(request: Request) {
       const selected = candidates.find((account) => account.id === partyContact?.ledgerAccountId) ?? candidates.find((account) => account.currency === currency) ?? candidates[0];
       if (selected) linkedAccounts[role] = selected.name;
     }
+    const creditCardAccount = linkedRows.find((account) => account.type === "Credit Card");
+    if (creditCardAccount) linkedAccounts.CREDIT_CARD = creditCardAccount.name;
     const postingAccountRole = linkedRows.find((account) => account.name.toLowerCase() === record.account.toLowerCase())?.systemRole ?? "";
     if (!nonPosting) {
       const [entry] = await db.insert(journalEntries).values({ companyId, locationId: Number.isInteger(locationId) && locationId > 0 ? locationId : null, transactionId: record.id, entryDate: transactionDate, reference: number, description: `${type}: ${party}` }).returning();
-      const baseLines = postingLines(type, record.account, baseSubtotal, baseVatAmount, baseTotal, linkedAccounts);
+      const baseLines = postingLines(type, record.account, record.party, baseSubtotal, baseVatAmount, baseTotal, linkedAccounts);
       const cogs = ["invoice", "sales receipt"].includes(type) ? round(prepared.reduce((sum, line) => sum + line.quantity * line.unitCost, 0) * exchangeRate) : 0;
       if (cogs) baseLines.push({ accountName: linkedAccounts.COGS ?? "Cost of Goods Sold", debit: cogs, credit: 0 }, { accountName: linkedAccounts.INVENTORY ?? "Inventory Asset", debit: 0, credit: cogs });
       await db.insert(journalLines).values(baseLines.map((line) => ({ ...line, journalEntryId: entry.id })));
@@ -398,6 +408,10 @@ export async function PATCH(request: Request) {
   }
 }
 
+function recordAccount(payload: Record<string, unknown>) {
+  return String(payload.account ?? "").trim();
+}
+
 function contactBalanceChange(type: string, total: number, accountRole = "") {
   if (["invoice", "statement charge", "finance charge", "bill", "received item bill"].includes(type)) return total;
   if (type === "cheque" && accountRole === "AP") return -total;
@@ -405,7 +419,7 @@ function contactBalanceChange(type: string, total: number, accountRole = "") {
   return 0;
 }
 
-function postingLines(type: string, account: string, subtotal: number, vatAmount: number, total: number, linked: Record<string, string>) {
+function postingLines(type: string, account: string, party: string, subtotal: number, vatAmount: number, total: number, linked: Record<string, string>) {
   const named = (role: string, fallback: string) => linked[role] ?? fallback;
   if (["invoice", "sales receipt"].includes(type)) return [
     { accountName: type === "invoice" ? named("AR", "Accounts Receivable") : named("BANK", "Business Bank"), debit: total, credit: 0 },
@@ -448,6 +462,12 @@ function postingLines(type: string, account: string, subtotal: number, vatAmount
     { accountName: named("BANK", "Business Bank"), debit: 0, credit: total },
   ];
   if (type === "deposit") return [{ accountName: named("BANK", "Business Bank"), debit: total, credit: 0 }, { accountName: account || named("OTHER_INCOME", "Other Income"), debit: 0, credit: total }];
+  if (type === "transfer") return [{ accountName: party, debit: total, credit: 0 }, { accountName: account || named("BANK", "Business Bank"), debit: 0, credit: total }];
+  if (type === "credit card charge") return [
+    { accountName: account || named("EXPENSE", "Operating Expenses"), debit: subtotal, credit: 0 },
+    ...(vatAmount ? [{ accountName: named("INPUT_VAT", "Recoverable VAT"), debit: vatAmount, credit: 0 }] : []),
+    { accountName: named("CREDIT_CARD", named("BANK", "Business Bank")), debit: 0, credit: total },
+  ];
   return [{ accountName: account || named("SUSPENSE", "Suspense"), debit: total, credit: 0 }, { accountName: named("EQUITY", "Opening Balance Equity"), debit: 0, credit: total }];
 }
 
