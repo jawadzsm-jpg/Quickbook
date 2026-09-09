@@ -6,7 +6,7 @@ import {
   AlertTriangle, ArrowRightLeft, BadgeDollarSign, Bell, BookOpen, BookOpenCheck, Boxes, Building2, CheckCircle2, Copy,
   Check, ChevronDown, ChevronRight, CircleDollarSign, Clock3, Download, FileBarChart2, Landmark,
   Eye, KeyRound, LayoutDashboard, LogOut, PackageCheck, PackageSearch, PackageX, Palette, Pencil, Plus, Printer, ReceiptText, RefreshCw,
-  Search, Settings, ShieldCheck, ShoppingCart, Trash2, Users, WalletCards, Percent,
+  Search, Settings, ShieldCheck, ShoppingCart, Sun, Moon, Trash2, Users, WalletCards, Percent,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -42,7 +42,8 @@ import { JournalEntryCenter } from "@/app/journal-entry-center";
 type View = "dashboard" | "inventory-overview" | "sales" | "receive-payment" | "purchases" | "write-cheque" | "customers" | "vendors" | "inventory" | "transfers" | "banking" | "journal-entries" | "accounts" | "employees" | "reports" | "companies" | "inventories" | "invoice-series" | "currencies" | "vat-codes" | "admin-controls";
 type AppRole = "admin" | "accountant" | "sales" | "purchasing" | "inventory" | "viewer";
 type UserTheme = "emerald" | "ocean" | "indigo" | "violet" | "rose" | "amber";
-type CurrentUser = { id: number; fullName: string; email: string; avatarData: string; themeColor: string; role: AppRole; mustChangePassword: boolean };
+type AppearanceMode = "light" | "dark";
+type CurrentUser = { id: number; fullName: string; email: string; avatarData: string; themeColor: string; appearanceMode: AppearanceMode; role: AppRole; mustChangePassword: boolean };
 type Kind = "transactions" | "contacts" | "items" | "accounts";
 type DataRecord = Record<string, string | number | boolean> & { id: number };
 type LineForm = { itemId: string; description: string; quantity: string; unitPrice: string; unitCost: string; vatCode: string; vatRate: string };
@@ -244,6 +245,13 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   const [exchangeRates, setExchangeRates] = useState<ExchangeRateRecord[]>([]);
   const [themeColor, setThemeColor] = useState<UserTheme>(isUserTheme(currentUser.themeColor) ? currentUser.themeColor : "emerald");
   const [themeSaving, setThemeSaving] = useState(false);
+  const [appearanceMode, setAppearanceMode] = useState<AppearanceMode>(currentUser.appearanceMode === "dark" ? "dark" : "light");
+  const [appearanceSaving, setAppearanceSaving] = useState(false);
+
+  useEffect(() => {
+    document.documentElement.dataset.appearance = appearanceMode;
+    return () => { delete document.documentElement.dataset.appearance; };
+  }, [appearanceMode]);
 
   const activeCompany = companies.find((company) => company.id === activeCompanyId);
   const activeLocations = useMemo(() => activeCompany?.locations ?? [], [activeCompany]);
@@ -268,6 +276,22 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
       setThemeColor(previousTheme);
       toast.error(error instanceof Error ? error.message : "Could not save interface color");
     } finally { setThemeSaving(false); }
+  }
+
+  async function changeAppearance(nextMode: AppearanceMode) {
+    if (nextMode === appearanceMode || appearanceSaving) return;
+    const previousMode = appearanceMode;
+    setAppearanceMode(nextMode);
+    setAppearanceSaving(true);
+    try {
+      const response = await fetch("/api/user-preferences", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ appearanceMode: nextMode }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not save appearance mode");
+      toast.success(`${nextMode === "dark" ? "Dark" : "Light"} mode saved`);
+    } catch (error) {
+      setAppearanceMode(previousMode);
+      toast.error(error instanceof Error ? error.message : "Could not save appearance mode");
+    } finally { setAppearanceSaving(false); }
   }
 
   const loadWorkspaces = useCallback(async () => {
@@ -496,7 +520,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   const createLabel = currentKind === "contacts" ? `New ${view === "employees" ? "Employee" : view === "vendors" ? "Vendor" : "Customer"}` : currentKind === "items" ? "New Item" : currentKind === "accounts" ? "New Account" : view === "purchases" ? "Enter Bill" : view === "receive-payment" ? "Receive Payment" : view === "write-cheque" ? "Write Cheque" : `New ${transactionTypes[view]?.[0] ?? "Transaction"}`;
 
   return (
-    <SidebarProvider data-user-theme={themeColor}>
+    <SidebarProvider data-user-theme={themeColor} data-appearance={appearanceMode}>
       <Sidebar collapsible="icon" className="brand-sidebar border-r border-slate-800 bg-[#0d1726] text-slate-100">
         <SidebarHeader className="border-b border-white/10 p-4">
           <div className="flex items-center gap-3 overflow-hidden">
@@ -537,6 +561,9 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
         <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur lg:px-7">
           <div className="flex min-w-0 items-center gap-3"><SidebarTrigger className="text-slate-600" /><div className="hidden h-5 w-px bg-slate-200 sm:block" /><div className="min-w-0"><h1 className="truncate text-lg font-bold text-slate-900">{heading.title}</h1><p className="hidden truncate text-xs text-slate-500 sm:block">{heading.sub}</p></div></div>
           <div className="flex items-center gap-2">
+            <Button type="button" variant="ghost" size="icon" disabled={appearanceSaving} onClick={() => changeAppearance(appearanceMode === "light" ? "dark" : "light")} aria-label={`Switch to ${appearanceMode === "light" ? "dark" : "light"} mode`} title={`Switch to ${appearanceMode === "light" ? "dark" : "light"} mode`}>
+              {appearanceMode === "light" ? <Moon className="size-4" /> : <Sun className="size-4" />}
+            </Button>
             <Badge variant="outline" className="hidden sm:inline-flex">{baseCurrency}</Badge>
             <Select value={String(activeLocationId || "")} onValueChange={(value) => { setActiveLocationId(Number(value)); setSearch(""); }}><SelectTrigger className="w-[165px]"><SelectValue placeholder="Inventory" /></SelectTrigger><SelectContent>{activeLocations.map((location) => <SelectItem key={location.id} value={String(location.id)}>{location.name}</SelectItem>)}</SelectContent></Select>
             <Button variant="ghost" size="icon" aria-label="Notifications"><Bell className="size-4" /></Button>

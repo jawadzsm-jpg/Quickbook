@@ -39,7 +39,7 @@ export async function POST(request: Request) {
   const lastLoginAt = new Date().toISOString();
   await getDb().update(appUsers).set({ failedLoginAttempts: 0, lockedUntil: null, lastLoginAt, lastLoginIp: loginIp, lastLoginUserAgent: loginUserAgent, updatedAt: lastLoginAt }).where(eq(appUsers.id, user.id));
   const token = await createSession(user.id);
-  return Response.json({ user: { id: user.id, fullName: user.fullName, email: user.email, avatarData: user.avatarData, themeColor: user.themeColor, role: user.role, mustChangePassword: user.mustChangePassword } }, { headers: { "Set-Cookie": sessionCookie(token), "Cache-Control": "no-store" } });
+  return Response.json({ user: { id: user.id, fullName: user.fullName, email: user.email, avatarData: user.avatarData, themeColor: user.themeColor, appearanceMode: user.appearanceMode, role: user.role, mustChangePassword: user.mustChangePassword } }, { headers: { "Set-Cookie": sessionCookie(token), "Cache-Control": "no-store" } });
 }
 
 export async function PATCH(request: Request) {

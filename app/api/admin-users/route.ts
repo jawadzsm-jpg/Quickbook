@@ -9,7 +9,7 @@ const roleNames: Record<AppRole, string> = { admin: "Administrator", accountant:
 const validAvatar = (value: string) => !value || (/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(value) && value.length <= 1_100_000);
 const publicUser = (user: typeof appUsers.$inferSelect, currentUserId: number) => ({
   id: user.id, fullName: user.fullName, email: user.email, phone: user.phone, whatsapp: user.whatsapp, avatarData: user.avatarData,
-  themeColor: user.themeColor, role: user.role, active: user.active, mustChangePassword: user.mustChangePassword, createdAt: user.createdAt,
+  themeColor: user.themeColor, appearanceMode: user.appearanceMode, role: user.role, active: user.active, mustChangePassword: user.mustChangePassword, createdAt: user.createdAt,
   lastLoginAt: user.lastLoginAt, lastLoginIp: user.lastLoginIp, lastLoginUserAgent: user.lastLoginUserAgent, isCurrent: user.id === currentUserId,
 });
 
