@@ -3,7 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import {
-  AlertTriangle, ArrowRightLeft, BadgeDollarSign, Bell, BookOpen, Boxes, Building2, CheckCircle2, Copy,
+  AlertTriangle, ArrowRightLeft, BadgeDollarSign, Bell, BookOpen, BookOpenCheck, Boxes, Building2, CheckCircle2, Copy,
   Check, ChevronDown, ChevronRight, CircleDollarSign, Clock3, Download, FileBarChart2, Landmark,
   Eye, KeyRound, LayoutDashboard, LogOut, PackageCheck, PackageSearch, PackageX, Palette, Pencil, Plus, Printer, ReceiptText, RefreshCw,
   Search, Settings, ShieldCheck, ShoppingCart, Trash2, Users, WalletCards, Percent,
@@ -37,8 +37,9 @@ import { InventoryOverview } from "@/app/inventory-overview";
 import { UserRoleCenter } from "@/app/user-role-center";
 import { VatCodeCenter, type VatCodeRecord } from "@/app/vat-code-center";
 import { CurrencyRateCenter, type ExchangeRateRecord } from "@/app/currency-rate-center";
+import { JournalEntryCenter } from "@/app/journal-entry-center";
 
-type View = "dashboard" | "inventory-overview" | "sales" | "receive-payment" | "purchases" | "write-cheque" | "customers" | "vendors" | "inventory" | "transfers" | "banking" | "accounts" | "employees" | "reports" | "companies" | "inventories" | "invoice-series" | "currencies" | "vat-codes" | "admin-controls";
+type View = "dashboard" | "inventory-overview" | "sales" | "receive-payment" | "purchases" | "write-cheque" | "customers" | "vendors" | "inventory" | "transfers" | "banking" | "journal-entries" | "accounts" | "employees" | "reports" | "companies" | "inventories" | "invoice-series" | "currencies" | "vat-codes" | "admin-controls";
 type AppRole = "admin" | "accountant" | "sales" | "purchasing" | "inventory" | "viewer";
 type UserTheme = "emerald" | "ocean" | "indigo" | "violet" | "rose" | "amber";
 type CurrentUser = { id: number; fullName: string; email: string; avatarData: string; themeColor: string; role: AppRole; mustChangePassword: boolean };
@@ -82,6 +83,7 @@ const navGroups = [
     { id: "inventory", label: "Inventory", icon: PackageSearch },
     { id: "transfers", label: "Stock Transfers", icon: ArrowRightLeft },
     { id: "banking", label: "Banking", icon: Landmark },
+    { id: "journal-entries", label: "General Journal", icon: BookOpenCheck },
     { id: "accounts", label: "Chart of Accounts", icon: BookOpen },
     { id: "employees", label: "Employees & HR", icon: WalletCards },
     { id: "reports", label: "Reports", icon: FileBarChart2 },
@@ -107,7 +109,7 @@ const roleLabels: Record<AppRole, string> = {
 
 const roleViews: Record<AppRole, readonly View[]> = {
   admin: navGroups.flatMap((group) => group.items.map((item) => item.id)),
-  accountant: ["dashboard", "inventory-overview", "sales", "receive-payment", "customers", "purchases", "write-cheque", "vendors", "banking", "accounts", "reports"],
+  accountant: ["dashboard", "inventory-overview", "sales", "receive-payment", "customers", "purchases", "write-cheque", "vendors", "banking", "journal-entries", "accounts", "reports"],
   sales: ["dashboard", "inventory-overview", "sales", "receive-payment", "customers"],
   purchasing: ["dashboard", "inventory-overview", "purchases", "write-cheque", "vendors"],
   inventory: ["dashboard", "inventory-overview", "inventory", "transfers"],
@@ -115,8 +117,8 @@ const roleViews: Record<AppRole, readonly View[]> = {
 };
 
 const roleWriteViews: Record<AppRole, readonly View[]> = {
-  admin: ["sales", "receive-payment", "customers", "purchases", "write-cheque", "vendors", "inventory", "transfers", "banking", "accounts", "employees", "companies", "inventories", "invoice-series", "currencies", "vat-codes", "admin-controls"],
-  accountant: ["sales", "receive-payment", "customers", "purchases", "write-cheque", "vendors", "banking", "accounts"],
+  admin: ["sales", "receive-payment", "customers", "purchases", "write-cheque", "vendors", "inventory", "transfers", "banking", "journal-entries", "accounts", "employees", "companies", "inventories", "invoice-series", "currencies", "vat-codes", "admin-controls"],
+  accountant: ["sales", "receive-payment", "customers", "purchases", "write-cheque", "vendors", "banking", "journal-entries", "accounts"],
   sales: ["sales", "receive-payment", "customers"],
   purchasing: ["purchases", "write-cheque", "vendors"],
   inventory: ["inventory", "transfers"],
@@ -135,6 +137,7 @@ const viewTitles: Record<View, { title: string; sub: string }> = {
   inventory: { title: "Inventory Center", sub: "Stock levels, pricing, costs and reorder controls" },
   transfers: { title: "Stock Transfers", sub: "Move stock between companies and inventory locations" },
   banking: { title: "Banking", sub: "Deposits, cheques, transfers and account activity" },
+  "journal-entries": { title: "General Journal Entries", sub: "Post balanced debits and credits directly to the ledger" },
   accounts: { title: "Chart of Accounts", sub: "Assets, liabilities, equity, income and expenses" },
   employees: { title: "Employees & HR", sub: "Employee records and balances" },
   reports: { title: "Report Center", sub: "Financial, sales, purchasing and inventory analysis" },
@@ -343,7 +346,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   }, [records.accounts, records.transactions]);
 
   const currentKind: Kind = view === "customers" || view === "vendors" || view === "employees" ? "contacts" : view === "inventory" ? "items" : view === "accounts" ? "accounts" : "transactions";
-  const managementView = view === "inventory-overview" || view === "transfers" || view === "companies" || view === "inventories" || view === "invoice-series" || view === "currencies" || view === "vat-codes" || view === "admin-controls";
+  const managementView = view === "inventory-overview" || view === "transfers" || view === "journal-entries" || view === "companies" || view === "inventories" || view === "invoice-series" || view === "currencies" || view === "vat-codes" || view === "admin-controls";
   const visibleNavGroups = navGroups.map((group) => ({ ...group, items: group.items.filter((item) => roleViews[currentUser.role].includes(item.id)) })).filter((group) => group.items.length > 0);
   const canWriteCurrentView = roleWriteViews[currentUser.role].includes(view);
 
@@ -542,7 +545,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
         </header>
 
         <div className="mx-auto w-full max-w-[1500px] p-4 lg:p-7">
-          {view === "inventory-overview" ? <InventoryOverview /> : view === "transfers" ? <MultiLineTransferCenter key={`${activeCompanyId}-${activeLocationId}`} companies={companies} activeLocationId={activeLocationId} onTransferred={loadData} /> : view === "currencies" ? <CurrencyRateCenter key={activeCompanyId} company={activeCompany} currencies={currencies} onCompanyChanged={loadWorkspaces} onRatesChanged={loadExchangeRates} /> : view === "vat-codes" ? <VatCodeCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} onChanged={loadVatCodes} /> : view === "admin-controls" ? <AdminSettingsCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} currentUserEmail={currentUser.email} /> : managementView ? <WorkspaceCenter mode={view as "companies" | "inventories" | "invoice-series" | "currencies"} companies={companies} activeCompanyId={activeCompanyId} onChanged={loadWorkspaces} /> : view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} themeColor={themeColor} themeSaving={themeSaving} onThemeChange={changeTheme} onNavigate={(next) => { if (roleViews[currentUser.role].includes(next)) setView(next); }} onCreate={openCreate} onOpenDetail={openDetail} canCreate={roleWriteViews[currentUser.role].includes("sales")} canViewReports={roleViews[currentUser.role].includes("reports")} /> : view === "reports" ? <ReportCenter metrics={metrics} currency={baseCurrency} onOpen={openReport} loading={reportLoading} /> : (
+          {view === "inventory-overview" ? <InventoryOverview /> : view === "transfers" ? <MultiLineTransferCenter key={`${activeCompanyId}-${activeLocationId}`} companies={companies} activeLocationId={activeLocationId} onTransferred={loadData} /> : view === "journal-entries" ? <JournalEntryCenter key={`${activeCompanyId}-${activeLocationId}`} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} locationId={activeLocationId} locationName={activeLocations.find((location) => location.id === activeLocationId)?.name ?? "Inventory"} currency={baseCurrency} accounts={records.accounts.map((account) => ({ id: account.id, code: String(account.code), name: String(account.name), type: String(account.type), active: Boolean(account.active) }))} onPosted={loadData} /> : view === "currencies" ? <CurrencyRateCenter key={activeCompanyId} company={activeCompany} currencies={currencies} onCompanyChanged={loadWorkspaces} onRatesChanged={loadExchangeRates} /> : view === "vat-codes" ? <VatCodeCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} onChanged={loadVatCodes} /> : view === "admin-controls" ? <AdminSettingsCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} currentUserEmail={currentUser.email} /> : managementView ? <WorkspaceCenter mode={view as "companies" | "inventories" | "invoice-series" | "currencies"} companies={companies} activeCompanyId={activeCompanyId} onChanged={loadWorkspaces} /> : view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} themeColor={themeColor} themeSaving={themeSaving} onThemeChange={changeTheme} onNavigate={(next) => { if (roleViews[currentUser.role].includes(next)) setView(next); }} onCreate={openCreate} onOpenDetail={openDetail} canCreate={roleWriteViews[currentUser.role].includes("sales")} canViewReports={roleViews[currentUser.role].includes("reports")} /> : view === "reports" ? <ReportCenter metrics={metrics} currency={baseCurrency} onOpen={openReport} loading={reportLoading} /> : (
             <RecordView view={view} kind={currentKind} records={filteredRecords} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onEditItem={openItemEdit} onDuplicateItem={duplicateItem} onOpenDetail={openDetail} canWrite={canWriteCurrentView} canDelete={currentUser.role === "admin"} />
           )}
         </div>

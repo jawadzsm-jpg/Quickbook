@@ -72,13 +72,11 @@ export async function GET(request: Request) {
     if (kind === "items") return Response.json({ records: await db.select().from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId))).orderBy(asc(items.name)) });
     if (kind === "accounts") {
       const accountRows = await db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(asc(accounts.code));
-      const locationTransactions = Number.isInteger(locationId) && locationId > 0
-        ? await db.select().from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId)))
-        : [];
-      const receivable = locationTransactions.reduce((balance, transaction) => transaction.type === "invoice" ? balance + Number(transaction.baseTotal) : ["customer payment", "credit memo"].includes(transaction.type) ? balance - Number(transaction.baseTotal) : balance, 0);
-      const apName = accountRows.find((account) => account.systemRole === "AP")?.name ?? "Accounts Payable";
-      const payable = locationTransactions.reduce((balance, transaction) => transaction.type === "bill" ? balance + Number(transaction.baseTotal) : ["bill payment", "vendor payment", "vendor credit"].includes(transaction.type) || (transaction.type === "cheque" && transaction.account === apName) ? balance - Number(transaction.baseTotal) : balance, 0);
-      return Response.json({ records: accountRows.map((account) => account.systemRole === "AR" ? { ...account, balance: receivable } : account.systemRole === "AP" ? { ...account, balance: payable } : account) });
+      const journalFilter = Number.isInteger(locationId) && locationId > 0 ? and(eq(journalEntries.companyId, companyId), eq(journalEntries.locationId, locationId)) : eq(journalEntries.companyId, companyId);
+      const balances = await db.select({ name: journalLines.accountName, debit: sql<number>`sum(${journalLines.debit})`, credit: sql<number>`sum(${journalLines.credit})` }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(journalFilter).groupBy(journalLines.accountName);
+      const ledger = new Map(balances.map((balance) => [balance.name, { debit: Number(balance.debit ?? 0), credit: Number(balance.credit ?? 0) }]));
+      const creditNormal = new Set(["Income", "Other Income", "Loan", "Credit Card", "Equity", "Accounts Payable", "Other Current Liability", "Long Term Liability"]);
+      return Response.json({ records: accountRows.map((account) => { const activity = ledger.get(account.name) ?? { debit: 0, credit: 0 }; const movement = creditNormal.has(account.type) ? activity.credit - activity.debit : activity.debit - activity.credit; return { ...account, balance: round(Number(account.balance) + movement) }; }) });
     }
     const transactionFilter = Number.isInteger(locationId) && locationId > 0 ? and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId)) : eq(transactions.companyId, companyId);
     return Response.json({ records: await db.select().from(transactions).where(transactionFilter).orderBy(desc(transactions.transactionDate), desc(transactions.id)).limit(500) });
@@ -265,7 +263,7 @@ export async function POST(request: Request) {
     const linkedAccounts = Object.fromEntries(linkedRows.filter((account) => account.systemRole).map((account) => [account.systemRole!, account.name]));
     const postingAccountRole = linkedRows.find((account) => account.name.toLowerCase() === record.account.toLowerCase())?.systemRole ?? "";
     if (!nonPosting) {
-      const [entry] = await db.insert(journalEntries).values({ companyId, transactionId: record.id, entryDate: transactionDate, reference: number, description: `${type}: ${party}` }).returning();
+      const [entry] = await db.insert(journalEntries).values({ companyId, locationId: Number.isInteger(locationId) && locationId > 0 ? locationId : null, transactionId: record.id, entryDate: transactionDate, reference: number, description: `${type}: ${party}` }).returning();
       const baseLines = postingLines(type, record.account, baseSubtotal, baseVatAmount, baseTotal, linkedAccounts);
       const cogs = ["invoice", "sales receipt"].includes(type) ? round(prepared.reduce((sum, line) => sum + line.quantity * line.unitCost, 0) * exchangeRate) : 0;
       if (cogs) baseLines.push({ accountName: linkedAccounts.COGS ?? "Cost of Goods Sold", debit: cogs, credit: 0 }, { accountName: linkedAccounts.INVENTORY ?? "Inventory Asset", debit: 0, credit: cogs });
@@ -363,8 +361,12 @@ export async function DELETE(request: Request) {
     if (kind === "contacts") await db.delete(contacts).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId)));
     else if (kind === "items") await db.delete(items).where(and(eq(items.id, id), eq(items.companyId, companyId)));
     else if (kind === "accounts") {
-      const [account] = await db.select({ systemRole: accounts.systemRole }).from(accounts).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId))).limit(1);
+      const [account] = await db.select({ name: accounts.name, systemRole: accounts.systemRole }).from(accounts).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId))).limit(1);
       if (account?.systemRole) return Response.json({ error: "Linked system accounts cannot be deleted." }, { status: 409 });
+      if (account) {
+        const [activity] = await db.select({ id: journalLines.id }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(and(eq(journalEntries.companyId, companyId), eq(journalLines.accountName, account.name))).limit(1);
+        if (activity) return Response.json({ error: "Accounts with journal activity cannot be deleted." }, { status: 409 });
+      }
       await db.delete(accounts).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId)));
     }
     else {

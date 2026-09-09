@@ -221,13 +221,14 @@ export const accounts = pgTable("accounts", {
 export const journalEntries = pgTable("journal_entries", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  locationId: integer("location_id").references(() => inventoryLocations.id, { onDelete: "set null" }),
   transactionId: integer("transaction_id").references(() => transactions.id, { onDelete: "cascade" }),
   entryDate: text("entry_date").notNull(),
   reference: text("reference").notNull(),
   description: text("description").notNull().default(""),
   posted: boolean("posted").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
-}, (table) => [index("idx_journal_entries_company_date").on(table.companyId, table.entryDate)]);
+}, (table) => [index("idx_journal_entries_company_date").on(table.companyId, table.entryDate), index("idx_journal_entries_location_date").on(table.locationId, table.entryDate)]);
 
 export const journalLines = pgTable("journal_lines", {
   id: serial("id").primaryKey(),

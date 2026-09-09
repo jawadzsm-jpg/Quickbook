@@ -1,6 +1,6 @@
 import { and, asc, eq, sum } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { contacts, items, journalEntries, journalLines, transactionLines, transactions } from "../../../db/schema";
+import { accounts, contacts, items, journalEntries, journalLines, transactionLines, transactions } from "../../../db/schema";
 import { requireApiUser } from "@/lib/auth";
 
 type Row = Record<string, string | number>;
@@ -20,19 +20,22 @@ export async function GET(request: Request) {
     const currency = String(url.searchParams.get("currency") ?? "AED");
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     const db = getDb();
-    const [allTransactions, allContacts, allItems, ledger, journal, lines] = await Promise.all([
+    const journalFilter = Number.isInteger(locationId) && locationId > 0 ? and(eq(journalEntries.companyId, companyId), eq(journalEntries.locationId, locationId)) : eq(journalEntries.companyId, companyId);
+    const [allTransactions, allContacts, allItems, allAccounts, ledger, journal, lines] = await Promise.all([
       db.select().from(transactions).where(eq(transactions.companyId, companyId)).orderBy(asc(transactions.transactionDate)),
       db.select().from(contacts).where(eq(contacts.companyId, companyId)).orderBy(asc(contacts.name)),
       db.select().from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId))).orderBy(asc(items.name)),
-      db.select({ name: journalLines.accountName, debit: sum(journalLines.debit), credit: sum(journalLines.credit) }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(eq(journalEntries.companyId, companyId)).groupBy(journalLines.accountName).orderBy(asc(journalLines.accountName)),
-      db.select({ date: journalEntries.entryDate, reference: journalEntries.reference, description: journalEntries.description, account: journalLines.accountName, debit: journalLines.debit, credit: journalLines.credit }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(eq(journalEntries.companyId, companyId)).orderBy(asc(journalEntries.entryDate), asc(journalLines.id)),
+      db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(asc(accounts.code)),
+      db.select({ name: journalLines.accountName, debit: sum(journalLines.debit), credit: sum(journalLines.credit) }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(journalFilter).groupBy(journalLines.accountName).orderBy(asc(journalLines.accountName)),
+      db.select({ date: journalEntries.entryDate, reference: journalEntries.reference, description: journalEntries.description, account: journalLines.accountName, debit: journalLines.debit, credit: journalLines.credit }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(journalFilter).orderBy(asc(journalEntries.entryDate), asc(journalLines.id)),
       db.select({ itemId: transactionLines.itemId, description: transactionLines.description, quantity: transactionLines.quantity, subtotal: transactionLines.subtotal, unitCost: transactionLines.unitCost, type: transactions.type, party: transactions.party, exchangeRate: transactions.exchangeRate }).from(transactionLines).innerJoin(transactions, eq(transactionLines.transactionId, transactions.id)).where(and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId))),
     ]);
-    const ledgerRows = ledger.map((row) => ({ name: row.name, debit: Number(row.debit ?? 0), credit: Number(row.credit ?? 0), balance: Number(row.debit ?? 0) - Number(row.credit ?? 0) }));
-    const incomeNames = ["Sales Revenue", "Other Income"];
-    const expenseNames = ["Purchases", "Operating Expenses", "Cost of Goods Sold"];
-    const assetNames = ["Business Bank", "Accounts Receivable", "Inventory Asset", "Recoverable VAT"];
-    const liabilityNames = ["Accounts Payable", "VAT Payable"];
+    const accountTypes = new Map(allAccounts.map((account) => [account.name, account.type]));
+    const ledgerRows = ledger.map((row) => ({ name: row.name, type: accountTypes.get(row.name) ?? "Unclassified", debit: Number(row.debit ?? 0), credit: Number(row.credit ?? 0), balance: Number(row.debit ?? 0) - Number(row.credit ?? 0) }));
+    const incomeTypes = new Set(["Income", "Other Income"]);
+    const expenseTypes = new Set(["Expense", "Cost of Goods Sold", "Other Expense"]);
+    const assetTypes = new Set(["Bank", "Accounts Receivable", "Other Current Asset", "Fixed Asset", "Other Asset"]);
+    const liabilityTypes = new Set(["Accounts Payable", "Other Current Liability", "Long Term Liability", "Loan", "Credit Card"]);
     const txRows = (types?: string[]) => allTransactions.filter((row) => !types || types.includes(row.type)).map((row) => ({ date: row.transactionDate, number: row.number, type: row.type, party: row.party, status: row.status, currency: row.currency, amount: row.baseTotal }));
     const txColumns = [{ key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "party", label: "Name" }, { key: "status", label: "Status" }, { key: "amount", label: "Amount", ...money }];
     const groupTransactions = (types: string[]) => {
@@ -59,14 +62,14 @@ export async function GET(request: Request) {
 
     if (key === "profit-loss") {
       title = "Profit & Loss Standard";
-      rows = ledgerRows.filter((row) => incomeNames.includes(row.name) || expenseNames.some((name) => row.name.includes(name)) || row.name.includes("Expense")).map((row) => ({ name: row.name, amount: incomeNames.includes(row.name) ? -row.balance : row.balance }));
-      const income = rows.filter((row) => incomeNames.includes(String(row.name))).reduce((n, row) => n + Number(row.amount), 0);
-      const expenses = rows.filter((row) => !incomeNames.includes(String(row.name))).reduce((n, row) => n + Number(row.amount), 0);
+      rows = ledgerRows.filter((row) => incomeTypes.has(row.type) || expenseTypes.has(row.type)).map((row) => ({ name: row.name, type: row.type, amount: incomeTypes.has(row.type) ? -row.balance : row.balance }));
+      const income = rows.filter((row) => incomeTypes.has(String(row.type))).reduce((n, row) => n + Number(row.amount), 0);
+      const expenses = rows.filter((row) => expenseTypes.has(String(row.type))).reduce((n, row) => n + Number(row.amount), 0);
       rows.push({ name: "Net income", amount: income - expenses });
       columns = [{ key: "name", label: "Account" }, { key: "amount", label: "Amount", ...money }];
     } else if (key === "balance-sheet") {
       title = "Balance Sheet Standard";
-      rows = ledgerRows.filter((row) => assetNames.includes(row.name) || liabilityNames.includes(row.name) || row.name.includes("Equity")).map((row) => ({ name: row.name, section: assetNames.includes(row.name) ? "Assets" : liabilityNames.includes(row.name) ? "Liabilities" : "Equity", amount: assetNames.includes(row.name) ? row.balance : -row.balance }));
+      rows = ledgerRows.filter((row) => assetTypes.has(row.type) || liabilityTypes.has(row.type) || row.type === "Equity").map((row) => ({ name: row.name, section: assetTypes.has(row.type) ? "Assets" : liabilityTypes.has(row.type) ? "Liabilities" : "Equity", amount: assetTypes.has(row.type) ? row.balance : -row.balance }));
       columns = [{ key: "section", label: "Section" }, { key: "name", label: "Account" }, { key: "amount", label: "Balance", ...money }];
     } else if (key === "trial-balance") {
       title = "Trial Balance"; rows = ledgerRows; columns = amountColumns();
@@ -75,7 +78,8 @@ export async function GET(request: Request) {
       rows = journal; columns = [{ key: "date", label: "Date" }, { key: "reference", label: "Reference" }, { key: "description", label: "Description" }, { key: "account", label: "Account" }, { key: "debit", label: "Debit", ...money }, { key: "credit", label: "Credit", ...money }];
     } else if (key === "cash-flow") {
       title = "Statement of Cash Flows";
-      rows = ledgerRows.filter((row) => row.name === "Business Bank").map((row) => ({ name: "Net cash from operating activities", amount: row.balance }));
+      const bankAccounts = new Set(allAccounts.filter((account) => account.systemRole === "BANK" || account.type === "Bank").map((account) => account.name));
+      rows = ledgerRows.filter((row) => bankAccounts.has(row.name)).map((row) => ({ name: row.name, amount: row.balance }));
       columns = [{ key: "name", label: "Activity" }, { key: "amount", label: "Amount", ...money }];
     } else if (key.startsWith("ar-aging")) {
       title = key.endsWith("detail") ? "A/R Aging Detail" : "A/R Aging Summary"; rows = aged("invoice"); columns = agingColumns;
