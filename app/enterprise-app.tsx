@@ -50,7 +50,7 @@ type DataRecord = Record<string, string | number | boolean> & { id: number };
 type LineForm = { itemId: string; description: string; quantity: string; unitPrice: string; unitCost: string; vatCode: string; vatRate: string };
 type InventoryLocation = { id: number; companyId: number; name: string; code: string; invoicePrefix: string; nextInvoiceNumber: number; receivable?: number; payable?: number };
 type CompanyWorkspace = { id: number; name: string; baseCurrency: string; locations: InventoryLocation[] };
-type ReportData = { title: string; generatedAt: string; currency: string; columns: Array<{ key: string; label: string; type?: "money" }>; rows: Array<Record<string, string | number>>; chart?: { labelKey: string; incomeKey: string; expenseKey: string } };
+type ReportData = { title: string; generatedAt: string; currency: string; columns: Array<{ key: string; label: string; type?: "money" }>; rows: Array<Record<string, string | number>>; chart?: { labelKey: string; incomeKey: string; expenseKey: string; incomeLabel?: string; expenseLabel?: string } };
 type TransactionDetail = { record: DataRecord; lines: DataRecord[]; journal: DataRecord[] };
 
 const userThemes: Array<{ value: UserTheme; label: string; color: string }> = [
@@ -184,6 +184,10 @@ const allReports = [
   ["Net Worth Graph", "Assets less liabilities with a visual summary", "Financial", "net-worth-graph"],
   ["Statement of Cash Flows", "Operating cash movement", "Financial", "cash-flow"],
   ["Cash Flow Forecast", "Projected cash from open receivables and payables", "Financial", "cash-flow-forecast"],
+  ["Budget Overview", "Income and expense budgets with current performance", "Budgets", "budget-overview"],
+  ["Budget vs. Actual", "Account-level budget comparison and variance", "Budgets", "budget-actual"],
+  ["Profit & Loss Budget Performance", "Budget performance for income and expenses", "Budgets", "budget-profit-loss"],
+  ["Budget vs. Actual Graph", "Monthly budget and actual performance", "Budgets", "budget-actual-graph"],
   ["Trial Balance", "Debit and credit balances by account", "Accountant", "trial-balance"],
   ["General Ledger", "Complete account transaction detail", "Accountant", "general-ledger"],
   ["Transaction Detail by Account", "Account activity with a running balance", "Accountant", "transaction-detail-account"],
@@ -258,7 +262,7 @@ const allReports = [
   ["Item Profitability", "Gross profit by inventory item", "Inventory", "item-profitability"],
 ] as const;
 
-const reportCategoryOrder = ["Financial", "Sales", "Customers", "Vendors", "Purchases", "Inventory", "Banking", "VAT", "Accountant", "Company"] as const;
+const reportCategoryOrder = ["Financial", "Budgets", "Sales", "Customers", "Vendors", "Purchases", "Inventory", "Banking", "VAT", "Accountant", "Company"] as const;
 type ReportCategory = (typeof reportCategoryOrder)[number];
 
 const currencies = ["AED", "USD", "EUR", "GBP", "SAR", "OMR", "QAR", "BHD", "KWD", "INR", "CNY", "HKD", "JPY", "CAD", "AUD"];
@@ -866,7 +870,7 @@ function ReportDialog({ report, companyName, onClose }: { report: ReportData | n
   const chartMax = report.chart ? Math.max(1, ...report.rows.flatMap((row) => [Math.abs(Number(row[report.chart!.incomeKey] ?? 0)), Math.abs(Number(row[report.chart!.expenseKey] ?? 0))])) : 1;
   return <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}><DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-6xl">
     <DialogHeader><div className="flex items-start justify-between gap-4 pr-8"><div><p className="text-xs font-bold tracking-[.18em] text-emerald-600">{companyName.toUpperCase()}</p><DialogTitle className="mt-2">{report.title}</DialogTitle><DialogDescription>Generated {new Date(report.generatedAt).toLocaleString("en-AE")} · {report.currency} accrual basis</DialogDescription></div><Button variant="outline" onClick={() => window.print()}><Printer className="size-4" />Print / PDF</Button></div></DialogHeader>
-    {report.chart && report.rows.length > 0 && <div className="rounded-xl border bg-slate-50 p-5"><div className="mb-4 flex gap-5 text-xs font-semibold"><span className="flex items-center gap-2"><span className="size-3 rounded-sm bg-emerald-500" />Income / Assets</span><span className="flex items-center gap-2"><span className="size-3 rounded-sm bg-amber-500" />Expenses / Liabilities</span></div><div className="grid min-h-56 grid-cols-6 items-end gap-3 md:grid-cols-12">{report.rows.slice(-12).map((row, index) => <div key={index} className="flex min-w-0 flex-col items-center gap-2"><div className="flex h-44 w-full items-end justify-center gap-1"><div className="w-1/2 rounded-t bg-emerald-500" style={{ height: `${Math.max(2, Math.abs(Number(row[report.chart!.incomeKey] ?? 0)) / chartMax * 100)}%` }} title={formatMoney(row[report.chart!.incomeKey], report.currency)} /><div className="w-1/2 rounded-t bg-amber-500" style={{ height: `${Math.max(2, Math.abs(Number(row[report.chart!.expenseKey] ?? 0)) / chartMax * 100)}%` }} title={formatMoney(row[report.chart!.expenseKey], report.currency)} /></div><span className="max-w-full truncate text-[11px] text-slate-500">{String(row[report.chart!.labelKey] ?? "")}</span></div>)}</div></div>}
+    {report.chart && report.rows.length > 0 && <div className="rounded-xl border bg-slate-50 p-5"><div className="mb-4 flex gap-5 text-xs font-semibold"><span className="flex items-center gap-2"><span className="size-3 rounded-sm bg-emerald-500" />{report.chart.incomeLabel ?? "Income / Assets"}</span><span className="flex items-center gap-2"><span className="size-3 rounded-sm bg-amber-500" />{report.chart.expenseLabel ?? "Expenses / Liabilities"}</span></div><div className="grid min-h-56 grid-cols-6 items-end gap-3 md:grid-cols-12">{report.rows.slice(-12).map((row, index) => <div key={index} className="flex min-w-0 flex-col items-center gap-2"><div className="flex h-44 w-full items-end justify-center gap-1"><div className="w-1/2 rounded-t bg-emerald-500" style={{ height: `${Math.max(2, Math.abs(Number(row[report.chart!.incomeKey] ?? 0)) / chartMax * 100)}%` }} title={formatMoney(row[report.chart!.incomeKey], report.currency)} /><div className="w-1/2 rounded-t bg-amber-500" style={{ height: `${Math.max(2, Math.abs(Number(row[report.chart!.expenseKey] ?? 0)) / chartMax * 100)}%` }} title={formatMoney(row[report.chart!.expenseKey], report.currency)} /></div><span className="max-w-full truncate text-[11px] text-slate-500">{String(row[report.chart!.labelKey] ?? "")}</span></div>)}</div></div>}
     <div className="overflow-x-auto rounded-xl border"><Table><TableHeader><TableRow>{report.columns.map((column) => <TableHead key={column.key} className={column.type === "money" ? "text-right" : ""}>{column.label}</TableHead>)}</TableRow></TableHeader><TableBody>{report.rows.length ? report.rows.map((row, index) => <TableRow key={index}>{report.columns.map((column) => <TableCell key={column.key} className={column.type === "money" ? "text-right font-medium" : ""}>{column.type === "money" ? formatMoney(row[column.key], report.currency) : String(row[column.key] ?? "—")}</TableCell>)}</TableRow>) : <EmptyRow text="No posted data is available for this report." columns={report.columns.length} />}</TableBody></Table></div>
   </DialogContent></Dialog>;
 }
