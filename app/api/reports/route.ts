@@ -381,7 +381,7 @@ export async function GET(request: Request) {
       title = "Unbilled Costs by Job";
       const locationNames = new Map(locations.map((location) => [location.id, location.name]));
       const grouped = new Map<string, { documents: number; amount: number }>();
-      scopedTransactions.filter((row) => ["purchase order", "item receipt"].includes(row.type) && !["paid", "closed", "billed", "cancelled"].includes(row.status)).forEach((row) => { const job = locationNames.get(row.locationId ?? 0) ?? "Unassigned"; const old = grouped.get(job) ?? { documents: 0, amount: 0 }; grouped.set(job, { documents: old.documents + 1, amount: old.amount + row.baseTotal }); });
+      scopedTransactions.filter((row) => ["purchase order", "item receipt"].includes(row.type) && !["paid", "closed", "billed", "cancelled", "converted"].includes(row.status)).forEach((row) => { const job = locationNames.get(row.locationId ?? 0) ?? "Unassigned"; const old = grouped.get(job) ?? { documents: 0, amount: 0 }; grouped.set(job, { documents: old.documents + 1, amount: old.amount + row.baseTotal }); });
       rows = [...grouped].map(([job, value]) => ({ job, ...value })).sort((a, b) => b.amount - a.amount);
       columns = [{ key: "job", label: "Job / Inventory" }, { key: "documents", label: "Open Documents" }, { key: "amount", label: "Unbilled Cost", ...money }];
     } else if (key === "customer-transactions") {
@@ -575,17 +575,17 @@ export async function GET(request: Request) {
     else if (key === "sales-orders") { title = "Sales Order Fulfilment"; rows = txRows(["sales order"]); }
     else if (key === "open-purchase-orders") {
       title = "Open Purchase Orders";
-      rows = scopedTransactions.filter((row) => row.type === "purchase order" && !["paid", "closed", "received", "cancelled"].includes(row.status)).map((row) => ({ date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, supplier: row.party, status: row.status, currency: row.currency, amount: row.baseTotal }));
+      rows = scopedTransactions.filter((row) => row.type === "purchase order" && !["paid", "closed", "received", "cancelled", "converted"].includes(row.status)).map((row) => ({ date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, supplier: row.party, status: row.status, currency: row.currency, amount: row.baseTotal }));
       columns = [{ key: "date", label: "Date" }, { key: "dueDate", label: "Expected Date" }, { key: "number", label: "PO No." }, { key: "supplier", label: "Supplier" }, { key: "status", label: "Status" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Amount", ...money }];
     } else if (key === "open-purchase-orders-detail") {
       title = "Open Purchase Orders Detail";
-      rows = lines.filter((line) => line.type === "purchase order" && !["paid", "closed", "received", "cancelled"].includes(line.status)).map((line) => ({ supplier: line.party, date: line.date, number: line.number, item: line.description, quantity: line.quantity, unitCost: line.quantity ? line.subtotal * line.exchangeRate / line.quantity : 0, amount: line.subtotal * line.exchangeRate }));
+      rows = lines.filter((line) => line.type === "purchase order" && !["paid", "closed", "received", "cancelled", "converted"].includes(line.status)).map((line) => ({ supplier: line.party, date: line.date, number: line.number, item: line.description, quantity: line.quantity, unitCost: line.quantity ? line.subtotal * line.exchangeRate / line.quantity : 0, amount: line.subtotal * line.exchangeRate }));
       columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Date" }, { key: "number", label: "PO No." }, { key: "item", label: "Item" }, { key: "quantity", label: "Open Quantity" }, { key: "unitCost", label: "Unit Cost", ...money }, { key: "amount", label: "Open Amount", ...money }];
     } else if (key === "open-purchase-orders-job") {
       title = "Open Purchase Orders by Job";
       const locationNames = new Map(locations.map((location) => [location.id, location.name]));
       const grouped = new Map<string, { orders: number; suppliers: Set<string>; amount: number }>();
-      scopedTransactions.filter((row) => row.type === "purchase order" && !["paid", "closed", "received", "cancelled"].includes(row.status)).forEach((row) => { const job = locationNames.get(row.locationId ?? 0) ?? "Unassigned"; const old = grouped.get(job) ?? { orders: 0, suppliers: new Set<string>(), amount: 0 }; old.orders += 1; old.suppliers.add(row.party); old.amount += row.baseTotal; grouped.set(job, old); });
+      scopedTransactions.filter((row) => row.type === "purchase order" && !["paid", "closed", "received", "cancelled", "converted"].includes(row.status)).forEach((row) => { const job = locationNames.get(row.locationId ?? 0) ?? "Unassigned"; const old = grouped.get(job) ?? { orders: 0, suppliers: new Set<string>(), amount: 0 }; old.orders += 1; old.suppliers.add(row.party); old.amount += row.baseTotal; grouped.set(job, old); });
       rows = [...grouped].map(([job, value]) => ({ job, orders: value.orders, suppliers: value.suppliers.size, amount: value.amount })).sort((a, b) => b.amount - a.amount);
       columns = [{ key: "job", label: "Job / Inventory" }, { key: "orders", label: "Open Orders" }, { key: "suppliers", label: "Suppliers" }, { key: "amount", label: "Open Amount", ...money }];
     }

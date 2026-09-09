@@ -112,7 +112,7 @@ export async function GET(request: Request) {
       }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(eq(journalEntries.transactionId, id)).orderBy(asc(journalLines.id));
       const [sourceDocument] = record.sourceTransactionId ? await db.select({ number: transactions.number, type: transactions.type }).from(transactions).where(eq(transactions.id, record.sourceTransactionId)).limit(1) : [];
       const [convertedDocument] = record.convertedInvoiceId ? await db.select({ number: transactions.number, type: transactions.type }).from(transactions).where(eq(transactions.id, record.convertedInvoiceId)).limit(1) : [];
-      return Response.json({ record: { ...record, sourceDocumentNumber: sourceDocument?.number ?? "", sourceDocumentType: sourceDocument?.type ?? "", convertedInvoiceNumber: convertedDocument?.number ?? "" }, lines, journal });
+      return Response.json({ record: { ...record, sourceDocumentNumber: sourceDocument?.number ?? "", sourceDocumentType: sourceDocument?.type ?? "", convertedDocumentNumber: convertedDocument?.number ?? "", convertedDocumentType: convertedDocument?.type ?? "", convertedInvoiceNumber: convertedDocument?.type === "invoice" ? convertedDocument.number : "" }, lines, journal });
     }
     if (kind === "contacts") return Response.json({ records: await db.select().from(contacts).where(eq(contacts.companyId, companyId)).orderBy(asc(contacts.name)) });
     if (kind === "items") return Response.json({ records: await db.select().from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId))).orderBy(asc(items.name)) });
@@ -245,19 +245,21 @@ export async function POST(request: Request) {
     }
 
     const type = String(payload.type ?? "invoice");
-    const conversionSourceId = type === "invoice" ? Number(payload.sourceTransactionId) : NaN;
+    const conversionSourceId = ["invoice", "bill"].includes(type) ? Number(payload.sourceTransactionId) : NaN;
     let rawLines = Array.isArray(payload.lines) ? payload.lines as InputLine[] : [];
     if (Number.isInteger(conversionSourceId) && conversionSourceId > 0) {
       const [source] = await db.select().from(transactions).where(and(eq(transactions.id, conversionSourceId), eq(transactions.companyId, companyId))).limit(1);
-      if (!source || !["quotation", "estimate", "sales order"].includes(source.type)) return Response.json({ error: "Only a quotation, estimate, or sales order can be converted to an invoice." }, { status: 400 });
-      if (source.convertedInvoiceId || source.status === "converted") return Response.json({ error: "This document has already been converted to an invoice." }, { status: 409 });
-      if (source.locationId !== locationId) return Response.json({ error: "Create the invoice from the same inventory as the source document." }, { status: 400 });
+      const validSalesConversion = type === "invoice" && ["quotation", "estimate", "sales order"].includes(source?.type ?? "");
+      const validPurchaseConversion = type === "bill" && source?.type === "purchase order";
+      if (!source || (!validSalesConversion && !validPurchaseConversion)) return Response.json({ error: type === "bill" ? "Only a purchase order can be converted to a supplier bill." : "Only a quotation, estimate, or sales order can be converted to an invoice." }, { status: 400 });
+      if (source.convertedInvoiceId || source.status === "converted") return Response.json({ error: "This document has already been converted." }, { status: 409 });
+      if (source.locationId !== locationId) return Response.json({ error: "Create the new document from the same inventory as the source document." }, { status: 400 });
       rawLines = await db.select().from(transactionLines).where(eq(transactionLines.transactionId, conversionSourceId)).orderBy(asc(transactionLines.id));
       payload.party = source.party;
       payload.salesman = source.salesman;
       payload.currency = source.currency;
       payload.exchangeRate = source.exchangeRate;
-      payload.account = source.account;
+      if (type === "invoice") payload.account = source.account;
       payload.memo = [source.memo, `Converted from ${source.type} ${source.number}`].filter(Boolean).join(" · ");
     }
     const party = String(payload.party ?? "").trim();
