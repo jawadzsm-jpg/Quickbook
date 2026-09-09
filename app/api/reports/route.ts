@@ -485,7 +485,7 @@ export async function GET(request: Request) {
       chart = { labelKey: "month", incomeKey: "sales", expenseKey: "refunds" };
     } else if (key === "pending-sales") {
       title = "Pending Sales";
-      rows = scopedTransactions.filter((row) => ["estimate", "sales order", "invoice"].includes(row.type) && !["paid", "cleared", "cancelled", "closed"].includes(row.status)).map((row) => ({ date: row.transactionDate, dueDate: row.dueDate, number: row.number, type: row.type, customer: row.party, salesman: row.salesman || "Unassigned", status: row.status, amount: row.baseTotal }));
+      rows = scopedTransactions.filter((row) => ["quotation", "estimate", "sales order", "invoice"].includes(row.type) && !["paid", "cleared", "cancelled", "closed", "converted"].includes(row.status)).map((row) => ({ date: row.transactionDate, dueDate: row.dueDate, number: row.number, type: row.type, customer: row.party, salesman: row.salesman || "Unassigned", status: row.status, amount: row.baseTotal }));
       columns = [{ key: "date", label: "Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "customer", label: "Customer" }, { key: "salesman", label: "Sales Rep" }, { key: "status", label: "Status" }, { key: "amount", label: "Amount", ...money }];
     } else if (key === "sales-by-customer" || key === "customer-balances") {
       title = key === "sales-by-customer" ? "Sales by Customer" : "Customer Balance Summary";

@@ -28,7 +28,7 @@ function writePermission(kind: RecordKind, payload: Record<string, unknown>): Pe
     return "admin";
   }
   const type = String(payload.type ?? "");
-  if (["invoice", "estimate", "sales order", "sales receipt", "statement charge", "finance charge", "credit memo", "customer payment"].includes(type)) return "sales:write";
+  if (["invoice", "quotation", "estimate", "sales order", "sales receipt", "statement charge", "finance charge", "credit memo", "customer payment"].includes(type)) return "sales:write";
   if (["bill", "purchase order", "item receipt", "received item bill", "vendor credit", "bill payment", "vendor payment"].includes(type)) return "purchases:write";
   if (["expense", "deposit", "cheque", "credit card charge", "cheque order", "transfer", "opening balance", "journal entry"].includes(type)) return "banking:write";
   return "accounting:manage";
@@ -110,7 +110,9 @@ export async function GET(request: Request) {
       const journal = await db.select({
         accountName: journalLines.accountName, debit: journalLines.debit, credit: journalLines.credit,
       }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(eq(journalEntries.transactionId, id)).orderBy(asc(journalLines.id));
-      return Response.json({ record, lines, journal });
+      const [sourceDocument] = record.sourceTransactionId ? await db.select({ number: transactions.number, type: transactions.type }).from(transactions).where(eq(transactions.id, record.sourceTransactionId)).limit(1) : [];
+      const [convertedDocument] = record.convertedInvoiceId ? await db.select({ number: transactions.number, type: transactions.type }).from(transactions).where(eq(transactions.id, record.convertedInvoiceId)).limit(1) : [];
+      return Response.json({ record: { ...record, sourceDocumentNumber: sourceDocument?.number ?? "", sourceDocumentType: sourceDocument?.type ?? "", convertedInvoiceNumber: convertedDocument?.number ?? "" }, lines, journal });
     }
     if (kind === "contacts") return Response.json({ records: await db.select().from(contacts).where(eq(contacts.companyId, companyId)).orderBy(asc(contacts.name)) });
     if (kind === "items") return Response.json({ records: await db.select().from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId))).orderBy(asc(items.name)) });
@@ -242,9 +244,23 @@ export async function POST(request: Request) {
       return Response.json({ record }, { status: 201 });
     }
 
-    const party = String(payload.party ?? "").trim();
     const type = String(payload.type ?? "invoice");
-    const rawLines = Array.isArray(payload.lines) ? payload.lines as InputLine[] : [];
+    const conversionSourceId = type === "invoice" ? Number(payload.sourceTransactionId) : NaN;
+    let rawLines = Array.isArray(payload.lines) ? payload.lines as InputLine[] : [];
+    if (Number.isInteger(conversionSourceId) && conversionSourceId > 0) {
+      const [source] = await db.select().from(transactions).where(and(eq(transactions.id, conversionSourceId), eq(transactions.companyId, companyId))).limit(1);
+      if (!source || !["quotation", "estimate", "sales order"].includes(source.type)) return Response.json({ error: "Only a quotation, estimate, or sales order can be converted to an invoice." }, { status: 400 });
+      if (source.convertedInvoiceId || source.status === "converted") return Response.json({ error: "This document has already been converted to an invoice." }, { status: 409 });
+      if (source.locationId !== locationId) return Response.json({ error: "Create the invoice from the same inventory as the source document." }, { status: 400 });
+      rawLines = await db.select().from(transactionLines).where(eq(transactionLines.transactionId, conversionSourceId)).orderBy(asc(transactionLines.id));
+      payload.party = source.party;
+      payload.salesman = source.salesman;
+      payload.currency = source.currency;
+      payload.exchangeRate = source.exchangeRate;
+      payload.account = source.account;
+      payload.memo = [source.memo, `Converted from ${source.type} ${source.number}`].filter(Boolean).join(" · ");
+    }
+    const party = String(payload.party ?? "").trim();
     const configuredVatCodes = await db.select({ code: vatCodes.code, rate: vatCodes.rate }).from(vatCodes).where(and(eq(vatCodes.companyId, companyId), eq(vatCodes.active, true)));
     const vatRates = configuredVatCodes.length ? Object.fromEntries(configuredVatCodes.map((vatCode) => [vatCode.code, Number(vatCode.rate)])) : fallbackVatRates;
     const prepared = rawLines.map((line) => {
@@ -332,11 +348,12 @@ export async function POST(request: Request) {
       transactionDate, dueDate: String(payload.dueDate ?? ""),
       account: String(payload.account ?? "Accounts Receivable"), status: String(payload.status ?? "open"), memo: String(payload.memo ?? ""),
       subtotal, vatRate: Number(payload.vatRate ?? 5), vatAmount, total, currency, exchangeRate, baseTotal,
+      sourceTransactionId: Number.isInteger(conversionSourceId) && conversionSourceId > 0 ? conversionSourceId : null,
     }).returning();
     await db.insert(transactionLines).values(prepared.map((line) => ({ ...line, transactionId: record.id })));
 
-    const nonPosting = ["estimate", "sales order", "purchase order", "cheque order"].includes(type);
-    const partyContactType = ["invoice", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(type) ? "customer" : ["bill", "purchase order", "item receipt", "received item bill", "vendor credit", "bill payment", "vendor payment", "cheque", "credit card charge", "cheque order"].includes(type) ? "vendor" : null;
+    const nonPosting = ["quotation", "estimate", "sales order", "purchase order", "cheque order"].includes(type);
+    const partyContactType = ["invoice", "quotation", "estimate", "sales order", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(type) ? "customer" : ["bill", "purchase order", "item receipt", "received item bill", "vendor credit", "bill payment", "vendor payment", "cheque", "credit card charge", "cheque order"].includes(type) ? "vendor" : null;
     const [partyContact] = partyContactType ? await db.select({ ledgerAccountId: contacts.ledgerAccountId }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.name, party), eq(contacts.type, partyContactType))).limit(1) : [];
     const linkedRows = await db.select({ id: accounts.id, name: accounts.name, type: accounts.type, systemRole: accounts.systemRole, currency: accounts.currency }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true)));
     const linkedAccounts: Record<string, string> = {};
@@ -367,7 +384,10 @@ export async function POST(request: Request) {
       const balanceChange = contactBalanceChange(type, total, postingAccountRole);
       if (balanceChange && partyContactType) await db.update(contacts).set({ balance: sql`${contacts.balance} + ${balanceChange}` }).where(and(eq(contacts.companyId, companyId), eq(contacts.name, party), eq(contacts.type, partyContactType)));
     }
-    await db.insert(auditLog).values({ companyId, action: "created", entityType: "transaction", entityId: record.id, details: `${number} ${type}; ${prepared.length} line(s)${usedAdminNegativeStockOverride ? "; admin negative-stock override used" : ""}` });
+    if (Number.isInteger(conversionSourceId) && conversionSourceId > 0) {
+      await db.update(transactions).set({ status: "converted", convertedInvoiceId: record.id }).where(and(eq(transactions.id, conversionSourceId), eq(transactions.companyId, companyId)));
+    }
+    await db.insert(auditLog).values({ companyId, action: Number.isInteger(conversionSourceId) && conversionSourceId > 0 ? "converted" : "created", entityType: "transaction", entityId: record.id, details: `${number} ${type}; ${prepared.length} line(s)${Number.isInteger(conversionSourceId) && conversionSourceId > 0 ? `; source document ${conversionSourceId}` : ""}${usedAdminNegativeStockOverride ? "; admin negative-stock override used" : ""}` });
     return Response.json({ record }, { status: 201 });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
