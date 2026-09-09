@@ -28,7 +28,7 @@ function writePermission(kind: RecordKind, payload: Record<string, unknown>): Pe
     return "admin";
   }
   const type = String(payload.type ?? "");
-  if (["invoice", "estimate", "sales order", "sales receipt", "credit memo", "customer payment"].includes(type)) return "sales:write";
+  if (["invoice", "estimate", "sales order", "sales receipt", "statement charge", "finance charge", "credit memo", "customer payment"].includes(type)) return "sales:write";
   if (["bill", "purchase order", "vendor credit", "bill payment", "vendor payment"].includes(type)) return "purchases:write";
   if (["expense", "deposit", "cheque", "transfer", "opening balance", "journal entry"].includes(type)) return "banking:write";
   return "accounting:manage";
@@ -328,7 +328,7 @@ export async function POST(request: Request) {
     await db.insert(transactionLines).values(prepared.map((line) => ({ ...line, transactionId: record.id })));
 
     const nonPosting = ["estimate", "sales order", "purchase order"].includes(type);
-    const partyContactType = ["invoice", "sales receipt", "customer payment", "credit memo"].includes(type) ? "customer" : ["bill", "purchase order", "vendor credit", "bill payment", "vendor payment", "cheque"].includes(type) ? "vendor" : null;
+    const partyContactType = ["invoice", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(type) ? "customer" : ["bill", "purchase order", "vendor credit", "bill payment", "vendor payment", "cheque"].includes(type) ? "vendor" : null;
     const [partyContact] = partyContactType ? await db.select({ ledgerAccountId: contacts.ledgerAccountId }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.name, party), eq(contacts.type, partyContactType))).limit(1) : [];
     const linkedRows = await db.select({ id: accounts.id, name: accounts.name, systemRole: accounts.systemRole, currency: accounts.currency }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true)));
     const linkedAccounts: Record<string, string> = {};
@@ -399,7 +399,7 @@ export async function PATCH(request: Request) {
 }
 
 function contactBalanceChange(type: string, total: number, accountRole = "") {
-  if (type === "invoice" || type === "bill") return total;
+  if (["invoice", "statement charge", "finance charge", "bill"].includes(type)) return total;
   if (type === "cheque" && accountRole === "AP") return -total;
   if (["customer payment", "credit memo", "bill payment", "vendor payment", "vendor credit"].includes(type)) return -total;
   return 0;
@@ -411,6 +411,20 @@ function postingLines(type: string, account: string, subtotal: number, vatAmount
     { accountName: type === "invoice" ? named("AR", "Accounts Receivable") : named("BANK", "Business Bank"), debit: total, credit: 0 },
     { accountName: named("SALES", "Sales Revenue"), debit: 0, credit: subtotal },
     ...(vatAmount ? [{ accountName: named("OUTPUT_VAT", "VAT Payable"), debit: 0, credit: vatAmount }] : []),
+  ];
+  if (type === "statement charge") return [
+    { accountName: named("AR", "Accounts Receivable"), debit: total, credit: 0 },
+    { accountName: account || named("SALES", "Sales Revenue"), debit: 0, credit: subtotal },
+    ...(vatAmount ? [{ accountName: named("OUTPUT_VAT", "VAT Payable"), debit: 0, credit: vatAmount }] : []),
+  ];
+  if (type === "finance charge") return [
+    { accountName: named("AR", "Accounts Receivable"), debit: total, credit: 0 },
+    { accountName: account || named("OTHER_INCOME", "Other Income"), debit: 0, credit: total },
+  ];
+  if (type === "credit memo") return [
+    { accountName: account || named("SALES", "Sales Revenue"), debit: subtotal, credit: 0 },
+    ...(vatAmount ? [{ accountName: named("OUTPUT_VAT", "VAT Payable"), debit: vatAmount, credit: 0 }] : []),
+    { accountName: named("AR", "Accounts Receivable"), debit: 0, credit: total },
   ];
   if (type === "customer payment") return [{ accountName: named("BANK", "Business Bank"), debit: total, credit: 0 }, { accountName: named("AR", "Accounts Receivable"), debit: 0, credit: total }];
   if (type === "bill") return [
@@ -452,7 +466,7 @@ export async function DELETE(request: Request) {
         for (const movement of movements) await db.update(items).set({ quantity: sql`${items.quantity} - ${movement.quantity}` }).where(eq(items.id, movement.itemId));
         const [postingAccount] = await db.select({ systemRole: accounts.systemRole }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.name, record.account))).limit(1);
         const balanceChange = contactBalanceChange(record.type, record.total, postingAccount?.systemRole ?? "");
-        const contactType = ["invoice", "sales receipt", "customer payment", "credit memo"].includes(record.type) ? "customer" : "vendor";
+        const contactType = ["invoice", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(record.type) ? "customer" : "vendor";
         if (balanceChange) await db.update(contacts).set({ balance: sql`${contacts.balance} - ${balanceChange}` }).where(and(eq(contacts.companyId, companyId), eq(contacts.name, record.party), eq(contacts.type, contactType)));
         await db.delete(transactions).where(eq(transactions.id, id));
         await db.insert(auditLog).values({ companyId, action: "deleted", entityType: "transaction", entityId: id, details: `${record.number} reversed` });
