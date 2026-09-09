@@ -106,6 +106,7 @@ export const contacts = pgTable("contacts", {
   planet: text("planet").notNull().default("No"),
   passport: text("passport").notNull().default(""),
   currency: text("currency").notNull().default("AED"),
+  ledgerAccountId: integer("ledger_account_id"),
   description: text("description").notNull().default(""),
   balance: doublePrecision("balance").notNull().default(0),
   status: text("status", { enum: ["active", "inactive"] }).notNull().default("active"),
@@ -213,11 +214,12 @@ export const accounts = pgTable("accounts", {
   name: text("name").notNull(),
   type: text("type").notNull(),
   systemRole: text("system_role"),
+  currency: text("currency").notNull().default("AED"),
   parentAccountId: integer("parent_account_id").references((): AnyPgColumn => accounts.id, { onDelete: "set null" }),
   balance: doublePrecision("balance").notNull().default(0),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
-}, (table) => [uniqueIndex("idx_accounts_company_code").on(table.companyId, table.code), uniqueIndex("idx_accounts_company_system_role").on(table.companyId, table.systemRole), index("idx_accounts_parent").on(table.parentAccountId)]);
+}, (table) => [uniqueIndex("idx_accounts_company_code").on(table.companyId, table.code), uniqueIndex("idx_accounts_company_system_role_currency").on(table.companyId, table.systemRole, table.currency), index("idx_accounts_parent").on(table.parentAccountId)]);
 
 export const journalEntries = pgTable("journal_entries", {
   id: serial("id").primaryKey(),

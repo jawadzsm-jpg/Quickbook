@@ -99,6 +99,8 @@ export async function POST(request: Request) {
 
     if (kind === "contacts") {
       const name = String(payload.name ?? "").trim();
+      const contactType = (payload.type as "customer" | "vendor" | "employee") ?? "customer";
+      const currency = String(payload.currency ?? "AED").trim().toUpperCase();
       if (!name) return Response.json({ error: "Name is required." }, { status: 400 });
       if (payload.type === "customer") {
         const required = [payload.company, payload.phone, payload.whatsapp, payload.country, payload.reseller, payload.planet, payload.currency];
@@ -108,12 +110,20 @@ export async function POST(request: Request) {
         const required = [payload.company, payload.phone, payload.country, payload.currency];
         if (required.some((value) => !String(value ?? "").trim())) return Response.json({ error: "Complete all required vendor fields." }, { status: 400 });
       }
+      let ledgerAccountId: number | null = null;
+      if (contactType === "customer" || contactType === "vendor") {
+        ledgerAccountId = Number(payload.ledgerAccountId);
+        const requiredRole = contactType === "customer" ? "AR" : "AP";
+        if (!Number.isInteger(ledgerAccountId) || ledgerAccountId <= 0) return Response.json({ error: `Select an active ${currency} ${contactType === "customer" ? "Accounts Receivable" : "Accounts Payable"} account.` }, { status: 400 });
+        const [linkedAccount] = await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.id, ledgerAccountId), eq(accounts.companyId, companyId), eq(accounts.systemRole, requiredRole), eq(accounts.currency, currency), eq(accounts.active, true))).limit(1);
+        if (!linkedAccount) return Response.json({ error: `The selected account must be an active ${currency} ${requiredRole === "AR" ? "Accounts Receivable" : "Accounts Payable"} account.` }, { status: 400 });
+      }
       const [record] = await db.insert(contacts).values({
-        companyId, type: (payload.type as "customer" | "vendor" | "employee") ?? "customer", name,
+        companyId, type: contactType, name,
         company: String(payload.company ?? ""), billingName: String(payload.billingName ?? name),
         email: String(payload.email ?? ""), phone: String(payload.phone ?? ""), whatsapp: String(payload.whatsapp ?? ""),
         country: String(payload.country ?? ""), trn: String(payload.trn ?? ""), reseller: String(payload.reseller ?? "Reseller"),
-        planet: String(payload.planet ?? "No"), passport: String(payload.passport ?? ""), currency: String(payload.currency ?? "AED"),
+        planet: String(payload.planet ?? "No"), passport: String(payload.passport ?? ""), currency, ledgerAccountId,
         description: String(payload.description ?? ""), balance: Number(payload.balance ?? 0),
       }).returning();
       return Response.json({ record }, { status: 201 });
@@ -161,15 +171,23 @@ export async function POST(request: Request) {
       const parentAccountId = Number(payload.parentAccountId);
       const requestedRole = String(payload.systemRole ?? "").trim().toUpperCase();
       const systemRole = accountRoles.includes(requestedRole) ? requestedRole : null;
+      const currency = String(payload.currency ?? "AED").trim().toUpperCase();
+      if (!/^[A-Z]{3}$/.test(currency)) return Response.json({ error: "Choose a valid three-letter account currency." }, { status: 400 });
       if (Number.isInteger(parentAccountId) && parentAccountId > 0) {
         const [parent] = await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.id, parentAccountId), eq(accounts.companyId, companyId))).limit(1);
         if (!parent) return Response.json({ error: "Select a valid parent account from this company." }, { status: 400 });
       }
       if (systemRole) {
-        const [linked] = await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.systemRole, systemRole))).limit(1);
-        if (linked) return Response.json({ error: "That system use is already linked to another account." }, { status: 409 });
+        const filters = systemRole === "AR" || systemRole === "AP"
+          ? and(eq(accounts.companyId, companyId), eq(accounts.systemRole, systemRole), eq(accounts.currency, currency))
+          : and(eq(accounts.companyId, companyId), eq(accounts.systemRole, systemRole));
+        const [linked] = await db.select({ id: accounts.id }).from(accounts).where(filters).limit(1);
+        if (linked) return Response.json({ error: systemRole === "AR" || systemRole === "AP" ? `That ${currency} control account is already linked.` : "That system use is already linked to another account." }, { status: 409 });
       }
-      const [record] = await db.insert(accounts).values({ companyId, code, name, type: String(payload.type ?? "Expense"), systemRole, parentAccountId: Number.isInteger(parentAccountId) && parentAccountId > 0 ? parentAccountId : null, balance: Number(payload.balance ?? 0) }).returning();
+      const [record] = await db.insert(accounts).values({ companyId, code, name, type: String(payload.type ?? "Expense"), systemRole, currency, parentAccountId: Number.isInteger(parentAccountId) && parentAccountId > 0 ? parentAccountId : null, balance: Number(payload.balance ?? 0) }).returning();
+      if (systemRole === "AR" || systemRole === "AP") {
+        await db.update(contacts).set({ ledgerAccountId: record.id }).where(and(eq(contacts.companyId, companyId), eq(contacts.type, systemRole === "AR" ? "customer" : "vendor"), eq(contacts.currency, currency), sql`${contacts.ledgerAccountId} IS NULL`));
+      }
       return Response.json({ record }, { status: 201 });
     }
 
@@ -259,8 +277,16 @@ export async function POST(request: Request) {
     await db.insert(transactionLines).values(prepared.map((line) => ({ ...line, transactionId: record.id })));
 
     const nonPosting = ["estimate", "sales order", "purchase order"].includes(type);
-    const linkedRows = await db.select({ name: accounts.name, systemRole: accounts.systemRole }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true)));
-    const linkedAccounts = Object.fromEntries(linkedRows.filter((account) => account.systemRole).map((account) => [account.systemRole!, account.name]));
+    const partyContactType = ["invoice", "sales receipt", "customer payment", "credit memo"].includes(type) ? "customer" : ["bill", "purchase order", "vendor credit", "bill payment", "vendor payment", "cheque"].includes(type) ? "vendor" : null;
+    const [partyContact] = partyContactType ? await db.select({ ledgerAccountId: contacts.ledgerAccountId }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.name, party), eq(contacts.type, partyContactType))).limit(1) : [];
+    const linkedRows = await db.select({ id: accounts.id, name: accounts.name, systemRole: accounts.systemRole, currency: accounts.currency }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true)));
+    const linkedAccounts: Record<string, string> = {};
+    for (const account of linkedRows.filter((entry) => entry.systemRole && !["AR", "AP"].includes(entry.systemRole))) linkedAccounts[account.systemRole!] = account.name;
+    for (const role of ["AR", "AP"]) {
+      const candidates = linkedRows.filter((account) => account.systemRole === role);
+      const selected = candidates.find((account) => account.id === partyContact?.ledgerAccountId) ?? candidates.find((account) => account.currency === currency) ?? candidates[0];
+      if (selected) linkedAccounts[role] = selected.name;
+    }
     const postingAccountRole = linkedRows.find((account) => account.name.toLowerCase() === record.account.toLowerCase())?.systemRole ?? "";
     if (!nonPosting) {
       const [entry] = await db.insert(journalEntries).values({ companyId, locationId: Number.isInteger(locationId) && locationId > 0 ? locationId : null, transactionId: record.id, entryDate: transactionDate, reference: number, description: `${type}: ${party}` }).returning();
@@ -278,8 +304,7 @@ export async function POST(request: Request) {
         await db.insert(inventoryMovements).values({ itemId: line.itemId!, transactionId: record.id, movementDate: transactionDate, movementType: type, quantity, unitCost: line.unitCost, reference: number });
       }
       const balanceChange = contactBalanceChange(type, total, postingAccountRole);
-      const contactType = ["invoice", "sales receipt", "customer payment", "credit memo"].includes(type) ? "customer" : "vendor";
-      if (balanceChange) await db.update(contacts).set({ balance: sql`${contacts.balance} + ${balanceChange}` }).where(and(eq(contacts.companyId, companyId), eq(contacts.name, party), eq(contacts.type, contactType)));
+      if (balanceChange && partyContactType) await db.update(contacts).set({ balance: sql`${contacts.balance} + ${balanceChange}` }).where(and(eq(contacts.companyId, companyId), eq(contacts.name, party), eq(contacts.type, partyContactType)));
     }
     await db.insert(auditLog).values({ companyId, action: "created", entityType: "transaction", entityId: record.id, details: `${number} ${type}; ${prepared.length} line(s)${usedAdminNegativeStockOverride ? "; admin negative-stock override used" : ""}` });
     return Response.json({ record }, { status: 201 });
