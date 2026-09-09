@@ -56,15 +56,15 @@ export async function GET(request: Request) {
       });
       return [...grouped].map(([name, value]) => ({ name, ...value, profit: value.amount - value.cost }));
     };
-    const aged = (type: "invoice" | "bill") => allTransactions.filter((row) => row.type === type && !["paid", "cleared"].includes(row.status)).map((row) => {
+    const aged = (types: string[]) => allTransactions.filter((row) => types.includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => {
       const age = row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0;
       return { name: row.party, current: age <= 0 ? row.baseTotal : 0, days30: age > 0 && age <= 30 ? row.baseTotal : 0, days60: age > 30 && age <= 60 ? row.baseTotal : 0, days90: age > 60 ? row.baseTotal : 0, total: row.baseTotal };
     });
     const agingColumns = [{ key: "name", label: "Name" }, { key: "current", label: "Current", ...money }, { key: "days30", label: "1–30", ...money }, { key: "days60", label: "31–60", ...money }, { key: "days90", label: "61+", ...money }, { key: "total", label: "Total", ...money }];
-    const vatDocumentTypes = new Set(["invoice", "sales receipt", "statement charge", "credit memo", "bill", "expense", "vendor credit"]);
+    const vatDocumentTypes = new Set(["invoice", "sales receipt", "statement charge", "credit memo", "bill", "received item bill", "expense", "vendor credit"]);
     const vatLines = lines.filter((line) => vatDocumentTypes.has(line.type) && (!periodStart || line.date >= periodStart) && (!periodEnd || line.date <= periodEnd));
     const outputVat = vatLines.reduce((sum, line) => sum + (line.type === "credit memo" ? -1 : ["invoice", "sales receipt", "statement charge"].includes(line.type) ? 1 : 0) * line.vatAmount * line.exchangeRate, 0);
-    const inputVat = vatLines.reduce((sum, line) => sum + (line.type === "vendor credit" ? -1 : ["bill", "expense"].includes(line.type) ? 1 : 0) * line.vatAmount * line.exchangeRate, 0);
+    const inputVat = vatLines.reduce((sum, line) => sum + (line.type === "vendor credit" ? -1 : ["bill", "received item bill", "expense"].includes(line.type) ? 1 : 0) * line.vatAmount * line.exchangeRate, 0);
     let title = "Transaction List by Date";
     let columns: Array<{ key: string; label: string; type?: "money" }> = txColumns;
     let rows: Row[] = txRows();
@@ -91,9 +91,9 @@ export async function GET(request: Request) {
       rows = ledgerRows.filter((row) => bankAccounts.has(row.name)).map((row) => ({ name: row.name, amount: row.balance }));
       columns = [{ key: "name", label: "Activity" }, { key: "amount", label: "Amount", ...money }];
     } else if (key.startsWith("ar-aging")) {
-      title = key.endsWith("detail") ? "A/R Aging Detail" : "A/R Aging Summary"; rows = aged("invoice"); columns = agingColumns;
+      title = key.endsWith("detail") ? "A/R Aging Detail" : "A/R Aging Summary"; rows = aged(["invoice", "statement charge", "finance charge"]); columns = agingColumns;
     } else if (key.startsWith("ap-aging")) {
-      title = key.endsWith("detail") ? "A/P Aging Detail" : "A/P Aging Summary"; rows = aged("bill"); columns = agingColumns;
+      title = key.endsWith("detail") ? "A/P Aging Detail" : "A/P Aging Summary"; rows = aged(["bill", "received item bill"]); columns = agingColumns;
     } else if (key === "customer-statements") {
       title = "Customer Statements";
       const balances = new Map<string, number>();
@@ -111,11 +111,11 @@ export async function GET(request: Request) {
       columns = [{ key: "name", label: "Customer" }, { key: "amount", label: "Amount", ...money }];
     } else if (key === "purchases-by-vendor" || key === "vendor-balances") {
       title = key === "purchases-by-vendor" ? "Purchases by Vendor" : "Vendor Balance Summary";
-      rows = key === "purchases-by-vendor" ? groupTransactions(["bill", "expense"]) : allContacts.filter((row) => row.type === "vendor").map((row) => ({ name: row.name, amount: row.balance }));
+      rows = key === "purchases-by-vendor" ? groupTransactions(["bill", "received item bill", "expense"]) : allContacts.filter((row) => row.type === "vendor").map((row) => ({ name: row.name, amount: row.balance }));
       columns = [{ key: "name", label: "Vendor" }, { key: "amount", label: "Amount", ...money }];
     } else if (["sales-by-item", "purchases-by-item", "item-profitability"].includes(key)) {
       title = key === "sales-by-item" ? "Sales by Item" : key === "purchases-by-item" ? "Purchases by Item" : "Item Profitability";
-      rows = groupLines(key === "purchases-by-item" ? ["bill"] : ["invoice", "sales receipt"]);
+      rows = groupLines(key === "purchases-by-item" ? ["bill", "received item bill"] : ["invoice", "sales receipt"]);
       columns = [{ key: "name", label: "Item" }, { key: "quantity", label: "Quantity" }, { key: "amount", label: "Sales / Purchases", ...money }, ...(key === "item-profitability" ? [{ key: "profit", label: "Gross Profit", ...money }] : [])];
     } else if (key === "inventory-valuation" || key === "inventory-status" || key === "physical-inventory") {
       title = key === "inventory-valuation" ? "Inventory Valuation" : key === "inventory-status" ? "Inventory Stock Status" : "Physical Inventory Worksheet";
