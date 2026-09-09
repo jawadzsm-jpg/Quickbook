@@ -50,7 +50,7 @@ type DataRecord = Record<string, string | number | boolean> & { id: number };
 type LineForm = { itemId: string; description: string; quantity: string; unitPrice: string; unitCost: string; vatCode: string; vatRate: string };
 type InventoryLocation = { id: number; companyId: number; name: string; code: string; invoicePrefix: string; nextInvoiceNumber: number; receivable?: number; payable?: number };
 type CompanyWorkspace = { id: number; name: string; baseCurrency: string; locations: InventoryLocation[] };
-type ReportData = { title: string; generatedAt: string; currency: string; columns: Array<{ key: string; label: string; type?: "money" }>; rows: Array<Record<string, string | number>> };
+type ReportData = { title: string; generatedAt: string; currency: string; columns: Array<{ key: string; label: string; type?: "money" }>; rows: Array<Record<string, string | number>>; chart?: { labelKey: string; incomeKey: string; expenseKey: string } };
 type TransactionDetail = { record: DataRecord; lines: DataRecord[]; journal: DataRecord[] };
 
 const userThemes: Array<{ value: UserTheme; label: string; color: string }> = [
@@ -164,8 +164,26 @@ const transactionTypes: Record<string, string[]> = {
 
 const allReports = [
   ["Profit & Loss Standard", "Income and expenses by period", "Financial", "profit-loss"],
+  ["Profit & Loss Detail", "Every income and expense ledger posting", "Financial", "profit-loss-detail"],
+  ["Profit & Loss YTD Comparison", "Current year-to-date against the same prior-year period", "Financial", "profit-loss-ytd"],
+  ["Profit & Loss Prev Year Comparison", "This year against the previous calendar year", "Financial", "profit-loss-prev-year"],
+  ["Profit & Loss by Job", "Net income grouped by inventory or business location", "Financial", "profit-loss-job"],
+  ["Profit & Loss by Class", "Income and expense grouped by transaction type", "Financial", "profit-loss-class"],
+  ["Profit & Loss Unclassified", "Income and expense postings without a Chart of Accounts match", "Financial", "profit-loss-unclassified"],
+  ["Income by Customer Summary", "Sales income total for each customer", "Financial", "income-customer-summary"],
+  ["Income by Customer Detail", "Invoice and receipt income by customer and document", "Financial", "income-customer-detail"],
+  ["Expenses by Supplier Summary", "Purchase and expense totals for each supplier", "Financial", "expenses-supplier-summary"],
+  ["Expenses by Supplier Detail", "Bills, expenses, cheques, and card charges by supplier", "Financial", "expenses-supplier-detail"],
+  ["Income & Expense Graph", "Monthly income and expenses shown visually", "Financial", "income-expense-graph"],
+  ["Realised Gains & Losses", "Exchange differences on settled foreign-currency transactions", "Financial", "realised-gains-losses"],
+  ["Unrealised Gains & Losses", "Current exchange revaluation of open foreign balances", "Financial", "unrealised-gains-losses"],
   ["Balance Sheet Standard", "Assets, liabilities and equity", "Financial", "balance-sheet"],
+  ["Balance Sheet Detail", "Detailed account balances with debits and credits", "Financial", "balance-sheet-detail"],
+  ["Balance Sheet Summary", "Totals by Assets, Liabilities, and Equity", "Financial", "balance-sheet-summary"],
+  ["Balance Sheet Prev Year Comparison", "Current balances compared with the previous year", "Financial", "balance-sheet-prev-year"],
+  ["Net Worth Graph", "Assets less liabilities with a visual summary", "Financial", "net-worth-graph"],
   ["Statement of Cash Flows", "Operating cash movement", "Financial", "cash-flow"],
+  ["Cash Flow Forecast", "Projected cash from open receivables and payables", "Financial", "cash-flow-forecast"],
   ["Trial Balance", "Debit and credit balances by account", "Accountant", "trial-balance"],
   ["General Ledger", "Complete account transaction detail", "Accountant", "general-ledger"],
   ["Journal", "Posted debits and credits", "Accountant", "journal"],
@@ -785,8 +803,10 @@ function DocumentDialog({ detail, companyName, baseCurrency, onClose }: { detail
 
 function ReportDialog({ report, companyName, onClose }: { report: ReportData | null; companyName: string; onClose: () => void }) {
   if (!report) return null;
+  const chartMax = report.chart ? Math.max(1, ...report.rows.flatMap((row) => [Math.abs(Number(row[report.chart!.incomeKey] ?? 0)), Math.abs(Number(row[report.chart!.expenseKey] ?? 0))])) : 1;
   return <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}><DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-6xl">
     <DialogHeader><div className="flex items-start justify-between gap-4 pr-8"><div><p className="text-xs font-bold tracking-[.18em] text-emerald-600">{companyName.toUpperCase()}</p><DialogTitle className="mt-2">{report.title}</DialogTitle><DialogDescription>Generated {new Date(report.generatedAt).toLocaleString("en-AE")} · {report.currency} accrual basis</DialogDescription></div><Button variant="outline" onClick={() => window.print()}><Printer className="size-4" />Print / PDF</Button></div></DialogHeader>
+    {report.chart && report.rows.length > 0 && <div className="rounded-xl border bg-slate-50 p-5"><div className="mb-4 flex gap-5 text-xs font-semibold"><span className="flex items-center gap-2"><span className="size-3 rounded-sm bg-emerald-500" />Income / Assets</span><span className="flex items-center gap-2"><span className="size-3 rounded-sm bg-amber-500" />Expenses / Liabilities</span></div><div className="grid min-h-56 grid-cols-6 items-end gap-3 md:grid-cols-12">{report.rows.slice(-12).map((row, index) => <div key={index} className="flex min-w-0 flex-col items-center gap-2"><div className="flex h-44 w-full items-end justify-center gap-1"><div className="w-1/2 rounded-t bg-emerald-500" style={{ height: `${Math.max(2, Math.abs(Number(row[report.chart!.incomeKey] ?? 0)) / chartMax * 100)}%` }} title={formatMoney(row[report.chart!.incomeKey], report.currency)} /><div className="w-1/2 rounded-t bg-amber-500" style={{ height: `${Math.max(2, Math.abs(Number(row[report.chart!.expenseKey] ?? 0)) / chartMax * 100)}%` }} title={formatMoney(row[report.chart!.expenseKey], report.currency)} /></div><span className="max-w-full truncate text-[11px] text-slate-500">{String(row[report.chart!.labelKey] ?? "")}</span></div>)}</div></div>}
     <div className="overflow-x-auto rounded-xl border"><Table><TableHeader><TableRow>{report.columns.map((column) => <TableHead key={column.key} className={column.type === "money" ? "text-right" : ""}>{column.label}</TableHead>)}</TableRow></TableHeader><TableBody>{report.rows.length ? report.rows.map((row, index) => <TableRow key={index}>{report.columns.map((column) => <TableCell key={column.key} className={column.type === "money" ? "text-right font-medium" : ""}>{column.type === "money" ? formatMoney(row[column.key], report.currency) : String(row[column.key] ?? "—")}</TableCell>)}</TableRow>) : <EmptyRow text="No posted data is available for this report." columns={report.columns.length} />}</TableBody></Table></div>
   </DialogContent></Dialog>;
 }
