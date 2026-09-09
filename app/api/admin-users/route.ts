@@ -14,11 +14,12 @@ async function companyIdsForUser(userId: number) {
 }
 
 async function publicUser(user: typeof appUsers.$inferSelect, currentUserId: number) {
+  const userRole = user.role as AppRole;
   return {
     id: user.id, fullName: user.fullName, email: user.email, phone: user.phone, whatsapp: user.whatsapp, avatarData: user.avatarData,
-    themeColor: user.themeColor, appearanceMode: user.appearanceMode, role: user.role, active: user.active, mustChangePassword: user.mustChangePassword, createdAt: user.createdAt,
+    themeColor: user.themeColor, appearanceMode: user.appearanceMode, role: userRole, active: user.active, mustChangePassword: user.mustChangePassword, createdAt: user.createdAt,
     lastLoginAt: user.lastLoginAt, lastLoginIp: user.lastLoginIp, lastLoginUserAgent: user.lastLoginUserAgent, isCurrent: user.id === currentUserId,
-    companyIds: user.role === "all_admin" ? [] : await companyIdsForUser(user.id),
+    companyIds: userRole === "all_admin" ? [] : await companyIdsForUser(user.id),
   };
 }
 
@@ -90,13 +91,14 @@ export async function PATCH(request: Request) {
   if (!Number.isInteger(id) || id <= 0) return Response.json({ error: "Select a valid user." }, { status: 400 });
   const [target] = await getDb().select().from(appUsers).where(eq(appUsers.id, id)).limit(1);
   if (!target) return Response.json({ error: "User not found." }, { status: 404 });
+  const targetRole = target.role as AppRole;
   const updates: Partial<typeof appUsers.$inferInsert> = { updatedAt: new Date().toISOString() };
-  const nextRole = payload.role === undefined ? target.role as AppRole : String(payload.role) as AppRole;
+  const nextRole = payload.role === undefined ? targetRole : String(payload.role) as AppRole;
   if (!validRole(nextRole)) return Response.json({ error: "Select a valid role." }, { status: 400 });
-  if ((target.role === "all_admin" || nextRole === "all_admin") && administrator.role !== "all_admin") return Response.json({ error: "Only an All-Admin can change All-Admin access." }, { status: 403 });
+  if ((targetRole === "all_admin" || nextRole === "all_admin") && administrator.role !== "all_admin") return Response.json({ error: "Only an All-Admin can change All-Admin access." }, { status: 403 });
   if (payload.role !== undefined) {
     if (id === administrator.id && !isAdministrator({ role: nextRole })) return Response.json({ error: "You cannot remove your own administrator role." }, { status: 409 });
-    if (target.role === "admin" && nextRole !== "admin" && nextRole !== "all_admin") {
+    if (targetRole === "admin" && nextRole !== "admin" && nextRole !== "all_admin") {
       const [admins] = await getDb().select({ value: count() }).from(appUsers).where(and(eq(appUsers.role, "admin"), eq(appUsers.active, true)));
       if (Number(admins.value) <= 1) return Response.json({ error: "At least one active Administrator is required." }, { status: 409 });
     }
