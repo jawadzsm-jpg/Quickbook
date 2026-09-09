@@ -90,6 +90,35 @@ export const inventoryLocations = pgTable("inventory_locations", {
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 }, (table) => [uniqueIndex("idx_inventory_locations_company_code").on(table.companyId, table.code)]);
 
+export const vatAdjustments = pgTable("vat_adjustments", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  locationId: integer("location_id").references(() => inventoryLocations.id, { onDelete: "set null" }),
+  adjustmentDate: text("adjustment_date").notNull(),
+  reference: text("reference").notNull(),
+  direction: text("direction", { enum: ["increase", "decrease"] }).notNull(),
+  amount: doublePrecision("amount").notNull(),
+  reason: text("reason").notNull(),
+  createdByUserId: integer("created_by_user_id").references(() => appUsers.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, (table) => [index("idx_vat_adjustments_company_date").on(table.companyId, table.adjustmentDate), uniqueIndex("idx_vat_adjustments_company_reference").on(table.companyId, table.reference)]);
+
+export const vatReturns = pgTable("vat_returns", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  locationId: integer("location_id").references(() => inventoryLocations.id, { onDelete: "set null" }),
+  periodStart: text("period_start").notNull(),
+  periodEnd: text("period_end").notNull(),
+  reference: text("reference").notNull(),
+  outputVat: doublePrecision("output_vat").notNull().default(0),
+  inputVat: doublePrecision("input_vat").notNull().default(0),
+  adjustments: doublePrecision("adjustments").notNull().default(0),
+  netVatDue: doublePrecision("net_vat_due").notNull().default(0),
+  status: text("status", { enum: ["filed"] }).notNull().default("filed"),
+  filedByUserId: integer("filed_by_user_id").references(() => appUsers.id, { onDelete: "set null" }),
+  filedAt: timestamp("filed_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, (table) => [index("idx_vat_returns_company_period").on(table.companyId, table.periodStart, table.periodEnd), uniqueIndex("idx_vat_returns_company_reference").on(table.companyId, table.reference)]);
+
 export const contacts = pgTable("contacts", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
