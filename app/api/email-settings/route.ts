@@ -1,11 +1,13 @@
+import { apiRoute } from "@/lib/api";
 import { getEmailSettings, saveEmailSettings, verifySmtpConnection } from "@/lib/smtp";
 import { requireApiUser } from "@/lib/auth";
 
 const emailPattern = /^\S+@\S+\.\S+$/;
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   const administrator = await requireApiUser(request, true);
   if (administrator instanceof Response) return administrator;
+  if (administrator.role !== "all_admin") return Response.json({ error: "All-Admin permission required." }, { status: 403 });
   const settings = await getEmailSettings();
   return Response.json({ settings: settings ? {
     host: settings.host, port: settings.port, secure: settings.secure, username: settings.username,
@@ -13,9 +15,10 @@ export async function GET(request: Request) {
   } : { host: "smtp.gmail.com", port: 465, secure: true, username: "", fromName: "ComNet Accounting", fromEmail: "", passwordConfigured: false } }, { headers: { "Cache-Control": "no-store" } });
 }
 
-export async function PATCH(request: Request) {
+async function handlePATCH(request: Request) {
   const administrator = await requireApiUser(request, true, true);
   if (administrator instanceof Response) return administrator;
+  if (administrator.role !== "all_admin") return Response.json({ error: "All-Admin permission required." }, { status: 403 });
   try {
     const payload = await request.json() as Record<string, unknown>;
     const host = String(payload.host ?? "").trim();
@@ -35,9 +38,10 @@ export async function PATCH(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const administrator = await requireApiUser(request, true, true);
   if (administrator instanceof Response) return administrator;
+  if (administrator.role !== "all_admin") return Response.json({ error: "All-Admin permission required." }, { status: 403 });
   try {
     await verifySmtpConnection();
     return Response.json({ ok: true });
@@ -45,3 +49,9 @@ export async function POST(request: Request) {
     return Response.json({ error: error instanceof Error ? error.message : "SMTP connection failed." }, { status: 400 });
   }
 }
+
+export const GET = apiRoute(handleGET);
+
+export const PATCH = apiRoute(handlePATCH);
+
+export const POST = apiRoute(handlePOST, { allowEmptyBody: true });

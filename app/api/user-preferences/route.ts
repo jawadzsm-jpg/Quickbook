@@ -1,3 +1,4 @@
+import { apiRoute } from "@/lib/api";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { appUsers } from "@/db/schema";
@@ -6,7 +7,7 @@ import { requireApiUser } from "@/lib/auth";
 const themeColors = ["emerald", "ocean", "indigo", "violet", "rose", "amber"] as const;
 const appearanceModes = ["light", "dark"] as const;
 
-export async function PATCH(request: Request) {
+async function handlePATCH(request: Request) {
   const user = await requireApiUser(request, false, true);
   if (user instanceof Response) return user;
   const payload = await request.json() as Record<string, unknown>;
@@ -28,6 +29,8 @@ export async function PATCH(request: Request) {
   if (payload.themeColor === undefined && payload.appearanceMode === undefined) {
     return Response.json({ error: "Choose a preference to update." }, { status: 400 });
   }
-  const [updated] = await getDb().update(appUsers).set(updates).where(eq(appUsers.id, user.id)).returning({ themeColor: appUsers.themeColor, appearanceMode: appUsers.appearanceMode });
-  return Response.json(updated, { headers: { "Cache-Control": "no-store" } });
+  const [updated] = await getDb().update(appUsers).set(updates).where(eq(appUsers.id, user.id)).returning();
+  return Response.json({ themeColor: updated.themeColor, appearanceMode: updated.appearanceMode }, { headers: { "Cache-Control": "no-store" } });
 }
+
+export const PATCH = apiRoute(handlePATCH);

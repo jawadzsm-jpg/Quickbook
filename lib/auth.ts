@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { and, eq, gt, sql } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { getDb } from "@/db";
@@ -9,59 +9,12 @@ import { appUsers, authSessions } from "@/db/schema";
 const SESSION_COOKIE = "comnet_session";
 const SESSION_HOURS = 12;
 
-export const appRoles = ["all_admin", "admin", "accountant", "sales", "purchasing", "inventory", "viewer"] as const;
-export type AppRole = typeof appRoles[number];
-export type Permission = "workspace:read" | "inventory:read" | "inventory:manage" | "inventory:transfer" | "reports:read" | "sales:write" | "purchases:write" | "banking:write" | "accounting:manage" | "customers:manage" | "vendors:manage";
-export type SessionUser = { id: number; fullName: string; email: string; avatarData: string; themeColor: string; appearanceMode: "light" | "dark"; role: AppRole; mustChangePassword: boolean; companyIds: number[] };
-
-const fullPermissions: Permission[] = ["workspace:read", "inventory:read", "inventory:manage", "inventory:transfer", "reports:read", "sales:write", "purchases:write", "banking:write", "accounting:manage", "customers:manage", "vendors:manage"];
-const rolePermissions: Record<AppRole, Permission[]> = {
-  all_admin: fullPermissions,
-  admin: fullPermissions,
-  accountant: ["workspace:read", "inventory:read", "reports:read", "sales:write", "purchases:write", "banking:write", "accounting:manage", "customers:manage", "vendors:manage"],
-  sales: ["workspace:read", "inventory:read", "sales:write", "customers:manage"],
-  purchasing: ["workspace:read", "inventory:read", "purchases:write", "vendors:manage"],
-  inventory: ["workspace:read", "inventory:read", "inventory:manage", "inventory:transfer"],
-  viewer: ["workspace:read", "inventory:read", "reports:read"],
-};
-
-export function hasPermission(user: SessionUser, permission: Permission) {
-  return rolePermissions[user.role]?.includes(permission) ?? false;
-}
-
-export function isGlobalAdmin(user: Pick<SessionUser, "role">) {
-  return user.role === "all_admin";
-}
-
-export function isAdministrator(user: Pick<SessionUser, "role">) {
-  return user.role === "all_admin" || user.role === "admin";
-}
-
-export function canAccessCompany(user: Pick<SessionUser, "role" | "companyIds">, companyId: number) {
-  return user.role === "all_admin" || user.companyIds.includes(companyId);
-}
+import { appRoles, hasPermission, isAdministrator, canAccessCompany, sameOrigin, type AppRole, type Permission, type SessionUser } from "./access";
+export * from "./access";
 
 const tokenDigest = (token: string) => createHash("sha256").update(token).digest("hex");
 
-export function hashPassword(password: string) {
-  const salt = randomBytes(16);
-  const hash = scryptSync(password, salt, 64, { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
-  return ["scrypt", 16384, 8, 1, salt.toString("hex"), hash.toString("hex")].join("$");
-}
-
-export function verifyPassword(password: string, stored: string) {
-  const [algorithm, n, r, p, saltHex, hashHex] = stored.split("$");
-  if (algorithm !== "scrypt" || !saltHex || !hashHex) return false;
-  try {
-    const expected = Buffer.from(hashHex, "hex");
-    const actual = scryptSync(password, Buffer.from(saltHex, "hex"), expected.length, {
-      N: Number(n), r: Number(r), p: Number(p), maxmem: 64 * 1024 * 1024,
-    });
-    return expected.length === actual.length && timingSafeEqual(expected, actual);
-  } catch {
-    return false;
-  }
-}
+export { hashPassword, verifyPassword } from "./password";
 
 export function sessionCookie(token: string, maxAge = SESSION_HOURS * 60 * 60) {
   return `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`;
@@ -80,7 +33,7 @@ async function assignedCompanyIds(userId: number) {
 }
 
 async function findSessionUser(token: string | undefined): Promise<SessionUser | null> {
-  if (!token) return null;
+  if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
   const [row] = await getDb().select({
     id: appUsers.id, fullName: appUsers.fullName, email: appUsers.email, avatarData: appUsers.avatarData, themeColor: appUsers.themeColor, appearanceMode: appUsers.appearanceMode, role: appUsers.role, mustChangePassword: appUsers.mustChangePassword,
   }).from(authSessions)
@@ -88,6 +41,7 @@ async function findSessionUser(token: string | undefined): Promise<SessionUser |
     .where(and(eq(authSessions.tokenHash, tokenDigest(token)), gt(authSessions.expiresAt, new Date().toISOString()), eq(appUsers.active, true)))
     .limit(1);
   if (!row) return null;
+  if (!appRoles.includes(row.role as AppRole)) return null;
   const role = row.role as AppRole;
   const companyIds = role === "all_admin" ? [] : await assignedCompanyIds(row.id);
   return { ...row, role, companyIds };
@@ -97,17 +51,16 @@ export async function getSessionUser() {
   return findSessionUser((await cookies()).get(SESSION_COOKIE)?.value);
 }
 
-export async function getRequestUser(request: Request) {
-  const cookie = request.headers.get("cookie") ?? "";
-  const token = cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${SESSION_COOKIE}=`))?.slice(SESSION_COOKIE.length + 1);
-  return findSessionUser(token);
-}
-
-export function sameOrigin(request: Request) {
-  const origin = request.headers.get("origin");
-  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
-  if (!origin || !host) return false;
-  try { return new URL(origin).host === host; } catch { return false; }
+const requestUsers = new WeakMap<Request, Promise<SessionUser | null>>();
+export function getRequestUser(request: Request) {
+  let user = requestUsers.get(request);
+  if (!user) {
+    const cookie = request.headers.get("cookie") ?? "";
+    const token = cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${SESSION_COOKIE}=`))?.slice(SESSION_COOKIE.length + 1);
+    user = findSessionUser(token);
+    requestUsers.set(request, user);
+  }
+  return user;
 }
 
 export async function requireApiUser(request: Request, required: boolean | Permission = false, mutating = false): Promise<SessionUser | Response> {

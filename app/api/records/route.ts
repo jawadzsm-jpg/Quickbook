@@ -1,3 +1,6 @@
+import { insertRecordAttachments } from "@/lib/record-attachments";
+import { isIsoDate } from "@/lib/validation";
+import { apiRoute } from "@/lib/api";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import {
@@ -5,15 +8,10 @@ import {
   journalLines, transactionLines, transactions, vatCodes,
 } from "../../../db/schema";
 import { verifyAdminPin } from "../../../lib/admin-pin";
-import { hasPermission, requireApiUser, type Permission, type SessionUser } from "@/lib/auth";
+import { isAdministrator, hasPermission, canAccessCompany, requireApiUser, type Permission, type SessionUser } from "@/lib/auth";
 
 type RecordKind = "transactions" | "contacts" | "items" | "accounts";
 type InputLine = { itemId?: number | string | null; description?: string; quantity?: number | string; unitPrice?: number | string; unitCost?: number | string; vatCode?: string; vatRate?: number | string };
-
-function errorMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : "Unexpected database error";
-  return message.includes("does not exist") ? "The accounting database is being updated. Please refresh in a moment." : message;
-}
 
 const round = (value: number) => Math.round(value * 100) / 100;
 const fallbackVatRates: Record<string, number> = { STANDARD: 5, ZERO: 0, EXEMPT: 0, OUT_OF_SCOPE: 0 };
@@ -35,7 +33,7 @@ function writePermission(kind: RecordKind, payload: Record<string, unknown>): Pe
 }
 
 function mayWrite(user: SessionUser, permission: Permission | "admin") {
-  return permission === "admin" ? user.role === "admin" : hasPermission(user, permission);
+  return permission === "admin" ? isAdministrator(user) : hasPermission(user, permission);
 }
 
 async function createUniqueItemSku() {
@@ -92,7 +90,7 @@ async function ensureCurrencyControlAccount(companyId: number, role: "AR" | "AP"
   }
 }
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   const authorization = await requireApiUser(request, "workspace:read");
   if (authorization instanceof Response) return authorization;
   try {
@@ -100,6 +98,7 @@ export async function GET(request: Request) {
     const kind = url.searchParams.get("kind") as RecordKind | null;
     const id = Number(url.searchParams.get("id"));
     const companyId = Number(url.searchParams.get("companyId"));
+    if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     const locationId = Number(url.searchParams.get("locationId"));
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     const db = getDb();
@@ -152,26 +151,36 @@ export async function GET(request: Request) {
     const transactionFilter = Number.isInteger(locationId) && locationId > 0 ? and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId)) : eq(transactions.companyId, companyId);
     return Response.json({ records: await db.select().from(transactions).where(transactionFilter).orderBy(desc(transactions.transactionDate), desc(transactions.id)).limit(500) });
   } catch (error) {
-    return Response.json({ error: errorMessage(error) }, { status: 500 });
+    throw error;
   }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const authorization = await requireApiUser(request, false, true);
   if (authorization instanceof Response) return authorization;
   try {
     const payload = (await request.json()) as Record<string, unknown>;
     const kind = payload.kind as RecordKind;
+    if (!["transactions", "contacts", "items", "accounts"].includes(kind)) return Response.json({ error: "Invalid record kind." }, { status: 400 });
     if (!mayWrite(authorization, writePermission(kind, payload))) return Response.json({ error: "Your role does not allow this action." }, { status: 403 });
     const companyId = Number(payload.companyId);
+    if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     const locationId = Number(payload.locationId);
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     const db = getDb();
 
+    if (kind === "items" || (kind === "transactions" && Number.isInteger(locationId) && locationId > 0)) {
+      const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId), eq(inventoryLocations.active, true))).limit(1);
+      if (!location) return Response.json({ error: "Select an active inventory from this company." }, { status: 400 });
+    }
+    for (const field of ["balance", "quantity", "reorderPoint", "salesPrice", "cost"]) {
+      if (payload[field] !== undefined && (!Number.isFinite(Number(payload[field])) || Math.abs(Number(payload[field])) > 1e12)) return Response.json({ error: "Enter valid numeric values." }, { status: 400 });
+    }
     if (kind === "contacts") {
       const name = String(payload.name ?? "").trim();
       const contactType = (payload.type as "customer" | "vendor" | "employee") ?? "customer";
       const currency = String(payload.currency ?? "AED").trim().toUpperCase();
+      if (!["customer", "vendor", "employee"].includes(contactType) || !/^[A-Z]{3}$/.test(currency)) return Response.json({ error: "Select a valid contact type and currency." }, { status: 400 });
       if (!name) return Response.json({ error: "Name is required." }, { status: 400 });
       if (payload.type === "customer") {
         const required = [payload.company, payload.phone, payload.whatsapp, payload.country, payload.reseller, payload.planet, payload.currency];
@@ -204,6 +213,7 @@ export async function POST(request: Request) {
         planet: String(payload.planet ?? "No"), passport: String(payload.passport ?? ""), currency, ledgerAccountId,
         description: String(payload.description ?? ""), balance: Number(payload.balance ?? 0),
       }).returning();
+      if (contactType === "employee") await insertRecordAttachments(companyId, "employee", record.id, payload.attachments);
       return Response.json({ record, generatedAccount }, { status: 201 });
     }
 
@@ -273,6 +283,7 @@ export async function POST(request: Request) {
     }
 
     const type = String(payload.type ?? "invoice");
+    if (!["invoice", "quotation", "estimate", "sales order", "sales receipt", "statement charge", "finance charge", "credit memo", "customer payment", "bill", "purchase order", "item receipt", "received item bill", "vendor credit", "bill payment", "vendor payment", "expense", "deposit", "cheque", "credit card charge", "cheque order", "transfer", "opening balance", "journal entry"].includes(type)) return Response.json({ error: "Invalid transaction type." }, { status: 400 });
     const conversionSourceId = ["invoice", "bill"].includes(type) ? Number(payload.sourceTransactionId) : NaN;
     let rawLines = Array.isArray(payload.lines) ? payload.lines as InputLine[] : [];
     if (Number.isInteger(conversionSourceId) && conversionSourceId > 0) {
@@ -311,11 +322,16 @@ export async function POST(request: Request) {
       const vatRate = vatRates[vatCode];
       prepared.push({ itemId: null, description: String(payload.memo ?? type), quantity: 1, unitPrice: subtotal, unitCost: 0, vatCode, vatRate, subtotal, vatAmount: round(subtotal * vatRate / 100), total: round(subtotal * (1 + vatRate / 100)) });
     }
-    if (!party || !prepared.length || prepared.some((line) => !Number.isFinite(line.quantity) || line.quantity <= 0 || !Number.isFinite(line.unitPrice) || line.unitPrice < 0)) {
+    if (!party || !prepared.length || prepared.length > 100 || prepared.some((line) => !Number.isFinite(line.quantity) || line.quantity <= 0 || !Number.isFinite(line.unitPrice) || line.unitPrice < 0 || !Number.isFinite(line.unitCost) || line.unitCost < 0 || !Number.isFinite(line.total) || line.total > 1e12)) {
       return Response.json({ error: "Party and at least one valid document line are required." }, { status: 400 });
     }
     if (prepared.some((line) => line.itemId !== null && (!Number.isInteger(line.itemId) || line.itemId <= 0))) {
       return Response.json({ error: "Select a valid inventory item on every stock line." }, { status: 400 });
+    }
+    const referencedIds = [...new Set(prepared.flatMap((line) => line.itemId ? [line.itemId] : []))];
+    if (referencedIds.length) {
+      const referencedItems = await db.select({ id: items.id }).from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId), inArray(items.id, referencedIds)));
+      if (referencedItems.length !== referencedIds.length) return Response.json({ error: "Every stock item must belong to the selected company inventory." }, { status: 400 });
     }
     const stockReducing = ["invoice", "sales receipt"].includes(type);
     let usedAdminNegativeStockOverride = false;
@@ -330,10 +346,11 @@ export async function POST(request: Request) {
         const wantsOverride = payload.allowNegativeStock === true || String(payload.allowNegativeStock) === "true";
         let overrideApproved = false;
         if (wantsOverride) {
+          if (!isAdministrator(authorization)) return Response.json({ error: "An administrator must approve negative stock." }, { status: 403 });
           const suppliedPin = String(payload.adminOverridePin ?? "");
           const [settings] = await db.select({ pinHash: companySettings.negativeStockPinHash }).from(companySettings).where(eq(companySettings.companyId, companyId)).limit(1);
           if (!settings?.pinHash) return Response.json({ error: "Admin PIN is not configured. Open Management > Admin Controls." }, { status: 403 });
-          if (!verifyAdminPin(suppliedPin, settings.pinHash)) return Response.json({ error: "Incorrect admin PIN. Negative stock was not allowed." }, { status: 403 });
+          if (!(await verifyAdminPin(suppliedPin, settings.pinHash))) return Response.json({ error: "Incorrect admin PIN. Negative stock was not allowed." }, { status: 403 });
           overrideApproved = true;
           usedAdminNegativeStockOverride = true;
         }
@@ -354,8 +371,10 @@ export async function POST(request: Request) {
     if (!/^[A-Z]{3}$/.test(currency) || !Number.isFinite(exchangeRate) || exchangeRate <= 0) return Response.json({ error: "Choose a valid currency and exchange rate." }, { status: 400 });
     const baseSubtotal = round(subtotal * exchangeRate);
     const baseVatAmount = round(vatAmount * exchangeRate);
-    const baseTotal = round(total * exchangeRate);
+    const baseTotal = round(baseSubtotal + baseVatAmount);
+    if (!Number.isFinite(baseTotal) || baseTotal > 1e12) return Response.json({ error: "Transaction total is too large." }, { status: 400 });
     const transactionDate = String(payload.transactionDate ?? new Date().toISOString().slice(0, 10));
+    if (!isIsoDate(transactionDate) || (payload.dueDate && !isIsoDate(String(payload.dueDate)))) return Response.json({ error: "Enter valid transaction dates." }, { status: 400 });
     let number = String(payload.number ?? `TX-${Date.now()}`);
     if (type === "invoice") {
       if (!Number.isInteger(locationId) || locationId <= 0) return Response.json({ error: "Select an inventory before creating the invoice." }, { status: 400 });
@@ -418,13 +437,14 @@ export async function POST(request: Request) {
       await db.update(transactions).set({ status: "converted", convertedInvoiceId: record.id }).where(and(eq(transactions.id, conversionSourceId), eq(transactions.companyId, companyId)));
     }
     await db.insert(auditLog).values({ companyId, action: Number.isInteger(conversionSourceId) && conversionSourceId > 0 ? "converted" : "created", entityType: "transaction", entityId: record.id, details: `${number} ${type}; ${prepared.length} line(s)${Number.isInteger(conversionSourceId) && conversionSourceId > 0 ? `; source document ${conversionSourceId}` : ""}${usedAdminNegativeStockOverride ? "; admin negative-stock override used" : ""}` });
+    await insertRecordAttachments(companyId, "transaction", record.id, payload.attachments);
     return Response.json({ record }, { status: 201 });
   } catch (error) {
-    return Response.json({ error: errorMessage(error) }, { status: 500 });
+    throw error;
   }
 }
 
-export async function PATCH(request: Request) {
+async function handlePATCH(request: Request) {
   const authorization = await requireApiUser(request, "inventory:manage", true);
   if (authorization instanceof Response) return authorization;
   try {
@@ -432,6 +452,7 @@ export async function PATCH(request: Request) {
     if (payload.kind !== "items") return Response.json({ error: "Only inventory items can be updated here." }, { status: 400 });
     const id = Number(payload.id);
     const companyId = Number(payload.companyId);
+    if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     if (!Number.isInteger(id) || id <= 0) return Response.json({ error: "A valid item is required." }, { status: 400 });
     const db = getDb();
     const [existing] = await db.select().from(items).where(and(eq(items.id, id), eq(items.companyId, companyId)));
@@ -454,7 +475,7 @@ export async function PATCH(request: Request) {
     await db.insert(auditLog).values({ companyId, action: "updated", entityType: "item", entityId: id, details: `${record.sku} ${record.name}` });
     return Response.json({ record });
   } catch (error) {
-    return Response.json({ error: errorMessage(error) }, { status: 500 });
+    throw error;
   }
 }
 
@@ -521,14 +542,30 @@ function postingLines(type: string, account: string, party: string, subtotal: nu
   return [{ accountName: account || named("SUSPENSE", "Suspense"), debit: total, credit: 0 }, { accountName: named("EQUITY", "Opening Balance Equity"), debit: 0, credit: total }];
 }
 
-export async function DELETE(request: Request) {
+async function handleDELETE(request: Request) {
   const authorization = await requireApiUser(request, true, true);
   if (authorization instanceof Response) return authorization;
   try {
     const { kind, id, companyId } = (await request.json()) as { kind: RecordKind; id: number; companyId: number };
+    if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
+    if (!["transactions", "contacts", "items", "accounts"].includes(kind) || !Number.isSafeInteger(id) || id <= 0) return Response.json({ error: "Select a valid record." }, { status: 400 });
     const db = getDb();
-    if (kind === "contacts") await db.delete(contacts).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId)));
-    else if (kind === "items") await db.delete(items).where(and(eq(items.id, id), eq(items.companyId, companyId)));
+    if (kind === "contacts") {
+      const [contact] = await db.select().from(contacts).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId))).limit(1);
+      if (!contact) return Response.json({ error: "Contact not found." }, { status: 404 });
+      const [activity] = await db.select({ id: transactions.id }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.party, contact.name))).limit(1);
+      if (contact.balance !== 0 || activity) return Response.json({ error: "Contacts with balances or transaction history cannot be deleted." }, { status: 409 });
+      await db.execute(sql`DELETE FROM record_attachments WHERE company_id = ${companyId} AND entity_type = 'employee' AND entity_id = ${id}`);
+      await db.delete(contacts).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId)));
+    }
+    else if (kind === "items") {
+      const [item] = await db.select().from(items).where(and(eq(items.id, id), eq(items.companyId, companyId))).limit(1);
+      if (!item) return Response.json({ error: "Item not found." }, { status: 404 });
+      const [activity] = await db.select({ id: transactionLines.id }).from(transactionLines).where(eq(transactionLines.itemId, id)).limit(1);
+      const [movement] = await db.select({ id: inventoryMovements.id }).from(inventoryMovements).where(eq(inventoryMovements.itemId, id)).limit(1);
+      if (item.quantity !== 0 || activity || movement) return Response.json({ error: "Items with stock or transaction history cannot be deleted." }, { status: 409 });
+      await db.delete(items).where(and(eq(items.id, id), eq(items.companyId, companyId)));
+    }
     else if (kind === "accounts") {
       const [account] = await db.select({ name: accounts.name, systemRole: accounts.systemRole }).from(accounts).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId))).limit(1);
       if (account?.systemRole) return Response.json({ error: "Linked system accounts cannot be deleted." }, { status: 409 });
@@ -541,18 +578,29 @@ export async function DELETE(request: Request) {
     else {
       const [record] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId)));
       if (record) {
+        if (record.convertedInvoiceId) return Response.json({ error: "Reverse the converted document before deleting its source." }, { status: 409 });
         const movements = await db.select().from(inventoryMovements).where(eq(inventoryMovements.transactionId, id));
         for (const movement of movements) await db.update(items).set({ quantity: sql`${items.quantity} - ${movement.quantity}` }).where(eq(items.id, movement.itemId));
         const [postingAccount] = await db.select({ systemRole: accounts.systemRole }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.name, record.account))).limit(1);
         const balanceChange = contactBalanceChange(record.type, record.total, postingAccount?.systemRole ?? "");
         const contactType = ["invoice", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(record.type) ? "customer" : "vendor";
         if (balanceChange) await db.update(contacts).set({ balance: sql`${contacts.balance} - ${balanceChange}` }).where(and(eq(contacts.companyId, companyId), eq(contacts.name, record.party), eq(contacts.type, contactType)));
+        if (record.sourceTransactionId) await db.update(transactions).set({ status: "open", convertedInvoiceId: null }).where(and(eq(transactions.id, record.sourceTransactionId), eq(transactions.companyId, companyId), eq(transactions.convertedInvoiceId, id)));
+        await db.execute(sql`DELETE FROM record_attachments WHERE company_id = ${companyId} AND entity_type = 'transaction' AND entity_id = ${id}`);
         await db.delete(transactions).where(eq(transactions.id, id));
         await db.insert(auditLog).values({ companyId, action: "deleted", entityType: "transaction", entityId: id, details: `${record.number} reversed` });
       }
     }
     return Response.json({ ok: true });
   } catch (error) {
-    return Response.json({ error: errorMessage(error) }, { status: 500 });
+    throw error;
   }
 }
+
+export const GET = apiRoute(handleGET);
+
+export const POST = apiRoute(handlePOST, { transaction: true, maxBytes: 41_000_000 });
+
+export const PATCH = apiRoute(handlePATCH, { transaction: true });
+
+export const DELETE = apiRoute(handleDELETE, { transaction: true });

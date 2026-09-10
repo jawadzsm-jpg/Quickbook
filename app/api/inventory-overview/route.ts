@@ -1,4 +1,5 @@
-import { and, asc, eq } from "drizzle-orm";
+import { apiRoute } from "@/lib/api";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { companies, inventoryLocations, items } from "../../../db/schema";
 import { requireApiUser } from "@/lib/auth";
@@ -7,7 +8,7 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Could not load the inventory overview.";
 }
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   const authorization = await requireApiUser(request, "inventory:read");
   if (authorization instanceof Response) return authorization;
   try {
@@ -34,7 +35,7 @@ export async function GET(request: Request) {
     }).from(items)
       .innerJoin(companies, eq(items.companyId, companies.id))
       .innerJoin(inventoryLocations, eq(items.locationId, inventoryLocations.id))
-      .where(and(eq(companies.active, true), eq(inventoryLocations.active, true), eq(items.status, "active")))
+      .where(and(eq(companies.active, true), eq(inventoryLocations.active, true), eq(items.status, "active"), authorization.role === "all_admin" ? undefined : inArray(items.companyId, authorization.companyIds)))
       .orderBy(asc(items.category), asc(items.name), asc(companies.name), asc(inventoryLocations.name))
       .limit(5000);
 
@@ -43,3 +44,5 @@ export async function GET(request: Request) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
   }
 }
+
+export const GET = apiRoute(handleGET);

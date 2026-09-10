@@ -1,7 +1,8 @@
+import { apiRoute } from "@/lib/api";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { getDb } from "@/db";
 import { accounts, auditLog, inventoryLocations, journalEntries, journalLines, transactionLines, transactions, vatAdjustments, vatReturns } from "@/db/schema";
-import { requireApiUser } from "@/lib/auth";
+import { canAccessCompany, requireApiUser } from "@/lib/auth";
 
 const round = (value: number) => Math.round(value * 100) / 100;
 const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
@@ -33,12 +34,13 @@ async function calculateVat(companyId: number, locationId: number, periodStart: 
   return { outputVat, inputVat, adjustments: adjustmentTotal, netVatDue: round(outputVat - inputVat + adjustmentTotal), transactionLines: lines.length };
 }
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   const user = await requireApiUser(request, "reports:read");
   if (user instanceof Response) return user;
   try {
     const url = new URL(request.url);
     const companyId = Number(url.searchParams.get("companyId"));
+    if (!canAccessCompany(user, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     const locationId = Number(url.searchParams.get("locationId"));
     const periodStart = String(url.searchParams.get("periodStart") ?? "");
     const periodEnd = String(url.searchParams.get("periodEnd") ?? "");
@@ -53,12 +55,13 @@ export async function GET(request: Request) {
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Could not load VAT management." }, { status: 500 }); }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const user = await requireApiUser(request, "accounting:manage", true);
   if (user instanceof Response) return user;
   try {
     const payload = await request.json() as Record<string, unknown>;
     const companyId = Number(payload.companyId);
+    if (!canAccessCompany(user, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     const locationId = Number(payload.locationId);
     const action = String(payload.action ?? "");
     if (!Number.isInteger(companyId) || companyId <= 0 || !Number.isInteger(locationId) || locationId <= 0) return Response.json({ error: "Select a company and inventory." }, { status: 400 });
@@ -104,3 +107,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "Choose a valid VAT action." }, { status: 400 });
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Could not update VAT." }, { status: 500 }); }
 }
+
+export const GET = apiRoute(handleGET);
+
+export const POST = apiRoute(handlePOST, { transaction: true });

@@ -1,19 +1,21 @@
+import { apiRoute } from "@/lib/api";
 import { eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { auditLog, companies, companySettings } from "../../../db/schema";
 import { hashAdminPin, isValidAdminPin, verifyAdminPin } from "../../../lib/admin-pin";
-import { requireApiUser } from "@/lib/auth";
+import { canAccessCompany, requireApiUser } from "@/lib/auth";
 
 function errorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : "Unexpected database error";
   return message.includes("does not exist") ? "The accounting database is being updated. Please refresh in a moment." : message;
 }
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   const authorization = await requireApiUser(request, true);
   if (authorization instanceof Response) return authorization;
   try {
     const companyId = Number(new URL(request.url).searchParams.get("companyId"));
+    if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     const db = getDb();
     const [settings] = await db.select({ pinHash: companySettings.negativeStockPinHash }).from(companySettings).where(eq(companySettings.companyId, companyId)).limit(1);
@@ -23,12 +25,13 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const authorization = await requireApiUser(request, true, true);
   if (authorization instanceof Response) return authorization;
   try {
     const payload = (await request.json()) as Record<string, unknown>;
     const companyId = Number(payload.companyId);
+    if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     const currentPin = String(payload.currentPin ?? "");
     const newPin = String(payload.newPin ?? "");
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
@@ -38,11 +41,11 @@ export async function POST(request: Request) {
     const [company] = await db.select({ id: companies.id }).from(companies).where(eq(companies.id, companyId)).limit(1);
     if (!company) return Response.json({ error: "Company not found." }, { status: 404 });
     const [existing] = await db.select({ pinHash: companySettings.negativeStockPinHash }).from(companySettings).where(eq(companySettings.companyId, companyId)).limit(1);
-    if (existing?.pinHash && !verifyAdminPin(currentPin, existing.pinHash)) {
+    if (existing?.pinHash && !(await verifyAdminPin(currentPin, existing.pinHash))) {
       return Response.json({ error: "The current admin PIN is incorrect." }, { status: 403 });
     }
 
-    const pinHash = hashAdminPin(newPin);
+    const pinHash = (await hashAdminPin(newPin));
     await db.insert(companySettings).values({ companyId, negativeStockPinHash: pinHash, updatedAt: new Date().toISOString() }).onConflictDoUpdate({
       target: companySettings.companyId,
       set: { negativeStockPinHash: pinHash, updatedAt: new Date().toISOString() },
@@ -53,3 +56,7 @@ export async function POST(request: Request) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
   }
 }
+
+export const GET = apiRoute(handleGET);
+
+export const POST = apiRoute(handlePOST, { transaction: true });

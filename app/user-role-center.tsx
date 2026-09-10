@@ -24,6 +24,7 @@ const roles: Array<{ value: Role; label: string; description: string }> = [
 ];
 
 export function UserRoleCenter() {
+  const [refreshVersion, setRefreshVersion] = useState(0);
   const [users, setUsers] = useState<User[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [savingId, setSavingId] = useState<number | null>(null);
@@ -49,7 +50,7 @@ export function UserRoleCenter() {
 
     void loadUsers();
     return () => { cancelled = true; };
-  }, []);
+  }, [refreshVersion]);
 
   function editUser(id: number, changes: Partial<Pick<User, "role" | "companyIds">>) {
     setUsers((current) => current.map((user) => user.id === id ? { ...user, ...changes } : user));
@@ -103,6 +104,6 @@ export function UserRoleCenter() {
         <div className="flex gap-2"><Button className="flex-1" disabled={savingId === user.id || deletingId === user.id || user.isCurrent || !dirtyIds.has(user.id)} onClick={() => void saveUser(user)}><Save className="mr-2 size-4" />{savingId === user.id ? "Saving..." : "Save"}</Button><Button variant="destructive" size="icon" title={user.isCurrent ? "You cannot delete your own account" : "Delete user"} disabled={savingId === user.id || deletingId === user.id || user.isCurrent} onClick={() => void deleteUser(user)}><Trash2 className="size-4" /></Button></div>
       </div>)}</div>
     </section>
-    <LegacyUserRoleCenter />
+    <LegacyUserRoleCenter onUsersChanged={() => setRefreshVersion((version) => version + 1)} />
   </div>;
 }

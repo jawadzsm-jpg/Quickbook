@@ -21,7 +21,7 @@ type SmtpForm = { host: string; port: string; secure: boolean; username: string;
 
 const roles: Array<{ value: Role; label: string; description: string }> = [
   { value: "all_admin", label: "All-Admin", description: "Full access to every company and all administration controls" },
-  { value: "admin", label: "Administrator", description: "Full access, settings and user management" },
+  { value: "admin", label: "Administrator", description: "Full access and settings within assigned companies" },
   { value: "accountant", label: "Accountant", description: "Accounting, sales, purchases, banking and reports" },
   { value: "sales", label: "Sales", description: "Customers, invoices, receipts and stock viewing" },
   { value: "purchasing", label: "Purchasing", description: "Vendors, bills, payments and stock viewing" },
@@ -43,7 +43,9 @@ function deviceName(userAgent: string) {
   return `${browser} on ${device}`;
 }
 
-export function UserRoleCenter() {
+export function UserRoleCenter({ onUsersChanged }: { onUsersChanged?: () => void }) {
+  const [companies, setCompanies] = useState<Array<{ id: number; name: string }>>([]);
+  const [companyIds, setCompanyIds] = useState<number[]>([]);
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<number | null>(null);
@@ -69,6 +71,7 @@ export function UserRoleCenter() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not load users");
       setUsers(data.users);
+      setCompanies(data.companies ?? []);
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not load users"); }
     finally { setLoading(false); }
   }
@@ -78,7 +81,7 @@ export function UserRoleCenter() {
     fetch("/api/admin-users", { cache: "no-store" }).then(async (response) => {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not load users");
-      if (active) setUsers(data.users);
+      if (active) { setUsers(data.users); setCompanies(data.companies ?? []); }
     }).catch((error) => { if (active) toast.error(error instanceof Error ? error.message : "Could not load users"); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -98,14 +101,18 @@ export function UserRoleCenter() {
   }
 
   async function createUser(event: FormEvent) {
-    event.preventDefault(); setCreating(true);
+    event.preventDefault();
+    if (role !== "all_admin" && !companyIds.length) return toast.error("Assign at least one company.");
+    setCreating(true);
     try {
-      const response = await fetch("/api/admin-users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fullName, email, phone, whatsapp, avatarData, role, password, sendEmail }) });
+      const response = await fetch("/api/admin-users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fullName, email, phone, whatsapp, avatarData, role, companyIds, password, sendEmail }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not add user");
       const credentials = { email: email.trim().toLowerCase(), password };
       setCreateOpen(false); setCreatedCredentials(credentials); setFullName(""); setEmail(""); setPhone(""); setWhatsapp(""); setAvatarData(""); setRole("viewer"); setPassword(""); setSendEmail(true);
+      setCompanyIds([]);
       await loadUsers();
+      onUsersChanged?.();
       if (data.emailWarning) toast.warning(`User added. Email not sent: ${data.emailWarning}`); else toast.success(data.emailSent ? "User added and login email sent" : "User added");
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not add user"); }
     finally { setCreating(false); }
@@ -151,9 +158,10 @@ export function UserRoleCenter() {
 
     <SmtpSettings />
 
-    <Dialog open={createOpen} onOpenChange={setCreateOpen}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Add user</DialogTitle><DialogDescription>Create the profile, contact details and secure temporary login.</DialogDescription></DialogHeader><form onSubmit={createUser} className="space-y-5"><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2"><Label>Full name</Label><Input value={fullName} onChange={(event) => setFullName(event.target.value)} required /></div><div className="space-y-2"><Label>Email</Label><Input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></div><div className="space-y-2"><Label>Phone</Label><Input type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+971…" maxLength={32} /></div><div className="space-y-2"><Label>WhatsApp</Label><Input type="tel" value={whatsapp} onChange={(event) => setWhatsapp(event.target.value)} placeholder="+971…" maxLength={32} /></div><div className="space-y-2 sm:col-span-2"><Label>Role</Label><Select value={role} onValueChange={(value) => setRole(value as Role)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{roles.map((entry) => <SelectItem key={entry.value} value={entry.value}>{entry.label}</SelectItem>)}</SelectContent></Select><p className="text-xs text-slate-500">{roleLabel(role)} · {roles.find((entry) => entry.value === role)?.description}</p></div></div>
+    <Dialog open={createOpen} onOpenChange={setCreateOpen}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Add user</DialogTitle><DialogDescription>Create the profile, contact details and secure temporary login.</DialogDescription></DialogHeader><form onSubmit={createUser} className="space-y-5"><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2"><Label htmlFor="new-user-name">Full name</Label><Input id="new-user-name" value={fullName} onChange={(event) => setFullName(event.target.value)} required /></div><div className="space-y-2"><Label htmlFor="new-user-email">Email</Label><Input id="new-user-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></div><div className="space-y-2"><Label>Phone</Label><Input type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+971…" maxLength={32} /></div><div className="space-y-2"><Label>WhatsApp</Label><Input type="tel" value={whatsapp} onChange={(event) => setWhatsapp(event.target.value)} placeholder="+971…" maxLength={32} /></div><div className="space-y-2 sm:col-span-2"><Label>Role</Label><Select value={role} onValueChange={(value) => setRole(value as Role)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{roles.map((entry) => <SelectItem key={entry.value} value={entry.value}>{entry.label}</SelectItem>)}</SelectContent></Select><p className="text-xs text-slate-500">{roleLabel(role)} · {roles.find((entry) => entry.value === role)?.description}</p></div></div>
       <div className="rounded-xl border bg-slate-50 p-4"><div className="flex flex-wrap items-center gap-4">{avatarData ? <Image src={avatarData} alt="Selected profile preview" width={80} height={80} unoptimized className="size-20 rounded-full border object-cover" /> : <div className="grid size-20 place-items-center rounded-full border-2 border-dashed bg-white text-slate-400"><Camera className="size-6" /></div>}<div className="space-y-2"><Label htmlFor="user-photo">User picture</Label><Input id="user-photo" type="file" accept="image/png,image/jpeg,image/webp" onChange={selectPhoto} className="max-w-sm bg-white" /><p className="text-xs text-slate-500">PNG, JPEG or WebP · maximum 800 KB</p></div></div></div>
-      <div className="space-y-2"><div className="flex items-center justify-between"><Label>Temporary password</Label><Button type="button" variant="ghost" size="sm" onClick={() => setPassword(generatePassword())}>Generate</Button></div><Input value={password} onChange={(event) => setPassword(event.target.value)} minLength={12} maxLength={128} required /></div>
+      <div className="space-y-2"><div className="flex items-center justify-between"><Label htmlFor="new-user-password">Temporary password</Label><Button type="button" variant="ghost" size="sm" onClick={() => setPassword(generatePassword())}>Generate</Button></div><Input id="new-user-password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={12} maxLength={128} required /></div>
+      {role !== "all_admin" ? <fieldset className="space-y-2 rounded-lg border p-3"><legend className="px-1 text-sm font-medium">Company access</legend>{companies.map((company) => <label key={company.id} className="flex items-center gap-2 text-sm"><Checkbox checked={companyIds.includes(company.id)} onCheckedChange={(checked) => setCompanyIds((current) => checked === true ? [...new Set([...current, company.id])] : current.filter((id) => id !== company.id))} />{company.name}</label>)}</fieldset> : null}
       <label className="flex items-start gap-3 rounded-lg border p-3"><Checkbox checked={sendEmail} onCheckedChange={(checked) => setSendEmail(checked === true)} /><span><span className="block text-sm font-medium">Email login details</span><span className="block text-xs text-slate-500">Send the role, login link and temporary password using the configured SMTP server.</span></span></label>
       <DialogFooter><Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button><Button type="submit" disabled={creating}>{creating ? "Adding…" : sendEmail ? "Add user & send email" : "Add user"}</Button></DialogFooter></form></DialogContent></Dialog>
 

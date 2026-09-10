@@ -1,7 +1,9 @@
-import { and, asc, eq, sum } from "drizzle-orm";
+import { isIsoDate } from "@/lib/validation";
+import { apiRoute } from "@/lib/api";
+import { and, asc, eq, gte, lte, sum } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { accounts, auditLog, contacts, exchangeRates, inventoryLocations, items, journalEntries, journalLines, transactionLines, transactions, vatCodes } from "../../../db/schema";
-import { hasPermission, requireApiUser } from "@/lib/auth";
+import { hasPermission, canAccessCompany, requireApiUser } from "@/lib/auth";
 
 type Row = Record<string, string | number>;
 const money = { type: "money" as const };
@@ -9,7 +11,7 @@ const amountColumns = (first = "Account") => [
   { key: "name", label: first }, { key: "debit", label: "Debit", ...money }, { key: "credit", label: "Credit", ...money }, { key: "balance", label: "Balance", ...money },
 ];
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   const key = new URL(request.url).searchParams.get("type") ?? "profit-loss";
   const authorization = await requireApiUser(request);
   if (authorization instanceof Response) return authorization;
@@ -18,21 +20,29 @@ export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const companyId = Number(url.searchParams.get("companyId"));
+    if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     const locationId = Number(url.searchParams.get("locationId"));
     const currency = String(url.searchParams.get("currency") ?? "AED");
     const periodStart = String(url.searchParams.get("periodStart") ?? "");
     const periodEnd = String(url.searchParams.get("periodEnd") ?? "");
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
+    if ((periodStart && !isIsoDate(periodStart)) || (periodEnd && !isIsoDate(periodEnd)) || (periodStart && periodEnd && periodStart > periodEnd)) return Response.json({ error: "Enter a valid report period." }, { status: 400 });
     const db = getDb();
-    const journalFilter = Number.isInteger(locationId) && locationId > 0 ? and(eq(journalEntries.companyId, companyId), eq(journalEntries.locationId, locationId)) : eq(journalEntries.companyId, companyId);
+    const selectedLocation = Number.isSafeInteger(locationId) && locationId > 0;
+    const periodReport = ["profit-loss", "profit-loss-detail"].includes(key);
+    const balanceReport = ["balance-sheet", "balance-sheet-detail", "balance-sheet-summary", "trial-balance"].includes(key);
+    const journalFilter = and(eq(journalEntries.companyId, companyId), selectedLocation ? eq(journalEntries.locationId, locationId) : undefined,
+      periodReport && periodStart ? gte(journalEntries.entryDate, periodStart) : undefined,
+      (periodReport || balanceReport) && periodEnd ? lte(journalEntries.entryDate, periodEnd) : undefined);
+    const transactionFilter = and(eq(transactions.companyId, companyId), selectedLocation ? eq(transactions.locationId, locationId) : undefined);
     const [allTransactions, allContacts, allItems, allAccounts, ledger, journal, lines, configuredVatCodes, currentRates, locations, auditRows] = await Promise.all([
-      db.select().from(transactions).where(eq(transactions.companyId, companyId)).orderBy(asc(transactions.transactionDate)),
+      db.select().from(transactions).where(transactionFilter).orderBy(asc(transactions.transactionDate)),
       db.select().from(contacts).where(eq(contacts.companyId, companyId)).orderBy(asc(contacts.name)),
-      db.select().from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId))).orderBy(asc(items.name)),
+      db.select().from(items).where(and(eq(items.companyId, companyId), selectedLocation ? eq(items.locationId, locationId) : undefined)).orderBy(asc(items.name)),
       db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(asc(accounts.code)),
       db.select({ name: journalLines.accountName, debit: sum(journalLines.debit), credit: sum(journalLines.credit) }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(journalFilter).groupBy(journalLines.accountName).orderBy(asc(journalLines.accountName)),
       db.select({ date: journalEntries.entryDate, reference: journalEntries.reference, description: journalEntries.description, account: journalLines.accountName, debit: journalLines.debit, credit: journalLines.credit }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(journalFilter).orderBy(asc(journalEntries.entryDate), asc(journalLines.id)),
-      db.select({ itemId: transactionLines.itemId, description: transactionLines.description, quantity: transactionLines.quantity, subtotal: transactionLines.subtotal, unitCost: transactionLines.unitCost, vatCode: transactionLines.vatCode, vatRate: transactionLines.vatRate, vatAmount: transactionLines.vatAmount, type: transactions.type, status: transactions.status, locationId: transactions.locationId, party: transactions.party, date: transactions.transactionDate, number: transactions.number, transactionCurrency: transactions.currency, exchangeRate: transactions.exchangeRate, isImport: transactions.isImport }).from(transactionLines).innerJoin(transactions, eq(transactionLines.transactionId, transactions.id)).where(and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId))),
+      db.select({ itemId: transactionLines.itemId, description: transactionLines.description, quantity: transactionLines.quantity, subtotal: transactionLines.subtotal, unitCost: transactionLines.unitCost, vatCode: transactionLines.vatCode, vatRate: transactionLines.vatRate, vatAmount: transactionLines.vatAmount, type: transactions.type, status: transactions.status, locationId: transactions.locationId, party: transactions.party, date: transactions.transactionDate, number: transactions.number, transactionCurrency: transactions.currency, exchangeRate: transactions.exchangeRate, isImport: transactions.isImport }).from(transactionLines).innerJoin(transactions, eq(transactionLines.transactionId, transactions.id)).where(transactionFilter),
       db.select().from(vatCodes).where(eq(vatCodes.companyId, companyId)).orderBy(asc(vatCodes.code)),
       db.select().from(exchangeRates).where(and(eq(exchangeRates.companyId, companyId), eq(exchangeRates.active, true))),
       db.select().from(inventoryLocations).where(eq(inventoryLocations.companyId, companyId)),
@@ -211,13 +221,13 @@ export async function GET(request: Request) {
       columns = [{ key: "month", label: "Month" }, { key: "assets", label: "Assets", ...money }, { key: "liabilities", label: "Liabilities", ...money }, { key: "netWorth", label: "Net Worth", ...money }];
       chart = { labelKey: "month", incomeKey: "assets", expenseKey: "liabilities" };
     } else if (key === "budget-overview" || key === "budget-actual") {
-      title = key === "budget-overview" ? "Budget Overview" : "Budget vs. Actual";
+      title = key === "budget-overview" ? "Prior-Year Baseline Overview" : "Prior-Year Baseline vs. Actual";
       const budget = budgetAccountTotals(priorBudgetStart, priorBudgetEnd);
       const actual = budgetAccountTotals(budgetStart, budgetEnd);
       rows = allAccounts.filter((account) => incomeTypes.has(account.type) || expenseTypes.has(account.type)).map((account) => { const budgetAmount = budget.get(account.name) ?? 0; const actualAmount = actual.get(account.name) ?? 0; return { code: account.code, account: account.name, section: incomeTypes.has(account.type) ? "Income" : "Expenses", budget: budgetAmount, actual: actualAmount, variance: incomeTypes.has(account.type) ? actualAmount - budgetAmount : budgetAmount - actualAmount, performance: budgetAmount ? `${(actualAmount / budgetAmount * 100).toFixed(1)}%` : "—" }; });
-      columns = [{ key: "code", label: "Code" }, { key: "account", label: "Account" }, { key: "section", label: "Section" }, { key: "budget", label: "Budget", ...money }, { key: "actual", label: "Actual", ...money }, { key: "variance", label: "Favourable Variance", ...money }, { key: "performance", label: "Performance" }];
+      columns = [{ key: "code", label: "Code" }, { key: "account", label: "Account" }, { key: "section", label: "Section" }, { key: "budget", label: "Prior-year baseline", ...money }, { key: "actual", label: "Actual", ...money }, { key: "variance", label: "Favourable Variance", ...money }, { key: "performance", label: "Performance" }];
     } else if (key === "budget-profit-loss") {
-      title = "Profit & Loss Budget Performance";
+      title = "Profit & Loss vs. Prior-Year Baseline";
       const budget = budgetAccountTotals(priorBudgetStart, priorBudgetEnd);
       const actual = budgetAccountTotals(budgetStart, budgetEnd);
       const totals = (source: Map<string, number>, types: Set<string>) => [...source].filter(([account]) => types.has(accountType(account))).reduce((sum, [, amount]) => sum + amount, 0);
@@ -227,12 +237,12 @@ export async function GET(request: Request) {
         { section: "Expenses", budget: budgetExpenses, actual: actualExpenses, variance: budgetExpenses - actualExpenses },
         { section: "Net Profit", budget: budgetIncome - budgetExpenses, actual: actualIncome - actualExpenses, variance: (actualIncome - actualExpenses) - (budgetIncome - budgetExpenses) },
       ].map((row) => ({ ...row, performance: row.budget ? `${(row.actual / row.budget * 100).toFixed(1)}%` : "—" }));
-      columns = [{ key: "section", label: "Profit & Loss" }, { key: "budget", label: "Budget", ...money }, { key: "actual", label: "Actual", ...money }, { key: "variance", label: "Favourable Variance", ...money }, { key: "performance", label: "Performance" }];
+      columns = [{ key: "section", label: "Profit & Loss" }, { key: "budget", label: "Prior-year baseline", ...money }, { key: "actual", label: "Actual", ...money }, { key: "variance", label: "Favourable Variance", ...money }, { key: "performance", label: "Performance" }];
     } else if (key === "budget-actual-graph") {
-      title = "Budget vs. Actual Graph";
+      title = "Prior-Year Baseline vs. Actual Graph";
       const selectedYear = Number(budgetStart.slice(0, 4));
       rows = Array.from({ length: 12 }, (_, index) => { const month = String(index + 1).padStart(2, "0"); const actualStart = `${selectedYear}-${month}-01`; const actualEnd = `${selectedYear}-${month}-31`; const budgetMonthStart = `${selectedYear - 1}-${month}-01`; const budgetMonthEnd = `${selectedYear - 1}-${month}-31`; return { month: `${selectedYear}-${month}`, budget: periodProfit(budgetMonthStart, budgetMonthEnd), actual: periodProfit(actualStart, actualEnd) }; }).map((row) => ({ ...row, variance: row.actual - row.budget }));
-      columns = [{ key: "month", label: "Month" }, { key: "budget", label: "Budget", ...money }, { key: "actual", label: "Actual", ...money }, { key: "variance", label: "Variance", ...money }];
+      columns = [{ key: "month", label: "Month" }, { key: "budget", label: "Prior-year baseline", ...money }, { key: "actual", label: "Actual", ...money }, { key: "variance", label: "Variance", ...money }];
       chart = { labelKey: "month", incomeKey: "actual", expenseKey: "budget", incomeLabel: "Actual", expenseLabel: "Budget" };
     } else if (key === "trial-balance") {
       title = "Trial Balance"; rows = ledgerRows; columns = amountColumns();
@@ -631,3 +641,5 @@ export async function GET(request: Request) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not generate report." }, { status: 500 });
   }
 }
+
+export const GET = apiRoute(handleGET);

@@ -32,12 +32,20 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Lint the complete source
         run: npm run lint
-      - name: Test release gates
+      - name: Test security, database, UI, and release behavior
         run: npm test
       - name: Type-check the application
         run: npm run typecheck
       - name: Build without production credentials or migrations
         run: npm run build:ci
+      - name: Test production authentication and headers
+        run: npm run test:production
+      - name: Install test browser
+        run: npx playwright install --with-deps chromium
+      - name: Test authenticated browser workflows
+        run: npm run test:browser
+      - name: Audit dependencies
+        run: npm run audit
 
   codeql:
     name: CodeQL security analysis

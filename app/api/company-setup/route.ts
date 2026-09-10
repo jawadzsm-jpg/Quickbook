@@ -1,7 +1,8 @@
+import { apiRoute } from "@/lib/api";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { auditLog, companies } from "@/db/schema";
-import { requireApiUser } from "@/lib/auth";
+import { canAccessCompany, requireApiUser } from "@/lib/auth";
 
 const templates = new Set(["classic", "modern", "minimal"]);
 
@@ -15,11 +16,12 @@ function errorMessage(error: unknown) {
   return message.includes("does not exist") ? "The company database is being updated. Please refresh in a moment." : message;
 }
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   const user = await requireApiUser(request, "workspace:read");
   if (user instanceof Response) return user;
   try {
     const companyId = Number(new URL(request.url).searchParams.get("companyId"));
+    if (!canAccessCompany(user, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     const [record] = await getDb().select().from(companies).where(eq(companies.id, companyId)).limit(1);
     if (!record) return Response.json({ error: "Company not found." }, { status: 404 });
@@ -29,12 +31,13 @@ export async function GET(request: Request) {
   }
 }
 
-export async function PATCH(request: Request) {
+async function handlePATCH(request: Request) {
   const user = await requireApiUser(request, true, true);
   if (user instanceof Response) return user;
   try {
     const payload = (await request.json()) as Record<string, unknown>;
     const companyId = Number(payload.companyId);
+    if (!canAccessCompany(user, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     const name = text(payload.name, 120);
     const email = text(payload.email, 160).toLowerCase();
     const logoData = String(payload.logoData ?? "");
@@ -62,3 +65,7 @@ export async function PATCH(request: Request) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
   }
 }
+
+export const GET = apiRoute(handleGET);
+
+export const PATCH = apiRoute(handlePATCH, { transaction: true });
