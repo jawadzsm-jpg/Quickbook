@@ -273,6 +273,27 @@ export const inventoryMovements = pgTable("inventory_movements", {
   reference: text("reference").notNull(),
 }, (table) => [index("idx_inventory_movements_item_date").on(table.itemId, table.movementDate), index("idx_inventory_movements_transaction").on(table.transactionId)]);
 
+export const inventoryCheckReports = pgTable("inventory_check_reports", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  locationId: integer("location_id").notNull().references(() => inventoryLocations.id, { onDelete: "cascade" }),
+  memo: text("memo").notNull().default(""),
+  createdByUserId: integer("created_by_user_id").references(() => appUsers.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, (table) => [index("idx_inventory_check_reports_company_date").on(table.companyId, table.createdAt), index("idx_inventory_check_reports_location").on(table.locationId)]);
+
+export const inventoryCheckLines = pgTable("inventory_check_lines", {
+  id: serial("id").primaryKey(),
+  reportId: integer("report_id").notNull().references(() => inventoryCheckReports.id, { onDelete: "cascade" }),
+  itemId: integer("item_id").references(() => items.id, { onDelete: "set null" }),
+  itemNumber: text("item_number").notNull().default(""),
+  sku: text("sku").notNull(),
+  itemName: text("item_name").notNull(),
+  systemQuantity: doublePrecision("system_quantity").notNull().default(0),
+  countedQuantity: doublePrecision("counted_quantity"),
+}, (table) => [index("idx_inventory_check_lines_report").on(table.reportId), index("idx_inventory_check_lines_item").on(table.itemId)]);
+
 export const accounts = pgTable("accounts", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
