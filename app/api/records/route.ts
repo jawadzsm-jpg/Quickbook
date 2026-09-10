@@ -106,13 +106,31 @@ export async function GET(request: Request) {
     if (kind === "transactions" && id) {
       const [record] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId)));
       if (!record) return Response.json({ error: "Transaction not found." }, { status: 404 });
-      const lines = await db.select().from(transactionLines).where(eq(transactionLines.transactionId, id)).orderBy(asc(transactionLines.id));
+      const lines = await db.select({
+        id: transactionLines.id,
+        transactionId: transactionLines.transactionId,
+        itemId: transactionLines.itemId,
+        description: transactionLines.description,
+        quantity: transactionLines.quantity,
+        unitPrice: transactionLines.unitPrice,
+        unitCost: transactionLines.unitCost,
+        vatCode: transactionLines.vatCode,
+        vatRate: transactionLines.vatRate,
+        subtotal: transactionLines.subtotal,
+        vatAmount: transactionLines.vatAmount,
+        total: transactionLines.total,
+        itemNumber: items.itemNumber,
+        sku: items.sku,
+        specifications: items.specifications,
+      }).from(transactionLines).leftJoin(items, eq(transactionLines.itemId, items.id)).where(eq(transactionLines.transactionId, id)).orderBy(asc(transactionLines.id));
       const journal = await db.select({
         accountName: journalLines.accountName, debit: journalLines.debit, credit: journalLines.credit,
       }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(eq(journalEntries.transactionId, id)).orderBy(asc(journalLines.id));
       const [sourceDocument] = record.sourceTransactionId ? await db.select({ number: transactions.number, type: transactions.type }).from(transactions).where(eq(transactions.id, record.sourceTransactionId)).limit(1) : [];
       const [convertedDocument] = record.convertedInvoiceId ? await db.select({ number: transactions.number, type: transactions.type }).from(transactions).where(eq(transactions.id, record.convertedInvoiceId)).limit(1) : [];
-      return Response.json({ record: { ...record, sourceDocumentNumber: sourceDocument?.number ?? "", sourceDocumentType: sourceDocument?.type ?? "", convertedDocumentNumber: convertedDocument?.number ?? "", convertedDocumentType: convertedDocument?.type ?? "", convertedInvoiceNumber: convertedDocument?.type === "invoice" ? convertedDocument.number : "" }, lines, journal });
+      const customerType = ["invoice", "quotation", "estimate", "sales order", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(record.type) ? "customer" : "vendor";
+      const [partyContact] = await db.select().from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, customerType), eq(contacts.name, record.party))).limit(1);
+      return Response.json({ record: { ...record, sourceDocumentNumber: sourceDocument?.number ?? "", sourceDocumentType: sourceDocument?.type ?? "", convertedDocumentNumber: convertedDocument?.number ?? "", convertedDocumentType: convertedDocument?.type ?? "", convertedInvoiceNumber: convertedDocument?.type === "invoice" ? convertedDocument.number : "" }, lines, journal, partyContact: partyContact ?? null });
     }
     if (kind === "contacts") return Response.json({ records: await db.select().from(contacts).where(eq(contacts.companyId, companyId)).orderBy(asc(contacts.name)) });
     if (kind === "items") return Response.json({ records: await db.select().from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId))).orderBy(asc(items.name)) });

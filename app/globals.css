@@ -188,4 +188,9 @@ button, input, select { font: inherit; }
 @media print {
   [data-slot="sidebar"], header, button { display: none !important; }
   main { margin: 0 !important; }
+  .document-action-panel, .document-internal-only { display: none !important; }
+  body:has(.document-print-surface) * { visibility: hidden; }
+  body:has(.document-print-surface) .document-print-surface,
+  body:has(.document-print-surface) .document-print-surface * { visibility: visible; }
+  body:has(.document-print-surface) .document-print-surface { position: absolute; inset: 0; width: 100%; padding: 12mm; background: white; color: #0f172a; print-color-adjust: exact; }
 }
