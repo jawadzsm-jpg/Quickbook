@@ -13,6 +13,11 @@ async function companyIdsForUser(userId: number) {
   return result.rows.map((row) => Number(row.company_id));
 }
 
+async function activeAllAdminCount() {
+  const result = await getDb().execute(sql`SELECT COUNT(*)::int AS value FROM app_users WHERE role = 'all_admin' AND active = true`);
+  return Number(result.rows[0]?.value ?? 0);
+}
+
 async function publicUser(user: typeof appUsers.$inferSelect, currentUserId: number) {
   const userRole = user.role as AppRole;
   return {
@@ -62,7 +67,7 @@ export async function POST(request: Request) {
   const avatarData = String(payload.avatarData ?? "");
   const companyIds = parseCompanyIds(payload.companyIds);
   if (!fullName || !/^\S+@\S+\.\S+$/.test(email) || !validRole(role)) return Response.json({ error: "Enter a name, valid email and role." }, { status: 400 });
-  if (role === "all_admin" && administrator.role !== "all_admin") return Response.json({ error: "Only an All-Admin can create another All-Admin." }, { status: 403 });
+  if (role === "all_admin" && administrator.role !== "all_admin" && (await activeAllAdminCount()) > 0) return Response.json({ error: "Only an All-Admin can create another All-Admin." }, { status: 403 });
   if (role !== "all_admin" && !(await validateCompanyIds(companyIds))) return Response.json({ error: "Assign at least one valid company to this user." }, { status: 400 });
   if (password.length < 12 || password.length > 128) return Response.json({ error: "Temporary password must contain 12 to 128 characters." }, { status: 400 });
   if (phone.length > 32 || whatsapp.length > 32) return Response.json({ error: "Phone numbers must contain 32 characters or fewer." }, { status: 400 });
