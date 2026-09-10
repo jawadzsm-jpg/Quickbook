@@ -30,20 +30,26 @@ export function UserRoleCenter() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [dirtyIds, setDirtyIds] = useState<Set<number>>(new Set());
 
-  async function load() {
-    try {
-      const response = await fetch("/api/admin-users", { cache: "no-store" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not load role access");
-      setUsers(data.users ?? []);
-      setCompanies(data.companies ?? []);
-      setDirtyIds(new Set());
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not load role access");
-    }
-  }
+  useEffect(() => {
+    let cancelled = false;
 
-  useEffect(() => { void load(); }, []);
+    async function loadUsers() {
+      try {
+        const response = await fetch("/api/admin-users", { cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not load role access");
+        if (cancelled) return;
+        setUsers(data.users ?? []);
+        setCompanies(data.companies ?? []);
+        setDirtyIds(new Set());
+      } catch (error) {
+        if (!cancelled) toast.error(error instanceof Error ? error.message : "Could not load role access");
+      }
+    }
+
+    void loadUsers();
+    return () => { cancelled = true; };
+  }, []);
 
   function editUser(id: number, changes: Partial<Pick<User, "role" | "companyIds">>) {
     setUsers((current) => current.map((user) => user.id === id ? { ...user, ...changes } : user));
