@@ -131,3 +131,25 @@ export async function PATCH(request: Request) {
   }
   return Response.json({ user: await publicUser(updated, administrator.id), emailSent, emailWarning });
 }
+
+export async function DELETE(request: Request) {
+  const administrator = await requireApiUser(request, true, true);
+  if (administrator instanceof Response) return administrator;
+  const payload = await request.json() as Record<string, unknown>;
+  const id = Number(payload.id);
+  if (!Number.isInteger(id) || id <= 0) return Response.json({ error: "Select a valid user." }, { status: 400 });
+  if (id === administrator.id) return Response.json({ error: "You cannot delete your own account." }, { status: 409 });
+  const [target] = await getDb().select().from(appUsers).where(eq(appUsers.id, id)).limit(1);
+  if (!target) return Response.json({ error: "User not found." }, { status: 404 });
+  const targetRole = target.role as AppRole;
+  if (targetRole === "all_admin" && administrator.role !== "all_admin") return Response.json({ error: "Only an All-Admin can delete an All-Admin." }, { status: 403 });
+  if (targetRole === "admin" && target.active) {
+    const [admins] = await getDb().select({ value: count() }).from(appUsers).where(and(eq(appUsers.role, "admin"), eq(appUsers.active, true)));
+    if (Number(admins.value) <= 1) return Response.json({ error: "At least one active Administrator is required." }, { status: 409 });
+  }
+  const db = getDb();
+  await db.delete(authSessions).where(eq(authSessions.userId, id));
+  await db.execute(sql`DELETE FROM app_user_companies WHERE user_id = ${id}`);
+  await db.delete(appUsers).where(eq(appUsers.id, id));
+  return Response.json({ success: true });
+}
