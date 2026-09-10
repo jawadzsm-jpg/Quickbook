@@ -38,17 +38,21 @@ export async function PATCH(request: Request) {
     const name = text(payload.name, 120);
     const email = text(payload.email, 160).toLowerCase();
     const logoData = String(payload.logoData ?? "");
+    const stampData = String(payload.stampData ?? "");
+    const bankCurrency = text(payload.bankCurrency, 3).toUpperCase();
     const documentTemplate = text(payload.documentTemplate, 20);
     const documentColor = text(payload.documentColor, 7);
     if (!Number.isInteger(companyId) || companyId <= 0 || !name) return Response.json({ error: "Company name is required." }, { status: 400 });
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return Response.json({ error: "Enter a valid company email address." }, { status: 400 });
     if (logoData && (!/^data:image\/(png|jpeg|webp);base64,/.test(logoData) || logoData.length > 700_000)) return Response.json({ error: "Upload a PNG, JPG, or WebP logo smaller than 500 KB." }, { status: 400 });
+    if (stampData && (!/^data:image\/[a-z0-9.+-]+;base64,/i.test(stampData) || stampData.length > 700_000)) return Response.json({ error: "Upload an image stamp smaller than 500 KB." }, { status: 400 });
+    if (!/^[A-Z]{3}$/.test(bankCurrency)) return Response.json({ error: "Choose a valid bank account currency." }, { status: 400 });
     if (!templates.has(documentTemplate) || !/^#[0-9a-fA-F]{6}$/.test(documentColor)) return Response.json({ error: "Choose a valid document design and color." }, { status: 400 });
     const db = getDb();
     const [record] = await db.update(companies).set({
-      name, logoData, email,
+      name, logoData, stampData, email,
       addressLine1: text(payload.addressLine1, 180), addressLine2: text(payload.addressLine2, 180), city: text(payload.city, 80), country: text(payload.country, 80), phone: text(payload.phone, 40), trn: text(payload.trn, 40),
-      bankName: text(payload.bankName, 120), bankAccountName: text(payload.bankAccountName, 120), bankAccountNumber: text(payload.bankAccountNumber, 80), bankIban: text(payload.bankIban, 80).toUpperCase(), bankSwift: text(payload.bankSwift, 30).toUpperCase(),
+      bankName: text(payload.bankName, 120), bankAccountName: text(payload.bankAccountName, 120), bankAccountNumber: text(payload.bankAccountNumber, 80), bankIban: text(payload.bankIban, 80).toUpperCase(), bankSwift: text(payload.bankSwift, 30).toUpperCase(), bankCurrency,
       documentTemplate: documentTemplate as "classic" | "modern" | "minimal", documentColor,
     }).where(eq(companies.id, companyId)).returning();
     if (!record) return Response.json({ error: "Company not found." }, { status: 404 });
