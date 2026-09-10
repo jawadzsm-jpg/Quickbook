@@ -122,6 +122,13 @@ export async function GET(request: Request) {
         itemNumber: items.itemNumber,
         sku: items.sku,
         specifications: items.specifications,
+        hsCode: items.hsCode,
+        countryOfOrigin: items.countryOfOrigin,
+        dimensionText: items.dimensionText,
+        lengthCm: items.lengthCm,
+        widthCm: items.widthCm,
+        heightCm: items.heightCm,
+        weightKg: items.weightKg,
       }).from(transactionLines).leftJoin(items, eq(transactionLines.itemId, items.id)).where(eq(transactionLines.transactionId, id)).orderBy(asc(transactionLines.id));
       const journal = await db.select({
         accountName: journalLines.accountName, debit: journalLines.debit, credit: journalLines.credit,
@@ -209,7 +216,8 @@ export async function POST(request: Request) {
         const sku = await createUniqueItemSku();
         const [created] = await db.insert(items).values({
           companyId, locationId, sku, name: source.name, category: source.category, description: source.description,
-          specifications: source.specifications, quantity: 0, reorderPoint: source.reorderPoint,
+          specifications: source.specifications, hsCode: source.hsCode, countryOfOrigin: source.countryOfOrigin, dimensionText: source.dimensionText,
+          lengthCm: source.lengthCm, widthCm: source.widthCm, heightCm: source.heightCm, weightKg: source.weightKg, quantity: 0, reorderPoint: source.reorderPoint,
           salesPrice: source.salesPrice, cost: source.cost, lastPurchasePrice: source.lastPurchasePrice, status: source.status,
         }).returning();
         const [record] = await db.update(items).set({ itemNumber: String(13000 + created.id) }).where(eq(items.id, created.id)).returning();
@@ -226,9 +234,11 @@ export async function POST(request: Request) {
       const name = String(payload.name ?? "").trim() || [specificationValue("Brand"), specificationValue("Model") || specificationValue("Part Number")].filter(Boolean).join(" ") || `${category} Item`;
       // Keep labels in structured specifications for editing/filtering; the customer-facing description contains values only.
       const description = specifications.map((specification) => specification.value).join(" | ");
+      const parsedWeight = Number.parseFloat(specificationValue("Weight"));
       const [created] = await db.insert(items).values({
         companyId, locationId, name, sku, category, description,
-        specifications: JSON.stringify(specifications), quantity: Number(payload.quantity ?? 0),
+        specifications: JSON.stringify(specifications), countryOfOrigin: specificationValue("Country of Origin").toUpperCase(),
+        dimensionText: specificationValue("Dimensions"), weightKg: Number.isFinite(parsedWeight) ? parsedWeight : 0, quantity: Number(payload.quantity ?? 0),
         reorderPoint: Number(payload.reorderPoint ?? 0), salesPrice: Number(payload.salesPrice ?? 0), cost: Number(payload.cost ?? 0),
       }).returning();
       const [record] = await db.update(items).set({ itemNumber: String(13000 + created.id) }).where(eq(items.id, created.id)).returning();
