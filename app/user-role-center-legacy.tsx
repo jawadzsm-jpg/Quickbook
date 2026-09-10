@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-type Role = "admin" | "accountant" | "sales" | "purchasing" | "inventory" | "viewer";
+type Role = "all_admin" | "admin" | "accountant" | "sales" | "purchasing" | "inventory" | "viewer";
 type ManagedUser = {
   id: number; fullName: string; email: string; phone: string; whatsapp: string; avatarData: string; role: Role;
   active: boolean; mustChangePassword: boolean; lastLoginAt: string | null; lastLoginIp: string; lastLoginUserAgent: string; isCurrent: boolean;
@@ -20,6 +20,7 @@ type ManagedUser = {
 type SmtpForm = { host: string; port: string; secure: boolean; username: string; password: string; fromName: string; fromEmail: string; passwordConfigured: boolean };
 
 const roles: Array<{ value: Role; label: string; description: string }> = [
+  { value: "all_admin", label: "All-Admin", description: "Full access to every company and all administration controls" },
   { value: "admin", label: "Administrator", description: "Full access, settings and user management" },
   { value: "accountant", label: "Accountant", description: "Accounting, sales, purchases, banking and reports" },
   { value: "sales", label: "Sales", description: "Customers, invoices, receipts and stock viewing" },
