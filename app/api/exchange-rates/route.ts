@@ -1,17 +1,19 @@
+import { apiRoute } from "@/lib/api";
 import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { auditLog, companies, exchangeRates } from "../../../db/schema";
-import { requireApiUser } from "@/lib/auth";
+import { canAccessCompany, requireApiUser } from "@/lib/auth";
 
 function message(error: unknown) {
   return error instanceof Error ? error.message : "Could not update exchange rates.";
 }
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   const authorization = await requireApiUser(request, "workspace:read");
   if (authorization instanceof Response) return authorization;
   try {
     const companyId = Number(new URL(request.url).searchParams.get("companyId"));
+    if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     const db = getDb();
     const rates = await db.select().from(exchangeRates).where(eq(exchangeRates.companyId, companyId)).orderBy(asc(exchangeRates.currencyCode));
@@ -19,12 +21,13 @@ export async function GET(request: Request) {
   } catch (error) { return Response.json({ error: message(error) }, { status: 500 }); }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const authorization = await requireApiUser(request, true, true);
   if (authorization instanceof Response) return authorization;
   try {
     const payload = (await request.json()) as Record<string, unknown>;
     const companyId = Number(payload.companyId);
+    if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     const currencyCode = String(payload.currencyCode ?? "").trim().toUpperCase();
     const rate = Number(payload.rate);
     if (!Number.isInteger(companyId) || companyId <= 0 || !/^[A-Z]{3}$/.test(currencyCode) || !Number.isFinite(rate) || rate <= 0 || rate > 1_000_000) {
@@ -43,12 +46,13 @@ export async function POST(request: Request) {
   } catch (error) { return Response.json({ error: message(error) }, { status: 500 }); }
 }
 
-export async function PATCH(request: Request) {
+async function handlePATCH(request: Request) {
   const authorization = await requireApiUser(request, true, true);
   if (authorization instanceof Response) return authorization;
   try {
     const payload = (await request.json()) as Record<string, unknown>;
     const companyId = Number(payload.companyId);
+    if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     const id = Number(payload.id);
     const rate = Number(payload.rate);
     if (!Number.isInteger(companyId) || !Number.isInteger(id) || !Number.isFinite(rate) || rate <= 0 || rate > 1_000_000) return Response.json({ error: "Enter a valid exchange rate greater than zero." }, { status: 400 });
@@ -60,3 +64,9 @@ export async function PATCH(request: Request) {
     return Response.json({ record });
   } catch (error) { return Response.json({ error: message(error) }, { status: 500 }); }
 }
+
+export const GET = apiRoute(handleGET);
+
+export const POST = apiRoute(handlePOST, { transaction: true });
+
+export const PATCH = apiRoute(handlePATCH, { transaction: true });

@@ -1,4 +1,4 @@
-import { boolean, doublePrecision, index, integer, pgTable, serial, text, timestamp, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { boolean, doublePrecision, index, integer, pgTable, primaryKey, serial, text, timestamp, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
 
 export const companies = pgTable("companies", {
   id: serial("id").primaryKey(),
@@ -344,3 +344,19 @@ export const auditLog = pgTable("audit_log", {
   details: text("details").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 }, (table) => [index("idx_audit_entity").on(table.entityType, table.entityId)]);
+
+export const authRateLimits = pgTable("auth_rate_limits", {
+  bucket: text("bucket").primaryKey(),
+  attempts: integer("attempts").notNull().default(0),
+  resetAt: timestamp("reset_at", { withTimezone: true, mode: "string" }).notNull(),
+}, (table) => [index("idx_auth_rate_limits_reset").on(table.resetAt)]);
+
+export const idempotencyRequests = pgTable("idempotency_requests", {
+  userId: integer("user_id").notNull().references(() => appUsers.id, { onDelete: "cascade" }),
+  requestKey: text("request_key").notNull(),
+  requestHash: text("request_hash").notNull(),
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }),
+  responseBody: text("response_body"),
+  responseStatus: integer("response_status"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.userId, table.requestKey] })]);

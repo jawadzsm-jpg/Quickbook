@@ -1,6 +1,10 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { RecordAttachments } from "./record-attachments";
+import { AttachmentCapture, type PendingAttachment } from "./attachment-capture";
+import { csvCell, escapeHtml } from "@/lib/export";
+
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import {
   AlertTriangle, ArrowRightLeft, BadgeDollarSign, Bell, BookOpen, BookOpenCheck, BookmarkPlus, Boxes, Building2, CheckCircle2, Copy,
@@ -43,7 +47,7 @@ import { JournalEntryCenter } from "@/app/journal-entry-center";
 import { VatManagementCenter } from "@/app/vat-management-center";
 
 type View = "dashboard" | "inventory-overview" | "sales" | "receive-payment" | "purchases" | "write-cheque" | "customers" | "vendors" | "inventory" | "item-logistics" | "inventory-check-reports" | "transfers" | "banking" | "journal-entries" | "accounts" | "vat-management" | "employees" | "reports" | "companies" | "company-setup" | "inventories" | "invoice-series" | "currencies" | "vat-codes" | "admin-controls";
-type AppRole = "admin" | "accountant" | "sales" | "purchasing" | "inventory" | "viewer";
+type AppRole = "all_admin" | "admin" | "accountant" | "sales" | "purchasing" | "inventory" | "viewer";
 type UserTheme = "emerald" | "ocean" | "indigo" | "violet" | "rose" | "amber";
 type AppearanceMode = "light" | "dark";
 type CurrentUser = { id: number; fullName: string; email: string; avatarData: string; themeColor: string; appearanceMode: AppearanceMode; role: AppRole; mustChangePassword: boolean };
@@ -110,6 +114,7 @@ const navGroups = [
 ] as const;
 
 const roleLabels: Record<AppRole, string> = {
+  all_admin: "All-Admin",
   admin: "Administrator",
   accountant: "Accountant",
   sales: "Sales",
@@ -119,6 +124,7 @@ const roleLabels: Record<AppRole, string> = {
 };
 
 const roleViews: Record<AppRole, readonly View[]> = {
+  all_admin: navGroups.flatMap((group) => group.items.map((item) => item.id)),
   admin: navGroups.flatMap((group) => group.items.map((item) => item.id)),
   accountant: ["dashboard", "inventory-overview", "inventory-check-reports", "sales", "receive-payment", "customers", "purchases", "write-cheque", "vendors", "banking", "journal-entries", "accounts", "vat-management", "reports"],
   sales: ["dashboard", "inventory-overview", "inventory-check-reports", "sales", "receive-payment", "customers"],
@@ -128,6 +134,7 @@ const roleViews: Record<AppRole, readonly View[]> = {
 };
 
 const roleWriteViews: Record<AppRole, readonly View[]> = {
+  all_admin: ["sales", "receive-payment", "customers", "purchases", "write-cheque", "vendors", "inventory", "item-logistics", "inventory-check-reports", "transfers", "banking", "journal-entries", "accounts", "employees", "companies", "inventories", "invoice-series", "currencies", "vat-codes", "admin-controls"],
   admin: ["sales", "receive-payment", "customers", "purchases", "write-cheque", "vendors", "inventory", "item-logistics", "inventory-check-reports", "transfers", "banking", "journal-entries", "accounts", "employees", "companies", "inventories", "invoice-series", "currencies", "vat-codes", "admin-controls"],
   accountant: ["sales", "receive-payment", "customers", "purchases", "write-cheque", "vendors", "banking", "journal-entries", "accounts", "vat-management"],
   sales: ["sales", "receive-payment", "customers"],
@@ -335,8 +342,17 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   const [view, setView] = useState<View>("dashboard");
   const [records, setRecords] = useState<Record<Kind, DataRecord[]>>({ transactions: [], contacts: [], items: [], accounts: [] });
   const [loading, setLoading] = useState(true);
+  const dataRequest = useRef<AbortController | null>(null);
   const [search, setSearch] = useState("");
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const saveRequestKey = useRef("");
+  const [dialogOpen, setDialogVisible] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const [readingAttachments, setReadingAttachments] = useState(false);
+  function setDialogOpen(open: boolean) {
+    if (open && !dialogOpen) saveRequestKey.current = crypto.randomUUID();
+    setDialogVisible(open);
+    if (!open) { setPendingAttachments([]); setReadingAttachments(false); }
+  }
   const [editorKind, setEditorKind] = useState<Kind | null>(null);
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
@@ -419,19 +435,23 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   }, []);
 
   const loadData = useCallback(async () => {
+    dataRequest.current?.abort();
+    const controller = new AbortController();
+    dataRequest.current = controller;
     setLoading(true);
     try {
       const kinds: Kind[] = ["transactions", "contacts", "items", "accounts"];
       const results = await Promise.all(kinds.map(async (kind) => {
-        const response = await fetch(`/api/records?kind=${kind}&companyId=${activeCompanyId}&locationId=${activeLocationId}`);
+        const response = await fetch(`/api/records?kind=${kind}&companyId=${activeCompanyId}&locationId=${activeLocationId}`, { signal: controller.signal });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Could not load records");
         return [kind, data.records] as const;
       }));
+      if (controller.signal.aborted) return;
       setRecords(Object.fromEntries(results) as Record<Kind, DataRecord[]>);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not load company data");
-    } finally { setLoading(false); }
+      if (!controller.signal.aborted) toast.error(error instanceof Error ? error.message : "Could not load company data");
+    } finally { if (!controller.signal.aborted) setLoading(false); }
   }, [activeCompanyId, activeLocationId]);
 
   const loadVatCodes = useCallback(async () => {
@@ -479,6 +499,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   // Initial load synchronizes the client workspace with the persisted company file.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadWorkspaces(); }, [loadWorkspaces]);
+  useEffect(() => () => dataRequest.current?.abort(), []);
   useEffect(() => {
     if (!activeCompany) return;
     // Keep the selected warehouse valid after changing or adding companies.
@@ -621,7 +642,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
       const billVatRate = form.isImport === "true" ? "5" : "0";
       const submittedLines = billFreightCharge > 0 ? [...lines, { itemId: "", description: "Freight Charges", quantity: "1", unitPrice: String(billFreightCharge), unitCost: String(billFreightCharge), vatCode: billVatRate === "5" ? "STANDARD" : "ZERO", vatRate: billVatRate }] : lines;
       const selectedLocationId = saveKind === "transactions" && form.type === "bill" ? Number(form.billLocationId || activeLocationId) : saveKind === "transactions" ? Number(form.transactionLocationId || activeLocationId) : activeLocationId;
-      const response = await fetch("/api/records", { method: editingItem ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: saveKind, companyId: activeCompanyId, locationId: selectedLocationId, ...(editingItem ? { id: editingItemId } : {}), ...form, ...(saveKind === "transactions" ? { lines: submittedLines } : {}) }) });
+      const response = await fetch("/api/records", { method: editingItem ? "PATCH" : "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": saveRequestKey.current }, body: JSON.stringify({ kind: saveKind, companyId: activeCompanyId, locationId: selectedLocationId, ...(editingItem ? { id: editingItemId } : {}), ...form, ...(saveKind === "transactions" ? { lines: submittedLines } : {}), attachments: pendingAttachments }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not save record");
       setRecords((old) => ({ ...old, [saveKind]: editingItem ? old[saveKind].map((record) => record.id === data.record.id ? data.record : record) : [data.record, ...old[saveKind]] }));
@@ -767,7 +788,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
           ))}
         </SidebarContent>
         <SidebarFooter className="border-t border-white/10 p-3">
-          {currentUser.role === "admin" && <SidebarMenu><SidebarMenuItem><SidebarMenuButton tooltip="Companies & inventory" onClick={() => setWorkspaceOpen(true)} className="text-slate-400"><Settings /><span>Companies & inventory</span></SidebarMenuButton></SidebarMenuItem></SidebarMenu>}
+          {["all_admin", "admin"].includes(currentUser.role) && <SidebarMenu><SidebarMenuItem><SidebarMenuButton tooltip="Companies & inventory" onClick={() => setWorkspaceOpen(true)} className="text-slate-400"><Settings /><span>Companies & inventory</span></SidebarMenuButton></SidebarMenuItem></SidebarMenu>}
           <div className="mt-1 flex items-center gap-3 rounded-lg bg-white/5 p-2 group-data-[collapsible=icon]:hidden">
             {currentUser.avatarData ? <Image src={currentUser.avatarData} alt={`${currentUser.fullName || currentUser.email} profile`} width={32} height={32} unoptimized className="size-8 rounded-full border border-white/15 object-cover" /> : <div className="grid size-8 place-items-center rounded-full bg-slate-700 text-xs font-bold">{(currentUser.fullName || currentUser.email).slice(0, 2).toUpperCase()}</div>}
             <div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold text-white">{currentUser.fullName || roleLabels[currentUser.role]}</p><p className="truncate text-[11px] text-slate-500">{roleLabels[currentUser.role]} · {currentUser.email}</p></div>
@@ -792,8 +813,8 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
         </header>
 
         <div className="mx-auto w-full max-w-[1500px] p-4 lg:p-7">
-          {view === "company-setup" ? <CompanySetupCenter key={activeCompanyId} setup={companySetup} onSaved={async (saved) => { setCompanySetup(saved); await loadWorkspaces(); }} /> : view === "inventory-overview" ? <InventoryOverview /> : view === "item-logistics" ? <ItemLogisticsCenter key={`${activeCompanyId}-${activeLocationId}`} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} locationId={activeLocationId} locationName={activeLocations.find((location) => location.id === activeLocationId)?.name ?? "Inventory"} canEdit={canWriteCurrentView} /> : view === "inventory-check-reports" ? <InventoryCheckReports key={`${activeCompanyId}-${activeLocationId}`} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} locationId={activeLocationId} locationName={activeLocations.find((location) => location.id === activeLocationId)?.name ?? "Inventory"} canManage={currentUser.role === "admin"} currentUserName={currentUser.fullName || currentUser.email} /> : view === "transfers" ? <MultiLineTransferCenter key={`${activeCompanyId}-${activeLocationId}`} companies={companies} activeLocationId={activeLocationId} onTransferred={loadData} /> : view === "journal-entries" ? <JournalEntryCenter key={`${activeCompanyId}-${activeLocationId}`} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} locationId={activeLocationId} locationName={activeLocations.find((location) => location.id === activeLocationId)?.name ?? "Inventory"} currency={baseCurrency} accounts={records.accounts.map((account) => ({ id: account.id, code: String(account.code), name: String(account.name), type: String(account.type), active: Boolean(account.active) }))} onPosted={loadData} /> : view === "vat-management" ? <VatManagementCenter key={`${activeCompanyId}-${activeLocationId}`} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} locationId={activeLocationId} locationName={activeLocations.find((location) => location.id === activeLocationId)?.name ?? "Inventory"} currency={baseCurrency} canWrite={canWriteCurrentView} canManageCodes={currentUser.role === "admin"} onOpenReport={openReport} onManageCodes={() => setView("vat-codes")} /> : view === "currencies" ? <CurrencyRateCenter key={activeCompanyId} company={activeCompany} currencies={currencies} onCompanyChanged={loadWorkspaces} onRatesChanged={loadExchangeRates} /> : view === "vat-codes" ? <VatCodeCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} onChanged={loadVatCodes} /> : view === "admin-controls" ? <AdminSettingsCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} currentUserEmail={currentUser.email} /> : managementView ? <WorkspaceCenter mode={view as "companies" | "inventories" | "invoice-series" | "currencies"} companies={companies} activeCompanyId={activeCompanyId} onChanged={loadWorkspaces} /> : view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} themeColor={themeColor} themeSaving={themeSaving} onThemeChange={changeTheme} onNavigate={(next) => { if (roleViews[currentUser.role].includes(next)) setView(next); else toast.error("Your role does not allow this action."); }} onWorkflow={(type, target) => { if (!roleViews[currentUser.role].includes(target) || !roleWriteViews[currentUser.role].includes(target)) return toast.error("Your role does not allow this action."); setView(target); openTransaction(type); }} onCreate={openCreate} onOpenDetail={openDetail} canCreate={roleWriteViews[currentUser.role].includes("sales")} canViewReports={roleViews[currentUser.role].includes("reports")} /> : view === "reports" ? <ReportCenter metrics={metrics} currency={baseCurrency} memorisedReports={memorisedReports} onOpen={openReport} onOpenMemorised={openMemorisedReport} onDeleteMemorised={removeMemorisedReport} loading={reportLoading} /> : view === "sales" ? <SalesCenter records={filteredRecords} accounts={records.accounts} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onTransaction={openTransaction} onOpenDetail={openDetail} canWrite={canWriteCurrentView} canDelete={currentUser.role === "admin"} /> : view === "purchases" ? <PurchaseCenter records={filteredRecords} accounts={records.accounts} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onTransaction={openTransaction} onOpenDetail={openDetail} canWrite={canWriteCurrentView} canDelete={currentUser.role === "admin"} /> : view === "customers" ? <CustomerCenter records={filteredRecords} accounts={records.accounts} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreateCustomer={openCreate} onDelete={removeRecord} onTransaction={openTransaction} onStatement={() => openReport("customer-statements")} onOpenDetail={openDetail} canWrite={canWriteCurrentView} canDelete={currentUser.role === "admin"} reportLoading={reportLoading} /> : view === "vendors" ? <VendorCenter records={filteredRecords} accounts={records.accounts} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreateVendor={openCreate} onDelete={removeRecord} onTransaction={openTransaction} onOpenDetail={openDetail} canWrite={canWriteCurrentView} canDelete={currentUser.role === "admin"} /> : view === "banking" ? <BankingCenter records={filteredRecords} accounts={records.accounts} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onTransaction={openTransaction} onReport={openReport} onOpenDetail={openDetail} canWrite={canWriteCurrentView} canDelete={currentUser.role === "admin"} reportLoading={reportLoading} /> : (
-            <RecordView view={view} kind={currentKind} records={filteredRecords} accounts={records.accounts} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onEditItem={openItemEdit} onDuplicateItem={duplicateItem} onOpenDetail={openDetail} canWrite={canWriteCurrentView} canDelete={currentUser.role === "admin"} />
+          {view === "company-setup" ? <CompanySetupCenter key={activeCompanyId} setup={companySetup} onSaved={async (saved) => { setCompanySetup(saved); await loadWorkspaces(); }} /> : view === "inventory-overview" ? <InventoryOverview /> : view === "item-logistics" ? <ItemLogisticsCenter key={`${activeCompanyId}-${activeLocationId}`} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} locationId={activeLocationId} locationName={activeLocations.find((location) => location.id === activeLocationId)?.name ?? "Inventory"} canEdit={canWriteCurrentView} /> : view === "inventory-check-reports" ? <InventoryCheckReports key={`${activeCompanyId}-${activeLocationId}`} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} locationId={activeLocationId} locationName={activeLocations.find((location) => location.id === activeLocationId)?.name ?? "Inventory"} canManage={["all_admin", "admin"].includes(currentUser.role)} currentUserName={currentUser.fullName || currentUser.email} /> : view === "transfers" ? <MultiLineTransferCenter key={`${activeCompanyId}-${activeLocationId}`} companies={companies} activeLocationId={activeLocationId} onTransferred={loadData} /> : view === "journal-entries" ? <JournalEntryCenter key={`${activeCompanyId}-${activeLocationId}`} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} locationId={activeLocationId} locationName={activeLocations.find((location) => location.id === activeLocationId)?.name ?? "Inventory"} currency={baseCurrency} accounts={records.accounts.map((account) => ({ id: account.id, code: String(account.code), name: String(account.name), type: String(account.type), active: Boolean(account.active) }))} onPosted={loadData} /> : view === "vat-management" ? <VatManagementCenter key={`${activeCompanyId}-${activeLocationId}`} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} locationId={activeLocationId} locationName={activeLocations.find((location) => location.id === activeLocationId)?.name ?? "Inventory"} currency={baseCurrency} canWrite={canWriteCurrentView} canManageCodes={["all_admin", "admin"].includes(currentUser.role)} onOpenReport={openReport} onManageCodes={() => setView("vat-codes")} /> : view === "currencies" ? <CurrencyRateCenter key={activeCompanyId} company={activeCompany} currencies={currencies} onCompanyChanged={loadWorkspaces} onRatesChanged={loadExchangeRates} /> : view === "vat-codes" ? <VatCodeCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} onChanged={loadVatCodes} /> : view === "admin-controls" ? <AdminSettingsCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} currentUserEmail={currentUser.email} globalAdmin={currentUser.role === "all_admin"} /> : managementView ? <WorkspaceCenter mode={view as "companies" | "inventories" | "invoice-series" | "currencies"} companies={companies} activeCompanyId={activeCompanyId} onChanged={loadWorkspaces} /> : view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} themeColor={themeColor} themeSaving={themeSaving} onThemeChange={changeTheme} onNavigate={(next) => { if (roleViews[currentUser.role].includes(next)) setView(next); else toast.error("Your role does not allow this action."); }} onWorkflow={(type, target) => { if (!roleViews[currentUser.role].includes(target) || !roleWriteViews[currentUser.role].includes(target)) return toast.error("Your role does not allow this action."); setView(target); openTransaction(type); }} onCreate={openCreate} onOpenDetail={openDetail} canCreate={roleWriteViews[currentUser.role].includes("sales")} canViewReports={roleViews[currentUser.role].includes("reports")} /> : view === "reports" ? <ReportCenter metrics={metrics} currency={baseCurrency} memorisedReports={memorisedReports} onOpen={openReport} onOpenMemorised={openMemorisedReport} onDeleteMemorised={removeMemorisedReport} loading={reportLoading} /> : view === "sales" ? <SalesCenter records={filteredRecords} accounts={records.accounts} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onTransaction={openTransaction} onOpenDetail={openDetail} canWrite={canWriteCurrentView} canDelete={["all_admin", "admin"].includes(currentUser.role)} /> : view === "purchases" ? <PurchaseCenter records={filteredRecords} accounts={records.accounts} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onTransaction={openTransaction} onOpenDetail={openDetail} canWrite={canWriteCurrentView} canDelete={["all_admin", "admin"].includes(currentUser.role)} /> : view === "customers" ? <CustomerCenter records={filteredRecords} accounts={records.accounts} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreateCustomer={openCreate} onDelete={removeRecord} onTransaction={openTransaction} onStatement={() => openReport("customer-statements")} onOpenDetail={openDetail} canWrite={canWriteCurrentView} canDelete={["all_admin", "admin"].includes(currentUser.role)} reportLoading={reportLoading} /> : view === "vendors" ? <VendorCenter records={filteredRecords} accounts={records.accounts} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreateVendor={openCreate} onDelete={removeRecord} onTransaction={openTransaction} onOpenDetail={openDetail} canWrite={canWriteCurrentView} canDelete={["all_admin", "admin"].includes(currentUser.role)} /> : view === "banking" ? <BankingCenter records={filteredRecords} accounts={records.accounts} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onTransaction={openTransaction} onReport={openReport} onOpenDetail={openDetail} canWrite={canWriteCurrentView} canDelete={["all_admin", "admin"].includes(currentUser.role)} reportLoading={reportLoading} /> : (
+            <RecordView view={view} kind={currentKind} records={filteredRecords} accounts={records.accounts} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onEditItem={openItemEdit} onDuplicateItem={duplicateItem} onOpenDetail={openDetail} canWrite={canWriteCurrentView} canDelete={["all_admin", "admin"].includes(currentUser.role)} />
           )}
         </div>
       </SidebarInset>
@@ -806,7 +827,8 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
             {activeEditorKind === "contacts" && <ContactFields form={form} setForm={setForm} accounts={records.accounts} />}
             {activeEditorKind === "items" && <ItemFields form={form} setForm={setForm} items={records.items} />}
             {activeEditorKind === "accounts" && <AccountFields form={form} setForm={setForm} accounts={records.accounts} />}
-            <DialogFooter><Button type="button" variant="outline" onClick={() => { setDialogOpen(false); setEditorKind(null); }}>Cancel</Button><Button type="submit" disabled={saving} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400">{saving ? "Saving…" : editingItemId !== null && activeEditorKind === "items" ? "Save changes" : "Save record"}</Button></DialogFooter>
+            {(activeEditorKind === "transactions" || (activeEditorKind === "contacts" && form.type === "employee")) && <AttachmentCapture files={pendingAttachments} onChange={setPendingAttachments} disabled={saving} onReadingChange={setReadingAttachments} />}
+            <DialogFooter><Button type="button" variant="outline" onClick={() => { setDialogOpen(false); setEditorKind(null); }}>Cancel</Button><Button type="submit" disabled={saving || readingAttachments} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400">{saving ? "Saving…" : editingItemId !== null && activeEditorKind === "items" ? "Save changes" : "Save record"}</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
@@ -1003,7 +1025,7 @@ function RecordView({ view, kind, records, accounts, currency, loading, search, 
   function exportCsv() {
     if (!visibleRecords.length) return toast.error("There are no records to export.");
     const headers = Array.from(new Set(visibleRecords.flatMap((record) => Object.keys(record))));
-    const escape = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
+    const escape = csvCell;
     const csv = [headers.map(escape).join(","), ...visibleRecords.map((record) => headers.map((header) => escape(record[header])).join(","))].join("\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     const link = document.createElement("a");
@@ -1085,7 +1107,7 @@ function DocumentDialog({ detail, companyName, baseCurrency, setup, canConvert, 
   const downloadDocument = () => {
     const surface = document.querySelector(`[data-document-id="${record.id}"]`);
     if (!surface) return toast.error("Could not prepare the document download.");
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${documentModeLabels[documentMode]} ${String(record.number)}</title><style>body{font-family:Arial,sans-serif;color:#0f172a;margin:32px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #cbd5e1;padding:8px;text-align:left}.text-right{text-align:right}.rounded-xl{margin-bottom:16px}button,.document-internal-only{display:none}</style></head><body>${surface.innerHTML}</body></html>`;
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${documentModeLabels[documentMode]} ${escapeHtml(record.number)}</title><style>body{font-family:Arial,sans-serif;color:#0f172a;margin:32px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #cbd5e1;padding:8px;text-align:left}.text-right{text-align:right}.rounded-xl{margin-bottom:16px}button,.document-internal-only{display:none}</style></head><body>${surface.innerHTML}</body></html>`;
     const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
     const link = document.createElement("a"); link.href = url; link.download = `${documentModeLabels[documentMode].toLowerCase().replaceAll(" ", "-")}-${String(record.number)}.html`; link.click(); URL.revokeObjectURL(url);
   };
@@ -1102,6 +1124,7 @@ function DocumentDialog({ detail, companyName, baseCurrency, setup, canConvert, 
     {selectedBank ? <div className="rounded-xl border p-4 text-sm"><div className="mb-3 flex items-center gap-2 font-bold" style={{ color: setup.documentColor }}><Landmark className="size-4" />{selectedBank}</div>{setup.bankName && !setup.bankName.toLowerCase().includes(selectedBank.toLowerCase().replace(" bank", "")) ? <p className="text-slate-500">Configure this bank account in Company Setup to show its payment details.</p> : <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2"><p><span className="text-slate-500">Account name:</span> {setup.bankAccountName || brandedName}</p><p><span className="text-slate-500">Account number:</span> {setup.bankAccountNumber || "—"}</p><p><span className="text-slate-500">Currency:</span> {setup.bankCurrency || setup.baseCurrency}</p><p><span className="text-slate-500">IBAN:</span> {setup.bankIban || "—"}</p>{setup.bankSwift ? <p><span className="text-slate-500">SWIFT:</span> {setup.bankSwift}</p> : null}</div>}</div> : null}
     {showStamp && setup.stampData ? <div className="flex justify-end"><Image src={setup.stampData} alt={`${brandedName} company stamp`} width={160} height={120} unoptimized className="max-h-30 w-auto max-w-40 object-contain" /></div> : null}
     {detail.journal.length > 0 && <div className="document-internal-only"><h3 className="mb-2 text-sm font-bold">Accounting entry ({baseCurrency})</h3><div className="overflow-hidden rounded-xl border"><Table><TableHeader><TableRow><TableHead>Account</TableHead><TableHead className="text-right">Debit</TableHead><TableHead className="text-right">Credit</TableHead></TableRow></TableHeader><TableBody>{detail.journal.map((line, index) => <TableRow key={index}><TableCell>{String(line.accountName)}</TableCell><TableCell className="text-right">{Number(line.debit) ? formatMoney(line.debit, baseCurrency) : "—"}</TableCell><TableCell className="text-right">{Number(line.credit) ? formatMoney(line.credit, baseCurrency) : "—"}</TableCell></TableRow>)}</TableBody></Table></div></div>}
+    <RecordAttachments companyId={Number(record.companyId)} entityId={record.id} />
     {record.memo && <p className="rounded-lg border p-3 text-sm text-slate-600"><strong>Memo:</strong> {String(record.memo)}</p>}
     </div><aside className="document-action-panel space-y-2 rounded-xl border bg-slate-50 p-3 xl:sticky xl:top-0 xl:self-start"><p className="px-2 pb-1 text-xs font-bold uppercase tracking-wider text-slate-500">Document Actions</p>
       <Button type="button" variant="ghost" className={actionClass(false)} onClick={() => window.print()}><Printer className="size-4" />Print</Button>
@@ -1181,7 +1204,7 @@ function CompanySetupCenter({ setup, onSaved }: { setup: CompanySetup; onSaved: 
   </form>;
 }
 
-function AdminSettingsCenter({ companyId, companyName, currentUserEmail }: { companyId: number; companyName: string; currentUserEmail: string }) {
+function AdminSettingsCenter({ companyId, companyName, currentUserEmail, globalAdmin }: { companyId: number; companyName: string; currentUserEmail: string; globalAdmin: boolean }) {
   const [configured, setConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1264,7 +1287,7 @@ function AdminSettingsCenter({ companyId, companyName, currentUserEmail }: { com
       <Button type="submit" disabled={passwordSaving} className="w-full">{passwordSaving ? "Changing…" : "Change login password"}</Button>
       <p className="text-sm leading-5 text-slate-500">Changing the password signs out every active session.</p>
     </form></div>
-  </div><UserRoleCenter /></div>;
+  </div>{globalAdmin && <UserRoleCenter />}</div>;
 }
 
 function WorkspaceCenter({ mode, companies, activeCompanyId, onChanged }: { mode: "companies" | "inventories" | "invoice-series" | "currencies"; companies: CompanyWorkspace[]; activeCompanyId: number; onChanged: () => Promise<void> }) {
@@ -1333,7 +1356,7 @@ function WorkspaceDialog({ open, companies, activeCompanyId, onClose, onChanged 
   </DialogContent></Dialog>;
 }
 
-function Field({ label, name, form, setForm, type = "text", required = false, placeholder }: { label: string; name: string; form: Record<string, string>; setForm: (f: Record<string, string>) => void; type?: string; required?: boolean; placeholder?: string }) { return <div className="space-y-2"><Label htmlFor={name}>{label}{required ? " *" : ""}</Label><Input id={name} name={name} type={type} required={required} placeholder={placeholder} value={form[name] ?? ""} onChange={(e) => setForm({ ...form, [name]: e.target.value })} /></div>; }
+function Field({ label, name, form, setForm, type = "text", required = false, placeholder }: { label: string; name: string; form: Record<string, string>; setForm: (f: Record<string, string>) => void; type?: string; required?: boolean; placeholder?: string }) { return <div className="space-y-2"><Label htmlFor={name}>{label}{required ? " *" : ""}</Label><Input id={name} name={name} type={type} step={type === "number" ? "any" : undefined} required={required} placeholder={placeholder} value={form[name] ?? ""} onChange={(e) => setForm({ ...form, [name]: e.target.value })} /></div>; }
 function Choice({ label, name, values, form, setForm, placeholder }: { label: string; name: string; values: string[]; form: Record<string, string>; setForm: (f: Record<string, string>) => void; placeholder?: string }) { return <div className="space-y-2"><Label>{label}</Label><Select value={form[name]} onValueChange={(value) => setForm({ ...form, [name]: value })}><SelectTrigger className="w-full"><SelectValue placeholder={placeholder} /></SelectTrigger><SelectContent>{values.map((value) => <SelectItem key={value} value={value}><span className="capitalize">{value}</span></SelectItem>)}</SelectContent></Select></div>; }
 function CurrencyExchangeChoice({ form, setForm, exchangeRates, baseCurrency }: { form: Record<string, string>; setForm: (form: Record<string, string>) => void; exchangeRates: ExchangeRateRecord[]; baseCurrency: string }) {
   const selectedRate = exchangeRates.find((rate) => rate.currencyCode === form.currency)?.rate;

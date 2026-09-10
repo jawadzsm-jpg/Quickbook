@@ -1,3 +1,4 @@
+import { apiRoute } from "@/lib/api";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { appUsers, auditLog, inventoryCheckLines, inventoryCheckReports, inventoryLocations, items } from "@/db/schema";
@@ -16,7 +17,7 @@ async function reportForCompany(id: number, companyId: number) {
   return record;
 }
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   try {
     const url = new URL(request.url);
     const companyId = Number(url.searchParams.get("companyId"));
@@ -53,7 +54,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   try {
     const payload = (await request.json()) as Record<string, unknown>;
     const companyId = Number(payload.companyId);
@@ -77,7 +78,7 @@ export async function POST(request: Request) {
   }
 }
 
-export async function PATCH(request: Request) {
+async function handlePATCH(request: Request) {
   try {
     const payload = (await request.json()) as Record<string, unknown>;
     const id = Number(payload.id);
@@ -107,7 +108,7 @@ export async function PATCH(request: Request) {
   }
 }
 
-export async function DELETE(request: Request) {
+async function handleDELETE(request: Request) {
   try {
     const payload = (await request.json()) as Record<string, unknown>;
     const id = Number(payload.id);
@@ -124,3 +125,11 @@ export async function DELETE(request: Request) {
     return Response.json({ error: databaseError(error) }, { status: 500 });
   }
 }
+
+export const GET = apiRoute(handleGET);
+
+export const POST = apiRoute(handlePOST, { transaction: true });
+
+export const PATCH = apiRoute(handlePATCH, { transaction: true });
+
+export const DELETE = apiRoute(handleDELETE, { transaction: true });

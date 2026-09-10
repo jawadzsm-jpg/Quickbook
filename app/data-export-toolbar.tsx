@@ -1,5 +1,7 @@
 "use client";
 
+import { csvCell } from "@/lib/export";
+
 import { useEffect, useMemo, useState } from "react";
 import { FileSpreadsheet, FileText, Table2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -75,12 +77,6 @@ function downloadBlob(blob: Blob, filename: string) {
   anchor.click();
   anchor.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function csvCell(value: string) {
-  let safe = value;
-  if (/^[=+\-@]/.test(safe)) safe = `'${safe}`;
-  return `"${safe.replaceAll('"', '""')}"`;
 }
 
 function exportCsv(tables: ExportTable[]) {

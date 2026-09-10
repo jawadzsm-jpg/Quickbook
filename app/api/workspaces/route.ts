@@ -1,6 +1,7 @@
+import { apiRoute } from "@/lib/api";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { accounts, companies, exchangeRates, inventoryLocations, transactions, vatCodes } from "../../../db/schema";
+import { accounts, journalEntries, companies, exchangeRates, inventoryLocations, transactions, vatCodes } from "../../../db/schema";
 import { canAccessCompany, requireApiUser } from "@/lib/auth";
 
 const standardAccounts = [
@@ -20,7 +21,7 @@ const standardVatCodes = [
 ] as const;
 const message = (error: unknown) => error instanceof Error ? error.message : "Could not update companies and inventory locations.";
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   const authorization = await requireApiUser(request, "workspace:read");
   if (authorization instanceof Response) return authorization;
   try {
@@ -46,7 +47,7 @@ export async function GET(request: Request) {
   } catch (error) { return Response.json({ error: message(error) }, { status: 500 }); }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const authorization = await requireApiUser(request, true, true);
   if (authorization instanceof Response) return authorization;
   try {
@@ -55,9 +56,9 @@ export async function POST(request: Request) {
       if (authorization.role !== "all_admin") return Response.json({ error: "Only an All-Admin can create a company." }, { status: 403 });
       const name = String(payload.name ?? "").trim(); const baseCurrency = String(payload.baseCurrency ?? "AED").trim().toUpperCase();
       if (!name || !/^[A-Z]{3}$/.test(baseCurrency)) return Response.json({ error: "Company name and a valid currency code are required." }, { status: 400 });
-      const [company] = await db.insert(companies).values({ name, baseCurrency }).returning();
+      const [company] = await db.insert(companies).values({ name, baseCurrency, bankCurrency: baseCurrency }).returning();
       const [location] = await db.insert(inventoryLocations).values({ companyId: company.id, name: "Main Inventory", code: "MAIN", invoicePrefix: "MAIN" }).returning();
-      await db.insert(accounts).values(standardAccounts.map(([code, accountName, accountType, systemRole]) => ({ companyId: company.id, code, name: accountName, type: accountType, systemRole })));
+      await db.insert(accounts).values(standardAccounts.map(([code, accountName, accountType, systemRole]) => ({ companyId: company.id, code, name: accountName, type: accountType, systemRole, currency: baseCurrency })));
       await db.insert(vatCodes).values(standardVatCodes.map((vatCode) => ({ companyId: company.id, ...vatCode })));
       await db.insert(exchangeRates).values({ companyId: company.id, currencyCode: baseCurrency, rate: 1 });
       return Response.json({ company: { ...company, locations: [location] } }, { status: 201 });
@@ -70,7 +71,7 @@ export async function POST(request: Request) {
   } catch (error) { return Response.json({ error: message(error) }, { status: 500 }); }
 }
 
-export async function PATCH(request: Request) {
+async function handlePATCH(request: Request) {
   const authorization = await requireApiUser(request, true, true);
   if (authorization instanceof Response) return authorization;
   try {
@@ -85,9 +86,23 @@ export async function PATCH(request: Request) {
     }
     const baseCurrency = String(payload.baseCurrency ?? "").trim().toUpperCase();
     if (!Number.isInteger(companyId) || !/^[A-Z]{3}$/.test(baseCurrency)) return Response.json({ error: "Company and a valid currency code are required." }, { status: 400 });
-    const db = getDb(); const [company] = await db.update(companies).set({ baseCurrency }).where(eq(companies.id, companyId)).returning();
+    const db = getDb();
+    const [existing] = await db.select({ baseCurrency: companies.baseCurrency }).from(companies).where(eq(companies.id, companyId)).limit(1);
+    if (!existing) return Response.json({ error: "Company not found." }, { status: 404 });
+    if (existing.baseCurrency !== baseCurrency) {
+      const [activity] = await db.select({ id: journalEntries.id }).from(journalEntries).where(eq(journalEntries.companyId, companyId)).limit(1);
+      const [documents] = await db.select({ id: transactions.id }).from(transactions).where(eq(transactions.companyId, companyId)).limit(1);
+      if (activity || documents) return Response.json({ error: "Base currency cannot change after transactions have been created." }, { status: 409 });
+    }
+    const [company] = await db.update(companies).set({ baseCurrency }).where(eq(companies.id, companyId)).returning();
     if (!company) return Response.json({ error: "Company not found." }, { status: 404 });
     await db.insert(exchangeRates).values({ companyId, currencyCode: baseCurrency, rate: 1 }).onConflictDoUpdate({ target: [exchangeRates.companyId, exchangeRates.currencyCode], set: { rate: 1, active: true, updatedAt: new Date().toISOString() } });
     return Response.json({ company });
   } catch (error) { return Response.json({ error: message(error) }, { status: 500 }); }
 }
+
+export const GET = apiRoute(handleGET);
+
+export const POST = apiRoute(handlePOST, { transaction: true });
+
+export const PATCH = apiRoute(handlePATCH, { transaction: true });

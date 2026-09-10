@@ -1,6 +1,6 @@
 # CI and production deployment
 
-GitHub Actions scans on every push, PR to main, weekly, and manual dispatch. Jobs lint the full source, test release gates, type-check, compile without database credentials, and run CodeQL security-extended analysis across JavaScript/TypeScript. CodeQL findings fail the job, rather than merely being uploaded as alerts.
+GitHub Actions scans on every push, PR to main, weekly, and manual dispatch. Jobs lint the full source, test release gates and application security/database/UI behavior, type-check, compile without database credentials, smoke-test the production server, audit dependencies, and run CodeQL security-extended analysis across JavaScript/TypeScript. CodeQL findings fail the job, rather than merely being uploaded as alerts.
 
 Vercel Git auto-deployment remains enabled. Its build command waits for a successful push workflow for the exact deployed SHA, branch and repository, and independently verifies both required jobs succeeded. Missing/failed/skipped results, API errors, or a 13-minute timeout block the build before migrations. The existing production deployment stays live if a new build fails. If CI finishes after the timeout, redeploy that same commit after checks succeed.
 
@@ -16,4 +16,4 @@ This uses GitHub's public-repository read API without credentials. If the reposi
 
 Repository owners should require **Full source validation** and **CodeQL security analysis** in main branch protection, require PR review, and disallow bypass. Restrict Vercel settings/manual deployment permissions to trusted maintainers. These account-level protections are not configured by a source commit; an administrator who can change the workflow or build settings can bypass a source-level gate.
 
-Automation is not proof that every line is defect-free. No application-wide functional, browser, or migration integration test suite is included yet; the tests here specifically cover release-gate behavior. CodeQL analyzes supported languages, not SQL correctness or every business rule. Add company isolation, permissions, invoice calculations and migration tests as the next coverage layer.
+Automation is not proof that every line is defect-free. The database suite applies migrations and exercises handlers using isolated PGlite, replacing Neon networking. Production smoke tests cover anonymous rendering and authentication rejection. Real Neon connectivity, multi-client contention, authenticated browser flows, and accounting acceptance testing remain staging responsibilities. CodeQL analyzes supported languages, not SQL correctness or every business rule. See [the review](codebase-review.md).

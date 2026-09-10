@@ -1,7 +1,8 @@
+import { apiRoute } from "@/lib/api";
 import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { auditLog, companies, inventoryLocations, memorisedReports } from "@/db/schema";
-import { requireApiUser } from "@/lib/auth";
+import { canAccessCompany, requireApiUser } from "@/lib/auth";
 
 const validCategories = new Set(["Financial", "Budgets", "Sales", "Customers", "Vendors", "Purchases", "Inventory", "Banking", "VAT", "Accountant", "Lists", "Company"]);
 
@@ -10,11 +11,12 @@ function databaseError(error: unknown) {
   return message.includes("does not exist") ? "The report database is being updated. Please refresh in a moment." : message;
 }
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   const user = await requireApiUser(request, "reports:read");
   if (user instanceof Response) return user;
   try {
     const companyId = Number(new URL(request.url).searchParams.get("companyId"));
+    if (!canAccessCompany(user, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     const records = await getDb().select().from(memorisedReports)
       .where(and(eq(memorisedReports.userId, user.id), eq(memorisedReports.companyId, companyId)))
@@ -25,12 +27,13 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const user = await requireApiUser(request, "reports:read", true);
   if (user instanceof Response) return user;
   try {
     const payload = (await request.json()) as Record<string, unknown>;
     const companyId = Number(payload.companyId);
+    if (!canAccessCompany(user, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     const locationId = payload.locationId ? Number(payload.locationId) : null;
     const name = String(payload.name ?? "").trim();
     const reportKey = String(payload.reportKey ?? "").trim();
@@ -62,13 +65,14 @@ export async function POST(request: Request) {
   }
 }
 
-export async function DELETE(request: Request) {
+async function handleDELETE(request: Request) {
   const user = await requireApiUser(request, "reports:read", true);
   if (user instanceof Response) return user;
   try {
     const payload = (await request.json()) as Record<string, unknown>;
     const id = Number(payload.id);
     const companyId = Number(payload.companyId);
+    if (!canAccessCompany(user, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     if (!Number.isInteger(id) || id <= 0 || !Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Invalid memorised report." }, { status: 400 });
     const db = getDb();
     const [record] = await db.delete(memorisedReports).where(and(eq(memorisedReports.id, id), eq(memorisedReports.userId, user.id), eq(memorisedReports.companyId, companyId))).returning();
@@ -79,3 +83,9 @@ export async function DELETE(request: Request) {
     return Response.json({ error: databaseError(error) }, { status: 500 });
   }
 }
+
+export const GET = apiRoute(handleGET);
+
+export const POST = apiRoute(handlePOST, { transaction: true });
+
+export const DELETE = apiRoute(handleDELETE, { transaction: true });

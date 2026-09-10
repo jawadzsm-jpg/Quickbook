@@ -1,3 +1,4 @@
+import { apiRoute } from "@/lib/api";
 import { asc } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { specificationOptions } from "../../../db/schema";
@@ -21,13 +22,13 @@ async function setOption(label: string, value: string, active: boolean) {
   });
 }
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   const authorization = await requireApiUser(request, "inventory:read");
   if (authorization instanceof Response) return authorization;
   try {
     const rows = await getDb().select().from(specificationOptions).orderBy(asc(specificationOptions.label), asc(specificationOptions.value));
-    const options: Record<string, string[]> = Object.fromEntries(Object.entries(specificationPresets).map(([label, values]) => [label, [...values]]));
-    const disabled: Record<string, string[]> = {};
+    const options: Record<string, string[]> = Object.assign(Object.create(null), Object.fromEntries(Object.entries(specificationPresets).map(([label, values]) => [label, [...values]])));
+    const disabled: Record<string, string[]> = Object.create(null);
     const labels = [...specificationFields] as string[];
     const disabledLabels: string[] = [];
     const categories = [...defaultCategories];
@@ -65,7 +66,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const authorization = await requireApiUser(request, "inventory:manage", true);
   if (authorization instanceof Response) return authorization;
   try {
@@ -80,7 +81,7 @@ export async function POST(request: Request) {
   }
 }
 
-export async function PATCH(request: Request) {
+async function handlePATCH(request: Request) {
   const authorization = await requireApiUser(request, "inventory:manage", true);
   if (authorization instanceof Response) return authorization;
   try {
@@ -108,7 +109,7 @@ export async function PATCH(request: Request) {
   }
 }
 
-export async function DELETE(request: Request) {
+async function handleDELETE(request: Request) {
   const authorization = await requireApiUser(request, "inventory:manage", true);
   if (authorization instanceof Response) return authorization;
   try {
@@ -122,3 +123,11 @@ export async function DELETE(request: Request) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not remove the choice." }, { status: 500 });
   }
 }
+
+export const GET = apiRoute(handleGET);
+
+export const POST = apiRoute(handlePOST, { transaction: true });
+
+export const PATCH = apiRoute(handlePATCH, { transaction: true });
+
+export const DELETE = apiRoute(handleDELETE, { transaction: true });

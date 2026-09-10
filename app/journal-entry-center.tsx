@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BookOpenCheck, Eye, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +25,7 @@ export function JournalEntryCenter({ companyId, companyName, locationId, locatio
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const requestKey = useRef("");
   const [editorOpen, setEditorOpen] = useState(false);
   const [selected, setSelected] = useState<JournalEntry | null>(null);
   const [entryDate, setEntryDate] = useState(today());
@@ -65,11 +66,13 @@ export function JournalEntryCenter({ companyId, companyName, locationId, locatio
   async function saveEntry(event: FormEvent) {
     event.preventDefault();
     if (!balanced) return toast.error("Total debits and credits must be equal.");
+    if (!requestKey.current) requestKey.current = crypto.randomUUID();
     setSaving(true);
     try {
-      const response = await fetch("/api/journal-entries", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, locationId, entryDate, reference, description, lines }) });
+      const response = await fetch("/api/journal-entries", { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": requestKey.current }, body: JSON.stringify({ companyId, locationId, entryDate, reference, description, lines }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not post journal entry");
+      requestKey.current = "";
       setEditorOpen(false);
       await Promise.all([loadEntries(), onPosted()]);
       toast.success(`Journal ${reference} posted`);

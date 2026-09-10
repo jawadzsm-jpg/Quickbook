@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { ArrowRightLeft, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +31,7 @@ export function MultiLineTransferCenter({ companies, activeLocationId, onTransfe
   const [notes, setNotes] = useState("");
   const [salesman, setSalesman] = useState("");
   const [saving, setSaving] = useState(false);
+  const requestKey = useRef("");
 
   const loadData = useCallback(async () => {
     try {
@@ -53,11 +54,13 @@ export function MultiLineTransferCenter({ companies, activeLocationId, onTransfe
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (!requestKey.current) requestKey.current = crypto.randomUUID();
     setSaving(true);
     try {
-      const response = await fetch("/api/transfers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transferDate, reference, salesman, notes, lines: lines.map((line) => ({ itemId: Number(line.itemId), sourceLocationId: Number(line.sourceLocationId), destinationLocationId: Number(line.destinationLocationId), quantity: Number(line.quantity) })) }) });
+      const response = await fetch("/api/transfers", { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": requestKey.current }, body: JSON.stringify({ transferDate, reference, salesman, notes, lines: lines.map((line) => ({ itemId: Number(line.itemId), sourceLocationId: Number(line.sourceLocationId), destinationLocationId: Number(line.destinationLocationId), quantity: Number(line.quantity) })) }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not save transfer");
+      requestKey.current = "";
       toast.success(`${data.transfer.lineCount} lines transferred · ${data.transfer.reference}`);
       setLines([blankLine()]); setReference(""); setSalesman(""); setNotes("");
       await Promise.all([loadData(), onTransferred()]);
