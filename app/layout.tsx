@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { DataExportToolbar } from "./data-export-toolbar";
 
 export const metadata: Metadata = {
   title: "ComNet Enterprise Accounting",
@@ -17,7 +18,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        {children}
+        <DataExportToolbar />
+      </body>
     </html>
   );
 }
