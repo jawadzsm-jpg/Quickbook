@@ -9,6 +9,6 @@ export default async function Home() {
   const user = await getSessionUser();
   if (!user) return <LoginScreen />;
   if (user.mustChangePassword) return <PasswordChangeScreen email={user.email} />;
-  const appUser = user.role === "all_admin" ? { ...user, role: "admin" as const } : user;
+  const appUser = { ...user, role: user.role === "all_admin" ? ("admin" as const) : user.role };
   return <EnterpriseApp currentUser={appUser} />;
 }
