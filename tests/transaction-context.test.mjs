@@ -481,3 +481,42 @@ test('foreign currency journals preserve original amounts, balance converted spl
   assert.equal((await DELETE(req('DELETE', { id, companyId, locationId, revision: entry.revision }))).status, 200);
   assert.equal((await list()).some(e => e.id === id), false);
 });
+
+test('stock pricing allocates freight, converts home costs and avoids adding GRN to billed cost', async () => {
+  const { stockPricingRows } = await vite.ssrLoadModule('/lib/stock-pricing.ts');
+  const item = { id: 1, locationId: 1, sku: 'STOCK-PRICE', itemNumber: '13001', name: 'Laptop', quantity: 4, cost: 300, lastPurchasePrice: 0, salesPrice: 500 };
+  const line = { transactionId: 1, itemId: 1, description: 'Laptop', quantity: 10, subtotal: 1000, type: 'bill', date: '2026-09-11', number: 'BILL-FX', exchangeRate: 3.675 };
+  const lines = [line, { ...line, itemId: 2, quantity: 5, subtotal: 1000 }, { ...line, itemId: null, description: 'Freight Charges', quantity: 1, subtotal: 200 }, { ...line, transactionId: 2, type: 'item receipt', number: 'GRN-FX', subtotal: 800, date: '2026-09-10' }];
+  const [first, second] = stockPricingRows([item, { ...item, id: 2, salesPrice: 700 }], lines, [{ id: 1, name: 'Main' }]);
+  assert.equal(first.purchaseCost, 367.5); assert.equal(first.freightCost, 36.75); assert.equal(first.grnCost, 294);
+  assert.equal(first.totalCost, 404.25); assert.equal(first.unitProfit, 95.75); assert.equal(first.margin, '19.15%');
+  assert.equal(first.stockCost, 1617); assert.equal(first.potentialProfit, 383);
+  assert.equal(second.freightCost, 73.5); assert.equal(second.totalCost, 808.5); assert.equal(second.unitProfit, -108.5);
+  const [receipt] = stockPricingRows([item], lines.filter(l => l.type === 'item receipt'), []);
+  assert.equal(receipt.totalCost, 294); assert.equal(receipt.purchaseCost, '—'); assert.equal(receipt.costSource, 'GRN GRN-FX');
+  const [unknown] = stockPricingRows([{ ...item, cost: 0 }], [], []); assert.equal(unknown.unitProfit, '—');
+  const [zeroPrice] = stockPricingRows([{ ...item, quantity: 0, salesPrice: 0 }], [], []); assert.equal(zeroPrice.margin, '—'); assert.equal(zeroPrice.potentialProfit, 0);
+  const [quantityAllocation] = stockPricingRows([item], [{ ...line, subtotal: 0 }, { ...line, itemId: 2, quantity: 10, subtotal: 0 }, { ...line, itemId: null, description: 'Freight Charges', quantity: 1, subtotal: 100 }], []);
+  assert.equal(quantityAllocation.freightCost, 18.38);
+  // An edited latest bill replaces the old basis instead of accumulating historical costs.
+  const [newest] = stockPricingRows([item], [...lines, { ...line, transactionId: 3, number: 'NEW-BILL', subtotal: 1200 }], []);
+  assert.equal(newest.totalCost, 441); assert.equal(newest.costSource, 'Bill NEW-BILL');
+});
+
+test('stock pricing report is scoped by company and inventory and always labels home currency', async () => {
+  const companyId = (await database.query("INSERT INTO companies (name, base_currency) VALUES ('Pricing report', 'EUR') RETURNING id")).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'PRICE', 'Pricing Inventory', 'PRICE') RETURNING id", [companyId])).rows[0].id;
+  await database.query("INSERT INTO items (company_id, location_id, sku, name, quantity, cost, sales_price) VALUES ($1, $2, 'PRICE-API', 'Report Laptop', 3, 20, 30)", [companyId, locationId]);
+  const { GET } = await vite.ssrLoadModule('/app/api/reports/route.ts');
+  const request = () => new Request(`https://app.test/api/reports?type=stock-pricing-profit&companyId=${companyId}&locationId=${locationId}&currency=USD`);
+  const response = await GET(request()); assert.equal(response.status, 200);
+  const report = (await response.json()).report;
+  assert.equal(report.currency, 'EUR'); assert.equal(report.rows.length, 1); assert.equal(report.rows[0].inventory, 'Pricing Inventory');
+  assert.equal(report.rows[0].potentialProfit, 30);
+  try {
+    globalThis.__transferTestUser = { id: 7, role: 'admin', companyIds: [] };
+    assert.equal((await GET(request())).status, 403);
+    globalThis.__transferTestUser = { id: 7, role: 'sales', companyIds: [companyId] };
+    assert.equal((await GET(request())).status, 403);
+  } finally { delete globalThis.__transferTestUser; }
+});
