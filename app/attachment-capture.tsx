@@ -8,12 +8,11 @@ type PendingAttachment = { fileName: string; mimeType: string; fileData: string;
 const supportedTransactionTypes = new Set(["invoice", "bill", "customer payment", "bill payment", "vendor payment", "cheque"]);
 
 function detectRelevantDialog() {
-  const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'));
-  const dialog = dialogs.find((entry) => entry.offsetParent !== null);
-  if (!dialog || dialog.dataset.recordKind === "items") return false;
-  const text = dialog.innerText.toLowerCase();
-  const page = document.body.innerText.toLowerCase();
-  return text.includes("invoice") || text.includes("bill") || text.includes("payment") || text.includes("cheque") || page.includes("employees & hr");
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"][data-state="open"][data-record-kind]');
+  if (!dialog) return false;
+  const { recordKind, recordType } = dialog.dataset;
+  return (recordKind === "transactions" && supportedTransactionTypes.has(recordType ?? ""))
+    || (recordKind === "contacts" && recordType === "employee");
 }
 
 export function AttachmentCapture() {
@@ -26,7 +25,7 @@ export function AttachmentCapture() {
     const update = () => setVisible(detectRelevantDialog());
     update();
     const observer = new MutationObserver(update);
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["open", "data-state", "class", "data-record-kind"] });
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["open", "data-state", "class", "data-record-kind", "data-record-type"] });
     return () => observer.disconnect();
   }, []);
 
