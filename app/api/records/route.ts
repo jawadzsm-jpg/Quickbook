@@ -97,12 +97,17 @@ export async function GET(request: Request) {
   if (authorization instanceof Response) return authorization;
   try {
     const url = new URL(request.url);
-    const kind = url.searchParams.get("kind") as RecordKind | null;
+    const kind = url.searchParams.get("kind") as RecordKind | "vendor-history" | null;
     const id = Number(url.searchParams.get("id"));
     const companyId = Number(url.searchParams.get("companyId"));
     const locationId = Number(url.searchParams.get("locationId"));
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     const db = getDb();
+    if (kind === "vendor-history") {
+      if (!isAdministrator(authorization) || !canAccessCompany(authorization, companyId)) return Response.json({ error: "Only company administrators can view vendor history." }, { status: 403 });
+      const history = await db.select().from(auditLog).where(and(eq(auditLog.companyId, companyId), eq(auditLog.entityType, "vendor"))).orderBy(desc(auditLog.id)).limit(200);
+      return Response.json({ history }, { headers: { "Cache-Control": "no-store" } });
+    }
     if (kind === "transactions" && id) {
       const [record] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId)));
       if (!record) return Response.json({ error: "Transaction not found." }, { status: 404 });
@@ -454,6 +459,7 @@ export async function PATCH(request: Request) {
         : await db.select().from(contacts).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId)));
       if (!existing) return Response.json({ error: "Record not found." }, { status: 404 });
       if (!mayWrite(authorization, writePermission(accountEdit ? "accounts" : "contacts", { type: existing.type }))) return Response.json({ error: "Your role cannot edit this record." }, { status: 403 });
+      if (!accountEdit && existing.type === "vendor" && !isAdministrator(authorization)) return Response.json({ error: "Only All-Admin and Admin can edit vendor details." }, { status: 403 });
       const name = String(payload.name ?? existing.name).trim();
       if (!name) return Response.json({ error: "Name is required." }, { status: 400 });
       const sameName = accountEdit ? await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.name, name))) : await db.select({ id: contacts.id }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.name, name)));
@@ -481,7 +487,7 @@ export async function PATCH(request: Request) {
       }
       const [record] = await db.update(contacts).set(changes).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId))).returning();
       if (name !== existing.name) await db.update(transactions).set({ party: name }).where(and(eq(transactions.companyId, companyId), eq(transactions.party, existing.name)));
-      await db.insert(auditLog).values({ companyId, action: "updated", entityType: "contact", entityId: id, details: `${existing.name} → ${name}` });
+      await db.insert(auditLog).values({ companyId, action: "updated", entityType: existing.type === "vendor" ? "vendor" : "contact", entityId: id, details: existing.type === "vendor" ? JSON.stringify({ actorId: authorization.id, actorName: authorization.fullName || authorization.email, actorEmail: authorization.email, vendorName: name, changes: Object.entries(changes).filter(([field, value]) => String((existing as Record<string, unknown>)[field] ?? "") !== value).map(([field, value]) => ({ field, before: (existing as Record<string, unknown>)[field] ?? "", after: value })) }) : `${existing.name} → ${name}` });
       return Response.json({ record });
     });
     if (payload.kind !== "items") return Response.json({ error: "This record cannot be edited here." }, { status: 400 });
@@ -580,7 +586,21 @@ export async function DELETE(request: Request) {
   try {
     const { kind, id, companyId } = (await request.json()) as { kind: RecordKind; id: number; companyId: number };
     const db = getDb();
-    if (kind === "contacts") await db.delete(contacts).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId)));
+    if (!Number.isInteger(id) || id <= 0 || !Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a valid record and company." }, { status: 400 });
+    if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
+    if (kind === "contacts") return await withWriteTransaction(async () => {
+      const tx = getDb();
+      const [vendor] = await tx.select().from(contacts).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId))).for("update");
+      if (!vendor) return Response.json({ error: "Contact not found." }, { status: 404 });
+      if (vendor.type === "vendor") {
+        if (!isAdministrator(authorization)) return Response.json({ error: "Only All-Admin and Admin can delete vendors." }, { status: 403 });
+        const [activity] = await tx.select({ id: transactions.id }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.party, vendor.name))).limit(1);
+        if (Number(vendor.balance) !== 0 || activity) return Response.json({ error: "This vendor has a balance or transaction history and cannot be deleted." }, { status: 409 });
+        await tx.insert(auditLog).values({ companyId, action: "deleted", entityType: "vendor", entityId: id, details: JSON.stringify({ actorId: authorization.id, actorName: authorization.fullName || authorization.email, actorEmail: authorization.email, vendorName: vendor.name, changes: [] }) });
+      }
+      await tx.delete(contacts).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId)));
+      return Response.json({ ok: true });
+    });
     else if (kind === "items") await db.delete(items).where(and(eq(items.id, id), eq(items.companyId, companyId)));
     else if (kind === "accounts") {
       const [account] = await db.select({ name: accounts.name, systemRole: accounts.systemRole }).from(accounts).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId))).limit(1);
