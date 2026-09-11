@@ -323,6 +323,8 @@ export const journalEntries = pgTable("journal_entries", {
   entryDate: text("entry_date").notNull(),
   reference: text("reference").notNull(),
   description: text("description").notNull().default(""),
+  currency: text("currency"),
+  exchangeRate: doublePrecision("exchange_rate").notNull().default(1),
   posted: boolean("posted").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 }, (table) => [index("idx_journal_entries_company_date").on(table.companyId, table.entryDate), index("idx_journal_entries_location_date").on(table.locationId, table.entryDate)]);
@@ -331,6 +333,8 @@ export const journalLines = pgTable("journal_lines", {
   id: serial("id").primaryKey(),
   journalEntryId: integer("journal_entry_id").notNull().references(() => journalEntries.id, { onDelete: "cascade" }),
   accountName: text("account_name").notNull(),
+  originalDebit: doublePrecision("original_debit"),
+  originalCredit: doublePrecision("original_credit"),
   debit: doublePrecision("debit").notNull().default(0),
   credit: doublePrecision("credit").notNull().default(0),
 }, (table) => [index("idx_journal_lines_entry").on(table.journalEntryId), index("idx_journal_lines_account").on(table.accountName)]);

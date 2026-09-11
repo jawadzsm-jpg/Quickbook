@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
-import { accounts, auditLog, inventoryLocations, journalEntries, journalLines } from "@/db/schema";
+import { accounts, auditLog, companies, inventoryLocations, journalEntries, journalLines } from "@/db/schema";
 import { canAccessCompany, isAdministrator, requireApiUser } from "@/lib/auth";
 
 type InputLine = { accountId?: number | string; debit?: number | string; credit?: number | string };
@@ -54,20 +54,35 @@ async function saveJournal(request: Request, replacing?: typeof journalEntries.$
     if (prepared.some((line) => !Number.isInteger(line.accountId) || line.accountId <= 0 || !Number.isFinite(line.debit) || !Number.isFinite(line.credit) || line.debit < 0 || line.credit < 0 || (line.debit > 0) === (line.credit > 0))) return Response.json({ error: "Every line needs one account and either a debit or credit amount." }, { status: 400 });
     const totalDebit = round(prepared.reduce((sum, line) => sum + line.debit, 0));
     const totalCredit = round(prepared.reduce((sum, line) => sum + line.credit, 0));
-    if (totalDebit <= 0 || Math.abs(totalDebit - totalCredit) >= 0.01) return Response.json({ error: `Journal is not balanced. Debits ${totalDebit.toFixed(2)}; credits ${totalCredit.toFixed(2)}.` }, { status: 409 });
+    if (totalDebit <= 0 || totalDebit !== totalCredit) return Response.json({ error: `Journal is not balanced. Debits ${totalDebit.toFixed(2)}; credits ${totalCredit.toFixed(2)}.` }, { status: 409 });
     const db = getDb();
+    const [company] = await db.select({ baseCurrency: companies.baseCurrency }).from(companies).where(eq(companies.id, companyId)).limit(1);
+    if (!company) return Response.json({ error: "Company not found." }, { status: 404 });
+    const currency = String(payload.currency ?? company.baseCurrency).trim().toUpperCase();
+    const exchangeRate = Number(payload.exchangeRate ?? (currency === company.baseCurrency ? 1 : NaN));
+    if (!/^[A-Z]{3}$/.test(currency) || !Number.isFinite(exchangeRate) || exchangeRate <= 0 || (currency === company.baseCurrency && exchangeRate !== 1)) return Response.json({ error: "Choose a currency and positive exchange rate. Home currency must use rate 1." }, { status: 400 });
+    // Allocate each side's rounding cumulatively so split lines stay balanced in home currency.
+    let debitCents = 0, creditCents = 0, postedDebit = 0, postedCredit = 0;
+    const converted = prepared.map((line) => {
+      debitCents += Math.round(line.debit * 100); creditCents += Math.round(line.credit * 100);
+      const nextDebit = Math.round(debitCents * exchangeRate), nextCredit = Math.round(creditCents * exchangeRate);
+      const result = { ...line, originalDebit: line.debit, originalCredit: line.credit, debit: (nextDebit - postedDebit) / 100, credit: (nextCredit - postedCredit) / 100 };
+      postedDebit = nextDebit; postedCredit = nextCredit;
+      return result;
+    });
+    if (!Number.isSafeInteger(postedDebit) || !Number.isSafeInteger(postedCredit) || postedDebit <= 0 || postedDebit !== postedCredit) return Response.json({ error: "Amounts or exchange rate cannot be posted as a balanced home-currency journal." }, { status: 400 });
     const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId), eq(inventoryLocations.active, true))).limit(1);
     if (!location) return Response.json({ error: "The selected inventory was not found." }, { status: 404 });
     const accountIds = [...new Set(prepared.map((line) => line.accountId))];
     const accountRows = await db.select({ id: accounts.id, name: accounts.name }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true), inArray(accounts.id, accountIds)));
     if (accountRows.length !== accountIds.length) return Response.json({ error: "Select active accounts from this company on every line." }, { status: 400 });
     const accountNames = new Map(accountRows.map((account) => [account.id, account.name]));
-    const values = { companyId, locationId, entryDate, reference, description, posted: true };
+    const values = { companyId, locationId, entryDate, reference, description, currency, exchangeRate, posted: true };
     if (replacing) await db.delete(journalLines).where(eq(journalLines.journalEntryId, replacing.id));
     const [entry] = replacing ? await db.update(journalEntries).set(values).where(eq(journalEntries.id, replacing.id)).returning() : await db.insert(journalEntries).values(values).returning();
-    await db.insert(journalLines).values(prepared.map((line) => ({ journalEntryId: entry.id, accountName: accountNames.get(line.accountId)!, debit: line.debit, credit: line.credit })));
-    await db.insert(auditLog).values({ companyId, action: replacing ? "updated" : "created", entityType: "journal_entry", entityId: entry.id, details: JSON.stringify({ actor: { id: user.id, name: user.fullName, email: user.email }, reference, lines: prepared, total: totalDebit }) });
-    return Response.json({ entry: { ...entry, debit: totalDebit, credit: totalCredit, source: "Manual" } }, { status: replacing ? 200 : 201 });
+    await db.insert(journalLines).values(converted.map((line) => ({ journalEntryId: entry.id, accountName: accountNames.get(line.accountId)!, debit: line.debit, credit: line.credit, originalDebit: line.originalDebit, originalCredit: line.originalCredit })));
+    await db.insert(auditLog).values({ companyId, action: replacing ? "updated" : "created", entityType: "journal_entry", entityId: entry.id, details: JSON.stringify({ actor: { id: user.id, name: user.fullName, email: user.email }, reference, currency, exchangeRate, lines: prepared, total: totalDebit, homeTotal: postedDebit / 100 }) });
+    return Response.json({ entry: { ...entry, debit: postedDebit / 100, credit: postedCredit / 100, source: "Manual" } }, { status: replacing ? 200 : 201 });
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Could not post journal entry." }, { status: 500 }); }
 }
 
