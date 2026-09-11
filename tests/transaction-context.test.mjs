@@ -555,3 +555,30 @@ test("stock pricing saves company item prices, rejects stale and unauthorized ed
     assert.equal(stockPricingRows([{ ...item, grnPrice: null }], [{ ...line, type: 'item receipt' }], [])[0].totalCost, 15);
   } finally { delete globalThis.__transferTestUser; }
 });
+
+test('company stock pricing lists only its inventories and saves selected prices atomically', async () => {
+  const { GET, PATCH } = await vite.ssrLoadModule('/app/api/stock-pricing/route.ts');
+  const company = (await database.query("INSERT INTO companies (name, base_currency) VALUES ('Batch prices', 'USD') RETURNING id")).rows[0].id;
+  const location = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'BP', 'Batch', 'BP') RETURNING id", [company])).rows[0].id;
+  const ids = (await database.query("INSERT INTO items (company_id, location_id, sku, name, sales_price) VALUES ($1, $2, 'BP1', 'First', 10), ($1, $2, 'BP2', 'Second', 20) RETURNING id", [company, location])).rows.map(r => r.id);
+  const records = ids.map((itemId, i) => ({ itemId, companyId: company, salesPrice: 100, grnPrice: 50, expectedPrice: (i + 1) * 10, expectedGrnPrice: null }));
+  const save = records => PATCH(new Request('http://localhost/api/stock-pricing', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ records }) }));
+  const get = id => GET(new Request(`http://localhost/api/stock-pricing?companyId=${id}`));
+  try {
+    globalThis.__transferTestUser = { id: 1, role: 'admin', companyIds: [company] };
+    const data = await (await get(company)).json();
+    assert.deepEqual(data.records.map(r => r.id), ids);
+    assert.ok(data.records.every(r => r.homeCurrency === 'USD' && r.companyId === company));
+    assert.equal((await get(company + 1)).status, 403);
+    assert.equal((await save([])).status, 400);
+    assert.equal((await save([records[0], records[0]])).status, 400);
+    assert.equal((await save([records[0], { ...records[1], expectedPrice: 999 }])).status, 409);
+    assert.equal((await database.query('SELECT sales_price FROM items WHERE id=$1', [ids[0]])).rows[0].sales_price, 10);
+    assert.equal((await database.query('SELECT count(*)::int AS n FROM audit_log WHERE company_id=$1', [company])).rows[0].n, 0);
+    assert.equal((await save(records)).status, 200);
+    assert.ok((await database.query('SELECT sales_price, grn_price FROM items WHERE company_id=$1', [company])).rows.every(r => r.sales_price === 100 && r.grn_price === 50));
+    globalThis.__transferTestUser = { id: 1, role: 'inventory', companyIds: [company] };
+    assert.equal((await get(company)).status, 403);
+    assert.equal((await save(records)).status, 403);
+  } finally { delete globalThis.__transferTestUser; }
+});
