@@ -103,6 +103,38 @@ body {
 
 button, input, select { font: inherit; }
 
+@media screen {
+  html {
+    min-height: 100%;
+    overflow: auto;
+    scrollbar-gutter: stable;
+  }
+
+  body { min-height: 100dvh; }
+
+  [data-slot="dialog-content"] {
+    max-height: min(90dvh, calc(100dvh - 2rem));
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  [data-slot="sheet-content"] {
+    max-height: 100dvh;
+    overflow: auto;
+  }
+
+  [data-slot="sidebar-content"] {
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  [data-slot="table-container"] {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+}
+
 .metric-icon { display: grid; place-items: center; width: 2.5rem; height: 2.5rem; border-radius: 0.75rem; }
 .metric-emerald { color: #047857; background: #d1fae5; }
 .metric-blue { color: #0369a1; background: #e0f2fe; }
