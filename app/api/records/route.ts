@@ -420,7 +420,8 @@ export async function POST(request: Request) {
       const direction = ["invoice", "sales receipt"].includes(type) ? -1 : ["bill", "item receipt"].includes(type) ? 1 : 0;
       if (direction) for (const line of prepared.filter((entry) => entry.itemId)) {
         const quantity = direction * line.quantity;
-        await db.update(items).set(["bill", "item receipt"].includes(type) ? { quantity: sql`${items.quantity} + ${quantity}`, lastPurchasePrice: line.unitPrice } : { quantity: sql`${items.quantity} + ${quantity}` }).where(eq(items.id, line.itemId!));
+        const homeCurrencyPurchaseCost = round(line.unitPrice * exchangeRate);
+        await db.update(items).set(["bill", "item receipt"].includes(type) ? { quantity: sql`${items.quantity} + ${quantity}`, lastPurchasePrice: homeCurrencyPurchaseCost } : { quantity: sql`${items.quantity} + ${quantity}` }).where(eq(items.id, line.itemId!));
         await db.insert(inventoryMovements).values({ itemId: line.itemId!, transactionId: record.id, movementDate: transactionDate, movementType: type, quantity, unitCost: line.unitCost, reference: number });
       }
       const balanceChange = contactBalanceChange(type, total, postingAccountRole);
