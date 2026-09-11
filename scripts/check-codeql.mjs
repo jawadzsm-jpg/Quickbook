@@ -17,6 +17,15 @@ export function requireCleanSarif(reports) {
         throw new Error("CodeQL analysis failed.");
       }
       findings += run.results.length;
+      for (const result of run.results) {
+        const location = result.locations?.[0]?.physicalLocation;
+        console.error(JSON.stringify({
+          rule: result.ruleId,
+          file: location?.artifactLocation?.uri,
+          line: location?.region?.startLine,
+          message: result.message?.text,
+        }));
+      }
     }
   }
   if (findings) throw new Error(`CodeQL reported ${findings} finding(s). Resolve them before production deployment.`);
