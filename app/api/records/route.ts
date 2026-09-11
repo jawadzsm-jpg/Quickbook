@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "../../../db";
 import {
@@ -92,6 +93,10 @@ async function ensureCurrencyControlAccount(companyId: number, role: "AR" | "AP"
   }
 }
 
+function purchaseRevision(record: typeof transactions.$inferSelect, lines: { id: number }[]) {
+  return createHash("sha256").update(JSON.stringify([record, lines.map((line) => line.id)])).digest("hex");
+}
+
 export async function GET(request: Request) {
   const authorization = await requireApiUser(request, "workspace:read");
   if (authorization instanceof Response) return authorization;
@@ -142,7 +147,7 @@ export async function GET(request: Request) {
       const [convertedDocument] = record.convertedInvoiceId ? await db.select({ number: transactions.number, type: transactions.type }).from(transactions).where(eq(transactions.id, record.convertedInvoiceId)).limit(1) : [];
       const customerType = ["invoice", "quotation", "estimate", "sales order", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(record.type) ? "customer" : "vendor";
       const [partyContact] = await db.select().from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, customerType), eq(contacts.name, record.party))).limit(1);
-      return Response.json({ record: { ...record, sourceDocumentNumber: sourceDocument?.number ?? "", sourceDocumentType: sourceDocument?.type ?? "", convertedDocumentNumber: convertedDocument?.number ?? "", convertedDocumentType: convertedDocument?.type ?? "", convertedInvoiceNumber: convertedDocument?.type === "invoice" ? convertedDocument.number : "" }, lines, journal, partyContact: partyContact ?? null });
+      return Response.json({ revision: purchaseRevision(record, lines), record: { ...record, sourceDocumentNumber: sourceDocument?.number ?? "", sourceDocumentType: sourceDocument?.type ?? "", convertedDocumentNumber: convertedDocument?.number ?? "", convertedDocumentType: convertedDocument?.type ?? "", convertedInvoiceNumber: convertedDocument?.type === "invoice" ? convertedDocument.number : "" }, lines, journal, partyContact: partyContact ?? null });
     }
     if (kind === "contacts") return Response.json({ records: await db.select().from(contacts).where(eq(contacts.companyId, companyId)).orderBy(asc(contacts.name)) });
     if (kind === "items") return Response.json({ records: await db.select().from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId))).orderBy(asc(items.name)) });
@@ -162,6 +167,11 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  return saveNewRecord(request);
+}
+
+// Called for edits only inside the locked, atomic PATCH transaction.
+async function saveNewRecord(request: Request, replacing?: typeof transactions.$inferSelect) {
   const authorization = await requireApiUser(request, false, true);
   if (authorization instanceof Response) return authorization;
   try {
@@ -389,14 +399,17 @@ export async function POST(request: Request) {
       }
       if (type === "credit card charge" && !bankingAccounts.some((candidate) => candidate.type === "Credit Card")) return Response.json({ error: "Add an active Credit Card account in the Chart of Accounts before entering card charges." }, { status: 400 });
     }
-    const [record] = await db.insert(transactions).values({
+    const values = {
       companyId, locationId: Number.isInteger(locationId) ? locationId : null, number, type, party,
       salesman: String(payload.salesman ?? ""), isImport: payload.isImport === true || String(payload.isImport) === "true",
       transactionDate, dueDate: String(payload.dueDate ?? ""),
       account: String(payload.account ?? "Accounts Receivable"), status: String(payload.status ?? "open"), memo: String(payload.memo ?? ""),
       subtotal, vatRate: Number(payload.vatRate ?? 5), vatAmount, total, currency, exchangeRate, baseTotal,
-      sourceTransactionId: Number.isInteger(conversionSourceId) && conversionSourceId > 0 ? conversionSourceId : null,
-    }).returning();
+      sourceTransactionId: replacing ? replacing.sourceTransactionId : Number.isInteger(conversionSourceId) && conversionSourceId > 0 ? conversionSourceId : null,
+    };
+    const [record] = replacing
+      ? await db.update(transactions).set(values).where(eq(transactions.id, replacing.id)).returning()
+      : await db.insert(transactions).values(values).returning();
     await db.insert(transactionLines).values(prepared.map((line) => ({ ...line, transactionId: record.id })));
 
     const nonPosting = ["quotation", "estimate", "sales order", "purchase order", "cheque order"].includes(type);
@@ -435,8 +448,8 @@ export async function POST(request: Request) {
     if (Number.isInteger(conversionSourceId) && conversionSourceId > 0) {
       await db.update(transactions).set({ status: "converted", convertedInvoiceId: record.id }).where(and(eq(transactions.id, conversionSourceId), eq(transactions.companyId, companyId)));
     }
-    await db.insert(auditLog).values({ companyId, action: Number.isInteger(conversionSourceId) && conversionSourceId > 0 ? "converted" : "created", entityType: "transaction", entityId: record.id, details: `${number} ${type}; ${prepared.length} line(s)${Number.isInteger(conversionSourceId) && conversionSourceId > 0 ? `; source document ${conversionSourceId}` : ""}${usedAdminNegativeStockOverride ? "; admin negative-stock override used" : ""}` });
-    return Response.json({ record }, { status: 201 });
+    if (!replacing) await db.insert(auditLog).values({ companyId, action: Number.isInteger(conversionSourceId) && conversionSourceId > 0 ? "converted" : "created", entityType: "transaction", entityId: record.id, details: `${number} ${type}; ${prepared.length} line(s)${Number.isInteger(conversionSourceId) && conversionSourceId > 0 ? `; source document ${conversionSourceId}` : ""}${usedAdminNegativeStockOverride ? "; admin negative-stock override used" : ""}` });
+    return Response.json({ record }, { status: replacing ? 200 : 201 });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
   }
@@ -451,6 +464,49 @@ export async function PATCH(request: Request) {
     const companyId = Number(payload.companyId);
     if (!Number.isInteger(id) || id <= 0 || !Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a valid record and company." }, { status: 400 });
     if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
+    if (payload.kind === "transactions") {
+      if (!isAdministrator(authorization)) return Response.json({ error: "Only All-Admin and Admin can edit purchases." }, { status: 403 });
+      return await withWriteTransaction(async () => {
+        const db = getDb();
+        const [existing] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId))).for("update");
+        if (!existing) return Response.json({ error: "Purchase not found." }, { status: 404 });
+        if (!["bill", "purchase order", "item receipt", "received item bill", "expense", "bill payment", "vendor payment", "vendor credit"].includes(existing.type)) return Response.json({ error: "This document is not an editable purchase." }, { status: 400 });
+        if (existing.convertedInvoiceId || !["open", "draft", "pending", "overdue"].includes(existing.status)) return Response.json({ error: "Only open, overdue, draft or pending purchases can be edited. Converted or settled documents are locked." }, { status: 409 });
+        const oldLines = await db.select().from(transactionLines).where(eq(transactionLines.transactionId, id)).orderBy(asc(transactionLines.id));
+        if (payload.revision !== purchaseRevision(existing, oldLines)) return Response.json({ error: "This purchase changed. Close the editor and reopen it before saving." }, { status: 409 });
+        if (payload.type !== existing.type || Number(payload.locationId) !== existing.locationId) return Response.json({ error: "Keep the original document type and inventory when editing." }, { status: 400 });
+        const newLines = Array.isArray(payload.lines) ? payload.lines as InputLine[] : [];
+        if (!newLines.length || newLines.some((line) => !String(line.description ?? "").trim() || !Number.isFinite(Number(line.quantity)) || Number(line.quantity) <= 0 || !Number.isFinite(Number(line.unitPrice)) || Number(line.unitPrice) < 0 || !Number.isFinite(Number(line.unitCost ?? 0)))) return Response.json({ error: "Complete every line with a description, positive quantity and valid price." }, { status: 400 });
+        const date = String(payload.transactionDate ?? "");
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date || !String(payload.number ?? "").trim()) return Response.json({ error: "Enter a valid date and reference number." }, { status: 400 });
+        const movements = await db.select().from(inventoryMovements).where(eq(inventoryMovements.transactionId, id));
+        const affectedIds = [...new Set([...movements.map((movement) => movement.itemId), ...newLines.flatMap((line) => line.itemId ? [Number(line.itemId)] : [])])].sort((a, b) => a - b);
+        if (affectedIds.some((itemId) => !Number.isInteger(itemId) || itemId <= 0)) return Response.json({ error: "Select valid inventory items." }, { status: 400 });
+        const stock = affectedIds.length ? await db.select().from(items).where(inArray(items.id, affectedIds)).orderBy(asc(items.id)).for("update") : [];
+        if (stock.length !== affectedIds.length || stock.some((item) => item.companyId !== companyId || item.locationId !== existing.locationId)) return Response.json({ error: "Select items from this purchase inventory." }, { status: 400 });
+        for (const item of stock) {
+          const previous = movements.filter((movement) => movement.itemId === item.id).reduce((sum, movement) => sum + movement.quantity, 0);
+          const incoming = ["bill", "item receipt"].includes(existing.type) ? newLines.filter((line) => Number(line.itemId) === item.id).reduce((sum, line) => sum + Number(line.quantity), 0) : 0;
+          if (item.quantity - previous + incoming < -0.000001) return Response.json({ error: `Cannot reduce ${item.name}: some received stock has already been used.` }, { status: 409 });
+          await db.update(items).set({ quantity: sql`${items.quantity} - ${previous}` }).where(eq(items.id, item.id));
+        }
+        const balance = contactBalanceChange(existing.type, existing.total);
+        if (balance) await db.update(contacts).set({ balance: sql`${contacts.balance} - ${balance}` }).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "vendor"), eq(contacts.name, existing.party)));
+        await db.delete(inventoryMovements).where(eq(inventoryMovements.transactionId, id));
+        await db.delete(journalEntries).where(eq(journalEntries.transactionId, id));
+        await db.delete(transactionLines).where(eq(transactionLines.transactionId, id));
+        const response = await saveNewRecord(new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify({ ...payload, sourceTransactionId: null, status: existing.status, total: undefined }) }), existing);
+        if (!response.ok) return response;
+        // Editing an older receipt must not replace the most recent purchase cost.
+        for (const item of stock) {
+          const [latest] = await db.select({ price: transactionLines.unitPrice, rate: transactions.exchangeRate }).from(transactionLines).innerJoin(transactions, eq(transactionLines.transactionId, transactions.id)).where(and(eq(transactionLines.itemId, item.id), inArray(transactions.type, ["bill", "item receipt"]))).orderBy(desc(transactions.transactionDate), desc(transactions.id), desc(transactionLines.id)).limit(1);
+          await db.update(items).set({ lastPurchasePrice: latest ? round(latest.price * latest.rate) : item.cost }).where(eq(items.id, item.id));
+        }
+        const { record } = await response.clone().json();
+        await db.insert(auditLog).values({ companyId, action: "updated", entityType: "transaction", entityId: id, details: JSON.stringify({ actor: { id: authorization.id, name: authorization.fullName, email: authorization.email }, before: existing, after: record, beforeLines: oldLines, afterLines: newLines }) });
+        return response;
+      });
+    }
     if (payload.kind === "contacts" || payload.kind === "accounts") return await withWriteTransaction(async () => {
       const db = getDb();
       const accountEdit = payload.kind === "accounts";

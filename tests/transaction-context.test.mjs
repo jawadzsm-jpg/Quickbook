@@ -257,3 +257,85 @@ test('vendor changes and deletion are administrator-only, scoped and audited', a
     assert.equal(entries.length,2);
   } finally { delete globalThis.__transferTestUser; }
 });
+
+test('purchase edits preserve identity, repost stock and ledger atomically, and enforce admin access and revisions', async () => {
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Purchase edit test') RETURNING id")).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'PUR-EDIT', 'Purchase stock', 'PUR-EDIT') RETURNING id", [companyId])).rows[0].id;
+  const itemId = (await database.query("INSERT INTO items (company_id, location_id, sku, name, quantity, cost) VALUES ($1, $2, 'PUR-EDIT', 'Laptop', 0, 50) RETURNING id", [companyId, locationId])).rows[0].id;
+  await database.query("INSERT INTO contacts (company_id, type, name) VALUES ($1, 'vendor', 'Original supplier'), ($1, 'vendor', 'New supplier')", [companyId]);
+  const { GET, POST, PATCH } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const request = (method, body) => new Request('https://app.test/api/records', { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const initial = { kind: 'transactions', companyId, locationId, type: 'bill', number: 'EDIT-BILL', party: 'Original supplier', transactionDate: '2026-09-10', account: 'Purchases', status: 'open', currency: 'USD', exchangeRate: 3.67, lines: [{ itemId, description: 'Laptop', quantity: 10, unitPrice: 100, unitCost: 100, vatCode: 'STANDARD' }] };
+  const created = await POST(request('POST', initial));
+  assert.equal(created.status, 201);
+  const original = (await created.json()).record;
+  const id = original.id;
+  const detail = async () => (await GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${companyId}&id=${id}`))).json();
+  let revision = (await detail()).revision;
+  const edit = (changes = {}, token = revision) => PATCH(request('PATCH', { ...initial, id, revision: token, ...changes }));
+  const snapshot = async () => ({
+    document: (await database.query('SELECT * FROM transactions WHERE id = $1', [id])).rows,
+    items: (await database.query('SELECT quantity, last_purchase_price FROM items WHERE id = $1', [itemId])).rows,
+    lines: (await database.query('SELECT * FROM transaction_lines WHERE transaction_id = $1 ORDER BY id', [id])).rows,
+    journal: (await database.query('SELECT jl.* FROM journal_lines jl JOIN journal_entries je ON je.id = jl.journal_entry_id WHERE je.transaction_id = $1 ORDER BY jl.id', [id])).rows,
+    vendors: (await database.query('SELECT name, balance FROM contacts WHERE company_id = $1 ORDER BY name', [companyId])).rows,
+  });
+  try {
+    for (const role of ['accountant', 'purchasing', 'viewer', 'inventory', 'sales']) {
+      globalThis.__transferTestUser = { id: 9, role, companyIds: [companyId] };
+      assert.equal((await edit()).status, 403);
+    }
+    globalThis.__transferTestUser = { id: 9, role: 'admin', companyIds: [] };
+    assert.equal((await edit()).status, 403);
+    globalThis.__transferTestUser = { id: 9, role: 'admin', companyIds: [companyId], fullName: 'Purchase Admin', email: 'admin@test.local' };
+    // Eight have already sold. Keeping ten received is valid; reducing below eight is not.
+    await database.query('UPDATE items SET quantity = 2 WHERE id = $1', [itemId]);
+    let before = await snapshot();
+    assert.equal((await edit({ lines: [{ ...initial.lines[0], quantity: 7 }] })).status, 409);
+    assert.deepEqual(await snapshot(), before);
+    const updated = await edit({ party: 'New supplier', lines: [{ ...initial.lines[0], unitPrice: 120 }] });
+    assert.equal(updated.status, 200, JSON.stringify(await updated.clone().json()));
+    const record = (await updated.json()).record;
+    assert.equal(record.id, id);
+    assert.equal(record.createdAt, original.createdAt);
+    assert.equal(record.total, 1260);
+    assert.equal(record.baseTotal, 4624.2);
+    let state = await snapshot();
+    assert.deepEqual(state.items, [{ quantity: 2, last_purchase_price: 440.4 }]);
+    assert.deepEqual(state.vendors, [{ name: 'New supplier', balance: 1260 }, { name: 'Original supplier', balance: 0 }]);
+    assert.equal(Math.round(state.journal.reduce((sum, row) => sum + row.debit, 0) * 100), 462420);
+    assert.equal(Math.round(state.journal.reduce((sum, row) => sum + row.credit, 0) * 100), 462420);
+    assert.equal((await edit()).status, 409);
+    revision = (await detail()).revision;
+    before = await snapshot();
+    // Invalid exchange rate is discovered after reversals: every change must roll back.
+    assert.equal((await edit({ exchangeRate: 0 })).status, 400);
+    assert.deepEqual(await snapshot(), before);
+    assert.equal((await edit({ type: 'invoice' })).status, 400);
+    assert.equal((await edit({ locationId: locationId + 10000 })).status, 400);
+    assert.equal((await edit({ lines: [] })).status, 400);
+    assert.equal((await edit({ transactionDate: '2026-02-30' })).status, 400);
+    globalThis.__transferTestUser = { id: 1, role: 'all_admin', companyIds: [], email: 'owner@test.local' };
+    assert.equal((await edit({ lines: [{ ...initial.lines[0], quantity: 12 }] })).status, 200);
+    state = await snapshot();
+    assert.equal(state.items[0].quantity, 4);
+    const logs = (await database.query("SELECT details FROM audit_log WHERE entity_type = 'transaction' AND entity_id = $1 AND action = 'updated' ORDER BY id", [id])).rows;
+    assert.equal(logs.length, 2);
+    assert.equal(JSON.parse(logs[0].details).actor.name, 'Purchase Admin');
+    assert.equal((await database.query('SELECT count(*)::int AS n FROM journal_entries WHERE transaction_id = $1', [id])).rows[0].n, 1);
+    assert.equal((await database.query('SELECT count(*)::int AS n FROM inventory_movements WHERE transaction_id = $1', [id])).rows[0].n, 1);
+    revision = (await detail()).revision;
+    before = await snapshot();
+    await database.exec("CREATE FUNCTION reject_purchase_edit_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action = 'updated' AND NEW.entity_type = 'transaction' THEN RAISE EXCEPTION 'Test edit audit failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_purchase_edit_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_purchase_edit_audit()");
+    assert.equal((await edit({ lines: [{ ...initial.lines[0], quantity: 15 }] })).status, 500);
+    assert.deepEqual(await snapshot(), before);
+    await database.exec('DROP TRIGGER reject_purchase_edit_audit ON audit_log; DROP FUNCTION reject_purchase_edit_audit()');
+    // A subsequent purchase remains the source of the last purchase price.
+    assert.equal((await POST(request('POST', { ...initial, number: 'LATER-BILL', transactionDate: '2026-09-11', lines: [{ ...initial.lines[0], quantity: 1, unitPrice: 200 }] }))).status, 201);
+    assert.equal((await edit()).status, 200);
+    assert.equal((await snapshot()).items[0].last_purchase_price, 734);
+    await database.query("UPDATE transactions SET status = 'converted' WHERE id = $1", [id]);
+    revision = (await detail()).revision;
+    assert.equal((await edit()).status, 409);
+  } finally { delete globalThis.__transferTestUser; }
+});
