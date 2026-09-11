@@ -325,10 +325,10 @@ const defaultPostingAccount = (type: string, accounts: DataRecord[]) => {
 const itemDisplayDescription = (item: DataRecord) => {
   try {
     const specifications = JSON.parse(String(item.specifications ?? "[]")) as Array<{ value?: string }>;
-    const values = specifications.map((specification) => specification.value?.trim()).filter(Boolean).join(" | ");
-    if (values) return values;
+    const values = specifications.map((specification) => specification.value?.trim()).filter((value) => value && value.toLowerCase() !== "no").join(" | ");
+    if (specifications.length) return values;
   } catch { /* Fall back to the saved description for older records. */ }
-  return String(item.description ?? "");
+  return String(item.description ?? "").split(" | ").filter((value) => value.trim().toLowerCase() !== "no").join(" | ");
 };
 
 export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUser }) {
@@ -1564,7 +1564,7 @@ function ItemFields({ form, setForm, items }: { form: Record<string, string>; se
   const disabledCategories = new Set(optionData.disabledCategories);
   const savedCategories = items.map((item) => String(item.category ?? "").trim()).filter(Boolean);
   const categoryOptions = [...new Set([...optionData.categories, ...savedCategories])].filter((category) => !disabledCategories.has(category));
-  const description = Array.from({ length: count }, (_, index) => form[`specValue${index}`]?.trim() ?? "").filter(Boolean).join(" | ");
+  const description = Array.from({ length: count }, (_, index) => form[`specValue${index}`]?.trim() ?? "").filter((value) => value && value.toLowerCase() !== "no").join(" | ");
   const addSpecification = () => {
     if (count >= 30) return;
     setForm({ ...form, specCount: String(count + 1), [`specLabel${count}`]: specificationFields[count], [`specValue${count}`]: "" });
