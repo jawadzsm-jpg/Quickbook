@@ -30,6 +30,13 @@ type OverviewItem = {
   locationCode: string;
 };
 
+type InventoryPresence = Pick<OverviewItem, "id" | "companyId" | "companyName" | "currency" | "locationId" | "locationName" | "locationCode" | "quantity" | "reorderPoint" | "salesPrice">;
+
+type ConsolidatedItem = OverviewItem & {
+  inventories: InventoryPresence[];
+  recordIds: number[];
+};
+
 type StockFilter = "all" | "in" | "low" | `location:${number}`;
 type ShareChannel = "whatsapp" | "telegram" | "email";
 
@@ -90,6 +97,42 @@ export function InventoryOverview() {
 
   const inStockRecords = useMemo(() => records.filter((record) => Number(record.quantity) > 0), [records]);
 
+  const consolidatedRecords = useMemo(() => {
+    const grouped = new Map<string, ConsolidatedItem>();
+    for (const record of inStockRecords) {
+      const identity = record.itemNumber?.trim() || record.sku.trim().toLowerCase();
+      const key = `${record.companyId}:${identity}`;
+      const inventory: InventoryPresence = {
+        id: record.id,
+        companyId: record.companyId,
+        companyName: record.companyName,
+        currency: record.currency,
+        locationId: record.locationId,
+        locationName: record.locationName,
+        locationCode: record.locationCode,
+        quantity: Number(record.quantity),
+        reorderPoint: Number(record.reorderPoint),
+        salesPrice: Number(record.salesPrice),
+      };
+      const existing = grouped.get(key);
+      if (existing) {
+        existing.quantity += Number(record.quantity);
+        existing.reorderPoint += Number(record.reorderPoint);
+        existing.inventories.push(inventory);
+        existing.recordIds.push(record.id);
+      } else {
+        grouped.set(key, {
+          ...record,
+          quantity: Number(record.quantity),
+          reorderPoint: Number(record.reorderPoint),
+          inventories: [inventory],
+          recordIds: [record.id],
+        });
+      }
+    }
+    return [...grouped.values()];
+  }, [inStockRecords]);
+
   const locations = useMemo(() => {
     const grouped = new Map<number, { id: number; company: string; location: string; quantity: number; itemCount: number }>();
     for (const record of inStockRecords) {
@@ -106,24 +149,31 @@ export function InventoryOverview() {
 
   const totals = useMemo(() => ({
     quantity: inStockRecords.reduce((sum, record) => sum + Number(record.quantity), 0),
-    inStock: inStockRecords.length,
-    healthy: inStockRecords.filter((record) => Number(record.quantity) > Number(record.reorderPoint)).length,
-    low: inStockRecords.filter((record) => Number(record.quantity) <= Number(record.reorderPoint)).length,
-  }), [inStockRecords]);
+    inStock: consolidatedRecords.length,
+    healthy: consolidatedRecords.filter((record) => Number(record.quantity) > Number(record.reorderPoint)).length,
+    low: consolidatedRecords.filter((record) => Number(record.quantity) <= Number(record.reorderPoint)).length,
+  }), [consolidatedRecords, inStockRecords]);
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return inStockRecords.filter((record) => {
-      if (filter === "low" && !(Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint))) return false;
-      if (filter.startsWith("location:") && record.locationId !== Number(filter.split(":")[1])) return false;
-      if (!term) return true;
-      return [record.name, record.sku, record.itemNumber, record.category, record.description, record.specifications, record.companyName, record.locationName]
-        .some((value) => String(value ?? "").toLowerCase().includes(term));
+    return consolidatedRecords.flatMap((record) => {
+      if (filter === "low" && !(Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint))) return [];
+      const locationId = filter.startsWith("location:") ? Number(filter.split(":")[1]) : null;
+      const inventories = locationId === null ? record.inventories : record.inventories.filter((inventory) => inventory.locationId === locationId);
+      if (!inventories.length) return [];
+      if (term && ![record.name, record.sku, record.itemNumber, record.category, record.description, record.specifications, record.companyName, ...inventories.flatMap((inventory) => [inventory.locationName, inventory.locationCode])]
+        .some((value) => String(value ?? "").toLowerCase().includes(term))) return [];
+      return [{
+        ...record,
+        inventories,
+        quantity: inventories.reduce((sum, inventory) => sum + Number(inventory.quantity), 0),
+        reorderPoint: inventories.reduce((sum, inventory) => sum + Number(inventory.reorderPoint), 0),
+      }];
     });
-  }, [filter, inStockRecords, search]);
+  }, [consolidatedRecords, filter, search]);
 
   const categories = useMemo(() => {
-    const grouped = new Map<string, OverviewItem[]>();
+    const grouped = new Map<string, ConsolidatedItem[]>();
     for (const record of filtered) {
       const category = record.category.trim() || "General";
       grouped.set(category, [...(grouped.get(category) ?? []), record]);
@@ -131,7 +181,7 @@ export function InventoryOverview() {
     return [...grouped.entries()];
   }, [filtered]);
 
-  const selectedRecords = useMemo(() => records.filter((record) => selectedIds.has(record.id)), [records, selectedIds]);
+  const selectedRecords = useMemo(() => consolidatedRecords.filter((record) => selectedIds.has(record.id)), [consolidatedRecords, selectedIds]);
   const allVisibleSelected = filtered.length > 0 && filtered.every((record) => selectedIds.has(record.id));
   const someVisibleSelected = filtered.some((record) => selectedIds.has(record.id));
 
@@ -158,6 +208,7 @@ export function InventoryOverview() {
           ? `🔺 ***${record.name} - ${record.sku}*** 🔺`
           : `***${record.name} - ${record.sku}***`;
       const lines = [title, specificationText(record)];
+      lines.push(`Inventory: ${record.inventories.map((inventory) => inventory.locationName).join(", ")}`);
       const details: string[] = [];
       if (showQuantity) {
         const quantity = plainMoney(Number(record.quantity));
@@ -201,7 +252,7 @@ export function InventoryOverview() {
     const headerRow = headers.map((header) => `<Cell ss:StyleID="Header"><Data ss:Type="String">${xml(header)}</Data></Cell>`).join("");
     const bodyRows = selectedRecords.map((record) => {
       const values: Array<{ value: unknown; type?: "Number"; style?: string }> = [
-        { value: record.companyName }, { value: record.locationName }, { value: record.category },
+        { value: record.companyName }, { value: record.inventories.map((inventory) => inventory.locationName).join(", ") }, { value: record.category },
         { value: record.itemNumber ?? "" }, { value: record.sku }, { value: record.name }, { value: specificationText(record) },
       ];
       if (showQuantity) values.push({ value: Number(record.quantity), type: "Number", style: "Number" });
@@ -268,7 +319,7 @@ export function InventoryOverview() {
 
       <div className="overflow-x-auto">
         <Table className="min-w-[900px]">
-          <TableHeader><TableRow className="bg-slate-50"><TableHead className="w-12"><Checkbox aria-label="Select all visible items" checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false} onCheckedChange={(checked) => toggleAllVisible(checked === true)} /></TableHead><TableHead className="w-[55%] font-bold text-slate-900">Product specifications</TableHead><TableHead className="font-bold text-slate-900">Company / inventory</TableHead>{showQuantity && <TableHead className="w-24 text-right font-bold text-slate-900">Qty</TableHead>}{showPrice && <TableHead className="w-36 text-right font-bold text-slate-900">Price</TableHead>}</TableRow></TableHeader>
+          <TableHeader><TableRow className="bg-slate-50"><TableHead className="w-12"><Checkbox aria-label="Select all visible items" checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false} onCheckedChange={(checked) => toggleAllVisible(checked === true)} /></TableHead><TableHead className="w-[55%] font-bold text-slate-900">Product specifications</TableHead><TableHead className="font-bold text-slate-900">Inventories</TableHead>{showQuantity && <TableHead className="w-24 text-right font-bold text-slate-900">Qty</TableHead>}{showPrice && <TableHead className="w-36 text-right font-bold text-slate-900">Price</TableHead>}</TableRow></TableHeader>
           <TableBody>
             {loading ? <TableRow><TableCell colSpan={columnCount} className="h-40 text-center text-slate-500"><RefreshCw className="mx-auto mb-2 size-5 animate-spin" />Loading all inventories…</TableCell></TableRow> : categories.length === 0 ? <TableRow><TableCell colSpan={columnCount} className="h-40 text-center text-slate-500">No products match this view.</TableCell></TableRow> : categories.flatMap(([category, items]) => [
               <TableRow key={`category-${category}`} className="border-slate-800 bg-slate-950 hover:bg-slate-950"><TableCell colSpan={columnCount} className="py-3 font-bold text-white"><span className="mr-2 text-emerald-400">●</span>{category}<Badge className="ml-3 bg-white/15 text-white hover:bg-white/15">{items.length} items</Badge></TableCell></TableRow>,
@@ -277,9 +328,9 @@ export function InventoryOverview() {
                 const low = Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint);
                 const description = specificationText(record);
                 return <TableRow key={record.id} data-state={selectedIds.has(record.id) ? "selected" : undefined} className="align-top data-[state=selected]:bg-sky-50 hover:bg-slate-50/80">
-                  <TableCell className="py-5"><Checkbox aria-label={`Select ${record.name} in ${record.locationName}, ${record.companyName}`} checked={selectedIds.has(record.id)} onCheckedChange={(checked) => toggleSelected(record.id, checked === true)} /></TableCell>
-                  <TableCell className="py-4"><div className="flex flex-wrap items-center gap-2"><span className="text-base font-bold text-blue-700 underline decoration-blue-300 underline-offset-2">{record.name}</span>{out ? <Badge className="bg-rose-500 text-white hover:bg-rose-500">Out of stock</Badge> : low ? <Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">Low stock</Badge> : <Badge variant="outline" className="border-emerald-200 text-emerald-700"><PackageCheck className="mr-1 size-3" />In stock</Badge>}</div><div className="mt-2 flex flex-wrap items-center gap-2 text-xs"><Badge variant="outline" className="max-w-full whitespace-normal border-sky-200 bg-sky-50 text-sky-800"><Warehouse className="mr-1 size-3 shrink-0" />Inventory: {record.locationName}{record.locationCode ? ` · ${record.locationCode}` : ""}</Badge><span className="text-slate-500">{record.companyName}</span></div>{description && <p className="mt-1 line-clamp-2 text-sm font-medium leading-5 text-slate-700">{description}</p>}<div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs"><span className="font-semibold text-slate-600">SKU: {record.sku}</span>{record.itemNumber && <span className="font-bold text-rose-600">#{record.itemNumber}</span>}</div></TableCell>
-                  <TableCell className="py-4"><p className="font-semibold text-slate-900">{record.companyName}</p><p className="mt-1 text-sm text-slate-500"><Warehouse className="mr-1 inline size-3.5" />{record.locationName} · {record.locationCode}</p></TableCell>
+                  <TableCell className="py-5"><Checkbox aria-label={`Select ${record.name}`} checked={selectedIds.has(record.id)} onCheckedChange={(checked) => toggleSelected(record.id, checked === true)} /></TableCell>
+                  <TableCell className="py-4"><div className="flex flex-wrap items-center gap-2"><span className="text-base font-bold text-blue-700 underline decoration-blue-300 underline-offset-2">{record.name}</span>{out ? <Badge className="bg-rose-500 text-white hover:bg-rose-500">Out of stock</Badge> : low ? <Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">Low stock</Badge> : <Badge variant="outline" className="border-emerald-200 text-emerald-700"><PackageCheck className="mr-1 size-3" />In stock</Badge>}</div>{description && <p className="mt-2 line-clamp-2 text-sm font-medium leading-5 text-slate-700">{description}</p>}<div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs"><span className="font-semibold text-slate-600">SKU: {record.sku}</span>{record.itemNumber && <span className="font-bold text-rose-600">#{record.itemNumber}</span>}</div></TableCell>
+                  <TableCell className="py-4"><div className="flex flex-wrap gap-2">{record.inventories.map((inventory) => <Badge key={inventory.locationId} variant="outline" className="max-w-full whitespace-normal border-sky-200 bg-sky-50 px-2.5 py-1 text-sky-800"><Warehouse className="mr-1 size-3.5 shrink-0" />{inventory.locationName}{inventory.locationCode ? ` · ${inventory.locationCode}` : ""}</Badge>)}</div></TableCell>
                   {showQuantity && <TableCell className={`py-4 text-right text-base font-black ${out ? "text-rose-600" : low ? "text-amber-600" : "text-slate-900"}`}>{Number(record.quantity).toLocaleString()}</TableCell>}
                   {showPrice && <TableCell className="py-4 text-right text-base font-black text-rose-600">{money(Number(record.salesPrice) * (includeVat ? 1.05 : 1), record.currency)}{includeVat && <span className="mt-1 block text-[11px] font-semibold text-emerald-600">VAT included</span>}</TableCell>}
                 </TableRow>;
