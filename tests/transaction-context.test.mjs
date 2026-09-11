@@ -36,7 +36,7 @@ const vite = await createServer({
         export * from "/lib/access.ts";
         export * from "/lib/password.ts";
         export const requireCompanyAccess = async () => ({ id: 1, email: "test@example.test", role: "all_admin", companyIds: [], mustChangePassword: false });
-        export const requireApiUser = async () => ({ id: 1, email: "test@example.test", role: "all_admin", companyIds: [], mustChangePassword: false });
+        export const requireApiUser = async () => (globalThis.__transferTestUser ?? { id: 1, email: "test@example.test", role: "all_admin", companyIds: [], mustChangePassword: false });
       `;
     },
   }],
@@ -56,6 +56,47 @@ for (const name of (await readdir(`${root}drizzle`)).filter((name) => name.endsW
     try { await database.exec(statement); } catch (error) { throw new Error(`Migration ${name} failed`, { cause: error }); }
   }
 }
+
+test("transfer edits enforce admin and company access, balance quantities and reject stale or insufficient stock", async () => {
+  const company = (await database.query("INSERT INTO companies (name) VALUES ('Transfer edit test') RETURNING id")).rows[0].id;
+  const other = (await database.query("INSERT INTO companies (name) VALUES ('Transfer destination') RETURNING id")).rows[0].id;
+  const location = async (companyId, code) => (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, $2, $2, $2) RETURNING id", [companyId, code])).rows[0].id;
+  const source = await location(company, 'EDIT-SOURCE'), destination = await location(other, 'EDIT-DEST');
+  await database.query("INSERT INTO items (company_id, location_id, sku, name, quantity, cost) VALUES ($1, $2, 'TRANSFER-EDIT', 'Laptop', 7, 10), ($3, $4, 'TRANSFER-EDIT', 'Laptop', 3, 10)", [company, source, other, destination]);
+  const id = (await database.query("INSERT INTO stock_transfers (reference, source_company_id, source_location_id, destination_company_id, destination_location_id, sku, item_name, quantity, transfer_date) VALUES ('TRF-EDIT', $1, $2, $3, $4, 'TRANSFER-EDIT', 'Laptop', 3, '2026-09-11') RETURNING id", [company, source, other, destination])).rows[0].id;
+  const { PATCH, GET } = await vite.ssrLoadModule('/app/api/transfers/route.ts');
+  const original = { quantity: 3, reference: 'TRF-EDIT', transferDate: '2026-09-11', salesman: '', notes: '' };
+  const edit = (changes = {}, expected = original) => PATCH(new Request('https://app.test/api/transfers', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, ...original, ...changes, expected }) }));
+  const balances = async () => (await database.query("SELECT quantity, cost FROM items WHERE sku = 'TRANSFER-EDIT' ORDER BY id")).rows;
+  try {
+    for (const role of ['viewer', 'sales', 'accountant', 'purchasing', 'inventory']) {
+      globalThis.__transferTestUser = { id: 1, role, companyIds: [company, other] };
+      assert.equal((await edit({ quantity: 5 })).status, 403);
+      const history = await (await GET(new Request('https://app.test/api/transfers'))).json();
+      assert.equal(history.records.find((r) => r.id === id).canEdit, false);
+    }
+    globalThis.__transferTestUser = { id: 1, role: 'admin', companyIds: [company] };
+    assert.equal((await edit()).status, 403);
+    globalThis.__transferTestUser = { id: 1, role: 'admin', companyIds: [company, other] };
+    const history = await (await GET(new Request('https://app.test/api/transfers'))).json();
+    assert.equal(history.records.find((r) => r.id === id).canEdit, true);
+    assert.equal((await edit({ quantity: 5 })).status, 200);
+    assert.deepEqual(await balances(), [{ quantity: 5, cost: 10 }, { quantity: 5, cost: 10 }]);
+    assert.equal((await edit({ quantity: 4 })).status, 409);
+    globalThis.__transferTestUser = { id: 1, role: 'all_admin', companyIds: [] };
+    assert.equal((await edit({ quantity: 11 }, { ...original, quantity: 5 })).status, 409);
+    assert.equal((await edit({ quantity: 2, notes: 'Corrected', salesman: 'Rep' }, { ...original, quantity: 5 })).status, 200);
+    assert.deepEqual(await balances(), [{ quantity: 8, cost: 10 }, { quantity: 2, cost: 10 }]);
+    const corrected = { ...original, quantity: 2, notes: 'Corrected', salesman: 'Rep' };
+    assert.equal((await edit({ quantity: 0 }, corrected)).status, 400);
+    assert.equal((await edit({ transferDate: '2026-02-30' }, corrected)).status, 400);
+    await database.query("UPDATE items SET quantity = 0 WHERE sku = 'TRANSFER-EDIT' AND location_id = $1", [destination]);
+    assert.equal((await edit({ quantity: 1 }, corrected)).status, 409);
+    assert.deepEqual(await balances(), [{ quantity: 8, cost: 10 }, { quantity: 0, cost: 10 }]);
+    assert.equal((await database.query("SELECT count(*)::int AS n FROM audit_log WHERE entity_type = 'stock_transfer' AND entity_id = $1", [id])).rows[0].n, 2);
+    assert.equal((await database.query('SELECT notes FROM stock_transfers WHERE id = $1', [id])).rows[0].notes, 'Corrected');
+  } finally { delete globalThis.__transferTestUser; }
+});
 
 test("all migrations apply to a fresh PostgreSQL database", async () => {
   const result = await database.query("SELECT count(*)::int AS count FROM information_schema.tables WHERE table_schema = 'public'");

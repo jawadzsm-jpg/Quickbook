@@ -1,8 +1,9 @@
-import { desc, eq, gt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import { getDb } from "../../../db";
-import { companies, contacts, inventoryLocations, items, stockTransfers } from "../../../db/schema";
-import { requireApiUser } from "@/lib/auth";
+import { getDb, withWriteTransaction } from "../../../db";
+import { auditLog, companies, contacts, inventoryLocations, items, stockTransfers } from "../../../db/schema";
+import { canAccessCompany, isAdministrator, requireApiUser } from "@/lib/auth";
+import { readJsonBody } from "@/lib/api";
 
 type TransferLine = { itemId?: unknown; sourceLocationId?: unknown; destinationLocationId?: unknown; quantity?: unknown };
 
@@ -26,6 +27,7 @@ export async function GET(request: Request) {
     const destinationLocation = alias(inventoryLocations, "destination_location");
     const records = await db.select({
       id: stockTransfers.id, reference: stockTransfers.reference, transferDate: stockTransfers.transferDate,
+      sourceCompanyId: stockTransfers.sourceCompanyId, destinationCompanyId: stockTransfers.destinationCompanyId,
       itemNumber: stockTransfers.itemNumber, sku: stockTransfers.sku, itemName: stockTransfers.itemName,
       quantity: stockTransfers.quantity, salesman: stockTransfers.salesman, notes: stockTransfers.notes, sourceCompany: sourceCompany.name,
       sourceLocation: sourceLocation.name, destinationCompany: destinationCompany.name, destinationLocation: destinationLocation.name,
@@ -35,9 +37,56 @@ export async function GET(request: Request) {
       .innerJoin(destinationCompany, eq(stockTransfers.destinationCompanyId, destinationCompany.id))
       .innerJoin(destinationLocation, eq(stockTransfers.destinationLocationId, destinationLocation.id))
       .orderBy(desc(stockTransfers.transferDate), desc(stockTransfers.id)).limit(500);
-    return Response.json({ records });
+    return Response.json({ records: records.map((record) => ({ ...record, canEdit: isAdministrator(authorization) && canAccessCompany(authorization, record.sourceCompanyId) && canAccessCompany(authorization, record.destinationCompanyId) })) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
+  }
+}
+
+// Edit one posted line without changing its product or inventory route.
+export async function PATCH(request: Request) {
+  const user = await requireApiUser(request, true, true);
+  if (user instanceof Response) return user;
+  if (!isAdministrator(user)) return Response.json({ error: "Only Administrator and All-Admin users can edit transfers." }, { status: 403 });
+  try {
+    const payload = await readJsonBody(request, 20_000) as Record<string, unknown>;
+    const id = Number(payload.id);
+    const quantity = payload.quantity;
+    const reference = String(payload.reference ?? "").trim().toUpperCase();
+    const transferDate = String(payload.transferDate ?? "");
+    const salesman = String(payload.salesman ?? "").trim();
+    const notes = String(payload.notes ?? "").trim();
+    const expected = payload.expected as Record<string, unknown> | undefined;
+    if (!Number.isSafeInteger(id) || id <= 0 || typeof quantity !== "number" || !Number.isFinite(quantity) || quantity <= 0 || !/^[-A-Z0-9/]{2,40}$/.test(reference) || !/^\d{4}-\d{2}-\d{2}$/.test(transferDate) || !Number.isFinite(Date.parse(transferDate)) || new Date(transferDate).toISOString().slice(0, 10) !== transferDate || salesman.length > 200 || notes.length > 2000 || !expected) {
+      return Response.json({ error: "Enter a valid quantity, reference and date, and reopen the transfer if necessary." }, { status: 400 });
+    }
+    return await withWriteTransaction(async () => {
+      const db = getDb();
+      const [original] = await db.select().from(stockTransfers).where(eq(stockTransfers.id, id)).for("update");
+      if (!original) return Response.json({ error: "Transfer not found." }, { status: 404 });
+      if (!canAccessCompany(user, original.sourceCompanyId) || !canAccessCompany(user, original.destinationCompanyId)) return Response.json({ error: "You must have access to both companies to edit this transfer." }, { status: 403 });
+      const fields = ["quantity", "reference", "transferDate", "salesman", "notes"] as const;
+      if (fields.some((field) => original[field] !== expected[field])) return Response.json({ error: "This transfer changed while you were editing. Refresh and reopen it." }, { status: 409 });
+      const delta = quantity - original.quantity;
+      if (delta !== 0) {
+        const stock = await db.select().from(items).where(and(eq(items.sku, original.sku), or(
+          and(eq(items.companyId, original.sourceCompanyId), eq(items.locationId, original.sourceLocationId)),
+          and(eq(items.companyId, original.destinationCompanyId), eq(items.locationId, original.destinationLocationId)),
+        ))).orderBy(asc(items.id)).for("update");
+        const source = stock.find((item) => item.companyId === original.sourceCompanyId && item.locationId === original.sourceLocationId);
+        const destination = stock.find((item) => item.companyId === original.destinationCompanyId && item.locationId === original.destinationLocationId);
+        if (!source || !destination || source.id === destination.id || source.itemNumber !== original.itemNumber || destination.itemNumber !== original.itemNumber || source.status !== "active" || destination.status !== "active") return Response.json({ error: "The original product is no longer available in both inventories. Quantity cannot be edited." }, { status: 409 });
+        if (source.quantity - delta < 0 || destination.quantity + delta < 0) return Response.json({ error: "Not enough stock to make this correction. The source needs stock for an increase; the destination needs stock for a decrease." }, { status: 409 });
+        await db.update(items).set({ quantity: sql`${items.quantity} - ${delta}` }).where(eq(items.id, source.id));
+        await db.update(items).set({ quantity: sql`${items.quantity} + ${delta}` }).where(eq(items.id, destination.id));
+      }
+      const changes = { quantity, reference, transferDate, salesman, notes };
+      await db.update(stockTransfers).set(changes).where(eq(stockTransfers.id, id));
+      await db.insert(auditLog).values({ companyId: original.sourceCompanyId, action: "edited", entityType: "stock_transfer", entityId: id, details: JSON.stringify({ userId: user.id, before: original, after: { ...original, ...changes } }) });
+      return Response.json({ saved: true });
+    });
+  } catch {
+    return Response.json({ error: "Could not save the transfer edit. Refresh and try again." }, { status: 500 });
   }
 }
 
