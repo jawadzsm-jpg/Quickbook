@@ -2,7 +2,7 @@ import { and, asc, eq, inArray, sum } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { accounts, auditLog, companies, contacts, exchangeRates, inventoryLocations, items, journalEntries, journalLines, transactionLines, transactions, vatCodes } from "../../../db/schema";
 import { stockPricingRows } from "@/lib/stock-pricing";
-import { canAccessCompany, hasPermission, requireApiUser } from "@/lib/auth";
+import { canAccessCompany, hasPermission, isAdministrator, requireApiUser } from "@/lib/auth";
 
 type Row = Record<string, string | number>;
 const money = { type: "money" as const };
@@ -35,8 +35,8 @@ export async function GET(request: Request) {
         db.select({ id: inventoryLocations.id, name: inventoryLocations.name }).from(inventoryLocations).where(eq(inventoryLocations.companyId, companyId)),
       ]);
       if (!company[0]) return Response.json({ error: "Company not found." }, { status: 404 });
-      return Response.json({ report: { key, title: "Stock Pricing & Profit/Loss", generatedAt: new Date().toISOString(), currency: company[0].baseCurrency,
-        description: "Current stock estimate before VAT, not realized sales profit. Unit cost uses the latest supplier bill plus allocated freight; GRN cost is a fallback, never added twice. Freight Charges lines are allocated by stock purchase value (by quantity when all values are zero). Saved item cost is used when no purchase or GRN exists. Selling prices are current item prices. Negative stock is excluded from projected totals. All amounts are in home currency.",
+      return Response.json({ report: { key, companyId, canEditPrices: isAdministrator(authorization), title: "Stock Pricing & Profit/Loss", generatedAt: new Date().toISOString(), currency: company[0].baseCurrency,
+        description: "Current stock estimate before VAT, not realized sales profit. Unit cost uses the latest supplier bill plus allocated freight; Entered GRN price (or receipt cost when blank) is a fallback, never added twice. Freight Charges lines are allocated by stock purchase value (by quantity when all values are zero). Saved item cost is used when no purchase or GRN exists. Selling prices are current item prices. Negative stock is excluded from projected totals. All amounts are in home currency.",
         columns: [{ key: "inventory", label: "Inventory" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "quantity", label: "Stock qty" }, { key: "purchaseCost", label: "Purchase / unit", ...money }, { key: "freightCost", label: "Freight / unit", ...money }, { key: "grnCost", label: "GRN / unit", ...money }, { key: "totalCost", label: "Total cost / unit", ...money }, { key: "sellingPrice", label: "Selling / unit", ...money }, { key: "unitProfit", label: "Profit/Loss / unit", ...money }, { key: "margin", label: "Margin" }, { key: "stockCost", label: "Stock cost", ...money }, { key: "potentialProfit", label: "Potential stock profit/loss", ...money }, { key: "costSource", label: "Cost source" }],
         rows: stockPricingRows(stock, purchaseLines, inventories) } }, { headers: { "Cache-Control": "no-store" } });
     }
