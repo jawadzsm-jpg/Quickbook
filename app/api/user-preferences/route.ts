@@ -28,6 +28,6 @@ export async function PATCH(request: Request) {
   if (payload.themeColor === undefined && payload.appearanceMode === undefined) {
     return Response.json({ error: "Choose a preference to update." }, { status: 400 });
   }
-  const [updated] = await getDb().update(appUsers).set(updates).where(eq(appUsers.id, user.id)).returning({ themeColor: appUsers.themeColor, appearanceMode: appUsers.appearanceMode });
-  return Response.json(updated, { headers: { "Cache-Control": "no-store" } });
+  const [updated] = await getDb().update(appUsers).set(updates).where(eq(appUsers.id, user.id)).returning();
+  return Response.json({ themeColor: updated.themeColor, appearanceMode: updated.appearanceMode }, { headers: { "Cache-Control": "no-store" } });
 }
