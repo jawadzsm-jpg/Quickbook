@@ -372,6 +372,11 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     return () => { delete document.documentElement.dataset.appearance; };
   }, [appearanceMode]);
 
+  useEffect(() => {
+    document.documentElement.dataset.userTheme = themeColor;
+    return () => { delete document.documentElement.dataset.userTheme; };
+  }, [themeColor]);
+
   const activeCompany = companies.find((company) => company.id === activeCompanyId);
   const activeLocations = useMemo(() => activeCompany?.locations ?? [], [activeCompany]);
   const baseCurrency = activeCompany?.baseCurrency ?? "AED";
@@ -829,6 +834,20 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
         <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur lg:px-7">
           <div className="flex min-w-0 items-center gap-3"><SidebarTrigger className="text-slate-600" /><div className="hidden h-5 w-px bg-slate-200 sm:block" /><div className="min-w-0"><h1 className="truncate text-lg font-bold text-slate-900">{heading.title}</h1><p className="hidden truncate text-xs text-slate-500 sm:block">{heading.sub}</p></div></div>
           <div className="flex items-center gap-2">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button type="button" variant="ghost" size="icon" aria-label="Appearance" title="Appearance"><Palette className="size-4" /></Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-80 max-w-[calc(100vw-2rem)] space-y-4">
+                <div><p className="font-semibold">Appearance</p><p className="text-sm text-muted-foreground">Saved to your account across the app.</p></div>
+                <div className="grid grid-cols-2 gap-2" role="group" aria-label="Display mode">
+                  {(["light", "dark"] as const).map((mode) => <Button key={mode} type="button" variant={appearanceMode === mode ? "default" : "outline"} disabled={appearanceSaving} aria-pressed={appearanceMode === mode} onClick={() => changeAppearance(mode)}>{mode === "light" ? <Sun className="size-4" /> : <Moon className="size-4" />}{mode === "light" ? "Light" : "Dark"}</Button>)}
+                </div>
+                <div className="space-y-2"><p className="text-sm font-medium">Interface color</p><div className="grid grid-cols-2 gap-2" role="group" aria-label="Interface color">
+                  {userThemes.map((theme) => <Button key={theme.value} type="button" variant="outline" disabled={themeSaving} aria-pressed={themeColor === theme.value} onClick={() => changeTheme(theme.value)} className="justify-start"><span className="size-4 shrink-0 rounded-full border border-black/10" style={{ backgroundColor: theme.color }} />{theme.label}{themeColor === theme.value ? <Check className="ml-auto size-4" /> : null}</Button>)}
+                </div></div>
+              </PopoverContent>
+            </Popover>
             <Button type="button" variant="ghost" size="icon" disabled={appearanceSaving} onClick={() => changeAppearance(appearanceMode === "light" ? "dark" : "light")} aria-label={`Switch to ${appearanceMode === "light" ? "dark" : "light"} mode`} title={`Switch to ${appearanceMode === "light" ? "dark" : "light"} mode`}>
               {appearanceMode === "light" ? <Moon className="size-4" /> : <Sun className="size-4" />}
             </Button>

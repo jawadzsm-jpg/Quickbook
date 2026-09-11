@@ -2,6 +2,8 @@
 @import "tw-animate-css";
 @import "../vendor/shadcn-tailwind-4.13.0.css";
 
+@custom-variant dark (&:where([data-appearance="dark"], [data-appearance="dark"] *));
+
 @utility scrollbar-thin {
   scrollbar-width: thin;
 }
@@ -142,6 +144,15 @@ button, input, select { font: inherit; }
 .metric-violet { color: #6d28d9; background: #ede9fe; }
 
 [data-user-theme] {
+  --primary: var(--user-color-400);
+  --primary-foreground: var(--user-color-contrast);
+  --ring: var(--user-color-500);
+  --accent: var(--user-color-50);
+  --accent-foreground: var(--user-color-700);
+  --chart-1: var(--user-color-500);
+  --sidebar-primary: var(--user-color-400);
+  --sidebar-primary-foreground: var(--user-color-contrast);
+  --sidebar-ring: var(--user-color-400);
   --user-color-50: #ecfdf5;
   --user-color-100: #d1fae5;
   --user-color-200: #a7f3d0;
@@ -162,6 +173,8 @@ button, input, select { font: inherit; }
 [data-user-theme="violet"] { --user-color-50: #f5f3ff; --user-color-100: #ede9fe; --user-color-200: #ddd6fe; --user-color-300: #c4b5fd; --user-color-400: #a78bfa; --user-color-500: #8b5cf6; --user-color-600: #7c3aed; --user-color-700: #6d28d9; --user-color-950: #2e1065; --user-color-contrast: #2e1065; --user-workspace: #f8f6fb; --user-hero-start: #211735; --user-hero-end: #43255d; }
 [data-user-theme="rose"] { --user-color-50: #fff1f2; --user-color-100: #ffe4e6; --user-color-200: #fecdd3; --user-color-300: #fda4af; --user-color-400: #fb7185; --user-color-500: #f43f5e; --user-color-600: #e11d48; --user-color-700: #be123c; --user-color-950: #4c0519; --user-color-contrast: #4c0519; --user-workspace: #fbf5f6; --user-hero-start: #301723; --user-hero-end: #5a2037; }
 [data-user-theme="amber"] { --user-color-50: #fffbeb; --user-color-100: #fef3c7; --user-color-200: #fde68a; --user-color-300: #fcd34d; --user-color-400: #fbbf24; --user-color-500: #f59e0b; --user-color-600: #d97706; --user-color-700: #b45309; --user-color-950: #451a03; --user-color-contrast: #451a03; --user-workspace: #faf8f2; --user-hero-start: #2d2414; --user-hero-end: #55401a; }
+
+[data-appearance="light"] { color-scheme: light; }
 
 [data-appearance="dark"] {
   color-scheme: dark;
