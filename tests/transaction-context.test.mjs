@@ -218,3 +218,42 @@ test("stock revaluation balances journals, preserves quantity and rejects stale 
   assert.equal(purchase.status,201,await purchase.text());
   assert.deepEqual((await database.query('SELECT quantity, last_purchase_price FROM items WHERE id = $1',[foreignPurchaseItem])).rows,[{quantity:2,last_purchase_price:367.25}]);
 });
+
+test('vendor changes and deletion are administrator-only, scoped and audited', async () => {
+  const company = (await database.query("INSERT INTO companies (name) VALUES ('Vendor permissions') RETURNING id")).rows[0].id;
+  const vendor = (await database.query("INSERT INTO contacts (company_id, type, name, currency, balance) VALUES ($1, 'vendor', 'Audit vendor', 'AED', 0) RETURNING id", [company])).rows[0].id;
+  const { PATCH, DELETE, GET } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const request = (method, payload={}) => new Request('https://app.test/api/records', {method,headers:{'content-type':'application/json'},body:JSON.stringify({kind:'contacts',id:vendor,companyId:company,...payload})});
+  const history = () => GET(new Request(`https://app.test/api/records?kind=vendor-history&companyId=${company}`));
+  try {
+    for (const role of ['accountant','purchasing','viewer']) {
+      globalThis.__transferTestUser = { id: 9, fullName: 'Not an admin', email: 'other@example.test', role, companyIds: [company] };
+      assert.equal((await PATCH(request('PATCH',{name:'Blocked',type:'customer'}))).status,403);
+      assert.equal((await DELETE(request('DELETE'))).status,403);
+      assert.equal((await history()).status,403);
+    }
+    globalThis.__transferTestUser = { id: 10, fullName: 'Company Admin', email: 'admin@example.test', role:'admin',companyIds:[] };
+    assert.equal((await PATCH(request('PATCH',{name:'Blocked'}))).status,403);
+    assert.equal((await DELETE(request('DELETE'))).status,403);
+    assert.equal((await history()).status,403);
+    globalThis.__transferTestUser.companyIds=[company];
+    const changed=await PATCH(request('PATCH',{name:'Renamed vendor',phone:'123'}));
+    assert.equal(changed.status,200,await changed.text());
+    let entries=(await (await history()).json()).history;
+    assert.equal(entries.length,1);
+    const details=JSON.parse(entries[0].details);
+    assert.equal(details.actorName,'Company Admin');
+    assert.equal(details.actorId,10);
+    assert.ok(details.changes.some(c=>c.field==='phone'&&c.after==='123'));
+    await database.query('UPDATE contacts SET balance=10 WHERE id=$1',[vendor]);
+    assert.equal((await DELETE(request('DELETE'))).status,409);
+    await database.query('UPDATE contacts SET balance=0 WHERE id=$1',[vendor]);
+    globalThis.__transferTestUser = { id: 11, fullName: 'All Admin', email:'all@example.test',role:'all_admin',companyIds:[] };
+    assert.equal((await DELETE(request('DELETE'))).status,200);
+    assert.equal((await database.query('SELECT id FROM contacts WHERE id=$1',[vendor])).rows.length,0);
+    entries=(await (await history()).json()).history;
+    assert.equal(entries[0].action,'deleted');
+    assert.equal(JSON.parse(entries[0].details).actorName,'All Admin');
+    assert.equal(entries.length,2);
+  } finally { delete globalThis.__transferTestUser; }
+});
