@@ -399,6 +399,10 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       }
       if (type === "credit card charge" && !bankingAccounts.some((candidate) => candidate.type === "Credit Card")) return Response.json({ error: "Add an active Credit Card account in the Chart of Accounts before entering card charges." }, { status: 400 });
     }
+    if (type === "customer payment") {
+      const [bank] = await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true), eq(accounts.name, String(payload.account ?? "")), sql`(${accounts.type} = 'Bank' OR ${accounts.systemRole} = 'BANK')`)).limit(1);
+      if (!bank) return Response.json({ error: "Select an active bank account in this company for Deposit To." }, { status: 400 });
+    }
     const values = {
       companyId, locationId: Number.isInteger(locationId) ? locationId : null, number, type, party,
       salesman: String(payload.salesman ?? ""), isImport: payload.isImport === true || String(payload.isImport) === "true",
@@ -605,7 +609,7 @@ function postingLines(type: string, account: string, party: string, subtotal: nu
     ...(vatAmount ? [{ accountName: named("OUTPUT_VAT", "VAT Payable"), debit: vatAmount, credit: 0 }] : []),
     { accountName: named("AR", "Accounts Receivable"), debit: 0, credit: total },
   ];
-  if (type === "customer payment") return [{ accountName: named("BANK", "Business Bank"), debit: total, credit: 0 }, { accountName: named("AR", "Accounts Receivable"), debit: 0, credit: total }];
+  if (type === "customer payment") return [{ accountName: account, debit: total, credit: 0 }, { accountName: named("AR", "Accounts Receivable"), debit: 0, credit: total }];
   if (type === "bill") return [
     { accountName: account || named("PURCHASES", "Purchases"), debit: subtotal, credit: 0 },
     ...(vatAmount ? [{ accountName: named("INPUT_VAT", "Recoverable VAT"), debit: vatAmount, credit: 0 }] : []),
