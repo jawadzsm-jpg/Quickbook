@@ -377,3 +377,26 @@ test('cheques credit the chosen currency bank and debit the selected AP or expen
   await database.query('UPDATE accounts SET active=false WHERE id=$1', [bankAccountId]);
   assert.equal((await pay()).status, 400);
 });
+
+test('new currency accounts link to matching contacts and a new bank receives payments', async () => {
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Currency accounts test') RETURNING id")).rows[0].id;
+  await database.query("INSERT INTO contacts (company_id, type, name, currency, balance) VALUES ($1, 'customer', 'USD customer', 'USD', 100), ($1, 'customer', 'AED customer', 'AED', 0), ($1, 'vendor', 'USD vendor', 'USD', 0)", [companyId]);
+  const { POST } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const create = (payload) => POST(new Request('https://app.test/api/records', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ companyId, ...payload }) }));
+  const bankResponse = await create({ kind: 'accounts', code: 'USD-BANK', name: 'New USD Bank', type: 'Bank', currency: 'USD' });
+  assert.equal(bankResponse.status, 201);
+  assert.equal((await bankResponse.json()).record.currency, 'USD');
+  for (const [systemRole, type, name] of [['AR', 'Accounts Receivable', 'USD Receivables'], ['AP', 'Accounts Payable', 'USD Payables']]) {
+    const response = await create({ kind: 'accounts', code: systemRole, name, type, systemRole, currency: 'USD' });
+    assert.equal(response.status, 201);
+    const record = (await response.json()).record;
+    const contact = (await database.query('SELECT ledger_account_id FROM contacts WHERE company_id=$1 AND type=$2 AND currency=$3', [companyId, systemRole === 'AR' ? 'customer' : 'vendor', 'USD'])).rows[0];
+    assert.equal(contact.ledger_account_id, record.id);
+  }
+  assert.equal((await database.query("SELECT ledger_account_id FROM contacts WHERE company_id=$1 AND currency='AED'", [companyId])).rows[0].ledger_account_id, null);
+  const payment = await create({ kind: 'transactions', type: 'customer payment', number: 'NEW-BANK-PAY', account: 'New USD Bank', party: 'USD customer', currency: 'USD', exchangeRate: 3.675, lines: [{ description: 'Payment', quantity: 1, unitPrice: 100, vatCode: 'ZERO' }] });
+  assert.equal(payment.status, 201);
+  const id = (await payment.json()).record.id;
+  const journal = (await database.query('SELECT jl.account_name, jl.debit, jl.credit FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.transaction_id=$1 ORDER BY jl.id', [id])).rows;
+  assert.deepEqual(journal, [{ account_name: 'New USD Bank', debit: 367.5, credit: 0 }, { account_name: 'USD Receivables', debit: 0, credit: 367.5 }]);
+});
