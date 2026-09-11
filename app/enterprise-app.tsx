@@ -1665,19 +1665,19 @@ function SpecificationValuePicker({ label, value, options, onChange, onAdd, onRe
 
   return <Popover open={open} onOpenChange={setOpen}>
     <div className="flex min-w-0">
-      <Input aria-label={`${label || "Specification"} value`} placeholder={placeholder} value={value} onChange={(event) => onChange(event.target.value)} className="rounded-r-none" />
-      <PopoverTrigger asChild><Button type="button" variant="outline" size="icon" title={`Manage ${label || "detail"} choices`} aria-label={`Manage ${label || "detail"} choices`} className="shrink-0 rounded-l-none border-l-0"><ChevronDown className="size-4" /></Button></PopoverTrigger>
+      <Textarea rows={1} ref={(element) => { if (element) { element.style.height = "auto"; element.style.height = `${element.scrollHeight}px`; } }} aria-label={`${label || "Specification"} value`} placeholder={placeholder} value={value} onChange={(event) => onChange(event.target.value)} className="min-h-9 min-w-0 resize-none overflow-hidden rounded-r-none break-words" />
+      <PopoverTrigger asChild><Button type="button" variant="outline" size="icon" title={`Manage ${label || "detail"} choices`} aria-label={`Manage ${label || "detail"} choices`} className="h-auto min-h-9 shrink-0 self-stretch rounded-l-none border-l-0"><ChevronDown className="size-4" /></Button></PopoverTrigger>
     </div>
-    <PopoverContent data-attachments-excluded="true" align="start" className="w-80 space-y-3 p-3">
+    <PopoverContent data-attachments-excluded="true" align="start" className="w-[min(36rem,calc(100vw-2rem))] space-y-3 p-3">
       <div><p className="text-sm font-bold text-slate-900">{label || "Detail"} choices</p><p className="text-xs text-slate-500">Select, add, rename or remove a choice.</p></div>
       <div className="max-h-56 space-y-1 overflow-y-auto pr-1">
         {options.length === 0 ? <p className="rounded-md bg-slate-50 p-3 text-xs text-slate-500">No saved choices yet.</p> : options.map((option) => editing === option ? <div key={option} className="flex gap-1">
           <Input autoFocus value={editedValue} onChange={(event) => setEditedValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); rename(option); } }} className="h-8" />
           <Button type="button" size="icon" variant="ghost" disabled={busy} onClick={() => rename(option)} aria-label="Save renamed choice" className="size-8 text-emerald-600"><Check className="size-4" /></Button>
         </div> : <div key={option} className="group flex items-center gap-1 rounded-md hover:bg-slate-50">
-          <button type="button" onClick={() => { onChange(option); setOpen(false); }} className="min-w-0 flex-1 truncate px-2 py-2 text-left text-sm">{option}</button>
-          <Button type="button" size="icon" variant="ghost" disabled={busy} onClick={() => { setEditing(option); setEditedValue(option); }} aria-label={`Rename ${option}`} className="size-8 text-slate-400 hover:text-sky-600"><Pencil className="size-3.5" /></Button>
-          <Button type="button" size="icon" variant="ghost" disabled={busy} onClick={() => remove(option)} aria-label={`Remove ${option}`} className="size-8 text-slate-400 hover:text-rose-600"><Trash2 className="size-3.5" /></Button>
+          <button type="button" onClick={() => { onChange(option); setOpen(false); }} className="min-w-0 flex-1 whitespace-normal break-words [overflow-wrap:anywhere] px-2 py-2 text-left text-sm">{option}</button>
+          <Button type="button" size="icon" variant="ghost" disabled={busy} onClick={() => { setEditing(option); setEditedValue(option); }} aria-label={`Rename ${option}`} className="size-8 shrink-0 text-slate-400 hover:text-sky-600"><Pencil className="size-3.5" /></Button>
+          <Button type="button" size="icon" variant="ghost" disabled={busy} onClick={() => remove(option)} aria-label={`Remove ${option}`} className="size-8 shrink-0 text-slate-400 hover:text-rose-600"><Trash2 className="size-3.5" /></Button>
         </div>)}
       </div>
       <div className="flex gap-2 border-t pt-3"><Input value={newValue} onChange={(event) => setNewValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); add(); } }} placeholder="Add new choice" className="h-9" /><Button type="button" size="sm" disabled={busy || !newValue.trim()} onClick={add}><Plus className="size-4" />Add</Button></div>
