@@ -5,7 +5,7 @@ import {
   journalLines, transactionLines, transactions, vatCodes,
 } from "../../../db/schema";
 import { verifyAdminPin } from "../../../lib/admin-pin";
-import { hasPermission, requireApiUser, type Permission, type SessionUser } from "@/lib/auth";
+import { canAccessCompany, isAdministrator, hasPermission, requireApiUser, type Permission, type SessionUser } from "@/lib/auth";
 
 type RecordKind = "transactions" | "contacts" | "items" | "accounts";
 type InputLine = { itemId?: number | string | null; description?: string; quantity?: number | string; unitPrice?: number | string; unitCost?: number | string; vatCode?: string; vatRate?: number | string };
@@ -35,7 +35,7 @@ function writePermission(kind: RecordKind, payload: Record<string, unknown>): Pe
 }
 
 function mayWrite(user: SessionUser, permission: Permission | "admin") {
-  return permission === "admin" ? user.role === "admin" : hasPermission(user, permission);
+  return permission === "admin" ? isAdministrator(user) : hasPermission(user, permission);
 }
 
 async function createUniqueItemSku() {
@@ -162,11 +162,16 @@ export async function POST(request: Request) {
   try {
     const payload = (await request.json()) as Record<string, unknown>;
     const kind = payload.kind as RecordKind;
+    if (!["transactions", "contacts", "items", "accounts"].includes(kind)) return Response.json({ error: "Invalid record kind." }, { status: 400 });
     if (!mayWrite(authorization, writePermission(kind, payload))) return Response.json({ error: "Your role does not allow this action." }, { status: 403 });
     const companyId = Number(payload.companyId);
     const locationId = Number(payload.locationId);
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
+    if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     const db = getDb();
+    // Verify the credential before dispatching on any client-selected record type.
+    const [stockSettings] = await db.select({ pinHash: companySettings.negativeStockPinHash }).from(companySettings).where(eq(companySettings.companyId, companyId)).limit(1);
+    const stockPinVerified = verifyAdminPin(String(payload.adminOverridePin ?? ""), stockSettings?.pinHash ?? "");
 
     if (kind === "contacts") {
       const name = String(payload.name ?? "").trim();
@@ -330,10 +335,8 @@ export async function POST(request: Request) {
         const wantsOverride = payload.allowNegativeStock === true || String(payload.allowNegativeStock) === "true";
         let overrideApproved = false;
         if (wantsOverride) {
-          const suppliedPin = String(payload.adminOverridePin ?? "");
-          const [settings] = await db.select({ pinHash: companySettings.negativeStockPinHash }).from(companySettings).where(eq(companySettings.companyId, companyId)).limit(1);
-          if (!settings?.pinHash) return Response.json({ error: "Admin PIN is not configured. Open Management > Admin Controls." }, { status: 403 });
-          if (!verifyAdminPin(suppliedPin, settings.pinHash)) return Response.json({ error: "Incorrect admin PIN. Negative stock was not allowed." }, { status: 403 });
+          if (!stockSettings?.pinHash) return Response.json({ error: "Admin PIN is not configured. Open Management > Admin Controls." }, { status: 403 });
+          if (!stockPinVerified) return Response.json({ error: "Incorrect admin PIN. Negative stock was not allowed." }, { status: 403 });
           overrideApproved = true;
           usedAdminNegativeStockOverride = true;
         }
