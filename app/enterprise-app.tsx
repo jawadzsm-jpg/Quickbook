@@ -1591,7 +1591,7 @@ function ItemFields({ form, setForm, items }: { form: Record<string, string>; se
     const disabled = new Set(optionData.disabled[label] ?? []);
     return [...new Set([...(optionData.options[label] ?? []), ...saved])].filter((value) => !disabled.has(value));
   };
-  return <div className="grid gap-4 sm:grid-cols-2">
+  return <div data-attachments-excluded="true" className="grid gap-4 sm:grid-cols-2">
     <div className="space-y-2 sm:col-span-2"><div><Label>Category</Label><p className="mt-1 text-xs text-slate-500">SKU and Item No. are generated automatically for every new item.</p></div><SpecificationValuePicker
       label="Item category"
       placeholder="Select or type category"
@@ -1668,7 +1668,7 @@ function SpecificationValuePicker({ label, value, options, onChange, onAdd, onRe
       <Input aria-label={`${label || "Specification"} value`} placeholder={placeholder} value={value} onChange={(event) => onChange(event.target.value)} className="rounded-r-none" />
       <PopoverTrigger asChild><Button type="button" variant="outline" size="icon" title={`Manage ${label || "detail"} choices`} aria-label={`Manage ${label || "detail"} choices`} className="shrink-0 rounded-l-none border-l-0"><ChevronDown className="size-4" /></Button></PopoverTrigger>
     </div>
-    <PopoverContent align="start" className="w-80 space-y-3 p-3">
+    <PopoverContent data-attachments-excluded="true" align="start" className="w-80 space-y-3 p-3">
       <div><p className="text-sm font-bold text-slate-900">{label || "Detail"} choices</p><p className="text-xs text-slate-500">Select, add, rename or remove a choice.</p></div>
       <div className="max-h-56 space-y-1 overflow-y-auto pr-1">
         {options.length === 0 ? <p className="rounded-md bg-slate-50 p-3 text-xs text-slate-500">No saved choices yet.</p> : options.map((option) => editing === option ? <div key={option} className="flex gap-1">

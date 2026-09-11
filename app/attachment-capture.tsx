@@ -8,6 +8,8 @@ type PendingAttachment = { fileName: string; mimeType: string; fileData: string;
 const supportedTransactionTypes = new Set(["invoice", "bill", "customer payment", "bill payment", "vendor payment", "cheque"]);
 
 function detectRelevantDialog() {
+  const excluded = document.querySelectorAll<HTMLElement>('[data-attachments-excluded="true"]');
+  if (Array.from(excluded).some((entry) => entry.getClientRects().length > 0)) return false;
   const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'));
   const visibleDialogs = dialogs.filter((entry) => entry.offsetParent !== null);
   if (visibleDialogs.some((entry) => entry.dataset.recordKind === "items")) return false;
@@ -28,7 +30,7 @@ export function AttachmentCapture() {
     const update = () => setVisible(detectRelevantDialog());
     update();
     const observer = new MutationObserver(update);
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["open", "data-state", "class", "data-record-kind"] });
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["open", "data-state", "class", "data-record-kind", "data-attachments-excluded"] });
     return () => observer.disconnect();
   }, []);
 
