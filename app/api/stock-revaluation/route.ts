@@ -8,7 +8,7 @@ import { readJsonBody } from "@/lib/api";
 export async function GET(request: Request) {
   const user = await requireApiUser(request, "inventory:read");
   if (user instanceof Response) return user;
-  const records = await getDb().select({ id: items.id, name: items.name, sku: items.sku, itemNumber: items.itemNumber, description: items.description, specifications: items.specifications, quantity: items.quantity, cost: items.cost, grnCost: items.lastPurchasePrice, salesPrice: items.salesPrice, companyId: items.companyId, companyName: companies.name, currency: companies.baseCurrency, locationId: items.locationId, locationName: inventoryLocations.name }).from(items)
+  const records = await getDb().select({ id: items.id, name: items.name, sku: items.sku, itemNumber: items.itemNumber, description: items.description, specifications: items.specifications, quantity: items.quantity, cost: items.cost, grnCost: items.lastPurchasePrice, salesPrice: items.salesPrice, companyId: items.companyId, companyName: companies.name, homeCurrency: companies.baseCurrency, locationId: items.locationId, locationName: inventoryLocations.name }).from(items)
     .innerJoin(companies, eq(items.companyId, companies.id)).innerJoin(inventoryLocations, and(eq(items.locationId, inventoryLocations.id), eq(items.companyId, inventoryLocations.companyId)))
     .where(and(eq(companies.active, true), eq(inventoryLocations.active, true), eq(items.status, "active"), user.role === "all_admin" ? undefined : inArray(items.companyId, user.companyIds)))
     .orderBy(asc(companies.name), asc(inventoryLocations.name), asc(items.name));
