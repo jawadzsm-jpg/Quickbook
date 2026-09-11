@@ -301,20 +301,20 @@ export function InventoryOverview() {
 
       <div className="flex flex-col gap-3 border-b bg-slate-50 px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex flex-wrap items-center gap-4">
-          <Badge className="bg-slate-950 text-white hover:bg-slate-950">{selectedRecords.length} selected</Badge>
-          <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700"><Checkbox checked={!showQuantity} onCheckedChange={(checked) => setShowQuantity(checked !== true)} />Hide quantity</label>
-          <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700"><Checkbox checked={!showPrice} onCheckedChange={(checked) => setShowPrice(checked !== true)} />Hide price</label>
+          <div className="flex h-10 items-center rounded-lg border bg-white px-3"><Badge className="bg-slate-950 text-white hover:bg-slate-950">{selectedRecords.length} selected</Badge></div>
+          <label className="flex h-10 cursor-pointer items-center gap-2 rounded-lg border bg-white px-3 text-sm font-medium text-slate-700"><Checkbox checked={!showQuantity} onCheckedChange={(checked) => setShowQuantity(checked !== true)} />Hide quantity</label>
+          <label className="flex h-10 cursor-pointer items-center gap-2 rounded-lg border bg-white px-3 text-sm font-medium text-slate-700"><Checkbox checked={!showPrice} onCheckedChange={(checked) => setShowPrice(checked !== true)} />Hide price</label>
           <div className="flex rounded-lg border bg-white p-1" aria-label="Shared price VAT format">
             <Button type="button" size="sm" variant={!includeVat ? "default" : "ghost"} disabled={!showPrice} onClick={() => setIncludeVat(false)} className={!includeVat ? "bg-slate-950 text-white hover:bg-slate-800" : ""}>No VAT</Button>
             <Button type="button" size="sm" variant={includeVat ? "default" : "ghost"} disabled={!showPrice} onClick={() => setIncludeVat(true)} className={includeVat ? "bg-emerald-500 text-slate-950 hover:bg-emerald-400" : ""}>Including VAT</Button>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" disabled={!selectedRecords.length} onClick={() => copyForChannel("whatsapp")} title="Copy WhatsApp format" className="bg-[#25D366] text-white hover:bg-[#1fb558]"><MessageCircle />WhatsApp</Button>
-          <Button size="sm" disabled={!selectedRecords.length} onClick={() => copyForChannel("telegram")} title="Copy Telegram format" className="bg-[#229ED9] text-white hover:bg-[#1987bb]"><Send />Telegram</Button>
-          <Button size="sm" variant="outline" disabled={!selectedRecords.length} onClick={() => copyForChannel("email")} title="Copy email format"><Mail />Email</Button>
-          <Button size="sm" variant="outline" disabled={!selectedRecords.length} onClick={() => exportExcel(false)}><Download />Excel no VAT</Button>
-          <Button size="sm" variant="outline" disabled={!selectedRecords.length} onClick={() => exportExcel(true)}><FileSpreadsheet />Excel + VAT</Button>
+          <div className="flex rounded-lg border bg-white p-1"><Button size="sm" disabled={!selectedRecords.length} onClick={() => copyForChannel("whatsapp")} title="Copy WhatsApp format" className="bg-[#25D366] text-white hover:bg-[#1fb558]"><MessageCircle />WhatsApp</Button></div>
+          <div className="flex rounded-lg border bg-white p-1"><Button size="sm" disabled={!selectedRecords.length} onClick={() => copyForChannel("telegram")} title="Copy Telegram format" className="bg-[#229ED9] text-white hover:bg-[#1987bb]"><Send />Telegram</Button></div>
+          <div className="flex rounded-lg border bg-white p-1"><Button size="sm" variant="outline" disabled={!selectedRecords.length} onClick={() => copyForChannel("email")} title="Copy email format"><Mail />Email</Button></div>
+          <div className="flex rounded-lg border bg-white p-1"><Button size="sm" variant="outline" disabled={!selectedRecords.length} onClick={() => exportExcel(false)}><Download />Excel no VAT</Button></div>
+          <div className="flex rounded-lg border bg-white p-1"><Button size="sm" variant="outline" disabled={!selectedRecords.length} onClick={() => exportExcel(true)}><FileSpreadsheet />Excel + VAT</Button></div>
         </div>
       </div>
 
