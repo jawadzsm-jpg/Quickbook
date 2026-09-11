@@ -271,3 +271,14 @@ button, input, select { font: inherit; }
   body:has(.document-print-surface) .document-print-surface * { visibility: visible; }
   body:has(.document-print-surface) .document-print-surface { position: absolute; inset: 0; width: 100%; padding: 12mm; background: white; color: #0f172a; print-color-adjust: exact; }
 }
+
+/* Size line items to the form, not the viewport or dropdown contents. */
+.transaction-lines { container-type: inline-size; min-width: 0; display: grid; gap: 0.5rem; }
+.transaction-line { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; align-items: start; min-width: 0; }
+.transaction-line-description { grid-column: 1 / -1; min-width: 0; }
+.transaction-line-remove { justify-self: end; grid-column: -2; }
+@container (min-width: 760px) {
+  .transaction-line { grid-template-columns: minmax(0, 1fr) 5rem 6.5rem 7.5rem 5.5rem 2.25rem; }
+  .transaction-line-description { grid-column: auto; }
+  .transaction-line-remove { grid-column: auto; margin-top: 1.75rem; }
+}
