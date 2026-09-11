@@ -322,6 +322,15 @@ export async function POST(request: Request) {
     if (prepared.some((line) => line.itemId !== null && (!Number.isInteger(line.itemId) || line.itemId <= 0))) {
       return Response.json({ error: "Select a valid inventory item on every stock line." }, { status: 400 });
     }
+    const linkedItemIds = [...new Set(prepared.flatMap((line) => line.itemId ? [line.itemId] : []))];
+    if (["bill", "invoice", "estimate", "sales order", "quotation"].includes(type) || linkedItemIds.length) {
+      const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).limit(1);
+      if (!location) return Response.json({ error: "Select a valid inventory in this company." }, { status: 400 });
+      if (linkedItemIds.length) {
+        const linkedItems = await db.select({ id: items.id }).from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId), inArray(items.id, linkedItemIds)));
+        if (linkedItems.length !== linkedItemIds.length) return Response.json({ error: "Select items from the document’s company and inventory." }, { status: 400 });
+      }
+    }
     const stockReducing = ["invoice", "sales receipt"].includes(type);
     let usedAdminNegativeStockOverride = false;
     if (stockReducing) {

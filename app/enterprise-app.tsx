@@ -335,6 +335,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   const [view, setView] = useState<View>("dashboard");
   const [records, setRecords] = useState<Record<Kind, DataRecord[]>>({ transactions: [], contacts: [], items: [], accounts: [] });
   const [loading, setLoading] = useState(true);
+  const [documentInventory, setDocumentInventory] = useState<{ key: string; items: DataRecord[]; error?: string }>({ key: "", items: [] });
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editorKind, setEditorKind] = useState<Kind | null>(null);
@@ -512,6 +513,36 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   const visibleNavGroups = navGroups.map((group) => ({ ...group, items: group.items.filter((item) => roleViews[currentUser.role].includes(item.id)) })).filter((group) => group.items.length > 0);
   const canWriteCurrentView = roleWriteViews[currentUser.role].includes(view);
   const activeEditorKind = editorKind ?? currentKind;
+  const linkedInventoryDocument = activeEditorKind === "transactions" && ["bill", "invoice", "estimate", "sales order", "quotation"].includes(form.type);
+  const documentLocationId = Number((form.type === "bill" ? form.billLocationId : form.transactionLocationId) || activeLocationId);
+  const documentInventoryKey = `${activeCompanyId}:${documentLocationId}`;
+  const documentInventoryReady = documentInventory.key === documentInventoryKey && !documentInventory.error;
+  const documentItems = linkedInventoryDocument ? documentInventoryReady ? documentInventory.items : [] : records.items;
+  useEffect(() => {
+    if (!dialogOpen || !linkedInventoryDocument || !activeCompanyId || !documentLocationId) return;
+    const controller = new AbortController();
+    fetch(`/api/records?kind=items&companyId=${activeCompanyId}&locationId=${documentLocationId}`, { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not load inventory items");
+        if (!controller.signal.aborted) setDocumentInventory({ key: documentInventoryKey, items: data.records });
+      }).catch((error) => {
+        if (!controller.signal.aborted) setDocumentInventory({ key: documentInventoryKey, items: [], error: error instanceof Error ? error.message : "Could not load inventory items" });
+      });
+    return () => controller.abort();
+  }, [dialogOpen, linkedInventoryDocument, activeCompanyId, documentLocationId, documentInventoryKey]);
+  function updateDocumentForm(next: Record<string, string>) {
+    const nextLocation = Number((next.type === "bill" ? next.billLocationId : next.transactionLocationId) || activeLocationId);
+    if (linkedInventoryDocument && nextLocation !== documentLocationId) {
+      setDocumentInventory({ key: "", items: [] });
+      if (lines.some((line) => line.itemId)) {
+        setLines(lines.map((line) => line.itemId ? { ...line, itemId: "", description: "", unitPrice: "0", unitCost: "0" } : line));
+        toast.info("Inventory changed. Select items from the new inventory for your stock lines.");
+      }
+    }
+    setForm(next);
+  }
+
 
   const filteredRecords = useMemo(() => {
     let list = records[currentKind];
@@ -589,6 +620,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   async function saveRecord(event: FormEvent) {
     event.preventDefault();
     const saveKind = activeEditorKind;
+    if (linkedInventoryDocument && !documentInventoryReady) return toast.error("Wait for the selected inventory to load before saving.");
     if (saveKind === "contacts" && form.type === "customer") {
       const required = [form.company, form.name, form.phone, form.whatsapp, form.country, form.reseller, form.planet, form.currency];
       if (required.some((value) => !value?.trim())) return toast.error("Complete all required customer fields.");
@@ -802,7 +834,8 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
         <DialogContent onInteractOutside={(event) => { if (activeEditorKind === "items") event.preventDefault(); }} onEscapeKeyDown={(event) => { if (activeEditorKind === "items") event.preventDefault(); }} data-record-kind={activeEditorKind} className={`max-h-[90vh] overflow-y-auto ${activeEditorKind === "transactions" || activeEditorKind === "items" || (activeEditorKind === "contacts" && view === "customers") ? "sm:max-w-5xl" : "sm:max-w-xl"}`}>
           <DialogHeader><DialogTitle>{editingItemId !== null && activeEditorKind === "items" ? "Edit Item" : editorLabel}</DialogTitle><DialogDescription>{editingItemId !== null && activeEditorKind === "items" ? "Update the category and item description details." : activeEditorKind === "transactions" && form.type === "bill" ? "Select the vendor and enter the bill items below." : "Enter the record details below. Required fields are marked."}</DialogDescription></DialogHeader>
           <form onSubmit={saveRecord} className="space-y-5">
-            {activeEditorKind === "transactions" && <TransactionFields form={form} setForm={setForm} types={["sales", "customers", "vendors", "banking"].includes(view) ? [form.type] : transactionTypes[view] ?? transactionTypes.dashboard} items={records.items} contacts={records.contacts} accounts={records.accounts} locations={activeLocations} lines={lines} setLines={setLines} vatCodeOptions={vatCodeOptions} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />}
+            {linkedInventoryDocument && <p role="status" className="text-sm text-slate-500">{documentInventory.key === documentInventoryKey && documentInventory.error ? documentInventory.error : !documentInventoryReady ? "Loading inventory items…" : `${documentItems.length} items available in the selected inventory.`}</p>}
+            {activeEditorKind === "transactions" && <TransactionFields form={form} setForm={updateDocumentForm} types={["sales", "customers", "vendors", "banking"].includes(view) ? [form.type] : transactionTypes[view] ?? transactionTypes.dashboard} items={documentItems} contacts={records.contacts} accounts={records.accounts} locations={activeLocations} lines={lines} setLines={setLines} vatCodeOptions={vatCodeOptions} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />}
             {activeEditorKind === "contacts" && <ContactFields form={form} setForm={setForm} accounts={records.accounts} />}
             {activeEditorKind === "items" && <ItemFields form={form} setForm={setForm} items={records.items} />}
             {activeEditorKind === "accounts" && <AccountFields form={form} setForm={setForm} accounts={records.accounts} />}
@@ -1366,7 +1399,7 @@ function BillFields({ form, setForm, items, vendors, salesmen, accounts, locatio
         const lineSubtotal = Number(line.quantity || 0) * Number(line.unitPrice || 0);
         const selectedItem = items.find((entry) => String(entry.id) === line.itemId);
         return <div key={index} className="grid gap-2 p-3 md:grid-cols-[minmax(260px,1fr)_90px_130px_130px_170px_48px]">
-          <div className="space-y-2"><Label className="md:hidden">Description</Label><Select value={line.itemId || "custom"} onValueChange={(value) => { const item = items.find((entry) => String(entry.id) === value); const lastPrice = Number(item?.lastPurchasePrice ?? item?.cost ?? 0); update(index, value === "custom" ? { itemId: "", description: "" } : { itemId: value, description: String(item?.name ?? ""), unitPrice: String(lastPrice), unitCost: String(lastPrice) }); }}><SelectTrigger className="w-full"><SelectValue placeholder="Select item" /></SelectTrigger><SelectContent><SelectItem value="custom">Custom description</SelectItem>{items.map((item) => <SelectItem key={item.id} value={String(item.id)}>{String(item.sku)} · {String(item.name)} · Last {Number(item.lastPurchasePrice ?? item.cost ?? 0).toFixed(2)}</SelectItem>)}</SelectContent></Select>{selectedItem && <p className="text-xs font-medium text-sky-700">Last purchase price: {formatMoney(selectedItem.lastPurchasePrice ?? selectedItem.cost, form.currency)}</p>}{!line.itemId && <Input placeholder="Enter description" required value={line.description} onChange={(event) => update(index, { description: event.target.value })} />}</div>
+          <div className="space-y-2"><Label className="md:hidden">Description</Label><Select value={line.itemId || "custom"} onValueChange={(value) => { const item = items.find((entry) => String(entry.id) === value); const lastPrice = Number(item?.lastPurchasePrice ?? item?.cost ?? 0); update(index, value === "custom" ? { itemId: "", description: "" } : { itemId: value, description: item ? itemDisplayDescription(item) || String(item.name) : "", unitPrice: String(lastPrice), unitCost: String(lastPrice) }); }}><SelectTrigger className="w-full"><SelectValue placeholder="Select item" /></SelectTrigger><SelectContent><SelectItem value="custom">Custom description</SelectItem>{items.map((item) => <SelectItem key={item.id} value={String(item.id)}>{String(item.sku)} · {String(item.name)} · Last {Number(item.lastPurchasePrice ?? item.cost ?? 0).toFixed(2)}</SelectItem>)}</SelectContent></Select>{selectedItem && <p className="text-xs font-medium text-sky-700">Last purchase price: {formatMoney(selectedItem.lastPurchasePrice ?? selectedItem.cost, form.currency)}</p>}{!line.itemId && <Input placeholder="Enter description" required value={line.description} onChange={(event) => update(index, { description: event.target.value })} />}</div>
           <div className="space-y-2"><Label className="md:hidden">QTY</Label><Input aria-label="Quantity" type="number" min="0.01" step="0.01" value={line.quantity} onChange={(event) => update(index, { quantity: event.target.value })} /></div>
           <div className="space-y-2"><Label className="md:hidden">Rate</Label><Input aria-label="Rate" type="number" min="0" step="0.01" value={line.unitPrice} onChange={(event) => update(index, { unitPrice: event.target.value, unitCost: event.target.value })} /></div>
           <div className="space-y-2"><Label className="md:hidden">Subtotal</Label><Input aria-label="Subtotal" readOnly value={lineSubtotal.toFixed(2)} className="bg-slate-50 font-semibold" /></div>
@@ -1466,12 +1499,13 @@ function TransactionFields({ form, setForm, types, items, contacts, accounts, lo
     {types.length === 1 || customerDocument ? <div className="space-y-2"><Label htmlFor="transaction-type">Transaction type</Label><Input id="transaction-type" value={form.type} readOnly className="capitalize bg-slate-100" /></div> : <Choice label="Transaction type" name="type" values={types} form={form} setForm={setForm} />}<Field label="Document number" name="number" form={form} setForm={setForm} required />
     <div className="space-y-2 sm:col-span-2"><Label>{customerDocument ? "Customer" : "Vendor / payee"} *</Label><Select value={form.party || undefined} onValueChange={(value) => { const contactType = customerDocument ? "customer" : "vendor"; const party = contacts.find((entry) => entry.type === contactType && String(entry.name) === value); const currency = String(party?.currency || form.currency); const savedRate = exchangeRates.find((entry) => entry.currencyCode === currency)?.rate; setForm({ ...form, party: value, currency, exchangeRate: currency === baseCurrency ? "1" : savedRate ? String(savedRate) : "" }); }}><SelectTrigger className="w-full"><SelectValue placeholder={customerDocument ? "Select customer" : "Select vendor or payee"} /></SelectTrigger><SelectContent>{contacts.filter((contact) => contact.type === (customerDocument ? "customer" : "vendor")).map((contact) => <SelectItem key={contact.id} value={String(contact.name)}>{String(contact.company || contact.name)} · {String(contact.currency)}</SelectItem>)}</SelectContent></Select></div>
     <Field label="Transaction date" name="transactionDate" type="date" form={form} setForm={setForm} required /><Field label="Due date" name="dueDate" type="date" form={form} setForm={setForm} />
+    {["invoice", "estimate", "sales order", "quotation"].includes(form.type) && <div className="space-y-2"><Label>Inventory *</Label><Select disabled={Boolean(form.sourceDocumentLabel)} value={form.transactionLocationId || String(locations[0]?.id ?? "")} onValueChange={(transactionLocationId) => setForm({ ...form, transactionLocationId })}><SelectTrigger className="w-full"><SelectValue placeholder="Select inventory" /></SelectTrigger><SelectContent>{locations.map((location) => <SelectItem key={location.id} value={String(location.id)}>{location.name}</SelectItem>)}</SelectContent></Select></div>}
     {["invoice", "estimate", "sales order", "quotation"].includes(form.type) && <div className="space-y-2"><Label htmlFor="document-sales-rep">Sales Rep</Label><Select value={form.salesman || undefined} onValueChange={(salesman) => setForm({ ...form, salesman })}><SelectTrigger id="document-sales-rep" className="w-full"><SelectValue placeholder="Select sales rep" /></SelectTrigger><SelectContent>{contacts.filter((contact) => contact.type === "employee").map((salesman) => <SelectItem key={salesman.id} value={String(salesman.name)}>{String(salesman.name)}</SelectItem>)}{!contacts.some((contact) => contact.type === "employee") && <SelectItem value="no-sales-reps" disabled>No sales reps available</SelectItem>}</SelectContent></Select></div>}
     <CurrencyExchangeChoice form={form} setForm={setForm} exchangeRates={exchangeRates} baseCurrency={baseCurrency} /><Field label={`Exchange rate to ${baseCurrency}`} name="exchangeRate" type="number" form={form} setForm={setForm} required />
     <div className="space-y-3 rounded-xl border bg-slate-50 p-3 sm:col-span-2">
       <div className="flex items-center justify-between"><div><Label>Items and services</Label><p className="text-xs text-slate-500">Stock updates when invoices, bills, and item receipts post.</p></div><Button type="button" variant="outline" size="sm" onClick={() => setLines([...lines, { itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatCode: form.vatRate === "0" ? "ZERO" : "STANDARD", vatRate: form.vatRate ?? "5" }])}><Plus className="size-3" />Line</Button></div>
       {lines.map((line, index) => <div key={index} className="grid gap-2 rounded-lg border bg-white p-3 sm:grid-cols-[1.15fr_1.6fr_.55fr_.75fr_.55fr_auto]">
-        <Select value={line.itemId || "custom"} onValueChange={(value) => { const item = items.find((entry) => String(entry.id) === value); const purchaseDocument = ["bill", "purchase order", "item receipt", "received item bill"].includes(form.type); update(index, value === "custom" ? { itemId: "" } : { itemId: value, description: String(item?.name ?? ""), unitPrice: String(purchaseDocument ? item?.lastPurchasePrice ?? item?.cost ?? 0 : item?.salesPrice ?? 0), unitCost: String(item?.cost ?? 0) }); }}><SelectTrigger className="w-full"><SelectValue placeholder="Item" /></SelectTrigger><SelectContent><SelectItem value="custom">Service / custom</SelectItem>{items.map((item) => <SelectItem key={item.id} value={String(item.id)}>{String(item.sku)} · {String(item.name)}</SelectItem>)}</SelectContent></Select>
+        <Select value={line.itemId || "custom"} onValueChange={(value) => { const item = items.find((entry) => String(entry.id) === value); const purchaseDocument = ["bill", "purchase order", "item receipt", "received item bill"].includes(form.type); update(index, value === "custom" ? { itemId: "" } : { itemId: value, description: item ? itemDisplayDescription(item) || String(item.name) : "", unitPrice: String(purchaseDocument ? item?.lastPurchasePrice ?? item?.cost ?? 0 : item?.salesPrice ?? 0), unitCost: String(item?.cost ?? 0) }); }}><SelectTrigger className="w-full"><SelectValue placeholder="Item" /></SelectTrigger><SelectContent><SelectItem value="custom">Service / custom</SelectItem>{items.map((item) => <SelectItem key={item.id} value={String(item.id)}>{String(item.sku)} · {String(item.name)}</SelectItem>)}</SelectContent></Select>
         <Input placeholder="Description" required value={line.description} onChange={(e) => update(index, { description: e.target.value })} />
         <Input aria-label="Quantity" title="Quantity" type="number" min="0.01" step="0.01" value={line.quantity} onChange={(e) => update(index, { quantity: e.target.value })} />
         <Input aria-label="Unit price" title="Unit price" type="number" min="0" step="0.01" value={line.unitPrice} onChange={(e) => update(index, { unitPrice: e.target.value })} />

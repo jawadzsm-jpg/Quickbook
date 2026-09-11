@@ -62,6 +62,27 @@ test("all migrations apply to a fresh PostgreSQL database", async () => {
   assert.ok(result.rows[0].count >= 20);
 });
 
+test("documents reject stock from another inventory or company before posting", async () => {
+  const company = (await database.query("INSERT INTO companies (name) VALUES ('Inventory test') RETURNING id")).rows[0].id;
+  const otherCompany = (await database.query("INSERT INTO companies (name) VALUES ('Other inventory test') RETURNING id")).rows[0].id;
+  const location = async (companyId, code) => (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, $2, $2, $2) RETURNING id", [companyId, code])).rows[0].id;
+  const first = await location(company, "FIRST");
+  const second = await location(company, "SECOND");
+  const foreign = await location(otherCompany, "FOREIGN");
+  const item = async (companyId, locationId, sku) => (await database.query("INSERT INTO items (company_id, location_id, sku, name, quantity) VALUES ($1, $2, $3, $3, 10) RETURNING id", [companyId, locationId, sku])).rows[0].id;
+  const wrongInventoryItem = await item(company, second, "SECOND-ITEM");
+  const foreignItem = await item(otherCompany, foreign, "FOREIGN-ITEM");
+  const { POST } = await vite.ssrLoadModule("/app/api/records/route.ts");
+  for (const type of ["bill", "invoice", "estimate", "sales order", "quotation"]) {
+    for (const itemId of [wrongInventoryItem, foreignItem]) {
+      const response = await POST(new Request("https://app.test/api/records", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "transactions", type, companyId: company, locationId: first, party: "Test party", lines: [{ itemId, description: "Stock", quantity: 1, unitPrice: 10 }] }) }));
+      assert.equal(response.status, 400, `${type}: ${await response.text()}`);
+    }
+  }
+  assert.equal((await database.query("SELECT count(*)::int AS count FROM transactions WHERE company_id = $1", [company])).rows[0].count, 0);
+  assert.deepEqual((await database.query("SELECT quantity FROM items WHERE id IN ($1, $2) ORDER BY id", [wrongInventoryItem, foreignItem])).rows, [{ quantity: 10 }, { quantity: 10 }]);
+});
+
 test("write transaction rolls back thrown errors and rejected responses, and closes connections", async () => {
   await database.exec("CREATE TABLE rollback_probe (id integer PRIMARY KEY)");
   const closed = globalThis.__comnetPoolClosed;
