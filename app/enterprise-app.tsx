@@ -799,7 +799,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
       </SidebarInset>
 
       <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) { setEditingItemId(null); setEditorKind(null); } }}>
-        <DialogContent data-record-kind={activeEditorKind} className={`max-h-[90vh] overflow-y-auto ${activeEditorKind === "transactions" || activeEditorKind === "items" || (activeEditorKind === "contacts" && view === "customers") ? "sm:max-w-5xl" : "sm:max-w-xl"}`}>
+        <DialogContent onInteractOutside={(event) => { if (activeEditorKind === "items") event.preventDefault(); }} onEscapeKeyDown={(event) => { if (activeEditorKind === "items") event.preventDefault(); }} data-record-kind={activeEditorKind} className={`max-h-[90vh] overflow-y-auto ${activeEditorKind === "transactions" || activeEditorKind === "items" || (activeEditorKind === "contacts" && view === "customers") ? "sm:max-w-5xl" : "sm:max-w-xl"}`}>
           <DialogHeader><DialogTitle>{editingItemId !== null && activeEditorKind === "items" ? "Edit Item" : editorLabel}</DialogTitle><DialogDescription>{editingItemId !== null && activeEditorKind === "items" ? "Update the category and item description details." : activeEditorKind === "transactions" && form.type === "bill" ? "Select the vendor and enter the bill items below." : "Enter the record details below. Required fields are marked."}</DialogDescription></DialogHeader>
           <form onSubmit={saveRecord} className="space-y-5">
             {activeEditorKind === "transactions" && <TransactionFields form={form} setForm={setForm} types={["sales", "customers", "vendors", "banking"].includes(view) ? [form.type] : transactionTypes[view] ?? transactionTypes.dashboard} items={records.items} contacts={records.contacts} accounts={records.accounts} locations={activeLocations} lines={lines} setLines={setLines} vatCodeOptions={vatCodeOptions} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />}
@@ -1632,6 +1632,8 @@ function ItemFields({ form, setForm, items }: { form: Record<string, string>; se
 }
 function SpecificationValuePicker({ label, value, options, onChange, onAdd, onRename, onDelete, placeholder = "Select or enter value" }: { label: string; value: string; options: string[]; onChange: (value: string) => void; onAdd: (value: string) => Promise<void>; onRename: (oldValue: string, newValue: string) => Promise<void>; onDelete: (value: string) => Promise<void>; placeholder?: string }) {
   const [open, setOpen] = useState(false);
+  const [choiceSearch, setChoiceSearch] = useState("");
+  const filteredOptions = options.filter((option) => option.toLowerCase().includes(choiceSearch.trim().toLowerCase()));
   const [newValue, setNewValue] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [editedValue, setEditedValue] = useState("");
@@ -1663,15 +1665,16 @@ function SpecificationValuePicker({ label, value, options, onChange, onAdd, onRe
     if (value === option) onChange("");
   }, "Choice removed");
 
-  return <Popover open={open} onOpenChange={setOpen}>
+  return <Popover modal open={open} onOpenChange={(nextOpen) => { setOpen(nextOpen); if (nextOpen) setChoiceSearch(""); }}>
     <div className="flex min-w-0">
       <Textarea rows={1} ref={(element) => { if (element) { element.style.height = "auto"; element.style.height = `${element.scrollHeight}px`; } }} aria-label={`${label || "Specification"} value`} placeholder={placeholder} value={value} onChange={(event) => onChange(event.target.value)} className="min-h-9 min-w-0 resize-none overflow-hidden rounded-r-none break-words" />
       <PopoverTrigger asChild><Button type="button" variant="outline" size="icon" title={`Manage ${label || "detail"} choices`} aria-label={`Manage ${label || "detail"} choices`} className="h-auto min-h-9 shrink-0 self-stretch rounded-l-none border-l-0"><ChevronDown className="size-4" /></Button></PopoverTrigger>
     </div>
-    <PopoverContent data-attachments-excluded="true" align="start" className="w-[min(36rem,calc(100vw-2rem))] space-y-3 p-3">
+    <PopoverContent data-attachments-excluded="true" align="start" className="flex max-h-[var(--radix-popover-content-available-height)] w-[min(36rem,calc(100vw-2rem))] flex-col gap-3 overflow-y-auto p-3">
       <div><p className="text-sm font-bold text-slate-900">{label || "Detail"} choices</p><p className="text-xs text-slate-500">Select, add, rename or remove a choice.</p></div>
-      <div className="max-h-56 space-y-1 overflow-y-auto pr-1">
-        {options.length === 0 ? <p className="rounded-md bg-slate-50 p-3 text-xs text-slate-500">No saved choices yet.</p> : options.map((option) => editing === option ? <div key={option} className="flex gap-1">
+      <Input aria-label={`Search ${label || "detail"} choices`} placeholder="Search choices…" value={choiceSearch} onChange={(event) => setChoiceSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") event.preventDefault(); }} className="shrink-0" />
+      <div className="min-h-0 max-h-64 space-y-1 overflow-y-auto overscroll-contain pr-1" tabIndex={0} role="region" aria-label={`${label || "Detail"} choices`}>
+        {filteredOptions.length === 0 ? <p className="rounded-md bg-slate-50 p-3 text-xs text-slate-500">{options.length ? "No matching choices." : "No saved choices yet."}</p> : filteredOptions.map((option) => editing === option ? <div key={option} className="flex gap-1">
           <Input autoFocus value={editedValue} onChange={(event) => setEditedValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); rename(option); } }} className="h-8" />
           <Button type="button" size="icon" variant="ghost" disabled={busy} onClick={() => rename(option)} aria-label="Save renamed choice" className="size-8 text-emerald-600"><Check className="size-4" /></Button>
         </div> : <div key={option} className="group flex items-center gap-1 rounded-md hover:bg-slate-50">
@@ -1680,7 +1683,7 @@ function SpecificationValuePicker({ label, value, options, onChange, onAdd, onRe
           <Button type="button" size="icon" variant="ghost" disabled={busy} onClick={() => remove(option)} aria-label={`Remove ${option}`} className="size-8 shrink-0 text-slate-400 hover:text-rose-600"><Trash2 className="size-3.5" /></Button>
         </div>)}
       </div>
-      <div className="flex gap-2 border-t pt-3"><Input value={newValue} onChange={(event) => setNewValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); add(); } }} placeholder="Add new choice" className="h-9" /><Button type="button" size="sm" disabled={busy || !newValue.trim()} onClick={add}><Plus className="size-4" />Add</Button></div>
+      <div className="flex shrink-0 gap-2 border-t pt-3"><Input value={newValue} onChange={(event) => setNewValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); add(); } }} placeholder="Add new choice" className="h-9" /><Button type="button" size="sm" disabled={busy || !newValue.trim()} onClick={add}><Plus className="size-4" />Add</Button></div>
     </PopoverContent>
   </Popover>;
 }
