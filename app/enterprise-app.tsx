@@ -799,7 +799,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
       </SidebarInset>
 
       <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) { setEditingItemId(null); setEditorKind(null); } }}>
-        <DialogContent className={`max-h-[90vh] overflow-y-auto ${activeEditorKind === "transactions" || activeEditorKind === "items" || (activeEditorKind === "contacts" && view === "customers") ? "sm:max-w-5xl" : "sm:max-w-xl"}`}>
+        <DialogContent data-record-kind={activeEditorKind} className={`max-h-[90vh] overflow-y-auto ${activeEditorKind === "transactions" || activeEditorKind === "items" || (activeEditorKind === "contacts" && view === "customers") ? "sm:max-w-5xl" : "sm:max-w-xl"}`}>
           <DialogHeader><DialogTitle>{editingItemId !== null && activeEditorKind === "items" ? "Edit Item" : editorLabel}</DialogTitle><DialogDescription>{editingItemId !== null && activeEditorKind === "items" ? "Update the category and item description details." : activeEditorKind === "transactions" && form.type === "bill" ? "Select the vendor and enter the bill items below." : "Enter the record details below. Required fields are marked."}</DialogDescription></DialogHeader>
           <form onSubmit={saveRecord} className="space-y-5">
             {activeEditorKind === "transactions" && <TransactionFields form={form} setForm={setForm} types={["sales", "customers", "vendors", "banking"].includes(view) ? [form.type] : transactionTypes[view] ?? transactionTypes.dashboard} items={records.items} contacts={records.contacts} accounts={records.accounts} locations={activeLocations} lines={lines} setLines={setLines} vatCodeOptions={vatCodeOptions} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />}

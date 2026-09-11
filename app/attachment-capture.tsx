@@ -10,7 +10,7 @@ const supportedTransactionTypes = new Set(["invoice", "bill", "customer payment"
 function detectRelevantDialog() {
   const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'));
   const dialog = dialogs.find((entry) => entry.offsetParent !== null);
-  if (!dialog) return false;
+  if (!dialog || dialog.dataset.recordKind === "items") return false;
   const text = dialog.innerText.toLowerCase();
   const page = document.body.innerText.toLowerCase();
   return text.includes("invoice") || text.includes("bill") || text.includes("payment") || text.includes("cheque") || page.includes("employees & hr");
@@ -26,7 +26,7 @@ export function AttachmentCapture() {
     const update = () => setVisible(detectRelevantDialog());
     update();
     const observer = new MutationObserver(update);
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["open", "data-state", "class"] });
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["open", "data-state", "class", "data-record-kind"] });
     return () => observer.disconnect();
   }, []);
 
