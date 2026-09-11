@@ -44,3 +44,6 @@ next-env.d.ts
 /.sites-runtime/
 /outputs/
 /work/
+
+# local development data and temporary publishing files
+/.local-data/
