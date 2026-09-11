@@ -403,6 +403,21 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const [bank] = await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true), eq(accounts.name, String(payload.account ?? "")), sql`(${accounts.type} = 'Bank' OR ${accounts.systemRole} = 'BANK')`)).limit(1);
       if (!bank) return Response.json({ error: "Select an active bank account in this company for Deposit To." }, { status: 400 });
     }
+    let chequeBankName = "";
+    if (type === "cheque") {
+      const bankId = Number(payload.bankAccountId);
+      if (!Number.isInteger(bankId) || bankId <= 0) return Response.json({ error: "Select a bank account for Pay From." }, { status: 400 });
+      const [bank] = await db.select().from(accounts).where(and(eq(accounts.id, bankId), eq(accounts.companyId, companyId), eq(accounts.active, true))).limit(1);
+      if (!bank || (bank.type !== "Bank" && bank.systemRole !== "BANK") || bank.currency !== currency) return Response.json({ error: "Select an active bank in this company matching the cheque currency." }, { status: 400 });
+      const [posting] = await db.select().from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.name, String(payload.account ?? "")), eq(accounts.active, true))).limit(1);
+      if (!posting || !["AP", "EXPENSE", "PURCHASES"].includes(posting.systemRole ?? "") || (posting.systemRole === "AP" && posting.currency !== currency)) return Response.json({ error: "Select an expense account or Accounts Payable in the cheque currency." }, { status: 400 });
+      if (posting.systemRole === "AP" && vatAmount !== 0) return Response.json({ error: "A cheque against Accounts Payable must use zero VAT." }, { status: 400 });
+      if (posting.systemRole === "AP") {
+        const [vendor] = await db.select({ currency: contacts.currency }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "vendor"), eq(contacts.name, party))).limit(1);
+        if (!vendor || vendor.currency !== currency) return Response.json({ error: "Choose a bank and Accounts Payable matching the vendor currency to settle its balance." }, { status: 400 });
+      }
+      chequeBankName = bank.name;
+    }
     const values = {
       companyId, locationId: Number.isInteger(locationId) ? locationId : null, number, type, party,
       salesman: String(payload.salesman ?? ""), isImport: payload.isImport === true || String(payload.isImport) === "true",
@@ -427,6 +442,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const selected = candidates.find((account) => account.id === partyContact?.ledgerAccountId) ?? candidates.find((account) => account.currency === currency) ?? candidates[0];
       if (selected) linkedAccounts[role] = selected.name;
     }
+    if (chequeBankName) linkedAccounts.BANK = chequeBankName;
     const creditCardAccount = linkedRows.find((account) => account.type === "Credit Card");
     if (creditCardAccount) linkedAccounts.CREDIT_CARD = creditCardAccount.name;
     const postingAccountRole = linkedRows.find((account) => account.name.toLowerCase() === record.account.toLowerCase())?.systemRole ?? "";
