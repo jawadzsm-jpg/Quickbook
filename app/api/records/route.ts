@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
-import { getDb } from "../../../db";
+import { getDb, withWriteTransaction } from "../../../db";
 import {
   accounts, auditLog, companySettings, contacts, inventoryLocations, inventoryMovements, items, journalEntries,
   journalLines, transactionLines, transactions, vatCodes,
@@ -437,14 +437,54 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const authorization = await requireApiUser(request, "inventory:manage", true);
+  const authorization = await requireApiUser(request, false, true);
   if (authorization instanceof Response) return authorization;
   try {
     const payload = (await request.json()) as Record<string, unknown>;
-    if (payload.kind !== "items") return Response.json({ error: "Only inventory items can be updated here." }, { status: 400 });
     const id = Number(payload.id);
     const companyId = Number(payload.companyId);
-    if (!Number.isInteger(id) || id <= 0) return Response.json({ error: "A valid item is required." }, { status: 400 });
+    if (!Number.isInteger(id) || id <= 0 || !Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a valid record and company." }, { status: 400 });
+    if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
+    if (payload.kind === "contacts" || payload.kind === "accounts") return await withWriteTransaction(async () => {
+      const db = getDb();
+      const accountEdit = payload.kind === "accounts";
+      const [existing] = accountEdit
+        ? await db.select().from(accounts).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId)))
+        : await db.select().from(contacts).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId)));
+      if (!existing) return Response.json({ error: "Record not found." }, { status: 404 });
+      if (!mayWrite(authorization, writePermission(accountEdit ? "accounts" : "contacts", { type: existing.type }))) return Response.json({ error: "Your role cannot edit this record." }, { status: 403 });
+      const name = String(payload.name ?? existing.name).trim();
+      if (!name) return Response.json({ error: "Name is required." }, { status: 400 });
+      const sameName = accountEdit ? await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.name, name))) : await db.select({ id: contacts.id }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.name, name)));
+      if (sameName.some((entry) => entry.id !== id)) return Response.json({ error: "Another record already uses this name." }, { status: 409 });
+      if (name !== existing.name) {
+        const oldNames = accountEdit ? await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.name, existing.name))) : await db.select({ id: contacts.id }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.name, existing.name)));
+        if (oldNames.length > 1) return Response.json({ error: "Duplicate existing names must be resolved before renaming linked records." }, { status: 409 });
+      }
+      if (accountEdit) {
+        const code = String(payload.code ?? "").trim();
+        if (!code) return Response.json({ error: "Account code is required." }, { status: 400 });
+        const codes = await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.code, code)));
+        if (codes.some((entry) => entry.id !== id)) return Response.json({ error: "Account code already exists." }, { status: 409 });
+        const [record] = await db.update(accounts).set({ code, name }).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId))).returning();
+        if (name !== existing.name) {
+          await db.update(transactions).set({ account: name }).where(and(eq(transactions.companyId, companyId), eq(transactions.account, existing.name)));
+          await db.update(journalLines).set({ accountName: name }).where(and(eq(journalLines.accountName, existing.name), inArray(journalLines.journalEntryId, db.select({ id: journalEntries.id }).from(journalEntries).where(eq(journalEntries.companyId, companyId)))));
+        }
+        await db.insert(auditLog).values({ companyId, action: "updated", entityType: "account", entityId: id, details: `${existing.name} → ${name}` });
+        return Response.json({ record });
+      }
+      const changes: Record<string, string> = { name };
+      for (const field of ["company", "billingName", "email", "phone", "whatsapp", "country", "trn", "reseller", "planet", "passport", "description"] as const) {
+        if (payload[field] !== undefined) changes[field] = String(payload[field]).trim();
+      }
+      const [record] = await db.update(contacts).set(changes).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId))).returning();
+      if (name !== existing.name) await db.update(transactions).set({ party: name }).where(and(eq(transactions.companyId, companyId), eq(transactions.party, existing.name)));
+      await db.insert(auditLog).values({ companyId, action: "updated", entityType: "contact", entityId: id, details: `${existing.name} → ${name}` });
+      return Response.json({ record });
+    });
+    if (payload.kind !== "items") return Response.json({ error: "This record cannot be edited here." }, { status: 400 });
+    if (!mayWrite(authorization, "inventory:manage")) return Response.json({ error: "Your role cannot edit inventory." }, { status: 403 });
     const db = getDb();
     const [existing] = await db.select().from(items).where(and(eq(items.id, id), eq(items.companyId, companyId)));
     if (!existing) return Response.json({ error: "Item not found." }, { status: 404 });
