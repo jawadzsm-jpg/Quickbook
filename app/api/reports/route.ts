@@ -1,7 +1,8 @@
-import { and, asc, eq, sum } from "drizzle-orm";
+import { and, asc, eq, inArray, sum } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { accounts, auditLog, contacts, exchangeRates, inventoryLocations, items, journalEntries, journalLines, transactionLines, transactions, vatCodes } from "../../../db/schema";
-import { hasPermission, requireApiUser } from "@/lib/auth";
+import { accounts, auditLog, companies, contacts, exchangeRates, inventoryLocations, items, journalEntries, journalLines, transactionLines, transactions, vatCodes } from "../../../db/schema";
+import { stockPricingRows } from "@/lib/stock-pricing";
+import { canAccessCompany, hasPermission, requireApiUser } from "@/lib/auth";
 
 type Row = Record<string, string | number>;
 const money = { type: "money" as const };
@@ -24,6 +25,21 @@ export async function GET(request: Request) {
     const periodEnd = String(url.searchParams.get("periodEnd") ?? "");
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     const db = getDb();
+    if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
+    if (key === "stock-pricing-profit") {
+      const scoped = Number.isInteger(locationId) && locationId > 0;
+      const [company, stock, purchaseLines, inventories] = await Promise.all([
+        db.select({ baseCurrency: companies.baseCurrency }).from(companies).where(eq(companies.id, companyId)).limit(1),
+        db.select().from(items).where(scoped ? and(eq(items.companyId, companyId), eq(items.locationId, locationId)) : eq(items.companyId, companyId)).orderBy(asc(items.name), asc(items.id)),
+        db.select({ transactionId: transactions.id, itemId: transactionLines.itemId, description: transactionLines.description, quantity: transactionLines.quantity, subtotal: transactionLines.subtotal, type: transactions.type, date: transactions.transactionDate, number: transactions.number, exchangeRate: transactions.exchangeRate }).from(transactionLines).innerJoin(transactions, eq(transactionLines.transactionId, transactions.id)).where(and(eq(transactions.companyId, companyId), scoped ? eq(transactions.locationId, locationId) : undefined, inArray(transactions.type, ["bill", "received item bill", "item receipt"]))),
+        db.select({ id: inventoryLocations.id, name: inventoryLocations.name }).from(inventoryLocations).where(eq(inventoryLocations.companyId, companyId)),
+      ]);
+      if (!company[0]) return Response.json({ error: "Company not found." }, { status: 404 });
+      return Response.json({ report: { key, title: "Stock Pricing & Profit/Loss", generatedAt: new Date().toISOString(), currency: company[0].baseCurrency,
+        description: "Current stock estimate before VAT, not realized sales profit. Unit cost uses the latest supplier bill plus allocated freight; GRN cost is a fallback, never added twice. Freight Charges lines are allocated by stock purchase value (by quantity when all values are zero). Saved item cost is used when no purchase or GRN exists. Selling prices are current item prices. Negative stock is excluded from projected totals. All amounts are in home currency.",
+        columns: [{ key: "inventory", label: "Inventory" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "quantity", label: "Stock qty" }, { key: "purchaseCost", label: "Purchase / unit", ...money }, { key: "freightCost", label: "Freight / unit", ...money }, { key: "grnCost", label: "GRN / unit", ...money }, { key: "totalCost", label: "Total cost / unit", ...money }, { key: "sellingPrice", label: "Selling / unit", ...money }, { key: "unitProfit", label: "Profit/Loss / unit", ...money }, { key: "margin", label: "Margin" }, { key: "stockCost", label: "Stock cost", ...money }, { key: "potentialProfit", label: "Potential stock profit/loss", ...money }, { key: "costSource", label: "Cost source" }],
+        rows: stockPricingRows(stock, purchaseLines, inventories) } }, { headers: { "Cache-Control": "no-store" } });
+    }
     const journalFilter = Number.isInteger(locationId) && locationId > 0 ? and(eq(journalEntries.companyId, companyId), eq(journalEntries.locationId, locationId)) : eq(journalEntries.companyId, companyId);
     const [allTransactions, allContacts, allItems, allAccounts, ledger, journal, lines, configuredVatCodes, currentRates, locations, auditRows] = await Promise.all([
       db.select().from(transactions).where(eq(transactions.companyId, companyId)).orderBy(asc(transactions.transactionDate)),
