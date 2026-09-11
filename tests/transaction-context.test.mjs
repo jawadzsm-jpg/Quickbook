@@ -454,3 +454,30 @@ test('journal edit and delete are admin-only, balanced, scoped, audited and atom
     assert.equal(JSON.parse(audit.details).lines.length, 2);
   } finally { delete globalThis.__transferTestUser; }
 });
+
+test('foreign currency journals preserve original amounts, balance converted split lines and edit without double conversion', async () => {
+  const companyId = (await database.query("INSERT INTO companies (name, base_currency) VALUES ('Foreign journal test', 'AED') RETURNING id")).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'FX-J', 'FX journal inventory', 'FX-J') RETURNING id", [companyId])).rows[0].id;
+  const accts = (await database.query("INSERT INTO accounts (company_id, code, name, type) VALUES ($1, 'FX1', 'FX bank', 'Bank'), ($1, 'FX2', 'FX expense', 'Expense') RETURNING id", [companyId])).rows;
+  const { GET, POST, PATCH, DELETE } = await vite.ssrLoadModule('/app/api/journal-entries/route.ts');
+  const req = (method, body) => new Request('https://app.test/api/journal-entries', { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const payload = { companyId, locationId, entryDate: '2026-09-11', reference: 'FX-JOURNAL', description: 'USD journal', currency: 'USD', exchangeRate: 3.675, lines: [{ accountId: accts[0].id, debit: 100, credit: 0 }, { accountId: accts[1].id, debit: 0, credit: 100 }] };
+  for (const changes of [{ exchangeRate: 0 }, { exchangeRate: -1 }, { exchangeRate: '' }, { exchangeRate: null }, { currency: 'AED', exchangeRate: 3.675 }, { currency: 'INVALID' }]) assert.equal((await POST(req('POST', { ...payload, ...changes }))).status, 400);
+  const created = await POST(req('POST', payload)); assert.equal(created.status, 201);
+  const id = (await created.json()).entry.id;
+  const list = async () => (await (await GET(new Request(`https://app.test/api/journal-entries?companyId=${companyId}&locationId=${locationId}`))).json()).entries;
+  let entry = (await list()).find(e => e.id === id);
+  assert.equal(entry.currency, 'USD'); assert.equal(entry.exchangeRate, 3.675);
+  assert.equal(entry.debit, 367.5); assert.equal(entry.credit, 367.5);
+  assert.equal(entry.lines[0].originalDebit, 100);
+  const updated = await PATCH(req('PATCH', { ...payload, id, revision: entry.revision, exchangeRate: 3.7 }));
+  assert.equal(updated.status, 200);
+  entry = (await list()).find(e => e.id === id);
+  assert.equal(entry.debit, 370); assert.equal(entry.lines[0].originalDebit, 100);
+  assert.equal((await POST(req('POST', { ...payload, reference: 'FX-SPLIT', lines: [{ accountId: accts[0].id, debit: 0.01 }, { accountId: accts[0].id, debit: 0.01 }, { accountId: accts[1].id, credit: 0.02 }] }))).status, 201);
+  const split = (await list()).find(e => e.reference === 'FX-SPLIT');
+  assert.equal(split.debit, 0.07); assert.equal(split.credit, 0.07);
+  assert.equal(split.lines.reduce((sum, line) => sum + line.originalDebit, 0), 0.02);
+  assert.equal((await DELETE(req('DELETE', { id, companyId, locationId, revision: entry.revision }))).status, 200);
+  assert.equal((await list()).some(e => e.id === id), false);
+});
