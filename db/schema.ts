@@ -198,6 +198,7 @@ export const items = pgTable("items", {
   reorderPoint: doublePrecision("reorder_point").notNull().default(0),
   salesPrice: doublePrecision("sales_price").notNull().default(0),
   cost: doublePrecision("cost").notNull().default(0),
+  grnPrice: doublePrecision("grn_price"),
   lastPurchasePrice: doublePrecision("last_purchase_price").notNull().default(0),
   status: text("status", { enum: ["active", "inactive"] }).notNull().default("active"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),

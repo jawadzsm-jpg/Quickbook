@@ -520,3 +520,38 @@ test('stock pricing report is scoped by company and inventory and always labels 
     assert.equal((await GET(request())).status, 403);
   } finally { delete globalThis.__transferTestUser; }
 });
+
+test("stock pricing saves company item prices, rejects stale and unauthorized edits, and leaves ledger cost intact", async () => {
+  const { PATCH } = await vite.ssrLoadModule('/app/api/stock-pricing/route.ts');
+  const { stockPricingRows } = await vite.ssrLoadModule('/lib/stock-pricing.ts');
+  const company = (await database.query("INSERT INTO companies (name) VALUES ('Price editor') RETURNING id")).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'PRICE', 'Price inventory', 'PRICE') RETURNING id", [company])).rows[0].id;
+  const itemId = (await database.query("INSERT INTO items (company_id, location_id, sku, name, cost, sales_price, quantity) VALUES ($1, $2, 'PRICE-EDIT', 'Price test', 10, 20, 5) RETURNING id", [company, locationId])).rows[0].id;
+  const body = { companyId: company, itemId, salesPrice: 30, grnPrice: 12, expectedPrice: 20, expectedGrnPrice: null };
+  const save = (payload = body) => PATCH(new Request('http://localhost/api/stock-pricing', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }));
+  try {
+    globalThis.__transferTestUser = { id: 1, role: 'accountant', companyIds: [company] };
+    assert.equal((await save()).status, 403);
+    globalThis.__transferTestUser = { id: 1, role: 'admin', companyIds: [] };
+    assert.equal((await save()).status, 403);
+    globalThis.__transferTestUser = { id: 1, role: 'admin', companyIds: [company] };
+    assert.equal((await save({ ...body, grnPrice: -1 })).status, 400);
+    assert.equal((await save({ ...body, companyId: company + 1000 })).status, 403);
+    assert.equal((await save()).status, 200);
+    assert.equal((await save()).status, 409);
+    const saved = (await database.query('SELECT * FROM items WHERE id=$1', [itemId])).rows[0];
+    assert.equal(saved.sales_price, 30); assert.equal(saved.grn_price, 12); assert.equal(saved.cost, 10); assert.equal(saved.quantity, 5);
+    assert.equal((await database.query('SELECT count(*)::int AS n FROM journal_entries WHERE company_id=$1', [company])).rows[0].n, 0);
+    assert.equal((await database.query("SELECT count(*)::int AS n FROM audit_log WHERE company_id=$1 AND entity_id=$2", [company, itemId])).rows[0].n, 1);
+    const item = { id: itemId, locationId: null, sku: 'PRICE-EDIT', name: 'Price test', itemNumber: null, quantity: 5, cost: 10, lastPurchasePrice: 0, salesPrice: 30, grnPrice: 12 };
+    let row = stockPricingRows([item], [], [])[0];
+    assert.equal(row.totalCost, 12); assert.equal(row.potentialProfit, 90);
+    const line = { transactionId: 1, itemId, description: 'Price test', quantity: 1, subtotal: 15, type: 'bill', date: '2026-09-11', number: 'B1', exchangeRate: 1 };
+    row = stockPricingRows([item], [line], [])[0];
+    assert.equal(row.totalCost, 15); assert.equal(row.grnCost, 12);
+    assert.equal(stockPricingRows([{ ...item, grnPrice: 0 }], [], [])[0].totalCost, 0);
+    assert.equal((await save({ ...body, grnPrice: null, expectedPrice: 30, expectedGrnPrice: 12 })).status, 200);
+    assert.equal((await database.query('SELECT grn_price FROM items WHERE id=$1', [itemId])).rows[0].grn_price, null);
+    assert.equal(stockPricingRows([{ ...item, grnPrice: null }], [{ ...line, type: 'item receipt' }], [])[0].totalCost, 15);
+  } finally { delete globalThis.__transferTestUser; }
+});

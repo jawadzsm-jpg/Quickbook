@@ -1,4 +1,4 @@
-type StockItem = { id: number; locationId: number | null; sku: string; itemNumber: string | null; name: string; quantity: number; cost: number; lastPurchasePrice: number; salesPrice: number };
+type StockItem = { id: number; locationId: number | null; sku: string; itemNumber: string | null; name: string; quantity: number; cost: number; lastPurchasePrice: number; salesPrice: number; grnPrice?: number | null };
 type PurchaseLine = { transactionId: number; itemId: number | null; description: string; quantity: number; subtotal: number; type: string; date: string; number: string; exchangeRate: number };
 const round = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
@@ -33,19 +33,21 @@ export function stockPricingRows(stock: StockItem[], lines: PurchaseLine[], loca
   const inventoryNames = new Map(locations.map((location) => [location.id, location.name]));
   return stock.map((item) => {
     const bill = bills.get(item.id), grn = receipts.get(item.id);
-    const basis = bill ?? grn;
+    const enteredGrn = item.grnPrice != null ? { unit: item.grnPrice, freight: 0, reference: "Entered price" } : undefined;
+    const basis = bill ?? enteredGrn ?? grn;
     const fallback = item.lastPurchasePrice > 0 ? item.lastPurchasePrice : item.cost;
     const knownCost = Boolean(basis) || fallback > 0;
     const unitCost = basis ? basis.unit + basis.freight : fallback;
     const profit = item.salesPrice - unitCost;
     const quantity = Math.max(0, item.quantity);
     return {
+      itemId: item.id, savedSellingPrice: item.salesPrice, savedGrnPrice: item.grnPrice ?? "",
       inventory: inventoryNames.get(item.locationId ?? 0) ?? 'Unassigned', itemNumber: item.itemNumber || item.sku, sku: item.sku, name: item.name, quantity: item.quantity,
-      purchaseCost: bill ? round(bill.unit) : '—', freightCost: basis ? round(basis.freight) : 0, grnCost: grn ? round(grn.unit) : '—',
+      purchaseCost: bill ? round(bill.unit) : '—', freightCost: basis ? round(basis.freight) : 0, grnCost: enteredGrn ? round(enteredGrn.unit) : grn ? round(grn.unit) : '—',
       totalCost: knownCost ? round(unitCost) : '—', sellingPrice: round(item.salesPrice), unitProfit: knownCost ? round(profit) : '—',
       margin: knownCost && item.salesPrice > 0 ? `${round(profit / item.salesPrice * 100)}%` : '—',
       stockCost: knownCost ? round(unitCost * quantity) : '—', potentialProfit: knownCost ? round(profit * quantity) : '—',
-      costSource: bill ? `Bill ${bill.reference}` : grn ? `GRN ${grn.reference}` : knownCost ? 'Saved item cost' : 'Cost not available',
+      costSource: bill ? `Bill ${bill.reference}` : enteredGrn ? "Entered GRN price" : grn ? `GRN ${grn.reference}` : knownCost ? 'Saved item cost' : 'Cost not available',
     };
   });
 }
