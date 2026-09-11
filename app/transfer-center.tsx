@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
@@ -35,6 +36,8 @@ export function MultiLineTransferCenter({ companies, activeLocationId, onTransfe
   const [editing, setEditing] = useState<TransferRecord | null>(null);
   const [editDraft, setEditDraft] = useState({ quantity: "", reference: "", transferDate: "", salesman: "", notes: "" });
   const [editSaving, setEditSaving] = useState(false);
+  const [deleting, setDeleting] = useState<TransferRecord | null>(null);
+  const [deleteSaving, setDeleteSaving] = useState(false);
   const canEditHistory = history.some((record) => record.canEdit);
 
   const openEdit = (record: TransferRecord) => {
@@ -92,6 +95,21 @@ export function MultiLineTransferCenter({ companies, activeLocationId, onTransfe
     finally { setEditSaving(false); }
   };
 
+  const deleteTransfer = async () => {
+    if (!deleting?.canEdit || deleteSaving) return;
+    setDeleteSaving(true);
+    try {
+      const { id, quantity, reference, transferDate, salesman, notes } = deleting;
+      const response = await fetch("/api/transfers", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, expected: { quantity, reference, transferDate, salesman, notes } }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not delete transfer");
+      toast.success("Transfer line deleted and stock returned to the source inventory. An audit record is retained.");
+      setDeleting(null);
+      await Promise.all([loadData(), onTransferred()]);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not delete transfer"); }
+    finally { setDeleteSaving(false); }
+  };
+
   return <div className="space-y-5">
     <form onSubmit={submit} className="overflow-hidden rounded-xl border bg-white shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3 border-t-4 border-t-cyan-500 p-5"><div><h2 className="font-bold">Transfer Inventory</h2><p className="text-sm text-slate-500">Add multiple products and move them together in one transfer.</p></div><Button type="button" onClick={addLine} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400"><Plus className="size-4" />Add line</Button></div>
@@ -103,7 +121,14 @@ export function MultiLineTransferCenter({ companies, activeLocationId, onTransfe
       })}</TableBody></Table></div>
       <div className="flex justify-end border-t bg-slate-50 p-4"><Button disabled={saving || lines.some((line) => !line.itemId || !line.sourceLocationId || !line.destinationLocationId)} className="bg-emerald-500 font-semibold text-slate-950 hover:bg-emerald-400"><ArrowRightLeft className="size-4" />{saving ? "Transferring…" : `Transfer ${lines.length} ${lines.length === 1 ? "line" : "lines"}`}</Button></div>
     </form>
-<section className="rounded-xl border bg-white shadow-sm"><div className="border-b p-5"><h2 className="font-bold">Transfer history</h2><p className="text-sm text-slate-500">Each line is recorded under its shared transfer reference.</p></div><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Reference</TableHead><TableHead>Salesman</TableHead><TableHead>Item</TableHead><TableHead>From</TableHead><TableHead>To</TableHead><TableHead className="text-right">Quantity</TableHead>{canEditHistory && <TableHead>Actions</TableHead>}</TableRow></TableHeader><TableBody>{history.length ? history.map((transfer) => <TableRow key={transfer.id}><TableCell>{transfer.transferDate}</TableCell><TableCell className="font-mono text-xs">{transfer.reference}</TableCell><TableCell>{transfer.salesman || "—"}</TableCell><TableCell><p className="font-medium">{transfer.itemName}</p><p className="text-xs text-slate-500">{transfer.sku}{transfer.itemNumber ? ` · ${transfer.itemNumber}` : ""}</p></TableCell><TableCell><p>{transfer.sourceCompany}</p><p className="text-xs text-slate-500">{transfer.sourceLocation}</p></TableCell><TableCell><p>{transfer.destinationCompany}</p><p className="text-xs text-slate-500">{transfer.destinationLocation}</p></TableCell><TableCell className="text-right font-semibold">{transfer.quantity}</TableCell>{canEditHistory && <TableCell>{transfer.canEdit && <Button type="button" variant="outline" size="sm" onClick={() => openEdit(transfer)} aria-label={`Edit transfer ${transfer.reference}, ${transfer.itemName}`}><Pencil className="size-4" />Edit</Button>}</TableCell>}</TableRow>) : <TableRow><TableCell colSpan={canEditHistory ? 8 : 7} className="h-28 text-center text-slate-500">No stock transfers yet.</TableCell></TableRow>}</TableBody></Table></div></section>
+<section className="rounded-xl border bg-white shadow-sm"><div className="border-b p-5"><h2 className="font-bold">Transfer history</h2><p className="text-sm text-slate-500">Each line is recorded under its shared transfer reference.</p></div><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Reference</TableHead><TableHead>Salesman</TableHead><TableHead>Item</TableHead><TableHead>From</TableHead><TableHead>To</TableHead><TableHead className="text-right">Quantity</TableHead>{canEditHistory && <TableHead>Actions</TableHead>}</TableRow></TableHeader><TableBody>{history.length ? history.map((transfer) => <TableRow key={transfer.id}><TableCell>{transfer.transferDate}</TableCell><TableCell className="font-mono text-xs">{transfer.reference}</TableCell><TableCell>{transfer.salesman || "—"}</TableCell><TableCell><p className="font-medium">{transfer.itemName}</p><p className="text-xs text-slate-500">{transfer.sku}{transfer.itemNumber ? ` · ${transfer.itemNumber}` : ""}</p></TableCell><TableCell><p>{transfer.sourceCompany}</p><p className="text-xs text-slate-500">{transfer.sourceLocation}</p></TableCell><TableCell><p>{transfer.destinationCompany}</p><p className="text-xs text-slate-500">{transfer.destinationLocation}</p></TableCell><TableCell className="text-right font-semibold">{transfer.quantity}</TableCell>{canEditHistory && <TableCell>{transfer.canEdit && <div className="flex gap-2"><Button type="button" variant="outline" size="sm" onClick={() => openEdit(transfer)} aria-label={`Edit transfer ${transfer.reference}, ${transfer.itemName}`}><Pencil className="size-4" />Edit</Button><Button type="button" variant="outline" size="sm" className="text-rose-600" onClick={() => setDeleting(transfer)} aria-label={`Delete transfer ${transfer.reference}, ${transfer.itemName}`}><Trash2 className="size-4" />Delete</Button></div>}</TableCell>}</TableRow>) : <TableRow><TableCell colSpan={canEditHistory ? 8 : 7} className="h-28 text-center text-slate-500">No stock transfers yet.</TableCell></TableRow>}</TableBody></Table></div></section>
+    <AlertDialog open={deleting !== null} onOpenChange={(open) => { if (!open && !deleteSaving) setDeleting(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader><AlertDialogTitle>Delete this transfer line?</AlertDialogTitle><AlertDialogDescription>This removes only the selected line from transfer history and returns its quantity from the destination to the source inventory. Other lines with the same reference are unchanged. There is no Undo option; an audit record will be retained.</AlertDialogDescription></AlertDialogHeader>
+        {deleting && <div className="rounded-lg bg-slate-50 p-3 text-sm"><p className="font-semibold">{deleting.reference} · {deleting.itemName} · {deleting.sku}</p><p>Quantity: {deleting.quantity}</p><p>{deleting.destinationCompany} · {deleting.destinationLocation} → {deleting.sourceCompany} · {deleting.sourceLocation}</p></div>}
+        <AlertDialogFooter><AlertDialogCancel disabled={deleteSaving}>Cancel</AlertDialogCancel><AlertDialogAction variant="destructive" disabled={deleteSaving} onClick={(event) => { event.preventDefault(); void deleteTransfer(); }}>{deleteSaving ? "Deleting…" : "Delete and return stock"}</AlertDialogAction></AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     <Dialog open={editing !== null} onOpenChange={(open) => { if (!open && !editSaving) setEditing(null); }}>
       <DialogContent onInteractOutside={(event) => event.preventDefault()}>
         <DialogHeader><DialogTitle>Edit stock transfer</DialogTitle><DialogDescription>Edit this transfer line. Quantity changes update both inventories; the product and route stay unchanged.</DialogDescription></DialogHeader>

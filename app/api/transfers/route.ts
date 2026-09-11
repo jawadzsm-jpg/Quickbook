@@ -90,6 +90,41 @@ export async function PATCH(request: Request) {
   }
 }
 
+export async function DELETE(request: Request) {
+  const user = await requireApiUser(request, true, true);
+  if (user instanceof Response) return user;
+  if (!isAdministrator(user)) return Response.json({ error: "Only Administrator and All-Admin users can delete transfers." }, { status: 403 });
+  try {
+    const payload = await readJsonBody(request, 20_000) as Record<string, unknown>;
+    const id = Number(payload.id);
+    const expected = payload.expected as Record<string, unknown> | undefined;
+    if (!Number.isSafeInteger(id) || id <= 0 || !expected || typeof expected !== "object" || Array.isArray(expected)) return Response.json({ error: "Select a transfer to delete." }, { status: 400 });
+    return await withWriteTransaction(async () => {
+      const db = getDb();
+      const [original] = await db.select().from(stockTransfers).where(eq(stockTransfers.id, id)).for("update");
+      if (!original) return Response.json({ error: "Transfer not found. It may already have been deleted." }, { status: 404 });
+      if (!canAccessCompany(user, original.sourceCompanyId) || !canAccessCompany(user, original.destinationCompanyId)) return Response.json({ error: "You must have access to both companies to delete this transfer." }, { status: 403 });
+      const fields = ["quantity", "reference", "transferDate", "salesman", "notes"] as const;
+      if (fields.some((field) => original[field] !== expected[field])) return Response.json({ error: "This transfer changed. Refresh and review it before deleting." }, { status: 409 });
+      const stock = await db.select().from(items).where(and(eq(items.sku, original.sku), or(
+        and(eq(items.companyId, original.sourceCompanyId), eq(items.locationId, original.sourceLocationId)),
+        and(eq(items.companyId, original.destinationCompanyId), eq(items.locationId, original.destinationLocationId)),
+      ))).orderBy(asc(items.id)).for("update");
+      const source = stock.find((item) => item.companyId === original.sourceCompanyId && item.locationId === original.sourceLocationId);
+      const destination = stock.find((item) => item.companyId === original.destinationCompanyId && item.locationId === original.destinationLocationId);
+      if (!source || !destination || source.id === destination.id || source.itemNumber !== original.itemNumber || destination.itemNumber !== original.itemNumber || source.status !== "active" || destination.status !== "active") return Response.json({ error: "The original product is no longer available in both inventories. The transfer cannot be deleted safely." }, { status: 409 });
+      if (!Number.isFinite(original.quantity) || original.quantity <= 0 || !Number.isFinite(source.quantity + original.quantity) || !Number.isFinite(destination.quantity) || destination.quantity < original.quantity) return Response.json({ error: "The destination does not have enough stock to reverse this transfer." }, { status: 409 });
+      await db.update(items).set({ quantity: sql`${items.quantity} + ${original.quantity}` }).where(eq(items.id, source.id));
+      await db.update(items).set({ quantity: sql`${items.quantity} - ${original.quantity}` }).where(eq(items.id, destination.id));
+      await db.insert(auditLog).values({ companyId: original.sourceCompanyId, action: "deleted", entityType: "stock_transfer", entityId: id, details: JSON.stringify({ userId: user.id, before: original, stockReversed: true }) });
+      await db.delete(stockTransfers).where(eq(stockTransfers.id, id));
+      return Response.json({ deleted: true });
+    });
+  } catch {
+    return Response.json({ error: "Could not delete the transfer. Refresh and try again." }, { status: 500 });
+  }
+}
+
 export async function POST(request: Request) {
   const authorization = await requireApiUser(request, "inventory:transfer", true);
   if (authorization instanceof Response) return authorization;

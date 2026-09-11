@@ -64,19 +64,22 @@ test("transfer edits enforce admin and company access, balance quantities and re
   const source = await location(company, 'EDIT-SOURCE'), destination = await location(other, 'EDIT-DEST');
   await database.query("INSERT INTO items (company_id, location_id, sku, name, quantity, cost) VALUES ($1, $2, 'TRANSFER-EDIT', 'Laptop', 7, 10), ($3, $4, 'TRANSFER-EDIT', 'Laptop', 3, 10)", [company, source, other, destination]);
   const id = (await database.query("INSERT INTO stock_transfers (reference, source_company_id, source_location_id, destination_company_id, destination_location_id, sku, item_name, quantity, transfer_date) VALUES ('TRF-EDIT', $1, $2, $3, $4, 'TRANSFER-EDIT', 'Laptop', 3, '2026-09-11') RETURNING id", [company, source, other, destination])).rows[0].id;
-  const { PATCH, GET } = await vite.ssrLoadModule('/app/api/transfers/route.ts');
+  const { PATCH, GET, DELETE } = await vite.ssrLoadModule('/app/api/transfers/route.ts');
   const original = { quantity: 3, reference: 'TRF-EDIT', transferDate: '2026-09-11', salesman: '', notes: '' };
+  const remove = (expected = original, transferId = id) => DELETE(new Request('https://app.test/api/transfers', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: transferId, expected }) }));
   const edit = (changes = {}, expected = original) => PATCH(new Request('https://app.test/api/transfers', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, ...original, ...changes, expected }) }));
   const balances = async () => (await database.query("SELECT quantity, cost FROM items WHERE sku = 'TRANSFER-EDIT' ORDER BY id")).rows;
   try {
     for (const role of ['viewer', 'sales', 'accountant', 'purchasing', 'inventory']) {
       globalThis.__transferTestUser = { id: 1, role, companyIds: [company, other] };
       assert.equal((await edit({ quantity: 5 })).status, 403);
+      assert.equal((await remove()).status, 403);
       const history = await (await GET(new Request('https://app.test/api/transfers'))).json();
       assert.equal(history.records.find((r) => r.id === id).canEdit, false);
     }
     globalThis.__transferTestUser = { id: 1, role: 'admin', companyIds: [company] };
     assert.equal((await edit()).status, 403);
+    assert.equal((await remove()).status, 403);
     globalThis.__transferTestUser = { id: 1, role: 'admin', companyIds: [company, other] };
     const history = await (await GET(new Request('https://app.test/api/transfers'))).json();
     assert.equal(history.records.find((r) => r.id === id).canEdit, true);
@@ -95,6 +98,31 @@ test("transfer edits enforce admin and company access, balance quantities and re
     assert.deepEqual(await balances(), [{ quantity: 8, cost: 10 }, { quantity: 0, cost: 10 }]);
     assert.equal((await database.query("SELECT count(*)::int AS n FROM audit_log WHERE entity_type = 'stock_transfer' AND entity_id = $1", [id])).rows[0].n, 2);
     assert.equal((await database.query('SELECT notes FROM stock_transfers WHERE id = $1', [id])).rows[0].notes, 'Corrected');
+    assert.equal((await remove(original)).status, 409);
+    assert.equal((await remove(corrected)).status, 409);
+    assert.deepEqual(await balances(), [{ quantity: 8, cost: 10 }, { quantity: 0, cost: 10 }]);
+    await database.query("UPDATE items SET quantity = 2 WHERE sku = 'TRANSFER-EDIT' AND location_id = $1", [destination]);
+    // A failure after the inventory updates must roll back the whole deletion.
+    await database.exec("CREATE FUNCTION reject_transfer_delete_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action = 'deleted' AND NEW.entity_type = 'stock_transfer' THEN RAISE EXCEPTION 'Test audit failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_transfer_delete_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_transfer_delete_audit()");
+    assert.equal((await remove(corrected)).status, 500);
+    assert.deepEqual(await balances(), [{ quantity: 8, cost: 10 }, { quantity: 2, cost: 10 }]);
+    assert.equal((await database.query('SELECT id FROM stock_transfers WHERE id = $1', [id])).rows.length, 1);
+    await database.exec('DROP TRIGGER reject_transfer_delete_audit ON audit_log; DROP FUNCTION reject_transfer_delete_audit()');
+    assert.equal((await remove(corrected)).status, 200);
+    assert.deepEqual(await balances(), [{ quantity: 10, cost: 10 }, { quantity: 0, cost: 10 }]);
+    assert.equal((await remove(corrected)).status, 404);
+    assert.deepEqual(await balances(), [{ quantity: 10, cost: 10 }, { quantity: 0, cost: 10 }]);
+    const audit = (await database.query("SELECT details FROM audit_log WHERE entity_type = 'stock_transfer' AND entity_id = $1 AND action = 'deleted'", [id])).rows;
+    assert.equal(audit.length, 1);
+    assert.equal(JSON.parse(audit[0].details).before.quantity, 2);
+    // A scoped company administrator can also delete, without affecting sibling lines.
+    const copy = async () => (await database.query("INSERT INTO stock_transfers (reference, source_company_id, source_location_id, destination_company_id, destination_location_id, sku, item_name, quantity, transfer_date) VALUES ('TRF-EDIT', $1, $2, $3, $4, 'TRANSFER-EDIT', 'Laptop', 3, '2026-09-11') RETURNING id", [company, source, other, destination])).rows[0].id;
+    const adminLine = await copy(), sibling = await copy();
+    await database.query("UPDATE items SET quantity = CASE WHEN location_id = $1 THEN 4 ELSE 6 END WHERE sku = 'TRANSFER-EDIT'", [source]);
+    globalThis.__transferTestUser = { id: 1, role: 'admin', companyIds: [company, other] };
+    assert.equal((await remove(original, adminLine)).status, 200);
+    assert.deepEqual(await balances(), [{ quantity: 7, cost: 10 }, { quantity: 3, cost: 10 }]);
+    assert.equal((await database.query('SELECT id FROM stock_transfers WHERE id = $1', [sibling])).rows.length, 1);
   } finally { delete globalThis.__transferTestUser; }
 });
 
