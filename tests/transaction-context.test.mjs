@@ -357,3 +357,23 @@ test('customer payments debit the selected company bank and reject invalid depos
   assert.deepEqual(lines, [{ account_name: 'Selected USD Bank', debit: 367.5, credit: 0 }, { account_name: 'Accounts Receivable', debit: 0, credit: 367.5 }]);
   assert.equal((await database.query('SELECT balance FROM contacts WHERE company_id = $1', [companyId])).rows[0].balance, 0);
 });
+
+test('cheques credit the chosen currency bank and debit the selected AP or expense account', async () => {
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Cheque bank test') RETURNING id")).rows[0].id;
+  const rows = (await database.query("INSERT INTO accounts (company_id, code, name, type, system_role, currency) VALUES ($1, 'AED', 'Cheque AED Bank', 'Bank', 'BANK', 'AED'), ($1, 'USD', 'Cheque USD Bank', 'Bank', 'BANK', 'USD'), ($1, 'AP', 'Cheque USD AP', 'Accounts Payable', 'AP', 'USD'), ($1, 'EXP', 'Cheque Expense', 'Expense', 'EXPENSE', 'AED') RETURNING id, name", [companyId])).rows;
+  const bankAccountId = rows.find(r => r.name === 'Cheque USD Bank').id;
+  await database.query("INSERT INTO contacts (company_id, type, name, currency, balance) VALUES ($1, 'vendor', 'Cheque Supplier', 'USD', 500)", [companyId]);
+  const { POST } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const pay = (changes = {}) => POST(new Request('https://app.test/api/records', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'transactions', companyId, type: 'cheque', number: 'CHQ-TEST', party: 'Cheque Supplier', account: 'Cheque USD AP', bankAccountId, currency: 'USD', exchangeRate: 3.675, transactionDate: '2026-09-11', lines: [{ description: 'Cheque', quantity: 1, unitPrice: 100, unitCost: 0, vatCode: 'ZERO' }], ...changes }) }));
+  for (const changes of [{ bankAccountId: null }, { bankAccountId: rows[0].id }, { bankAccountId: rows[2].id }, { account: 'Missing AP' }]) assert.equal((await pay(changes)).status, 400);
+  assert.equal((await database.query('SELECT count(*)::int AS n FROM transactions WHERE company_id=$1', [companyId])).rows[0].n, 0);
+  for (const account of ['Cheque USD AP', 'Cheque Expense']) {
+    const response = await pay({ account }); assert.equal(response.status, 201);
+    const id = (await response.json()).record.id;
+    const journal = (await database.query('SELECT jl.account_name, jl.debit, jl.credit FROM journal_lines jl JOIN journal_entries je ON jl.journal_entry_id=je.id WHERE je.transaction_id=$1 ORDER BY jl.id', [id])).rows;
+    assert.deepEqual(journal, [{ account_name: account, debit: 367.5, credit: 0 }, { account_name: 'Cheque USD Bank', debit: 0, credit: 367.5 }]);
+  }
+  assert.equal((await database.query('SELECT balance FROM contacts WHERE company_id=$1', [companyId])).rows[0].balance, 400);
+  await database.query('UPDATE accounts SET active=false WHERE id=$1', [bankAccountId]);
+  assert.equal((await pay()).status, 400);
+});
