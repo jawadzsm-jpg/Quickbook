@@ -317,7 +317,7 @@ const defaultPostingAccount = (type: string, accounts: DataRecord[]) => {
   if (type === "bill payment") return linkedAccountName(accounts, "BANK", "Business Bank");
   if (["item receipt", "received item bill"].includes(type)) return linkedAccountName(accounts, "SUSPENSE", "Suspense");
   if (type === "cheque") return linkedAccountName(accounts, "AP", "Accounts Payable");
-  if (type === "customer payment") return linkedAccountName(accounts, "BANK", "Business Bank");
+  if (type === "customer payment") return String(accounts.find((account) => account.active && (account.type === "Bank" || account.systemRole === "BANK"))?.name ?? "");
   if (["invoice", "quotation", "estimate", "sales order", "sales receipt", "statement charge", "credit memo"].includes(type)) return linkedAccountName(accounts, "SALES", "Sales Revenue");
   if (type === "finance charge") return linkedAccountName(accounts, "OTHER_INCOME", "Other Income");
   if (type === "expense") return linkedAccountName(accounts, "EXPENSE", "Operating Expenses");
@@ -655,6 +655,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
       if (Number(form.freightCharges ?? 0) < 0) return toast.error("Freight charges cannot be negative.");
       if (lines.some((line) => !line.description.trim() || Number(line.quantity) <= 0 || Number(line.unitPrice) < 0)) return toast.error("Complete every bill line with a description, positive quantity and valid rate.");
     }
+    if (saveKind === "transactions" && form.type === "customer payment" && !records.accounts.some((account) => account.active && (account.type === "Bank" || account.systemRole === "BANK") && account.name === form.account)) return toast.error("Select an active bank account for Deposit To.");
     if (saveKind === "transactions" && ["customer payment", "bill payment", "cheque"].includes(form.type)) {
       const required = [form.party, form.number, form.transactionDate, form.currency, form.exchangeRate, form.transactionLocationId];
       if (required.some((value) => !value?.trim()) || Number(form.exchangeRate) <= 0) return toast.error("Complete the party, reference, date, inventory, currency and exchange rate.");
@@ -1527,6 +1528,7 @@ function CashTransactionFields({ form, setForm, contacts, accounts, locations, l
   const updateLine = (changes: Partial<LineForm>) => setLines([{ ...line, ...changes }]);
   const amount = Number(line.unitPrice || 0);
   const vat = amount * Number(line.vatRate || 0) / 100;
+  const bankAccounts = accounts.filter((account) => account.active && (account.type === "Bank" || account.systemRole === "BANK"));
   const bankName = linkedAccountName(accounts, "BANK", "Business Bank");
   const apName = linkedAccountName(accounts, "AP", "Accounts Payable", form.currency);
   const chequeAccounts = accounts.filter((account) => account.active && (["EXPENSE", "PURCHASES"].includes(String(account.systemRole)) || (account.systemRole === "AP" && String(account.currency) === form.currency)));
@@ -1540,7 +1542,7 @@ function CashTransactionFields({ form, setForm, contacts, accounts, locations, l
       <div className="space-y-2"><Label>Inventory *</Label><Select disabled={Boolean(form.revision)} value={form.transactionLocationId || String(locations[0]?.id ?? "")} onValueChange={(value) => setForm({ ...form, transactionLocationId: value })}><SelectTrigger className="w-full"><SelectValue placeholder="Select inventory" /></SelectTrigger><SelectContent>{locations.map((location) => <SelectItem key={location.id} value={String(location.id)}>{location.name}</SelectItem>)}</SelectContent></Select></div>
       <CurrencyExchangeChoice form={form} setForm={setForm} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />
       <Field label={`Exchange rate to ${baseCurrency}`} name="exchangeRate" type="number" form={form} setForm={setForm} required />
-      {receivePayment ? <div className="space-y-2"><Label>Deposit To</Label><Input readOnly value={bankName} className="bg-slate-100" /></div> : payBill ? <div className="space-y-2"><Label>Pay From</Label><Input readOnly value={bankName} className="bg-slate-100" /></div> : <div className="space-y-2"><Label>Posting account</Label><Select value={form.account || apName} onValueChange={(value) => { const isPayable = value === apName; setForm({ ...form, account: value, ...(isPayable ? { vatRate: "0" } : {}) }); if (isPayable) updateLine({ vatCode: "ZERO", vatRate: "0" }); }}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{chequeAccounts.map((account) => <SelectItem key={account.id} value={String(account.name)}>{String(account.name)}</SelectItem>)}</SelectContent></Select></div>}
+      {receivePayment ? <div className="space-y-2"><Label htmlFor="payment-deposit-bank">Deposit To *</Label><Select value={bankAccounts.some((account) => account.name === form.account) ? form.account : ""} onValueChange={(account) => setForm({ ...form, account })}><SelectTrigger id="payment-deposit-bank" className="w-full"><SelectValue placeholder="Select bank account" /></SelectTrigger><SelectContent>{bankAccounts.length ? bankAccounts.map((account) => <SelectItem key={account.id} value={String(account.name)}>{String(account.name)} · {String(account.currency)}</SelectItem>) : <SelectItem value="no-bank-accounts" disabled>No active bank accounts</SelectItem>}</SelectContent></Select>{!bankAccounts.length && <p className="text-xs text-slate-500">Add a bank account in Chart of Accounts first.</p>}</div> : payBill ? <div className="space-y-2"><Label>Pay From</Label><Input readOnly value={bankName} className="bg-slate-100" /></div> : <div className="space-y-2"><Label>Posting account</Label><Select value={form.account || apName} onValueChange={(value) => { const isPayable = value === apName; setForm({ ...form, account: value, ...(isPayable ? { vatRate: "0" } : {}) }); if (isPayable) updateLine({ vatCode: "ZERO", vatRate: "0" }); }}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{chequeAccounts.map((account) => <SelectItem key={account.id} value={String(account.name)}>{String(account.name)}</SelectItem>)}</SelectContent></Select></div>}
     </div>
     <div className="grid gap-4 rounded-xl border bg-white p-4 md:grid-cols-2 xl:grid-cols-4">
       <div className="space-y-2"><Label>Amount *</Label><Input type="number" min="0.01" step="0.01" value={line.unitPrice} onChange={(event) => updateLine({ unitPrice: event.target.value, unitCost: event.target.value })} required /></div>

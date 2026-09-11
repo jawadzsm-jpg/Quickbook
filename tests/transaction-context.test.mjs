@@ -339,3 +339,21 @@ test('purchase edits preserve identity, repost stock and ledger atomically, and 
     assert.equal((await edit()).status, 409);
   } finally { delete globalThis.__transferTestUser; }
 });
+
+test('customer payments debit the selected company bank and reject invalid deposit accounts before writing', async () => {
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Deposit bank test') RETURNING id")).rows[0].id;
+  const otherId = (await database.query("INSERT INTO companies (name) VALUES ('Other bank company') RETURNING id")).rows[0].id;
+  await database.query("INSERT INTO accounts (company_id, code, name, type, system_role, currency, active) VALUES ($1, 'B1', 'Default Bank', 'Bank', 'BANK', 'AED', true), ($1, 'B2', 'Selected USD Bank', 'Bank', NULL, 'USD', true), ($1, 'B3', 'Closed Bank', 'Bank', NULL, 'AED', false), ($1, 'E1', 'Expense only', 'Expense', 'EXPENSE', 'AED', true), ($2, 'B4', 'Foreign Company Bank', 'Bank', 'BANK', 'AED', true)", [companyId, otherId]);
+  await database.query("INSERT INTO contacts (company_id, type, name, currency, balance) VALUES ($1, 'customer', 'Payment Customer', 'USD', 100)", [companyId]);
+  const { POST } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const pay = (account) => POST(new Request('https://app.test/api/records', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'transactions', companyId, type: 'customer payment', account, number: 'PAY-SELECTED', party: 'Payment Customer', currency: 'USD', exchangeRate: 3.675, transactionDate: '2026-09-11', lines: [{ description: 'Payment received', quantity: 1, unitPrice: 100, unitCost: 0, vatCode: 'ZERO' }] }) }));
+  for (const account of ['', 'Missing Bank', 'Closed Bank', 'Expense only', 'Foreign Company Bank']) assert.equal((await pay(account)).status, 400);
+  assert.equal((await database.query('SELECT count(*)::int AS n FROM transactions WHERE company_id = $1', [companyId])).rows[0].n, 0);
+  const response = await pay('Selected USD Bank');
+  assert.equal(response.status, 201);
+  const record = (await response.json()).record;
+  assert.equal(record.account, 'Selected USD Bank');
+  const lines = (await database.query('SELECT jl.account_name, jl.debit, jl.credit FROM journal_lines jl JOIN journal_entries je ON je.id = jl.journal_entry_id WHERE je.transaction_id = $1 ORDER BY jl.id', [record.id])).rows;
+  assert.deepEqual(lines, [{ account_name: 'Selected USD Bank', debit: 367.5, credit: 0 }, { account_name: 'Accounts Receivable', debit: 0, credit: 367.5 }]);
+  assert.equal((await database.query('SELECT balance FROM contacts WHERE company_id = $1', [companyId])).rows[0].balance, 0);
+});
