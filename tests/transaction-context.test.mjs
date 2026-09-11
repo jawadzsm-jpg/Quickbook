@@ -400,3 +400,57 @@ test('new currency accounts link to matching contacts and a new bank receives pa
   const journal = (await database.query('SELECT jl.account_name, jl.debit, jl.credit FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.transaction_id=$1 ORDER BY jl.id', [id])).rows;
   assert.deepEqual(journal, [{ account_name: 'New USD Bank', debit: 367.5, credit: 0 }, { account_name: 'USD Receivables', debit: 0, credit: 367.5 }]);
 });
+
+test('journal edit and delete are admin-only, balanced, scoped, audited and atomic', async () => {
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Journal changes test') RETURNING id")).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'J-EDIT', 'Journal inventory', 'J-EDIT') RETURNING id", [companyId])).rows[0].id;
+  const accts = (await database.query("INSERT INTO accounts (company_id, code, name, type) VALUES ($1, 'J1', 'Journal Bank', 'Bank'), ($1, 'J2', 'Journal Equity', 'Equity') RETURNING id", [companyId])).rows;
+  const { GET, POST, PATCH, DELETE } = await vite.ssrLoadModule('/app/api/journal-entries/route.ts');
+  const req = (method, payload) => new Request('https://app.test/api/journal-entries', { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+  const original = { companyId, locationId, reference: 'GJ-EDIT', entryDate: '2026-09-11', description: 'Original manual journal', lines: [{ accountId: accts[0].id, debit: 100, credit: 0 }, { accountId: accts[1].id, debit: 0, credit: 100 }] };
+  const created = await POST(req('POST', original)); assert.equal(created.status, 201);
+  const id = (await created.json()).entry.id;
+  const listing = async () => (await GET(new Request(`https://app.test/api/journal-entries?companyId=${companyId}&locationId=${locationId}`))).json();
+  let revision = (await listing()).entries.find(e => e.id === id).revision;
+  const edit = (changes = {}, token = revision) => PATCH(req('PATCH', { ...original, id, revision: token, ...changes }));
+  const remove = (token = revision, entryId = id) => DELETE(req('DELETE', { companyId, locationId, id: entryId, revision: token }));
+  const snapshot = async () => ({ entry: (await database.query('SELECT * FROM journal_entries WHERE id=$1', [id])).rows, lines: (await database.query('SELECT * FROM journal_lines WHERE journal_entry_id=$1 ORDER BY id', [id])).rows });
+  try {
+    for (const role of ['accountant', 'viewer', 'sales', 'purchasing', 'inventory']) {
+      globalThis.__transferTestUser = { id: 7, role, companyIds: [companyId] };
+      assert.equal((await edit()).status, 403); assert.equal((await remove()).status, 403);
+      assert.equal((await listing()).entries.find(e => e.id === id).canManage, false);
+    }
+    globalThis.__transferTestUser = { id: 7, role: 'admin', companyIds: [] };
+    assert.equal((await edit()).status, 403); assert.equal((await remove()).status, 403);
+    globalThis.__transferTestUser = { id: 7, role: 'admin', companyIds: [companyId], email: 'journal-admin@test.local' };
+    assert.equal((await listing()).entries.find(e => e.id === id).canManage, true);
+    const before = await snapshot();
+    assert.equal((await edit({ lines: [{ ...original.lines[0], debit: 101 }, original.lines[1]] })).status, 409);
+    assert.equal((await edit({ entryDate: '2026-02-30' })).status, 400);
+    assert.deepEqual(await snapshot(), before);
+    assert.equal((await edit({ description: 'Corrected', lines: [{ ...original.lines[0], debit: 200 }, { ...original.lines[1], credit: 200 }] })).status, 200);
+    const corrected = await snapshot();
+    assert.equal(corrected.entry[0].description, 'Corrected');
+    assert.deepEqual(corrected.entry[0].created_at, before.entry[0].created_at);
+    assert.equal(corrected.lines.reduce((sum, line) => sum + line.debit, 0), 200);
+    assert.equal((await remove()).status, 409); assert.equal((await edit()).status, 409);
+    revision = (await listing()).entries.find(e => e.id === id).revision;
+    // Automatic journals, including stock revaluations with no transaction ID, are protected.
+    const automatic = (await database.query("INSERT INTO journal_entries (company_id, location_id, entry_date, reference, description) VALUES ($1, $2, '2026-09-11', 'REV-TEST', 'Stock revaluation: item') RETURNING id", [companyId, locationId])).rows[0].id;
+    const auto = (await listing()).entries.find(e => e.id === automatic);
+    assert.equal(auto.source, 'Stock revaluation'); assert.equal(auto.canManage, false);
+    assert.equal((await remove(auto.revision, automatic)).status, 409);
+    assert.equal((await edit({ id: automatic }, auto.revision)).status, 409);
+    await database.exec("CREATE FUNCTION reject_journal_change() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.entity_type = 'journal_entry' AND NEW.action IN ('deleted','previous_version') THEN RAISE EXCEPTION 'Test journal audit failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_journal_change BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_journal_change()");
+    assert.equal((await edit()).status, 500); assert.deepEqual(await snapshot(), corrected);
+    assert.equal((await remove()).status, 500); assert.deepEqual(await snapshot(), corrected);
+    await database.exec('DROP TRIGGER reject_journal_change ON audit_log; DROP FUNCTION reject_journal_change()');
+    globalThis.__transferTestUser = { id: 1, role: 'all_admin', companyIds: [], email: 'owner@test.local' };
+    assert.equal((await remove()).status, 200);
+    assert.deepEqual(await snapshot(), { entry: [], lines: [] });
+    const audit = (await database.query("SELECT details FROM audit_log WHERE entity_type='journal_entry' AND entity_id=$1 AND action='deleted'", [id])).rows[0];
+    assert.equal(JSON.parse(audit.details).actor.email, 'owner@test.local');
+    assert.equal(JSON.parse(audit.details).lines.length, 2);
+  } finally { delete globalThis.__transferTestUser; }
+});
