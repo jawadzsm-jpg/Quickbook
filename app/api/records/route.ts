@@ -687,19 +687,31 @@ export async function DELETE(request: Request) {
       }
       await db.delete(accounts).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId)));
     }
-    else {
-      const [record] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId)));
+    else return await withWriteTransaction(async () => {
+      const db = getDb();
+      const [record] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId))).for("update");
       if (record) {
         const movements = await db.select().from(inventoryMovements).where(eq(inventoryMovements.transactionId, id));
-        for (const movement of movements) await db.update(items).set({ quantity: sql`${items.quantity} - ${movement.quantity}` }).where(eq(items.id, movement.itemId));
+        const itemIds = [...new Set(movements.map((movement) => movement.itemId))].sort((a, b) => a - b);
+        const stock = itemIds.length ? await db.select().from(items).where(inArray(items.id, itemIds)).orderBy(asc(items.id)).for("update") : [];
+        for (const item of stock) {
+          const received = movements.filter((movement) => movement.itemId === item.id).reduce((sum, movement) => sum + movement.quantity, 0);
+          if (received > 0 && item.quantity - received < -0.000001) return Response.json({ error: `Cannot delete this purchase: received stock for ${item.name} has already been used.` }, { status: 409 });
+          await db.update(items).set({ quantity: sql`${items.quantity} - ${received}` }).where(eq(items.id, item.id));
+        }
         const [postingAccount] = await db.select({ systemRole: accounts.systemRole }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.name, record.account))).limit(1);
         const balanceChange = contactBalanceChange(record.type, record.total, postingAccount?.systemRole ?? "");
         const contactType = ["invoice", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(record.type) ? "customer" : "vendor";
         if (balanceChange) await db.update(contacts).set({ balance: sql`${contacts.balance} - ${balanceChange}` }).where(and(eq(contacts.companyId, companyId), eq(contacts.name, record.party), eq(contacts.type, contactType)));
         await db.delete(transactions).where(eq(transactions.id, id));
+        if (["bill", "item receipt"].includes(record.type)) for (const item of stock) {
+          const [latest] = await db.select({ price: transactionLines.unitPrice, rate: transactions.exchangeRate }).from(transactionLines).innerJoin(transactions, eq(transactionLines.transactionId, transactions.id)).where(and(eq(transactionLines.itemId, item.id), inArray(transactions.type, ["bill", "item receipt"]))).orderBy(desc(transactions.transactionDate), desc(transactions.id), desc(transactionLines.id)).limit(1);
+          await db.update(items).set({ lastPurchasePrice: latest ? round(latest.price * latest.rate) : item.cost }).where(eq(items.id, item.id));
+        }
         await db.insert(auditLog).values({ companyId, action: "deleted", entityType: "transaction", entityId: id, details: `${record.number} reversed` });
       }
-    }
+      return Response.json({ ok: true });
+    });
     return Response.json({ ok: true });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
