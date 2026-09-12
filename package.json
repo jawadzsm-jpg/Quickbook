@@ -12,7 +12,7 @@
     "start": "next start",
     "lint": "eslint . --ignore-pattern .next --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/release-gates.test.mjs tests/security-validation.test.mjs tests/transaction-context.test.mjs tests/invoice-pricing.test.mjs",
+    "test": "node --test tests/release-gates.test.mjs tests/security-validation.test.mjs tests/transaction-context.test.mjs tests/invoice-pricing.test.mjs tests/reports.test.mjs",
     "ci": "npm run lint && npm test && npm run typecheck && npm run build:ci",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node scripts/migrate.mjs",
