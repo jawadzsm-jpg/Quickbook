@@ -81,13 +81,16 @@ function DialogContent({
   )
 }
 
-function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
+function DialogHeader({ className, children, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-header"
       className={cn("flex flex-col gap-2 text-center sm:text-left", className)}
       {...props}
-    />
+    >
+      {children}
+      <div data-export-slot="dialog" className="flex justify-end pr-6 empty:hidden" />
+    </div>
   )
 }
 

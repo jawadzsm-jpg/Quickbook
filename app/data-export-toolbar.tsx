@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { FileSpreadsheet, FileText, Table2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -165,10 +165,14 @@ function exportPdf(tables: ExportTable[]) {
 
 export function DataExportToolbar() {
   const [hasTables, setHasTables] = useState(false);
-  const [dialog, setDialog] = useState<HTMLElement | null>(null);
+  const [target, setTarget] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
-    const check = () => { setHasTables(extractVisibleTables().length > 0); setDialog(activeDialog()); };
+    const check = () => {
+      const dialog = activeDialog();
+      setHasTables(extractVisibleTables().length > 0);
+      setTarget(dialog ? dialog.querySelector<HTMLElement>('[data-export-slot="dialog"]') : document.querySelector<HTMLElement>('[data-export-slot="page"]'));
+    };
     check();
     const observer = new MutationObserver(check);
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "class", "hidden"] });
@@ -176,8 +180,7 @@ export function DataExportToolbar() {
     return () => { observer.disconnect(); window.removeEventListener("resize", check); };
   }, []);
 
-  const buttonClass = useMemo(() => "shadow-sm", []);
-  if (!hasTables) return null;
+  if (!hasTables || !target) return null;
 
   function run(kind: "excel" | "pdf" | "csv") {
     const tables = extractVisibleTables();
@@ -192,12 +195,12 @@ export function DataExportToolbar() {
     }
   }
 
-  const toolbar = <div className={`${dialog ? "sticky bottom-0 justify-end" : "fixed bottom-5 right-5 z-[80]"} flex flex-wrap items-center gap-2 rounded-xl border bg-background/95 p-2 shadow-lg backdrop-blur print:hidden`} aria-label="Export current report or transaction table">
+  const toolbar = <div className="flex flex-wrap items-center justify-end gap-2 print:hidden" role="group" aria-label="Export current report or transaction table">
     <span className="px-2 text-xs font-semibold text-muted-foreground">Export</span>
-    <Button type="button" size="sm" variant="outline" className={buttonClass} onClick={() => run("excel")}><FileSpreadsheet className="size-4" />Excel</Button>
-    <Button type="button" size="sm" variant="outline" className={buttonClass} onClick={() => run("pdf")}><FileText className="size-4" />PDF</Button>
-    <Button type="button" size="sm" variant="outline" className={buttonClass} onClick={() => run("csv")}><Table2 className="size-4" />CSV</Button>
+    <Button type="button" size="sm" variant="outline" className="shadow-sm" onClick={() => run("excel")}><FileSpreadsheet className="size-4" />Excel</Button>
+    <Button type="button" size="sm" variant="outline" className="shadow-sm" onClick={() => run("pdf")}><FileText className="size-4" />PDF</Button>
+    <Button type="button" size="sm" variant="outline" className="shadow-sm" onClick={() => run("csv")}><Table2 className="size-4" />CSV</Button>
   </div>;
   // Keep export controls inside the modal's focus and pointer boundary.
-  return dialog ? createPortal(toolbar, dialog) : toolbar;
+  return createPortal(toolbar, target);
 }
