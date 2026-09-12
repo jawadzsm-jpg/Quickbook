@@ -594,3 +594,38 @@ test('stock selection capability is limited to admin and all-admin', async () =>
     }
   } finally { delete globalThis.__transferTestUser; }
 });
+
+test('purchase to sale inventory lifecycle blocks shortages and safely reverses stock and latest cost', async () => {
+  const { POST, DELETE } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Stock lifecycle') RETURNING id")).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'LIFE', 'Lifecycle', 'LIFE') RETURNING id", [companyId])).rows[0].id;
+  const itemId = (await database.query("INSERT INTO items (company_id, location_id, sku, name, quantity, cost) VALUES ($1, $2, 'LIFE', 'Laptop', 0, 20) RETURNING id", [companyId, locationId])).rows[0].id;
+  const request = (method, body) => new Request('https://app.test/api/records', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const create = (type, quantity, extra = {}) => POST(request('POST', { kind: 'transactions', companyId, locationId, type, party: 'Lifecycle party', number: `LIFE-${type}`, transactionDate: '2026-09-12', currency: 'USD', exchangeRate: 3.675, account: type === 'bill' ? 'Purchases' : 'Sales Revenue', lines: [{ itemId, description: 'Laptop', quantity, unitPrice: 100, unitCost: 20, vatCode: 'ZERO' }], ...extra }));
+  const stock = async () => (await database.query('SELECT quantity, last_purchase_price FROM items WHERE id=$1', [itemId])).rows[0];
+  const remove = id => DELETE(request('DELETE', { kind: 'transactions', companyId, id }));
+  const billResponse = await create('bill', 10); assert.equal(billResponse.status, 201);
+  const bill = (await billResponse.json()).record;
+  assert.deepEqual(await stock(), { quantity: 10, last_purchase_price: 367.5 });
+  const orderResponse = await create('sales order', 3); assert.equal(orderResponse.status, 201);
+  const order = (await orderResponse.json()).record;
+  assert.equal((await stock()).quantity, 10);
+  const invoiceResponse = await create('invoice', 3, { sourceTransactionId: order.id }); assert.equal(invoiceResponse.status, 201);
+  const invoice = (await invoiceResponse.json()).record;
+  assert.equal((await stock()).quantity, 7);
+  assert.equal((await create('invoice', 3, { sourceTransactionId: order.id })).status, 409);
+  assert.equal((await create('invoice', 8)).status, 409);
+  assert.equal((await stock()).quantity, 7);
+  assert.equal((await remove(bill.id)).status, 409);
+  assert.equal((await stock()).quantity, 7);
+  assert.equal((await database.query('SELECT count(*)::int AS n FROM transactions WHERE id=$1', [bill.id])).rows[0].n, 1);
+  assert.equal((await remove(invoice.id)).status, 200);
+  assert.equal((await stock()).quantity, 10);
+  const secondResponse = await create('bill', 2, { exchangeRate: 4 }); assert.equal(secondResponse.status, 201);
+  const second = (await secondResponse.json()).record;
+  assert.equal((await stock()).last_purchase_price, 400);
+  assert.equal((await remove(second.id)).status, 200);
+  assert.deepEqual(await stock(), { quantity: 10, last_purchase_price: 367.5 });
+  assert.equal((await remove(bill.id)).status, 200);
+  assert.deepEqual(await stock(), { quantity: 0, last_purchase_price: 20 });
+});
