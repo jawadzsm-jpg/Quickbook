@@ -629,3 +629,37 @@ test('purchase to sale inventory lifecycle blocks shortages and safely reverses 
   assert.equal((await remove(bill.id)).status, 200);
   assert.deepEqual(await stock(), { quantity: 0, last_purchase_price: 20 });
 });
+
+test("unpaid bill lookup scopes vendor, currency, inventory and company and excludes closed documents", async () => {
+  const company = (await database.query("INSERT INTO companies (name) VALUES ('Unpaid lookup') RETURNING id")).rows[0].id;
+  const other = (await database.query("INSERT INTO companies (name) VALUES ('Unpaid other') RETURNING id")).rows[0].id;
+  const location = async (companyId, code) => (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, $2, $2, $2) RETURNING id", [companyId, code])).rows[0].id;
+  const source = await location(company, 'UNPAID-A'), second = await location(company, 'UNPAID-B'), foreign = await location(other, 'UNPAID-C');
+  const cases = [
+    ['OPEN', company, source, 'Vendor A', 'AED', 'bill', 'open'],
+    ['OVERDUE', company, source, 'Vendor A', 'AED', 'received item bill', 'overdue'],
+    ['PAID', company, source, 'Vendor A', 'AED', 'bill', 'paid'],
+    ['VOID', company, source, 'Vendor A', 'AED', 'bill', 'void'],
+    ['DRAFT', company, source, 'Vendor A', 'AED', 'bill', 'draft'],
+    ['ORDER', company, source, 'Vendor A', 'AED', 'purchase order', 'open'],
+    ['CURRENCY', company, source, 'Vendor A', 'USD', 'bill', 'open'],
+    ['VENDOR', company, source, 'Vendor B', 'AED', 'bill', 'open'],
+    ['INVENTORY', company, second, 'Vendor A', 'AED', 'bill', 'open'],
+    ['COMPANY', other, foreign, 'Vendor A', 'AED', 'bill', 'open'],
+  ];
+  for (const values of cases) await database.query("INSERT INTO transactions (number, company_id, location_id, party, currency, type, status, transaction_date, total, base_total) VALUES ($1,$2,$3,$4,$5,$6,$7,'2026-09-12',100,367)", values);
+  const { GET } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const read = (changes = {}) => GET(new Request('https://app.test/api/records?' + new URLSearchParams({ kind: 'unpaid-bills', companyId: String(company), locationId: String(source), party: 'Vendor A', currency: 'AED', ...changes })));
+  const response = await read();
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  const { records } = await response.json();
+  assert.deepEqual(records.map((r) => r.number), ['OPEN', 'OVERDUE']);
+  assert.equal(records[0].total, 100);
+  assert.equal((await read({ locationId: String(foreign) })).status, 400);
+  assert.equal((await read({ party: '' })).status, 400);
+  try {
+    globalThis.__transferTestUser = { id: 1, role: 'admin', companyIds: [other] };
+    assert.equal((await read()).status, 403);
+  } finally { delete globalThis.__transferTestUser; }
+});
