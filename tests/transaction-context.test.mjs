@@ -1046,3 +1046,36 @@ test("inventory removal requires company admin access and preserves used invento
     assert.equal((await remove(another)).status,200);
   } finally { delete globalThis.__transferTestUser; }
 });
+
+test("account history scopes posted ledger entries to the account company, aggregates split lines and paginates", async () => {
+  const { GET } = await vite.ssrLoadModule('/app/api/account-history/route.ts');
+  const company = (await database.query("INSERT INTO companies(name,base_currency) VALUES ('Account history test','AED') RETURNING id")).rows[0].id;
+  const other = (await database.query("INSERT INTO companies(name) VALUES ('Other history') RETURNING id")).rows[0].id;
+  const account = (await database.query("INSERT INTO accounts(company_id,code,name,type,currency) VALUES ($1,'HIST','History Bank','Bank','USD') RETURNING id",[company])).rows[0].id;
+  const foreignAccount = (await database.query("INSERT INTO accounts(company_id,code,name,type) VALUES ($1,'HIST','History Bank','Bank') RETURNING id",[other])).rows[0].id;
+  const location = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES ($1,'HIST','History warehouse','HIST') RETURNING id",[company])).rows[0].id;
+  const source = (await database.query("INSERT INTO transactions(company_id,location_id,type,number,party,transaction_date,memo) VALUES ($1,$2,'customer payment','PAY-HISTORY','History Customer','2026-09-12','Payment memo') RETURNING id",[company,location])).rows[0].id;
+  await database.query("INSERT INTO journal_entries(company_id,location_id,entry_date,reference) SELECT $1,$2,'2026-09-11','HIST-' || n FROM generate_series(1,50) n",[company,location]);
+  await database.query("INSERT INTO journal_lines(journal_entry_id,account_name,debit,credit) SELECT id,'History Bank',10,0 FROM journal_entries WHERE company_id=$1",[company]);
+  const newest = (await database.query("INSERT INTO journal_entries(company_id,location_id,transaction_id,entry_date,reference) VALUES ($1,$2,$3,'2026-09-12','PAY-HISTORY') RETURNING id",[company,location,source])).rows[0].id;
+  await database.query("INSERT INTO journal_lines(journal_entry_id,account_name,debit,credit) VALUES ($1,'History Bank',2,0),($1,'History Bank',3,0),($1,'Other Account',0,5)",[newest]);
+  const hidden = (await database.query("INSERT INTO journal_entries(company_id,entry_date,reference,posted) VALUES ($1,'2026-09-13','DRAFT',false),($2,'2026-09-13','FOREIGN',true) RETURNING id",[company,other])).rows;
+  for (const row of hidden) await database.query("INSERT INTO journal_lines(journal_entry_id,account_name,debit) VALUES ($1,'History Bank',999)",[row.id]);
+  const read = (id=account,page=1) => GET(new Request(`https://app.test/api/account-history?companyId=${company}&accountId=${id}&page=${page}`));
+  try {
+    globalThis.__transferTestUser={id:1,role:'accountant',companyIds:[company]};
+    const response = await read(); assert.equal(response.status,200);
+    assert.equal(response.headers.get('cache-control'),'private, no-store');
+    const data = await response.json();
+    assert.equal(data.total,51); assert.equal(data.rows.length,50); assert.equal(data.currency,'AED');
+    assert.equal(data.rows[0].id,newest); assert.equal(Number(data.rows[0].debit),5); assert.equal(Number(data.rows[0].credit),0);
+    assert.equal(data.rows[0].transaction_id,source); assert.equal(data.rows[0].memo,'Payment memo'); assert.equal(data.rows[0].inventory,'History warehouse');
+    const second = await (await read(account,2)).json(); assert.equal(second.rows.length,1);
+    assert.ok(!data.rows.some((row)=>row.id===second.rows[0].id));
+    assert.equal((await read(foreignAccount)).status,404);
+    assert.equal((await read(account,0)).status,400);
+    globalThis.__transferTestUser={id:1,role:'admin',companyIds:[]}; assert.equal((await read()).status,403);
+    globalThis.__transferTestUser={id:1,role:'sales',companyIds:[company]}; assert.equal((await read()).status,403);
+    globalThis.__transferTestUser={id:1,role:'all_admin',companyIds:[]}; assert.equal((await read()).status,200);
+  } finally { delete globalThis.__transferTestUser; }
+});
