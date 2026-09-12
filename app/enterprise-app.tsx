@@ -992,11 +992,10 @@ function WorkflowHome({ onNavigate, onWorkflow }: { onNavigate: (view: View) => 
     <div className="space-y-5">
       <WorkflowSection title="SUPPLIERS" tone="blue" actions={supplierActions} onNavigate={onNavigate} onWorkflow={onWorkflow} />
       <WorkflowSection title="CUSTOMERS" tone="emerald" actions={customerActions} onNavigate={onNavigate} onWorkflow={onWorkflow} />
-      <WorkflowSection title="EMPLOYEES" tone="violet" actions={[{ label: "Employee Center", detail: "Employees, contact details, and activity", icon: Users, view: "employees" }]} onNavigate={onNavigate} onWorkflow={onWorkflow} />
+      <WorkflowSection title="BANKING" tone="sky" actions={bankingActions} onNavigate={onNavigate} onWorkflow={onWorkflow} />
     </div>
     <div className="space-y-5">
       <WorkflowSection title="COMPANY" tone="amber" actions={companyActions} onNavigate={onNavigate} onWorkflow={onWorkflow} compact />
-      <WorkflowSection title="BANKING" tone="sky" actions={bankingActions} onNavigate={onNavigate} onWorkflow={onWorkflow} compact />
     </div>
   </div>;
 }
