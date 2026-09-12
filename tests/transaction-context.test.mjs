@@ -968,3 +968,49 @@ test("SKU reservations exclude other users across workflows only in the same inv
     delete globalThis.__transferTestUser;
   }
 });
+
+test("invoice and customer payment details can be edited without changing posted amounts, allocations or paid stamps", async () => {
+  const company = (await database.query("INSERT INTO companies(name) VALUES ('Sales details test') RETURNING id")).rows[0].id;
+  const location = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES ($1,'DETAIL','Details','DETAIL') RETURNING id", [company])).rows[0].id;
+  const item = (await database.query("INSERT INTO items(company_id,location_id,sku,name,quantity,cost) VALUES ($1,$2,'EDIT-INV','Laptop',8,5) RETURNING id", [company,location])).rows[0].id;
+  await database.query("INSERT INTO contacts(company_id,type,name,status) VALUES ($1,'employee','Sales Person','active')", [company]);
+  const document = async (type, number, status='open') => (await database.query("INSERT INTO transactions(company_id,location_id,type,number,party,transaction_date,status,total,base_total,subtotal,vat_amount) VALUES ($1,$2,$3,$4,'Customer','2026-09-01',$5,20,20,20,0) RETURNING id", [company,location,type,number,status])).rows[0].id;
+  const source = await document('estimate','EST-DETAIL','invoiced');
+  const invoice = await document('invoice','INV-DETAIL','paid');
+  const payment = await document('customer payment','PAY-DETAIL');
+  await database.query("UPDATE transactions SET sales_source_id=$1,paid_at='2026-09-02T10:00:00Z' WHERE id=$2", [source,invoice]);
+  const line = async (id) => (await database.query("INSERT INTO transaction_lines(transaction_id,item_id,description,quantity,unit_price,unit_cost,subtotal,total) VALUES ($1,$2,'Laptop',2,10,5,20,20) RETURNING id", [id,item])).rows[0].id;
+  const sourceLine = await line(source); await line(invoice);
+  await database.query("INSERT INTO sales_invoice_allocations(invoice_id,source_line_id,quantity) VALUES ($1,$2,2)", [invoice,sourceLine]);
+  await database.query("INSERT INTO invoice_payment_allocations(payment_id,invoice_id,amount) VALUES ($1,$2,20)", [payment,invoice]);
+  for (const id of [invoice,payment]) await database.query("INSERT INTO journal_entries(company_id,location_id,transaction_id,entry_date,reference) VALUES ($1,$2,$3,'2026-09-01','OLD')", [company,location,id]);
+  await database.query("INSERT INTO inventory_movements(item_id,transaction_id,movement_date,movement_type,quantity,unit_cost,reference) VALUES ($1,$2,'2026-09-01','invoice',-2,5,'INV-DETAIL')", [item,invoice]);
+  const { GET, PATCH } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const load = async (id) => (await (await GET(new Request(`https://app.test/api/records?kind=transactions&id=${id}&companyId=${company}`))).json());
+  const edit = (id, revision, changes={}) => PATCH(new Request('https://app.test/api/records', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({kind:'transactions',id,companyId:company,editMode:'details',revision,number:`EDITED-${id}`,transactionDate:'2026-09-03',dueDate:'2026-09-30',salesman:'Sales Person',memo:'Corrected details',...changes}) }));
+  try {
+    for (const id of [invoice,payment]) {
+      globalThis.__transferTestUser = { id:1,role:'admin',companyIds:[company] };
+      const before = await load(id);
+      globalThis.__transferTestUser = { id:2,role:'sales',companyIds:[company] };
+      assert.equal((await edit(id,before.revision)).status,403);
+      globalThis.__transferTestUser = { id:2,role:'admin',companyIds:[] };
+      assert.equal((await edit(id,before.revision)).status,403);
+      globalThis.__transferTestUser = { id:1,role:'all_admin',companyIds:[] };
+      assert.equal((await edit(id,before.revision,{total:1})).status,400,'financial changes are rejected');
+      assert.equal((await edit(id,before.revision,{transactionDate:'2026-02-30'})).status,400);
+      assert.equal((await edit(id,before.revision)).status,200);
+      assert.equal((await edit(id,before.revision)).status,409,'stale edits are rejected');
+      const after = await load(id);
+      for (const field of ['total','baseTotal','currency','exchangeRate','status','paidAt','salesSourceId','invoiceId','party','locationId']) assert.deepEqual(after.record[field],before.record[field],field);
+      assert.deepEqual(after.lines,before.lines,'posted lines remain intact');
+      assert.equal(after.record.memo,'Corrected details');
+      const journal=(await database.query('SELECT reference,entry_date FROM journal_entries WHERE transaction_id=$1',[id])).rows[0];
+      assert.deepEqual(journal,{reference:`EDITED-${id}`,entry_date:'2026-09-03'});
+    }
+    assert.equal((await database.query('SELECT quantity FROM items WHERE id=$1',[item])).rows[0].quantity,8);
+    assert.equal((await database.query('SELECT amount FROM invoice_payment_allocations WHERE payment_id=$1',[payment])).rows[0].amount,20);
+    assert.equal((await database.query('SELECT quantity FROM sales_invoice_allocations WHERE invoice_id=$1',[invoice])).rows[0].quantity,2);
+    assert.deepEqual((await database.query('SELECT reference,movement_date,quantity FROM inventory_movements WHERE transaction_id=$1',[invoice])).rows[0],{reference:`EDITED-${invoice}`,movement_date:'2026-09-03',quantity:-2});
+  } finally { delete globalThis.__transferTestUser; }
+});

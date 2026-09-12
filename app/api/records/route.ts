@@ -704,6 +704,31 @@ async function handlePATCH(request: Request) {
       return await withWriteTransaction(async () => {
         const db = getDb();
         const [existing] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId))).for("update");
+        if (existing && ["invoice", "customer payment"].includes(existing.type)) {
+          if (payload.editMode !== "details") return Response.json({ error: "Use Edit details for invoices and customer payments. Posted amounts and allocations are protected." }, { status: 400 });
+          const allowed = new Set(["kind", "id", "companyId", "revision", "editMode", "number", "transactionDate", "dueDate", "salesman", "memo"]);
+          if (Object.keys(payload).some((field) => !allowed.has(field))) return Response.json({ error: "Only reference, dates, sales rep and memo can be changed here." }, { status: 400 });
+          const oldLines = await db.select().from(transactionLines).where(eq(transactionLines.transactionId, id)).orderBy(asc(transactionLines.id));
+          if (payload.revision !== purchaseRevision(existing, oldLines)) return Response.json({ error: "This document changed. Close and reopen the editor before saving." }, { status: 409 });
+          const number = String(payload.number ?? "").trim();
+          const transactionDate = String(payload.transactionDate ?? "");
+          const dueDate = String(payload.dueDate ?? "");
+          const salesman = String(payload.salesman ?? "").trim();
+          const memo = String(payload.memo ?? "");
+          const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+          if (!number || number.length > 100 || !validDate(transactionDate) || (dueDate && !validDate(dueDate)) || memo.length > 5000 || salesman.length > 200) return Response.json({ error: "Enter a reference and valid dates. Memo must be no more than 5,000 characters." }, { status: 400 });
+          if (salesman && salesman !== existing.salesman) {
+            const [rep] = await db.select({ id: contacts.id }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "employee"), eq(contacts.status, "active"), eq(contacts.name, salesman))).limit(1);
+            if (!rep) return Response.json({ error: "Select an active sales rep in this company." }, { status: 400 });
+          }
+          const [duplicate] = await db.select({ id: transactions.id }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.number, number), sql`${transactions.locationId} IS NOT DISTINCT FROM ${existing.locationId}`, sql`${transactions.id} <> ${id}`)).limit(1);
+          if (number !== existing.number && duplicate) return Response.json({ error: "That reference is already used in this inventory." }, { status: 409 });
+          const [record] = await db.update(transactions).set({ number, transactionDate, dueDate, salesman, memo }).where(eq(transactions.id, id)).returning();
+          await db.update(journalEntries).set({ entryDate: transactionDate, reference: number }).where(eq(journalEntries.transactionId, id));
+          await db.update(inventoryMovements).set({ movementDate: transactionDate, reference: number }).where(eq(inventoryMovements.transactionId, id));
+          await db.insert(auditLog).values({ companyId, action: "updated", entityType: "transaction", entityId: id, details: JSON.stringify({ actor: { id: authorization.id, email: authorization.email }, mode: "details", before: existing, after: record }) });
+          return Response.json({ record });
+        }
         if (existing?.purchaseOrderId) return Response.json({ error: "Remove and recreate this linked receipt to change received quantities." }, { status: 409 });
         if (!existing) return Response.json({ error: "Purchase not found." }, { status: 404 });
         if (!["estimate", "sales order", "bill", "purchase order", "item receipt", "received item bill", "expense", "bill payment", "vendor payment", "vendor credit"].includes(existing.type)) return Response.json({ error: "This document is not an editable purchase." }, { status: 400 });
