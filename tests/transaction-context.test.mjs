@@ -1014,3 +1014,35 @@ test("invoice and customer payment details can be edited without changing posted
     assert.deepEqual((await database.query('SELECT reference,movement_date,quantity FROM inventory_movements WHERE transaction_id=$1',[invoice])).rows[0],{reference:`EDITED-${invoice}`,movement_date:'2026-09-03',quantity:-2});
   } finally { delete globalThis.__transferTestUser; }
 });
+
+test("inventory removal requires company admin access and preserves used inventories and the last active location", async () => {
+  const { DELETE } = await vite.ssrLoadModule('/app/api/workspaces/route.ts');
+  const company = (await database.query("INSERT INTO companies(name) VALUES ('Remove inventory test') RETURNING id")).rows[0].id;
+  const add = async (code) => (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES ($1,$2,$2,$2) RETURNING id",[company,code])).rows[0].id;
+  const main = await add('REMOVE-MAIN'), empty = await add('REMOVE-EMPTY'), used = await add('REMOVE-USED');
+  const remove = (id) => DELETE(new Request('https://app.test/api/workspaces',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'location',companyId:company,locationId:id})}));
+  try {
+    for (const role of ['viewer','sales','inventory','purchasing','accountant']) {
+      globalThis.__transferTestUser={id:1,role,companyIds:[company]};
+      assert.equal((await remove(empty)).status,403);
+    }
+    globalThis.__transferTestUser={id:1,role:'admin',companyIds:[]};
+    assert.equal((await remove(empty)).status,403);
+    globalThis.__transferTestUser={id:1,role:'admin',companyIds:[company]};
+    await database.query("INSERT INTO items(company_id,location_id,sku,name,quantity) VALUES ($1,$2,'KEEP','Keep even zero stock',0)",[company,used]);
+    assert.equal((await remove(used)).status,409);
+    assert.equal((await database.query('SELECT count(*)::int AS n FROM items WHERE location_id=$1',[used])).rows[0].n,1);
+    const history = await add('REMOVE-HISTORY');
+    await database.query("INSERT INTO transactions(company_id,location_id,type,number,party,transaction_date) VALUES ($1,$2,'estimate','KEEP-EST','Customer','2026-09-12')",[company,history]);
+    assert.equal((await remove(history)).status,409);
+    assert.equal((await remove(empty)).status,200);
+    assert.equal((await database.query('SELECT id FROM inventory_locations WHERE id=$1',[empty])).rows.length,0);
+    assert.equal((await database.query("SELECT id FROM audit_log WHERE entity_type='inventory' AND entity_id=$1",[empty])).rows.length,1);
+    assert.equal((await remove(empty)).status,404);
+    await database.query('UPDATE inventory_locations SET active=false WHERE company_id=$1 AND id<>$2',[company,main]);
+    assert.equal((await remove(main)).status,409);
+    const another = await add('REMOVE-ALL-ADMIN');
+    globalThis.__transferTestUser={id:2,role:'all_admin',companyIds:[]};
+    assert.equal((await remove(another)).status,200);
+  } finally { delete globalThis.__transferTestUser; }
+});

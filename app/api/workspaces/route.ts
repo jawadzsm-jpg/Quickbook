@@ -1,7 +1,7 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
-import { getDb } from "../../../db";
-import { accounts, companies, exchangeRates, inventoryLocations, transactions, vatCodes } from "../../../db/schema";
-import { canAccessCompany, requireApiUser } from "@/lib/auth";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { getDb, withWriteTransaction } from "../../../db";
+import { accounts, auditLog, companies, exchangeRates, inventoryLocations, transactions, vatCodes } from "../../../db/schema";
+import { canAccessCompany, isAdministrator, requireApiUser } from "@/lib/auth";
 
 const standardAccounts = [
   ["1000", "Business Bank", "Bank", "BANK"], ["1100", "Accounts Receivable", "Accounts Receivable", "AR"],
@@ -90,4 +90,40 @@ export async function PATCH(request: Request) {
     await db.insert(exchangeRates).values({ companyId, currencyCode: baseCurrency, rate: 1 }).onConflictDoUpdate({ target: [exchangeRates.companyId, exchangeRates.currencyCode], set: { rate: 1, active: true, updatedAt: new Date().toISOString() } });
     return Response.json({ company });
   } catch (error) { return Response.json({ error: message(error) }, { status: 500 }); }
+}
+
+export async function DELETE(request: Request) {
+  const user = await requireApiUser(request, true, true);
+  if (user instanceof Response) return user;
+  if (!isAdministrator(user)) return Response.json({ error: "Only Admin and All-Admin can remove inventories." }, { status: 403 });
+  try {
+    const payload = await request.json();
+    const companyId = Number(payload.companyId), locationId = Number(payload.locationId);
+    if (payload.type !== "location" || !Number.isSafeInteger(companyId) || companyId <= 0 || !Number.isSafeInteger(locationId) || locationId <= 0) return Response.json({ error: "Select a valid inventory." }, { status: 400 });
+    if (!canAccessCompany(user, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
+    return await withWriteTransaction(async () => {
+      const db = getDb();
+      // Serialize removals within a company, and block new foreign-key references during this check.
+      await db.select({ id: companies.id }).from(companies).where(eq(companies.id, companyId)).for("update");
+      const [location] = await db.select().from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).for("update");
+      if (!location) return Response.json({ error: "Inventory not found." }, { status: 404 });
+      const active = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.companyId, companyId), eq(inventoryLocations.active, true)));
+      if (location.active && active.length <= 1) return Response.json({ error: "Keep at least one active inventory in this company." }, { status: 409 });
+      const usage = await db.execute(sql`select exists (
+        select 1 from items where location_id=${locationId}
+        union all select 1 from transactions where location_id=${locationId}
+        union all select 1 from stock_transfers where source_location_id=${locationId} or destination_location_id=${locationId}
+        union all select 1 from journal_entries where location_id=${locationId}
+        union all select 1 from inventory_check_reports where location_id=${locationId}
+        union all select 1 from memorised_reports where location_id=${locationId}
+        union all select 1 from vat_adjustments where location_id=${locationId}
+        union all select 1 from vat_returns where location_id=${locationId}
+        union all select 1 from sku_work_locks where lock_key::jsonb->>0=${String(locationId)} and expires_at > clock_timestamp()
+      ) as used`);
+      if (usage.rows[0]?.used) return Response.json({ error: "This inventory has items, activity, saved reports or active editing. Only unused inventories can be removed." }, { status: 409 });
+      await db.delete(inventoryLocations).where(eq(inventoryLocations.id, locationId));
+      await db.insert(auditLog).values({ companyId, action: "deleted", entityType: "inventory", entityId: locationId, details: JSON.stringify({ name: location.name, code: location.code, userId: user.id }) });
+      return Response.json({ success: true });
+    });
+  } catch { return Response.json({ error: "The inventory could not be removed. Refresh and try again." }, { status: 409 }); }
 }
