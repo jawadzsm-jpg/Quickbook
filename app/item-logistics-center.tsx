@@ -8,7 +8,6 @@ import { useSkuLock, SkuLockNotice } from "./use-sku-lock";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 type LogisticsRecord = {
   id: number;
@@ -100,14 +99,35 @@ export function ItemLogisticsCenter({ companyId, companyName, locationId, locati
     finally { setSaving(false); }
   }
 
-  return <div className="space-y-5"><SkuLockNotice message={skuLock.message} />
-    <section className="rounded-xl border bg-white shadow-sm">
+  return <div className="min-w-0 w-full space-y-5"><SkuLockNotice message={skuLock.message} />
+    <section className="min-w-0 rounded-xl border bg-white shadow-sm">
       <div className="flex flex-col gap-4 border-b bg-slate-50 p-5 lg:flex-row lg:items-center lg:justify-between"><div className="flex items-center gap-3"><div className="grid size-11 place-items-center rounded-xl bg-blue-600 text-white"><PackageSearch className="size-5" /></div><div><h2 className="font-bold text-slate-900">HS Code, COO &amp; Dimensions</h2><p className="text-sm text-slate-500">{companyName} · {locationName}</p></div></div><div className="flex flex-wrap items-center gap-2"><Badge variant="outline" className="bg-white">{records.length} items</Badge>{dirtyIds.size ? <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">{dirtyIds.size} unsaved</Badge> : null}<Button type="button" variant="outline" onClick={() => void load()} disabled={loading || saving}><RotateCcw className="size-4" />Reset</Button>{canEdit ? <Button type="button" onClick={() => void save()} disabled={!skuLock.ready || !dirtyIds.size || saving}><Save className="size-4" />{saving ? "Saving…" : "Save Changes"}</Button> : null}</div></div>
       <div className="flex flex-col gap-3 border-b p-4 md:flex-row md:items-center md:justify-between"><div className="flex items-center gap-2 text-sm text-slate-600"><span>Show</span><Select value={pageSize} onValueChange={(value) => { setPageSize(value); setPage(1); }}><SelectTrigger className="w-20"><SelectValue /></SelectTrigger><SelectContent>{[25, 50, 100].map((value) => <SelectItem key={value} value={String(value)}>{value}</SelectItem>)}</SelectContent></Select><span>entries</span></div><div className="relative w-full md:max-w-sm"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Search items, SKU, HS code or COO" className="pl-9" /></div></div>
       <datalist id="hs-code-options">{hsCodes.map(([code, label]) => <option key={code} value={`${label} (${code})`} />)}</datalist>
       <datalist id="country-origin-options">{countries.map((country) => <option key={country} value={country} />)}</datalist>
-      <div className="max-h-[68vh] overflow-auto"><Table className="min-w-[1500px]"><TableHeader className="sticky top-0 z-10 bg-white"><TableRow><TableHead className="min-w-96">Specs</TableHead><TableHead className="min-w-60">HS Code</TableHead><TableHead className="min-w-40">COO</TableHead><TableHead className="min-w-48">Dimension</TableHead><TableHead>Length (cm)</TableHead><TableHead>Width (cm)</TableHead><TableHead>Height (cm)</TableHead><TableHead>Weight (kg)</TableHead></TableRow></TableHeader><TableBody>{loading ? <TableRow><TableCell colSpan={8} className="py-12 text-center text-slate-500">Loading item specifications…</TableCell></TableRow> : visible.length ? visible.map((record) => <TableRow key={record.id} onFocusCapture={() => { if (canEdit) setActiveIds((old) => old.has(record.id) ? old : new Set(old).add(record.id)); }} className={dirtyIds.has(record.id) ? "bg-amber-50/60" : ""}><TableCell><p className="font-bold text-blue-700">{record.name} <span className="text-xs font-medium uppercase text-rose-500">{record.status}</span></p><p className="mt-1 max-w-xl text-xs font-semibold text-slate-700">{record.description || record.sku} <span className="font-mono text-rose-500">#{record.itemNumber || record.sku}</span></p></TableCell><TableCell><Input list="hs-code-options" value={record.hsCode} disabled={!canEdit || skuLock.blocked} onChange={(event) => update(record.id, "hsCode", event.target.value)} placeholder="Select or enter HS code" /></TableCell><TableCell><Input list="country-origin-options" value={record.countryOfOrigin} disabled={!canEdit || skuLock.blocked} onChange={(event) => update(record.id, "countryOfOrigin", event.target.value.toUpperCase())} placeholder="Country" /></TableCell><TableCell><Input value={record.dimensionText} disabled={!canEdit || skuLock.blocked} onChange={(event) => update(record.id, "dimensionText", event.target.value)} placeholder="e.g. 11 × 35 × 55 cm" /></TableCell>{(["lengthCm", "widthCm", "heightCm", "weightKg"] as const).map((field) => <TableCell key={field}><Input type="number" min="0" step="0.01" value={record[field]} disabled={!canEdit || skuLock.blocked} onChange={(event) => update(record.id, field, Number(event.target.value))} className="min-w-28" /></TableCell>)}</TableRow>) : <TableRow><TableCell colSpan={8} className="py-12 text-center text-slate-500">No matching inventory items found.</TableCell></TableRow>}</TableBody></Table></div>
-      <div className="flex items-center justify-between border-t p-4 text-sm text-slate-500"><span>Showing {visible.length ? (safePage - 1) * size + 1 : 0} to {Math.min(safePage * size, filtered.length)} of {filtered.length}</span><div className="flex gap-1"><Button size="sm" variant="outline" disabled={safePage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous</Button><Badge className="grid min-w-9 place-items-center">{safePage}</Badge><Button size="sm" variant="outline" disabled={safePage >= pages} onClick={() => setPage((value) => Math.min(pages, value + 1))}>Next</Button></div></div>
+      <div className="max-h-[68vh] overflow-y-auto">
+        {loading ? <p className="p-12 text-center text-slate-500">Loading item specifications…</p> : visible.length ? visible.map((record) => (
+          <div key={record.id} onFocusCapture={() => { if (canEdit) setActiveIds((old) => old.has(record.id) ? old : new Set(old).add(record.id)); }} className={`grid min-w-0 gap-4 border-b p-4 last:border-b-0 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] ${dirtyIds.has(record.id) ? "bg-amber-50/60" : ""}`}>
+            <div className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">
+              <p className="font-bold text-blue-700">{record.name} <span className="text-xs font-medium uppercase text-rose-500">{record.status}</span></p>
+              <p className="mt-2 text-xs font-semibold leading-relaxed text-slate-700">{record.description || record.sku} <span className="font-mono text-rose-500">#{record.itemNumber || record.sku}</span></p>
+            </div>
+            <div className="min-w-0 space-y-3">
+              <div className="grid min-w-0 gap-3 sm:grid-cols-3">
+                <label className="min-w-0 space-y-1 text-sm"><span>HS Code</span><Input list="hs-code-options" value={record.hsCode} disabled={!canEdit || skuLock.blocked} onChange={(event) => update(record.id, "hsCode", event.target.value)} placeholder="Select or enter HS code" /></label>
+                <label className="min-w-0 space-y-1 text-sm"><span>COO</span><Input list="country-origin-options" value={record.countryOfOrigin} disabled={!canEdit || skuLock.blocked} onChange={(event) => update(record.id, "countryOfOrigin", event.target.value.toUpperCase())} placeholder="Country" /></label>
+                <label className="min-w-0 space-y-1 text-sm"><span>Dimension</span><Input value={record.dimensionText} disabled={!canEdit || skuLock.blocked} onChange={(event) => update(record.id, "dimensionText", event.target.value)} placeholder="e.g. 11 × 35 × 55 cm" /></label>
+              </div>
+              <div className="grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-4">
+                {([["lengthCm", "Length (cm)"], ["widthCm", "Width (cm)"], ["heightCm", "Height (cm)"], ["weightKg", "Weight (kg)"]] as const).map(([field, label]) => (
+                  <label key={field} className="min-w-0 space-y-1 text-sm"><span>{label}</span><Input type="number" min="0" step="0.01" value={record[field]} disabled={!canEdit || skuLock.blocked} onChange={(event) => update(record.id, field, Number(event.target.value))} className="min-w-0" /></label>
+                ))}
+              </div>
+            </div>
+          </div>
+        )) : <p className="p-12 text-center text-slate-500">No matching inventory items found.</p>}
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t p-4 text-sm text-slate-500"><span>Showing {visible.length ? (safePage - 1) * size + 1 : 0} to {Math.min(safePage * size, filtered.length)} of {filtered.length}</span><div className="flex gap-1"><Button size="sm" variant="outline" disabled={safePage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous</Button><Badge className="grid min-w-9 place-items-center">{safePage}</Badge><Button size="sm" variant="outline" disabled={safePage >= pages} onClick={() => setPage((value) => Math.min(pages, value + 1))}>Next</Button></div></div>
     </section>
   </div>;
 }
