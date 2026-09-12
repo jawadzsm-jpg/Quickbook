@@ -862,7 +862,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
       </Sidebar>
 
       <SidebarInset className="brand-workspace min-w-0">
-        <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur lg:px-7">
+        <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3 border-b border-slate-200 bg-white/95 px-4 backdrop-blur lg:px-7">
           <div className="flex min-w-0 items-center gap-3"><SidebarTrigger className="text-slate-600" /><div className="hidden h-5 w-px bg-slate-200 sm:block" /><div className="min-w-0"><h1 className="truncate text-lg font-bold text-slate-900">{heading.title}</h1><p className="hidden truncate text-xs text-slate-500 sm:block">{heading.sub}</p></div></div>
           <div className="flex items-center gap-2">
             <Popover>
@@ -887,6 +887,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
             <Button variant="ghost" size="icon" aria-label="Notifications"><Bell className="size-4" /></Button>
             {!managementView && canWriteCurrentView && <Button onClick={openCreate} className="brand-primary-button font-semibold"><Plus className="size-4" /><span className="hidden sm:inline">{createLabel}</span></Button>}
           </div>
+          <div data-export-slot="page" className="flex w-full justify-end empty:hidden" />
         </header>
 
         <div className="mx-auto w-full max-w-[1500px] p-4 lg:p-7">
