@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { Save } from "lucide-react";
 
 type ReceiptLine = { id: number; description: string; quantity: number; received: number; remaining: number };
 export function PurchaseOrderReceiving({ orderId, companyId, onSaved }: { orderId: number; companyId: number; onSaved: () => void }) {
@@ -45,7 +46,7 @@ export function PurchaseOrderReceiving({ orderId, companyId, onSaved }: { orderI
       <label className="grid max-w-xs gap-2 text-sm">Receipt date<Input type="date" required value={date} onChange={(event) => setDate(event.target.value)} /></label>
       <div className="overflow-auto"><table className="w-full table-fixed text-sm"><thead><tr className="border-b"><th className="w-1/2 p-2 text-left">Item</th><th>Ordered</th><th>Received</th><th>Remaining</th><th>Receive now</th></tr></thead><tbody>{data.lines.map((line) => <tr key={line.id} className="border-b"><td className="break-words p-2">{line.description}</td><td className="p-2 text-right">{line.quantity}</td><td className="p-2 text-right">{line.received}</td><td className="p-2 text-right">{line.remaining}</td><td className="p-2"><Input aria-label={'Receive ' + line.description} type="number" min="0" max={line.remaining} step="any" disabled={saving || line.remaining <= 0} value={quantities[line.id] || ""} placeholder="0" onChange={(event) => setQuantities((old) => ({ ...old, [line.id]: event.target.value }))} /></td></tr>)}</tbody></table></div>
       <label className="grid gap-2 text-sm">Receipt memo<Input value={memo} onChange={(event) => setMemo(event.target.value)} /></label>
-      <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={saving} onClick={() => setQuantities(Object.fromEntries(data.lines.map((line) => [line.id, String(line.remaining)])))}>Fill remaining quantities</Button><Button disabled={saving || !data.lines.some((line) => line.remaining > 0)} type="submit">{saving ? "Saving…" : "Create item receipt"}</Button></div>
+      <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={saving} onClick={() => setQuantities(Object.fromEntries(data.lines.map((line) => [line.id, String(line.remaining)])))}>Fill remaining quantities</Button><Button disabled={saving || !data.lines.some((line) => line.remaining > 0)} type="submit"><Save className="size-4" />{saving ? "Saving…" : "Save Receipt"}</Button></div>
     </form>}
   </section>;
 }
