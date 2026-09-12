@@ -51,12 +51,13 @@ export async function POST(request: Request) {
       const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).limit(1);
       if (!location) return Response.json({ error: "Inventory not found for this company." }, { status: 400 });
     }
-    const customer = reportKey === "customer-statements" ? String(payload.customer || "").slice(0, 300) : "";
-    const statementDate = reportKey === "customer-statements" ? String(payload.statementDate || "") : "";
+    const customer = ["customer-statements", "vendor-statements"].includes(reportKey) ? String(payload.customer || "").slice(0, 300) : "";
+    const memo = ["customer-statements", "vendor-statements"].includes(reportKey) ? String(payload.memo || "").slice(0, 2000) : "";
+    const statementDate = ["customer-statements", "vendor-statements"].includes(reportKey) ? String(payload.statementDate || "") : "";
     if (statementDate && !/^\d{4}-\d{2}-\d{2}$/.test(statementDate)) return Response.json({ error: "Enter a valid statement date." }, { status: 400 });
     const now = new Date().toISOString();
-    const [record] = await db.insert(memorisedReports).values({ userId: user.id, companyId, locationId, name, reportKey, category, currency, periodStart, periodEnd, customer, statementDate, updatedAt: now })
-      .onConflictDoUpdate({ target: [memorisedReports.userId, memorisedReports.companyId, memorisedReports.reportKey], set: { locationId, name, category, currency, periodStart, periodEnd, customer, statementDate, updatedAt: now } })
+    const [record] = await db.insert(memorisedReports).values({ userId: user.id, companyId, locationId, name, reportKey, category, currency, periodStart, periodEnd, customer, statementDate, memo, updatedAt: now })
+      .onConflictDoUpdate({ target: [memorisedReports.userId, memorisedReports.companyId, memorisedReports.reportKey], set: { locationId, name, category, currency, periodStart, periodEnd, customer, statementDate, memo, updatedAt: now } })
       .returning();
     await db.insert(auditLog).values({ companyId, action: "memorised", entityType: "report", entityId: record.id, details: `${name} saved by ${user.email}` });
     return Response.json({ record });

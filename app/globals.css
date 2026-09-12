@@ -339,3 +339,16 @@ button, input, select { font: inherit; }
   .customer-statement .report-table td { border-bottom: 1px solid #d7e1e7; padding: 8px 5px; }
   .customer-statement .statement-totals { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
+
+.statement-memo { margin-top: 16px; padding-top: 12px; border-top: 1px solid #d7e1e7; font-size: 12px; }
+@page statement { size: A4 portrait; margin: 12mm; }
+@media print {
+  .customer-statement { page: statement; display: block !important; }
+  .customer-statement .report-table { margin-top: 6mm; }
+  .customer-statement .report-table table { font-size: 8pt; width: 100%; table-layout: fixed; }
+  .customer-statement .report-table th, .customer-statement .report-table td { overflow-wrap: anywhere; white-space: normal; padding: 5px 3px; }
+  .customer-statement .statement-brand h2 { font-size: 15pt; }
+  .customer-statement .statement-brand p { font-size: 8pt; }
+  .customer-statement .statement-totals strong { font-size: 11pt; }
+  .customer-statement .statement-memo { break-inside: avoid; }
+}

@@ -1,0 +1,1 @@
+ALTER TABLE memorised_reports ADD COLUMN IF NOT EXISTS memo text NOT NULL DEFAULT '';

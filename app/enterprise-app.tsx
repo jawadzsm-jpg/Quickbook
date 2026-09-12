@@ -63,7 +63,7 @@ type InventoryLocation = { id: number; companyId: number; name: string; code: st
 type CompanyWorkspace = { id: number; name: string; baseCurrency: string; locations: InventoryLocation[] };
 type CompanySetup = { id: number; name: string; baseCurrency: string; logoData: string; stampData: string; addressLine1: string; addressLine2: string; city: string; country: string; phone: string; email: string; trn: string; bankName: string; bankAccountName: string; bankAccountNumber: string; bankIban: string; bankSwift: string; bankCurrency: string; documentTemplate: "classic" | "modern" | "minimal"; documentColor: string };
 type ReportData = { statement?: StatementData; key?: string; companyId?: number; canEditPrices?: boolean; title: string; description?: string; generatedAt: string; currency: string; columns: Array<{ key: string; label: string; type?: "money" }>; rows: Array<Record<string, string | number>>; chart?: { labelKey: string; incomeKey: string; expenseKey: string; incomeLabel?: string; expenseLabel?: string } };
-type MemorisedReportRecord = { customer?: string; statementDate?: string; id: number; companyId: number; locationId: number | null; name: string; reportKey: string; category: ReportCategory; currency: string; periodStart: string; periodEnd: string; updatedAt: string };
+type MemorisedReportRecord = { customer?: string; statementDate?: string; memo?: string; id: number; companyId: number; locationId: number | null; name: string; reportKey: string; category: ReportCategory; currency: string; periodStart: string; periodEnd: string; updatedAt: string };
 type ReportContext = { key: string; locationId: number; currency: string; periodStart: string; periodEnd: string };
 type TransactionDetail = { record: DataRecord; lines: DataRecord[]; journal: DataRecord[]; partyContact?: DataRecord | null };
 
@@ -271,6 +271,7 @@ const allReports = [
   ["Sales Graph", "Monthly sales and refunds shown visually", "Sales", "sales-graph"],
   ["Pending Sales", "Open estimates, sales orders, and invoices", "Sales", "pending-sales"],
   ["Sales Order Fulfilment", "Open and fulfilled orders", "Sales", "sales-orders"],
+  ["Vendor Statements", "Vendor bills, payments, credits and running balances", "Vendors", "vendor-statements"],
   ["A/P Aging Summary", "Outstanding vendor balances by age", "Vendors", "ap-aging-summary"],
   ["A/P Aging Detail", "Open bills and credits", "Vendors", "ap-aging-detail"],
   ["Supplier Balance Summary", "Accounts Payable totals by supplier", "Vendors", "vendor-balances"],
@@ -783,10 +784,10 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     setDialogOpen(true);
   }
 
-  async function openReport(key: string, period?: { start: string; end: string }, saved?: { locationId: number | null; currency: string; customer?: string; statementDate?: string }) {
+  async function openReport(key: string, period?: { start: string; end: string }, saved?: { locationId: number | null; currency: string; customer?: string; statementDate?: string; memo?: string }) {
     setReportLoading(true);
     try {
-      const periodQuery = (period ? `&periodStart=${period.start}&periodEnd=${period.end}` : "") + `&customer=${encodeURIComponent(saved?.customer || "")}&statementDate=${encodeURIComponent(saved?.statementDate || "")}`;
+      const periodQuery = (period ? `&periodStart=${period.start}&periodEnd=${period.end}` : "") + `&customer=${encodeURIComponent(saved?.customer || "")}&statementDate=${encodeURIComponent(saved?.statementDate || "")}&memo=${encodeURIComponent(saved?.memo || "")}`;
       const reportLocationId = saved?.locationId ?? activeLocationId;
       const reportCurrency = saved?.currency || baseCurrency;
       const response = await fetch(`/api/reports?type=${key}&companyId=${activeCompanyId}&locationId=${reportLocationId}&currency=${reportCurrency}${periodQuery}`, { signal: AbortSignal.timeout(30000), cache: "no-store" });
@@ -804,7 +805,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     if (!definition) return toast.error("This report cannot be memorised.");
     setMemoriseSaving(true);
     try {
-      const response = await fetch("/api/memorised-reports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId: activeCompanyId, locationId: reportContext.locationId, name: definition[0], reportKey: reportContext.key, category: definition[2], currency: reportContext.currency, periodStart: reportContext.periodStart, periodEnd: report?.statement?.to || reportContext.periodEnd, customer: report.statement?.customer || "", statementDate: report.statement?.statementDate || "" }) });
+      const response = await fetch("/api/memorised-reports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId: activeCompanyId, locationId: reportContext.locationId, name: definition[0], reportKey: reportContext.key, category: definition[2], currency: reportContext.currency, periodStart: reportContext.periodStart, periodEnd: report?.statement?.to || reportContext.periodEnd, customer: report.statement?.customer || "", memo: report.statement?.memo || "", statementDate: report.statement?.statementDate || "" }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not memorise report");
       await loadMemorisedReports();
@@ -825,7 +826,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
 
   function openMemorisedReport(record: MemorisedReportRecord) {
     const period = record.periodStart || record.periodEnd ? { start: record.periodStart, end: record.periodEnd } : undefined;
-    void openReport(record.reportKey, period, { locationId: record.locationId, currency: record.currency, customer: record.customer, statementDate: record.statementDate });
+    void openReport(record.reportKey, period, { locationId: record.locationId, currency: record.currency, customer: record.customer, statementDate: record.statementDate, memo: record.memo });
   }
 
   const heading = viewTitles[view];
@@ -924,7 +925,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
         <DialogContent className="sm:max-w-3xl"><DialogHeader><DialogTitle>Select Inventory</DialogTitle><DialogDescription>Choose which company inventory will issue this invoice. Every company and inventory combination has its own invoice-number series.</DialogDescription></DialogHeader><div className="grid gap-3 py-3 sm:grid-cols-2 lg:grid-cols-3">{activeLocations.map((location) => <button type="button" key={location.id} onClick={() => startInvoice(location)} className="rounded-xl border-2 border-slate-200 bg-white p-5 text-left transition hover:border-emerald-400 hover:bg-emerald-50"><p className="font-semibold text-slate-900">{location.name}</p><p className="mt-2 font-mono text-xs text-slate-500">Next: {invoiceNumberPreview(activeCompanyId, location)}</p></button>)}</div>{activeLocations.length === 0 && <p className="rounded-lg bg-amber-50 p-4 text-sm text-amber-800">Add an inventory location before creating an invoice.</p>}</DialogContent>
       </Dialog>
       <DocumentDialog key={detail ? String(detail.record.id) : "closed-document"} detail={detail} companyName={activeCompany?.name ?? "Company"} baseCurrency={baseCurrency} setup={companySetup} canConvert={detail?.record.type === "purchase order" ? roleWriteViews[currentUser.role].includes("purchases") : roleWriteViews[currentUser.role].includes("sales")} onConvert={convertSourceDocument} onClose={() => setDetail(null)} />
-      <ReportDialog setup={companySetup} loading={reportLoading} onStatementApply={(filters) => openReport("customer-statements", { start: filters.from, end: filters.to }, { locationId: reportContext?.locationId ?? activeLocationId, currency: filters.currency, customer: filters.customer, statementDate: filters.statementDate })} onPricesSaved={async () => { await openReport("stock-pricing-profit", undefined, reportContext ? { locationId: reportContext.locationId, currency: reportContext.currency } : undefined); await loadData(); }} report={report} companyName={activeCompany?.name ?? "Company"} memorised={Boolean(reportContext && memorisedReports.some((savedReport) => savedReport.reportKey === reportContext.key))} saving={memoriseSaving} onMemorise={saveMemorisedReport} onClose={() => setReport(null)} />
+      <ReportDialog setup={companySetup} loading={reportLoading} onStatementApply={(filters) => openReport(report?.key || "customer-statements", { start: filters.from, end: filters.to }, { locationId: reportContext?.locationId ?? activeLocationId, currency: filters.currency, customer: filters.customer, statementDate: filters.statementDate, memo: filters.memo })} onPricesSaved={async () => { await openReport("stock-pricing-profit", undefined, reportContext ? { locationId: reportContext.locationId, currency: reportContext.currency } : undefined); await loadData(); }} report={report} companyName={activeCompany?.name ?? "Company"} memorised={Boolean(reportContext && memorisedReports.some((savedReport) => savedReport.reportKey === reportContext.key))} saving={memoriseSaving} onMemorise={saveMemorisedReport} onClose={() => setReport(null)} />
       <WorkspaceDialog open={workspaceOpen} companies={companies} activeCompanyId={activeCompanyId} onClose={() => setWorkspaceOpen(false)} onChanged={loadWorkspaces} />
       <Toaster richColors position="bottom-right" />
     </SidebarProvider>
@@ -1310,7 +1311,7 @@ function StockPriceEditor({ report, onSaved }: { report: ReportData; onSaved: ()
   </form>;
 }
 
-function ReportDialog({ setup, loading, onStatementApply, onPricesSaved, report, companyName, memorised, saving, onMemorise, onClose }: { setup: CompanySetup; loading: boolean; onStatementApply: (filters: { customer: string; currency: string; statementDate: string; from: string; to: string }) => Promise<void>; onPricesSaved: () => Promise<void>; report: ReportData | null; companyName: string; memorised: boolean; saving: boolean; onMemorise: () => void; onClose: () => void }) {
+function ReportDialog({ setup, loading, onStatementApply, onPricesSaved, report, companyName, memorised, saving, onMemorise, onClose }: { setup: CompanySetup; loading: boolean; onStatementApply: (filters: { memo: string; customer: string; currency: string; statementDate: string; from: string; to: string }) => Promise<void>; onPricesSaved: () => Promise<void>; report: ReportData | null; companyName: string; memorised: boolean; saving: boolean; onMemorise: () => void; onClose: () => void }) {
   if (!report) return null;
   const columnWeights = report.columns.map((column) => /^(name|item|description|account|customer|supplier|vendor|party)$/.test(column.key) ? 3 : 1);
   const totalWeight = columnWeights.reduce((sum, weight) => sum + weight, 0);

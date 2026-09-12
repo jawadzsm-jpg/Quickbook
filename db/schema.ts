@@ -115,6 +115,7 @@ export const memorisedReports = pgTable("memorised_reports", {
   name: text("name").notNull(),
   reportKey: text("report_key").notNull(),
   customer: text("customer").notNull().default(""),
+  memo: text("memo").notNull().default(""),
   statementDate: text("statement_date").notNull().default(""),
   category: text("category").notNull(),
   currency: text("currency").notNull().default("AED"),
