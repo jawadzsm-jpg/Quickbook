@@ -582,3 +582,15 @@ test('company stock pricing lists only its inventories and saves selected prices
     assert.equal((await save(records)).status, 403);
   } finally { delete globalThis.__transferTestUser; }
 });
+
+test('stock selection capability is limited to admin and all-admin', async () => {
+  const { GET } = await vite.ssrLoadModule('/app/api/inventory-overview/route.ts');
+  try {
+    for (const role of ['all_admin', 'admin', 'accountant', 'sales', 'purchasing', 'inventory', 'viewer']) {
+      globalThis.__transferTestUser = { id: 1, role, companyIds: [] };
+      const response = await GET(new Request('http://localhost/api/inventory-overview'));
+      assert.equal(response.status, 200);
+      assert.equal((await response.json()).canSelectItems, ['all_admin', 'admin'].includes(role));
+    }
+  } finally { delete globalThis.__transferTestUser; }
+});

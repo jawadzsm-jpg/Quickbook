@@ -70,6 +70,7 @@ function xml(value: unknown) {
 
 export function InventoryOverview() {
   const [records, setRecords] = useState<OverviewItem[]>([]);
+  const [canSelectItems, setCanSelectItems] = useState(false);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<StockFilter>("all");
@@ -80,11 +81,14 @@ export function InventoryOverview() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setCanSelectItems(false);
+    setSelectedIds(new Set());
     try {
       const response = await fetch("/api/inventory-overview", { cache: "no-store" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not load inventory overview");
       setRecords(data.records as OverviewItem[]);
+      setCanSelectItems(data.canSelectItems === true);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not load inventory overview");
     } finally {
@@ -182,17 +186,19 @@ export function InventoryOverview() {
     return [...grouped.entries()];
   }, [filtered]);
 
-  const selectedRecords = useMemo(() => consolidatedRecords.filter((record) => selectedIds.has(record.id)), [consolidatedRecords, selectedIds]);
+  const selectedRecords = useMemo(() => canSelectItems ? consolidatedRecords.filter((record) => selectedIds.has(record.id)) : [], [canSelectItems, consolidatedRecords, selectedIds]);
   const allVisibleSelected = filtered.length > 0 && filtered.every((record) => selectedIds.has(record.id));
   const someVisibleSelected = filtered.some((record) => selectedIds.has(record.id));
 
   const toggleSelected = (id: number, checked: boolean) => setSelectedIds((current) => {
+    if (!canSelectItems || loading) return current;
     const next = new Set(current);
     if (checked) next.add(id); else next.delete(id);
     return next;
   });
 
   const toggleAllVisible = (checked: boolean) => setSelectedIds((current) => {
+    if (!canSelectItems || loading) return current;
     const next = new Set(current);
     for (const record of filtered) {
       if (checked) next.add(record.id); else next.delete(record.id);
@@ -227,6 +233,7 @@ export function InventoryOverview() {
   };
 
   const copyForChannel = async (channel: ShareChannel) => {
+    if (!canSelectItems || loading) return;
     const text = shareText(channel);
     if (!text) return toast.error("Select at least one item to copy.");
     const channelName = channel === "whatsapp" ? "WhatsApp" : channel === "telegram" ? "Telegram" : "Email";
@@ -246,6 +253,7 @@ export function InventoryOverview() {
   };
 
   const exportExcel = (withVat: boolean) => {
+    if (!canSelectItems || loading) return;
     if (!selectedRecords.length) return toast.error("Select at least one item to export.");
     const headers = ["Company", "Inventory", "Category", "Item No.", "SKU", "Item", "Specifications"];
     if (showQuantity) headers.push("Quantity");
@@ -310,17 +318,17 @@ export function InventoryOverview() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <div className="flex rounded-lg border bg-white p-1"><Button size="sm" disabled={!selectedRecords.length} onClick={() => copyForChannel("whatsapp")} title="Copy WhatsApp format" className="bg-[#25D366] text-white hover:bg-[#1fb558]"><MessageCircle />WhatsApp</Button></div>
-          <div className="flex rounded-lg border bg-white p-1"><Button size="sm" disabled={!selectedRecords.length} onClick={() => copyForChannel("telegram")} title="Copy Telegram format" className="bg-[#229ED9] text-white hover:bg-[#1987bb]"><Send />Telegram</Button></div>
-          <div className="flex rounded-lg border bg-white p-1"><Button size="sm" variant="outline" disabled={!selectedRecords.length} onClick={() => copyForChannel("email")} title="Copy email format"><Mail />Email</Button></div>
-          <div className="flex rounded-lg border bg-white p-1"><Button size="sm" variant="outline" disabled={!selectedRecords.length} onClick={() => exportExcel(false)}><Download />Excel no VAT</Button></div>
-          <div className="flex rounded-lg border bg-white p-1"><Button size="sm" variant="outline" disabled={!selectedRecords.length} onClick={() => exportExcel(true)}><FileSpreadsheet />Excel + VAT</Button></div>
+          <div className="flex rounded-lg border bg-white p-1"><Button size="sm" disabled={!canSelectItems || loading || !selectedRecords.length} onClick={() => copyForChannel("whatsapp")} title="Copy WhatsApp format" className="bg-[#25D366] text-white hover:bg-[#1fb558]"><MessageCircle />WhatsApp</Button></div>
+          <div className="flex rounded-lg border bg-white p-1"><Button size="sm" disabled={!canSelectItems || loading || !selectedRecords.length} onClick={() => copyForChannel("telegram")} title="Copy Telegram format" className="bg-[#229ED9] text-white hover:bg-[#1987bb]"><Send />Telegram</Button></div>
+          <div className="flex rounded-lg border bg-white p-1"><Button size="sm" variant="outline" disabled={!canSelectItems || loading || !selectedRecords.length} onClick={() => copyForChannel("email")} title="Copy email format"><Mail />Email</Button></div>
+          <div className="flex rounded-lg border bg-white p-1"><Button size="sm" variant="outline" disabled={!canSelectItems || loading || !selectedRecords.length} onClick={() => exportExcel(false)}><Download />Excel no VAT</Button></div>
+          <div className="flex rounded-lg border bg-white p-1"><Button size="sm" variant="outline" disabled={!canSelectItems || loading || !selectedRecords.length} onClick={() => exportExcel(true)}><FileSpreadsheet />Excel + VAT</Button></div>
         </div>
       </div>
 
       <div className="overflow-hidden">
         <Table className="w-full table-fixed">
-          <TableHeader><TableRow className="bg-slate-50"><TableHead className="w-12"><Checkbox aria-label="Select all visible items" checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false} onCheckedChange={(checked) => toggleAllVisible(checked === true)} /></TableHead><TableHead className="font-bold text-slate-900">Product specifications</TableHead>{showQuantity && <TableHead className="w-24 text-right font-bold text-slate-900">Qty</TableHead>}{showPrice && <TableHead className="w-36 text-right font-bold text-slate-900">Price</TableHead>}</TableRow></TableHeader>
+          <TableHeader><TableRow className="bg-slate-50"><TableHead className="w-12"><span className="inline-flex rounded-lg border bg-white p-1.5"><Checkbox disabled={!canSelectItems || loading || !filtered.length} aria-label="Select all visible items" checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false} onCheckedChange={(checked) => toggleAllVisible(checked === true)} /></span></TableHead><TableHead className="font-bold text-slate-900">Product specifications</TableHead>{showQuantity && <TableHead className="w-24 text-right font-bold text-slate-900">Qty</TableHead>}{showPrice && <TableHead className="w-36 text-right font-bold text-slate-900">Price</TableHead>}</TableRow></TableHeader>
           <TableBody>
             {loading ? <TableRow><TableCell colSpan={columnCount} className="h-40 text-center text-slate-500"><RefreshCw className="mx-auto mb-2 size-5 animate-spin" />Loading all inventories…</TableCell></TableRow> : categories.length === 0 ? <TableRow><TableCell colSpan={columnCount} className="h-40 text-center text-slate-500">No products match this view.</TableCell></TableRow> : categories.flatMap(([category, items]) => [
               <TableRow key={`category-${category}`} className="border-slate-800 bg-slate-950 hover:bg-slate-950"><TableCell colSpan={columnCount} className="py-3 font-bold text-white"><span className="mr-2 text-emerald-400">●</span>{category}<Badge className="ml-3 bg-white/15 text-white hover:bg-white/15">{items.length} items</Badge></TableCell></TableRow>,
@@ -329,7 +337,7 @@ export function InventoryOverview() {
                 const low = Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint);
                 const description = specificationText(record);
                 return <TableRow key={record.id} data-state={selectedIds.has(record.id) ? "selected" : undefined} className="align-top data-[state=selected]:bg-sky-50 hover:bg-slate-50/80">
-                  <TableCell className="py-5"><Checkbox aria-label={`Select ${record.name}`} checked={selectedIds.has(record.id)} onCheckedChange={(checked) => toggleSelected(record.id, checked === true)} /></TableCell>
+                  <TableCell className="py-5"><span className="inline-flex rounded-lg border bg-white p-1.5"><Checkbox disabled={!canSelectItems || loading} aria-label={`Select ${record.name}`} checked={selectedIds.has(record.id)} onCheckedChange={(checked) => toggleSelected(record.id, checked === true)} /></span></TableCell>
                   <TableCell className="min-w-0 py-4"><div className="flex flex-wrap items-center gap-2"><span className="break-words text-base font-bold text-blue-700 underline decoration-blue-300 underline-offset-2">{record.name}</span>{out ? <Badge className="bg-rose-500 text-white hover:bg-rose-500">Out of stock</Badge> : low ? <Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">Low stock</Badge> : null}<TooltipProvider>{record.inventories.map((inventory) => <Tooltip key={inventory.locationId}><TooltipTrigger asChild><Badge tabIndex={0} variant="outline" className="max-w-full cursor-help whitespace-normal border-sky-200 bg-sky-50 text-sky-800"><Warehouse className="mr-1 size-3 shrink-0" />{inventory.locationName}{inventory.locationCode ? ` · ${inventory.locationCode}` : ""}</Badge></TooltipTrigger><TooltipContent sideOffset={6}>Qty: {Number(inventory.quantity).toLocaleString()}</TooltipContent></Tooltip>)}</TooltipProvider></div>{description && <p className="mt-2 whitespace-normal break-words text-sm font-medium leading-5 text-slate-700">{description}</p>}<div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs"><span className="font-semibold text-slate-600">SKU: {record.sku}</span>{record.itemNumber && <span className="font-bold text-rose-600">#{record.itemNumber}</span>}</div></TableCell>
                   {showQuantity && <TableCell className={`py-4 text-right text-base font-black ${out ? "text-rose-600" : low ? "text-amber-600" : "text-slate-900"}`}>{Number(record.quantity).toLocaleString()}</TableCell>}
                   {showPrice && <TableCell className="py-4 text-right text-base font-black text-rose-600">{money(Number(record.salesPrice) * (includeVat ? 1.05 : 1), record.currency)}{includeVat && <span className="mt-1 block text-[11px] font-semibold text-emerald-600">VAT included</span>}</TableCell>}
