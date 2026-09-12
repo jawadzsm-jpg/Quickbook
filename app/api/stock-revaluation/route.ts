@@ -1,3 +1,4 @@
+import { skuWrite } from "@/lib/sku-locks";
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
@@ -15,7 +16,7 @@ export async function GET(request: Request) {
   return Response.json({ records, canEdit: isAdministrator(user) }, { headers: { "Cache-Control": "no-store" } });
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const user = await requireApiUser(request, false, true);
   if (user instanceof Response) return user;
   if (!isAdministrator(user)) return Response.json({ error: "Only administrators can revalue stock." }, { status: 403 });
@@ -56,3 +57,5 @@ export async function POST(request: Request) {
     });
   } catch { return Response.json({ error: "Could not save revaluation. Refresh and try again." }, { status: 500 }); }
 }
+
+export const POST = skuWrite("stock-revaluation", handlePOST);

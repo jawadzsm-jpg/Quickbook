@@ -378,3 +378,11 @@ export const salesInvoiceAllocations = pgTable("sales_invoice_allocations", {
   sourceLineId: integer("source_line_id").notNull().references(() => transactionLines.id, { onDelete: "restrict" }),
   quantity: doublePrecision("quantity").notNull(),
 }, (table) => [index("idx_sales_invoice_source_line").on(table.sourceLineId), uniqueIndex("idx_sales_invoice_pair").on(table.invoiceId, table.sourceLineId)]);
+
+// A SKU is exclusive only within its inventory; rows are renewed by active editors.
+export const skuWorkLocks = pgTable("sku_work_locks", {
+  lockKey: text("lock_key").primaryKey(),
+  userId: integer("user_id").notNull(),
+  token: text("token").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true, mode: "string" }).notNull(),
+}, (table) => [index("idx_sku_work_locks_expiry").on(table.expiresAt)]);

@@ -1,5 +1,6 @@
 "use client";
 
+import { useSkuLock, SkuLockNotice } from "./use-sku-lock";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { PaymentSalesRep } from "./payment-sales-rep";
@@ -536,6 +537,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   const activeEditorKind = editorKind ?? currentKind;
   const linkedInventoryDocument = activeEditorKind === "transactions" && ["bill", "invoice", "estimate", "sales order", "quotation"].includes(form.type);
   const documentLocationId = Number((form.type === "bill" ? form.billLocationId : form.transactionLocationId) || activeLocationId);
+  const skuLock = useSkuLock(dialogOpen && ["items", "transactions"].includes(activeEditorKind) ? { resource: "records", kind: activeEditorKind, companyId: activeCompanyId, locationId: activeEditorKind === "items" ? activeLocationId : documentLocationId, id: activeEditorKind === "items" ? editingItemId : editingRecordId, ...(activeEditorKind === "items" ? { sku: form.sku || "" } : { lines: lines.map((line) => ({ itemId: line.itemId })) }) } : null);
   const documentInventoryKey = `${activeCompanyId}:${documentLocationId}`;
   const documentInventoryReady = documentInventory.key === documentInventoryKey && !documentInventory.error;
   const documentItems = linkedInventoryDocument ? documentInventoryReady ? documentInventory.items : [] : records.items;
@@ -653,6 +655,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
 
   async function saveRecord(event: FormEvent) {
     event.preventDefault();
+    if (!skuLock.ready) return;
     const saveKind = activeEditorKind;
     if (linkedInventoryDocument && !documentInventoryReady) return toast.error("Wait for the selected inventory to load before saving.");
     if (saveKind === "contacts" && form.type === "customer") {
@@ -695,7 +698,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
         submittedLines = submittedLines.map((line) => ({ ...line, vatCode: "ZERO", vatRate: "0" }));
       }
       const selectedLocationId = saveKind === "transactions" && form.type === "bill" ? Number(form.billLocationId || activeLocationId) : saveKind === "transactions" ? Number(form.transactionLocationId || activeLocationId) : activeLocationId;
-      const response = await fetch("/api/records", { method: editing ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: saveKind, companyId: activeCompanyId, locationId: selectedLocationId, ...(editing ? { id: editingItem ? editingItemId : editingRecordId } : {}), ...form, ...(zeroVatPayment ? { vatRate: "0" } : {}), ...(saveKind === "transactions" ? { lines: submittedLines } : {}) }) });
+      const response = await fetch("/api/records", { method: editing ? "PATCH" : "POST", headers: { "Content-Type": "application/json", ...skuLock.headers }, body: JSON.stringify({ kind: saveKind, companyId: activeCompanyId, locationId: selectedLocationId, ...(editing ? { id: editingItem ? editingItemId : editingRecordId } : {}), ...form, ...(zeroVatPayment ? { vatRate: "0" } : {}), ...(saveKind === "transactions" ? { lines: submittedLines } : {}) }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not save record");
       setRecords((old) => ({ ...old, [saveKind]: editing ? old[saveKind].map((record) => record.id === data.record.id ? data.record : record) : [data.record, ...old[saveKind]] }));
@@ -914,13 +917,14 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
         <DialogContent showCloseButton={true} onInteractOutside={(event) => { if (["items", "transactions"].includes(activeEditorKind) || saving) event.preventDefault(); }} onEscapeKeyDown={(event) => { if (["items", "transactions"].includes(activeEditorKind) || saving) event.preventDefault(); }} data-record-kind={activeEditorKind} className={`max-h-[90vh] overflow-y-auto ${activeEditorKind === "transactions" || activeEditorKind === "items" || (activeEditorKind === "contacts" && view === "customers") ? "sm:max-w-5xl" : "sm:max-w-xl"}`}>
           <DialogHeader><DialogTitle>{editingItemId !== null && activeEditorKind === "items" ? "Edit Item" : editingRecordId !== null ? `Edit ${activeEditorKind === "transactions" ? form.type : activeEditorKind === "accounts" ? "Account" : form.type === "vendor" ? "Vendor" : "Customer"}` : editorLabel}</DialogTitle><DialogDescription>{editingItemId !== null && activeEditorKind === "items" ? "Update the category and item description details." : activeEditorKind === "transactions" && form.type === "bill" ? "Select the vendor and enter the bill items below." : "Enter the record details below. Required fields are marked."}</DialogDescription></DialogHeader>
           <form onSubmit={saveRecord} className="space-y-5">
+            <SkuLockNotice message={skuLock.message} /><fieldset disabled={!skuLock.ready} className="space-y-5">
             {linkedInventoryDocument && <p role="status" className="text-sm text-slate-500">{documentInventory.key === documentInventoryKey && documentInventory.error ? documentInventory.error : !documentInventoryReady ? "Loading inventory items…" : `${documentItems.length} items available in the selected inventory.`}</p>}
             {activeEditorKind === "transactions" && <TransactionFields form={form} setForm={updateDocumentForm} types={["sales", "customers", "vendors", "banking"].includes(view) ? [form.type] : transactionTypes[view] ?? transactionTypes.dashboard} items={documentItems} contacts={records.contacts} accounts={records.accounts} locations={activeLocations} lines={lines} setLines={setLines} vatCodeOptions={vatCodeOptions} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />}
             {activeEditorKind === "contacts" && editingRecordId === null && <ContactFields form={form} setForm={setForm} accounts={records.accounts} />}
             {editingRecordId !== null && ["contacts", "accounts"].includes(activeEditorKind) && <div className="grid gap-4 sm:grid-cols-2">{(activeEditorKind === "accounts" ? [["Account code", "code"], ["Account name", "name"]] : [["Name", "name"], ["Company", "company"], ["Billing name", "billingName"], ["Email", "email"], ["Phone", "phone"], ["WhatsApp", "whatsapp"], ["Country", "country"], ["TRN", "trn"], ["Reseller", "reseller"], ["Planet", "planet"], ["Passport", "passport"], ["Description", "description"]]).map(([label, name]) => <Field key={name} label={label} name={name} form={form} setForm={setForm} required={name === "name" || name === "code"} />)}<p className="text-xs text-slate-500 sm:col-span-2">Currency, balances and ledger links are preserved when editing these details.</p></div>}
             {activeEditorKind === "items" && <ItemFields form={form} setForm={setForm} items={records.items} />}
             {activeEditorKind === "accounts" && editingRecordId === null && <AccountFields form={form} setForm={setForm} accounts={records.accounts} />}
-            <DialogFooter><Button type="button" variant="outline" disabled={saving} onClick={() => { setDialogOpen(false); setEditingItemId(null); setEditingRecordId(null); setEditorKind(null); }}>Cancel</Button><Button type="submit" disabled={saving} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400">{saving ? "Saving…" : (editingRecordId !== null || editingItemId !== null && activeEditorKind === "items") ? "Save changes" : "Save record"}</Button></DialogFooter>
+            </fieldset><DialogFooter><Button type="button" variant="outline" disabled={saving} onClick={() => { setDialogOpen(false); setEditingItemId(null); setEditingRecordId(null); setEditorKind(null); }}>Cancel</Button><Button type="submit" disabled={saving || !skuLock.ready} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400">{saving ? "Saving…" : (editingRecordId !== null || editingItemId !== null && activeEditorKind === "items") ? "Save changes" : "Save record"}</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
@@ -1308,6 +1312,7 @@ function StockPriceEditor({ report, onSaved }: { report: ReportData; onSaved: ()
   const [sellingPrice, setSellingPrice] = useState("");
   const [grnPrice, setGrnPrice] = useState("");
   const [saving, setSaving] = useState(false);
+  const skuLock = useSkuLock(itemId ? { resource: "stock-pricing", itemId: Number(itemId) } : null);
   const row = report.rows.find((candidate) => String(candidate.itemId) === itemId);
   const selectItem = (value: string) => {
     setItemId(value);
@@ -1317,23 +1322,25 @@ function StockPriceEditor({ report, onSaved }: { report: ReportData; onSaved: ()
   };
   const save = async (event: FormEvent) => {
     event.preventDefault();
+    if (!skuLock.ready) return;
     if (!row || !sellingPrice.trim()) return;
     setSaving(true);
     try {
-      const response = await fetch("/api/stock-pricing", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId: report.companyId, itemId: Number(itemId), salesPrice: Number(sellingPrice), grnPrice: grnPrice.trim() === "" ? null : Number(grnPrice), expectedPrice: row.savedSellingPrice, expectedGrnPrice: row.savedGrnPrice === "" ? null : row.savedGrnPrice }) });
+      const response = await fetch("/api/stock-pricing", { method: "PATCH", headers: { "Content-Type": "application/json", ...skuLock.headers }, body: JSON.stringify({ companyId: report.companyId, itemId: Number(itemId), salesPrice: Number(sellingPrice), grnPrice: grnPrice.trim() === "" ? null : Number(grnPrice), expectedPrice: row.savedSellingPrice, expectedGrnPrice: row.savedGrnPrice === "" ? null : row.savedGrnPrice }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not save prices.");
       toast.success("Prices saved to this company's item.");
+      setItemId("");
       await onSaved();
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save prices."); }
     finally { setSaving(false); }
   };
   return <form onSubmit={save} className="rounded-xl border bg-slate-50 p-4 print:hidden">
-    <div className="grid items-end gap-4 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_auto]">
+    <SkuLockNotice message={skuLock.message} /><div className="grid items-end gap-4 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_auto]">
       <label className="grid gap-2 text-sm font-medium">Item<select className="h-10 min-w-0 rounded-md border bg-background px-3" value={itemId} onChange={(event) => selectItem(event.target.value)} disabled={saving} required><option value="">Select item</option>{report.rows.map((item) => <option key={String(item.itemId)} value={String(item.itemId)}>{item.inventory} · {item.sku} · {item.name}</option>)}</select></label>
-      <label className="grid gap-2 text-sm font-medium">Selling price / unit ({report.currency})<Input type="number" min="0" max="1000000000000" step="any" required disabled={!row || saving} value={sellingPrice} onChange={(event) => setSellingPrice(event.target.value)} /></label>
-      <label className="grid gap-2 text-sm font-medium">GRN price / unit ({report.currency})<Input type="number" min="0" max="1000000000000" step="any" placeholder="Use receipt cost" disabled={!row || saving} value={grnPrice} onChange={(event) => setGrnPrice(event.target.value)} /></label>
-      <Button type="submit" disabled={!row || saving}>{saving ? "Saving…" : "Save prices"}</Button>
+      <label className="grid gap-2 text-sm font-medium">Selling price / unit ({report.currency})<Input type="number" min="0" max="1000000000000" step="any" required disabled={!skuLock.ready || !row || saving} value={sellingPrice} onChange={(event) => setSellingPrice(event.target.value)} /></label>
+      <label className="grid gap-2 text-sm font-medium">GRN price / unit ({report.currency})<Input type="number" min="0" max="1000000000000" step="any" placeholder="Use receipt cost" disabled={!skuLock.ready || !row || saving} value={grnPrice} onChange={(event) => setGrnPrice(event.target.value)} /></label>
+      <Button type="submit" disabled={!skuLock.ready || !row || saving}>{saving ? "Saving…" : "Save prices"}</Button>
     </div>
     <p className="mt-3 text-xs text-slate-500">Prices are saved for the selected item and inventory in this company. Selling price is used for new sales. Leave GRN price blank to use receipt cost. These prices update the estimate without changing posted stock value.</p>
   </form>;

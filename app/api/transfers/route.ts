@@ -1,3 +1,4 @@
+import { skuWrite } from "@/lib/sku-locks";
 import { and, asc, desc, eq, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { getDb, withWriteTransaction } from "../../../db";
@@ -44,7 +45,7 @@ export async function GET(request: Request) {
 }
 
 // Edit one posted line without changing its product or inventory route.
-export async function PATCH(request: Request) {
+async function handlePATCH(request: Request) {
   const user = await requireApiUser(request, true, true);
   if (user instanceof Response) return user;
   if (!isAdministrator(user)) return Response.json({ error: "Only Administrator and All-Admin users can edit transfers." }, { status: 403 });
@@ -90,7 +91,7 @@ export async function PATCH(request: Request) {
   }
 }
 
-export async function DELETE(request: Request) {
+async function handleDELETE(request: Request) {
   const user = await requireApiUser(request, true, true);
   if (user instanceof Response) return user;
   if (!isAdministrator(user)) return Response.json({ error: "Only Administrator and All-Admin users can delete transfers." }, { status: 403 });
@@ -125,7 +126,7 @@ export async function DELETE(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const authorization = await requireApiUser(request, "inventory:transfer", true);
   if (authorization instanceof Response) return authorization;
   try {
@@ -196,3 +197,9 @@ export async function POST(request: Request) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
   }
 }
+
+export const POST = skuWrite("transfers", handlePOST);
+
+export const PATCH = skuWrite("transfers", handlePATCH);
+
+export const DELETE = skuWrite("transfers", handleDELETE);

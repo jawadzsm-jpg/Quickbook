@@ -1,3 +1,4 @@
+import { skuWrite } from "@/lib/sku-locks";
 import { and, asc, eq } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { items, companies, auditLog, inventoryLocations } from "@/db/schema";
@@ -17,7 +18,7 @@ export async function GET(request: Request) {
   return Response.json({ records, canEdit: true }, { headers: { "Cache-Control": "no-store" } });
 }
 
-export async function PATCH(request: Request) {
+async function handlePATCH(request: Request) {
   const user = await requireApiUser(request, false, true);
   if (user instanceof Response) return user;
   if (!isAdministrator(user)) return Response.json({ error: "Only administrators can change stock prices." }, { status: 403 });
@@ -47,3 +48,5 @@ export async function PATCH(request: Request) {
     });
   } catch (error) { return failureResponse(error, crypto.randomUUID(), "/api/stock-pricing"); }
 }
+
+export const PATCH = skuWrite("stock-pricing", handlePATCH);

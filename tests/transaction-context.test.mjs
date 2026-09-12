@@ -902,3 +902,69 @@ for (const sourceType of ['estimate', 'sales order']) test(`${sourceType} invoic
   assert.equal((await PATCH(request('PATCH',edited))).status,200);
   assert.equal((await DELETE(request('DELETE',{kind:'transactions',companyId,id:source.id}))).status,200);
 });
+
+test("SKU reservations exclude other users across workflows only in the same inventory, and release/expiry are enforced", async () => {
+  const company = (await database.query("INSERT INTO companies (name) VALUES ('SKU lock test') RETURNING id")).rows[0].id;
+  const location = async (code) => (await database.query("INSERT INTO inventory_locations (company_id,code,name,invoice_prefix) VALUES ($1,$2,$2,$2) RETURNING id", [company, code])).rows[0].id;
+  const main = await location('LOCK-MAIN'), other = await location('LOCK-OTHER');
+  const addItem = async (loc, sku) => (await database.query("INSERT INTO items (company_id,location_id,sku,name,quantity,cost,sales_price) VALUES ($1,$2,$3,$3,10,5,10) RETURNING id", [company, loc, sku])).rows[0].id;
+  const first = await addItem(main, 'SHARED-SKU'), second = await addItem(other, 'SHARED-SKU'), unrelated = await addItem(main, 'ANOTHER-SKU');
+  const lockApi = await vite.ssrLoadModule('/app/api/sku-locks/route.ts');
+  const pricing = await vite.ssrLoadModule('/app/api/stock-pricing/route.ts');
+  const records = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const transfers = await vite.ssrLoadModule('/app/api/transfers/route.ts');
+  const tokenA = '11111111-1111-4111-8111-111111111111', tokenB = '22222222-2222-4222-8222-222222222222';
+  const request = (path, method, payload, token) => new Request(`https://app.test/api/${path}`, { method, headers: { 'Content-Type': 'application/json', ...(token ? { 'X-SKU-Lock': token } : {}) }, body: JSON.stringify(payload) });
+  const reserve = (itemId, token, renew = false) => lockApi.POST(request('sku-locks', 'POST', { token, renew, input: { resource: 'records', kind: 'items', id: itemId } }));
+  const release = (token) => lockApi.DELETE(request('sku-locks', 'DELETE', { token }));
+  const price = (itemId, token) => pricing.PATCH(request('stock-pricing', 'PATCH', { companyId: company, itemId, salesPrice: 12, expectedPrice: 10, grnPrice: null, expectedGrnPrice: null }, token));
+  const user = (id, companyIds = [company], role = 'admin') => { globalThis.__transferTestUser = { id, role, companyIds, email: `user${id}@example.test` }; };
+  try {
+    user(1);
+    assert.equal((await reserve(first, tokenA)).status, 200);
+    assert.equal((await reserve(first, tokenA, true)).status, 200, 'owner heartbeat succeeds');
+    assert.equal((await lockApi.POST(request('sku-locks', 'POST', { token: tokenA, input: { resource: 'stock-pricing', records: [{ itemId: first }, { itemId: unrelated }] } }))).status, 200);
+    user(2);
+    assert.equal((await reserve(unrelated, tokenB)).status, 409, 'adding a selection preserves both reservations');
+    user(1);
+    assert.equal((await reserve(first, tokenA)).status, 200, 'removing a selection releases only that SKU');
+
+    user(2);
+    assert.equal((await reserve(first, tokenB)).status, 409);
+    assert.equal((await price(first)).status, 409, 'direct API save cannot bypass a lease');
+    assert.equal((await price(first, tokenA)).status, 409, 'another user cannot impersonate the owner token');
+    assert.equal((await records.DELETE(request('records', 'DELETE', { kind: 'items', id: first, companyId: company }))).status, 409);
+    assert.equal((await records.POST(request('records', 'POST', { kind: 'transactions', type: 'estimate', companyId: company, locationId: main, lines: [{ itemId: first, quantity: 1 }] }))).status, 409);
+    assert.equal((await transfers.POST(request('transfers', 'POST', { lines: [{ itemId: second, sourceLocationId: other, destinationLocationId: main, quantity: 1 }] }))).status, 409, 'destination SKU is protected');
+    assert.equal((await release(tokenA)).status, 200);
+    assert.equal((await reserve(first, tokenB)).status, 409, 'non-owner release changes nothing');
+    assert.equal((await reserve(second, tokenB)).status, 200, 'same SKU in a different inventory remains available');
+    assert.equal((await price(second, tokenB)).status, 200);
+    await release(tokenB);
+    assert.equal((await reserve(unrelated, tokenB)).status, 200, 'another SKU in same inventory remains available');
+    await release(tokenB);
+    const batch = await lockApi.POST(request('sku-locks', 'POST', { token: tokenB, input: { resource: 'stock-pricing', records: [{ itemId: unrelated }, { itemId: first }] } }));
+    assert.equal(batch.status, 409);
+    assert.equal((await database.query('SELECT * FROM sku_work_locks WHERE token=$1', [tokenB])).rows.length, 0, 'failed batch does not leave partial reservations');
+    user(3, []);
+    assert.equal((await reserve(first, tokenB)).status, 403);
+    user(3, [company], 'viewer');
+    assert.equal((await reserve(first, tokenB)).status, 403);
+    user(1);
+    assert.equal((await price(first, tokenA)).status, 200, 'owning editor can save');
+    await release(tokenA);
+    user(2);
+    assert.equal((await reserve(first, tokenB)).status, 200, 'Cancel releases the item for the next user');
+    await database.query("UPDATE sku_work_locks SET expires_at=now()-interval '1 second' WHERE token=$1", [tokenB]);
+    assert.equal((await reserve(first, tokenB, true)).status, 409, 'expired heartbeat cannot silently revive stale edits');
+    user(1);
+    assert.equal((await reserve(first, tokenA)).status, 200, 'abandoned lease can be reclaimed after expiry');
+    user(2);
+    assert.equal((await price(first, tokenB)).status, 409, 'stale editor cannot save after handover');
+    const result = (await database.query('SELECT quantity,sales_price FROM items WHERE id=$1', [first])).rows[0];
+    assert.deepEqual(result, { quantity: 10, sales_price: 12 });
+  } finally {
+    user(1); await release(tokenA); user(2); await release(tokenB);
+    delete globalThis.__transferTestUser;
+  }
+});

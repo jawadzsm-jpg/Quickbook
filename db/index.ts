@@ -25,6 +25,7 @@ class RejectedWrite extends Error {
 
 /** Keep dependent writes on one connection; error responses must also roll back. */
 export async function withWriteTransaction(work: () => Promise<Response>) {
+  if (transactionContext.getStore()) return work();
   if (process.env.COMNET_LOCAL_DB === "1") {
     try {
       return await getLocalDb().transaction(async (transaction) => transactionContext.run(transaction, async () => {

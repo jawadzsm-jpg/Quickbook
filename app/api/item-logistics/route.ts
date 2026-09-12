@@ -1,3 +1,4 @@
+import { skuWrite } from "@/lib/sku-locks";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
 import { auditLog, items } from "@/db/schema";
@@ -43,7 +44,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function PATCH(request: Request) {
+async function handlePATCH(request: Request) {
   try {
     const payload = await request.json() as Record<string, unknown>;
     const companyId = Number(payload.companyId);
@@ -70,3 +71,5 @@ export async function PATCH(request: Request) {
     return Response.json({ error: message }, { status: message.startsWith("Enter valid") ? 400 : 500 });
   }
 }
+
+export const PATCH = skuWrite("item-logistics", handlePATCH);

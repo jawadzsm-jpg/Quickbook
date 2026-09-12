@@ -1,3 +1,4 @@
+import { skuWrite } from "@/lib/sku-locks";
 import { refreshSalesSource, salesSourceLines, salesInventoryLines } from "@/lib/sales-invoicing";
 import { createHash } from "node:crypto";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
@@ -263,7 +264,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const payload = await request.clone().json();
   if (payload.kind === "transactions" && ["bill payment", "customer payment"].includes(payload.type)) return withWriteTransaction(() => saveNewRecord(request));
   return saveNewRecord(request);
@@ -689,7 +690,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
   }
 }
 
-export async function PATCH(request: Request) {
+async function handlePATCH(request: Request) {
   const authorization = await requireApiUser(request, false, true);
   if (authorization instanceof Response) return authorization;
   try {
@@ -880,7 +881,7 @@ function postingLines(type: string, account: string, party: string, subtotal: nu
   return [{ accountName: account || named("SUSPENSE", "Suspense"), debit: total, credit: 0 }, { accountName: named("EQUITY", "Opening Balance Equity"), debit: 0, credit: total }];
 }
 
-export async function DELETE(request: Request) {
+async function handleDELETE(request: Request) {
   const authorization = await requireApiUser(request, true, true);
   if (authorization instanceof Response) return authorization;
   try {
@@ -958,3 +959,9 @@ export async function DELETE(request: Request) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
   }
 }
+
+export const POST = skuWrite("records", handlePOST);
+
+export const PATCH = skuWrite("records", handlePATCH);
+
+export const DELETE = skuWrite("records", handleDELETE);
