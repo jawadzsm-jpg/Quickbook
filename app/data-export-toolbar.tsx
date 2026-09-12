@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { FileSpreadsheet, FileText, Table2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -33,8 +34,14 @@ function nearestTitle(table: HTMLTableElement, index: number) {
   return pageHeading ? cleanText(pageHeading.textContent ?? "") : `Table ${index + 1}`;
 }
 
+function activeDialog() {
+  return Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]')).filter(visible).at(-1) ?? null;
+}
+
 function extractVisibleTables(): ExportTable[] {
-  const tables = Array.from(document.querySelectorAll("table"))
+  // A modal export must never include tables from the page behind it.
+  const root = activeDialog() ?? document;
+  const tables = Array.from(root.querySelectorAll("table"))
     .filter((table): table is HTMLTableElement => table instanceof HTMLTableElement && visible(table));
 
   return tables.map((table, index) => {
@@ -158,9 +165,10 @@ function exportPdf(tables: ExportTable[]) {
 
 export function DataExportToolbar() {
   const [hasTables, setHasTables] = useState(false);
+  const [dialog, setDialog] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
-    const check = () => setHasTables(extractVisibleTables().length > 0);
+    const check = () => { setHasTables(extractVisibleTables().length > 0); setDialog(activeDialog()); };
     check();
     const observer = new MutationObserver(check);
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "class", "hidden"] });
@@ -184,10 +192,12 @@ export function DataExportToolbar() {
     }
   }
 
-  return <div className="fixed bottom-5 right-5 z-[80] flex flex-wrap items-center gap-2 rounded-xl border bg-background/95 p-2 shadow-lg backdrop-blur" aria-label="Export current report or transaction table">
+  const toolbar = <div className={`${dialog ? "sticky bottom-0 justify-end" : "fixed bottom-5 right-5 z-[80]"} flex flex-wrap items-center gap-2 rounded-xl border bg-background/95 p-2 shadow-lg backdrop-blur print:hidden`} aria-label="Export current report or transaction table">
     <span className="px-2 text-xs font-semibold text-muted-foreground">Export</span>
     <Button type="button" size="sm" variant="outline" className={buttonClass} onClick={() => run("excel")}><FileSpreadsheet className="size-4" />Excel</Button>
     <Button type="button" size="sm" variant="outline" className={buttonClass} onClick={() => run("pdf")}><FileText className="size-4" />PDF</Button>
     <Button type="button" size="sm" variant="outline" className={buttonClass} onClick={() => run("csv")}><Table2 className="size-4" />CSV</Button>
   </div>;
+  // Keep export controls inside the modal's focus and pointer boundary.
+  return dialog ? createPortal(toolbar, dialog) : toolbar;
 }
