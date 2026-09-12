@@ -282,3 +282,36 @@ button, input, select { font: inherit; }
   .transaction-line-description { grid-column: auto; }
   .transaction-line-remove { grid-column: auto; margin-top: 1.75rem; }
 }
+
+/* Reports share a fixed-width layout so full descriptions wrap inside the page. */
+.report-dialog > * { min-width: 0; }
+.report-table [data-slot="table-container"] { overflow: visible; }
+.report-table th,
+.report-table td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  vertical-align: top;
+  line-height: 1.5;
+}
+.report-table th { height: auto; padding-block: 0.75rem; }
+@media print {
+  body:has(.report-dialog) > :not([data-slot="dialog-content"]) { display: none !important; }
+  .report-dialog {
+    position: static !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    background: white !important;
+    color: black !important;
+  }
+  .report-dialog [data-export-slot] { display: none !important; }
+  .report-table { font-size: 9pt; }
+  .report-table table { font-size: inherit; }
+  .report-table thead { display: table-header-group; }
+  .report-table tr { break-inside: avoid; }
+}
