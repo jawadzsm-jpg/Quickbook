@@ -1,15 +1,16 @@
+import { refreshSalesSource, salesSourceLines, salesInventoryLines } from "@/lib/sales-invoicing";
 import { createHash } from "node:crypto";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "../../../db";
 import {
   accounts, auditLog, companySettings, contacts, inventoryLocations, inventoryMovements, items, journalEntries,
-  journalLines, transactionLines, transactions, vatCodes, invoicePaymentAllocations, purchaseReceiptAllocations,
+  journalLines, transactionLines, transactions, vatCodes, invoicePaymentAllocations, purchaseReceiptAllocations, salesInvoiceAllocations,
 } from "../../../db/schema";
 import { verifyAdminPin } from "../../../lib/admin-pin";
 import { canAccessCompany, isAdministrator, hasPermission, requireApiUser, type Permission, type SessionUser } from "@/lib/auth";
 
 type RecordKind = "transactions" | "contacts" | "items" | "accounts";
-type InputLine = { orderLineId?: number; itemId?: number | string | null; description?: string; quantity?: number | string; unitPrice?: number | string; unitCost?: number | string; vatCode?: string; vatRate?: number | string };
+type InputLine = { orderLineId?: number; sourceLineId?: number; itemId?: number | string | null; description?: string; quantity?: number | string; unitPrice?: number | string; unitCost?: number | string; vatCode?: string; vatRate?: number | string };
 
 function errorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : "Unexpected database error";
@@ -146,12 +147,24 @@ export async function GET(request: Request) {
   if (authorization instanceof Response) return authorization;
   try {
     const url = new URL(request.url);
-    const kind = url.searchParams.get("kind") as RecordKind | "vendor-history" | "unpaid-bills" | "unpaid-invoices" | "po-receiving" | null;
+    const kind = url.searchParams.get("kind") as RecordKind | "vendor-history" | "unpaid-bills" | "unpaid-invoices" | "po-receiving" | "sales-invoicing" | null;
     const id = Number(url.searchParams.get("id"));
     const companyId = Number(url.searchParams.get("companyId"));
     const locationId = Number(url.searchParams.get("locationId"));
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     const db = getDb();
+    if (kind === "sales-invoicing") {
+      if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
+      const sourceId = Number(url.searchParams.get("sourceId"));
+      if (!Number.isSafeInteger(sourceId) || sourceId <= 0) return Response.json({ error: "Select an estimate or sales order." }, { status: 400 });
+      const [source] = await db.select().from(transactions).where(and(eq(transactions.id, sourceId), eq(transactions.companyId, companyId), inArray(transactions.type, ["estimate", "sales order"])));
+      if (!source) return Response.json({ error: "Sales document not found." }, { status: 404 });
+      const locations = await db.select({ id: inventoryLocations.id, name: inventoryLocations.name }).from(inventoryLocations).where(eq(inventoryLocations.companyId, companyId)).orderBy(asc(inventoryLocations.name));
+      const selectedLocation = url.searchParams.has("locationId") ? locationId : source.locationId;
+      if (!locations.some((location) => location.id === selectedLocation)) return Response.json({ error: "Select an inventory in this company." }, { status: 400 });
+      const invoices = await db.select({ id: transactions.id, number: transactions.number, transactionDate: transactions.transactionDate, total: transactions.total, currency: transactions.currency, locationId: transactions.locationId }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.salesSourceId, sourceId))).orderBy(asc(transactions.id));
+      return Response.json({ source, locations, locationId: selectedLocation, lines: await salesInventoryLines(sourceId, companyId, selectedLocation!), invoices }, { headers: { "Cache-Control": "no-store" } });
+    }
     if (kind === "po-receiving") {
       if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
       const orderId = Number(url.searchParams.get("orderId"));
@@ -226,7 +239,7 @@ export async function GET(request: Request) {
       const journal = await db.select({
         accountName: journalLines.accountName, debit: journalLines.debit, credit: journalLines.credit,
       }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(eq(journalEntries.transactionId, id)).orderBy(asc(journalLines.id));
-      const [sourceDocument] = (record.sourceTransactionId || record.purchaseOrderId) ? await db.select({ number: transactions.number, type: transactions.type }).from(transactions).where(eq(transactions.id, (record.sourceTransactionId || record.purchaseOrderId)!)).limit(1) : [];
+      const [sourceDocument] = (record.sourceTransactionId || record.purchaseOrderId || record.salesSourceId) ? await db.select({ number: transactions.number, type: transactions.type }).from(transactions).where(eq(transactions.id, (record.sourceTransactionId || record.purchaseOrderId || record.salesSourceId)!)).limit(1) : [];
       const [convertedDocument] = record.convertedInvoiceId ? await db.select({ number: transactions.number, type: transactions.type }).from(transactions).where(eq(transactions.id, record.convertedInvoiceId)).limit(1) : [];
       const customerType = ["invoice", "quotation", "estimate", "sales order", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(record.type) ? "customer" : "vendor";
       const [partyContact] = await db.select().from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, customerType), eq(contacts.name, record.party))).limit(1);
@@ -386,6 +399,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const validSalesConversion = type === "invoice" && ["quotation", "estimate", "sales order"].includes(source?.type ?? "");
       const validPurchaseConversion = type === "bill" && source?.type === "purchase order";
       if (!source || (!validSalesConversion && !validPurchaseConversion)) return Response.json({ error: type === "bill" ? "Only a purchase order can be converted to a supplier bill." : "Only a quotation, estimate, or sales order can be converted to an invoice." }, { status: 400 });
+      if (validSalesConversion && (await salesSourceLines(source.id)).some((line) => line.invoiced > 0)) return Response.json({ error: "This document has partial invoices. Use Save Invoice for the remaining quantities." }, { status: 409 });
       if (validPurchaseConversion && (await purchaseReceiptLines(source.id)).some((line) => line.received > 0)) return Response.json({ error: "This PO has item receipts. Finish receiving on the same PO; do not convert the full PO to a stock-posting bill." }, { status: 409 });
       if (source.convertedInvoiceId || source.status === "converted") return Response.json({ error: "This document has already been converted." }, { status: 409 });
       if (source.locationId !== locationId) return Response.json({ error: "Create the new document from the same inventory as the source document." }, { status: 400 });
@@ -396,6 +410,37 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       payload.exchangeRate = source.exchangeRate;
       if (type === "invoice") payload.account = source.account;
       payload.memo = [source.memo, `Converted from ${source.type} ${source.number}`].filter(Boolean).join(" · ");
+    }
+    const salesSourceId = payload.salesSourceId ? Number(payload.salesSourceId) : null;
+    const salesAllocations: { sourceLineId: number; quantity: number }[] = [];
+    if (salesSourceId !== null) {
+      if (type !== "invoice" || replacing || payload.sourceTransactionId || !Number.isSafeInteger(salesSourceId) || salesSourceId <= 0) return Response.json({ error: "Select a valid source for this invoice." }, { status: 400 });
+      const [source] = await db.select().from(transactions).where(and(eq(transactions.id, salesSourceId), eq(transactions.companyId, companyId))).for("update");
+      if (!source || !["estimate", "sales order"].includes(source.type)) return Response.json({ error: "Select an estimate or sales order in this company." }, { status: 400 });
+      if (source.convertedInvoiceId || !["open", "draft", "pending", "overdue", "sent", "accepted", "approved", "partially invoiced"].includes(source.status)) return Response.json({ error: "This sales document is not open for invoicing." }, { status: 409 });
+      if (!Number.isSafeInteger(locationId) || locationId <= 0) return Response.json({ error: "Select an invoice inventory." }, { status: 400 });
+      const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId)));
+      if (!location) return Response.json({ error: "Select an inventory in this company." }, { status: 400 });
+      const date = String(payload.transactionDate ?? "");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0,10) !== date) return Response.json({ error: "Enter a valid invoice date." }, { status: 400 });
+      const sourceLines = await salesInventoryLines(source.id, companyId, locationId);
+      const ids = rawLines.map((line) => Number(line.sourceLineId));
+      if (!ids.length || new Set(ids).size !== ids.length) return Response.json({ error: "Select unique source lines to invoice." }, { status: 400 });
+      const rate = Number(source.exchangeRate);
+      if (!Number.isFinite(rate) || rate <= 0) return Response.json({ error: "Correct the source exchange rate before invoicing." }, { status: 400 });
+      const invoiceLines: InputLine[] = [];
+      for (const input of rawLines) {
+        const line = sourceLines.find((entry) => entry.id === Number(input.sourceLineId));
+        const quantity = Number(input.quantity);
+        if (!line || !Number.isFinite(quantity) || quantity <= 0 || quantity > line.remaining) return Response.json({ error: "Invoice a positive quantity no greater than the remaining quantity. Refresh the source document." }, { status: 409 });
+        if (line.itemId && !line.stockItemId) return Response.json({ error: "An ordered item is unavailable in this inventory. Choose another inventory or invoice other items." }, { status: 409 });
+        salesAllocations.push({ sourceLineId: line.id, quantity });
+        invoiceLines.push({ ...line, itemId: line.itemId ? line.stockItemId : null, quantity, unitCost: line.itemId ? line.homeCost / rate : line.unitCost });
+      }
+      rawLines = invoiceLines;
+      payload.party = source.party; payload.salesman = source.salesman; payload.currency = source.currency; payload.exchangeRate = source.exchangeRate;
+      payload.account = source.account; payload.status = "open"; payload.allowNegativeStock = false;
+      payload.memo = [source.memo, String(payload.memo ?? ""), `Invoiced from ${source.type} ${source.number}`].filter(Boolean).join(" · ");
     }
     const purchaseOrderId = payload.purchaseOrderId ? Number(payload.purchaseOrderId) : null;
     const receiptAllocations: { orderLineId: number; quantity: number }[] = [];
@@ -475,7 +520,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       for (const line of prepared) if (line.itemId) requestedByItem.set(line.itemId, (requestedByItem.get(line.itemId) ?? 0) + line.quantity);
       const itemIds = [...requestedByItem.keys()];
       if (itemIds.length) {
-        const available = await db.select({ id: items.id, sku: items.sku, name: items.name, quantity: items.quantity }).from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId), inArray(items.id, itemIds)));
+        const available = await db.select({ id: items.id, sku: items.sku, name: items.name, quantity: items.quantity }).from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId), inArray(items.id, itemIds))).orderBy(asc(items.id)).for("update");
         if (available.length !== itemIds.length) return Response.json({ error: "One or more selected items do not belong to this company inventory." }, { status: 400 });
         const wantsOverride = payload.allowNegativeStock === true || String(payload.allowNegativeStock) === "true";
         let overrideApproved = false;
@@ -581,7 +626,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     }
     if (linkedInvoiceIds.length && (total <= 0 || unallocated > 0)) return Response.json({ error: "Payment exceeds the selected invoices' remaining balance. Refresh the invoice list." }, { status: 409 });
     const values = {
-      companyId, locationId: Number.isInteger(locationId) ? locationId : null, number, type, party, billId, invoiceId, purchaseOrderId,
+      companyId, locationId: Number.isInteger(locationId) ? locationId : null, number, type, party, billId, invoiceId, purchaseOrderId, salesSourceId,
       salesman: String(payload.salesman ?? ""), isImport: payload.isImport === true || String(payload.isImport) === "true",
       transactionDate, dueDate: String(payload.dueDate ?? ""),
       account: String(payload.account ?? "Accounts Receivable"), status: String(payload.status ?? "open"), memo: String(payload.memo ?? ""),
@@ -591,6 +636,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const [record] = replacing
       ? await db.update(transactions).set(values).where(eq(transactions.id, replacing.id)).returning()
       : await db.insert(transactions).values(values).returning();
+    if (salesAllocations.length) await db.insert(salesInvoiceAllocations).values(salesAllocations.map((allocation) => ({ ...allocation, invoiceId: record.id })));
     if (receiptAllocations.length) await db.insert(purchaseReceiptAllocations).values(receiptAllocations.map((allocation) => ({ ...allocation, receiptId: record.id })));
     if (allocations.length) await db.insert(invoicePaymentAllocations).values(allocations.map((allocation) => ({ ...allocation, paymentId: record.id })));
     await db.insert(transactionLines).values(prepared.map((line) => ({ ...line, transactionId: record.id })));
@@ -636,6 +682,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     for (const id of linkedBillIds) await refreshBillStatus(id);
     for (const id of linkedInvoiceIds) await refreshInvoiceStatus(id);
     if (purchaseOrderId) await refreshPurchaseOrder(purchaseOrderId);
+    if (salesSourceId) await refreshSalesSource(salesSourceId);
     return Response.json({ record }, { status: replacing ? 200 : 201 });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
@@ -652,13 +699,15 @@ export async function PATCH(request: Request) {
     if (!Number.isInteger(id) || id <= 0 || !Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a valid record and company." }, { status: 400 });
     if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     if (payload.kind === "transactions") {
-      if (!isAdministrator(authorization)) return Response.json({ error: "Only All-Admin and Admin can edit purchases." }, { status: 403 });
+      if (!isAdministrator(authorization)) return Response.json({ error: "Only All-Admin and Admin can edit these documents." }, { status: 403 });
       return await withWriteTransaction(async () => {
         const db = getDb();
         const [existing] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId))).for("update");
         if (existing?.purchaseOrderId) return Response.json({ error: "Remove and recreate this linked receipt to change received quantities." }, { status: 409 });
         if (!existing) return Response.json({ error: "Purchase not found." }, { status: 404 });
-        if (!["bill", "purchase order", "item receipt", "received item bill", "expense", "bill payment", "vendor payment", "vendor credit"].includes(existing.type)) return Response.json({ error: "This document is not an editable purchase." }, { status: 400 });
+        if (!["estimate", "sales order", "bill", "purchase order", "item receipt", "received item bill", "expense", "bill payment", "vendor payment", "vendor credit"].includes(existing.type)) return Response.json({ error: "This document is not an editable purchase." }, { status: 400 });
+        const [salesChild] = await db.select({ id: transactions.id }).from(transactions).where(sql`${transactions.salesSourceId} = ${id} or ${transactions.sourceTransactionId} = ${id}`).limit(1);
+        if (salesChild) return Response.json({ error: "Remove linked invoices before editing or deleting this source document." }, { status: 409 });
         const [receipt] = await db.select({ id: transactions.id }).from(transactions).where(eq(transactions.purchaseOrderId, id)).limit(1);
         if (receipt) return Response.json({ error: "This purchase order has item receipts. Remove the receipts before editing or deleting the order." }, { status: 409 });
         const [allocated] = await db.select({ id: transactions.id }).from(transactions).where(sql`(${transactions.billId} = ${id} or ${transactions.invoiceId} = ${id})`).limit(1);
@@ -866,6 +915,8 @@ export async function DELETE(request: Request) {
       const db = getDb();
       const [record] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId))).for("update");
       if (record) {
+        const [salesChild] = await db.select({ id: transactions.id }).from(transactions).where(sql`${transactions.salesSourceId} = ${id} or ${transactions.sourceTransactionId} = ${id}`).limit(1);
+        if (salesChild) return Response.json({ error: "Remove linked invoices before editing or deleting this source document." }, { status: 409 });
         const [receipt] = await db.select({ id: transactions.id }).from(transactions).where(eq(transactions.purchaseOrderId, id)).limit(1);
         if (receipt) return Response.json({ error: "This purchase order has item receipts. Remove the receipts before editing or deleting the order." }, { status: 409 });
         const [allocated] = await db.select({ id: transactions.id }).from(transactions).where(sql`(${transactions.billId} = ${id} or ${transactions.invoiceId} = ${id})`).limit(1);
@@ -875,6 +926,7 @@ export async function DELETE(request: Request) {
         const invoiceIds = paymentAllocations.map((allocation) => allocation.invoiceId).sort((a, b) => a - b);
         if (invoiceIds.length) await db.select({ id: transactions.id }).from(transactions).where(inArray(transactions.id, invoiceIds)).orderBy(asc(transactions.id)).for("update");
         if (record.billId) await db.select({ id: transactions.id }).from(transactions).where(eq(transactions.id, record.billId)).for("update");
+        if (record.salesSourceId) await db.select({ id: transactions.id }).from(transactions).where(eq(transactions.id, record.salesSourceId)).for("update");
         if (record.purchaseOrderId) await db.select({ id: transactions.id }).from(transactions).where(eq(transactions.id, record.purchaseOrderId)).for("update");
         const movements = await db.select().from(inventoryMovements).where(eq(inventoryMovements.transactionId, id));
         const itemIds = [...new Set(movements.map((movement) => movement.itemId))].sort((a, b) => a - b);
@@ -891,6 +943,7 @@ export async function DELETE(request: Request) {
         await db.delete(transactions).where(eq(transactions.id, id));
         if (record.billId) await refreshBillStatus(record.billId);
         if (record.purchaseOrderId) await refreshPurchaseOrder(record.purchaseOrderId);
+        if (record.salesSourceId) await refreshSalesSource(record.salesSourceId);
         for (const invoiceId of invoiceIds) await refreshInvoiceStatus(invoiceId);
         if (["bill", "item receipt"].includes(record.type)) for (const item of stock) {
           const [latest] = await db.select({ price: transactionLines.unitPrice, rate: transactions.exchangeRate }).from(transactionLines).innerJoin(transactions, eq(transactionLines.transactionId, transactions.id)).where(and(eq(transactionLines.itemId, item.id), inArray(transactions.type, ["bill", "item receipt"]))).orderBy(desc(transactions.transactionDate), desc(transactions.id), desc(transactionLines.id)).limit(1);

@@ -254,13 +254,14 @@ export const transactions = pgTable("transactions", {
   exchangeRate: doublePrecision("exchange_rate").notNull().default(1),
   baseTotal: doublePrecision("base_total").notNull().default(0),
   billId: integer("bill_id"),
+  salesSourceId: integer("sales_source_id").references((): AnyPgColumn => transactions.id, { onDelete: "restrict" }),
   purchaseOrderId: integer("purchase_order_id").references((): AnyPgColumn => transactions.id, { onDelete: "restrict" }),
   invoiceId: integer("invoice_id"),
   paidAt: timestamp("paid_at", { withTimezone: true, mode: "string" }),
   sourceTransactionId: integer("source_transaction_id"),
   convertedInvoiceId: integer("converted_invoice_id"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
-}, (table) => [index("idx_transactions_purchase_order").on(table.purchaseOrderId), index("idx_transactions_invoice_id").on(table.invoiceId), index("idx_transactions_bill_id").on(table.billId), index("idx_transactions_company_date").on(table.companyId, table.transactionDate), index("idx_transactions_company_type_status").on(table.companyId, table.type, table.status), uniqueIndex("idx_transactions_source_conversion").on(table.sourceTransactionId)]);
+}, (table) => [index("idx_transactions_sales_source").on(table.salesSourceId), index("idx_transactions_purchase_order").on(table.purchaseOrderId), index("idx_transactions_invoice_id").on(table.invoiceId), index("idx_transactions_bill_id").on(table.billId), index("idx_transactions_company_date").on(table.companyId, table.transactionDate), index("idx_transactions_company_type_status").on(table.companyId, table.type, table.status), uniqueIndex("idx_transactions_source_conversion").on(table.sourceTransactionId)]);
 
 export const transactionLines = pgTable("transaction_lines", {
   id: serial("id").primaryKey(),
@@ -370,3 +371,10 @@ export const purchaseReceiptAllocations = pgTable("purchase_receipt_allocations"
   orderLineId: integer("order_line_id").notNull().references(() => transactionLines.id, { onDelete: "restrict" }),
   quantity: doublePrecision("quantity").notNull(),
 }, (table) => [index("idx_purchase_receipt_line").on(table.orderLineId), uniqueIndex("idx_purchase_receipt_pair").on(table.receiptId, table.orderLineId)]);
+
+export const salesInvoiceAllocations = pgTable("sales_invoice_allocations", {
+  id: serial("id").primaryKey(),
+  invoiceId: integer("invoice_id").notNull().references(() => transactions.id, { onDelete: "cascade" }),
+  sourceLineId: integer("source_line_id").notNull().references(() => transactionLines.id, { onDelete: "restrict" }),
+  quantity: doublePrecision("quantity").notNull(),
+}, (table) => [index("idx_sales_invoice_source_line").on(table.sourceLineId), uniqueIndex("idx_sales_invoice_pair").on(table.invoiceId, table.sourceLineId)]);
