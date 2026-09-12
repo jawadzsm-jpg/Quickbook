@@ -1,7 +1,7 @@
 import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { companies, inventoryLocations, items } from "../../../db/schema";
-import { requireApiUser } from "@/lib/auth";
+import { isAdministrator, requireApiUser } from "@/lib/auth";
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Could not load the inventory overview.";
@@ -38,7 +38,7 @@ export async function GET(request: Request) {
       .orderBy(asc(items.category), asc(items.name), asc(companies.name), asc(inventoryLocations.name))
       .limit(5000);
 
-    return Response.json({ records });
+    return Response.json({ records, canSelectItems: isAdministrator(authorization) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
   }
