@@ -102,12 +102,22 @@ export async function GET(request: Request) {
   if (authorization instanceof Response) return authorization;
   try {
     const url = new URL(request.url);
-    const kind = url.searchParams.get("kind") as RecordKind | "vendor-history" | null;
+    const kind = url.searchParams.get("kind") as RecordKind | "vendor-history" | "unpaid-bills" | null;
     const id = Number(url.searchParams.get("id"));
     const companyId = Number(url.searchParams.get("companyId"));
     const locationId = Number(url.searchParams.get("locationId"));
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     const db = getDb();
+    if (kind === "unpaid-bills") {
+      if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
+      const party = url.searchParams.get("party");
+      const currency = url.searchParams.get("currency");
+      if (!party || !currency || !Number.isSafeInteger(locationId) || locationId <= 0) return Response.json({ error: "Select a vendor, inventory and currency." }, { status: 400 });
+      const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId)));
+      if (!location) return Response.json({ error: "Inventory does not belong to this company." }, { status: 400 });
+      const records = await db.select({ id: transactions.id, number: transactions.number, transactionDate: transactions.transactionDate, dueDate: transactions.dueDate, status: transactions.status, total: transactions.total }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId), eq(transactions.party, party), eq(transactions.currency, currency), inArray(transactions.type, ["bill", "received item bill"]), inArray(transactions.status, ["open", "overdue", "pending", "partially paid"]))).orderBy(asc(transactions.transactionDate), asc(transactions.id));
+      return Response.json({ records }, { headers: { "Cache-Control": "no-store" } });
+    }
     if (kind === "vendor-history") {
       if (!isAdministrator(authorization) || !canAccessCompany(authorization, companyId)) return Response.json({ error: "Only company administrators can view vendor history." }, { status: 403 });
       const history = await db.select().from(auditLog).where(and(eq(auditLog.companyId, companyId), eq(auditLog.entityType, "vendor"))).orderBy(desc(auditLog.id)).limit(200);
