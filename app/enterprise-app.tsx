@@ -986,7 +986,7 @@ function WorkflowHome({ onNavigate, onWorkflow }: { onNavigate: (view: View) => 
     { label: "Company Setup", detail: "Logo, address, bank, and templates", icon: Settings, view: "company-setup" },
     { label: "Manage VAT", detail: "VAT codes and returns", icon: Percent, view: "vat-management" },
     { label: "Chart of Accounts", detail: "Manage ledger accounts", icon: BookOpen, view: "accounts" },
-    { label: "Items & Services", detail: "Products and stock", icon: Boxes, view: "inventory" },
+    { label: "Inventory Center", detail: "Products and stock", icon: Boxes, view: "inventory" },
     { label: "Add Item", detail: "Add and manage inventory items", icon: PackageSearch, view: "inventory" },
   ];
   const bankingActions: OverviewWorkflowAction[] = [
