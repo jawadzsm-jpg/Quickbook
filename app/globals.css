@@ -352,3 +352,9 @@ button, input, select { font: inherit; }
   .customer-statement .statement-totals strong { font-size: 11pt; }
   .customer-statement .statement-memo { break-inside: avoid; }
 }
+
+/* Keep destructive icons recognizable across user themes. */
+@media screen {
+  svg.lucide-trash-2, svg.lucide-trash2, svg.lucide-trash { color: #dc2626 !important; }
+  [data-appearance="dark"] :is(svg.lucide-trash-2, svg.lucide-trash2, svg.lucide-trash) { color: #f87171 !important; }
+}
