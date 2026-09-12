@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { getDb, withWriteTransaction } from "../../../db";
 import { auditLog, companies, contacts, inventoryLocations, items, stockTransfers } from "../../../db/schema";
@@ -17,9 +17,9 @@ export async function GET(request: Request) {
   try {
     const db = getDb();
     if (new URL(request.url).searchParams.get("catalog") === "1") {
-      const records = await db.select({ id: items.id, companyId: items.companyId, locationId: items.locationId, itemNumber: items.itemNumber, sku: items.sku, name: items.name, quantity: items.quantity }).from(items).where(gt(items.quantity, 0));
+      const records = await db.select({ id: items.id, companyId: items.companyId, locationId: items.locationId, itemNumber: items.itemNumber, sku: items.sku, name: items.name, quantity: items.quantity }).from(items);
       const salesmen = await db.select({ id: contacts.id, name: contacts.name, companyId: contacts.companyId }).from(contacts).where(eq(contacts.type, "employee"));
-      return Response.json({ records, salesmen });
+      return Response.json({ records: records.filter((item) => canAccessCompany(authorization, item.companyId)), salesmen }, { headers: { "Cache-Control": "no-store" } });
     }
     const sourceCompany = alias(companies, "source_company");
     const destinationCompany = alias(companies, "destination_company");
