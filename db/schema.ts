@@ -250,10 +250,11 @@ export const transactions = pgTable("transactions", {
   currency: text("currency").notNull().default("AED"),
   exchangeRate: doublePrecision("exchange_rate").notNull().default(1),
   baseTotal: doublePrecision("base_total").notNull().default(0),
+  billId: integer("bill_id"),
   sourceTransactionId: integer("source_transaction_id"),
   convertedInvoiceId: integer("converted_invoice_id"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
-}, (table) => [index("idx_transactions_company_date").on(table.companyId, table.transactionDate), index("idx_transactions_company_type_status").on(table.companyId, table.type, table.status), uniqueIndex("idx_transactions_source_conversion").on(table.sourceTransactionId)]);
+}, (table) => [index("idx_transactions_bill_id").on(table.billId), index("idx_transactions_company_date").on(table.companyId, table.transactionDate), index("idx_transactions_company_type_status").on(table.companyId, table.type, table.status), uniqueIndex("idx_transactions_source_conversion").on(table.sourceTransactionId)]);
 
 export const transactionLines = pgTable("transaction_lines", {
   id: serial("id").primaryKey(),

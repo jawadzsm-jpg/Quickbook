@@ -682,3 +682,33 @@ test('bill payments credit the selected currency bank and preserve the sales rep
   assert.deepEqual(lines, [{ account_name: 'Accounts Payable', debit: 367.5, credit: 0 }, { account_name: 'Selected USD Bank', debit: 0, credit: 367.5 }]);
   assert.equal((await database.query('SELECT balance FROM contacts WHERE company_id = $1', [companyId])).rows[0].balance, 0);
 });
+
+test('selected bill payments track partial balances, prevent overpayment and reverse on edit and delete', async () => {
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Bill allocation test') RETURNING id")).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'ALLOC', 'Allocation', 'ALLOC') RETURNING id", [companyId])).rows[0].id;
+  await database.query("INSERT INTO accounts (company_id, code, name, type, system_role, currency) VALUES ($1, 'BANK', 'Allocation Bank', 'Bank', 'BANK', 'USD'), ($1, 'AP', 'Allocation AP', 'Accounts Payable', 'AP', 'USD')", [companyId]);
+  await database.query("INSERT INTO contacts (company_id, type, name, currency, balance) VALUES ($1, 'vendor', 'Allocation Vendor', 'USD', 100)", [companyId]);
+  const billId = (await database.query("INSERT INTO transactions (company_id, location_id, number, type, party, transaction_date, total, base_total, currency, exchange_rate) VALUES ($1,$2,'ALLOC-BILL','bill','Allocation Vendor','2026-09-12',100,367.5,'USD',3.675) RETURNING id", [companyId, locationId])).rows[0].id;
+  const { POST, GET, PATCH, DELETE } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const request = (method, body) => new Request('https://app.test/api/records', { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const payload = (amount, changes = {}) => ({ kind: 'transactions', companyId, locationId, type: 'bill payment', billId, account: 'Allocation Bank', number: 'ALLOC-PAY', party: 'Allocation Vendor', currency: 'USD', exchangeRate: 3.675, transactionDate: '2026-09-12', lines: [{ description: 'Selected bill', quantity: 1, unitPrice: amount, unitCost: 0, vatCode: 'ZERO' }], ...changes });
+  const unpaid = async () => (await (await GET(new Request('https://app.test/api/records?' + new URLSearchParams({ kind:'unpaid-bills',companyId:String(companyId),locationId:String(locationId),party:'Allocation Vendor',currency:'USD' })))).json()).records;
+  const status = async () => (await database.query('SELECT status FROM transactions WHERE id=$1', [billId])).rows[0].status;
+  assert.equal((await POST(request('POST', payload(40, { party: 'Wrong Vendor' })))).status, 400);
+  const first = await POST(request('POST', payload(40))); assert.equal(first.status, 201);
+  const firstId = (await first.json()).record.id;
+  assert.equal(await status(), 'partially paid'); assert.equal((await unpaid())[0].remaining, 60);
+  assert.equal((await POST(request('POST', payload(61)))).status, 409);
+  assert.equal((await DELETE(request('DELETE', { kind:'transactions',companyId,id:billId }))).status, 409);
+  const second = await POST(request('POST', payload(60))); assert.equal(second.status, 201);
+  const secondId = (await second.json()).record.id;
+  assert.equal(await status(), 'paid'); assert.equal((await unpaid()).length, 0);
+  const detail = await (await GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${companyId}&id=${firstId}`))).json();
+  const edited = await PATCH(request('PATCH', payload(20, { id:firstId, revision:detail.revision }))); assert.equal(edited.status, 200);
+  assert.equal(await status(), 'partially paid'); assert.equal((await unpaid())[0].remaining, 20);
+  assert.equal((await DELETE(request('DELETE', { kind:'transactions',companyId,id:secondId }))).status, 200);
+  assert.equal((await unpaid())[0].remaining, 80);
+  assert.equal((await DELETE(request('DELETE', { kind:'transactions',companyId,id:firstId }))).status, 200);
+  assert.equal((await unpaid())[0].remaining, 100);
+  assert.equal((await database.query('SELECT balance FROM contacts WHERE company_id=$1', [companyId])).rows[0].balance, 100);
+});
