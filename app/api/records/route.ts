@@ -413,6 +413,11 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const [bank] = await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true), eq(accounts.name, String(payload.account ?? "")), sql`(${accounts.type} = 'Bank' OR ${accounts.systemRole} = 'BANK')`)).limit(1);
       if (!bank) return Response.json({ error: "Select an active bank account in this company for Deposit To." }, { status: 400 });
     }
+    if (type === "bill payment") {
+      const [bank] = await db.select().from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true), eq(accounts.name, String(payload.account ?? "")), eq(accounts.currency, currency), sql`(${accounts.type} = 'Bank' OR ${accounts.systemRole} = 'BANK')`)).limit(1);
+      if (!bank) return Response.json({ error: "Select an active Pay From bank in this company matching the payment currency." }, { status: 400 });
+      if (vatAmount !== 0) return Response.json({ error: "Bill payments must use zero VAT." }, { status: 400 });
+    }
     let chequeBankName = "";
     if (type === "cheque") {
       const bankId = Number(payload.bankAccountId);
@@ -650,7 +655,8 @@ function postingLines(type: string, account: string, party: string, subtotal: nu
     ...(vatAmount ? [{ accountName: named("INPUT_VAT", "Recoverable VAT"), debit: vatAmount, credit: 0 }] : []),
     { accountName: named("AP", "Accounts Payable"), debit: 0, credit: total },
   ];
-  if (["bill payment", "vendor payment"].includes(type)) return [{ accountName: named("AP", "Accounts Payable"), debit: total, credit: 0 }, { accountName: named("BANK", "Business Bank"), debit: 0, credit: total }];
+  if (type === "bill payment") return [{ accountName: named("AP", "Accounts Payable"), debit: total, credit: 0 }, { accountName: account, debit: 0, credit: total }];
+  if (type === "vendor payment") return [{ accountName: named("AP", "Accounts Payable"), debit: total, credit: 0 }, { accountName: named("BANK", "Business Bank"), debit: 0, credit: total }];
   if (["expense", "cheque"].includes(type)) return [
     { accountName: account || named("EXPENSE", "Operating Expenses"), debit: subtotal, credit: 0 },
     ...(vatAmount ? [{ accountName: named("INPUT_VAT", "Recoverable VAT"), debit: vatAmount, credit: 0 }] : []),
