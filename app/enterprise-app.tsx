@@ -987,7 +987,7 @@ function WorkflowHome({ onNavigate, onWorkflow }: { onNavigate: (view: View) => 
     { label: "Manage VAT", detail: "VAT codes and returns", icon: Percent, view: "vat-management" },
     { label: "Chart of Accounts", detail: "Manage ledger accounts", icon: BookOpen, view: "accounts" },
     { label: "Items & Services", detail: "Products and stock", icon: Boxes, view: "inventory" },
-    { label: "Adjust Stock", detail: "Review quantities on hand", icon: PackageSearch, view: "inventory" },
+    { label: "Add Item", detail: "Add and manage inventory items", icon: PackageSearch, view: "inventory" },
   ];
   const bankingActions: OverviewWorkflowAction[] = [
     { label: "Write Cheques", detail: "Pay by cheque", icon: WalletCards, view: "write-cheque", transaction: "cheque" },
