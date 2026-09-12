@@ -114,6 +114,8 @@ export const memorisedReports = pgTable("memorised_reports", {
   locationId: integer("location_id").references(() => inventoryLocations.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   reportKey: text("report_key").notNull(),
+  customer: text("customer").notNull().default(""),
+  statementDate: text("statement_date").notNull().default(""),
   category: text("category").notNull(),
   currency: text("currency").notNull().default("AED"),
   periodStart: text("period_start").notNull().default(""),

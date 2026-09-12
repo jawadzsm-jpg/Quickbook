@@ -183,6 +183,7 @@ export function DataExportToolbar() {
   if (!hasTables || !target) return null;
 
   function run(kind: "excel" | "pdf" | "csv") {
+    if (kind === "pdf" && activeDialog()?.classList.contains("customer-statement")) { window.print(); return; }
     const tables = extractVisibleTables();
     if (!tables.length) return toast.error("No report or transaction table is visible to export.");
     try {

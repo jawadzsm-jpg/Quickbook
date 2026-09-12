@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { PaymentSalesRep } from "./payment-sales-rep";
 import { PaidInvoiceStamp } from "./paid-invoice-stamp";
+import { StatementFilters, StatementHeading, type StatementData } from "./statement-layout";
 import { UnpaidInvoices } from "./unpaid-invoices";
 import { UnpaidBills } from "./unpaid-bills";
 import { LiveProfitLossSummary } from "./live-profit-loss-summary";
@@ -61,8 +62,8 @@ type LineForm = PricedInvoiceLine & { itemId: string; description: string; quant
 type InventoryLocation = { id: number; companyId: number; name: string; code: string; invoicePrefix: string; nextInvoiceNumber: number; receivable?: number; payable?: number };
 type CompanyWorkspace = { id: number; name: string; baseCurrency: string; locations: InventoryLocation[] };
 type CompanySetup = { id: number; name: string; baseCurrency: string; logoData: string; stampData: string; addressLine1: string; addressLine2: string; city: string; country: string; phone: string; email: string; trn: string; bankName: string; bankAccountName: string; bankAccountNumber: string; bankIban: string; bankSwift: string; bankCurrency: string; documentTemplate: "classic" | "modern" | "minimal"; documentColor: string };
-type ReportData = { key?: string; companyId?: number; canEditPrices?: boolean; title: string; description?: string; generatedAt: string; currency: string; columns: Array<{ key: string; label: string; type?: "money" }>; rows: Array<Record<string, string | number>>; chart?: { labelKey: string; incomeKey: string; expenseKey: string; incomeLabel?: string; expenseLabel?: string } };
-type MemorisedReportRecord = { id: number; companyId: number; locationId: number | null; name: string; reportKey: string; category: ReportCategory; currency: string; periodStart: string; periodEnd: string; updatedAt: string };
+type ReportData = { statement?: StatementData; key?: string; companyId?: number; canEditPrices?: boolean; title: string; description?: string; generatedAt: string; currency: string; columns: Array<{ key: string; label: string; type?: "money" }>; rows: Array<Record<string, string | number>>; chart?: { labelKey: string; incomeKey: string; expenseKey: string; incomeLabel?: string; expenseLabel?: string } };
+type MemorisedReportRecord = { customer?: string; statementDate?: string; id: number; companyId: number; locationId: number | null; name: string; reportKey: string; category: ReportCategory; currency: string; periodStart: string; periodEnd: string; updatedAt: string };
 type ReportContext = { key: string; locationId: number; currency: string; periodStart: string; periodEnd: string };
 type TransactionDetail = { record: DataRecord; lines: DataRecord[]; journal: DataRecord[]; partyContact?: DataRecord | null };
 
@@ -782,10 +783,10 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     setDialogOpen(true);
   }
 
-  async function openReport(key: string, period?: { start: string; end: string }, saved?: { locationId: number | null; currency: string }) {
+  async function openReport(key: string, period?: { start: string; end: string }, saved?: { locationId: number | null; currency: string; customer?: string; statementDate?: string }) {
     setReportLoading(true);
     try {
-      const periodQuery = period ? `&periodStart=${period.start}&periodEnd=${period.end}` : "";
+      const periodQuery = (period ? `&periodStart=${period.start}&periodEnd=${period.end}` : "") + `&customer=${encodeURIComponent(saved?.customer || "")}&statementDate=${encodeURIComponent(saved?.statementDate || "")}`;
       const reportLocationId = saved?.locationId ?? activeLocationId;
       const reportCurrency = saved?.currency || baseCurrency;
       const response = await fetch(`/api/reports?type=${key}&companyId=${activeCompanyId}&locationId=${reportLocationId}&currency=${reportCurrency}${periodQuery}`, { signal: AbortSignal.timeout(30000), cache: "no-store" });
@@ -803,7 +804,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     if (!definition) return toast.error("This report cannot be memorised.");
     setMemoriseSaving(true);
     try {
-      const response = await fetch("/api/memorised-reports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId: activeCompanyId, locationId: reportContext.locationId, name: definition[0], reportKey: reportContext.key, category: definition[2], currency: reportContext.currency, periodStart: reportContext.periodStart, periodEnd: reportContext.periodEnd }) });
+      const response = await fetch("/api/memorised-reports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId: activeCompanyId, locationId: reportContext.locationId, name: definition[0], reportKey: reportContext.key, category: definition[2], currency: reportContext.currency, periodStart: reportContext.periodStart, periodEnd: report?.statement?.to || reportContext.periodEnd, customer: report.statement?.customer || "", statementDate: report.statement?.statementDate || "" }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not memorise report");
       await loadMemorisedReports();
@@ -823,8 +824,8 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   }
 
   function openMemorisedReport(record: MemorisedReportRecord) {
-    const period = record.periodStart && record.periodEnd ? { start: record.periodStart, end: record.periodEnd } : undefined;
-    void openReport(record.reportKey, period, { locationId: record.locationId, currency: record.currency });
+    const period = record.periodStart || record.periodEnd ? { start: record.periodStart, end: record.periodEnd } : undefined;
+    void openReport(record.reportKey, period, { locationId: record.locationId, currency: record.currency, customer: record.customer, statementDate: record.statementDate });
   }
 
   const heading = viewTitles[view];
@@ -923,7 +924,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
         <DialogContent className="sm:max-w-3xl"><DialogHeader><DialogTitle>Select Inventory</DialogTitle><DialogDescription>Choose which company inventory will issue this invoice. Every company and inventory combination has its own invoice-number series.</DialogDescription></DialogHeader><div className="grid gap-3 py-3 sm:grid-cols-2 lg:grid-cols-3">{activeLocations.map((location) => <button type="button" key={location.id} onClick={() => startInvoice(location)} className="rounded-xl border-2 border-slate-200 bg-white p-5 text-left transition hover:border-emerald-400 hover:bg-emerald-50"><p className="font-semibold text-slate-900">{location.name}</p><p className="mt-2 font-mono text-xs text-slate-500">Next: {invoiceNumberPreview(activeCompanyId, location)}</p></button>)}</div>{activeLocations.length === 0 && <p className="rounded-lg bg-amber-50 p-4 text-sm text-amber-800">Add an inventory location before creating an invoice.</p>}</DialogContent>
       </Dialog>
       <DocumentDialog key={detail ? String(detail.record.id) : "closed-document"} detail={detail} companyName={activeCompany?.name ?? "Company"} baseCurrency={baseCurrency} setup={companySetup} canConvert={detail?.record.type === "purchase order" ? roleWriteViews[currentUser.role].includes("purchases") : roleWriteViews[currentUser.role].includes("sales")} onConvert={convertSourceDocument} onClose={() => setDetail(null)} />
-      <ReportDialog onPricesSaved={async () => { await openReport("stock-pricing-profit", undefined, reportContext ? { locationId: reportContext.locationId, currency: reportContext.currency } : undefined); await loadData(); }} report={report} companyName={activeCompany?.name ?? "Company"} memorised={Boolean(reportContext && memorisedReports.some((savedReport) => savedReport.reportKey === reportContext.key))} saving={memoriseSaving} onMemorise={saveMemorisedReport} onClose={() => setReport(null)} />
+      <ReportDialog setup={companySetup} loading={reportLoading} onStatementApply={(filters) => openReport("customer-statements", { start: filters.from, end: filters.to }, { locationId: reportContext?.locationId ?? activeLocationId, currency: filters.currency, customer: filters.customer, statementDate: filters.statementDate })} onPricesSaved={async () => { await openReport("stock-pricing-profit", undefined, reportContext ? { locationId: reportContext.locationId, currency: reportContext.currency } : undefined); await loadData(); }} report={report} companyName={activeCompany?.name ?? "Company"} memorised={Boolean(reportContext && memorisedReports.some((savedReport) => savedReport.reportKey === reportContext.key))} saving={memoriseSaving} onMemorise={saveMemorisedReport} onClose={() => setReport(null)} />
       <WorkspaceDialog open={workspaceOpen} companies={companies} activeCompanyId={activeCompanyId} onClose={() => setWorkspaceOpen(false)} onChanged={loadWorkspaces} />
       <Toaster richColors position="bottom-right" />
     </SidebarProvider>
@@ -1309,13 +1310,14 @@ function StockPriceEditor({ report, onSaved }: { report: ReportData; onSaved: ()
   </form>;
 }
 
-function ReportDialog({ onPricesSaved, report, companyName, memorised, saving, onMemorise, onClose }: { onPricesSaved: () => Promise<void>; report: ReportData | null; companyName: string; memorised: boolean; saving: boolean; onMemorise: () => void; onClose: () => void }) {
+function ReportDialog({ setup, loading, onStatementApply, onPricesSaved, report, companyName, memorised, saving, onMemorise, onClose }: { setup: CompanySetup; loading: boolean; onStatementApply: (filters: { customer: string; currency: string; statementDate: string; from: string; to: string }) => Promise<void>; onPricesSaved: () => Promise<void>; report: ReportData | null; companyName: string; memorised: boolean; saving: boolean; onMemorise: () => void; onClose: () => void }) {
   if (!report) return null;
   const columnWeights = report.columns.map((column) => /^(name|item|description|account|customer|supplier|vendor|party)$/.test(column.key) ? 3 : 1);
   const totalWeight = columnWeights.reduce((sum, weight) => sum + weight, 0);
   const chartMax = report.chart ? Math.max(1, ...report.rows.flatMap((row) => [Math.abs(Number(row[report.chart!.incomeKey] ?? 0)), Math.abs(Number(row[report.chart!.expenseKey] ?? 0))])) : 1;
-  return <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}><DialogContent className="report-dialog max-h-[92dvh] min-w-0 overflow-y-auto sm:max-w-[calc(100%-2rem)]">
+  return <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}><DialogContent className={`report-dialog ${report.statement ? "customer-statement" : ""} max-h-[92dvh] min-w-0 overflow-y-auto sm:max-w-[calc(100%-2rem)]`}>
     <DialogHeader><div className="flex flex-col gap-4 pr-8 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold tracking-[.18em] text-emerald-600">{companyName.toUpperCase()}</p><DialogTitle className="mt-2">{report.title}</DialogTitle><DialogDescription>Generated {new Date(report.generatedAt).toLocaleString("en-AE")} · {report.currency} accrual basis</DialogDescription></div><div className="flex flex-wrap gap-2"><Button variant={memorised ? "secondary" : "outline"} onClick={onMemorise} disabled={saving}><BookmarkPlus className="size-4" />{saving ? "Saving…" : memorised ? "Update Memorised" : "Memorise Report"}</Button><Button variant="outline" onClick={() => window.print()}><Printer className="size-4" />Print / PDF</Button></div></div></DialogHeader>
+    {report.statement && <><StatementFilters key={report.generatedAt} statement={report.statement} currency={report.currency} currencies={currencies} loading={loading} onApply={onStatementApply} /><StatementHeading statement={report.statement} currency={report.currency} company={setup} /></>}
     {report.key === "stock-pricing-profit" && report.canEditPrices && <StockPriceEditor key={`${report.companyId}-${report.generatedAt}`} report={report} onSaved={onPricesSaved} />}
     {report.description && <p className="rounded-lg border bg-slate-50 p-3 text-sm text-slate-600">{report.description}</p>}
     {report.chart && report.rows.length > 0 && <div className="rounded-xl border bg-slate-50 p-5"><div className="mb-4 flex gap-5 text-xs font-semibold"><span className="flex items-center gap-2"><span className="size-3 rounded-sm bg-emerald-500" />{report.chart.incomeLabel ?? "Income / Assets"}</span><span className="flex items-center gap-2"><span className="size-3 rounded-sm bg-amber-500" />{report.chart.expenseLabel ?? "Expenses / Liabilities"}</span></div><div className="grid min-h-56 grid-cols-6 items-end gap-3 md:grid-cols-12">{report.rows.slice(-12).map((row, index) => <div key={index} className="flex min-w-0 flex-col items-center gap-2"><div className="flex h-44 w-full items-end justify-center gap-1"><div className="w-1/2 rounded-t bg-emerald-500" style={{ height: `${Math.max(2, Math.abs(Number(row[report.chart!.incomeKey] ?? 0)) / chartMax * 100)}%` }} title={formatMoney(row[report.chart!.incomeKey], report.currency)} /><div className="w-1/2 rounded-t bg-amber-500" style={{ height: `${Math.max(2, Math.abs(Number(row[report.chart!.expenseKey] ?? 0)) / chartMax * 100)}%` }} title={formatMoney(row[report.chart!.expenseKey], report.currency)} /></div><span className="max-w-full truncate text-[11px] text-slate-500">{String(row[report.chart!.labelKey] ?? "")}</span></div>)}</div></div>}

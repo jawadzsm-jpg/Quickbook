@@ -364,16 +364,33 @@ export async function GET(request: Request) {
       rows = scopedTransactions.filter((row) => ["bill", "received item bill"].includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => { const age = row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0; return { supplier: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, status: row.status, age, amount: row.baseTotal }; });
       columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "No." }, { key: "status", label: "Status" }, { key: "age", label: "Days Overdue" }, { key: "amount", label: "Open Amount", ...money }];
     } else if (key === "customer-statements") {
-      title = "Customer Statements";
+      const selectedCurrency = url.searchParams.get("currency") || currency;
+      const customer = url.searchParams.get("customer") || "";
+      const statementDate = url.searchParams.get("statementDate") || new Date().toISOString().slice(0, 10);
+      const end = periodEnd || statementDate;
+      const validDate = (date: string) => /^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN(Date.parse(date)) && new Date(date).toISOString().slice(0, 10) === date;
+      if (!validDate(statementDate) || !validDate(end) || (periodStart && !validDate(periodStart)) || (periodStart && periodStart > end) || end > statementDate) return Response.json({ error: "Choose valid dates: From must be on or before To, and To on or before the statement date." }, { status: 400 });
+      if (!/^[A-Z]{3}$/.test(selectedCurrency)) return Response.json({ error: "Select a valid currency." }, { status: 400 });
+      const customers = allContacts.filter((contact) => contact.type === "customer");
+      if (customer && !customers.some((contact) => contact.name === customer)) return Response.json({ error: "Select a customer in this company." }, { status: 400 });
+      const activity = allTransactions.filter((row) => row.currency === selectedCurrency && (!customer || row.party === customer) && row.transactionDate <= end && ["invoice", "statement charge", "finance charge", "customer payment", "credit memo"].includes(row.type));
       const balances = new Map<string, number>();
-      rows = allTransactions.filter((row) => (!Number.isInteger(locationId) || locationId <= 0 || row.locationId === locationId) && ["invoice", "statement charge", "finance charge", "customer payment", "credit memo"].includes(row.type)).map((row) => {
-        const debit = ["invoice", "statement charge", "finance charge"].includes(row.type) ? row.baseTotal : 0;
-        const credit = ["customer payment", "credit memo"].includes(row.type) ? row.baseTotal : 0;
-        const balance = (balances.get(row.party) ?? 0) + debit - credit;
+      const round = (value: number) => Math.round(value * 100) / 100;
+      let opening = 0, charges = 0, credits = 0;
+      rows = [];
+      for (const row of activity) {
+        const debit = ["invoice", "statement charge", "finance charge"].includes(row.type) ? row.total : 0;
+        const credit = ["customer payment", "credit memo"].includes(row.type) ? row.total : 0;
+        const balance = round((balances.get(row.party) || 0) + debit - credit);
         balances.set(row.party, balance);
-        return { customer: row.party, date: row.transactionDate, number: row.number, type: row.type, debit, credit, balance };
-      });
-      columns = [{ key: "customer", label: "Customer" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Activity" }, { key: "debit", label: "Charge", ...money }, { key: "credit", label: "Payment / Credit", ...money }, { key: "balance", label: "Balance", ...money }];
+        if (periodStart && row.transactionDate < periodStart) { opening = round(opening + debit - credit); continue; }
+        charges = round(charges + debit); credits = round(credits + credit);
+        rows.push({ customer: row.party, date: row.transactionDate, number: row.number, type: row.type, debit, credit, balance });
+      }
+      columns = [{ key: "customer", label: "Customer" }, { key: "date", label: "Date" }, { key: "number", label: "Reference" }, { key: "type", label: "Activity" }, { key: "debit", label: "Charges", ...money }, { key: "credit", label: "Payments / Credits", ...money }, { key: "balance", label: "Balance", ...money }];
+      return Response.json({ report: { key, companyId, title: "Customer Statements", generatedAt: new Date().toISOString(), currency: selectedCurrency, columns, rows,
+        statement: { customer, statementDate, from: periodStart, to: end, opening, charges, credits, closing: round(opening + charges - credits), customers: customers.map((contact) => ({ name: contact.name, currency: contact.currency })) }
+      } }, { headers: { "Cache-Control": "no-store" } });
     } else if (key === "customer-balance-detail") {
       title = "Customer Balance Detail";
       const balances = new Map<string, number>();

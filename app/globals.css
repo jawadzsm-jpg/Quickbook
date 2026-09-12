@@ -315,3 +315,27 @@ button, input, select { font: inherit; }
   .report-table thead { display: table-header-group; }
   .report-table tr { break-inside: avoid; }
 }
+
+.statement-heading { background: #fff; color: #172b40; border: 1px solid #d7e1e7; padding: 24px; border-top: 5px solid #059669; border-radius: 8px; }
+.statement-brand, .statement-recipient { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 20px; }
+.statement-brand h2 { font-size: 20px; font-weight: 700; }
+.statement-brand p { font-size: 12px; margin-top: 4px; }
+.statement-document-title { text-align: right; }
+.statement-recipient { border-top: 1px solid #d7e1e7; margin-top: 20px; padding-top: 16px; }
+.statement-recipient span, .statement-totals span { display: block; font-size: 11px; color: #536578; text-transform: uppercase; letter-spacing: .06em; }
+.statement-recipient h3 { font-weight: 700; margin-top: 6px; }
+.statement-totals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 20px; }
+.statement-totals > div { background: #f1f5f8; padding: 12px; border-radius: 5px; }
+.statement-totals > div:last-child { background: #e5f6ef; }
+.statement-totals strong { display: block; margin-top: 6px; overflow-wrap: anywhere; font-size: 16px; }
+.statement-note { color: #536578; font-size: 11px; margin-top: 16px; }
+@media (max-width: 640px) { .statement-totals { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media print {
+  .customer-statement > [data-slot="dialog-header"], .customer-statement .statement-filters { display: none !important; }
+  .customer-statement, .customer-statement * { color: #172b40 !important; background-color: white !important; }
+  .customer-statement .statement-heading { border: 0; border-top: 4px solid #059669; padding: 0 0 16px; border-radius: 0; break-inside: avoid; }
+  .customer-statement .report-table { border: 0; border-radius: 0; }
+  .customer-statement .report-table th { background-color: #eaf2f5 !important; border-bottom: 2px solid #172b40; }
+  .customer-statement .report-table td { border-bottom: 1px solid #d7e1e7; padding: 8px 5px; }
+  .customer-statement .statement-totals { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}

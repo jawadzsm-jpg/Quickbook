@@ -139,3 +139,34 @@ test("reports reject inventory IDs outside the selected company", async () => {
   const response = await GET(new Request(`https://app.test/api/reports?type=profit-loss&companyId=${companyId}&locationId=999999`));
   assert.equal(response.status, 400);
 });
+
+test("customer statements filter native currency and customer, carry opening balances and validate dates", async () => {
+  const companyId = (await database.query("INSERT INTO companies(name) VALUES ('Statement test') RETURNING id")).rows[0].id;
+  await database.query("INSERT INTO contacts(company_id,type,name,currency) VALUES ($1,'customer','Statement Customer','USD'),($1,'customer','Other Customer','USD')", [companyId]);
+  const add = async (number, party, date, type, total, currency = 'USD') => database.query("INSERT INTO transactions(company_id,number,party,transaction_date,type,total,base_total,currency,exchange_rate) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,3.675)", [companyId,number,party,date,type,total,total*3.675,currency]);
+  await add('OPEN','Statement Customer','2026-08-31','invoice',100);
+  await add('INV','Statement Customer','2026-09-02','invoice',50);
+  await add('PAY','Statement Customer','2026-09-03','customer payment',30);
+  await add('LATE','Statement Customer','2026-09-20','invoice',500);
+  await add('AED','Statement Customer','2026-09-02','invoice',999,'AED');
+  await add('OTHER','Other Customer','2026-09-02','invoice',888);
+  const { GET } = await vite.ssrLoadModule('/app/api/reports/route.ts');
+  const query = {type:'customer-statements',companyId:String(companyId),currency:'USD',customer:'Statement Customer',statementDate:'2026-09-12',periodStart:'2026-09-01',periodEnd:'2026-09-12'};
+  const get = (changes = {}) => GET(new Request('https://app.test/api/reports?' + new URLSearchParams({...query,...changes})));
+  const response = await get(); assert.equal(response.status,200);
+  const {report} = await response.json();
+  assert.equal(report.currency,'USD');
+  assert.equal(report.statement.opening,100);
+  assert.equal(report.statement.charges,50);
+  assert.equal(report.statement.credits,30);
+  assert.equal(report.statement.closing,120);
+  assert.deepEqual(report.rows.map(row=>row.balance),[150,120]);
+  assert.equal((await get({customer:'Unknown'})).status,400);
+  assert.equal((await get({periodStart:'2026-09-13'})).status,400);
+  assert.equal((await get({periodEnd:'2026-09-20'})).status,400);
+  assert.equal((await get({statementDate:'2026-02-30'})).status,400);
+  const empty = await (await get({periodStart:'2026-09-10'})).json();
+  assert.equal(empty.report.rows.length,0);
+  assert.equal(empty.report.statement.opening,120);
+  assert.equal(empty.report.statement.closing,120);
+});
