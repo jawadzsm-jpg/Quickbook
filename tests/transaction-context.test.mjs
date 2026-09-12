@@ -743,3 +743,36 @@ test('selected customer payments track partial balances and timestamp full settl
   assert.equal((await unpaid())[0].remaining, 100);
   assert.equal((await database.query('SELECT balance FROM contacts WHERE company_id=$1', [companyId])).rows[0].balance, 100);
 });
+
+test('one customer payment allocates multiple invoices atomically and reverses every allocation', async () => {
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Multi invoice test') RETURNING id")).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'MULTI', 'Multi', 'MULTI') RETURNING id", [companyId])).rows[0].id;
+  await database.query("INSERT INTO accounts (company_id, code, name, type, system_role, currency) VALUES ($1, 'BANK', 'Multi Bank', 'Bank', 'BANK', 'USD'), ($1, 'AR', 'Multi AR', 'Accounts Receivable', 'AR', 'USD')", [companyId]);
+  await database.query("INSERT INTO contacts (company_id, type, name, currency, balance) VALUES ($1, 'customer', 'Multi Customer', 'USD', 300)", [companyId]);
+  const invoice = async (number, date, total) => (await database.query("INSERT INTO transactions (company_id, location_id, number, type, party, transaction_date, total, base_total, currency, exchange_rate) VALUES ($1,$2,$3,'invoice','Multi Customer',$4,$5,$5::double precision*3.675,'USD',3.675) RETURNING id", [companyId, locationId, number, date, total])).rows[0].id;
+  const newer = await invoice('NEWER', '2026-09-12', 200);
+  const older = await invoice('OLDER', '2026-09-11', 100);
+  const { POST, DELETE } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const request = (method, body) => new Request('https://app.test/api/records', { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const pay = (amount, ids = [newer, older]) => POST(request('POST', { kind:'transactions',companyId,locationId,type:'customer payment',invoiceIds:JSON.stringify(ids),account:'Multi Bank',number:'MULTI-PAY',party:'Multi Customer',currency:'USD',exchangeRate:3.675,transactionDate:'2026-09-12',lines:[{description:'Multiple invoices',quantity:1,unitPrice:amount,vatCode:'ZERO'}] }));
+  assert.equal((await pay(301)).status, 409);
+  assert.equal((await pay(100, [older, older])).status, 400);
+  assert.equal((await pay(100, [older, 999999])).status, 400);
+  assert.equal((await database.query('SELECT count(*)::int AS count FROM invoice_payment_allocations a JOIN transactions t ON t.id=a.payment_id WHERE t.company_id=$1', [companyId])).rows[0].count, 0);
+  const response = await pay(150); assert.equal(response.status, 201);
+  const paymentId = (await response.json()).record.id;
+  const allocations = (await database.query('SELECT invoice_id, amount FROM invoice_payment_allocations WHERE payment_id=$1 ORDER BY amount DESC', [paymentId])).rows;
+  assert.deepEqual(allocations, [{invoice_id:older,amount:100},{invoice_id:newer,amount:50}]);
+  const states = async () => (await database.query('SELECT id,status,paid_at FROM transactions WHERE id IN ($1,$2) ORDER BY id', [newer,older])).rows;
+  assert.equal((await states())[0].status, 'partially paid');
+  assert.equal((await states())[1].status, 'paid');
+  assert.ok((await states())[1].paid_at);
+  assert.equal((await DELETE(request('DELETE', {kind:'transactions',companyId,id:older}))).status, 409);
+  const full = await pay(150, [newer]); assert.equal(full.status, 201);
+  const fullId = (await full.json()).record.id;
+  assert.equal((await states())[0].status, 'paid');
+  assert.equal((await DELETE(request('DELETE', {kind:'transactions',companyId,id:paymentId}))).status, 200);
+  assert.ok((await states()).every((row) => row.status !== 'paid' && row.paid_at === null));
+  assert.equal((await database.query('SELECT balance FROM contacts WHERE company_id=$1', [companyId])).rows[0].balance, 150);
+  assert.equal((await DELETE(request('DELETE', {kind:'transactions',companyId,id:fullId}))).status, 200);
+});

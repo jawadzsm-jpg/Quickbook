@@ -352,3 +352,10 @@ export const auditLog = pgTable("audit_log", {
   details: text("details").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 }, (table) => [index("idx_audit_entity").on(table.entityType, table.entityId)]);
+
+export const invoicePaymentAllocations = pgTable("invoice_payment_allocations", {
+  id: serial("id").primaryKey(),
+  paymentId: integer("payment_id").notNull().references(() => transactions.id, { onDelete: "cascade" }),
+  invoiceId: integer("invoice_id").notNull().references(() => transactions.id, { onDelete: "restrict" }),
+  amount: doublePrecision("amount").notNull(),
+}, (table) => [uniqueIndex("idx_invoice_payment_pair").on(table.paymentId, table.invoiceId), index("idx_invoice_allocation_invoice").on(table.invoiceId)]);
