@@ -1,3 +1,4 @@
+import { PaidInvoiceStamp } from "./paid-invoice-stamp";
 import Image from "next/image";
 
 type RecordData = Record<string, string | number | boolean>;
@@ -36,6 +37,7 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, sho
       <h2 className="sd-title"><span lang="ar" dir="rtl">{arabic}</span><br />{title}</h2>
       {comnet ? <div className="sd-arabic-brand" lang="ar" dir="rtl">كومنيت<small>انترناشيونال ذ م م</small></div> : <div />}
     </div>
+    {record.type === "invoice" && !isProposal && <PaidInvoiceStamp status={String(record.status)} paidAt={record.paidAt ? String(record.paidAt) : null} />}
     <div className="sd-parties"><div>{showBillingName && <><h3>Customer: <span lang="ar" dir="rtl">العميل</span></h3><p>{String(contact?.billingName || contact?.company || record.party)}</p>{contact?.trn && <p>TRN: {String(contact.trn)}</p>}{contact?.phone && <p>{String(contact.phone)}</p>}</>}</div><div className="sd-delivery">{showShipping && <><h3>Delivery Address: <span lang="ar" dir="rtl">عنوان التسليم</span></h3><p>{String(record.deliveryAddress || contact?.deliveryAddress || contact?.shippingAddress || "")}</p></>}</div></div>
     <div className="sd-meta">{metadata.map(([label, value]) => <div key={String(label)}><b>{label}</b>{value}</div>)}</div>
     <table className="sd-items"><colgroup><col style={{ width: "73%" }} /><col style={{ width: "5%" }} /><col style={{ width: "6%" }} /><col style={{ width: "6%" }} /><col style={{ width: "6%" }} /><col style={{ width: "4%" }} /></colgroup><thead><tr><th>Description</th><th>Qty</th><th>Rate</th><th>Inc. VAT</th><th>Sub Total</th><th>VAT</th></tr></thead><tbody>{lines.map((line, index) => <tr key={String(line.id || index)}><td>{String(line.description || "")}{line.sku ? <small>{String(line.sku)}</small> : null}{showHsCode && <div className="sd-extra">HS Code: {String(line.hsCode || "—")} · COO: {String(line.countryOfOrigin || "—")}</div>}{showDimensions && <div className="sd-extra">Dimensions: {String(line.dimensionText || "—")} · Weight: {String(line.weightKg || "—")} kg</div>}</td><td>{line.quantity}</td><td>{money(line.unitPrice)}</td><td>{money(Number(line.quantity) ? Number(line.total) / Number(line.quantity) : 0)}</td><td>{money(line.subtotal)}</td><td>{money(line.vatAmount)}<small>{Number(line.vatRate || 0)}%</small></td></tr>)}</tbody></table>
