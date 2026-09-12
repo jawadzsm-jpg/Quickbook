@@ -813,3 +813,35 @@ test('partial PO receipts retain remaining quantities, block overreceipt and rev
   assert.equal((await read()).order.status,'open');
   assert.equal((await read()).lines[0].remaining,50);
 });
+
+test('PO receipts target selected inventory, reuse SKU and reverse only destination stock', async () => {
+  const companyId = (await database.query("INSERT INTO companies(name) VALUES ('Receipt destinations') RETURNING id")).rows[0].id;
+  const otherCompany = (await database.query("INSERT INTO companies(name) VALUES ('Other receipt company') RETURNING id")).rows[0].id;
+  const location = async (company, code) => (await database.query('INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES ($1,$2,$2,$2) RETURNING id',[company,code])).rows[0].id;
+  const source = await location(companyId,'PO-SRC'); const destination = await location(companyId,'PO-DST'); const foreign = await location(otherCompany,'PO-OTHER');
+  const itemId = (await database.query("INSERT INTO items(company_id,location_id,sku,item_number,name,quantity,cost,hs_code) VALUES ($1,$2,'PO-DEST-SKU','PO-DEST-NO','Laptop',5,20,'847130') RETURNING id",[companyId,source])).rows[0].id;
+  const { POST, GET, DELETE } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const request = (method, body) => new Request('https://app.test/api/records',{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const base = {kind:'transactions',companyId,locationId:source,party:'Destination vendor',currency:'USD',exchangeRate:3.675,transactionDate:'2026-09-12'};
+  const poResponse = await POST(request('POST',{...base,type:'purchase order',number:'PO-DEST',lines:[{itemId,description:'Laptop',quantity:10,unitPrice:100,unitCost:20,vatCode:'ZERO'}]}));
+  assert.equal(poResponse.status,201); const po = (await poResponse.json()).record;
+  const read = async () => (await (await GET(new Request('https://app.test/api/records?kind=po-receiving&companyId='+companyId+'&orderId='+po.id))).json());
+  const data = await read(); const orderLineId = data.lines[0].id;
+  assert.deepEqual(data.locations.map(l=>l.id).sort((a,b)=>a-b),[source,destination].sort((a,b)=>a-b));
+  const receive = (locationId, quantity) => POST(request('POST',{...base,type:'item receipt',purchaseOrderId:po.id,locationId,lines:[{orderLineId,quantity}]}));
+  assert.equal((await receive(foreign,3)).status,400);
+  assert.equal((await receive(0,3)).status,400);
+  const first = await receive(destination,3); assert.equal(first.status,201); const firstRecord=(await first.json()).record;
+  assert.equal(firstRecord.locationId,destination);
+  const stock = async () => (await database.query('SELECT id,location_id,quantity,sku,hs_code,last_purchase_price FROM items WHERE company_id=$1 ORDER BY location_id',[companyId])).rows;
+  let rows=await stock(); assert.equal(rows.length,2); assert.equal(rows.find(r=>r.location_id===source).quantity,5); assert.equal(rows.find(r=>r.location_id===destination).quantity,3); assert.equal(rows.find(r=>r.location_id===destination).hs_code,'847130'); assert.equal(rows.find(r=>r.location_id===destination).last_purchase_price,367.5);
+  assert.equal((await database.query('SELECT location_id FROM journal_entries WHERE transaction_id=$1',[firstRecord.id])).rows[0].location_id,destination);
+  assert.equal((await receive(destination,8)).status,409);
+  const second = await receive(destination,2); assert.equal(second.status,201);
+  assert.equal((await receive(source,5)).status,201);
+  assert.equal((await read()).order.status,'received');
+  rows=await stock(); assert.equal(rows.length,2); assert.equal(rows.find(r=>r.location_id===destination).quantity,5); assert.equal(rows.find(r=>r.location_id===source).quantity,10);
+  assert.equal((await DELETE(request('DELETE',{kind:'transactions',companyId,id:firstRecord.id}))).status,200);
+  assert.equal((await read()).lines[0].remaining,3); assert.equal((await read()).order.status,'partially received');
+  rows=await stock(); assert.equal(rows.find(r=>r.location_id===destination).quantity,2); assert.equal(rows.find(r=>r.location_id===source).quantity,10);
+});

@@ -158,7 +158,8 @@ export async function GET(request: Request) {
       if (!Number.isSafeInteger(orderId) || orderId <= 0) return Response.json({ error: "Select a purchase order." }, { status: 400 });
       const [order] = await db.select().from(transactions).where(and(eq(transactions.id, orderId), eq(transactions.companyId, companyId), eq(transactions.type, "purchase order")));
       if (!order) return Response.json({ error: "Purchase order not found." }, { status: 404 });
-      return Response.json({ order, lines: await purchaseReceiptLines(orderId) }, { headers: { "Cache-Control": "no-store" } });
+      const locations = await db.select({ id: inventoryLocations.id, name: inventoryLocations.name }).from(inventoryLocations).where(eq(inventoryLocations.companyId, companyId)).orderBy(asc(inventoryLocations.name));
+      return Response.json({ order, locations, lines: await purchaseReceiptLines(orderId) }, { headers: { "Cache-Control": "no-store" } });
     }
     if (kind === "unpaid-bills") {
       if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
@@ -401,7 +402,10 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     if (purchaseOrderId !== null) {
       if (type !== "item receipt" || replacing || !Number.isSafeInteger(purchaseOrderId) || purchaseOrderId <= 0) return Response.json({ error: "Select a valid purchase order for this item receipt." }, { status: 400 });
       const [order] = await db.select().from(transactions).where(and(eq(transactions.id, purchaseOrderId), eq(transactions.companyId, companyId))).for("update");
-      if (!order || order.type !== "purchase order" || order.locationId !== locationId) return Response.json({ error: "Select a purchase order from this company and inventory." }, { status: 400 });
+      if (!order || order.type !== "purchase order") return Response.json({ error: "Select a purchase order from this company." }, { status: 400 });
+      if (!Number.isSafeInteger(locationId) || locationId <= 0) return Response.json({ error: "Select a receiving inventory." }, { status: 400 });
+      const [receivingLocation] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId)));
+      if (!receivingLocation) return Response.json({ error: "Select a receiving inventory from this company." }, { status: 400 });
       if (order.convertedInvoiceId || !["open", "pending", "overdue", "partially received"].includes(order.status)) return Response.json({ error: "This purchase order is not open for receiving." }, { status: 409 });
       const orderLines = await purchaseReceiptLines(order.id);
       const ids = rawLines.map((line) => Number(line.orderLineId));
@@ -412,7 +416,16 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
         const quantity = Number(input.quantity);
         if (!line || !Number.isFinite(quantity) || quantity <= 0 || quantity > line.remaining) return Response.json({ error: "Receive a positive quantity no greater than the remaining PO quantity. Refresh the purchase order." }, { status: 409 });
         receiptAllocations.push({ orderLineId: line.id, quantity });
-        receivedLines.push({ ...line, quantity });
+        let receiptItemId = line.itemId;
+        if (line.itemId && order.locationId !== locationId) {
+          const [sourceItem] = await db.select().from(items).where(and(eq(items.id, line.itemId), eq(items.companyId, companyId), eq(items.locationId, order.locationId!)));
+          if (!sourceItem) return Response.json({ error: "The ordered item is no longer available in the PO inventory." }, { status: 409 });
+          await db.insert(items).values({ ...sourceItem, id: undefined, createdAt: undefined, locationId, quantity: 0 }).onConflictDoNothing({ target: [items.companyId, items.locationId, items.sku] });
+          const [destinationItem] = await db.select({ id: items.id }).from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId), eq(items.sku, sourceItem.sku)));
+          if (!destinationItem) throw new Error("Could not prepare the item in the receiving inventory.");
+          receiptItemId = destinationItem.id;
+        }
+        receivedLines.push({ ...line, itemId: receiptItemId, quantity });
       }
       rawLines = receivedLines;
       payload.party = order.party; payload.currency = order.currency; payload.exchangeRate = order.exchangeRate;
