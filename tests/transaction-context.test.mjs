@@ -374,6 +374,21 @@ test('cheques credit the chosen currency bank and debit the selected AP or expen
     assert.deepEqual(journal, [{ account_name: account, debit: 367.5, credit: 0 }, { account_name: 'Cheque USD Bank', debit: 0, credit: 367.5 }]);
   }
   assert.equal((await database.query('SELECT balance FROM contacts WHERE company_id=$1', [companyId])).rows[0].balance, 400);
+  const { GET, DELETE } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const locationId = (await database.query("INSERT INTO inventory_locations (company_id,name,code,invoice_prefix) VALUES ($1,'Cheque stock','CHQ','CHQ-INV') RETURNING id", [companyId])).rows[0].id;
+  const billId = (await database.query("INSERT INTO transactions (company_id,location_id,type,number,party,account,total,subtotal,currency,exchange_rate,transaction_date,status) VALUES ($1,$2,'bill','CHQ-BILL','Cheque Supplier','Cheque USD AP',200,200,'USD',3.675,'2026-09-11','open') RETURNING id", [companyId,locationId])).rows[0].id;
+  const state = async () => (await database.query('SELECT status FROM transactions WHERE id=$1',[billId])).rows[0].status;
+  const unpaid = async () => (await (await GET(new Request(`https://app.test/api/records?kind=unpaid-bills&companyId=${companyId}&locationId=${locationId}&party=Cheque%20Supplier&currency=USD`))).json()).records;
+  assert.equal((await pay({billId,locationId,account:'Cheque Expense'})).status,400);
+  const partial = await pay({billId,locationId}); assert.equal(partial.status,201);
+  const partialId = (await partial.json()).record.id;
+  assert.equal(await state(),'partially paid'); assert.equal((await unpaid())[0].remaining,100);
+  assert.equal((await pay({billId,locationId,lines:[{description:'Overpayment',quantity:1,unitPrice:101,vatCode:'ZERO'}]})).status,409);
+  const final = await pay({billId,locationId}); assert.equal(final.status,201);
+  const finalId = (await final.json()).record.id;
+  assert.equal(await state(),'paid'); assert.equal((await unpaid()).length,0);
+  for (const id of [finalId,partialId]) assert.equal((await DELETE(new Request('https://app.test/api/records',{method:'DELETE',headers:{'content-type':'application/json'},body:JSON.stringify({kind:'transactions',companyId,id})}))).status,200);
+  assert.equal((await unpaid())[0].remaining,200);
   await database.query('UPDATE accounts SET active=false WHERE id=$1', [bankAccountId]);
   assert.equal((await pay()).status, 400);
 });

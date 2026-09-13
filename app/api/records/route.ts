@@ -209,9 +209,9 @@ export async function GET(request: Request) {
       const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId)));
       if (!location) return Response.json({ error: "Inventory does not belong to this company." }, { status: 400 });
       const paymentId = Number(url.searchParams.get("paymentId")) || 0;
-      const [editingPayment] = paymentId ? await db.select().from(transactions).where(and(eq(transactions.id, paymentId), eq(transactions.companyId, companyId), eq(transactions.type, "bill payment"))) : [];
+      const [editingPayment] = paymentId ? await db.select().from(transactions).where(and(eq(transactions.id, paymentId), eq(transactions.companyId, companyId), inArray(transactions.type, ["bill payment", "cheque"]))) : [];
       const bills = await db.select({ id: transactions.id, number: transactions.number, transactionDate: transactions.transactionDate, dueDate: transactions.dueDate, status: transactions.status, total: transactions.total }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId), eq(transactions.party, party), eq(transactions.currency, currency), inArray(transactions.type, ["bill", "received item bill"]), sql`(${transactions.status} in ('open', 'overdue', 'pending', 'partially paid') or ${transactions.id} = ${editingPayment?.billId ?? 0})`)).orderBy(asc(transactions.transactionDate), asc(transactions.id));
-      const payments = await db.select({ billId: transactions.billId, total: transactions.total }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.type, "bill payment"), sql`${transactions.id} <> ${editingPayment?.id ?? 0}`));
+      const payments = await db.select({ billId: transactions.billId, total: transactions.total }).from(transactions).where(and(eq(transactions.companyId, companyId), inArray(transactions.type, ["bill payment", "cheque"]), sql`${transactions.id} <> ${editingPayment?.id ?? 0}`));
       const records = bills.map((bill) => { const paid = round(payments.filter((payment) => payment.billId === bill.id).reduce((sum, payment) => sum + payment.total, 0)); return { ...bill, paid, remaining: round(bill.total - paid) }; }).filter((bill) => bill.remaining > 0);
 
       return Response.json({ records }, { headers: { "Cache-Control": "no-store" } });
@@ -292,7 +292,7 @@ export async function GET(request: Request) {
 
 async function handlePOST(request: Request) {
   const payload = await request.clone().json();
-  if (payload.kind === "transactions" && ["bill payment", "customer payment"].includes(payload.type)) return withWriteTransaction(() => saveNewRecord(request));
+  if (payload.kind === "transactions" && ["bill payment", "customer payment", "cheque"].includes(payload.type)) return withWriteTransaction(() => saveNewRecord(request));
   return saveNewRecord(request);
 }
 
@@ -611,6 +611,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       if (!bank || (bank.type !== "Bank" && bank.systemRole !== "BANK") || bank.currency !== currency) return Response.json({ error: "Select an active bank in this company matching the cheque currency." }, { status: 400 });
       const [posting] = await db.select().from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.name, String(payload.account ?? "")), eq(accounts.active, true))).limit(1);
       if (!posting || !["AP", "EXPENSE", "PURCHASES"].includes(posting.systemRole ?? "") || (posting.systemRole === "AP" && posting.currency !== currency)) return Response.json({ error: "Select an expense account or Accounts Payable in the cheque currency." }, { status: 400 });
+      if (payload.billId && posting.systemRole !== "AP") return Response.json({ error: "Use Accounts Payable to pay a selected bill." }, { status: 400 });
       if (posting.systemRole === "AP" && vatAmount !== 0) return Response.json({ error: "A cheque against Accounts Payable must use zero VAT." }, { status: 400 });
       if (posting.systemRole === "AP") {
         const [vendor] = await db.select({ currency: contacts.currency }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "vendor"), eq(contacts.name, party))).limit(1);
@@ -619,7 +620,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       chequeBankName = bank.name;
     }
     const requestedBillId = payload.billId ? Number(payload.billId) : null;
-    const billId = type === "bill payment" ? requestedBillId : null;
+    const billId = ["bill payment", "cheque"].includes(type) ? requestedBillId : null;
     if (billId !== null && (!Number.isSafeInteger(billId) || billId <= 0)) return Response.json({ error: "Select a valid bill." }, { status: 400 });
     const linkedBillIds = [...new Set([billId, replacing?.billId].filter((id): id is number => Boolean(id)))].sort((a, b) => a - b);
     const lockedBills = linkedBillIds.length ? await db.select().from(transactions).where(inArray(transactions.id, linkedBillIds)).orderBy(asc(transactions.id)).for("update") : [];
