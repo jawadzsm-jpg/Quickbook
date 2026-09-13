@@ -2,7 +2,7 @@ import type { PnlReport } from "./profit-loss";
 
 export const csvValue = (value: string | number) => typeof value === "number" ? String(value) : `"${(/^[\s\u0000-\u001f]*[=+@-]/.test(value) ? "'" + value : value).replaceAll('"', '""')}"`;
 export function pnlCsv(report: PnlReport, company: string) {
-  const records: (string | number)[][] = [[company], [report.title], [`${report.pnl.from || "Beginning"} to ${report.pnl.to || "Latest posting"}`, report.pnl.location, report.currency, "Accrual basis"], [report.description], [], report.columns.map(c => c.label), ...report.rows.map(r => report.columns.map(c => r[c.key] ?? ""))];
+  const records: (string | number)[][] = [[company], [report.title], [`${report.pnl.from || "Beginning"} to ${report.pnl.to || "Latest posting"}`, report.pnl.location, report.currency, "Accrual basis"], [], report.columns.map(c => c.label), ...report.rows.map(r => report.columns.map(c => r[c.key] ?? ""))];
   return "\uFEFF" + records.map(r => r.map(csvValue).join(",")).join("\r\n");
 }
 export async function pnlWorkbook(report: PnlReport, company: string) {
@@ -19,8 +19,6 @@ export async function pnlWorkbook(report: PnlReport, company: string) {
   report.columns.forEach((c, i) => { sheet.getColumn(i + 1).width = i === 0 ? 46 : c.type === "money" ? 21 : 24; if (c.type === "money") sheet.getColumn(i + 1).numFmt = '#,##0.00;[Red](#,##0.00);"–"'; });
   sheet.pageSetup.printTitlesRow = "1:5";
   sheet.headerFooter.oddFooter = "&L" + company.replaceAll("&", "&&") + "&RPage &P of &N";
-  const notes = book.addWorksheet("Basis and account checks"); notes.getColumn(1).width = 120;
-  [report.description].forEach(n => { const r = notes.addRow([n]); r.alignment = { wrapText: true }; r.height = Math.max(30, Math.ceil(n.length / 110) * 16); });
   const detail = book.addWorksheet("Ledger detail");
   detail.addRow(["Date", "Reference", "Account", "Classification", "Inventory", "Sales rep", "Income", "Cost of sales", "Other expenses"]);
   report.pnl.details.forEach(r => detail.addRow([r.date, r.reference, r.account, r.type, r.location, r.salesman, r.income, r.cost, r.expenses]));
@@ -37,8 +35,6 @@ export async function pnlPdf(report: PnlReport, company: string) {
     pdf.setFillColor(16, 32, 51); pdf.rect(0, 0, width, 34, "F"); pdf.setTextColor(255); pdf.setFontSize(13); pdf.text(company, 12, 10, { maxWidth: width - 24 }); pdf.setFontSize(16); pdf.text(report.title, 12, 20); pdf.setFontSize(8); pdf.text(`${report.pnl.from || "Beginning"} to ${report.pnl.to || "Latest posting"} | ${report.pnl.location} | ${report.currency} | Accrual basis`, 12, 29, { maxWidth: width - 24 });
   };
   autoTable(pdf, { startY: 40, margin: { top: 40, bottom: 18, left: 12, right: 12 }, head: [report.columns.map(c => c.label)], body: report.rows.map(r => report.columns.map(c => typeof r[c.key] === "number" && c.type === "money" ? number(Number(r[c.key])) : String(r[c.key] ?? ""))), styles: { fontSize: 8, cellPadding: 2.5, overflow: "linebreak" }, headStyles: { fillColor: [16, 32, 51] }, alternateRowStyles: { fillColor: [245, 248, 250] }, columnStyles: Object.fromEntries(report.columns.map((c, i) => [i, c.type === "money" ? { halign: "right" } : {}])), didParseCell: d => { if (d.section === "body" && report.rows[d.row.index]?.kind) { d.cell.styles.fontStyle = "bold"; d.cell.styles.fillColor = report.rows[d.row.index].kind === "total" ? [209, 250, 229] : [232, 238, 242]; } }, didDrawPage: head });
-  pdf.addPage(); head();
-  autoTable(pdf, { startY: 40, margin: { top: 40, bottom: 18, left: 12, right: 12 }, head: [["Report basis"]], body: [[report.description]], styles: { fontSize: 9, cellPadding: 3 }, headStyles: { fillColor: [16, 32, 51] }, didDrawPage: head });
   for (let page = 1; page <= pdf.getNumberOfPages(); page++) { pdf.setPage(page); pdf.setTextColor(95); pdf.setFontSize(8); pdf.text(`Generated ${report.generatedAt.slice(0, 16).replace("T", " ")} UTC`, 12, height - 8); pdf.text(`Page ${page} of ${pdf.getNumberOfPages()}`, width - 12, height - 8, { align: "right" }); }
   return pdf.output("arraybuffer");
 }
