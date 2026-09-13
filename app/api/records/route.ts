@@ -11,7 +11,7 @@ import { verifyAdminPin } from "../../../lib/admin-pin";
 import { canAccessCompany, isAdministrator, hasPermission, requireApiUser, type Permission, type SessionUser } from "@/lib/auth";
 
 type RecordKind = "transactions" | "contacts" | "items" | "accounts";
-type InputLine = { freightCharge?: number | string; isFreightCharge?: boolean; orderLineId?: number; sourceLineId?: number; itemId?: number | string | null; description?: string; quantity?: number | string; unitPrice?: number | string; unitCost?: number | string; vatCode?: string; vatRate?: number | string };
+type InputLine = { comments?: string; serialNumber?: string; freightCharge?: number | string; isFreightCharge?: boolean; orderLineId?: number; sourceLineId?: number; itemId?: number | string | null; description?: string; quantity?: number | string; unitPrice?: number | string; unitCost?: number | string; vatCode?: string; vatRate?: number | string };
 
 function errorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : "Unexpected database error";
@@ -95,8 +95,8 @@ async function ensureCurrencyControlAccount(companyId: number, role: "AR" | "AP"
   }
 }
 
-function purchaseRevision(record: typeof transactions.$inferSelect, lines: { id: number }[]) {
-  return createHash("sha256").update(JSON.stringify([record, lines.map((line) => line.id)])).digest("hex");
+function purchaseRevision(record: typeof transactions.$inferSelect, lines: { id: number; comments?: string; serialNumber?: string }[]) {
+  return createHash("sha256").update(JSON.stringify([record, lines.map((line) => [line.id, line.comments || "", line.serialNumber || ""])])).digest("hex");
 }
 
 async function billPaidAmount(billId: number, excludingPaymentId = 0) {
@@ -246,6 +246,8 @@ export async function GET(request: Request) {
         transactionId: transactionLines.transactionId,
         itemId: transactionLines.itemId,
         description: transactionLines.description,
+        comments: transactionLines.comments,
+        serialNumber: transactionLines.serialNumber,
         quantity: transactionLines.quantity,
         unitPrice: transactionLines.unitPrice,
         unitCost: transactionLines.unitCost,
@@ -469,7 +471,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
         if (!line || !Number.isFinite(quantity) || quantity <= 0 || quantity > line.remaining) return Response.json({ error: "Invoice a positive quantity no greater than the remaining quantity. Refresh the source document." }, { status: 409 });
         if (line.itemId && !line.stockItemId) return Response.json({ error: "An ordered item is unavailable in this inventory. Choose another inventory or invoice other items." }, { status: 409 });
         salesAllocations.push({ sourceLineId: line.id, quantity });
-        invoiceLines.push({ ...line, itemId: line.itemId ? line.stockItemId : null, quantity, unitCost: line.itemId ? line.homeCost / rate : line.unitCost });
+        invoiceLines.push({ ...line, comments: input.comments, serialNumber: input.serialNumber, itemId: line.itemId ? line.stockItemId : null, quantity, unitCost: line.itemId ? line.homeCost / rate : line.unitCost });
       }
       rawLines = invoiceLines;
       payload.party = source.party; payload.salesman = source.salesman; payload.currency = source.currency; payload.exchangeRate = source.exchangeRate;
@@ -516,6 +518,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const vatRates = configuredVatCodes.length ? Object.fromEntries(configuredVatCodes.map((vatCode) => [vatCode.code, Number(vatCode.rate)])) : fallbackVatRates;
     if (type === "bill") rawLines = rawLines.filter(line => !line.isFreightCharge);
     if (rawLines.some(line => !Number.isFinite(Number(line.freightCharge ?? 0)) || Number(line.freightCharge ?? 0) < 0)) return Response.json({ error: "Line freight charges must be finite, non-negative amounts." }, { status: 400 });
+    if (type === "invoice" && rawLines.some(line => String(line.comments ?? "").length > 5000 || String(line.serialNumber ?? "").length > 5000)) return Response.json({ error: "Line Comments and Serial Number must each be no more than 5,000 characters." }, { status: 400 });
     const prepared = rawLines.map((line) => {
       const quantity = Number(line.quantity ?? 1);
       const unitPrice = Number(line.unitPrice ?? 0);
@@ -525,14 +528,14 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const vatRate = vatRates[vatCode];
       const subtotal = round(quantity * unitPrice);
       const vatAmount = round(subtotal * vatRate / 100);
-      return { itemId: line.itemId ? Number(line.itemId) : null, description: String(line.description ?? "").trim(), quantity, unitPrice, unitCost, freightCharge: type === "bill" ? round(Number(line.freightCharge ?? 0)) : 0, isFreightCharge: false, vatCode, vatRate, subtotal, vatAmount, total: round(subtotal + vatAmount) };
+      return { itemId: line.itemId ? Number(line.itemId) : null, description: String(line.description ?? "").trim(), comments: type === "invoice" ? String(line.comments ?? "") : "", serialNumber: type === "invoice" ? String(line.serialNumber ?? "") : "", quantity, unitPrice, unitCost, freightCharge: type === "bill" ? round(Number(line.freightCharge ?? 0)) : 0, isFreightCharge: false, vatCode, vatRate, subtotal, vatAmount, total: round(subtotal + vatAmount) };
     }).filter((line) => line.description || line.itemId || line.subtotal > 0);
     if (!prepared.length && Number(payload.total) > 0) {
       const subtotal = Number(payload.total);
       const requestedVatCode = Number(payload.vatRate ?? 5) === 5 ? "STANDARD" : "ZERO";
       const vatCode = Object.hasOwn(vatRates, requestedVatCode) ? requestedVatCode : Object.keys(vatRates)[0];
       const vatRate = vatRates[vatCode];
-      prepared.push({ itemId: null, description: String(payload.memo ?? type), quantity: 1, unitPrice: subtotal, unitCost: 0, freightCharge: 0, isFreightCharge: false, vatCode, vatRate, subtotal, vatAmount: round(subtotal * vatRate / 100), total: round(subtotal * (1 + vatRate / 100)) });
+      prepared.push({ comments: "", serialNumber: "", itemId: null, description: String(payload.memo ?? type), quantity: 1, unitPrice: subtotal, unitCost: 0, freightCharge: 0, isFreightCharge: false, vatCode, vatRate, subtotal, vatAmount: round(subtotal * vatRate / 100), total: round(subtotal * (1 + vatRate / 100)) });
     }
     if (!party || !prepared.length || prepared.some((line) => !Number.isFinite(line.quantity) || line.quantity <= 0 || !Number.isFinite(line.unitPrice) || line.unitPrice < 0)) {
       return Response.json({ error: "Party and at least one valid document line are required." }, { status: 400 });
@@ -584,7 +587,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       }
       for (const [vatCode, freight] of freightByTax) {
         const freightVat = round(freight.amount * freight.rate / 100);
-        prepared.push({ itemId: null, description: "Freight Charges", quantity: 1, unitPrice: freight.amount, unitCost: freight.amount, freightCharge: 0, isFreightCharge: true, vatCode, vatRate: freight.rate, subtotal: freight.amount, vatAmount: freightVat, total: round(freight.amount + freightVat) });
+        prepared.push({ comments: "", serialNumber: "", itemId: null, description: "Freight Charges", quantity: 1, unitPrice: freight.amount, unitCost: freight.amount, freightCharge: 0, isFreightCharge: true, vatCode, vatRate: freight.rate, subtotal: freight.amount, vatAmount: freightVat, total: round(freight.amount + freightVat) });
       }
     }
     const subtotal = round(prepared.reduce((sum, line) => sum + line.subtotal, 0));
@@ -793,10 +796,25 @@ async function handlePATCH(request: Request) {
         if (existing && ["invoice", "customer payment"].includes(existing.type)) {
           if (payload.editMode !== "details") return Response.json({ error: "Use Edit details for invoices and customer payments. Posted amounts and allocations are protected." }, { status: 400 });
           const allowed = new Set(["kind", "id", "companyId", "revision", "editMode", "number", "transactionDate", "dueDate", "salesman", "memo"]);
-          if (existing.type === "invoice") { allowed.add("comments"); allowed.add("serialNumber"); }
+          if (existing.type === "invoice") { allowed.add("comments"); allowed.add("serialNumber"); allowed.add("lineDetails"); }
           if (Object.keys(payload).some((field) => !allowed.has(field))) return Response.json({ error: "Only reference, dates, sales rep, memo and invoice comments/serial numbers can be changed here." }, { status: 400 });
           const oldLines = await db.select().from(transactionLines).where(eq(transactionLines.transactionId, id)).orderBy(asc(transactionLines.id));
           if (payload.revision !== purchaseRevision(existing, oldLines)) return Response.json({ error: "This document changed. Close and reopen the editor before saving." }, { status: 409 });
+          const lineDetails: { id: number; comments: string; serialNumber: string }[] = [];
+          if (payload.lineDetails !== undefined) {
+            if (!Array.isArray(payload.lineDetails)) return Response.json({ error: "Select valid invoice line details." }, { status: 400 });
+            const seen = new Set<number>();
+            for (const input of payload.lineDetails) {
+              if (!input || typeof input !== "object" || Object.keys(input).some(key => !["id", "comments", "serialNumber"].includes(key))) return Response.json({ error: "Only line comments and serial numbers can be edited." }, { status: 400 });
+              const line = oldLines.find(line => line.id === input.id);
+              if (!line || seen.has(line.id)) return Response.json({ error: "Select unique lines belonging to this invoice." }, { status: 400 });
+              const comments = String(input.comments ?? line.comments);
+              const serialNumber = String(input.serialNumber ?? line.serialNumber);
+              if (comments.length > 5000 || serialNumber.length > 5000) return Response.json({ error: "Line Comments and Serial Number must each be no more than 5,000 characters." }, { status: 400 });
+              seen.add(line.id);
+              lineDetails.push({ id: line.id, comments, serialNumber });
+            }
+          }
           const number = String(payload.number ?? "").trim();
           const transactionDate = String(payload.transactionDate ?? "");
           const dueDate = String(payload.dueDate ?? "");
@@ -814,9 +832,10 @@ async function handlePATCH(request: Request) {
           const [duplicate] = await db.select({ id: transactions.id }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.number, number), sql`${transactions.locationId} IS NOT DISTINCT FROM ${existing.locationId}`, sql`${transactions.id} <> ${id}`)).limit(1);
           if (number !== existing.number && duplicate) return Response.json({ error: "That reference is already used in this inventory." }, { status: 409 });
           const [record] = await db.update(transactions).set({ number, transactionDate, dueDate, salesman, memo, comments, serialNumber }).where(eq(transactions.id, id)).returning();
+          for (const line of lineDetails) await db.update(transactionLines).set({ comments: line.comments, serialNumber: line.serialNumber }).where(and(eq(transactionLines.id, line.id), eq(transactionLines.transactionId, id)));
           await db.update(journalEntries).set({ entryDate: transactionDate, reference: number }).where(eq(journalEntries.transactionId, id));
           await db.update(inventoryMovements).set({ movementDate: transactionDate, reference: number }).where(eq(inventoryMovements.transactionId, id));
-          await db.insert(auditLog).values({ companyId, action: "updated", entityType: "transaction", entityId: id, details: JSON.stringify({ actor: { id: authorization.id, email: authorization.email }, mode: "details", before: existing, after: record }) });
+          await db.insert(auditLog).values({ companyId, action: "updated", entityType: "transaction", entityId: id, details: JSON.stringify({ actor: { id: authorization.id, email: authorization.email }, mode: "details", before: existing, after: record, lineDetails: { before: oldLines.map(line => ({ id: line.id, comments: line.comments, serialNumber: line.serialNumber })), after: lineDetails } }) });
           return Response.json({ record });
         }
         if (existing?.purchaseOrderId) return Response.json({ error: "Remove and recreate this linked receipt to change received quantities." }, { status: 409 });

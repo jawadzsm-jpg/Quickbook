@@ -270,6 +270,8 @@ export const transactionLines = pgTable("transaction_lines", {
   transactionId: integer("transaction_id").notNull().references(() => transactions.id, { onDelete: "cascade" }),
   itemId: integer("item_id").references(() => items.id, { onDelete: "set null" }),
   description: text("description").notNull(),
+  comments: text("comments").notNull().default(""),
+  serialNumber: text("serial_number").notNull().default(""),
   quantity: doublePrecision("quantity").notNull().default(1),
   unitPrice: doublePrecision("unit_price").notNull().default(0),
   freightCharge: doublePrecision("freight_charge").notNull().default(0),
