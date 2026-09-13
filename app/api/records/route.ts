@@ -31,7 +31,7 @@ function writePermission(kind: RecordKind, payload: Record<string, unknown>): Pe
     return "admin";
   }
   const type = String(payload.type ?? "");
-  if (["invoice", "quotation", "estimate", "sales order", "sales receipt", "statement charge", "finance charge", "credit memo", "customer payment"].includes(type)) return "sales:write";
+  if (["invoice", "quotation", "estimate", "proforma invoice", "sales order", "sales receipt", "statement charge", "finance charge", "credit memo", "customer payment"].includes(type)) return "sales:write";
   if (["bill", "purchase order", "item receipt", "received item bill", "vendor credit", "bill payment", "vendor payment"].includes(type)) return "purchases:write";
   if (["expense", "deposit", "cheque", "credit card charge", "cheque order", "transfer", "opening balance", "journal entry"].includes(type)) return "banking:write";
   return "accounting:manage";
@@ -157,8 +157,8 @@ export async function GET(request: Request) {
     if (kind === "sales-invoicing") {
       if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
       const sourceId = Number(url.searchParams.get("sourceId"));
-      if (!Number.isSafeInteger(sourceId) || sourceId <= 0) return Response.json({ error: "Select an estimate or sales order." }, { status: 400 });
-      const [source] = await db.select().from(transactions).where(and(eq(transactions.id, sourceId), eq(transactions.companyId, companyId), inArray(transactions.type, ["estimate", "sales order"])));
+      if (!Number.isSafeInteger(sourceId) || sourceId <= 0) return Response.json({ error: "Select an estimate, proforma invoice or sales order." }, { status: 400 });
+      const [source] = await db.select().from(transactions).where(and(eq(transactions.id, sourceId), eq(transactions.companyId, companyId), inArray(transactions.type, ["estimate", "proforma invoice", "sales order"])));
       if (!source) return Response.json({ error: "Sales document not found." }, { status: 404 });
       const locations = await db.select({ id: inventoryLocations.id, name: inventoryLocations.name }).from(inventoryLocations).where(eq(inventoryLocations.companyId, companyId)).orderBy(asc(inventoryLocations.name));
       const selectedLocation = url.searchParams.has("locationId") ? locationId : source.locationId;
@@ -253,7 +253,7 @@ export async function GET(request: Request) {
       }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(eq(journalEntries.transactionId, id)).orderBy(asc(journalLines.id));
       const [sourceDocument] = (record.sourceTransactionId || record.purchaseOrderId || record.salesSourceId) ? await db.select({ number: transactions.number, type: transactions.type }).from(transactions).where(eq(transactions.id, (record.sourceTransactionId || record.purchaseOrderId || record.salesSourceId)!)).limit(1) : [];
       const [convertedDocument] = record.convertedInvoiceId ? await db.select({ number: transactions.number, type: transactions.type }).from(transactions).where(eq(transactions.id, record.convertedInvoiceId)).limit(1) : [];
-      const customerType = ["invoice", "quotation", "estimate", "sales order", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(record.type) ? "customer" : "vendor";
+      const customerType = ["invoice", "quotation", "estimate", "proforma invoice", "sales order", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(record.type) ? "customer" : "vendor";
       const [partyContact] = await db.select().from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, customerType), eq(contacts.name, record.party))).limit(1);
       const invoiceBalance = record.type === "invoice" ? (record.status === "paid" ? 0 : round(record.total - await invoicePaidAmount(record.id))) : undefined;
       return Response.json({ revision: purchaseRevision(record, lines), record: { ...record, ...(invoiceBalance !== undefined ? { balance: invoiceBalance } : {}), sourceDocumentNumber: sourceDocument?.number ?? "", sourceDocumentType: sourceDocument?.type ?? "", convertedDocumentNumber: convertedDocument?.number ?? "", convertedDocumentType: convertedDocument?.type ?? "", convertedInvoiceNumber: convertedDocument?.type === "invoice" ? convertedDocument.number : "" }, lines, journal, partyContact: partyContact ?? null });
@@ -408,9 +408,9 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     let rawLines = Array.isArray(payload.lines) ? payload.lines as InputLine[] : [];
     if (Number.isInteger(conversionSourceId) && conversionSourceId > 0) {
       const [source] = await db.select().from(transactions).where(and(eq(transactions.id, conversionSourceId), eq(transactions.companyId, companyId))).for("update");
-      const validSalesConversion = type === "invoice" && ["quotation", "estimate", "sales order"].includes(source?.type ?? "");
+      const validSalesConversion = type === "invoice" && ["quotation", "estimate", "proforma invoice", "sales order"].includes(source?.type ?? "");
       const validPurchaseConversion = type === "bill" && source?.type === "purchase order";
-      if (!source || (!validSalesConversion && !validPurchaseConversion)) return Response.json({ error: type === "bill" ? "Only a purchase order can be converted to a supplier bill." : "Only a quotation, estimate, or sales order can be converted to an invoice." }, { status: 400 });
+      if (!source || (!validSalesConversion && !validPurchaseConversion)) return Response.json({ error: type === "bill" ? "Only a purchase order can be converted to a supplier bill." : "Only a quotation, estimate, proforma invoice, or sales order can be converted to an invoice." }, { status: 400 });
       if (validSalesConversion && (await salesSourceLines(source.id)).some((line) => line.invoiced > 0)) return Response.json({ error: "This document has partial invoices. Use Save Invoice for the remaining quantities." }, { status: 409 });
       if (validPurchaseConversion && (await purchaseReceiptLines(source.id)).some((line) => line.received > 0)) return Response.json({ error: "This PO has item receipts. Finish receiving on the same PO; do not convert the full PO to a stock-posting bill." }, { status: 409 });
       if (source.convertedInvoiceId || source.status === "converted") return Response.json({ error: "This document has already been converted." }, { status: 409 });
@@ -428,7 +428,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     if (salesSourceId !== null) {
       if (type !== "invoice" || replacing || payload.sourceTransactionId || !Number.isSafeInteger(salesSourceId) || salesSourceId <= 0) return Response.json({ error: "Select a valid source for this invoice." }, { status: 400 });
       const [source] = await db.select().from(transactions).where(and(eq(transactions.id, salesSourceId), eq(transactions.companyId, companyId))).for("update");
-      if (!source || !["estimate", "sales order"].includes(source.type)) return Response.json({ error: "Select an estimate or sales order in this company." }, { status: 400 });
+      if (!source || !["estimate", "proforma invoice", "sales order"].includes(source.type)) return Response.json({ error: "Select an estimate, proforma invoice or sales order in this company." }, { status: 400 });
       if (source.convertedInvoiceId || !["open", "draft", "pending", "overdue", "sent", "accepted", "approved", "partially invoiced"].includes(source.status)) return Response.json({ error: "This sales document is not open for invoicing." }, { status: 409 });
       if (!Number.isSafeInteger(locationId) || locationId <= 0) return Response.json({ error: "Select an invoice inventory." }, { status: 400 });
       const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId)));
@@ -517,7 +517,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       return Response.json({ error: "Select a valid inventory item on every stock line." }, { status: 400 });
     }
     const linkedItemIds = [...new Set(prepared.flatMap((line) => line.itemId ? [line.itemId] : []))];
-    if (["bill", "invoice", "estimate", "sales order", "quotation"].includes(type) || linkedItemIds.length) {
+    if (["bill", "invoice", "estimate", "proforma invoice", "sales order", "quotation"].includes(type) || linkedItemIds.length) {
       const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).limit(1);
       if (!location) return Response.json({ error: "Select a valid inventory in this company." }, { status: 400 });
       if (linkedItemIds.length) {
@@ -654,8 +654,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     if (allocations.length) await db.insert(invoicePaymentAllocations).values(allocations.map((allocation) => ({ ...allocation, paymentId: record.id })));
     await db.insert(transactionLines).values(prepared.map((line) => ({ ...line, transactionId: record.id })));
 
-    const nonPosting = ["quotation", "estimate", "sales order", "purchase order", "cheque order"].includes(type);
-    const partyContactType = ["invoice", "quotation", "estimate", "sales order", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(type) ? "customer" : ["bill", "purchase order", "item receipt", "received item bill", "vendor credit", "bill payment", "vendor payment", "cheque", "credit card charge", "cheque order"].includes(type) ? "vendor" : null;
+    const nonPosting = ["quotation", "estimate", "proforma invoice", "sales order", "purchase order", "cheque order"].includes(type);
+    const partyContactType = ["invoice", "quotation", "estimate", "proforma invoice", "sales order", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(type) ? "customer" : ["bill", "purchase order", "item receipt", "received item bill", "vendor credit", "bill payment", "vendor payment", "cheque", "credit card charge", "cheque order"].includes(type) ? "vendor" : null;
     const [partyContact] = partyContactType ? await db.select({ ledgerAccountId: contacts.ledgerAccountId }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.name, party), eq(contacts.type, partyContactType))).limit(1) : [];
     const linkedRows = await db.select({ id: accounts.id, name: accounts.name, type: accounts.type, systemRole: accounts.systemRole, currency: accounts.currency }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true)));
     const linkedAccounts: Record<string, string> = {};
@@ -743,7 +743,7 @@ async function handlePATCH(request: Request) {
         }
         if (existing?.purchaseOrderId) return Response.json({ error: "Remove and recreate this linked receipt to change received quantities." }, { status: 409 });
         if (!existing) return Response.json({ error: "Purchase not found." }, { status: 404 });
-        if (!["estimate", "sales order", "bill", "purchase order", "item receipt", "received item bill", "expense", "bill payment", "vendor payment", "vendor credit"].includes(existing.type)) return Response.json({ error: "This document is not an editable purchase." }, { status: 400 });
+        if (!["estimate", "proforma invoice", "sales order", "bill", "purchase order", "item receipt", "received item bill", "expense", "bill payment", "vendor payment", "vendor credit"].includes(existing.type)) return Response.json({ error: "This document is not an editable purchase." }, { status: 400 });
         const [salesChild] = await db.select({ id: transactions.id }).from(transactions).where(sql`${transactions.salesSourceId} = ${id} or ${transactions.sourceTransactionId} = ${id}`).limit(1);
         if (salesChild) return Response.json({ error: "Remove linked invoices before editing or deleting this source document." }, { status: 409 });
         const [receipt] = await db.select({ id: transactions.id }).from(transactions).where(eq(transactions.purchaseOrderId, id)).limit(1);

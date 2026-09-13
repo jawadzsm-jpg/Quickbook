@@ -905,7 +905,7 @@ test('PO receipts target selected inventory, reuse SKU and reverse only destinat
   rows=await stock(); assert.equal(rows.find(r=>r.location_id===destination).quantity,2); assert.equal(rows.find(r=>r.location_id===source).quantity,10);
 });
 
-for (const sourceType of ['estimate', 'sales order']) test(`${sourceType} invoices available stock in parts, keeps balances and reverses safely`, async () => {
+for (const sourceType of ['estimate', 'proforma invoice', 'sales order']) test(`${sourceType} invoices available stock in parts, keeps balances and reverses safely`, async () => {
   const companyId=(await database.query('INSERT INTO companies(name) VALUES ($1) RETURNING id',['Partial '+sourceType])).rows[0].id;
   const otherCompany=(await database.query("INSERT INTO companies(name) VALUES ($1) RETURNING id", ["Unrelated " + sourceType])).rows[0].id;
   const location=async(company,code)=>(await database.query('INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES ($1,$2,$2,$2) RETURNING id',[company,code])).rows[0].id;
@@ -919,6 +919,9 @@ for (const sourceType of ['estimate', 'sales order']) test(`${sourceType} invoic
   const originalLine={itemId:sourceItem,description:'Laptop',quantity:10,unitPrice:100,unitCost:20,vatCode:'STANDARD'};
   let response=await POST(request('POST',{...base,type:sourceType,number:'PARTIAL',lines:[originalLine]})); assert.equal(response.status,201);
   const source=(await response.json()).record;
+  assert.equal((await database.query('SELECT count(*)::int AS count FROM journal_entries WHERE transaction_id=$1',[source.id])).rows[0].count, 0);
+  assert.equal((await database.query('SELECT quantity FROM items WHERE id=$1',[sourceItem])).rows[0].quantity, 5);
+  assert.equal((await database.query('SELECT balance FROM contacts WHERE company_id=$1',[companyId])).rows[0].balance, 0);
   const detail=async()=>(await (await GET(new Request('https://app.test/api/records?kind=transactions&companyId='+companyId+'&id='+source.id))).json());
   const read=async(locationId=destination)=>(await (await GET(new Request('https://app.test/api/records?kind=sales-invoicing&companyId='+companyId+'&sourceId='+source.id+'&locationId='+locationId))).json());
   const initial=await read(); const sourceLineId=initial.lines[0].id;
