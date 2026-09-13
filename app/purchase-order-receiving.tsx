@@ -1,6 +1,6 @@
 "use client";
 
-import { DocumentExtraFields } from "./document-extra-fields";
+import { DocumentExtraFields, type DocumentExtra } from "./document-extra-fields";
 import { useEffect, useState } from "react";
 import { useSkuLock, SkuLockNotice } from "./use-sku-lock";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ export function PurchaseOrderReceiving({ orderId, companyId, onSaved, documentTy
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [locationId, setLocationId] = useState(0);
   const [memo, setMemo] = useState("");
+  const [lineExtras, setLineExtras] = useState<Record<number, DocumentExtra>>({});
   const [extra, setExtra] = useState({ comments: "", serialNumber: "" });
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -35,7 +36,7 @@ export function PurchaseOrderReceiving({ orderId, companyId, onSaved, documentTy
     if (!skuLock.ready) return;
     if (!data || saving) return;
     if (!data.locations.some((location) => location.id === locationId)) return setError("Select a receiving inventory.");
-    const lines = data.lines.filter((line) => Number(quantities[line.id]) > 0).map((line) => ({ orderLineId: line.id, quantity: Number(quantities[line.id]) }));
+    const lines = data.lines.filter((line) => Number(quantities[line.id]) > 0).map((line) => ({ orderLineId: line.id, quantity: Number(quantities[line.id]), ...(documentType === "bill" ? lineExtras[line.id] : {}) }));
     if (!lines.length) return setError("Enter the quantities received on at least one line.");
     setSaving(true); setError("");
     try {
@@ -45,6 +46,7 @@ export function PurchaseOrderReceiving({ orderId, companyId, onSaved, documentTy
       toast.success(`${documentType === "bill" ? "Bill" : "Item receipt"} saved. The PO keeps any remaining quantities.`);
       setActiveLines([]);
       setQuantities({});
+      setLineExtras({});
       onSaved();
     } catch (error) { setError(error instanceof Error ? error.message : "Could not create item receipt."); }
     finally { setSaving(false); }
@@ -57,9 +59,9 @@ export function PurchaseOrderReceiving({ orderId, companyId, onSaved, documentTy
     {!data ? <p className="mt-3 text-sm">{error ? "Close and reopen the purchase order to retry." : "Loading quantities…"}</p> : <form onSubmit={save} className="mt-4 grid gap-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="grid gap-2 text-sm">{documentType === "bill" ? "Bill date" : "Receipt date"}<Input type="date" required disabled={saving} value={date} onChange={(event) => setDate(event.target.value)} /></label>
-        <label className="grid gap-2 text-sm">Receiving inventory<select className="h-10 w-full min-w-0 rounded-md border bg-background px-3" required disabled={saving} value={locationId || ""} onChange={(event) => setLocationId(Number(event.target.value))}><option value="" disabled>Select inventory</option>{data.locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
+        <label className="grid gap-2 text-sm">Receiving inventory<select className="h-10 w-full min-w-0 rounded-md border bg-background px-3" required disabled={saving} value={locationId || ""} onChange={(event) => { setLocationId(Number(event.target.value)); setLineExtras({}); }}><option value="" disabled>Select inventory</option>{data.locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
       </div>
-      <div className="overflow-auto"><table className="w-full table-fixed text-sm"><thead><tr className="border-b"><th className="w-1/2 p-2 text-left">Item</th><th>Ordered</th><th>Received</th><th>Remaining</th><th>Receive now</th></tr></thead><tbody>{data.lines.map((line) => <tr key={line.id} className="border-b"><td className="break-words p-2">{line.description}</td><td className="p-2 text-right">{line.quantity}</td><td className="p-2 text-right">{line.received}</td><td className="p-2 text-right">{line.remaining}</td><td className="p-2"><Input aria-label={'Receive ' + line.description} type="number" min="0" max={line.remaining} step="any" disabled={skuLock.blocked || saving || line.remaining <= 0} onFocus={() => setActiveLines((old) => old.includes(line.id) ? old : [...old, line.id])} value={quantities[line.id] || ""} placeholder="0" onChange={(event) => setQuantities((old) => ({ ...old, [line.id]: event.target.value }))} /></td></tr>)}</tbody></table></div>
+      <div className="overflow-auto"><table className="w-full table-fixed text-sm"><thead><tr className="border-b"><th className="w-1/2 p-2 text-left">Item</th><th>Ordered</th><th>Received</th><th>Remaining</th><th>Receive now</th></tr></thead><tbody>{data.lines.map((line) => <tr key={line.id} className="border-b"><td className="break-words p-2">{line.description}{documentType === "bill" && Number(quantities[line.id]) > 0 && <div className="mt-2"><DocumentExtraFields value={lineExtras[line.id] || { comments: "", serialNumber: "" }} onChange={value => setLineExtras(old => ({ ...old, [line.id]: value }))} disabled={saving} /></div>}</td><td className="p-2 text-right">{line.quantity}</td><td className="p-2 text-right">{line.received}</td><td className="p-2 text-right">{line.remaining}</td><td className="p-2"><Input aria-label={'Receive ' + line.description} type="number" min="0" max={line.remaining} step="any" disabled={skuLock.blocked || saving || line.remaining <= 0} onFocus={() => setActiveLines((old) => old.includes(line.id) ? old : [...old, line.id])} value={quantities[line.id] || ""} placeholder="0" onChange={(event) => setQuantities((old) => ({ ...old, [line.id]: event.target.value }))} /></td></tr>)}</tbody></table></div>
       {documentType === "bill" && <div className="rounded-md border p-3 text-sm"><p>Prices and VAT are taken from the purchase order.</p><p className="mt-2 font-bold">Bill total: {data.order.currency} {data.lines.reduce((sum, line) => sum + Number((Number(quantities[line.id] || 0) * line.unitPrice).toFixed(2)) + Number((Number((Number(quantities[line.id] || 0) * line.unitPrice).toFixed(2)) * line.vatRate / 100).toFixed(2)), 0).toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p></div>}
       {documentType === "bill" && <DocumentExtraFields value={extra} onChange={setExtra} disabled={saving} />}
       <label className="grid gap-2 text-sm">{documentType === "bill" ? "Additional bill notes" : "Receipt memo"}<Input disabled={saving} value={memo} onChange={(event) => setMemo(event.target.value)} /></label>
