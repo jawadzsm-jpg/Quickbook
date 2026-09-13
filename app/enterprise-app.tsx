@@ -1313,48 +1313,22 @@ function documentLineSpecification(line: DataRecord, names: string[]) {
 
 function DocumentDialog({ onOpenInvoice, onReceiptSaved, detail, companyName, baseCurrency, setup, canConvert, onConvert, onClose }: { onOpenInvoice: (id: number) => void; onReceiptSaved: () => void; detail: TransactionDetail | null; companyName: string; baseCurrency: string; setup: CompanySetup; canConvert: boolean; onConvert: (detail: TransactionDetail) => void; onClose: () => void }) {
   const startingMode: DocumentMode = detail?.record.type === "proforma invoice" ? "proforma-invoice" : detail?.record.type === "invoice" ? "tax-invoice" : detail?.record.type === "sales order" ? "delivery-note" : "commercial-invoice";
-  const [documentMode, setDocumentMode] = useState<DocumentMode>(startingMode);
-  const [showStamp, setShowStamp] = useState(Boolean(setup.stampData));
-  const [showBillingName, setShowBillingName] = useState(true);
-  const [showShipping, setShowShipping] = useState(true);
-  const [showHsCode, setShowHsCode] = useState(false);
-  const [showDimensions, setShowDimensions] = useState(false);
-  const [selectedBank, setSelectedBank] = useState(detail?.record.type === "invoice" ? "" : setup.bankName || "Emirates NBD Bank");
+  const [documentMode] = useState<DocumentMode>(startingMode);
+  const [showStamp] = useState(Boolean(setup.stampData));
+  const [showBillingName] = useState(true);
+  const [showShipping] = useState(true);
+  const [showHsCode] = useState(false);
+  const [showDimensions] = useState(false);
+  const [selectedBank] = useState(detail?.record.type === "invoice" ? "" : setup.bankName || "Emirates NBD Bank");
   if (!detail) return null;
   const record = detail.record;
   const brandedName = setup.name || companyName;
   const contact = detail.partyContact;
-  const vendorDocument = contact?.type === "vendor" || transactionTypes.purchases.includes(String(record.type)) || record.type === "vendor payment";
   const purchaseOrder = record.type === "purchase order";
   const convertible = ((purchaseOrder && record.status !== "received") || record.type === "quotation") && record.status !== "converted" && !record.convertedInvoiceId;
   const showsPrices = documentMode === "tax-invoice" || documentMode === "commercial-invoice";
-  const activateDocument = (mode: DocumentMode) => { setDocumentMode(mode); if (mode === "packing-list") setShowDimensions(true); if (mode === "commercial-invoice" || mode === "hs-code-summary") setShowHsCode(true); };
-  const documentHtml = () => {
-    const surface = document.querySelector(`[data-document-id="${record.id}"]`);
-    if (!surface) return null;
-    const copy = surface.cloneNode(true) as HTMLElement;
-    copy.querySelectorAll(".document-internal-only, button, .sr-only").forEach((element) => element.remove());
-    return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${documentModeLabels[documentMode]}</title><style>body{font-family:Arial,sans-serif;color:#111;margin:0}table{width:100%;border-collapse:collapse}th,td{border:1px solid #cbd5e1;padding:8px;text-align:left}.text-right{text-align:right}.rounded-xl{margin-bottom:16px}button,.document-internal-only{display:none}</style></head><body>${copy.innerHTML}</body></html>`;
-  };
-  const downloadDocument = () => {
-    const html = documentHtml();
-    if (!html) return toast.error("Could not prepare the document download.");
-    const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
-    const link = document.createElement("a"); link.href = url; link.download = `${documentModeLabels[documentMode].toLowerCase().replaceAll(" ", "-")}-${String(record.number)}.html`; link.click(); URL.revokeObjectURL(url);
-  };
-  const printDocument = () => {
-    if (documentMode !== "tax-invoice" || record.type !== "invoice") return window.print();
-    const html = documentHtml();
-    if (!html) return toast.error("Could not prepare the invoice for printing.");
-    const popup = window.open("", "_blank");
-    if (!popup) return toast.error("Allow pop-ups to print the invoice.");
-    popup.opener = null;
-    popup.document.open(); popup.document.write(html); popup.document.close();
-    void Promise.all(Array.from(popup.document.images).map((image) => image.decode().catch(() => {}))).then(() => { popup.focus(); popup.print(); });
-  };
-  const actionClass = (active: boolean) => `h-10 w-full justify-start rounded-md border px-3 text-sm font-medium ${active ? "border-emerald-500 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`;
   return <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}><DialogContent className="max-h-[94vh] overflow-y-auto sm:max-w-[1400px]">
-    <div className={`grid gap-5 ${vendorDocument ? "grid-cols-1" : "xl:grid-cols-[minmax(0,1fr)_210px]"}`}><div className="document-print-surface min-w-0 space-y-4" data-document-id={record.id}>
+    <div className="grid grid-cols-1 gap-5"><div className="document-print-surface min-w-0 space-y-4" data-document-id={record.id}>
     {documentMode === "tax-invoice" && record.type === "invoice" ? <><DialogTitle className="sr-only">Tax Invoice {String(record.number)}</DialogTitle><DialogDescription className="sr-only">Invoice preview for {String(record.party)}</DialogDescription><SalesDocumentTemplate mode="tax-invoice" record={record} lines={detail.lines} contact={contact} setup={{ ...setup, name: brandedName }} showBillingName={showBillingName} showShipping={showShipping} showHsCode={showHsCode} showDimensions={showDimensions} /></> : <>
     <DialogHeader><div className={`flex items-start justify-between gap-4 rounded-xl p-5 pr-8 ${setup.documentTemplate === "modern" ? "text-white" : setup.documentTemplate === "classic" ? "border-b-4 bg-slate-50" : "border-b"}`} style={setup.documentTemplate === "modern" ? { backgroundColor: setup.documentColor } : setup.documentTemplate === "classic" ? { borderColor: setup.documentColor } : undefined}><div className="flex min-w-0 gap-4">{setup.logoData ? <Image src={setup.logoData} alt={`${brandedName} logo`} width={88} height={56} unoptimized className="h-14 w-22 shrink-0 rounded-lg bg-white object-contain p-1" /> : null}<div><p className={`text-xs font-bold tracking-[.18em] ${setup.documentTemplate === "modern" ? "text-white/80" : "text-emerald-600"}`}>{brandedName.toUpperCase()}</p><DialogTitle className={`mt-2 ${setup.documentTemplate === "modern" ? "text-white" : ""}`}>{documentModeLabels[documentMode]} {String(record.number)}</DialogTitle><DialogDescription className={setup.documentTemplate === "modern" ? "text-white/75" : ""}>{String(record.party)} · {String(record.transactionDate)}</DialogDescription>{(setup.addressLine1 || setup.city || setup.phone || setup.trn) ? <p className={`mt-2 max-w-xl text-xs leading-5 ${setup.documentTemplate === "modern" ? "text-white/75" : "text-slate-500"}`}>{[setup.addressLine1, setup.addressLine2, setup.city, setup.country].filter(Boolean).join(", ")}{setup.phone ? ` · ${setup.phone}` : ""}{setup.trn ? ` · TRN ${setup.trn}` : ""}</p> : null}</div></div><div className="flex flex-wrap justify-end gap-2">{convertible && canConvert ? <Button onClick={() => onConvert(detail)} className={setup.documentTemplate === "modern" ? "bg-white text-slate-900 hover:bg-white/90" : "brand-primary-button"}><ReceiptText className="size-4" />{purchaseOrder ? "Convert to Bill / Supplier Invoice" : "Convert to Invoice"}</Button> : null}</div></div></DialogHeader>
     {record.type === "proforma invoice" && <p className="text-sm font-semibold">Proforma Invoice · Not a tax invoice</p>}
@@ -1376,22 +1350,7 @@ function DocumentDialog({ onOpenInvoice, onReceiptSaved, detail, companyName, ba
     {detail.journal.length > 0 && <div className="document-internal-only"><h3 className="mb-2 text-sm font-bold">Accounting entry ({baseCurrency})</h3><div className="overflow-hidden rounded-xl border"><Table><TableHeader><TableRow><TableHead>Account</TableHead><TableHead className="text-right">Debit</TableHead><TableHead className="text-right">Credit</TableHead></TableRow></TableHeader><TableBody>{detail.journal.map((line, index) => <TableRow key={index}><TableCell>{String(line.accountName)}</TableCell><TableCell className="text-right">{Number(line.debit) ? formatMoney(line.debit, baseCurrency) : "—"}</TableCell><TableCell className="text-right">{Number(line.credit) ? formatMoney(line.credit, baseCurrency) : "—"}</TableCell></TableRow>)}</TableBody></Table></div></div>}
     {["invoice", "bill"].includes(String(record.type)) && (record.comments || record.serialNumber) && <div className="grid gap-4 rounded-lg border p-4 text-sm sm:grid-cols-2">{record.comments && <div><h3 className="font-bold">Comments</h3><p className="mt-1 whitespace-pre-wrap break-words">{String(record.comments)}</p></div>}{record.serialNumber && <div><h3 className="font-bold">Serial Number</h3><p className="mt-1 whitespace-pre-wrap break-words">{String(record.serialNumber)}</p></div>}</div>}
     {record.memo && !(documentMode === "tax-invoice" && record.type === "invoice") && <p className="rounded-lg border p-3 text-sm text-slate-600"><strong>Memo:</strong> {String(record.memo)}</p>}
-    </div>{!vendorDocument && <aside className="document-action-panel space-y-2 rounded-xl border bg-slate-50 p-3 xl:sticky xl:top-0 xl:self-start"><p className="px-2 pb-1 text-xs font-bold uppercase tracking-wider text-slate-500">Document Actions</p>
-      <Button type="button" variant="ghost" className={actionClass(false)} onClick={printDocument}><Printer className="size-4" />Print</Button>
-      <Button type="button" variant="ghost" className={actionClass(false)} onClick={downloadDocument}><Download className="size-4" />Download</Button>
-      <Button type="button" variant="ghost" className={actionClass(showStamp)} onClick={() => setup.stampData ? setShowStamp((value) => !value) : toast.error("Add a company stamp in Company Setup first.")}><Stamp className="size-4" />Stamp</Button>
-      {record.type === "proforma invoice" ? <Button type="button" variant="ghost" className={actionClass(documentMode === "proforma-invoice")} onClick={() => activateDocument("proforma-invoice")}>Proforma Invoice</Button> : <Button type="button" variant="ghost" className={actionClass(documentMode === "tax-invoice")} onClick={() => activateDocument("tax-invoice")}>Tax Invoice</Button>}
-      <Button type="button" variant="ghost" className={actionClass(documentMode === "commercial-invoice")} onClick={() => activateDocument("commercial-invoice")}>Commercial Invoice</Button>
-      <Button type="button" variant="ghost" className={actionClass(showBillingName)} onClick={() => setShowBillingName((value) => !value)}>Billing Name</Button>
-      <Button type="button" variant="ghost" className={actionClass(showShipping)} onClick={() => setShowShipping((value) => !value)}>Shipping Details</Button>
-      <Button type="button" variant="ghost" className={actionClass(showHsCode)} onClick={() => setShowHsCode((value) => !value)}>HS Code &amp; COO</Button>
-      <Button type="button" variant="ghost" className={actionClass(showDimensions)} onClick={() => setShowDimensions((value) => !value)}>Dimensions &amp; Weight</Button>
-      <Button type="button" variant="ghost" className={actionClass(selectedBank === "Emirates NBD Bank")} onClick={() => setSelectedBank("Emirates NBD Bank")}>Emirates NBD Bank</Button>
-      <Button type="button" variant="ghost" className={actionClass(selectedBank === "Habib Bank")} onClick={() => setSelectedBank("Habib Bank")}>Habib Bank</Button>
-      <Button type="button" variant="ghost" className={actionClass(documentMode === "delivery-note")} onClick={() => activateDocument("delivery-note")}>Delivery Note</Button>
-      <Button type="button" variant="ghost" className={actionClass(documentMode === "packing-list")} onClick={() => activateDocument("packing-list")}>Packing List</Button>
-      <Button type="button" variant="ghost" className={actionClass(documentMode === "hs-code-summary")} onClick={() => activateDocument("hs-code-summary")}>HS Code Summary</Button>
-    </aside>}</div>
+    </div></div>
   </DialogContent></Dialog>;
 }
 
