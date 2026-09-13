@@ -196,15 +196,15 @@ const transactionTypes: Record<string, string[]> = {
 };
 
 const allReports = [
-  ["Profit & Loss Standard", "Income and expenses by period", "Financial", "profit-loss"],
-  ["Profit & Loss by Item", "Sales, purchase cost, cost of sales and profit by item", "Financial", "profit-loss-item"],
-  ["Profit & Loss by Sales Rep", "Sales, purchase cost, cost of sales and profit by sales rep", "Financial", "profit-loss-rep"],
-  ["Profit & Loss Detail", "Every income and expense ledger posting", "Financial", "profit-loss-detail"],
-  ["Profit & Loss YTD Comparison", "Current year-to-date against the same prior-year period", "Financial", "profit-loss-ytd"],
-  ["Profit & Loss Prev Year Comparison", "This year against the previous calendar year", "Financial", "profit-loss-prev-year"],
-  ["Profit & Loss by Job", "Net income grouped by inventory or business location", "Financial", "profit-loss-job"],
-  ["Profit & Loss by Class", "Income and expense grouped by transaction type", "Financial", "profit-loss-class"],
-  ["Profit & Loss Unclassified", "Income and expense postings without a Chart of Accounts match", "Financial", "profit-loss-unclassified"],
+  ["Profit & Loss Standard", "Income and expenses by period", "Profit & Loss", "profit-loss"],
+  ["Profit & Loss by Item", "Sales, purchase cost, cost of sales and profit by item", "Profit & Loss", "profit-loss-item"],
+  ["Profit & Loss by Sales Rep", "Sales, purchase cost, cost of sales and profit by sales rep", "Profit & Loss", "profit-loss-rep"],
+  ["Profit & Loss Detail", "Every income and expense ledger posting", "Profit & Loss", "profit-loss-detail"],
+  ["Profit & Loss YTD Comparison", "Current year-to-date against the same prior-year period", "Profit & Loss", "profit-loss-ytd"],
+  ["Profit & Loss Prev Year Comparison", "This year against the previous calendar year", "Profit & Loss", "profit-loss-prev-year"],
+  ["Profit & Loss by Job", "Net income grouped by inventory or business location", "Profit & Loss", "profit-loss-job"],
+  ["Profit & Loss by Class", "Income and expense grouped by transaction type", "Profit & Loss", "profit-loss-class"],
+  ["Profit & Loss Unclassified", "Income and expense postings without a Chart of Accounts match", "Profit & Loss", "profit-loss-unclassified"],
   ["Income by Customer Summary", "Sales income total for each customer", "Financial", "income-customer-summary"],
   ["Income by Customer Detail", "Invoice and receipt income by customer and document", "Financial", "income-customer-detail"],
   ["Expenses by Supplier Summary", "Purchase and expense totals for each supplier", "Financial", "expenses-supplier-summary"],
@@ -221,7 +221,7 @@ const allReports = [
   ["Cash Flow Forecast", "Projected cash from open receivables and payables", "Financial", "cash-flow-forecast"],
   ["Budget Overview", "Income and expense budgets with current performance", "Budgets", "budget-overview"],
   ["Budget vs. Actual", "Account-level budget comparison and variance", "Budgets", "budget-actual"],
-  ["Profit & Loss Budget Performance", "Budget performance for income and expenses", "Budgets", "budget-profit-loss"],
+  ["Profit & Loss Budget Performance", "Budget performance for income and expenses", "Profit & Loss", "budget-profit-loss"],
   ["Budget vs. Actual Graph", "Monthly budget and actual performance", "Budgets", "budget-actual-graph"],
   ["Trial Balance", "Debit and credit balances by account", "Accountant", "trial-balance"],
   ["General Ledger", "Complete account transaction detail", "Accountant", "general-ledger"],
@@ -302,17 +302,17 @@ const allReports = [
   ["Open Purchase Orders", "Committed purchases not yet closed", "Purchases", "open-purchase-orders"],
   ["Open Purchase Orders Detail", "Open purchase-order line items", "Purchases", "open-purchase-orders-detail"],
   ["Open Purchase Orders by Job", "Open purchase commitments by inventory or job", "Purchases", "open-purchase-orders-job"],
-  ["Stock Pricing & Profit/Loss", "Purchase, freight, GRN and selling prices with estimated margins", "Inventory", "stock-pricing-profit"],
+  ["Stock Pricing & Profit/Loss", "Purchase, freight, GRN and selling prices with estimated margins", "Profit & Loss", "stock-pricing-profit"],
   ["Stock Valuation Summary", "Stock quantity and value grouped by category", "Inventory", "inventory-valuation"],
   ["Stock Valuation Detail", "Quantity, average cost, and value for every item", "Inventory", "inventory-valuation-detail"],
   ["Stock Status by Item", "Available quantity and reorder position by item", "Inventory", "inventory-status"],
   ["Stock Status by Supplier", "Stock quantity and value grouped by latest supplier", "Inventory", "inventory-status-supplier"],
   ["Physical Stock Worksheet", "Printable count sheet for stock verification", "Inventory", "physical-inventory"],
   ["Pending Builds", "Items below their reorder or build level", "Inventory", "pending-builds"],
-  ["Item Profitability", "Gross profit by inventory item", "Inventory", "item-profitability"],
+  ["Item Profitability", "Gross profit by inventory item", "Profit & Loss", "item-profitability"],
 ] as const;
 
-const reportCategoryOrder = ["Financial", "Budgets", "Sales", "Customers", "Vendors", "Purchases", "Inventory", "Banking", "VAT", "Accountant", "Lists", "Company"] as const;
+const reportCategoryOrder = ["Profit & Loss", "Financial", "Budgets", "Sales", "Customers", "Vendors", "Purchases", "Inventory", "Banking", "VAT", "Accountant", "Lists", "Company"] as const;
 type ReportCategory = (typeof reportCategoryOrder)[number];
 
 const currencies = ["AED", "USD", "EUR", "GBP", "SAR", "OMR", "QAR", "BHD", "KWD", "INR", "CNY", "HKD", "JPY", "CAD", "AUD", "CHF", "SGD", "NZD", "PKR", "BDT", "LKR", "MYR", "THB", "IDR", "KRW", "TRY", "ZAR"];
@@ -1267,7 +1267,7 @@ function ReportCenter({ companyId, locationId, memorisedReports, onOpen, onOpenM
     .map((category) => ({ category, reports: reports.filter((report) => report[2] === category) }))
     .filter((group) => group.reports.length > 0);
   const groupedMemorised = reportCategoryOrder
-    .map((category) => ({ category, reports: memorisedReports.filter((report) => report.category === category) }))
+    .map((category) => ({ category, reports: memorisedReports.filter((report) => (allReports.find((definition) => definition[3] === report.reportKey)?.[2] ?? report.category) === category) }))
     .filter((group) => group.reports.length > 0);
   const resetFilters = () => { setReportSearch(""); setActiveCategory("All"); };
 
