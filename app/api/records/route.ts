@@ -170,7 +170,7 @@ export async function GET(request: Request) {
       if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
       const party = url.searchParams.get("party");
       if (!party) return Response.json({ error: "Select a vendor." }, { status: 400 });
-      const orders = await db.select({ id: transactions.id, number: transactions.number, transactionDate: transactions.transactionDate, currency: transactions.currency, memo: transactions.memo, inventory: inventoryLocations.name }).from(transactions)
+      const orders = await db.select({ status: transactions.status, id: transactions.id, number: transactions.number, transactionDate: transactions.transactionDate, currency: transactions.currency, memo: transactions.memo, inventory: inventoryLocations.name }).from(transactions)
         .leftJoin(inventoryLocations, eq(transactions.locationId, inventoryLocations.id))
         .where(and(eq(transactions.companyId, companyId), eq(transactions.party, party), eq(transactions.type, "purchase order"), sql`${transactions.convertedInvoiceId} IS NULL`, inArray(transactions.status, ["open", "pending", "overdue", "partially received"]),
           sql`EXISTS (SELECT 1 FROM transaction_lines pol WHERE pol.transaction_id = ${transactions.id} AND pol.quantity > COALESCE((SELECT SUM(pra.quantity) FROM purchase_receipt_allocations pra WHERE pra.order_line_id = pol.id), 0))`))
