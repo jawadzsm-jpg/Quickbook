@@ -3,7 +3,7 @@ import { getDb } from "@/db";
 import { auditLog, companies, inventoryLocations, memorisedReports } from "@/db/schema";
 import { requireApiUser } from "@/lib/auth";
 
-const validCategories = new Set(["Financial", "Budgets", "Sales", "Customers", "Vendors", "Purchases", "Inventory", "Banking", "VAT", "Accountant", "Lists", "Company"]);
+const validCategories = new Set(["Profit & Loss", "Financial", "Budgets", "Sales", "Customers", "Vendors", "Purchases", "Inventory", "Banking", "VAT", "Accountant", "Lists", "Company"]);
 
 function databaseError(error: unknown) {
   const message = error instanceof Error ? error.message : "Could not update memorised reports.";
