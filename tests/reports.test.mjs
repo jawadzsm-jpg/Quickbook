@@ -356,3 +356,39 @@ test("P&L reports reconcile item, rep, inventory and class to posted ledger with
   const pdf = Buffer.from(await pnlPdf(byItem, "Company")).toString("latin1");
   assert.ok(pdf.startsWith("%PDF-")); const box = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(box); assert.ok(Math.abs(Number(box[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(box[2]) - 595.28) < 0.01);
 });
+
+test('report date presets handle weeks, leap days, month ends and fiscal boundaries', async () => {
+  const {presetDates,reportPeriod,reportMonths,previousYearDate} = await vite.ssrLoadModule('/lib/report-period.ts');
+  assert.deepEqual(reportMonths('2026-12-15','2027-01-10'),[{month:'2026-12',from:'2026-12-15',to:'2026-12-31'},{month:'2027-01',from:'2027-01-01',to:'2027-01-10'}]);
+  assert.equal(previousYearDate('2024-02-29'),'2023-02-28');
+  assert.deepEqual(presetDates('This Week','2026-09-13'),{from:'2026-09-07',to:'2026-09-13'});
+  assert.deepEqual(presetDates('Last Month-to-date','2024-03-31'),{from:'2024-02-01',to:'2024-02-29'});
+  assert.deepEqual(presetDates('Last Fiscal Year-to-date','2024-02-29'),{from:'2023-01-01',to:'2023-02-28'});
+  assert.deepEqual(presetDates('Next Fiscal Quarter','2026-12-31'),{from:'2027-01-01',to:'2027-03-31'});
+  assert.deepEqual(presetDates('Next 4 Weeks','2026-09-13'),{from:'2026-09-14',to:'2026-10-11'});
+  assert.deepEqual(presetDates('All'),{from:'',to:''});
+  assert.throws(()=>presetDates('This Fiscal Year-to-Last Month','2026-01-20'));
+  assert.equal(reportPeriod('balance-sheet','2026-09-01','2026-09-13').from,'');
+  assert.equal(reportPeriod('inventory-valuation','2026-09-01','2026-09-13').mode,'current');
+});
+
+test('shared report dates filter activity, preserve ledger opening and as-of balances, reject invalid dates', async () => {
+  const companyId=(await database.query("INSERT INTO companies(name) VALUES ('Report date filters') RETURNING id")).rows[0].id;
+  await database.query("INSERT INTO accounts(company_id,code,name,type) VALUES ($1,'1000','Date Bank','Bank')",[companyId]);
+  for(const [date,n] of [['2026-08-31',10],['2026-09-01',20],['2026-09-30',30],['2026-10-01',40]]) {
+    await database.query("INSERT INTO transactions(company_id,number,type,party,transaction_date,subtotal,total,base_total) VALUES ($1,$2,'invoice','Date Customer',$2,$3,$3,$3)",[companyId,date,n]);
+    const id=(await database.query("INSERT INTO journal_entries(company_id,reference,entry_date,description,posted) VALUES ($1,$2,$2,'Date test',true) RETURNING id",[companyId,date])).rows[0].id;
+    await database.query("INSERT INTO journal_lines(journal_entry_id,account_name,debit,credit) VALUES ($1,'Date Bank',$2,0)",[id,n]);
+  }
+  const {GET}=await vite.ssrLoadModule('/app/api/reports/route.ts');
+  const report=async (type,from='2026-09-01',to='2026-09-30') => GET(new Request(`http://localhost/api/reports?type=${type}&companyId=${companyId}&periodStart=${from}&periodEnd=${to}`));
+  const sales=(await (await report('sales-by-customer')).json()).report;
+  assert.equal(sales.rows[0].amount,50);assert.equal(sales.period.from,'2026-09-01');
+  const ledger=(await (await report('general-ledger')).json()).report;
+  assert.equal(ledger.rows.length,2);assert.equal(ledger.rows[0].balance,30);assert.equal(ledger.rows[1].balance,60);
+  const trial=(await (await report('trial-balance')).json()).report;
+  assert.equal(trial.rows.find(r=>r.name==='Date Bank').balance,60);assert.equal(trial.period.mode,'asof');
+  const all=(await (await report('sales-by-customer','','')).json()).report;assert.equal(all.rows[0].amount,100);
+  assert.equal((await report('sales-by-customer','2026-02-30','2026-09-30')).status,400);
+  assert.equal((await report('sales-by-customer','2026-10-01','2026-09-30')).status,400);
+});

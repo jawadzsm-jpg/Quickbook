@@ -1,3 +1,4 @@
+import { reportPeriod, validReportDate, reportMonths, previousYearDate } from "@/lib/report-period";
 import { profitLoss } from "@/lib/profit-loss";
 import { customerOpenBalance } from "@/lib/customer-open-balance";
 import { and, asc, eq, inArray, sum } from "drizzle-orm";
@@ -25,6 +26,13 @@ export async function GET(request: Request) {
 
     const periodStart = String(url.searchParams.get("periodStart") ?? "");
     const periodEnd = String(url.searchParams.get("periodEnd") ?? "");
+    if (!validReportDate(periodStart) || !validReportDate(periodEnd) || (periodStart && periodEnd && periodStart > periodEnd)) return Response.json({ error: "Choose valid report dates; From must not be after To." }, { status: 400 });
+    const period = reportPeriod(key, periodStart, periodEnd);
+    const withPeriod = async (response: Response) => {
+      if (!response.ok) return response;
+      const data = await response.json();
+      return Response.json({ ...data, report: { ...data.report, period: reportPeriod(key, data.report.pnl?.from ?? period.from, data.report.pnl?.to ?? data.report.openBalance?.asOf ?? data.report.activeCustomers?.asOf ?? period.to) } }, { headers: { "Cache-Control": "no-store" } });
+    };
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     const db = getDb();
     if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
@@ -37,8 +45,8 @@ export async function GET(request: Request) {
       const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).limit(1);
       if (!location) return Response.json({ error: "Select an inventory in this company." }, { status: 400 });
     }
-    if (key.startsWith("profit-loss")) return await profitLoss(companyId, scoped ? locationId : 0, currency, url.searchParams, hasPermission(authorization, "accounting:manage"));
-    if (["customer-open-balance", "customers-overdue-invoices", "active-customers", "ar-aging-summary", "ar-aging-detail"].includes(key)) return await customerOpenBalance(companyId, scoped ? locationId : 0, currency, url.searchParams, hasPermission(authorization, "accounting:manage"));
+    if (key.startsWith("profit-loss")) return await withPeriod(await profitLoss(companyId, scoped ? locationId : 0, currency, url.searchParams, hasPermission(authorization, "accounting:manage")));
+    if (["customer-open-balance", "customers-overdue-invoices", "active-customers", "ar-aging-summary", "ar-aging-detail"].includes(key)) { if (periodEnd) url.searchParams.set("statementDate", periodEnd); return await withPeriod(await customerOpenBalance(companyId, scoped ? locationId : 0, currency, url.searchParams, hasPermission(authorization, "accounting:manage"))); }
     if (key === "stock-pricing-profit") {
       const scoped = Number.isInteger(locationId) && locationId > 0;
       const [company, stock, purchaseLines, inventories] = await Promise.all([
@@ -48,13 +56,13 @@ export async function GET(request: Request) {
         db.select({ id: inventoryLocations.id, name: inventoryLocations.name }).from(inventoryLocations).where(eq(inventoryLocations.companyId, companyId)),
       ]);
       if (!company[0]) return Response.json({ error: "Company not found." }, { status: 404 });
-      return Response.json({ report: { key, companyId, canEditPrices: isAdministrator(authorization), title: "Stock Pricing & Profit/Loss", generatedAt: new Date().toISOString(), currency: company[0].baseCurrency,
+      return Response.json({ report: { key, period, companyId, canEditPrices: isAdministrator(authorization), title: "Stock Pricing & Profit/Loss", generatedAt: new Date().toISOString(), currency: company[0].baseCurrency,
         description: "Current stock estimate before VAT, not realized sales profit. Unit cost uses the latest supplier bill plus allocated freight; Entered GRN price (or receipt cost when blank) is a fallback, never added twice. Per-line freight stays with its item; legacy Freight Charges rows are allocated by stock purchase value (by quantity when all values are zero). Saved item cost is used when no purchase or GRN exists. Selling prices are current item prices. Negative stock is excluded from projected totals. All amounts are in home currency.",
         columns: [{ key: "inventory", label: "Inventory" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "quantity", label: "Stock qty" }, { key: "purchaseCost", label: "Purchase / unit", ...money }, { key: "freightCost", label: "Freight / unit", ...money }, { key: "grnCost", label: "GRN / unit", ...money }, { key: "totalCost", label: "Total cost / unit", ...money }, { key: "sellingPrice", label: "Selling / unit", ...money }, { key: "unitProfit", label: "Profit/Loss / unit", ...money }, { key: "margin", label: "Margin" }, { key: "stockCost", label: "Stock cost", ...money }, { key: "potentialProfit", label: "Potential stock profit/loss", ...money }, { key: "costSource", label: "Cost source" }],
         rows: stockPricingRows(stock, purchaseLines, inventories) } }, { headers: { "Cache-Control": "no-store" } });
     }
     const journalFilter = and(eq(journalEntries.companyId, companyId), eq(journalEntries.posted, true), scoped ? eq(journalEntries.locationId, locationId) : undefined);
-    const [allTransactions, allContacts, allItems, allAccounts, ledger, journal, lines, configuredVatCodes, currentRates, locations, auditRows] = await Promise.all([
+    const [rawTransactions, allContacts, allItems, allAccounts, ledger, rawJournal, rawLines, configuredVatCodes, currentRates, locations, rawAuditRows] = await Promise.all([
       db.select().from(transactions).where(and(eq(transactions.companyId, companyId), scoped ? eq(transactions.locationId, locationId) : undefined)).orderBy(asc(transactions.transactionDate), asc(transactions.id)),
       db.select().from(contacts).where(eq(contacts.companyId, companyId)).orderBy(asc(contacts.name)),
       db.select().from(items).where(and(eq(items.companyId, companyId), scoped ? eq(items.locationId, locationId) : undefined)).orderBy(asc(items.name)),
@@ -67,6 +75,22 @@ export async function GET(request: Request) {
       db.select().from(inventoryLocations).where(eq(inventoryLocations.companyId, companyId)),
       db.select().from(auditLog).where(eq(auditLog.companyId, companyId)).orderBy(asc(auditLog.createdAt), asc(auditLog.id)),
     ]);
+    const inPeriod = (date: string) => period.mode === "current" || ((!period.from || date >= period.from) && (!period.to || date <= period.to));
+    const statements = ["customer-statements", "vendor-statements", "average-days-to-pay-summary", "average-days-to-pay-detail", "accounts-receivable-graph", "accounts-payable-graph"].includes(key);
+    const runningLedger = ["general-ledger", "transaction-detail-account", "net-worth-graph", "bank-register"].includes(key);
+    const allTransactions = rawTransactions.filter(row => statements ? (!period.to || row.transactionDate <= period.to) : inPeriod(row.transactionDate));
+    const journal = rawJournal.filter(row => key.startsWith("budget-") ? true : runningLedger ? (!period.to || row.date <= period.to) : inPeriod(row.date));
+    const lines = rawLines.filter(row => inPeriod(row.date));
+    const auditRows = rawAuditRows.filter(row => inPeriod(String(row.createdAt).slice(0,10)));
+    // Recompute ledger totals from the same dated posted entries used by the report.
+    ledger.splice(0, ledger.length);
+    const datedLedger = new Map<string, { name: string; debit: string; credit: string }>();
+    for (const row of journal) {
+      const total = datedLedger.get(row.account) || { name: row.account, debit: "0", credit: "0" };
+      total.debit = String(Number(total.debit) + Number(row.debit)); total.credit = String(Number(total.credit) + Number(row.credit));
+      datedLedger.set(row.account, total);
+    }
+    ledger.push(...[...datedLedger.values()].sort((a,b)=>a.name.localeCompare(b.name)));
     const accountTypes = new Map(allAccounts.map((account) => [account.name, account.type]));
     const ledgerRows = ledger.map((row) => ({ name: row.name, type: accountTypes.get(row.name) ?? "Unclassified", debit: Number(row.debit ?? 0), credit: Number(row.credit ?? 0), balance: Number(row.debit ?? 0) - Number(row.credit ?? 0) }));
     const incomeTypes = new Set(["Income", "Other Income"]);
@@ -84,8 +108,9 @@ export async function GET(request: Request) {
     const reportYear = new Date().getUTCFullYear();
     const budgetStart = periodStart || `${reportYear}-01-01`;
     const budgetEnd = periodEnd || `${reportYear}-12-31`;
-    const priorBudgetStart = budgetStart.replace(/^\d{4}/, String(Number(budgetStart.slice(0, 4)) - 1));
-    const priorBudgetEnd = budgetEnd.replace(/^\d{4}/, String(Number(budgetEnd.slice(0, 4)) - 1));
+    if (key.startsWith("budget-")) Object.assign(period, reportPeriod(key, budgetStart, budgetEnd));
+    const priorBudgetStart = previousYearDate(budgetStart);
+    const priorBudgetEnd = previousYearDate(budgetEnd);
     const budgetAccountTotals = (start: string, end: string) => {
       const totals = new Map<string, number>();
       journal.filter((entry) => entry.date >= start && entry.date <= end && (incomeTypes.has(accountType(entry.account)) || expenseTypes.has(accountType(entry.account)))).forEach((entry) => totals.set(entry.account, (totals.get(entry.account) ?? 0) + pnlAmount(entry)));
@@ -136,6 +161,7 @@ export async function GET(request: Request) {
         }
       });
     });
+    if (key.startsWith("average-days-to-pay")) { const selected = customerSettlements.filter(row => inPeriod(row.paymentDate)); customerSettlements.splice(0, customerSettlements.length, ...selected); }
     const supplierTypes = new Set(["bill", "received item bill", "expense", "cheque", "bill payment", "vendor credit", "purchase order", "item receipt"]);
     const supplierActivities = scopedTransactions.filter((row) => supplierTypes.has(row.type));
     const payableAccounts = new Set(allAccounts.filter((account) => account.systemRole === "AP" || account.type === "Accounts Payable").map((account) => account.name));
@@ -226,19 +252,24 @@ export async function GET(request: Request) {
       columns = [{ key: "section", label: "Section" }, { key: "amount", label: "Balance", ...money }];
     } else if (key === "balance-sheet-prev-year") {
       title = "Balance Sheet Prev Year Comparison";
-      const year = new Date().getUTCFullYear();
+      const year = Number((periodEnd || new Date().toISOString().slice(0,10)).slice(0,4));
       const balanceAt = (end: string) => {
         const grouped = new Map<string, { debit: number; credit: number }>();
         journal.filter((entry) => entry.date <= end).forEach((entry) => { const old = grouped.get(entry.account) ?? { debit: 0, credit: 0 }; grouped.set(entry.account, { debit: old.debit + Number(entry.debit), credit: old.credit + Number(entry.credit) }); });
         return grouped;
       };
-      const current = balanceAt(`${year}-12-31`); const previous = balanceAt(`${year - 1}-12-31`);
+      const end = periodEnd || `${year}-12-31`; const prior = new Date(`${end}T00:00:00Z`); const month = prior.getUTCMonth(); prior.setUTCFullYear(year-1); if(prior.getUTCMonth() !== month) prior.setUTCDate(0);
+      const current = balanceAt(end); const previous = balanceAt(prior.toISOString().slice(0,10));
       rows = allAccounts.filter((account) => assetTypes.has(account.type) || liabilityTypes.has(account.type) || account.type === "Equity").map((account) => { const sign = assetTypes.has(account.type) ? 1 : -1; const now = current.get(account.name) ?? { debit: 0, credit: 0 }; const before = previous.get(account.name) ?? { debit: 0, credit: 0 }; const currentBalance = sign * (now.debit - now.credit); const previousBalance = sign * (before.debit - before.credit); return { name: account.name, section: assetTypes.has(account.type) ? "Assets" : liabilityTypes.has(account.type) ? "Liabilities" : "Equity", previous: previousBalance, current: currentBalance, change: currentBalance - previousBalance }; });
       columns = [{ key: "section", label: "Section" }, { key: "name", label: "Account" }, { key: "previous", label: String(year - 1), ...money }, { key: "current", label: String(year), ...money }, { key: "change", label: "Change", ...money }];
     } else if (key === "net-worth-graph") {
       title = "Net Worth Graph";
-      const year = new Date().getUTCFullYear();
-      rows = Array.from({ length: 12 }, (_, month) => { const end = `${year}-${String(month + 1).padStart(2, "0")}-31`; let assets = 0; let liabilities = 0; journal.filter((entry) => entry.date <= end).forEach((entry) => { const type = accountType(entry.account); const balance = Number(entry.debit) - Number(entry.credit); if (assetTypes.has(type)) assets += balance; if (liabilityTypes.has(type)) liabilities -= balance; }); return { month: `${year}-${String(month + 1).padStart(2, "0")}`, assets, liabilities, netWorth: assets - liabilities }; });
+      const year = Number((periodEnd || new Date().toISOString().slice(0,10)).slice(0,4));
+      rows = reportMonths(periodStart || `${year}-01-01`, periodEnd || `${year}-12-31`).map(({month,to}) => {
+        let assets=0,liabilities=0;
+        journal.filter(entry=>entry.date<=to).forEach(entry=>{const type=accountType(entry.account),balance=Number(entry.debit)-Number(entry.credit);if(assetTypes.has(type))assets+=balance;if(liabilityTypes.has(type))liabilities-=balance;});
+        return {month,assets,liabilities,netWorth:assets-liabilities};
+      });
       columns = [{ key: "month", label: "Month" }, { key: "assets", label: "Assets", ...money }, { key: "liabilities", label: "Liabilities", ...money }, { key: "netWorth", label: "Net Worth", ...money }];
       chart = { labelKey: "month", incomeKey: "assets", expenseKey: "liabilities" };
     } else if (key === "budget-overview" || key === "budget-actual") {
@@ -261,8 +292,10 @@ export async function GET(request: Request) {
       columns = [{ key: "section", label: "Profit & Loss" }, { key: "budget", label: "Budget", ...money }, { key: "actual", label: "Actual", ...money }, { key: "variance", label: "Favourable Variance", ...money }, { key: "performance", label: "Performance" }];
     } else if (key === "budget-actual-graph") {
       title = "Budget vs. Actual Graph";
-      const selectedYear = Number(budgetStart.slice(0, 4));
-      rows = Array.from({ length: 12 }, (_, index) => { const month = String(index + 1).padStart(2, "0"); const actualStart = `${selectedYear}-${month}-01`; const actualEnd = `${selectedYear}-${month}-31`; const budgetMonthStart = `${selectedYear - 1}-${month}-01`; const budgetMonthEnd = `${selectedYear - 1}-${month}-31`; return { month: `${selectedYear}-${month}`, budget: periodProfit(budgetMonthStart, budgetMonthEnd), actual: periodProfit(actualStart, actualEnd) }; }).map((row) => ({ ...row, variance: row.actual - row.budget }));
+      rows = reportMonths(budgetStart, budgetEnd).map(({month,from,to}) => {
+        const budget = periodProfit(previousYearDate(from), previousYearDate(to)), actual = periodProfit(from,to);
+        return {month,budget,actual,variance:actual-budget};
+      });
       columns = [{ key: "month", label: "Month" }, { key: "budget", label: "Budget", ...money }, { key: "actual", label: "Actual", ...money }, { key: "variance", label: "Variance", ...money }];
       chart = { labelKey: "month", incomeKey: "actual", expenseKey: "budget", incomeLabel: "Actual", expenseLabel: "Budget" };
     } else if (key === "trial-balance") {
@@ -270,12 +303,12 @@ export async function GET(request: Request) {
     } else if (key === "general-ledger" || key === "journal") {
       title = key === "journal" ? "Journal" : "General Ledger";
       const balances = new Map<string, number>();
-      rows = journal.map((entry) => { const balance = (balances.get(entry.account) ?? 0) + Number(entry.debit) - Number(entry.credit); balances.set(entry.account, balance); return { ...entry, balance }; });
+      rows = journal.map((entry) => { const balance = (balances.get(entry.account) ?? 0) + Number(entry.debit) - Number(entry.credit); balances.set(entry.account, balance); return { ...entry, balance }; }).filter(row => inPeriod(row.date));
       columns = [{ key: "date", label: "Date" }, { key: "reference", label: "Reference" }, { key: "description", label: "Description" }, { key: "account", label: "Account" }, { key: "debit", label: "Debit", ...money }, { key: "credit", label: "Credit", ...money }, ...(key === "general-ledger" ? [{ key: "balance", label: "Running Balance", ...money }] : [])];
     } else if (key === "transaction-detail-account") {
       title = "Transaction Detail by Account";
       const balances = new Map<string, number>();
-      rows = journal.map((entry) => { const balance = (balances.get(entry.account) ?? 0) + Number(entry.debit) - Number(entry.credit); balances.set(entry.account, balance); return { account: entry.account, date: entry.date, reference: entry.reference, description: entry.description, debit: entry.debit, credit: entry.credit, balance }; }).sort((a, b) => a.account.localeCompare(b.account) || a.date.localeCompare(b.date));
+      rows = journal.map((entry) => { const balance = (balances.get(entry.account) ?? 0) + Number(entry.debit) - Number(entry.credit); balances.set(entry.account, balance); return { account: entry.account, date: entry.date, reference: entry.reference, description: entry.description, debit: entry.debit, credit: entry.credit, balance }; }).filter(row => inPeriod(row.date)).sort((a, b) => a.account.localeCompare(b.account) || a.date.localeCompare(b.date));
       columns = [{ key: "account", label: "Account" }, { key: "date", label: "Date" }, { key: "reference", label: "Reference" }, { key: "description", label: "Description" }, { key: "debit", label: "Debit", ...money }, { key: "credit", label: "Credit", ...money }, { key: "balance", label: "Running Balance", ...money }];
     } else if (key === "audit-trail") {
       title = "Audit Trail";
@@ -385,7 +418,7 @@ export async function GET(request: Request) {
         rows.push({ customer: row.party, date: row.transactionDate, number: row.number, type: row.type, memo: row.memo || "", debit, credit, balance });
       }
       columns = [{ key: "customer", label: vendor ? "Vendor" : "Customer" }, { key: "date", label: "Date" }, { key: "number", label: "Reference" }, { key: "type", label: "Activity" }, { key: "memo", label: "Memo" }, { key: "debit", label: "Charges", ...money }, { key: "credit", label: "Payments / Credits", ...money }, { key: "balance", label: "Balance", ...money }];
-      return Response.json({ report: { key, companyId, title: vendor ? "Vendor Statements" : "Customer Statements", generatedAt: new Date().toISOString(), currency: selectedCurrency, columns, rows,
+      return Response.json({ report: { key, period, companyId, title: vendor ? "Vendor Statements" : "Customer Statements", generatedAt: new Date().toISOString(), currency: selectedCurrency, columns, rows,
         statement: { partyType, memo, customer, statementDate, from: periodStart, to: end, opening, charges, credits, closing: round(opening + charges - credits), customers: customers.map((contact) => ({ name: contact.name, currency: contact.currency })) }
       } }, { headers: { "Cache-Control": "no-store" } });
     } else if (key === "customer-balance-detail") {
@@ -558,7 +591,7 @@ export async function GET(request: Request) {
     } else if (key === "unpaid-bills-detail") {
       title = "Unpaid Bills Detail";
       const billAllocations = await db.select({billId:billPaymentAllocations.billId,amount:billPaymentAllocations.amount}).from(billPaymentAllocations).innerJoin(transactions,eq(transactions.id,billPaymentAllocations.paymentId)).where(eq(transactions.companyId,companyId));
-      rows = scopedTransactions.filter((row) => ["bill", "received item bill"].includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => ({ supplier: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, type: row.type, status: row.status, overdueDays: row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0, currency: row.currency, amount: Math.max(0, row.total - allTransactions.filter((payment) => payment.billId === row.id).reduce((sum, payment) => sum + payment.total, 0) - billAllocations.filter((payment) => payment.billId === row.id).reduce((sum,payment) => sum + payment.amount,0)) * row.exchangeRate }));
+      rows = scopedTransactions.filter((row) => ["bill", "received item bill"].includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => ({ supplier: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, type: row.type, status: row.status, overdueDays: row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0, currency: row.currency, amount: Math.max(0, row.total - rawTransactions.filter((payment) => payment.billId === row.id).reduce((sum, payment) => sum + payment.total, 0) - billAllocations.filter((payment) => payment.billId === row.id).reduce((sum,payment) => sum + payment.amount,0)) * row.exchangeRate }));
       columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Bill Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "Bill No." }, { key: "type", label: "Type" }, { key: "status", label: "Status" }, { key: "overdueDays", label: "Days Overdue" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Open Amount", ...money }];
     } else if (key === "accounts-payable-graph") {
       title = "Accounts Payable Graph";
@@ -673,7 +706,9 @@ export async function GET(request: Request) {
       columns = [{ key: "code", label: "Code" }, { key: "name", label: "Name" }, { key: "rate", label: "Rate" }, { key: "description", label: "Details" }, { key: "status", label: "Status" }];
     }
 
-    return Response.json({ report: { key, title, generatedAt: new Date().toISOString(), currency, columns, rows, chart, summary } }, { headers: { "Cache-Control": "no-store" } });
+    if (key === "bank-register") rows = rows.filter(row => inPeriod(String(row.date)));
+    if (["accounts-receivable-graph", "accounts-payable-graph", "net-worth-graph"].includes(key)) rows = rows.filter(row => (!periodStart || String(row.month) >= periodStart.slice(0,7)) && (!periodEnd || String(row.month) <= periodEnd.slice(0,7)));
+    return Response.json({ report: { key, period, title, generatedAt: new Date().toISOString(), currency, columns, rows, chart, summary } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not generate report." }, { status: 500 });
   }

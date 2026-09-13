@@ -1,13 +1,11 @@
 "use client";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { AccountHistory } from "./account-history";
 import type { PnlReport, PnlRow } from "@/lib/profit-loss";
 import { toast } from "sonner";
 
-export function ProfitLossReport({ report, company, loading, onApply, onOpen }: { report: PnlReport; company: string; loading: boolean; onApply: (from: string, to: string) => Promise<void>; onOpen: (id: number) => void }) {
-  const [from, setFrom] = useState(report.pnl.from); const [to, setTo] = useState(report.pnl.to);
+export function ProfitLossReport({ report, company, loading, onOpen }: { report: PnlReport; company: string; loading: boolean; onApply: (from: string, to: string) => Promise<void>; onOpen: (id: number) => void }) {
   const [account, setAccount] = useState<{ id: number; name: string } | null>(null);
   const [exporting, setExporting] = useState(false);
   const amount = (n: number) => new Intl.NumberFormat("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
@@ -22,10 +20,9 @@ export function ProfitLossReport({ report, company, loading, onApply, onOpen }: 
   }
   const accountLink = (row: PnlRow, label: string) => report.pnl.canViewAccounts && Number(row.accountId) > 0 ? <button className="text-left underline underline-offset-2" onClick={() => setAccount({ id: Number(row.accountId), name: String(row.account) })}>{label}</button> : label;
   return <section className="pnl-report space-y-4">
-    <form className="flex flex-wrap items-end gap-3 rounded-xl border bg-slate-50 p-4 print:hidden" onSubmit={e => { e.preventDefault(); void onApply(from, to); }}>
-      <label className="text-sm">From<Input type="date" value={from} onChange={e => setFrom(e.target.value)} /></label><label className="text-sm">To<Input type="date" value={to} min={from || undefined} onChange={e => setTo(e.target.value)} /></label><Button disabled={loading}>{loading ? "Loading…" : "Apply dates"}</Button>
+    <div className="flex flex-wrap gap-2 print:hidden">
       <div className="ml-auto flex flex-wrap gap-2">{(["xlsx", "csv", "pdf"] as const).map(kind => <Button key={kind} type="button" variant="outline" disabled={exporting || loading} onClick={() => void download(kind)}>{kind === "xlsx" ? "Excel (.xlsx)" : kind === "pdf" ? "PDF · A4" : "CSV"}</Button>)}</div>
-    </form>
+    </div>
     <div className="border-l-4 border-emerald-600 bg-slate-50 p-4"><p className="font-semibold">{report.pnl.from || "Beginning"} — {report.pnl.to || "Latest posting"}</p><p className="text-sm text-slate-500">{report.pnl.location} · {report.currency} · Accrual basis</p></div>
     {report.pnl.warnings.length > 0 && <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"><p className="font-bold">Account links need review</p><ul className="ml-5 list-disc">{report.pnl.warnings.map(w => <li key={w}>{w}</li>)}</ul></div>}
     <div className="grid grid-cols-3 gap-3">{[["Income", report.summary.income], ["Costs & expenses", report.summary.expenses], ["Net profit / loss", report.summary.netIncome]].map(([label, value]) => <div key={label} className="rounded-xl border p-4"><p className="text-xs text-slate-500">{label}</p><p className={`mt-2 text-lg font-bold tabular-nums ${Number(value) < 0 ? "text-red-600" : ""}`}>{amount(Number(value))}</p></div>)}</div>
