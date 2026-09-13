@@ -457,7 +457,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const purchaseOrderId = payload.purchaseOrderId ? Number(payload.purchaseOrderId) : null;
     const receiptAllocations: { orderLineId: number; quantity: number }[] = [];
     if (purchaseOrderId !== null) {
-      if (type !== "item receipt" || replacing || !Number.isSafeInteger(purchaseOrderId) || purchaseOrderId <= 0) return Response.json({ error: "Select a valid purchase order for this item receipt." }, { status: 400 });
+      if (!["item receipt", "bill"].includes(type) || payload.sourceTransactionId || replacing || !Number.isSafeInteger(purchaseOrderId) || purchaseOrderId <= 0) return Response.json({ error: "Select a valid purchase order for this item receipt." }, { status: 400 });
       const [order] = await db.select().from(transactions).where(and(eq(transactions.id, purchaseOrderId), eq(transactions.companyId, companyId))).for("update");
       if (!order || order.type !== "purchase order") return Response.json({ error: "Select a purchase order from this company." }, { status: 400 });
       if (!Number.isSafeInteger(locationId) || locationId <= 0) return Response.json({ error: "Select a receiving inventory." }, { status: 400 });
@@ -486,7 +486,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       }
       rawLines = receivedLines;
       payload.party = order.party; payload.currency = order.currency; payload.exchangeRate = order.exchangeRate;
-      payload.salesman = order.salesman; payload.account = "Suspense"; payload.status = "open";
+      payload.salesman = order.salesman; payload.account = type === "bill" ? String(payload.account || "Purchases") : "Suspense"; payload.status = "open";
+      payload.memo = [order.memo, String(payload.memo || ""), `Received from PO ${order.number}`].filter(Boolean).join(" · ");
     }
     const party = String(payload.party ?? "").trim();
     const configuredVatCodes = await db.select({ code: vatCodes.code, rate: vatCodes.rate }).from(vatCodes).where(and(eq(vatCodes.companyId, companyId), eq(vatCodes.active, true)));
@@ -561,7 +562,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const baseVatAmount = round(vatAmount * exchangeRate);
     const baseTotal = round(total * exchangeRate);
     const transactionDate = String(payload.transactionDate ?? new Date().toISOString().slice(0, 10));
-    let number = String(payload.number ?? `${purchaseOrderId ? "REC" : "TX"}-${Date.now()}`);
+    let number = String(payload.number ?? `${purchaseOrderId ? type === "bill" ? "BILL" : "REC" : "TX"}-${Date.now()}`);
     if (type === "invoice") {
       if (!Number.isInteger(locationId) || locationId <= 0) return Response.json({ error: "Select an inventory before creating the invoice." }, { status: 400 });
       const [sequence] = await db.update(inventoryLocations).set({ nextInvoiceNumber: sql`${inventoryLocations.nextInvoiceNumber} + 1` }).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).returning();

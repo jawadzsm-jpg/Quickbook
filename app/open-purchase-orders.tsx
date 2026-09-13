@@ -37,16 +37,16 @@ export function OpenPurchaseOrders({ companyId, party, onSaved, onComplete, onSe
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-4xl" onInteractOutside={(event) => event.preventDefault()} onEscapeKeyDown={(event) => event.preventDefault()}>
         <DialogHeader>
           <DialogTitle>{stage === "receive" ? `Receive against ${current?.number ?? "purchase order"}` : "Select purchase orders"}</DialogTitle>
-          <DialogDescription>{onSelectBill ? `${party} · Select a purchase order to load its items, currency, inventory and memo into the bill.` : `${party} · Each selected PO has its own receipt. Remaining quantities stay on the original order.`}</DialogDescription>
+          <DialogDescription>{onSelectBill ? `${party} · Select a purchase order to enter the quantities received now. Remaining quantities stay open for the next bill.` : `${party} · Each selected PO has its own receipt. Remaining quantities stay on the original order.`}</DialogDescription>
         </DialogHeader>
         {stage === "select" && <div className="space-y-4">
           <div className="rounded-md border">
             <table className="w-full table-fixed text-sm">
               <thead><tr className="border-b bg-muted/50"><th className="w-10 p-2"><span className="sr-only">Select</span></th><th className="w-1/5 p-2 text-left">Date</th><th className="w-1/3 p-2 text-left">PO number</th><th className="p-2 text-left">Memo</th></tr></thead>
               <tbody>{orders.map((order) => <tr key={order.id} className={`border-b last:border-b-0 ${selected.includes(order.id) ? "bg-accent" : ""}`}>
-                <td className="p-2 align-top"><input type={onSelectBill ? "radio" : "checkbox"} name="purchase-order-selection" disabled={selecting || Boolean(onSelectBill && order.status === "partially received")} aria-label={`Select purchase order ${order.number}`} className="size-4" checked={selected.includes(order.id)} onChange={(event) => setSelected((old) => event.target.checked ? onSelectBill ? [order.id] : [...old, order.id] : old.filter((id) => id !== order.id))} /></td>
+                <td className="p-2 align-top"><input type={onSelectBill ? "radio" : "checkbox"} name="purchase-order-selection" disabled={selecting} aria-label={`Select purchase order ${order.number}`} className="size-4" checked={selected.includes(order.id)} onChange={(event) => setSelected((old) => event.target.checked ? onSelectBill ? [order.id] : [...old, order.id] : old.filter((id) => id !== order.id))} /></td>
                 <td className="break-words p-2 align-top">{order.transactionDate}</td>
-                <td className="p-2 align-top [overflow-wrap:anywhere]"><strong>{order.number}</strong><span className="mt-1 block text-xs text-muted-foreground">{order.inventory} · {order.currency}</span>{onSelectBill && order.status === "partially received" && <span className="block text-xs text-amber-700">Already partially received; full-PO billing is unavailable.</span>}</td>
+                <td className="p-2 align-top [overflow-wrap:anywhere]"><strong>{order.number}</strong><span className="mt-1 block text-xs text-muted-foreground">{order.inventory} · {order.currency}</span></td>
                 <td className="whitespace-pre-wrap p-2 align-top [overflow-wrap:anywhere]">{order.memo || "—"}</td>
               </tr>)}</tbody>
             </table>

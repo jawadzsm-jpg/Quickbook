@@ -825,6 +825,54 @@ test('partial PO receipts retain remaining quantities, block overreceipt and rev
   assert.equal((await read()).lines[0].remaining,50);
 });
 
+test('partial PO bills keep orders open until fully received and restore quantities on deletion', async () => {
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Partial bills') RETURNING id")).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES ($1,'PR','Receiving','PR') RETURNING id",[companyId])).rows[0].id;
+  const itemId = (await database.query("INSERT INTO items(company_id,location_id,sku,name,quantity,cost) VALUES ($1,$2,'PR','Laptop',0,20) RETURNING id",[companyId,locationId])).rows[0].id;
+  const { POST, GET, DELETE } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const request = (method, body) => new Request('https://app.test/api/records',{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const base = {kind:'transactions',companyId,locationId,party:'Receiving vendor',currency:'USD',exchangeRate:3.675,transactionDate:'2026-09-12'};
+  const poResponse = await POST(request('POST',{...base,type:'purchase order',number:'PO-PART',lines:[{itemId,description:'Laptop',quantity:50,unitPrice:100,unitCost:20,vatCode:'ZERO'}]}));
+  assert.equal(poResponse.status,201); const po = (await poResponse.json()).record;
+  const read = async () => (await (await GET(new Request('https://app.test/api/records?kind=po-receiving&companyId='+companyId+'&orderId='+po.id))).json());
+  const openOrders = async (party = base.party, company = companyId) => {
+    const response = await GET(new Request('https://app.test/api/records?kind=open-purchase-orders&companyId='+company+'&party='+encodeURIComponent(party)));
+    assert.equal(response.status, 200);
+    return (await response.json()).orders;
+  };
+  assert.deepEqual((await openOrders()).map((order) => order.id), [po.id]);
+  assert.equal((await openOrders('Different vendor')).length, 0);
+  assert.equal((await openOrders(base.party, companyId + 10000)).length, 0);
+  const line = (await read()).lines[0];
+  const receive = (quantity, changes={}) => POST(request('POST',{...base,type:'bill',purchaseOrderId:po.id,lines:[{orderLineId:line.id,quantity,unitPrice:1}],...changes}));
+  const stock = async () => (await database.query('SELECT quantity FROM items WHERE id=$1',[itemId])).rows[0].quantity;
+  assert.equal(await stock(),0);
+  const first = await receive(20); assert.equal(first.status,201); const firstRecord = (await first.json()).record;
+  assert.equal(firstRecord.total,2000);
+  assert.equal(await stock(),20);
+  assert.equal((await read()).order.status,'partially received');
+  assert.deepEqual((await openOrders()).map((order) => order.id), [po.id]);
+  assert.equal((await read()).lines[0].remaining,30);
+  assert.equal((await receive(31)).status,409);
+  assert.equal((await receive(1,{lines:[{orderLineId:line.id,quantity:1},{orderLineId:line.id,quantity:1}]})).status,400);
+  assert.equal((await POST(request('POST',{...base,type:'bill',sourceTransactionId:po.id}))).status,409);
+  assert.equal((await DELETE(request('DELETE',{kind:'transactions',companyId,id:po.id}))).status,409);
+  const last = await receive(30); assert.equal(last.status,201); const lastRecord = (await last.json()).record;
+  assert.equal(await stock(),50);
+  assert.equal((await read()).order.status,'received');
+  assert.equal((await openOrders()).length, 0);
+  assert.equal((await read()).lines[0].remaining,0);
+  assert.equal((await receive(1)).status,409);
+  assert.equal((await DELETE(request('DELETE',{kind:'transactions',companyId,id:lastRecord.id}))).status,200);
+  assert.equal((await read()).order.status,'partially received');
+  assert.deepEqual((await openOrders()).map((order) => order.id), [po.id]);
+  assert.equal((await read()).lines[0].remaining,30);
+  assert.equal(await stock(),20);
+  assert.equal((await DELETE(request('DELETE',{kind:'transactions',companyId,id:firstRecord.id}))).status,200);
+  assert.equal((await read()).order.status,'open');
+  assert.equal((await read()).lines[0].remaining,50);
+});
+
 test('PO receipts target selected inventory, reuse SKU and reverse only destination stock', async () => {
   const companyId = (await database.query("INSERT INTO companies(name) VALUES ('Receipt destinations') RETURNING id")).rows[0].id;
   const otherCompany = (await database.query("INSERT INTO companies(name) VALUES ('Other receipt company') RETURNING id")).rows[0].id;
