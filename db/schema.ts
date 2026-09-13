@@ -5,6 +5,8 @@ export const companies = pgTable("companies", {
   name: text("name").notNull(),
   baseCurrency: text("base_currency").notNull().default("AED"),
   logoData: text("logo_data").notNull().default(""),
+  rightLogoData: text("right_logo_data").notNull().default(""),
+  documentDesign: text("document_design").notNull().default(""),
   stampData: text("stamp_data").notNull().default(""),
   addressLine1: text("address_line_1").notNull().default(""),
   addressLine2: text("address_line_2").notNull().default(""),

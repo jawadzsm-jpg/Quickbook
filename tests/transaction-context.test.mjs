@@ -1358,3 +1358,29 @@ test('serial search links sales and purchases across inventories while isolating
   assert.equal((await (await find('not-found')).json()).results.length,0);assert.equal((await find('')).status,400);assert.equal((await find('x'.repeat(201))).status,400);
   try { globalThis.__transferTestUser={id:1,role:'admin',companyIds:[companyId]};assert.equal((await find('SN-ABC',other)).status,403); } finally { delete globalThis.__transferTestUser; }
 });
+
+test('company template settings and two logos persist with company/admin isolation and validation', async () => {
+  const companyId=(await database.query("INSERT INTO companies (name) VALUES ('Dual logo company') RETURNING id")).rows[0].id;
+  const {GET,PATCH}=await vite.ssrLoadModule('/app/api/company-setup/route.ts');
+  const {defaultDocumentDesign,validateDocumentDesign}=await vite.ssrLoadModule('/lib/document-design.ts');
+  const get=(id=companyId)=>GET(new Request(`https://app.test/api/company-setup?companyId=${id}`));
+  const original=(await (await get()).json()).record;
+  const logo='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
+  const design=structuredClone(defaultDocumentDesign);design.enabled=true;design.title='Custom Invoice';design.columns.reverse();design.columns.find(c=>c.key==='serialNumber').print=false;design.message='Thank you';design.orientation='landscape';
+  const payload={...original,companyId,bankCurrency:'AED',logoData:logo,rightLogoData:logo,documentDesign:JSON.stringify(design)};
+  const patch=body=>PATCH(new Request('https://app.test/api/company-setup',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify(body)}));
+  let response=await patch(payload);assert.equal(response.status,200,JSON.stringify(await response.clone().json()));let saved=(await (await get()).json()).record;assert.equal(saved.logoData,logo);assert.equal(saved.rightLogoData,logo);assert.deepEqual(JSON.parse(saved.documentDesign),design);
+  response=await patch({...payload,rightLogoData:'data:image/svg+xml;base64,abc'});assert.equal(response.status,400);
+  response=await patch({...payload,documentDesign:JSON.stringify({...design,font:'bad;css'})});assert.equal(response.status,400);
+  assert.throws(()=>validateDocumentDesign(JSON.stringify({...design,columns:[design.columns[0],...design.columns.slice(1).map(()=>design.columns[0])]})));
+  assert.throws(()=>validateDocumentDesign(JSON.stringify({...design,margin:100})));
+  assert.throws(()=>validateDocumentDesign(JSON.stringify({...design,columns:design.columns.map(c=>({...c,print:false}))})));
+  // Old clients omit new fields; both settings must survive.
+  const legacy={...payload};delete legacy.rightLogoData;delete legacy.documentDesign;
+  assert.equal((await patch(legacy)).status,200);saved=(await (await get()).json()).record;assert.equal(saved.rightLogoData,logo);assert.deepEqual(JSON.parse(saved.documentDesign),design);
+  try {
+    globalThis.__transferTestUser={id:1,email:'admin@test',role:'admin',companyIds:[]};assert.equal((await get()).status,403);assert.equal((await patch(payload)).status,403);
+    globalThis.__transferTestUser={id:1,email:'user@test',role:'sales',companyIds:[companyId]};assert.equal((await patch(payload)).status,403);
+    globalThis.__transferTestUser={id:1,email:'admin@test',role:'admin',companyIds:[companyId]};assert.equal((await patch({...payload,rightLogoData:''})).status,200);assert.equal((await (await get()).json()).record.rightLogoData,'');
+  } finally {delete globalThis.__transferTestUser;}
+});

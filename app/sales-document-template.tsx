@@ -1,8 +1,10 @@
+import { readDocumentDesign } from "@/lib/document-design";
+import { CustomInvoiceTemplate } from "./custom-invoice-template";
 import { PaidInvoiceStamp } from "./paid-invoice-stamp";
 import Image from "next/image";
 
 type RecordData = Record<string, string | number | boolean>;
-type Branding = { name: string; logoData: string; phone: string; trn: string; addressLine1: string; addressLine2: string; city: string; country: string };
+type Branding = { name: string; logoData: string; rightLogoData?: string; documentDesign?: string; email?: string; phone: string; trn: string; addressLine1: string; addressLine2: string; city: string; country: string };
 export const salesDocumentTitles = {
   "tax-invoice": ["Tax Invoice", "فاتورة ضريبية", "Invoice# / رقم الفاتورة"],
   quotation: ["Quotation", "عرض سعر", "Quotation# / رقم عرض السعر"],
@@ -20,6 +22,8 @@ export const salesDocumentCss = `
 `;
 
 export function SalesDocumentTemplate({ mode, record, lines, contact, setup, showBillingName, showShipping, showHsCode, showDimensions }: { mode: SalesDocumentMode; record: RecordData; lines: RecordData[]; contact?: RecordData | null; setup: Branding; showBillingName: boolean; showShipping: boolean; showHsCode: boolean; showDimensions: boolean }) {
+  const design = readDocumentDesign(setup.documentDesign);
+  if (design.enabled && mode === "tax-invoice") return <><style>{`@page{size:${design.paper} ${design.orientation};margin:${design.margin}mm}.invoice-print-only{display:none}@media print{body:has(.custom-invoice) .document-print-surface{padding:0!important}.invoice-screen-only{display:none!important}.invoice-print-only{display:block!important}}`}</style><div className="invoice-screen-only"><CustomInvoiceTemplate design={design} record={record} lines={lines} contact={contact} setup={setup} /></div><div className="invoice-print-only"><CustomInvoiceTemplate design={design} record={record} lines={lines} contact={contact} setup={setup} target="print" /></div></>;
   const [title, arabic, numberLabel] = salesDocumentTitles[mode];
   const money = (value: unknown) => Number(value || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const currency = String(record.currency || "AED");
@@ -35,7 +39,7 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, sho
     <div className="sd-header">
       <div>{setup.logoData ? <Image className="sd-logo" src={setup.logoData} alt={`${setup.name} logo`} width={240} height={70} unoptimized /> : <div className="sd-brand">{setup.name}</div>}{setup.phone && <p className="sd-phone">{setup.phone}</p>}<p className="sd-address">{[setup.addressLine1, setup.addressLine2, setup.city, setup.country].filter(Boolean).join(", ")}</p></div>
       <h2 className="sd-title"><span lang="ar" dir="rtl">{arabic}</span><br />{title}</h2>
-      {comnet ? <div className="sd-arabic-brand" lang="ar" dir="rtl">كومنيت<small>انترناشيونال ذ م م</small></div> : <div />}
+      {setup.rightLogoData ? <div style={{ textAlign: "right" }}><Image className="sd-logo" src={setup.rightLogoData} alt={`${setup.name} right logo`} width={240} height={70} unoptimized /></div> : comnet ? <div className="sd-arabic-brand" lang="ar" dir="rtl">كومنيت<small>انترناشيونال ذ م م</small></div> : <div />}
     </div>
     {record.type === "invoice" && !isProposal && <PaidInvoiceStamp status={String(record.status)} paidAt={record.paidAt ? String(record.paidAt) : null} />}
     <div className="sd-parties"><div>{showBillingName && <><h3>Customer: <span lang="ar" dir="rtl">العميل</span></h3><p>{String(contact?.billingName || contact?.company || record.party)}</p>{contact?.trn && <p>TRN: {String(contact.trn)}</p>}{contact?.phone && <p>{String(contact.phone)}</p>}</>}</div><div className="sd-delivery">{showShipping && <><h3>Delivery Address: <span lang="ar" dir="rtl">عنوان التسليم</span></h3><p>{String(record.deliveryAddress || contact?.deliveryAddress || contact?.shippingAddress || "")}</p></>}</div></div>

@@ -1,7 +1,8 @@
+import { validateDocumentDesign } from "@/lib/document-design";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { auditLog, companies } from "@/db/schema";
-import { requireApiUser } from "@/lib/auth";
+import { canAccessCompany, isAdministrator, requireApiUser } from "@/lib/auth";
 
 const templates = new Set(["classic", "modern", "minimal"]);
 
@@ -21,6 +22,7 @@ export async function GET(request: Request) {
   try {
     const companyId = Number(new URL(request.url).searchParams.get("companyId"));
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
+    if (!canAccessCompany(user, companyId)) return Response.json({ error: "Company access denied." }, { status: 403 });
     const [record] = await getDb().select().from(companies).where(eq(companies.id, companyId)).limit(1);
     if (!record) return Response.json({ error: "Company not found." }, { status: 404 });
     return Response.json({ record });
@@ -35,6 +37,14 @@ export async function PATCH(request: Request) {
   try {
     const payload = (await request.json()) as Record<string, unknown>;
     const companyId = Number(payload.companyId);
+    if (!canAccessCompany(user, companyId) || !isAdministrator(user)) return Response.json({ error: "Company administrator access required." }, { status: 403 });
+    const [existing] = await getDb().select().from(companies).where(eq(companies.id, companyId)).limit(1);
+    if (!existing) return Response.json({ error: "Company not found." }, { status: 404 });
+    const rightLogoData = String(payload.rightLogoData ?? existing.rightLogoData);
+    let documentDesign = existing.documentDesign;
+    if (payload.documentDesign !== undefined) {
+      try { documentDesign = JSON.stringify(validateDocumentDesign(String(payload.documentDesign))); } catch { return Response.json({ error: "Check the template fields, labels and print settings." }, { status: 400 }); }
+    }
     const name = text(payload.name, 120);
     const email = text(payload.email, 160).toLowerCase();
     const logoData = String(payload.logoData ?? "");
@@ -45,12 +55,13 @@ export async function PATCH(request: Request) {
     if (!Number.isInteger(companyId) || companyId <= 0 || !name) return Response.json({ error: "Company name is required." }, { status: 400 });
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return Response.json({ error: "Enter a valid company email address." }, { status: 400 });
     if (logoData && (!/^data:image\/(png|jpeg|webp);base64,/.test(logoData) || logoData.length > 700_000)) return Response.json({ error: "Upload a PNG, JPG, or WebP logo smaller than 500 KB." }, { status: 400 });
+    if (rightLogoData && (!/^data:image\/(png|jpeg|webp);base64,/.test(rightLogoData) || rightLogoData.length > 700_000)) return Response.json({ error: "Upload a PNG, JPG, or WebP right logo smaller than 500 KB." }, { status: 400 });
     if (stampData && (!/^data:image\/[a-z0-9.+-]+;base64,/i.test(stampData) || stampData.length > 700_000)) return Response.json({ error: "Upload an image stamp smaller than 500 KB." }, { status: 400 });
     if (!/^[A-Z]{3}$/.test(bankCurrency)) return Response.json({ error: "Choose a valid bank account currency." }, { status: 400 });
     if (!templates.has(documentTemplate) || !/^#[0-9a-fA-F]{6}$/.test(documentColor)) return Response.json({ error: "Choose a valid document design and color." }, { status: 400 });
     const db = getDb();
     const [record] = await db.update(companies).set({
-      name, logoData, stampData, email,
+      name, logoData, rightLogoData, documentDesign, stampData, email,
       addressLine1: text(payload.addressLine1, 180), addressLine2: text(payload.addressLine2, 180), city: text(payload.city, 80), country: text(payload.country, 80), phone: text(payload.phone, 40), trn: text(payload.trn, 40),
       bankName: text(payload.bankName, 120), bankAccountName: text(payload.bankAccountName, 120), bankAccountNumber: text(payload.bankAccountNumber, 80), bankIban: text(payload.bankIban, 80).toUpperCase(), bankSwift: text(payload.bankSwift, 30).toUpperCase(), bankCurrency,
       documentTemplate: documentTemplate as "classic" | "modern" | "minimal", documentColor,
