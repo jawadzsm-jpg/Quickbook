@@ -1337,3 +1337,23 @@ test('bill item comments and serials persist through edits alongside freight and
   result=await edit(detail.lines.map((l,i)=>i===0?{...l,comments:'',serialNumber:''}:l));assert.equal(result.status,200);detail=await read();assert.equal(detail.lines[0].comments,'');assert.equal(detail.lines[0].serialNumber,'');assert.equal(detail.record.total,260);assert.equal(detail.journal.reduce((n,l)=>n+l.debit,0),260);assert.equal(detail.journal.reduce((n,l)=>n+l.credit,0),260);
   const bad=await POST(req('POST',{...payload,number:'BLD-BAD',lines:[{...payload.lines[0],serialNumber:'x'.repeat(5001)}]}));assert.equal(bad.status,400);
 });
+
+test('serial search links sales and purchases across inventories while isolating companies and literal searches', async () => {
+  const companyId=(await database.query("INSERT INTO companies (name) VALUES ('Serial search') RETURNING id")).rows[0].id;
+  const other=(await database.query("INSERT INTO companies (name) VALUES ('Other serial company') RETURNING id")).rows[0].id;
+  const locationId=(await database.query("INSERT INTO inventory_locations (company_id,code,name,invoice_prefix) VALUES ($1,'SS','Serial inventory','SS') RETURNING id",[companyId])).rows[0].id;
+  const otherLocation=(await database.query("INSERT INTO inventory_locations (company_id,code,name,invoice_prefix) VALUES ($1,'OS','Other','OS') RETURNING id",[other])).rows[0].id;
+  const {POST}=await vite.ssrLoadModule('/app/api/records/route.ts');
+  const {GET}=await vite.ssrLoadModule('/app/api/serial-search/route.ts');
+  const ids=[];
+  for (const [type,company,location,serial,header] of [['bill',companyId,locationId,'SN-ABC\nSN-DEF',''],['invoice',companyId,locationId,'sn-abc',''],['bill',other,otherLocation,'SN-ABC',''],['invoice',companyId,locationId,'','LEGACY-123'],['bill',companyId,locationId,'SN%_literal','']]) {
+    const response=await POST(new Request('https://app.test/api/records',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind:'transactions',companyId:company,locationId:location,type,party:'Serial party',transactionDate:'2026-09-13',currency:'AED',exchangeRate:1,account:type==='bill'?'Purchases':'Sales Revenue',serialNumber:header,lines:[{description:'Serial laptop',quantity:1,unitPrice:100,vatCode:'ZERO',serialNumber:serial}]})}));
+    assert.equal(response.status,201);ids.push((await response.json()).record.id);
+  }
+  const find=(q,company=companyId)=>GET(new Request(`https://app.test/api/serial-search?companyId=${company}&q=${encodeURIComponent(q)}`));
+  let response=await find('sn-abc');assert.equal(response.status,200);assert.equal(response.headers.get('cache-control'),'no-store');let data=await response.json();assert.deepEqual(data.results.map(r=>r.id).sort((a,b)=>a-b),ids.slice(0,2));assert.ok(data.results.every(r=>r.scope==='item' && r.description==='Serial laptop' && r.inventory==='Serial inventory'));assert.equal(data.truncated,false);
+  data=await (await find('LEGACY')).json();assert.equal(data.results[0].scope,'document');assert.equal(data.results[0].lineId,null);assert.equal(data.results[0].id,ids[3]);
+  data=await (await find('%_')).json();assert.deepEqual(data.results.map(r=>r.id),[ids[4]]);
+  assert.equal((await (await find('not-found')).json()).results.length,0);assert.equal((await find('')).status,400);assert.equal((await find('x'.repeat(201))).status,400);
+  try { globalThis.__transferTestUser={id:1,role:'admin',companyIds:[companyId]};assert.equal((await find('SN-ABC',other)).status,403); } finally { delete globalThis.__transferTestUser; }
+});
