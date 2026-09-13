@@ -374,7 +374,7 @@ button, input, select { font: inherit; }
 .bill-item-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-bottom: 1px solid var(--border); }
 .bill-item-row:last-child { border-bottom: 0; }
 .bill-item-row > div { min-width: 0; padding: 0.65rem; }
-.bill-item-product, .bill-item-comments, .bill-item-serial, .bill-item-freight { grid-column: 1 / -1; }
+.bill-item-product, .bill-item-freight { grid-column: 1 / -1; }
 .bill-item-number { grid-column: 1 / -1; }
 .bill-mobile-label { display: block; margin-bottom: 0.4rem; }
 @container (min-width: 780px) {
@@ -384,8 +384,6 @@ button, input, select { font: inherit; }
   .bill-item-heading { border-bottom: 1px solid var(--border); }
   .bill-item-number, .bill-item-product { grid-column: auto; }
   .bill-item-row > div { border-right: 1px solid var(--border); }
-  .bill-item-comments { grid-column: 2 / 4; border-top: 1px solid var(--border); }
   .bill-item-cost { grid-column: 4; border-top: 1px solid var(--border); }
-  .bill-item-serial { grid-column: 5 / -1; border-top: 1px solid var(--border); }
   .bill-item-freight { grid-column: 2 / -1; }
 }
