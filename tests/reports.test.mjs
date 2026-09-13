@@ -296,3 +296,63 @@ test('customer open balance uses allocations, preserves unused credits, and link
     assert.equal((await get({ type: 'active-customers' })).status, 403);
   } finally { delete globalThis.__reportTestUser; }
 });
+
+test("P&L reports reconcile item, rep, inventory and class to posted ledger with dates and credits", async () => {
+  const response = await workspaces.POST(post({ type: "company", name: "Profit reconciliation", baseCurrency: "AED" }));
+  const { company: c } = await response.json(); const loc = c.locations[0].id;
+  const [first, second] = await db.insert(schema.items).values([
+    { companyId: c.id, locationId: loc, sku: "PNL-A", name: "Same laptop" },
+    { companyId: c.id, locationId: loc, sku: "PNL-B", name: "Same laptop" },
+  ]).returning();
+  const [invoice] = await db.insert(schema.transactions).values({ companyId: c.id, locationId: loc, type: "invoice", number: "PNL-USD", party: "Customer", salesman: "Rep A", transactionDate: "2026-09-10", currency: "USD", exchangeRate: 3.675, subtotal: 300, total: 315, vatAmount: 15, baseTotal: 1157.625 }).returning();
+  await db.insert(schema.transactionLines).values([
+    { transactionId: invoice.id, itemId: first.id, description: "Same laptop", quantity: 1, subtotal: 100, unitCost: 60 },
+    { transactionId: invoice.id, itemId: second.id, description: "Same laptop", quantity: 1, subtotal: 200, unitCost: 120 },
+  ]);
+  const [credit] = await db.insert(schema.transactions).values({ companyId: c.id, locationId: loc, type: "credit memo", number: "PNL-CREDIT", party: "Customer", salesman: "Rep A", transactionDate: "2026-09-11", subtotal: 50, total: 50 }).returning();
+  await db.insert(schema.transactionLines).values({ transactionId: credit.id, itemId: first.id, description: "Same laptop", quantity: 1, subtotal: 50, unitCost: 60 });
+  async function entry(date, transactionId, values, posted = true) {
+    const [j] = await db.insert(schema.journalEntries).values({ companyId: c.id, locationId: loc, transactionId, entryDate: date, reference: `J-${date}`, posted }).returning();
+    await db.insert(schema.journalLines).values(values.map(v => ({ journalEntryId: j.id, ...v })));
+  }
+  await entry("2026-09-10", invoice.id, [{ accountName: "Sales Revenue", credit: 1102.5 }, { accountName: "Cost of Goods Sold", debit: 661.5 }, { accountName: "VAT Payable", credit: 55.125 }]);
+  await entry("2026-09-11", credit.id, [{ accountName: "Sales Revenue", debit: 50 }]);
+  await entry("2026-09-12", null, [{ accountName: "Operating Expenses", debit: 100 }]);
+  await entry("2026-09-12", null, [{ accountName: "Sales Revenue", credit: 99999 }], false);
+  await entry("2025-09-10", null, [{ accountName: "Sales Revenue", credit: 200 }]);
+  const get = async (type, dates = "periodStart=2026-09-01&periodEnd=2026-09-30") => {
+    const res = await GET(new Request(`https://app.test/api/reports?type=${type}&companyId=${c.id}&locationId=${loc}&${dates}`));
+    assert.equal(res.status, 200); return (await res.json()).report;
+  };
+  const standard = await get("profit-loss");
+  assert.deepEqual(standard.summary, { income: 1052.5, expenses: 761.5, netIncome: 291 });
+  for (const key of ["profit-loss-item", "profit-loss-rep", "profit-loss-job", "profit-loss-class"]) {
+    const r = await get(key); assert.deepEqual(r.summary, standard.summary); assert.equal(r.rows.at(-1).netIncome, 291);
+    assert.equal(r.rows.slice(0, -1).reduce((n, r) => n + r.cost, 0), 661.5);
+  }
+  const byItem = await get("profit-loss-item");
+  assert.equal(byItem.rows.find(r => r.name.startsWith("PNL-A")).income, 317.5);
+  assert.equal(byItem.rows.find(r => r.name.startsWith("PNL-A")).cost, 220.5);
+  assert.equal(byItem.rows.find(r => r.name.startsWith("PNL-B")).cost, 441);
+  assert.equal(byItem.rows.find(r => r.name === "Unallocated").expenses, 100);
+  assert.equal((await get("profit-loss-rep")).rows.find(r => r.name === "Rep A").income, 1052.5);
+  assert.ok(standard.pnl.details.every(r => r.accountId > 0));
+  assert.equal(standard.pnl.details.find(r => r.reference === "J-2026-09-10").transactionId, invoice.id);
+  assert.equal((await get("profit-loss", "periodStart=2026-10-01")).summary.netIncome, 0);
+  assert.equal((await get("profit-loss-ytd")).rows.at(-1).previous, 200);
+  const bad = await GET(new Request(`https://app.test/api/reports?type=profit-loss&companyId=${c.id}&periodStart=2026-09-31`)); assert.equal(bad.status, 400);
+  await entry("2026-09-12", null, [{ accountName: "Missing income", credit: 22 }]);
+  assert.ok((await get("profit-loss")).pnl.warnings.some(w => w.includes("Missing income")));
+  assert.equal((await get("profit-loss-unclassified")).rows[0].credit, 22);
+
+  const { pnlCsv, pnlWorkbook, pnlPdf } = await vite.ssrLoadModule("/lib/pnl-export.ts");
+  const exportReport = { ...byItem, rows: [...byItem.rows, { name: " =HYPERLINK(1)", income: -12.5 }] };
+  const csv = pnlCsv(exportReport, "Company"); assert.ok(csv.includes("' =HYPERLINK(1)")); assert.ok(csv.includes(",-12.5,"));
+  const bytes = await pnlWorkbook(exportReport, "Company");
+  const { default: ExcelJS } = await import("exceljs"); const book = new ExcelJS.Workbook(); await book.xlsx.load(bytes);
+  assert.equal(book.getWorksheet("Profit and Loss").getCell("B6").value, 317.5);
+  assert.equal(book.getWorksheet("Profit and Loss").pageSetup.paperSize, 9);
+  assert.equal(book.getWorksheet("Ledger detail").rowCount, 5);
+  const pdf = Buffer.from(await pnlPdf(byItem, "Company")).toString("latin1");
+  assert.ok(pdf.startsWith("%PDF-")); const box = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(box); assert.ok(Math.abs(Number(box[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(box[2]) - 595.28) < 0.01);
+});

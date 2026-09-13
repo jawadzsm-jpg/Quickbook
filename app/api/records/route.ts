@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "../../../db";
 import {
-  accounts, auditLog, companySettings, contacts, inventoryLocations, inventoryMovements, items, journalEntries,
+  accounts, auditLog, companies, companySettings, contacts, inventoryLocations, inventoryMovements, items, journalEntries,
   journalLines, transactionLines, transactions, vatCodes, billPaymentAllocations, invoicePaymentAllocations, purchaseReceiptAllocations, salesInvoiceAllocations,
 } from "../../../db/schema";
 import { verifyAdminPin } from "../../../lib/admin-pin";
@@ -697,7 +697,15 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     if (receivable && receivable.type !== "Accounts Receivable") return Response.json({ error: `The ${currency} receivable control account must have type Accounts Receivable. Correct it in Chart of Accounts before posting.` }, { status: 409 });
     const linkedRows = await db.select({ id: accounts.id, name: accounts.name, type: accounts.type, systemRole: accounts.systemRole, currency: accounts.currency }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true)));
     const linkedAccounts: Record<string, string> = {};
-    for (const account of linkedRows.filter((entry) => entry.systemRole && !["AR", "AP"].includes(entry.systemRole))) linkedAccounts[account.systemRole!] = account.name;
+    const [postingCompany] = await db.select({ baseCurrency: companies.baseCurrency }).from(companies).where(eq(companies.id, companyId)).limit(1);
+    // P&L and inventory postings are in home currency. Prefer that role's home
+    // account instead of whichever currency account the database returns last.
+    for (const account of linkedRows.filter(a => a.systemRole && !["AR", "AP"].includes(a.systemRole))) linkedAccounts[account.systemRole!] = account.name;
+    for (const role of ["SALES", "OTHER_INCOME", "COGS", "PURCHASES", "EXPENSE", "PAYROLL", "INVENTORY"]) {
+      const candidates = linkedRows.filter(a => a.systemRole === role).sort((a, b) => a.id - b.id);
+      const selected = candidates.find(a => a.currency === postingCompany?.baseCurrency) ?? candidates.find(a => a.currency === currency) ?? candidates[0];
+      if (selected) linkedAccounts[role] = selected.name;
+    }
     for (const role of ["AR", "AP"]) {
       const candidates = linkedRows.filter((account) => account.systemRole === role);
       const selected = role === "AR"
@@ -714,6 +722,14 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const baseLines = postingLines(type, record.account, record.party, baseSubtotal, baseVatAmount, baseTotal, linkedAccounts);
       const cogs = ["invoice", "sales receipt"].includes(type) ? round(prepared.reduce((sum, line) => sum + line.quantity * line.unitCost, 0) * exchangeRate) : 0;
       if (cogs) baseLines.push({ accountName: linkedAccounts.COGS ?? "Cost of Goods Sold", debit: cogs, credit: 0 }, { accountName: linkedAccounts.INVENTORY ?? "Inventory Asset", debit: 0, credit: cogs });
+      const pnlRoleTypes: Record<string, string[]> = { SALES: ["Income"], OTHER_INCOME: ["Other Income", "Income"], COGS: ["Cost of Goods Sold"], PURCHASES: ["Expense", "Cost of Goods Sold"], EXPENSE: ["Expense", "Other Expense"], PAYROLL: ["Expense"] };
+      for (const line of baseLines) {
+        const matches = linkedRows.filter(a => a.name === line.accountName);
+        if (matches.length > 1) return Response.json({ error: `Posting account ${line.accountName} must match one active Chart of Accounts entry. Correct the account link before posting.` }, { status: 409 });
+        if (!matches.length) continue;
+        const linked = matches[0]; const allowed = pnlRoleTypes[linked.systemRole || ""];
+        if (allowed && !allowed.includes(linked.type)) return Response.json({ error: `${linked.name} (${linked.systemRole}) must use account type ${allowed.join(" or ")}. Correct it in Chart of Accounts before posting.` }, { status: 409 });
+      }
       await db.insert(journalLines).values(baseLines.map((line) => ({ ...line, journalEntryId: entry.id })));
     }
 

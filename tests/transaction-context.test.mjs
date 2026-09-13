@@ -1223,3 +1223,19 @@ test('receivable postings match document company and currency even when customer
   assert.equal((await database.query('SELECT count(*)::int n FROM transactions WHERE company_id=$1',[companyId])).rows[0].n,before);
 
 });
+
+test('P&L posting uses home-currency revenue and blocks wrongly classified linked accounts atomically', async () => {
+  const companyId = (await database.query("INSERT INTO companies (name,base_currency) VALUES ('P&L links','AED') RETURNING id")).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations (company_id,code,name,invoice_prefix) VALUES ($1,'PNL','PNL','PNL') RETURNING id",[companyId])).rows[0].id;
+  await database.query("INSERT INTO accounts (company_id,code,name,type,system_role,currency) VALUES ($1,'4001','Home Sales','Income','SALES','AED'),($1,'4002','USD Sales','Income','SALES','USD')", [companyId]);
+  const { POST } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const save = () => POST(new Request('https://app.test/api/records',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind:'transactions',companyId,locationId,type:'invoice',party:'P&L customer',currency:'USD',exchangeRate:3.675,lines:[{description:'Service',quantity:1,unitPrice:100,vatCode:'ZERO'}]})}));
+  const good = await save(); assert.equal(good.status,201,JSON.stringify(await good.clone().json()));
+  const id = (await good.json()).record.id;
+  const rows = (await database.query("SELECT jl.account_name,jl.credit FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.transaction_id=$1 AND jl.credit>0", [id])).rows;
+  assert.equal(rows[0].account_name,'Home Sales'); assert.equal(rows[0].credit,367.5);
+  await database.query("UPDATE accounts SET type='Bank' WHERE company_id=$1 AND name='Home Sales'",[companyId]);
+  const bad = await save(); assert.equal(bad.status,409); assert.match((await bad.json()).error,/must use account type Income/);
+  assert.equal((await database.query('SELECT count(*)::int n FROM transactions WHERE company_id=$1',[companyId])).rows[0].n,1);
+  assert.equal((await database.query('SELECT count(*)::int n FROM journal_entries WHERE company_id=$1',[companyId])).rows[0].n,1);
+});

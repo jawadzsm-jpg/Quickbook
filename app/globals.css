@@ -358,3 +358,13 @@ button, input, select { font: inherit; }
   svg.lucide-trash-2, svg.lucide-trash2, svg.lucide-trash { color: #dc2626 !important; }
   [data-appearance="dark"] :is(svg.lucide-trash-2, svg.lucide-trash2, svg.lucide-trash) { color: #f87171 !important; }
 }
+
+@page pnl { size: A4 landscape; margin: 12mm; }
+@media print {
+  .pnl-dialog { page: pnl; }
+  .pnl-dialog button:not(.pnl-report button) { display: none !important; }
+  .pnl-dialog .pnl-report button { color: inherit; text-decoration: none; }
+  .pnl-report .report-table, .pnl-report .report-table > div { overflow: visible !important; }
+  .pnl-report th, .pnl-report td { white-space: normal; overflow-wrap: anywhere; }
+  .pnl-report thead { print-color-adjust: exact; }
+}
