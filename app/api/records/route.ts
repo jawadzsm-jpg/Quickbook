@@ -11,7 +11,7 @@ import { verifyAdminPin } from "../../../lib/admin-pin";
 import { canAccessCompany, isAdministrator, hasPermission, requireApiUser, type Permission, type SessionUser } from "@/lib/auth";
 
 type RecordKind = "transactions" | "contacts" | "items" | "accounts";
-type InputLine = { orderLineId?: number; sourceLineId?: number; itemId?: number | string | null; description?: string; quantity?: number | string; unitPrice?: number | string; unitCost?: number | string; vatCode?: string; vatRate?: number | string };
+type InputLine = { freightCharge?: number | string; isFreightCharge?: boolean; orderLineId?: number; sourceLineId?: number; itemId?: number | string | null; description?: string; quantity?: number | string; unitPrice?: number | string; unitCost?: number | string; vatCode?: string; vatRate?: number | string };
 
 function errorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : "Unexpected database error";
@@ -249,6 +249,8 @@ export async function GET(request: Request) {
         quantity: transactionLines.quantity,
         unitPrice: transactionLines.unitPrice,
         unitCost: transactionLines.unitCost,
+        freightCharge: transactionLines.freightCharge,
+        isFreightCharge: transactionLines.isFreightCharge,
         vatCode: transactionLines.vatCode,
         vatRate: transactionLines.vatRate,
         subtotal: transactionLines.subtotal,
@@ -509,6 +511,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const party = String(payload.party ?? "").trim();
     const configuredVatCodes = await db.select({ code: vatCodes.code, rate: vatCodes.rate }).from(vatCodes).where(and(eq(vatCodes.companyId, companyId), eq(vatCodes.active, true)));
     const vatRates = configuredVatCodes.length ? Object.fromEntries(configuredVatCodes.map((vatCode) => [vatCode.code, Number(vatCode.rate)])) : fallbackVatRates;
+    if (type === "bill") rawLines = rawLines.filter(line => !line.isFreightCharge);
+    if (rawLines.some(line => !Number.isFinite(Number(line.freightCharge ?? 0)) || Number(line.freightCharge ?? 0) < 0)) return Response.json({ error: "Line freight charges must be finite, non-negative amounts." }, { status: 400 });
     const prepared = rawLines.map((line) => {
       const quantity = Number(line.quantity ?? 1);
       const unitPrice = Number(line.unitPrice ?? 0);
@@ -518,14 +522,14 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const vatRate = vatRates[vatCode];
       const subtotal = round(quantity * unitPrice);
       const vatAmount = round(subtotal * vatRate / 100);
-      return { itemId: line.itemId ? Number(line.itemId) : null, description: String(line.description ?? "").trim(), quantity, unitPrice, unitCost, vatCode, vatRate, subtotal, vatAmount, total: round(subtotal + vatAmount) };
+      return { itemId: line.itemId ? Number(line.itemId) : null, description: String(line.description ?? "").trim(), quantity, unitPrice, unitCost, freightCharge: type === "bill" ? round(Number(line.freightCharge ?? 0)) : 0, isFreightCharge: false, vatCode, vatRate, subtotal, vatAmount, total: round(subtotal + vatAmount) };
     }).filter((line) => line.description || line.itemId || line.subtotal > 0);
     if (!prepared.length && Number(payload.total) > 0) {
       const subtotal = Number(payload.total);
       const requestedVatCode = Number(payload.vatRate ?? 5) === 5 ? "STANDARD" : "ZERO";
       const vatCode = Object.hasOwn(vatRates, requestedVatCode) ? requestedVatCode : Object.keys(vatRates)[0];
       const vatRate = vatRates[vatCode];
-      prepared.push({ itemId: null, description: String(payload.memo ?? type), quantity: 1, unitPrice: subtotal, unitCost: 0, vatCode, vatRate, subtotal, vatAmount: round(subtotal * vatRate / 100), total: round(subtotal * (1 + vatRate / 100)) });
+      prepared.push({ itemId: null, description: String(payload.memo ?? type), quantity: 1, unitPrice: subtotal, unitCost: 0, freightCharge: 0, isFreightCharge: false, vatCode, vatRate, subtotal, vatAmount: round(subtotal * vatRate / 100), total: round(subtotal * (1 + vatRate / 100)) });
     }
     if (!party || !prepared.length || prepared.some((line) => !Number.isFinite(line.quantity) || line.quantity <= 0 || !Number.isFinite(line.unitPrice) || line.unitPrice < 0)) {
       return Response.json({ error: "Party and at least one valid document line are required." }, { status: 400 });
@@ -567,6 +571,17 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
             return Response.json({ error: `Invoice blocked to prevent negative stock. ${detail}` }, { status: 409 });
           }
         }
+      }
+    }
+    if (type === "bill") {
+      const freightByTax = new Map<string, { amount: number; rate: number }>();
+      for (const line of prepared) if (line.freightCharge > 0) {
+        const old = freightByTax.get(line.vatCode);
+        freightByTax.set(line.vatCode, { amount: round((old?.amount ?? 0) + line.freightCharge), rate: line.vatRate });
+      }
+      for (const [vatCode, freight] of freightByTax) {
+        const freightVat = round(freight.amount * freight.rate / 100);
+        prepared.push({ itemId: null, description: "Freight Charges", quantity: 1, unitPrice: freight.amount, unitCost: freight.amount, freightCharge: 0, isFreightCharge: true, vatCode, vatRate: freight.rate, subtotal: freight.amount, vatAmount: freightVat, total: round(freight.amount + freightVat) });
       }
     }
     const subtotal = round(prepared.reduce((sum, line) => sum + line.subtotal, 0));

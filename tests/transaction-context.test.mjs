@@ -1254,3 +1254,28 @@ test('bank transfers save as paid and legacy open transfers display paid without
   await database.query("UPDATE transactions SET status='open',paid_at=NULL WHERE id=$1",[record.id]); assert.equal((await read()).status,'paid');
   await database.query("UPDATE transactions SET status='cancelled' WHERE id=$1",[record.id]); assert.equal((await read()).status,'cancelled');
 });
+
+test('bill line freight is saved, taxed, edited and attributed to items exactly once', async () => {
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Line freight') RETURNING id")).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations (company_id,code,name,invoice_prefix) VALUES ($1,'FRT','FRT','FRT') RETURNING id",[companyId])).rows[0].id;
+  const stock = (await database.query("INSERT INTO items (company_id,location_id,sku,name) VALUES ($1,$2,'F-A','Laptop A'),($1,$2,'F-B','Laptop B') RETURNING id",[companyId,locationId])).rows;
+  const {POST,GET,PATCH}=await vite.ssrLoadModule('/app/api/records/route.ts');
+  const req=(method,body)=>new Request('https://app.test/api/records',{method,headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+  const payload={kind:'transactions',companyId,locationId,type:'bill',number:'FREIGHT-1',party:'Freight supplier',transactionDate:'2026-09-13',account:'Purchases',currency:'USD',exchangeRate:2,lines:[{itemId:stock[0].id,description:'Laptop A',quantity:3,unitPrice:100,unitCost:100,freightCharge:10,vatCode:'STANDARD'},{itemId:stock[1].id,description:'Laptop B',quantity:2,unitPrice:50,unitCost:50,freightCharge:20,vatCode:'ZERO'}]};
+  const res=await POST(req('POST',payload));assert.equal(res.status,201,JSON.stringify(await res.clone().json()));const {record}=await res.json();
+  assert.equal(record.subtotal,430);assert.equal(record.vatAmount,15.5);assert.equal(record.total,445.5);assert.equal(record.baseTotal,891);
+  const read=async()=> (await (await GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${companyId}&id=${record.id}`))).json());
+  let detail=await read();assert.equal(detail.lines.filter(l=>l.isFreightCharge).length,2);assert.equal(detail.lines.find(l=>l.itemId===stock[0].id).freightCharge,10);
+  const {stockPricingRows}=await vite.ssrLoadModule('/lib/stock-pricing.ts');
+  const costs=stockPricingRows(stock.map((s,i)=>({...s,locationId,sku:`F-${i}`,name:'Laptop',quantity:10,cost:0,lastPurchasePrice:0,salesPrice:400,itemNumber:null})),detail.lines.map(l=>({...l,transactionId:record.id,type:'bill',date:record.transactionDate,number:record.number,exchangeRate:2})),[]);
+  assert.equal(costs[0].freightCost,6.67);assert.equal(costs[1].freightCost,20);
+  // API clients may return the generated freight rows; rebuilding must not duplicate them.
+  let edited=await PATCH(req('PATCH',{...payload,id:record.id,revision:detail.revision,lines:detail.lines}));assert.equal(edited.status,200,JSON.stringify(await edited.clone().json()));assert.equal((await edited.json()).record.total,445.5);
+  detail=await read();
+  const lines=detail.lines.filter(l=>!l.isFreightCharge).map(l=>({...l,freightCharge:0}));
+  edited=await PATCH(req('PATCH',{...payload,id:record.id,revision:detail.revision,lines}));assert.equal(edited.status,200);assert.equal((await edited.json()).record.total,415);
+  detail=await read();assert.equal(detail.lines.filter(l=>l.isFreightCharge).length,0);
+  const bad=await PATCH(req('PATCH',{...payload,id:record.id,revision:detail.revision,lines:[{...lines[0],freightCharge:-1}]}));assert.equal(bad.status,400);assert.equal((await read()).record.total,415);
+  // Existing freight rows retain their original value and tax when editing older bills.
+  edited=await PATCH(req('PATCH',{...payload,id:record.id,revision:detail.revision,lines:[...lines,{description:'Freight Charges',quantity:1,unitPrice:7,unitCost:7,vatCode:'ZERO'}]}));assert.equal(edited.status,200);assert.equal((await edited.json()).record.total,422);
+});
