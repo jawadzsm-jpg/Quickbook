@@ -5,7 +5,7 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "../../../db";
 import {
   accounts, auditLog, companySettings, contacts, inventoryLocations, inventoryMovements, items, journalEntries,
-  journalLines, transactionLines, transactions, vatCodes, invoicePaymentAllocations, purchaseReceiptAllocations, salesInvoiceAllocations,
+  journalLines, transactionLines, transactions, vatCodes, billPaymentAllocations, invoicePaymentAllocations, purchaseReceiptAllocations, salesInvoiceAllocations,
 } from "../../../db/schema";
 import { verifyAdminPin } from "../../../lib/admin-pin";
 import { canAccessCompany, isAdministrator, hasPermission, requireApiUser, type Permission, type SessionUser } from "@/lib/auth";
@@ -101,7 +101,8 @@ function purchaseRevision(record: typeof transactions.$inferSelect, lines: { id:
 
 async function billPaidAmount(billId: number, excludingPaymentId = 0) {
   const [row] = await getDb().select({ paid: sql<number>`coalesce(sum(${transactions.total}), 0)` }).from(transactions).where(and(eq(transactions.billId, billId), sql`${transactions.id} <> ${excludingPaymentId}`));
-  return round(Number(row.paid));
+  const [allocated] = await getDb().select({ paid: sql<number>`coalesce(sum(${billPaymentAllocations.amount}), 0)` }).from(billPaymentAllocations).where(and(eq(billPaymentAllocations.billId, billId), sql`${billPaymentAllocations.paymentId} <> ${excludingPaymentId}`));
+  return round(Number(row.paid) + Number(allocated.paid));
 }
 
 async function refreshBillStatus(billId: number) {
@@ -212,7 +213,8 @@ export async function GET(request: Request) {
       const [editingPayment] = paymentId ? await db.select().from(transactions).where(and(eq(transactions.id, paymentId), eq(transactions.companyId, companyId), inArray(transactions.type, ["bill payment", "cheque"]))) : [];
       const bills = await db.select({ id: transactions.id, number: transactions.number, transactionDate: transactions.transactionDate, dueDate: transactions.dueDate, status: transactions.status, total: transactions.total }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId), eq(transactions.party, party), eq(transactions.currency, currency), inArray(transactions.type, ["bill", "received item bill"]), sql`(${transactions.status} in ('open', 'overdue', 'pending', 'partially paid') or ${transactions.id} = ${editingPayment?.billId ?? 0})`)).orderBy(asc(transactions.transactionDate), asc(transactions.id));
       const payments = await db.select({ billId: transactions.billId, total: transactions.total }).from(transactions).where(and(eq(transactions.companyId, companyId), inArray(transactions.type, ["bill payment", "cheque"]), sql`${transactions.id} <> ${editingPayment?.id ?? 0}`));
-      const records = bills.map((bill) => { const paid = round(payments.filter((payment) => payment.billId === bill.id).reduce((sum, payment) => sum + payment.total, 0)); return { ...bill, paid, remaining: round(bill.total - paid) }; }).filter((bill) => bill.remaining > 0);
+      const allocatedBills = await db.select({ billId: billPaymentAllocations.billId, amount: billPaymentAllocations.amount }).from(billPaymentAllocations).innerJoin(transactions, eq(transactions.id, billPaymentAllocations.paymentId)).where(and(eq(transactions.companyId, companyId), sql`${transactions.id} <> ${editingPayment?.id ?? 0}`));
+      const records = bills.map((bill) => { const paid = round(payments.filter((payment) => payment.billId === bill.id).reduce((sum, payment) => sum + payment.total, 0) + allocatedBills.filter((payment) => payment.billId === bill.id).reduce((sum, payment) => sum + payment.amount, 0)); return { ...bill, paid, remaining: round(bill.total - paid) }; }).filter((bill) => bill.remaining > 0);
 
       return Response.json({ records }, { headers: { "Cache-Control": "no-store" } });
     }
@@ -619,18 +621,32 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       }
       chequeBankName = bank.name;
     }
-    const requestedBillId = payload.billId ? Number(payload.billId) : null;
-    const billId = ["bill payment", "cheque"].includes(type) ? requestedBillId : null;
-    if (billId !== null && (!Number.isSafeInteger(billId) || billId <= 0)) return Response.json({ error: "Select a valid bill." }, { status: 400 });
-    const linkedBillIds = [...new Set([billId, replacing?.billId].filter((id): id is number => Boolean(id)))].sort((a, b) => a - b);
+    let requestedBillIds: unknown = payload.billIds ?? (payload.billId ? [Number(payload.billId)] : []);
+    if (typeof requestedBillIds === "string") { try { requestedBillIds = JSON.parse(requestedBillIds); } catch { return Response.json({ error: "Select valid bills." }, { status: 400 }); } }
+    if (!Array.isArray(requestedBillIds) || requestedBillIds.some((id) => !Number.isSafeInteger(id) || id <= 0) || new Set(requestedBillIds).size !== requestedBillIds.length) return Response.json({ error: "Select valid bills." }, { status: 400 });
+    const selectedBillIds: number[] = ["bill payment", "cheque"].includes(type) ? requestedBillIds : [];
+    if (selectedBillIds.length > 1 && type !== "cheque") return Response.json({ error: "Select one bill for Bill Payment." }, { status: 400 });
+    const billId = selectedBillIds.length === 1 ? selectedBillIds[0] : null;
+    const linkedBillIds = [...new Set([...selectedBillIds, ...[replacing?.billId].filter((id): id is number => Boolean(id))])].sort((a, b) => a - b);
     const lockedBills = linkedBillIds.length ? await db.select().from(transactions).where(inArray(transactions.id, linkedBillIds)).orderBy(asc(transactions.id)).for("update") : [];
-    if (billId) {
-      const bill = lockedBills.find((entry) => entry.id === billId);
-      if (!bill || !["bill", "received item bill"].includes(bill.type) || bill.companyId !== companyId || bill.locationId !== locationId || bill.party !== party || bill.currency !== currency) return Response.json({ error: "Select a bill for this vendor, company, inventory and currency." }, { status: 400 });
-      if (!["open", "pending", "overdue", "partially paid"].includes(bill.status) && !(replacing?.billId === billId && bill.status === "paid")) return Response.json({ error: "This bill is no longer unpaid. Refresh the bill list." }, { status: 409 });
-      const remaining = round(bill.total - await billPaidAmount(billId, replacing?.id));
-      if (total <= 0 || total > remaining) return Response.json({ error: `Payment exceeds the remaining bill balance of ${remaining.toFixed(2)} ${currency}. Refresh the bill list.` }, { status: 409 });
+    if (selectedBillIds.length && type === "cheque") {
+      const [posting] = await db.select().from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.name, String(payload.account))));
+      if (posting?.systemRole !== "AP") return Response.json({ error: "Use Accounts Payable to pay selected bills." }, { status: 400 });
     }
+    const billAllocations: { billId: number; amount: number }[] = [];
+    let billUnallocated = total;
+    const selectedBills = lockedBills.filter((bill) => selectedBillIds.includes(bill.id)).sort((a,b) => a.transactionDate.localeCompare(b.transactionDate) || a.id-b.id);
+    if (selectedBills.length !== selectedBillIds.length) return Response.json({ error: "Selected bill not found." }, { status: 400 });
+    for (const bill of selectedBills) {
+      if (!["bill", "received item bill"].includes(bill.type) || bill.companyId !== companyId || bill.locationId !== locationId || bill.party !== party || bill.currency !== currency) return Response.json({ error: "Select bills for this vendor, company, inventory and currency." }, { status: 400 });
+      if (!["open", "pending", "overdue", "partially paid"].includes(bill.status) && !(replacing?.billId === bill.id && bill.status === "paid")) return Response.json({ error: "A selected bill is no longer unpaid. Refresh the list." }, { status: 409 });
+      const remaining = round(bill.total - await billPaidAmount(bill.id, replacing?.id));
+      const amount = Math.min(Math.max(0,remaining), Math.max(0,billUnallocated));
+      if (amount > 0) billAllocations.push({billId:bill.id,amount});
+      billUnallocated = round(billUnallocated - amount);
+    }
+    if (selectedBillIds.length && (total <= 0 || billUnallocated > 0)) return Response.json({error:"Payment exceeds the selected bills' remaining balance."},{status:409});
+    if (selectedBills.length && type === "cheque") payload.memo = [String(payload.memo || ""), `Bill references: ${selectedBills.map((bill) => bill.number).join(", ")}`].filter(Boolean).join(" · ");
     let requestedInvoiceIds: unknown = payload.invoiceIds ?? (payload.invoiceId ? [Number(payload.invoiceId)] : []);
     if (typeof requestedInvoiceIds === "string") {
       try { requestedInvoiceIds = JSON.parse(requestedInvoiceIds || "[]"); }
@@ -665,6 +681,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const [record] = replacing
       ? await db.update(transactions).set(values).where(eq(transactions.id, replacing.id)).returning()
       : await db.insert(transactions).values(values).returning();
+    if (selectedBillIds.length > 1 && billAllocations.length) await db.insert(billPaymentAllocations).values(billAllocations.map((allocation) => ({ ...allocation, paymentId: record.id })));
     if (salesAllocations.length) await db.insert(salesInvoiceAllocations).values(salesAllocations.map((allocation) => ({ ...allocation, invoiceId: record.id })));
     if (receiptAllocations.length) await db.insert(purchaseReceiptAllocations).values(receiptAllocations.map((allocation) => ({ ...allocation, receiptId: record.id })));
     if (allocations.length) await db.insert(invoicePaymentAllocations).values(allocations.map((allocation) => ({ ...allocation, paymentId: record.id })));
@@ -766,7 +783,8 @@ async function handlePATCH(request: Request) {
         if (receipt) return Response.json({ error: "This purchase order has item receipts. Remove the receipts before editing or deleting the order." }, { status: 409 });
         const [allocated] = await db.select({ id: transactions.id }).from(transactions).where(sql`(${transactions.billId} = ${id} or ${transactions.invoiceId} = ${id})`).limit(1);
         const [invoiceAllocation] = await db.select({ id: invoicePaymentAllocations.id }).from(invoicePaymentAllocations).where(eq(invoicePaymentAllocations.invoiceId, id)).limit(1);
-        if (allocated || invoiceAllocation) return Response.json({ error: "Remove linked payments before editing this bill." }, { status: 409 });
+        const [billAllocation] = await db.select({ id: billPaymentAllocations.id }).from(billPaymentAllocations).where(eq(billPaymentAllocations.billId, id)).limit(1);
+        if (allocated || invoiceAllocation || billAllocation) return Response.json({ error: "Remove linked payments before editing this bill." }, { status: 409 });
         if (existing.convertedInvoiceId || !["open", "draft", "pending", "overdue"].includes(existing.status)) return Response.json({ error: "Only open, overdue, draft or pending purchases can be edited. Converted or settled documents are locked." }, { status: 409 });
         const oldLines = await db.select().from(transactionLines).where(eq(transactionLines.transactionId, id)).orderBy(asc(transactionLines.id));
         if (payload.revision !== purchaseRevision(existing, oldLines)) return Response.json({ error: "This purchase changed. Close the editor and reopen it before saving." }, { status: 409 });
@@ -975,11 +993,14 @@ async function handleDELETE(request: Request) {
         if (receipt) return Response.json({ error: "This purchase order has item receipts. Remove the receipts before editing or deleting the order." }, { status: 409 });
         const [allocated] = await db.select({ id: transactions.id }).from(transactions).where(sql`(${transactions.billId} = ${id} or ${transactions.invoiceId} = ${id})`).limit(1);
         const [invoiceAllocation] = await db.select({ id: invoicePaymentAllocations.id }).from(invoicePaymentAllocations).where(eq(invoicePaymentAllocations.invoiceId, id)).limit(1);
-        if (allocated || invoiceAllocation) return Response.json({ error: "Remove linked payments before deleting this bill." }, { status: 409 });
+        const [billAllocation] = await db.select({ id: billPaymentAllocations.id }).from(billPaymentAllocations).where(eq(billPaymentAllocations.billId, id)).limit(1);
+        if (allocated || invoiceAllocation || billAllocation) return Response.json({ error: "Remove linked payments before deleting this bill." }, { status: 409 });
         const paymentAllocations = await db.select().from(invoicePaymentAllocations).where(eq(invoicePaymentAllocations.paymentId, id));
         const invoiceIds = paymentAllocations.map((allocation) => allocation.invoiceId).sort((a, b) => a - b);
         if (invoiceIds.length) await db.select({ id: transactions.id }).from(transactions).where(inArray(transactions.id, invoiceIds)).orderBy(asc(transactions.id)).for("update");
-        if (record.billId) await db.select({ id: transactions.id }).from(transactions).where(eq(transactions.id, record.billId)).for("update");
+        const billAllocations = await db.select().from(billPaymentAllocations).where(eq(billPaymentAllocations.paymentId, id));
+        const billIds = [...new Set([...(record.billId ? [record.billId] : []), ...billAllocations.map((allocation) => allocation.billId)])].sort((a,b) => a-b);
+        if (billIds.length) await db.select({id: transactions.id}).from(transactions).where(inArray(transactions.id, billIds)).orderBy(asc(transactions.id)).for("update");
         if (record.salesSourceId) await db.select({ id: transactions.id }).from(transactions).where(eq(transactions.id, record.salesSourceId)).for("update");
         if (record.purchaseOrderId) await db.select({ id: transactions.id }).from(transactions).where(eq(transactions.id, record.purchaseOrderId)).for("update");
         const movements = await db.select().from(inventoryMovements).where(eq(inventoryMovements.transactionId, id));
@@ -995,7 +1016,7 @@ async function handleDELETE(request: Request) {
         const contactType = ["invoice", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(record.type) ? "customer" : "vendor";
         if (balanceChange) await db.update(contacts).set({ balance: sql`${contacts.balance} - ${balanceChange}` }).where(and(eq(contacts.companyId, companyId), eq(contacts.name, record.party), eq(contacts.type, contactType)));
         await db.delete(transactions).where(eq(transactions.id, id));
-        if (record.billId) await refreshBillStatus(record.billId);
+        for (const billId of billIds) await refreshBillStatus(billId);
         if (record.purchaseOrderId) await refreshPurchaseOrder(record.purchaseOrderId);
         if (record.salesSourceId) await refreshSalesSource(record.salesSourceId);
         for (const invoiceId of invoiceIds) await refreshInvoiceStatus(invoiceId);

@@ -386,3 +386,10 @@ export const skuWorkLocks = pgTable("sku_work_locks", {
   token: text("token").notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true, mode: "string" }).notNull(),
 }, (table) => [index("idx_sku_work_locks_expiry").on(table.expiresAt)]);
+
+export const billPaymentAllocations = pgTable("bill_payment_allocations", {
+  id: serial("id").primaryKey(),
+  paymentId: integer("payment_id").notNull().references(() => transactions.id, { onDelete: "cascade" }),
+  billId: integer("bill_id").notNull().references(() => transactions.id, { onDelete: "restrict" }),
+  amount: doublePrecision("amount").notNull(),
+}, (table) => [uniqueIndex("idx_bill_payment_pair").on(table.paymentId, table.billId), index("idx_bill_allocation_bill").on(table.billId)]);

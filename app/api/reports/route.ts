@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, sum } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { accounts, auditLog, companies, contacts, exchangeRates, inventoryLocations, items, journalEntries, journalLines, transactionLines, transactions, vatCodes } from "../../../db/schema";
+import { accounts, auditLog, billPaymentAllocations, companies, contacts, exchangeRates, inventoryLocations, items, journalEntries, journalLines, transactionLines, transactions, vatCodes } from "../../../db/schema";
 import { stockPricingRows } from "@/lib/stock-pricing";
 import { canAccessCompany, hasPermission, isAdministrator, requireApiUser } from "@/lib/auth";
 
@@ -563,7 +563,8 @@ export async function GET(request: Request) {
       columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "charge", label: "Bill / Charge", ...money }, { key: "payment", label: "Payment / Credit", ...money }, { key: "balance", label: "Balance", ...money }];
     } else if (key === "unpaid-bills-detail") {
       title = "Unpaid Bills Detail";
-      rows = scopedTransactions.filter((row) => ["bill", "received item bill"].includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => ({ supplier: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, type: row.type, status: row.status, overdueDays: row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0, currency: row.currency, amount: Math.max(0, row.total - allTransactions.filter((payment) => payment.billId === row.id).reduce((sum, payment) => sum + payment.total, 0)) * row.exchangeRate }));
+      const billAllocations = await db.select({billId:billPaymentAllocations.billId,amount:billPaymentAllocations.amount}).from(billPaymentAllocations).innerJoin(transactions,eq(transactions.id,billPaymentAllocations.paymentId)).where(eq(transactions.companyId,companyId));
+      rows = scopedTransactions.filter((row) => ["bill", "received item bill"].includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => ({ supplier: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, type: row.type, status: row.status, overdueDays: row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0, currency: row.currency, amount: Math.max(0, row.total - allTransactions.filter((payment) => payment.billId === row.id).reduce((sum, payment) => sum + payment.total, 0) - billAllocations.filter((payment) => payment.billId === row.id).reduce((sum,payment) => sum + payment.amount,0)) * row.exchangeRate }));
       columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Bill Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "Bill No." }, { key: "type", label: "Type" }, { key: "status", label: "Status" }, { key: "overdueDays", label: "Days Overdue" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Open Amount", ...money }];
     } else if (key === "accounts-payable-graph") {
       title = "Accounts Payable Graph";
