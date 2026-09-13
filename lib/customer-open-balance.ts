@@ -11,6 +11,7 @@ export type OpenBalanceData = {
 // Allocations are in document currency. Never subtract a home-currency payment
 // from a foreign-currency invoice or infer settlement from a status label.
 export async function customerOpenBalance(companyId: number, locationId: number, homeCurrency: string, params: URLSearchParams, canViewAccounts: boolean) {
+  const aging = ["ar-aging-summary", "ar-aging-detail"].includes(params.get("type") || "");
   const activeOnly = params.get("type") === "active-customers";
   const overdueOnly = params.get("type") === "customers-overdue-invoices";
   const currency = (params.get("currency") || homeCurrency).toUpperCase();
@@ -29,7 +30,7 @@ export async function customerOpenBalance(companyId: number, locationId: number,
   ]);
   const names = [...new Set([...customers.map((row) => row.name), ...documents.map((row) => row.party)])].sort();
   if (customer && !names.includes(customer)) return Response.json({ error: "Select a customer in this company." }, { status: 400 });
-  const eligible = documents.filter((row) => (activeOnly || row.currency === currency) && row.transactionDate <= asOf && !["void", "voided", "cancelled", "canceled", "draft"].includes(row.status));
+  const eligible = documents.filter((row) => (activeOnly || aging || row.currency === currency) && row.transactionDate <= asOf && !["void", "voided", "cancelled", "canceled", "draft"].includes(row.status));
   const byId = new Map(eligible.map((row) => [row.id, row]));
   const used = new Map<number, number>();
   const round = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
@@ -48,10 +49,25 @@ export async function customerOpenBalance(companyId: number, locationId: number,
   const rows = eligible.filter((row) => (!customer || row.party === customer) && (!locationId || row.locationId === locationId)).map((row) => {
     const sign = ["customer payment", "credit memo"].includes(row.type) ? -1 : 1;
     const contact = customers.find((entry) => entry.name === row.party && entry.currency === row.currency);
-    const account = postedAccounts.get(row.id) ?? arAccounts.find((entry) => entry.id === contact?.ledgerAccountId) ?? arAccounts.find((entry) => entry.currency === row.currency);
-    return { customer: row.party, currency: row.currency, type: row.type, date: row.transactionDate, number: row.number, memo: row.memo, dueDate: row.dueDate, openBalance: round(sign * (row.total - (used.get(row.id) || 0))), amount: round(sign * row.total), transactionId: row.id, account: account?.name || "Unlinked", accountId: account?.id || 0 };
+    const account = postedAccounts.get(row.id) ?? arAccounts.find((entry) => entry.id === contact?.ledgerAccountId && entry.currency === row.currency && entry.active) ?? arAccounts.find((entry) => entry.currency === row.currency && entry.systemRole === "AR" && entry.active);
+    return { customer: row.party, currency: row.currency, homeOpenBalance: round(sign * (row.total - (used.get(row.id) || 0)) * (row.total ? row.baseTotal / row.total : row.exchangeRate)), type: row.type, date: row.transactionDate, number: row.number, memo: row.memo, dueDate: row.dueDate, openBalance: round(sign * (row.total - (used.get(row.id) || 0))), amount: round(sign * row.total), transactionId: row.id, account: account?.name || "Unlinked", accountId: account?.id || 0 };
   }).filter((row) => Math.abs(row.openBalance) >= 0.005 && (!overdueOnly || (row.type === "invoice" && row.openBalance > 0 && Boolean(row.dueDate) && row.dueDate < asOf))).sort((a, b) => a.customer.localeCompare(b.customer) || a.date.localeCompare(b.date) || a.transactionId - b.transactionId);
   const money = { type: "money" as const };
+  if (aging) {
+    const detail = rows.map((row) => ({ customer: row.customer, date: row.date, dueDate: row.dueDate || "—", number: row.number, type: row.type, age: row.openBalance > 0 && row.dueDate ? Math.max(0, Math.floor((Date.parse(asOf) - Date.parse(row.dueDate)) / 86400000)) : 0, amount: row.homeOpenBalance, transactionId: row.transactionId, account: row.account }));
+    const grouped = new Map<string, { name: string; current: number; days30: number; days60: number; days90: number; total: number }>();
+    for (const row of detail) {
+      const group = grouped.get(row.customer) ?? { name: row.customer, current: 0, days30: 0, days60: 0, days90: 0, total: 0 };
+      const bucket = row.age <= 0 ? "current" : row.age <= 30 ? "days30" : row.age <= 60 ? "days60" : "days90";
+      group[bucket] = round(group[bucket] + row.amount); group.total = round(group.total + row.amount); grouped.set(row.customer, group);
+    }
+    const summary = params.get("type") === "ar-aging-summary";
+    return Response.json({ report: { key: params.get("type"), companyId, title: summary ? "A/R Aging Summary" : "A/R Aging Detail", generatedAt: new Date().toISOString(), currency: homeCurrency,
+      description: "Remaining document balances after allocated payments, converted at each document’s stored rate to home currency. Unused payments and credits appear in Current. Historical exchange differences and manual journals are available in account history.",
+      columns: summary ? [{ key: "name", label: "Customer" }, { key: "current", label: "Current", ...money }, { key: "days30", label: "1–30", ...money }, { key: "days60", label: "31–60", ...money }, { key: "days90", label: "61+", ...money }, { key: "total", label: "Total", ...money }] : [{ key: "customer", label: "Customer" }, { key: "date", label: "Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "age", label: "Days Overdue" }, { key: "amount", label: "Open Amount", ...money }, { key: "account", label: "Receivable Account" }],
+      rows: summary ? [...grouped.values()].sort((a, b) => b.total - a.total) : detail,
+    } }, { headers: { "Cache-Control": "no-store" } });
+  }
   if (activeOnly) {
     const activeRows = customers.filter((contact) => contact.status === "active").flatMap((contact) => {
       // Include new/zero-balance customers and each currency with open activity.

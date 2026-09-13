@@ -246,6 +246,14 @@ test('customer open balance uses allocations, preserves unused credits, and link
   assert.equal((await (await get({ locationId: '0' })).json()).report.openBalance.totalOpen, 752);
   await add('UNUSED-CREDIT', 'credit memo', 50);
   assert.equal((await (await get()).json()).report.openBalance.totalOpen, -75);
+  const agingSummary = (await (await get({ type: 'ar-aging-summary' })).json()).report;
+  const agingDetail = (await (await get({ type: 'ar-aging-detail' })).json()).report;
+  assert.equal(agingSummary.currency, 'AED');
+  assert.equal(agingSummary.rows[0].total, -30.90); // AED -75 plus USD 12 at its stored rate.
+  assert.equal(agingDetail.rows.find(row => row.number === 'OPEN-INV').amount, 250);
+  assert.equal(agingDetail.rows.find(row => row.number === 'OPEN-PAY').amount, -275);
+  assert.equal(agingDetail.rows.find(row => row.number === 'FOREIGN').amount, 44.1);
+  assert.equal(Math.round(agingDetail.rows.reduce((sum, row) => sum + row.amount, 0) * 100) / 100, agingSummary.rows[0].total);
   const overdue = await (await get({ type: 'customers-overdue-invoices' })).json();
   assert.equal(overdue.report.title, 'Customers with Overdue Invoices');
   assert.equal(overdue.report.openBalance.overdueOnly, true);

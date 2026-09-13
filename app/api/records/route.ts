@@ -690,12 +690,19 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const nonPosting = ["quotation", "estimate", "proforma invoice", "sales order", "purchase order", "cheque order"].includes(type);
     const partyContactType = ["invoice", "quotation", "estimate", "proforma invoice", "sales order", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(type) ? "customer" : ["bill", "purchase order", "item receipt", "received item bill", "vendor credit", "bill payment", "vendor payment", "cheque", "credit card charge", "cheque order"].includes(type) ? "vendor" : null;
     const [partyContact] = partyContactType ? await db.select({ ledgerAccountId: contacts.ledgerAccountId }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.name, party), eq(contacts.type, partyContactType))).limit(1) : [];
+    // A customer's default currency must not route a foreign-currency document
+    // into the wrong receivable control account. This runs inside the posting transaction.
+    const postsReceivable = ["invoice", "statement charge", "finance charge", "customer payment", "credit memo"].includes(type);
+    const receivable = postsReceivable ? (await ensureCurrencyControlAccount(companyId, "AR", currency)).account : null;
+    if (receivable && receivable.type !== "Accounts Receivable") return Response.json({ error: `The ${currency} receivable control account must have type Accounts Receivable. Correct it in Chart of Accounts before posting.` }, { status: 409 });
     const linkedRows = await db.select({ id: accounts.id, name: accounts.name, type: accounts.type, systemRole: accounts.systemRole, currency: accounts.currency }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true)));
     const linkedAccounts: Record<string, string> = {};
     for (const account of linkedRows.filter((entry) => entry.systemRole && !["AR", "AP"].includes(entry.systemRole))) linkedAccounts[account.systemRole!] = account.name;
     for (const role of ["AR", "AP"]) {
       const candidates = linkedRows.filter((account) => account.systemRole === role);
-      const selected = candidates.find((account) => account.id === partyContact?.ledgerAccountId) ?? candidates.find((account) => account.currency === currency) ?? candidates[0];
+      const selected = role === "AR"
+        ? candidates.find((account) => account.id === partyContact?.ledgerAccountId && account.currency === currency && account.type === "Accounts Receivable") ?? receivable ?? candidates.find((account) => account.currency === currency && account.type === "Accounts Receivable")
+        : candidates.find((account) => account.id === partyContact?.ledgerAccountId) ?? candidates.find((account) => account.currency === currency) ?? candidates[0];
       if (selected) linkedAccounts[role] = selected.name;
     }
     if (chequeBankName) linkedAccounts.BANK = chequeBankName;
