@@ -506,7 +506,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
           if (!destinationItem) throw new Error("Could not prepare the item in the receiving inventory.");
           receiptItemId = destinationItem.id;
         }
-        receivedLines.push({ ...line, itemId: receiptItemId, quantity });
+        receivedLines.push({ ...line, comments: input.comments, serialNumber: input.serialNumber, itemId: receiptItemId, quantity });
       }
       rawLines = receivedLines;
       payload.party = order.party; payload.currency = order.currency; payload.exchangeRate = order.exchangeRate;
@@ -518,7 +518,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const vatRates = configuredVatCodes.length ? Object.fromEntries(configuredVatCodes.map((vatCode) => [vatCode.code, Number(vatCode.rate)])) : fallbackVatRates;
     if (type === "bill") rawLines = rawLines.filter(line => !line.isFreightCharge);
     if (rawLines.some(line => !Number.isFinite(Number(line.freightCharge ?? 0)) || Number(line.freightCharge ?? 0) < 0)) return Response.json({ error: "Line freight charges must be finite, non-negative amounts." }, { status: 400 });
-    if (type === "invoice" && rawLines.some(line => String(line.comments ?? "").length > 5000 || String(line.serialNumber ?? "").length > 5000)) return Response.json({ error: "Line Comments and Serial Number must each be no more than 5,000 characters." }, { status: 400 });
+    if (["invoice", "bill"].includes(type) && rawLines.some(line => String(line.comments ?? "").length > 5000 || String(line.serialNumber ?? "").length > 5000)) return Response.json({ error: "Line Comments and Serial Number must each be no more than 5,000 characters." }, { status: 400 });
     const prepared = rawLines.map((line) => {
       const quantity = Number(line.quantity ?? 1);
       const unitPrice = Number(line.unitPrice ?? 0);
@@ -528,7 +528,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const vatRate = vatRates[vatCode];
       const subtotal = round(quantity * unitPrice);
       const vatAmount = round(subtotal * vatRate / 100);
-      return { itemId: line.itemId ? Number(line.itemId) : null, description: String(line.description ?? "").trim(), comments: type === "invoice" ? String(line.comments ?? "") : "", serialNumber: type === "invoice" ? String(line.serialNumber ?? "") : "", quantity, unitPrice, unitCost, freightCharge: type === "bill" ? round(Number(line.freightCharge ?? 0)) : 0, isFreightCharge: false, vatCode, vatRate, subtotal, vatAmount, total: round(subtotal + vatAmount) };
+      return { itemId: line.itemId ? Number(line.itemId) : null, description: String(line.description ?? "").trim(), comments: ["invoice", "bill"].includes(type) ? String(line.comments ?? "") : "", serialNumber: ["invoice", "bill"].includes(type) ? String(line.serialNumber ?? "") : "", quantity, unitPrice, unitCost, freightCharge: type === "bill" ? round(Number(line.freightCharge ?? 0)) : 0, isFreightCharge: false, vatCode, vatRate, subtotal, vatAmount, total: round(subtotal + vatAmount) };
     }).filter((line) => line.description || line.itemId || line.subtotal > 0);
     if (!prepared.length && Number(payload.total) > 0) {
       const subtotal = Number(payload.total);
