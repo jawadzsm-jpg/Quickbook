@@ -1239,3 +1239,18 @@ test('P&L posting uses home-currency revenue and blocks wrongly classified linke
   assert.equal((await database.query('SELECT count(*)::int n FROM transactions WHERE company_id=$1',[companyId])).rows[0].n,1);
   assert.equal((await database.query('SELECT count(*)::int n FROM journal_entries WHERE company_id=$1',[companyId])).rows[0].n,1);
 });
+
+test('bank transfers save as paid and legacy open transfers display paid without clearing cancelled records', async () => {
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Transfer paid status') RETURNING id")).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations (company_id,code,name,invoice_prefix) VALUES ($1,'TP','TP','TP') RETURNING id",[companyId])).rows[0].id;
+  await database.query("INSERT INTO accounts (company_id,code,name,type) VALUES ($1,'1001','Transfer From','Bank'),($1,'1002','Transfer To','Bank')",[companyId]);
+  const { POST, GET } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const result = await POST(new Request('https://app.test/api/records',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind:'transactions',companyId,locationId,type:'transfer',account:'Transfer From',party:'Transfer To',currency:'AED',exchangeRate:1,lines:[{description:'Transfer',quantity:1,unitPrice:100,vatCode:'ZERO'}]})}));
+  assert.equal(result.status,201,JSON.stringify(await result.clone().json()));
+  const {record}=await result.json(); assert.equal(record.status,'paid'); assert.ok(record.paidAt);
+  const balances=(await database.query('SELECT jl.debit,jl.credit FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.transaction_id=$1',[record.id])).rows;
+  assert.equal(balances.reduce((n,r)=>n+r.debit,0),100); assert.equal(balances.reduce((n,r)=>n+r.credit,0),100);
+  const read=async()=> (await (await GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${companyId}&id=${record.id}`))).json()).record;
+  await database.query("UPDATE transactions SET status='open',paid_at=NULL WHERE id=$1",[record.id]); assert.equal((await read()).status,'paid');
+  await database.query("UPDATE transactions SET status='cancelled' WHERE id=$1",[record.id]); assert.equal((await read()).status,'cancelled');
+});
