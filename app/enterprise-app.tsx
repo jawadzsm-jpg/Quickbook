@@ -997,7 +997,7 @@ function WorkflowHome({ onNavigate, onWorkflow }: { onNavigate: (view: View) => 
   const supplierActions: OverviewWorkflowAction[] = [
     { label: "Purchase Orders", detail: "Order supplier stock", icon: FileBarChart2, view: "purchases", transaction: "purchase order" },
     { label: "Receive Stock", detail: "Receive before billing", icon: PackageCheck, view: "purchases", transaction: "item receipt" },
-    { label: "Bills Against Stock", detail: "Post received items", icon: ReceiptText, view: "purchases", transaction: "received item bill" },
+    { label: "Enter Supplier Bill", detail: "Record a supplier bill", icon: ReceiptText, view: "purchases", transaction: "bill" },
     { label: "Pay Bills", detail: "Settle supplier balances", icon: WalletCards, view: "purchases", transaction: "bill payment" },
   ];
   const customerActions: OverviewWorkflowAction[] = [
