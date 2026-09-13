@@ -1,3 +1,4 @@
+import { profitLoss } from "@/lib/profit-loss";
 import { customerOpenBalance } from "@/lib/customer-open-balance";
 import { and, asc, eq, inArray, sum } from "drizzle-orm";
 import { getDb } from "../../../db";
@@ -36,6 +37,7 @@ export async function GET(request: Request) {
       const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).limit(1);
       if (!location) return Response.json({ error: "Select an inventory in this company." }, { status: 400 });
     }
+    if (key.startsWith("profit-loss")) return await profitLoss(companyId, scoped ? locationId : 0, currency, url.searchParams, hasPermission(authorization, "accounting:manage"));
     if (["customer-open-balance", "customers-overdue-invoices", "active-customers", "ar-aging-summary", "ar-aging-detail"].includes(key)) return await customerOpenBalance(companyId, scoped ? locationId : 0, currency, url.searchParams, hasPermission(authorization, "accounting:manage"));
     if (key === "stock-pricing-profit") {
       const scoped = Number.isInteger(locationId) && locationId > 0;
@@ -51,7 +53,7 @@ export async function GET(request: Request) {
         columns: [{ key: "inventory", label: "Inventory" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "quantity", label: "Stock qty" }, { key: "purchaseCost", label: "Purchase / unit", ...money }, { key: "freightCost", label: "Freight / unit", ...money }, { key: "grnCost", label: "GRN / unit", ...money }, { key: "totalCost", label: "Total cost / unit", ...money }, { key: "sellingPrice", label: "Selling / unit", ...money }, { key: "unitProfit", label: "Profit/Loss / unit", ...money }, { key: "margin", label: "Margin" }, { key: "stockCost", label: "Stock cost", ...money }, { key: "potentialProfit", label: "Potential stock profit/loss", ...money }, { key: "costSource", label: "Cost source" }],
         rows: stockPricingRows(stock, purchaseLines, inventories) } }, { headers: { "Cache-Control": "no-store" } });
     }
-    const journalFilter = Number.isInteger(locationId) && locationId > 0 ? and(eq(journalEntries.companyId, companyId), eq(journalEntries.locationId, locationId)) : eq(journalEntries.companyId, companyId);
+    const journalFilter = and(eq(journalEntries.companyId, companyId), eq(journalEntries.posted, true), scoped ? eq(journalEntries.locationId, locationId) : undefined);
     const [allTransactions, allContacts, allItems, allAccounts, ledger, journal, lines, configuredVatCodes, currentRates, locations, auditRows] = await Promise.all([
       db.select().from(transactions).where(and(eq(transactions.companyId, companyId), scoped ? eq(transactions.locationId, locationId) : undefined)).orderBy(asc(transactions.transactionDate), asc(transactions.id)),
       db.select().from(contacts).where(eq(contacts.companyId, companyId)).orderBy(asc(contacts.name)),

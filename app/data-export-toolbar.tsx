@@ -171,7 +171,7 @@ export function DataExportToolbar() {
   useEffect(() => {
     const check = () => {
       const dialog = activeDialog();
-      setHasTables(extractVisibleTables().length > 0);
+      setHasTables(!dialog?.classList.contains("pnl-dialog") && extractVisibleTables().length > 0);
       setTarget(dialog ? dialog.querySelector<HTMLElement>('[data-export-slot="dialog"]') : document.querySelector<HTMLElement>('[data-export-slot="page"]'));
     };
     check();
