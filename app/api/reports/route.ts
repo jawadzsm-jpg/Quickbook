@@ -36,7 +36,7 @@ export async function GET(request: Request) {
       const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).limit(1);
       if (!location) return Response.json({ error: "Select an inventory in this company." }, { status: 400 });
     }
-    if (key === "customer-open-balance") return await customerOpenBalance(companyId, scoped ? locationId : 0, currency, url.searchParams, hasPermission(authorization, "accounting:manage"));
+    if (["customer-open-balance", "customers-overdue-invoices", "active-customers"].includes(key)) return await customerOpenBalance(companyId, scoped ? locationId : 0, currency, url.searchParams, hasPermission(authorization, "accounting:manage"));
     if (key === "stock-pricing-profit") {
       const scoped = Number.isInteger(locationId) && locationId > 0;
       const [company, stock, purchaseLines, inventories] = await Promise.all([

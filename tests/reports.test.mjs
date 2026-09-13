@@ -246,6 +246,34 @@ test('customer open balance uses allocations, preserves unused credits, and link
   assert.equal((await (await get({ locationId: '0' })).json()).report.openBalance.totalOpen, 752);
   await add('UNUSED-CREDIT', 'credit memo', 50);
   assert.equal((await (await get()).json()).report.openBalance.totalOpen, -75);
+  const overdue = await (await get({ type: 'customers-overdue-invoices' })).json();
+  assert.equal(overdue.report.title, 'Customers with Overdue Invoices');
+  assert.equal(overdue.report.openBalance.overdueOnly, true);
+  assert.deepEqual(overdue.report.rows.map(row => [row.number, row.openBalance, row.accountId]), [['OPEN-INV', 250, ar.id]]);
+  assert.equal((await (await get({ type: 'customers-overdue-invoices', statementDate: '2026-06-06' })).json()).report.rows.length, 0);
+  await add('DUE-TODAY', 'invoice', 25, { dueDate: '2026-06-10' });
+  await add('DUE-FUTURE', 'invoice', 30, { dueDate: '2026-06-11' });
+  const fullyPaid = await add('PAST-DUE-PAID', 'invoice', 40, { dueDate: '2026-06-01', status: 'paid' });
+  const paid = await add('PAST-DUE-PAY', 'customer payment', 40, { status: 'paid' });
+  await db.insert(schema.invoicePaymentAllocations).values({ invoiceId: fullyPaid.id, paymentId: paid.id, amount: 40 });
+  assert.equal((await (await get({ type: 'customers-overdue-invoices' })).json()).report.rows.length, 1);
+  await db.insert(schema.contacts).values([
+    { companyId: cid, type: 'customer', name: 'New Active Customer', currency: 'USD', status: 'active' },
+    { companyId: cid, type: 'customer', name: 'Inactive Customer', currency: 'AED', status: 'inactive' },
+    { companyId: cid, type: 'vendor', name: 'Active Vendor', currency: 'AED', status: 'active' },
+  ]);
+  await add('INACTIVE-DEBT', 'invoice', 80, { party: 'Inactive Customer', dueDate: '2026-06-01' });
+  const active = (await (await get({ type: 'active-customers', customer: '' })).json()).report;
+  assert.equal(active.activeCustomers.count, 2);
+  assert.deepEqual(active.rows.map(row => [row.customer, row.currency]), [['BAQER RASULI', 'AED'], ['BAQER RASULI', 'USD'], ['New Active Customer', 'USD']]);
+  assert.equal(active.rows[0].accountId, ar.id);
+  assert.equal(active.rows[0].overdueInvoices, 1);
+  assert.equal(active.rows[0].overdueBalance, 250);
+  assert.equal(active.rows[0].openBalance, -20);
+  assert.equal(active.rows[1].openBalance, 12);
+  assert.equal(active.rows[2].openBalance, 0);
+  const allOverdue = (await (await get({ type: 'customers-overdue-invoices', customer: '' })).json()).report;
+  assert.equal(allOverdue.rows.length, 2); // Inactive customers still owe their overdue invoices.
   assert.equal((await get({ statementDate: '2026-02-30' })).status, 400);
   assert.equal((await get({ currency: 'NOT-A-CURRENCY' })).status, 400);
   assert.equal((await get({ customer: 'Not in company' })).status, 400);
@@ -256,5 +284,7 @@ test('customer open balance uses allocations, preserves unused credits, and link
     assert.equal((await get({ companyId: String(companyId), locationId: '0' })).status, 403);
     globalThis.__reportTestUser = { id: 3, role: 'inventory', companyIds: [cid], mustChangePassword: false };
     assert.equal((await get()).status, 403);
+    assert.equal((await get({ type: 'customers-overdue-invoices' })).status, 403);
+    assert.equal((await get({ type: 'active-customers' })).status, 403);
   } finally { delete globalThis.__reportTestUser; }
 });
