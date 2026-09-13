@@ -914,7 +914,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
             <Badge variant="outline" className="hidden sm:inline-flex">{baseCurrency}</Badge>
             <Select value={String(activeLocationId || "")} onValueChange={(value) => { setActiveLocationId(Number(value)); setSearch(""); }}><SelectTrigger className="w-[165px]"><SelectValue placeholder="Inventory" /></SelectTrigger><SelectContent>{activeLocations.map((location) => <SelectItem key={location.id} value={String(location.id)}>{location.name}</SelectItem>)}</SelectContent></Select>
             <Button variant="ghost" size="icon" aria-label="Notifications"><Bell className="size-4" /></Button>
-            {!managementView && view !== "purchases" && canWriteCurrentView && <Button onClick={openCreate} className="brand-primary-button font-semibold"><Plus className="size-4" /><span className="hidden sm:inline">{createLabel}</span></Button>}
+            {!managementView && view !== "purchases" && view !== "sales" && canWriteCurrentView && <Button onClick={openCreate} className="brand-primary-button font-semibold"><Plus className="size-4" /><span className="hidden sm:inline">{createLabel}</span></Button>}
           </div>
           <div data-export-slot="page" className="flex w-full justify-end empty:hidden" />
         </header>
