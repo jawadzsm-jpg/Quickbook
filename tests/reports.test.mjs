@@ -36,7 +36,7 @@ const vite = await createServer({
         export * from "/lib/access.ts";
         export * from "/lib/password.ts";
         export const requireCompanyAccess = async () => ({ id: 1, email: "test@example.test", role: "all_admin", companyIds: [], mustChangePassword: false });
-        export const requireApiUser = async () => ({ id: 1, email: "test@example.test", role: "all_admin", companyIds: [], mustChangePassword: false });
+        export const requireApiUser = async () => globalThis.__reportTestUser || ({ id: 1, email: "test@example.test", role: "all_admin", companyIds: [], mustChangePassword: false });
       `;
     },
   }],
@@ -203,4 +203,58 @@ test("vendor statements filter native currency and customer, carry opening balan
   assert.equal(empty.report.rows.length,0);
   assert.equal(empty.report.statement.opening,120);
   assert.equal(empty.report.statement.closing,120);
+});
+
+test('customer open balance uses allocations, preserves unused credits, and links actual receivable postings', async () => {
+  const response = await workspaces.POST(post({ type: 'company', name: 'Open Balance Fixture', baseCurrency: 'AED' }));
+  const { company: fixture } = await response.json();
+  const cid = fixture.id, lid = fixture.locations[0].id;
+  const [second] = await db.insert(schema.inventoryLocations).values({ companyId: cid, name: 'Other inventory', code: 'OB-2', invoicePrefix: 'OB-2' }).returning();
+  const [ar] = await db.insert(schema.accounts).values({ companyId: cid, code: 'OBAR', name: 'Customer Receivables AED', type: 'Accounts Receivable', currency: 'AED' }).returning();
+  await db.insert(schema.contacts).values({ companyId: cid, name: 'BAQER RASULI', type: 'customer', currency: 'AED', ledgerAccountId: ar.id, balance: 999999 });
+  const add = async (number, type, total, options = {}) => {
+    const [row] = await db.insert(schema.transactions).values({ companyId: cid, locationId: lid, number, type, party: 'BAQER RASULI', total, baseTotal: total, currency: 'AED', transactionDate: '2026-06-06', ...options }).returning();
+    const [entry] = await db.insert(schema.journalEntries).values({ companyId: cid, locationId: row.locationId, transactionId: row.id, entryDate: row.transactionDate, reference: row.number }).returning();
+    await db.insert(schema.journalLines).values({ journalEntryId: entry.id, accountName: ar.name, debit: type === 'invoice' ? total : 0, credit: type === 'customer payment' ? total : 0 });
+    return row;
+  };
+  const invoice = await add('OPEN-INV', 'invoice', 1350, { dueDate: '2026-06-06', memo: 'Laptop sale' });
+  const payment = await add('OPEN-PAY', 'customer payment', 1375, { transactionDate: '2026-06-07', status: 'paid', memo: 'HWALE BY...' });
+  await db.insert(schema.invoicePaymentAllocations).values({ paymentId: payment.id, invoiceId: invoice.id, amount: 1100 });
+  const settled1 = await add('SETTLED-1', 'invoice', 100);
+  const settled2 = await add('SETTLED-2', 'invoice', 200);
+  const settlement = await add('SETTLEMENT', 'customer payment', 300, { status: 'paid' });
+  await db.insert(schema.invoicePaymentAllocations).values([{ paymentId: settlement.id, invoiceId: settled1.id, amount: 100 }, { paymentId: settlement.id, invoiceId: settled2.id, amount: 200 }]);
+  await add('OTHER-INVENTORY', 'invoice', 777, { locationId: second.id });
+  await add('OTHER-CUSTOMER', 'invoice', 888, { party: 'Someone Else' });
+  await add('FOREIGN', 'invoice', 12, { currency: 'USD', exchangeRate: 3.675, baseTotal: 44.1 });
+  await add('VOID', 'invoice', 999, { status: 'void' });
+  const query = { type: 'customer-open-balance', companyId: String(cid), locationId: String(lid), customer: 'BAQER RASULI', currency: 'AED', statementDate: '2026-06-10' };
+  const get = (changes = {}) => GET(new Request('https://app.test/api/reports?' + new URLSearchParams({ ...query, ...changes })));
+  const result = await get(); assert.equal(result.status, 200);
+  const { report: r } = await result.json();
+  assert.equal(r.currency, 'AED');
+  assert.deepEqual(r.rows.map(row => [row.number, row.openBalance, row.amount]), [['OPEN-INV', 250, 1350], ['OPEN-PAY', -275, -1375]]);
+  assert.equal(r.openBalance.totalOpen, -25);
+  assert.equal(r.openBalance.totalAmount, -25);
+  assert.equal(r.rows[0].transactionId, invoice.id);
+  assert.equal(r.rows[0].accountId, ar.id);
+  assert.equal(r.rows[0].memo, 'Laptop sale');
+  assert.equal(r.rows[0].dueDate, '2026-06-06');
+  assert.equal((await (await get({ statementDate: '2026-06-06' })).json()).report.openBalance.totalOpen, 1350);
+  assert.equal((await (await get({ currency: 'USD' })).json()).report.openBalance.totalOpen, 12);
+  assert.equal((await (await get({ locationId: '0' })).json()).report.openBalance.totalOpen, 752);
+  await add('UNUSED-CREDIT', 'credit memo', 50);
+  assert.equal((await (await get()).json()).report.openBalance.totalOpen, -75);
+  assert.equal((await get({ statementDate: '2026-02-30' })).status, 400);
+  assert.equal((await get({ currency: 'NOT-A-CURRENCY' })).status, 400);
+  assert.equal((await get({ customer: 'Not in company' })).status, 400);
+  assert.equal((await get({ locationId: String(locationId) })).status, 400);
+  try {
+    globalThis.__reportTestUser = { id: 2, role: 'viewer', companyIds: [cid], mustChangePassword: false };
+    assert.equal((await (await get()).json()).report.openBalance.canViewAccounts, false);
+    assert.equal((await get({ companyId: String(companyId), locationId: '0' })).status, 403);
+    globalThis.__reportTestUser = { id: 3, role: 'inventory', companyIds: [cid], mustChangePassword: false };
+    assert.equal((await get()).status, 403);
+  } finally { delete globalThis.__reportTestUser; }
 });
