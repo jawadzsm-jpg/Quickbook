@@ -1279,3 +1279,22 @@ test('bill line freight is saved, taxed, edited and attributed to items exactly 
   // Existing freight rows retain their original value and tax when editing older bills.
   edited=await PATCH(req('PATCH',{...payload,id:record.id,revision:detail.revision,lines:[...lines,{description:'Freight Charges',quantity:1,unitPrice:7,unitCost:7,vatCode:'ZERO'}]}));assert.equal(edited.status,200);assert.equal((await edited.json()).record.total,422);
 });
+
+test('invoice and bill comments and serial numbers persist and remain editable without changing amounts', async () => {
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Document extra fields') RETURNING id")).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations (company_id,code,name,invoice_prefix) VALUES ($1,'EXTRA','EXTRA','EXTRA') RETURNING id",[companyId])).rows[0].id;
+  const {POST,GET,PATCH}=await vite.ssrLoadModule('/app/api/records/route.ts');
+  const req=(method,body)=>new Request('https://app.test/api/records',{method,headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+  for(const type of ['invoice','bill']) {
+    const payload={kind:'transactions',companyId,locationId,type,number:`EXTRA-${type}`,party:'Document party',transactionDate:'2026-09-13',currency:'AED',exchangeRate:1,account:type==='bill'?'Purchases':'Sales Revenue',comments:'Handle with care\nCustomer note',serialNumber:'SN-001\nSN-002',lines:[{description:'Laptop',quantity:1,unitPrice:100,unitCost:0,vatCode:'ZERO'}]};
+    const saved=await POST(req('POST',payload));assert.equal(saved.status,201,JSON.stringify(await saved.clone().json()));const {record}=await saved.json();
+    const read=async()=> (await (await GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${companyId}&id=${record.id}`))).json());
+    let detail=await read();assert.equal(detail.record.comments,payload.comments);assert.equal(detail.record.serialNumber,payload.serialNumber);
+    const edit=async(changes)=>PATCH(req('PATCH',{...(type==='invoice'?{kind:'transactions',companyId,number:payload.number,transactionDate:payload.transactionDate,editMode:'details'}:payload),id:record.id,revision:detail.revision,...changes}));
+    let edited=await edit({comments:'Revised comments',serialNumber:'SN-003'});assert.equal(edited.status,200,JSON.stringify(await edited.clone().json()));
+    detail=await read();assert.equal(detail.record.comments,'Revised comments');assert.equal(detail.record.serialNumber,'SN-003');assert.equal(detail.record.total,100);
+    const bad=await edit({comments:'x'.repeat(5001)});assert.equal(bad.status,400);assert.equal((await read()).record.comments,'Revised comments');
+    edited=await edit({comments:'',serialNumber:''});assert.equal(edited.status,200);detail=await read();assert.equal(detail.record.comments,'');assert.equal(detail.record.serialNumber,'');
+    assert.equal(detail.journal.reduce((n,l)=>n+l.debit,0),100);assert.equal(detail.journal.reduce((n,l)=>n+l.credit,0),100);
+  }
+});

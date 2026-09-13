@@ -1,5 +1,6 @@
 "use client";
 
+import { DocumentExtraFields } from "./document-extra-fields";
 import { useEffect, useState } from "react";
 import { Eye, Save } from "lucide-react";
 import { toast } from "sonner";
@@ -17,6 +18,7 @@ export function SalesSourceInvoicing({ sourceId, companyId, onSaved, onViewInvoi
   const [quantities, setQuantities] = useState<Record<number, string>>({});
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [memo, setMemo] = useState("");
+  const [extra, setExtra] = useState({ comments: "", serialNumber: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -47,7 +49,7 @@ export function SalesSourceInvoicing({ sourceId, companyId, onSaved, onViewInvoi
     if (!lines.length) return setError("Enter quantities to invoice, or choose Fill available quantities.");
     setSaving(true); setError("");
     try {
-      const response = await fetch("/api/records", { method: "POST", headers: { "Content-Type": "application/json", ...skuLock.headers }, body: JSON.stringify({ kind: "transactions", type: "invoice", companyId, locationId: data.locationId, salesSourceId: sourceId, transactionDate: date, memo, lines }) });
+      const response = await fetch("/api/records", { method: "POST", headers: { "Content-Type": "application/json", ...skuLock.headers }, body: JSON.stringify({ kind: "transactions", type: "invoice", companyId, locationId: data.locationId, salesSourceId: sourceId, transactionDate: date, memo, ...extra, lines }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Could not save invoice.");
       toast.success(`Invoice ${result.record.number} saved. Remaining quantities stay on the source document.`);
@@ -69,6 +71,7 @@ export function SalesSourceInvoicing({ sourceId, companyId, onSaved, onViewInvoi
         <label className="grid gap-2 text-sm">Invoice date<Input type="date" required disabled={saving} value={date} onChange={(event) => setDate(event.target.value)} /></label>
       </div>
       <div className="overflow-auto"><table className="w-full table-fixed text-sm"><thead><tr className="border-b"><th className="w-2/5 p-2 text-left">Item</th><th>Ordered</th><th>Invoiced</th><th>Remaining</th><th>Available</th><th>Invoice now</th></tr></thead><tbody>{data.lines.map((line) => <tr key={line.id} className="border-b"><td className="break-words p-2">{line.description}</td><td className="p-2 text-right">{line.quantity}</td><td className="p-2 text-right">{line.invoiced}</td><td className="p-2 text-right">{line.remaining}</td><td className="p-2 text-right">{line.itemId ? line.available : "—"}</td><td className="p-2"><Input aria-label={`Invoice quantity for ${line.description}`} type="number" min="0" step="any" max={Math.min(line.remaining, line.available)} disabled={skuLock.blocked || !inventoryReady || saving || line.remaining <= 0 || line.available <= 0} onFocus={() => setActiveLines((old) => old.includes(line.id) ? old : [...old, line.id])} value={quantities[line.id] || ""} placeholder="0" onChange={(event) => setQuantities((old) => ({ ...old, [line.id]: event.target.value }))} /></td></tr>)}</tbody></table></div>
+      <DocumentExtraFields value={extra} onChange={setExtra} disabled={saving} />
       <label className="grid gap-2 text-sm">Additional invoice notes<Input disabled={saving} value={memo} onChange={(event) => setMemo(event.target.value)} /></label>
       <label className="grid gap-2 text-sm">Invoice memo<textarea readOnly className="min-h-20 w-full rounded-md border bg-background p-3" value={[data.source.memo, memo, `Invoiced from ${data.source.type} ${data.source.number}`].filter(Boolean).join(" · ")} /><span className="text-muted-foreground">The source document number is included automatically when you save.</span></label>
       <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={!inventoryReady || saving} onClick={() => setQuantities(Object.fromEntries(data.lines.map((line) => [line.id, String(limits.get(line.id) ?? 0)])))}>Fill available quantities</Button><Button type="submit" disabled={!skuLock.ready || !inventoryReady || saving || !data.lines.some((line) => line.remaining > 0 && line.available > 0)}><Save className="size-4" />{saving ? "Saving…" : "Save Invoice"}</Button></div>

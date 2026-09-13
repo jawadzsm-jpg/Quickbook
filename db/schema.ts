@@ -245,6 +245,8 @@ export const transactions = pgTable("transactions", {
   dueDate: text("due_date").notNull().default(""),
   account: text("account").notNull().default("Accounts Receivable"),
   status: text("status").notNull().default("open"),
+  comments: text("comments").notNull().default(""),
+  serialNumber: text("serial_number").notNull().default(""),
   memo: text("memo").notNull().default(""),
   subtotal: doublePrecision("subtotal").notNull().default(0),
   vatRate: doublePrecision("vat_rate").notNull().default(5),

@@ -1,5 +1,6 @@
 "use client";
 
+import { DocumentExtraFields } from "./document-extra-fields";
 import { useEffect, useState } from "react";
 import { useSkuLock, SkuLockNotice } from "./use-sku-lock";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ export function PurchaseOrderReceiving({ orderId, companyId, onSaved, documentTy
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [locationId, setLocationId] = useState(0);
   const [memo, setMemo] = useState("");
+  const [extra, setExtra] = useState({ comments: "", serialNumber: "" });
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   useEffect(() => {
@@ -37,7 +39,7 @@ export function PurchaseOrderReceiving({ orderId, companyId, onSaved, documentTy
     if (!lines.length) return setError("Enter the quantities received on at least one line.");
     setSaving(true); setError("");
     try {
-      const response = await fetch("/api/records", { method: "POST", headers: { "Content-Type": "application/json", ...skuLock.headers }, body: JSON.stringify({ kind: "transactions", type: documentType, account, companyId, locationId, purchaseOrderId: orderId, transactionDate: date, memo, lines }) });
+      const response = await fetch("/api/records", { method: "POST", headers: { "Content-Type": "application/json", ...skuLock.headers }, body: JSON.stringify({ kind: "transactions", type: documentType, account, companyId, locationId, purchaseOrderId: orderId, transactionDate: date, memo, ...extra, lines }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Could not create item receipt.");
       toast.success(`${documentType === "bill" ? "Bill" : "Item receipt"} saved. The PO keeps any remaining quantities.`);
@@ -59,6 +61,7 @@ export function PurchaseOrderReceiving({ orderId, companyId, onSaved, documentTy
       </div>
       <div className="overflow-auto"><table className="w-full table-fixed text-sm"><thead><tr className="border-b"><th className="w-1/2 p-2 text-left">Item</th><th>Ordered</th><th>Received</th><th>Remaining</th><th>Receive now</th></tr></thead><tbody>{data.lines.map((line) => <tr key={line.id} className="border-b"><td className="break-words p-2">{line.description}</td><td className="p-2 text-right">{line.quantity}</td><td className="p-2 text-right">{line.received}</td><td className="p-2 text-right">{line.remaining}</td><td className="p-2"><Input aria-label={'Receive ' + line.description} type="number" min="0" max={line.remaining} step="any" disabled={skuLock.blocked || saving || line.remaining <= 0} onFocus={() => setActiveLines((old) => old.includes(line.id) ? old : [...old, line.id])} value={quantities[line.id] || ""} placeholder="0" onChange={(event) => setQuantities((old) => ({ ...old, [line.id]: event.target.value }))} /></td></tr>)}</tbody></table></div>
       {documentType === "bill" && <div className="rounded-md border p-3 text-sm"><p>Prices and VAT are taken from the purchase order.</p><p className="mt-2 font-bold">Bill total: {data.order.currency} {data.lines.reduce((sum, line) => sum + Number((Number(quantities[line.id] || 0) * line.unitPrice).toFixed(2)) + Number((Number((Number(quantities[line.id] || 0) * line.unitPrice).toFixed(2)) * line.vatRate / 100).toFixed(2)), 0).toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p></div>}
+      {documentType === "bill" && <DocumentExtraFields value={extra} onChange={setExtra} disabled={saving} />}
       <label className="grid gap-2 text-sm">{documentType === "bill" ? "Additional bill notes" : "Receipt memo"}<Input disabled={saving} value={memo} onChange={(event) => setMemo(event.target.value)} /></label>
       {documentType === "bill" && <label className="grid gap-2 text-sm">Bill memo<textarea readOnly className="min-h-20 w-full rounded-md border bg-background p-3" value={[data.order.memo, memo, `Received from PO ${data.order.number}`].filter(Boolean).join(" · ")} /><span className="text-muted-foreground">The purchase order number is included automatically when you save.</span></label>}
       <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={saving} onClick={() => setQuantities(Object.fromEntries(data.lines.map((line) => [line.id, String(line.remaining)])))}>Fill remaining quantities</Button><Button disabled={!skuLock.ready || saving || !data.lines.some((line) => line.remaining > 0)} type="submit"><Save className="size-4" />{saving ? "Saving…" : documentType === "bill" ? "Save Bill" : "Save Receipt"}</Button></div>
