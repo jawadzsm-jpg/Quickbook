@@ -1,6 +1,6 @@
 "use client";
 
-import { DocumentExtraFields } from "./document-extra-fields";
+import { DocumentExtraFields, type DocumentExtra } from "./document-extra-fields";
 import { useEffect, useState } from "react";
 import { Eye, Save } from "lucide-react";
 import { toast } from "sonner";
@@ -18,6 +18,7 @@ export function SalesSourceInvoicing({ sourceId, companyId, onSaved, onViewInvoi
   const [quantities, setQuantities] = useState<Record<number, string>>({});
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [memo, setMemo] = useState("");
+  const [lineExtras, setLineExtras] = useState<Record<number, DocumentExtra>>({});
   const [extra, setExtra] = useState({ comments: "", serialNumber: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -45,7 +46,7 @@ export function SalesSourceInvoicing({ sourceId, companyId, onSaved, onViewInvoi
     event.preventDefault();
     if (!skuLock.ready) return;
     if (!data || saving || !inventoryReady) return;
-    const lines = data.lines.filter((line) => Number(quantities[line.id]) > 0).map((line) => ({ sourceLineId: line.id, quantity: Number(quantities[line.id]) }));
+    const lines = data.lines.filter((line) => Number(quantities[line.id]) > 0).map((line) => ({ sourceLineId: line.id, quantity: Number(quantities[line.id]), ...lineExtras[line.id] }));
     if (!lines.length) return setError("Enter quantities to invoice, or choose Fill available quantities.");
     setSaving(true); setError("");
     try {
@@ -55,6 +56,7 @@ export function SalesSourceInvoicing({ sourceId, companyId, onSaved, onViewInvoi
       toast.success(`Invoice ${result.record.number} saved. Remaining quantities stay on the source document.`);
       setActiveLines([]);
       setQuantities({});
+      setLineExtras({});
       onSaved();
     } catch (error) { setError(error instanceof Error ? error.message : "Could not save invoice."); }
     finally { setSaving(false); }
@@ -67,10 +69,10 @@ export function SalesSourceInvoicing({ sourceId, companyId, onSaved, onViewInvoi
     {loading && <p className="mt-3 text-sm" role="status">Loading stock and remaining quantities…</p>}
     {data && <form onSubmit={save} className="mt-4 grid gap-4">
       <div className="grid gap-4 sm:grid-cols-2">
-        <label className="grid gap-2 text-sm">Invoice inventory<select className="h-10 w-full min-w-0 rounded-md border bg-background px-3" value={locationId || data.locationId} required disabled={saving} onChange={(event) => { setLoading(true); setQuantities({}); setError(""); setLocationId(Number(event.target.value)); }}>{data.locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
+        <label className="grid gap-2 text-sm">Invoice inventory<select className="h-10 w-full min-w-0 rounded-md border bg-background px-3" value={locationId || data.locationId} required disabled={saving} onChange={(event) => { setLoading(true); setQuantities({}); setLineExtras({}); setError(""); setLocationId(Number(event.target.value)); }}>{data.locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
         <label className="grid gap-2 text-sm">Invoice date<Input type="date" required disabled={saving} value={date} onChange={(event) => setDate(event.target.value)} /></label>
       </div>
-      <div className="overflow-auto"><table className="w-full table-fixed text-sm"><thead><tr className="border-b"><th className="w-2/5 p-2 text-left">Item</th><th>Ordered</th><th>Invoiced</th><th>Remaining</th><th>Available</th><th>Invoice now</th></tr></thead><tbody>{data.lines.map((line) => <tr key={line.id} className="border-b"><td className="break-words p-2">{line.description}</td><td className="p-2 text-right">{line.quantity}</td><td className="p-2 text-right">{line.invoiced}</td><td className="p-2 text-right">{line.remaining}</td><td className="p-2 text-right">{line.itemId ? line.available : "—"}</td><td className="p-2"><Input aria-label={`Invoice quantity for ${line.description}`} type="number" min="0" step="any" max={Math.min(line.remaining, line.available)} disabled={skuLock.blocked || !inventoryReady || saving || line.remaining <= 0 || line.available <= 0} onFocus={() => setActiveLines((old) => old.includes(line.id) ? old : [...old, line.id])} value={quantities[line.id] || ""} placeholder="0" onChange={(event) => setQuantities((old) => ({ ...old, [line.id]: event.target.value }))} /></td></tr>)}</tbody></table></div>
+      <div className="overflow-auto"><table className="w-full table-fixed text-sm"><thead><tr className="border-b"><th className="w-2/5 p-2 text-left">Item</th><th>Ordered</th><th>Invoiced</th><th>Remaining</th><th>Available</th><th>Invoice now</th></tr></thead><tbody>{data.lines.map((line) => <tr key={line.id} className="border-b"><td className="break-words p-2">{line.description}{Number(quantities[line.id]) > 0 && <div className="mt-2"><DocumentExtraFields value={lineExtras[line.id] || { comments: "", serialNumber: "" }} onChange={value => setLineExtras(old => ({ ...old, [line.id]: value }))} disabled={saving} /></div>}</td><td className="p-2 text-right">{line.quantity}</td><td className="p-2 text-right">{line.invoiced}</td><td className="p-2 text-right">{line.remaining}</td><td className="p-2 text-right">{line.itemId ? line.available : "—"}</td><td className="p-2"><Input aria-label={`Invoice quantity for ${line.description}`} type="number" min="0" step="any" max={Math.min(line.remaining, line.available)} disabled={skuLock.blocked || !inventoryReady || saving || line.remaining <= 0 || line.available <= 0} onFocus={() => setActiveLines((old) => old.includes(line.id) ? old : [...old, line.id])} value={quantities[line.id] || ""} placeholder="0" onChange={(event) => setQuantities((old) => ({ ...old, [line.id]: event.target.value }))} /></td></tr>)}</tbody></table></div>
       <DocumentExtraFields value={extra} onChange={setExtra} disabled={saving} />
       <label className="grid gap-2 text-sm">Additional invoice notes<Input disabled={saving} value={memo} onChange={(event) => setMemo(event.target.value)} /></label>
       <label className="grid gap-2 text-sm">Invoice memo<textarea readOnly className="min-h-20 w-full rounded-md border bg-background p-3" value={[data.source.memo, memo, `Invoiced from ${data.source.type} ${data.source.number}`].filter(Boolean).join(" · ")} /><span className="text-muted-foreground">The source document number is included automatically when you save.</span></label>
