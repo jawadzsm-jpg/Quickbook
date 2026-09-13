@@ -1,0 +1,24 @@
+"use client";
+import { useState } from 'react';
+import { defaultElementProperties, propertyTargets, type DocumentDesign, type ElementProperties } from '@/lib/document-design';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+
+export function TemplateProperties({design,onChange}:{design:DocumentDesign;onChange:(patch:Partial<DocumentDesign>)=>void}) {
+ const [selected,setSelected]=useState('title');
+ const [tab,setTab]=useState('Text');
+ const p=design.properties[selected]||{...defaultElementProperties,top:selected.startsWith('columns.'),right:selected.startsWith('columns.'),bottom:selected.startsWith('columns.'),left:selected.startsWith('columns.'),font:design.font,size:selected==='title'?design.titleSize:selected==='company'?design.companySize:design.fontSize,color:selected==='title'||selected==='company'?design.color:'#111111',align:selected==='title'||selected==='company'?'center' as const:'left' as const};
+ const update=(patch:Partial<ElementProperties>)=>onChange({properties:{...design.properties,[selected]:{...p,...patch}}});
+ const check=(key:'bold'|'italic'|'underline'|'top'|'right'|'bottom'|'left'|'fill',label:string)=><label className="flex items-center gap-2"><input type="checkbox" checked={p[key]} onChange={e=>update({[key]:e.target.checked})}/>{label}</label>;
+ const color=(key:'color'|'borderColor'|'background',label:string)=><label className="flex items-center justify-between gap-2">{label}<Input className="w-20" type="color" value={p[key]} onChange={e=>update({[key]:e.target.value})}/></label>;
+ const select=(key:'align'|'vertical'|'font'|'pattern',label:string,options:string[])=><label className="grid gap-1">{label}<select className="rounded border bg-background p-2" value={p[key]} onChange={e=>update({[key]:e.target.value})}>{options.map(v=><option key={v} value={v}>{v==='solid'?'Normal':v.charAt(0).toUpperCase()+v.slice(1)}</option>)}</select></label>;
+ return <div className="space-y-4 text-sm">
+  <label className="grid gap-1 font-medium">Element<select className="rounded border bg-background p-2" value={selected} onChange={e=>setSelected(e.target.value)}>{propertyTargets(design).map(t=><option key={t.key} value={t.key}>{t.label}</option>)}</select></label>
+  <div className="flex gap-2">{['Text','Border','Background'].map(t=><Button type="button" key={t} aria-pressed={tab===t} variant={tab===t?'default':'outline'} onClick={()=>setTab(t)}>{t}</Button>)}</div>
+  {tab==='Text'&&<div className="grid grid-cols-2 gap-4">{select('align','Horizontal alignment',['left','center','right'])}{select('vertical','Vertical alignment',['top','middle','bottom'])}{select('font','Font',['Arial','Georgia','Verdana'])}<label>Font size<Input type="number" min={8} max={40} value={p.size} onChange={e=>update({size:Math.min(40,Math.max(8,Number(e.target.value)))})}/></label>{check('bold','Bold')}{check('italic','Italic')}{check('underline','Underline')}{color('color','Text color')}<label className="col-span-2">Minimum element height (px)<Input type="number" min={0} max={300} value={p.minHeight} onChange={e=>update({minHeight:Math.min(300,Math.max(0,Number(e.target.value)))})}/></label></div>}
+  {tab==='Border'&&<div className="grid grid-cols-2 gap-4">{check('top','Top')}{check('left','Left')}{check('right','Right')}{check('bottom','Bottom')}{select('pattern','Pattern',['solid','dotted','dashed','double'])}<label className="grid gap-1">Thickness<select className="rounded border bg-background p-2" value={p.thickness} onChange={e=>update({thickness:Number(e.target.value)})}>{[0.5,1,2,3].map(v=><option key={v} value={v}>{v} pt</option>)}</select></label><label className="grid gap-1">Rounded corners<select className="rounded border bg-background p-2" value={p.radius} onChange={e=>update({radius:Number(e.target.value)})}>{[[0,'None'],[12,'Small (⅛ in)'],[24,'Medium (¼ in)'],[48,'Large (½ in)']].map(([v,label])=><option key={v} value={v}>{label}</option>)}</select></label>{color('borderColor','Border color')}</div>}
+  {tab==='Background'&&<div className="space-y-4">{check('fill','Fill background')}{color('background','Background color')}</div>}
+  <Button type="button" variant="outline" onClick={()=>{const next={...design.properties};delete next[selected];onChange({properties:next});}}>Reset element formatting</Button>
+  <p className="text-muted-foreground">Formatting applies to this element in screen and print/PDF output. Edit text in Basic, Header, Columns, or Footer.</p>
+ </div>;
+}

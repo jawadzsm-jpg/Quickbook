@@ -23,3 +23,18 @@ test("stock PIN verification rejects absent, wrong and malformed credentials", (
   assert.equal(verifyAdminPin("583921", ""), false);
   assert.equal(verifyAdminPin("583921", "invalid"), false);
 });
+
+const {defaultDocumentDesign,defaultElementProperties,validateDocumentDesign} = await sourceModule('../lib/document-design.ts');
+test('template properties and saved copies validate without breaking older settings', () => {
+ const {properties,savedTemplates,...legacy}=structuredClone(defaultDocumentDesign);void properties;void savedTemplates;
+ assert.deepEqual(validateDocumentDesign(JSON.stringify(legacy)),defaultDocumentDesign);
+ const design={...structuredClone(defaultDocumentDesign),properties:{title:{...defaultElementProperties,align:'right',vertical:'middle',fill:true,background:'#ffeedd',bottom:true,pattern:'dashed',radius:24}}};
+ const {savedTemplates:ignored,...snapshot}=structuredClone(design);void ignored;
+ design.savedTemplates=[{id:'copy-1',design:snapshot}];
+ assert.deepEqual(validateDocumentDesign(JSON.stringify(design)),design);
+ for(const patch of [{align:'bad'},{background:'red;display:none'},{radius:999},{thickness:99},{size:Infinity}])assert.throws(()=>validateDocumentDesign(JSON.stringify({...design,properties:{title:{...defaultElementProperties,...patch}}})));
+ assert.throws(()=>validateDocumentDesign(JSON.stringify({...design,properties:{unknown:defaultElementProperties}})));
+ assert.throws(()=>validateDocumentDesign(JSON.stringify({...design,savedTemplates:[...design.savedTemplates,...design.savedTemplates]})));
+ assert.throws(()=>validateDocumentDesign(JSON.stringify({...design,savedTemplates:[{id:'nested',design}]})));
+ assert.throws(()=>validateDocumentDesign(JSON.stringify({...design,savedTemplates:Array.from({length:21},(_,i)=>({id:`copy-${i}`,design:snapshot}))})));
+});

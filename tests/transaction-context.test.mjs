@@ -1362,11 +1362,14 @@ test('serial search links sales and purchases across inventories while isolating
 test('company template settings and two logos persist with company/admin isolation and validation', async () => {
   const companyId=(await database.query("INSERT INTO companies (name) VALUES ('Dual logo company') RETURNING id")).rows[0].id;
   const {GET,PATCH}=await vite.ssrLoadModule('/app/api/company-setup/route.ts');
-  const {defaultDocumentDesign,validateDocumentDesign}=await vite.ssrLoadModule('/lib/document-design.ts');
+  const {defaultDocumentDesign,defaultElementProperties,validateDocumentDesign}=await vite.ssrLoadModule('/lib/document-design.ts');
   const get=(id=companyId)=>GET(new Request(`https://app.test/api/company-setup?companyId=${id}`));
   const original=(await (await get()).json()).record;
   const logo='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
   const design=structuredClone(defaultDocumentDesign);design.enabled=true;design.title='Custom Invoice';design.columns.reverse();design.columns.find(c=>c.key==='serialNumber').print=false;design.message='Thank you';design.orientation='landscape';
+  design.properties.title={...defaultElementProperties,align:'center',vertical:'middle',bold:true,fill:true,background:'#aabbcc',top:true,pattern:'double',thickness:3,radius:12};
+  const {savedTemplates: ignored,...snapshot}=structuredClone(design);void ignored;
+  design.savedTemplates=[{id:'company-copy',design:snapshot}];
   const payload={...original,companyId,bankCurrency:'AED',logoData:logo,rightLogoData:logo,documentDesign:JSON.stringify(design)};
   const patch=body=>PATCH(new Request('https://app.test/api/company-setup',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify(body)}));
   let response=await patch(payload);assert.equal(response.status,200,JSON.stringify(await response.clone().json()));let saved=(await (await get()).json()).record;assert.equal(saved.logoData,logo);assert.equal(saved.rightLogoData,logo);assert.deepEqual(JSON.parse(saved.documentDesign),design);
@@ -1375,6 +1378,8 @@ test('company template settings and two logos persist with company/admin isolati
   assert.throws(()=>validateDocumentDesign(JSON.stringify({...design,columns:[design.columns[0],...design.columns.slice(1).map(()=>design.columns[0])]})));
   assert.throws(()=>validateDocumentDesign(JSON.stringify({...design,margin:100})));
   assert.throws(()=>validateDocumentDesign(JSON.stringify({...design,columns:design.columns.map(c=>({...c,print:false}))})));
+  response=await patch({...payload,documentDesign:JSON.stringify({...design,properties:{title:{...design.properties.title,background:'url(unsafe)'}}})});assert.equal(response.status,400);
+  response=await patch({...payload,documentDesign:JSON.stringify({...design,savedTemplates:[{id:'nested',design}]})});assert.equal(response.status,400);
   // Old clients omit new fields; both settings must survive.
   const legacy={...payload};delete legacy.rightLogoData;delete legacy.documentDesign;
   assert.equal((await patch(legacy)).status,200);saved=(await (await get()).json()).record;assert.equal(saved.rightLogoData,logo);assert.deepEqual(JSON.parse(saved.documentDesign),design);
