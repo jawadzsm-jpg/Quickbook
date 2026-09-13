@@ -148,12 +148,23 @@ export async function GET(request: Request) {
   if (authorization instanceof Response) return authorization;
   try {
     const url = new URL(request.url);
-    const kind = url.searchParams.get("kind") as RecordKind | "vendor-history" | "unpaid-bills" | "unpaid-invoices" | "open-purchase-orders" | "po-receiving" | "sales-invoicing" | null;
+    const kind = url.searchParams.get("kind") as RecordKind | "vendor-history" | "unpaid-bills" | "unpaid-invoices" | "open-sales-documents" | "open-purchase-orders" | "po-receiving" | "sales-invoicing" | null;
     const id = Number(url.searchParams.get("id"));
     const companyId = Number(url.searchParams.get("companyId"));
     const locationId = Number(url.searchParams.get("locationId"));
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     const db = getDb();
+    if (kind === "open-sales-documents") {
+      if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
+      const party = url.searchParams.get("party");
+      if (!party) return Response.json({ error: "Select a customer." }, { status: 400 });
+      const documents = await db.select({ id: transactions.id, type: transactions.type, number: transactions.number, transactionDate: transactions.transactionDate, total: transactions.total, currency: transactions.currency, memo: transactions.memo, inventory: inventoryLocations.name }).from(transactions)
+        .leftJoin(inventoryLocations, eq(transactions.locationId, inventoryLocations.id))
+        .where(and(eq(transactions.companyId, companyId), eq(transactions.party, party), inArray(transactions.type, ["estimate", "proforma invoice", "sales order"]), sql`${transactions.convertedInvoiceId} IS NULL`, inArray(transactions.status, ["open", "draft", "pending", "overdue", "sent", "accepted", "approved", "partially invoiced"]),
+          sql`EXISTS (SELECT 1 FROM transaction_lines sl WHERE sl.transaction_id = ${transactions.id} AND sl.quantity > COALESCE((SELECT SUM(a.quantity) FROM sales_invoice_allocations a WHERE a.source_line_id = sl.id), 0))`))
+        .orderBy(asc(transactions.transactionDate), asc(transactions.id));
+      return Response.json({ documents }, { headers: { "Cache-Control": "no-store" } });
+    }
     if (kind === "sales-invoicing") {
       if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
       const sourceId = Number(url.searchParams.get("sourceId"));

@@ -919,6 +919,15 @@ for (const sourceType of ['estimate', 'proforma invoice', 'sales order']) test(`
   const originalLine={itemId:sourceItem,description:'Laptop',quantity:10,unitPrice:100,unitCost:20,vatCode:'STANDARD'};
   let response=await POST(request('POST',{...base,type:sourceType,number:'PARTIAL',lines:[originalLine]})); assert.equal(response.status,201);
   const source=(await response.json()).record;
+  const available = async (party = base.party, company = companyId) => {
+    const response = await GET(new Request('https://app.test/api/records?kind=open-sales-documents&companyId='+company+'&party='+encodeURIComponent(party)));
+    assert.equal(response.status, 200);
+    return (await response.json()).documents;
+  };
+  assert.deepEqual((await available()).map((row) => row.id), [source.id]);
+  assert.equal((await available('Unrelated customer')).length, 0);
+  assert.equal((await available(base.party, otherCompany)).length, 0);
+
   assert.equal((await database.query('SELECT count(*)::int AS count FROM journal_entries WHERE transaction_id=$1',[source.id])).rows[0].count, 0);
   assert.equal((await database.query('SELECT quantity FROM items WHERE id=$1',[sourceItem])).rows[0].quantity, 5);
   assert.equal((await database.query('SELECT balance FROM contacts WHERE company_id=$1',[companyId])).rows[0].balance, 0);
@@ -935,7 +944,7 @@ for (const sourceType of ['estimate', 'proforma invoice', 'sales order']) test(`
   response=await invoice(3);assert.equal(response.status,201); const first=(await response.json()).record;
   assert.equal(first.total,315);assert.equal(first.currency,'USD');assert.equal(first.salesSourceId,source.id);assert.equal(first.sourceTransactionId,null);
   assert.equal(await stock(destinationItem),0); assert.equal(await stock(sourceItem),5);
-  assert.equal((await read()).source.status,'partially invoiced');assert.equal((await read()).lines[0].remaining,7);
+  assert.deepEqual((await available()).map((row) => row.id), [source.id]);assert.equal((await read()).source.status,'partially invoiced');assert.equal((await read()).lines[0].remaining,7);
   assert.equal((await database.query('SELECT location_id FROM journal_entries WHERE transaction_id=$1',[first.id])).rows[0].location_id,destination);
   assert.equal((await database.query('SELECT unit_cost FROM transaction_lines WHERE transaction_id=$1',[first.id])).rows[0].unit_cost,20);
   assert.equal((await POST(request('POST',{...base,type:'invoice',sourceTransactionId:source.id}))).status,409);
@@ -945,9 +954,10 @@ for (const sourceType of ['estimate', 'proforma invoice', 'sales order']) test(`
   await database.query('UPDATE items SET quantity=10 WHERE id=$1',[destinationItem]);
   assert.equal((await invoice(8)).status,409);
   response=await invoice(7);assert.equal(response.status,201);const last=(await response.json()).record;
-  assert.notEqual(last.number,first.number);assert.equal((await read()).source.status,'invoiced');assert.equal((await read()).lines[0].remaining,0);assert.equal((await read()).invoices.length,2);
+  assert.notEqual(last.number,first.number);assert.equal((await available()).length,0);assert.equal((await read()).source.status,'invoiced');assert.equal((await read()).lines[0].remaining,0);assert.equal((await read()).invoices.length,2);
   assert.equal((await invoice(1)).status,409);
   assert.equal((await DELETE(request('DELETE',{kind:'transactions',companyId,id:last.id}))).status,200);
+  assert.deepEqual((await available()).map((row) => row.id), [source.id]);
   assert.equal((await read()).lines[0].remaining,7);assert.equal(await stock(destinationItem),10);
   assert.equal((await DELETE(request('DELETE',{kind:'transactions',companyId,id:first.id}))).status,200);
   assert.equal((await read()).source.status,'open');assert.equal((await read()).lines[0].remaining,10);assert.equal(await stock(sourceItem),5);assert.equal(await stock(destinationItem),13);
