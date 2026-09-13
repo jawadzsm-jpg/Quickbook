@@ -726,7 +726,10 @@ test('selected customer payments track partial balances and timestamp full settl
   const status = async () => (await database.query('SELECT status FROM transactions WHERE id=$1', [invoiceId])).rows[0].status;
   assert.equal((await POST(request('POST', payload(40, { party: 'Wrong Customer' })))).status, 400);
   const first = await POST(request('POST', payload(40))); assert.equal(first.status, 201);
-  const firstId = (await first.json()).record.id;
+  const firstRecord = (await first.json()).record;
+  const firstId = firstRecord.id;
+  assert.equal(firstRecord.status, 'paid');
+  assert.ok(firstRecord.paidAt);
   assert.equal(await status(), 'partially paid'); assert.equal((await unpaid())[0].remaining, 60);
   assert.equal((await POST(request('POST', payload(61)))).status, 409);
   assert.equal((await DELETE(request('DELETE', { kind:'transactions',companyId,id:invoiceId }))).status, 409);

@@ -113,6 +113,10 @@ async function refreshBillStatus(billId: number) {
   await db.update(transactions).set({ status }).where(eq(transactions.id, billId));
 }
 
+function paymentDisplayRecord<T extends { type: string; status: string; total: number }>(record: T): T {
+  return record.type === "customer payment" && record.total > 0 && record.status === "open" ? { ...record, status: "paid" } : record;
+}
+
 async function invoicePaidAmount(invoiceId: number, excludingPaymentId = 0) {
   const [row] = await getDb().select({ paid: sql<number>`coalesce(sum(${invoicePaymentAllocations.amount}), 0)` }).from(invoicePaymentAllocations).where(and(eq(invoicePaymentAllocations.invoiceId, invoiceId), sql`${invoicePaymentAllocations.paymentId} <> ${excludingPaymentId}`));
   return round(Number(row.paid));
@@ -267,7 +271,7 @@ export async function GET(request: Request) {
       const customerType = ["invoice", "quotation", "estimate", "proforma invoice", "sales order", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(record.type) ? "customer" : "vendor";
       const [partyContact] = await db.select().from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, customerType), eq(contacts.name, record.party))).limit(1);
       const invoiceBalance = record.type === "invoice" ? (record.status === "paid" ? 0 : round(record.total - await invoicePaidAmount(record.id))) : undefined;
-      return Response.json({ revision: purchaseRevision(record, lines), record: { ...record, ...(invoiceBalance !== undefined ? { balance: invoiceBalance } : {}), sourceDocumentNumber: sourceDocument?.number ?? "", sourceDocumentType: sourceDocument?.type ?? "", convertedDocumentNumber: convertedDocument?.number ?? "", convertedDocumentType: convertedDocument?.type ?? "", convertedInvoiceNumber: convertedDocument?.type === "invoice" ? convertedDocument.number : "" }, lines, journal, partyContact: partyContact ?? null });
+      return Response.json({ revision: purchaseRevision(record, lines), record: { ...paymentDisplayRecord(record), ...(invoiceBalance !== undefined ? { balance: invoiceBalance } : {}), sourceDocumentNumber: sourceDocument?.number ?? "", sourceDocumentType: sourceDocument?.type ?? "", convertedDocumentNumber: convertedDocument?.number ?? "", convertedDocumentType: convertedDocument?.type ?? "", convertedInvoiceNumber: convertedDocument?.type === "invoice" ? convertedDocument.number : "" }, lines, journal, partyContact: partyContact ?? null });
     }
     if (kind === "contacts") return Response.json({ records: await db.select().from(contacts).where(eq(contacts.companyId, companyId)).orderBy(asc(contacts.name)) });
     if (kind === "items") return Response.json({ records: await db.select().from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId))).orderBy(asc(items.name)) });
@@ -280,7 +284,7 @@ export async function GET(request: Request) {
       return Response.json({ records: accountRows.map((account) => { const activity = ledger.get(account.name) ?? { debit: 0, credit: 0 }; const movement = creditNormal.has(account.type) ? activity.credit - activity.debit : activity.debit - activity.credit; return { ...account, balance: round(Number(account.balance) + movement) }; }) });
     }
     const transactionFilter = Number.isInteger(locationId) && locationId > 0 ? and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId)) : eq(transactions.companyId, companyId);
-    return Response.json({ records: await db.select().from(transactions).where(transactionFilter).orderBy(desc(transactions.transactionDate), desc(transactions.id)).limit(500) });
+    return Response.json({ records: (await db.select().from(transactions).where(transactionFilter).orderBy(desc(transactions.transactionDate), desc(transactions.id)).limit(500)).map(paymentDisplayRecord) });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
   }
@@ -653,7 +657,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       companyId, locationId: Number.isInteger(locationId) ? locationId : null, number, type, party, billId, invoiceId, purchaseOrderId, salesSourceId,
       salesman: String(payload.salesman ?? ""), isImport: payload.isImport === true || String(payload.isImport) === "true",
       transactionDate, dueDate: String(payload.dueDate ?? ""),
-      account: String(payload.account ?? "Accounts Receivable"), status: String(payload.status ?? "open"), memo: String(payload.memo ?? ""),
+      account: String(payload.account ?? "Accounts Receivable"), status: type === "customer payment" && total > 0 ? "paid" : String(payload.status ?? "open"), ...(type === "customer payment" && total > 0 ? { paidAt: new Date().toISOString() } : {}), memo: String(payload.memo ?? ""),
       subtotal, vatRate: Number(payload.vatRate ?? 5), vatAmount, total, currency, exchangeRate, baseTotal,
       sourceTransactionId: replacing ? replacing.sourceTransactionId : Number.isInteger(conversionSourceId) && conversionSourceId > 0 ? conversionSourceId : null,
     };
