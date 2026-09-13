@@ -423,6 +423,9 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     }
 
     const type = String(payload.type ?? "invoice");
+    const comments = ["invoice", "bill"].includes(type) ? String(payload.comments ?? replacing?.comments ?? "") : "";
+    const serialNumber = ["invoice", "bill"].includes(type) ? String(payload.serialNumber ?? replacing?.serialNumber ?? "") : "";
+    if (comments.length > 5000 || serialNumber.length > 5000) return Response.json({ error: "Comments and Serial Number must each be no more than 5,000 characters." }, { status: 400 });
     const conversionSourceId = ["invoice", "bill"].includes(type) ? Number(payload.sourceTransactionId) : NaN;
     let rawLines = Array.isArray(payload.lines) ? payload.lines as InputLine[] : [];
     if (Number.isInteger(conversionSourceId) && conversionSourceId > 0) {
@@ -689,7 +692,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       companyId, locationId: Number.isInteger(locationId) ? locationId : null, number, type, party, billId, invoiceId, purchaseOrderId, salesSourceId,
       salesman: String(payload.salesman ?? ""), isImport: payload.isImport === true || String(payload.isImport) === "true",
       transactionDate, dueDate: String(payload.dueDate ?? ""),
-      account: String(payload.account ?? "Accounts Receivable"), status: ["customer payment", "cheque", "transfer"].includes(type) && total > 0 ? "paid" : String(payload.status ?? "open"), ...(["customer payment", "cheque", "transfer"].includes(type) && total > 0 ? { paidAt: new Date().toISOString() } : {}), memo: String(payload.memo ?? ""),
+      account: String(payload.account ?? "Accounts Receivable"), status: ["customer payment", "cheque", "transfer"].includes(type) && total > 0 ? "paid" : String(payload.status ?? "open"), ...(["customer payment", "cheque", "transfer"].includes(type) && total > 0 ? { paidAt: new Date().toISOString() } : {}), memo: String(payload.memo ?? ""), comments, serialNumber,
       subtotal, vatRate: Number(payload.vatRate ?? 5), vatAmount, total, currency, exchangeRate, baseTotal,
       sourceTransactionId: replacing ? replacing.sourceTransactionId : Number.isInteger(conversionSourceId) && conversionSourceId > 0 ? conversionSourceId : null,
     };
@@ -790,7 +793,8 @@ async function handlePATCH(request: Request) {
         if (existing && ["invoice", "customer payment"].includes(existing.type)) {
           if (payload.editMode !== "details") return Response.json({ error: "Use Edit details for invoices and customer payments. Posted amounts and allocations are protected." }, { status: 400 });
           const allowed = new Set(["kind", "id", "companyId", "revision", "editMode", "number", "transactionDate", "dueDate", "salesman", "memo"]);
-          if (Object.keys(payload).some((field) => !allowed.has(field))) return Response.json({ error: "Only reference, dates, sales rep and memo can be changed here." }, { status: 400 });
+          if (existing.type === "invoice") { allowed.add("comments"); allowed.add("serialNumber"); }
+          if (Object.keys(payload).some((field) => !allowed.has(field))) return Response.json({ error: "Only reference, dates, sales rep, memo and invoice comments/serial numbers can be changed here." }, { status: 400 });
           const oldLines = await db.select().from(transactionLines).where(eq(transactionLines.transactionId, id)).orderBy(asc(transactionLines.id));
           if (payload.revision !== purchaseRevision(existing, oldLines)) return Response.json({ error: "This document changed. Close and reopen the editor before saving." }, { status: 409 });
           const number = String(payload.number ?? "").trim();
@@ -798,6 +802,9 @@ async function handlePATCH(request: Request) {
           const dueDate = String(payload.dueDate ?? "");
           const salesman = String(payload.salesman ?? "").trim();
           const memo = String(payload.memo ?? "");
+          const comments = existing.type === "invoice" ? String(payload.comments ?? existing.comments) : existing.comments;
+          const serialNumber = existing.type === "invoice" ? String(payload.serialNumber ?? existing.serialNumber) : existing.serialNumber;
+          if (comments.length > 5000 || serialNumber.length > 5000) return Response.json({ error: "Comments and Serial Number must each be no more than 5,000 characters." }, { status: 400 });
           const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
           if (!number || number.length > 100 || !validDate(transactionDate) || (dueDate && !validDate(dueDate)) || memo.length > 5000 || salesman.length > 200) return Response.json({ error: "Enter a reference and valid dates. Memo must be no more than 5,000 characters." }, { status: 400 });
           if (salesman && salesman !== existing.salesman) {
@@ -806,7 +813,7 @@ async function handlePATCH(request: Request) {
           }
           const [duplicate] = await db.select({ id: transactions.id }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.number, number), sql`${transactions.locationId} IS NOT DISTINCT FROM ${existing.locationId}`, sql`${transactions.id} <> ${id}`)).limit(1);
           if (number !== existing.number && duplicate) return Response.json({ error: "That reference is already used in this inventory." }, { status: 409 });
-          const [record] = await db.update(transactions).set({ number, transactionDate, dueDate, salesman, memo }).where(eq(transactions.id, id)).returning();
+          const [record] = await db.update(transactions).set({ number, transactionDate, dueDate, salesman, memo, comments, serialNumber }).where(eq(transactions.id, id)).returning();
           await db.update(journalEntries).set({ entryDate: transactionDate, reference: number }).where(eq(journalEntries.transactionId, id));
           await db.update(inventoryMovements).set({ movementDate: transactionDate, reference: number }).where(eq(inventoryMovements.transactionId, id));
           await db.insert(auditLog).values({ companyId, action: "updated", entityType: "transaction", entityId: id, details: JSON.stringify({ actor: { id: authorization.id, email: authorization.email }, mode: "details", before: existing, after: record }) });
