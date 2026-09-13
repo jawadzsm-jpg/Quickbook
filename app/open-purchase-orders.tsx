@@ -5,11 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PurchaseOrderReceiving } from "./purchase-order-receiving";
 
-type Order = { id: number; number: string; transactionDate: string; currency: string; inventory: string };
+type Order = { id: number; number: string; transactionDate: string; currency: string; memo: string | null; inventory: string };
 
 export function OpenPurchaseOrders({ companyId, party, onSaved, onComplete }: { companyId: number; party: string; onSaved: () => void; onComplete: () => void }) {
   const [orders, setOrders] = useState<Order[]>([]);
-  const [stage, setStage] = useState<"closed" | "prompt" | "select" | "receive">("closed");
+  const [stage, setStage] = useState<"closed" | "select" | "receive">("closed");
   const [selected, setSelected] = useState<number[]>([]);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
@@ -21,7 +21,7 @@ export function OpenPurchaseOrders({ companyId, party, onSaved, onComplete }: { 
         if (!response.ok) throw new Error(data.error || "Could not check open purchase orders.");
         setOrders(data.orders);
         setError("");
-        if (data.orders.length) setStage("prompt");
+        if (data.orders.length) setStage("select");
       }).catch((err) => { if (!controller.signal.aborted) setError(err.message); });
     return () => controller.abort();
   }, [companyId, party, retry]);
@@ -34,12 +34,21 @@ export function OpenPurchaseOrders({ companyId, party, onSaved, onComplete }: { 
     <Dialog open={stage !== "closed"} onOpenChange={(open) => { if (!open) setStage("closed"); }}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-4xl" onInteractOutside={(event) => event.preventDefault()} onEscapeKeyDown={(event) => event.preventDefault()}>
         <DialogHeader>
-          <DialogTitle>{stage === "prompt" ? "Open POs Exist" : stage === "receive" ? `Receive against ${current?.number ?? "purchase order"}` : "Select purchase orders"}</DialogTitle>
-          <DialogDescription>{stage === "prompt" ? "Open purchase orders exist for this vendor. Do you want to receive against one or more of these orders?" : `${party} · Each selected PO has its own receipt. Remaining quantities stay on the original order.`}</DialogDescription>
+          <DialogTitle>{stage === "receive" ? `Receive against ${current?.number ?? "purchase order"}` : "Select purchase orders"}</DialogTitle>
+          <DialogDescription>{`${party} · Each selected PO has its own receipt. Remaining quantities stay on the original order.`}</DialogDescription>
         </DialogHeader>
-        {stage === "prompt" && <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setStage("closed")}>No</Button><Button type="button" onClick={() => setStage("select")}>Yes</Button></div>}
         {stage === "select" && <div className="space-y-4">
-          <div className="space-y-2">{orders.map((order) => <label key={order.id} className="flex items-start gap-3 rounded-md border p-3"><input type="checkbox" className="mt-1 size-4" checked={selected.includes(order.id)} onChange={(event) => setSelected((old) => event.target.checked ? [...old, order.id] : old.filter((id) => id !== order.id))} /><span><strong>{order.number}</strong><span className="block text-sm text-muted-foreground">{order.transactionDate} · {order.inventory} · {order.currency}</span></span></label>)}</div>
+          <div className="rounded-md border">
+            <table className="w-full table-fixed text-sm">
+              <thead><tr className="border-b bg-muted/50"><th className="w-10 p-2"><span className="sr-only">Select</span></th><th className="w-1/5 p-2 text-left">Date</th><th className="w-1/3 p-2 text-left">PO number</th><th className="p-2 text-left">Memo</th></tr></thead>
+              <tbody>{orders.map((order) => <tr key={order.id} className={`border-b last:border-b-0 ${selected.includes(order.id) ? "bg-accent" : ""}`}>
+                <td className="p-2 align-top"><input type="checkbox" aria-label={`Select purchase order ${order.number}`} className="size-4" checked={selected.includes(order.id)} onChange={(event) => setSelected((old) => event.target.checked ? [...old, order.id] : old.filter((id) => id !== order.id))} /></td>
+                <td className="break-words p-2 align-top">{order.transactionDate}</td>
+                <td className="p-2 align-top [overflow-wrap:anywhere]"><strong>{order.number}</strong><span className="mt-1 block text-xs text-muted-foreground">{order.inventory} · {order.currency}</span></td>
+                <td className="whitespace-pre-wrap p-2 align-top [overflow-wrap:anywhere]">{order.memo || "—"}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>
           <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setStage("closed")}>Cancel</Button><Button type="button" disabled={!selected.length} onClick={() => setStage("receive")}>Receive selected orders</Button></div>
         </div>}
         {stage === "receive" && current && <><p className="text-sm text-muted-foreground">{selected.length} selected order{selected.length === 1 ? "" : "s"} left to process.</p><PurchaseOrderReceiving key={current.id} orderId={current.id} companyId={companyId} onSaved={() => {
