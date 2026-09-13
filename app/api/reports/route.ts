@@ -36,7 +36,7 @@ export async function GET(request: Request) {
       const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).limit(1);
       if (!location) return Response.json({ error: "Select an inventory in this company." }, { status: 400 });
     }
-    if (["customer-open-balance", "customers-overdue-invoices", "active-customers"].includes(key)) return await customerOpenBalance(companyId, scoped ? locationId : 0, currency, url.searchParams, hasPermission(authorization, "accounting:manage"));
+    if (["customer-open-balance", "customers-overdue-invoices", "active-customers", "ar-aging-summary", "ar-aging-detail"].includes(key)) return await customerOpenBalance(companyId, scoped ? locationId : 0, currency, url.searchParams, hasPermission(authorization, "accounting:manage"));
     if (key === "stock-pricing-profit") {
       const scoped = Number.isInteger(locationId) && locationId > 0;
       const [company, stock, purchaseLines, inventories] = await Promise.all([
@@ -345,16 +345,6 @@ export async function GET(request: Request) {
       title = "Bank Reconciliation";
       rows = allTransactions.filter((row) => (!Number.isInteger(locationId) || locationId <= 0 || row.locationId === locationId) && ["deposit", "cheque", "transfer", "credit card charge", "customer payment", "bill payment"].includes(row.type)).map((row) => ({ date: row.transactionDate, number: row.number, type: row.type, party: row.party, status: row.status === "cleared" ? "Cleared" : "Uncleared", amount: row.baseTotal }));
       columns = [{ key: "date", label: "Date" }, { key: "number", label: "Reference" }, { key: "type", label: "Type" }, { key: "party", label: "Name / Account" }, { key: "status", label: "Reconciliation Status" }, { key: "amount", label: "Amount", ...money }];
-    } else if (key === "ar-aging-summary") {
-      title = "A/R Aging Summary";
-      const grouped = new Map<string, { current: number; days30: number; days60: number; days90: number; total: number }>();
-      aged(["invoice", "statement charge", "finance charge"]).forEach((row) => { const old = grouped.get(row.name) ?? { current: 0, days30: 0, days60: 0, days90: 0, total: 0 }; grouped.set(row.name, { current: old.current + row.current, days30: old.days30 + row.days30, days60: old.days60 + row.days60, days90: old.days90 + row.days90, total: old.total + row.total }); });
-      rows = [...grouped].map(([name, values]) => ({ name, ...values })).sort((a, b) => b.total - a.total);
-      columns = agingColumns;
-    } else if (key === "ar-aging-detail") {
-      title = "A/R Aging Detail";
-      rows = scopedTransactions.filter((row) => ["invoice", "statement charge", "finance charge"].includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => { const age = row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0; return { customer: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, status: row.status, age, amount: row.baseTotal }; });
-      columns = [{ key: "customer", label: "Customer" }, { key: "date", label: "Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "No." }, { key: "status", label: "Status" }, { key: "age", label: "Days Overdue" }, { key: "amount", label: "Open Amount", ...money }];
     } else if (key === "ap-aging-summary") {
       title = "A/P Aging Summary";
       const grouped = new Map<string, { current: number; days30: number; days60: number; days90: number; total: number }>();

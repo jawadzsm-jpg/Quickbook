@@ -354,7 +354,7 @@ test('customer payments debit the selected company bank and reject invalid depos
   const record = (await response.json()).record;
   assert.equal(record.account, 'Selected USD Bank');
   const lines = (await database.query('SELECT jl.account_name, jl.debit, jl.credit FROM journal_lines jl JOIN journal_entries je ON je.id = jl.journal_entry_id WHERE je.transaction_id = $1 ORDER BY jl.id', [record.id])).rows;
-  assert.deepEqual(lines, [{ account_name: 'Selected USD Bank', debit: 367.5, credit: 0 }, { account_name: 'Accounts Receivable', debit: 0, credit: 367.5 }]);
+  assert.deepEqual(lines, [{ account_name: 'Selected USD Bank', debit: 367.5, credit: 0 }, { account_name: 'Accounts Receivable - USD', debit: 0, credit: 367.5 }]);
   assert.equal((await database.query('SELECT balance FROM contacts WHERE company_id = $1', [companyId])).rows[0].balance, 0);
 });
 
@@ -1194,4 +1194,32 @@ test("account history scopes posted ledger entries to the account company, aggre
     globalThis.__transferTestUser={id:1,role:'sales',companyIds:[company]}; assert.equal((await read()).status,403);
     globalThis.__transferTestUser={id:1,role:'all_admin',companyIds:[]}; assert.equal((await read()).status,200);
   } finally { delete globalThis.__transferTestUser; }
+});
+
+test('receivable postings match document company and currency even when customer defaults differ', async () => {
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('AR currency audit') RETURNING id")).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations(company_id,name,code,invoice_prefix) VALUES ($1,'Audit stock','AUD','AUD') RETURNING id", [companyId])).rows[0].id;
+  const arId = (await database.query("INSERT INTO accounts(company_id,code,name,type,system_role,currency) VALUES ($1,'AR-AED','Audit AED Receivable','Accounts Receivable','AR','AED') RETURNING id",[companyId])).rows[0].id;
+  await database.query("INSERT INTO accounts(company_id,code,name,type,system_role,currency) VALUES ($1,'BANK-USD','Audit USD Bank','Bank','BANK','USD')",[companyId]);
+  await database.query("INSERT INTO contacts(company_id,name,type,currency,ledger_account_id) VALUES ($1,'Audit Customer','customer','AED',$2)",[companyId,arId]);
+  const { POST } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const save = async (type, currency = 'USD') => {
+    const response = await POST(new Request('https://app.test/api/records',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind:'transactions',companyId,locationId,type,party:'Audit Customer',currency,exchangeRate:currency==='USD'?3.675:1,account:type==='customer payment'?'Audit USD Bank':'Sales Revenue',lines:[{description:'AR audit',quantity:1,unitPrice:100,vatCode:'ZERO'}]})}));
+    assert.equal(response.status,201,JSON.stringify(await response.clone().json()));
+    const record=(await response.json()).record;
+    return (await database.query("SELECT jl.account_name,jl.debit,jl.credit FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.name=jl.account_name AND a.company_id=je.company_id WHERE je.transaction_id=$1 AND a.type='Accounts Receivable'",[record.id])).rows;
+  };
+  for(const type of ['invoice','customer payment','credit memo','statement charge','finance charge']) {
+    const lines=await save(type);assert.equal(lines.length,1);assert.equal(lines[0].account_name,'Accounts Receivable - USD');
+    assert.equal(lines[0].debit+lines[0].credit,367.5);
+  }
+  assert.equal((await save('invoice','AED'))[0].account_name,'Audit AED Receivable');
+  assert.equal((await database.query("SELECT count(*)::int n FROM accounts WHERE company_id=$1 AND system_role='AR' AND currency='USD'",[companyId])).rows[0].n,1);
+  assert.equal((await database.query("SELECT ledger_account_id FROM contacts WHERE company_id=$1",[companyId])).rows[0].ledger_account_id,arId);
+  await database.query("UPDATE accounts SET type='Bank' WHERE company_id=$1 AND system_role='AR' AND currency='USD'",[companyId]);
+  const before=(await database.query('SELECT count(*)::int n FROM transactions WHERE company_id=$1',[companyId])).rows[0].n;
+  const blocked=await POST(new Request('https://app.test/api/records',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind:'transactions',companyId,locationId,type:'invoice',party:'Audit Customer',currency:'USD',exchangeRate:3.675,lines:[{description:'AR audit',quantity:1,unitPrice:100,vatCode:'ZERO'}]})}));
+  assert.equal(blocked.status,409);
+  assert.equal((await database.query('SELECT count(*)::int n FROM transactions WHERE company_id=$1',[companyId])).rows[0].n,before);
+
 });
