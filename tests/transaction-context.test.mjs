@@ -1295,7 +1295,7 @@ test('invoice and bill comments and serial numbers persist and remain editable w
     const edit=async(changes)=>PATCH(req('PATCH',{...(type==='invoice'?{kind:'transactions',companyId,number:payload.number,transactionDate:payload.transactionDate,editMode:'details'}:payload),id:record.id,revision:detail.revision,...changes}));
     let edited=await edit({comments:'Revised comments',serialNumber:'SN-003'});assert.equal(edited.status,200,JSON.stringify(await edited.clone().json()));
     detail=await read();assert.equal(detail.record.comments,'Revised comments');assert.equal(detail.record.serialNumber,'SN-003');assert.equal(detail.record.total,100);
-    const bad=await edit({comments:'x'.repeat(5001)});assert.equal(bad.status,400);assert.equal((await read()).record.comments,'Revised comments');
+    const longText='Long text\n'.repeat(2000);const expanded=await edit({comments:longText,serialNumber:longText});assert.equal(expanded.status,200);detail=await read();assert.equal(detail.record.comments,longText);assert.equal(detail.record.serialNumber,longText);
     edited=await edit({comments:'',serialNumber:''});assert.equal(edited.status,200);detail=await read();assert.equal(detail.record.comments,'');assert.equal(detail.record.serialNumber,'');
     assert.equal(detail.journal.reduce((n,l)=>n+l.debit,0),100);assert.equal(detail.journal.reduce((n,l)=>n+l.credit,0),100);
   }
@@ -1315,10 +1315,11 @@ test('invoice line comments and serials stay attached to their lines and edit wi
   let result=await edit([{id:detail.lines[0].id,comments:'Updated',serialNumber:'A-3'}]);assert.equal(result.status,200,JSON.stringify(await result.clone().json()));
   detail=await read();assert.equal(detail.lines[0].comments,'Updated');assert.equal(detail.lines[1].serialNumber,'B-1');assert.equal(detail.record.total,260);assert.deepEqual(detail.journal,before.journal);
   assert.equal((await edit([{id:detail.lines[0].id,comments:'stale'}],before.revision)).status,409);
-  for (const invalid of [[{id:99999999,comments:'Wrong line'}],[{id:detail.lines[0].id,unitPrice:0}],[{id:detail.lines[0].id,comments:'x'.repeat(5001)}],[{id:detail.lines[0].id},{id:detail.lines[0].id}]]) assert.equal((await edit(invalid)).status,400);
+  for (const invalid of [[{id:99999999,comments:'Wrong line'}],[{id:detail.lines[0].id,unitPrice:0}],[{id:detail.lines[0].id},{id:detail.lines[0].id}]]) assert.equal((await edit(invalid)).status,400);
   assert.equal((await read()).lines[0].comments,'Updated');
   result=await edit([{id:detail.lines[0].id,comments:'',serialNumber:''}]);assert.equal(result.status,200);detail=await read();assert.equal(detail.lines[0].serialNumber,'');assert.equal(detail.lines[0].comments,'');assert.equal(detail.record.total,260);
-  const bad=await POST(req('POST',{...payload,number:'ILD-BAD',lines:[{...payload.lines[0],serialNumber:'x'.repeat(5001)}]}));assert.equal(bad.status,400);
+  const expanded=await POST(req('POST',{...payload,number:'ILD-LONG',lines:[{...payload.lines[0],comments:'c'.repeat(20000),serialNumber:'s'.repeat(20000)}]}));assert.equal(expanded.status,201);const expandedId=(await expanded.json()).record.id;const stored=(await (await GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${companyId}&id=${expandedId}`))).json()).lines[0];assert.equal(stored.comments.length,20000);assert.equal(stored.serialNumber.length,20000);
+  const editedLong=await edit([{id:detail.lines[0].id,comments:'e'.repeat(20000),serialNumber:'n'.repeat(20000)}]);assert.equal(editedLong.status,200);detail=await read();assert.equal(detail.lines[0].comments.length,20000);assert.equal(detail.lines[0].serialNumber.length,20000);
 });
 
 test('bill item comments and serials persist through edits alongside freight and print detail data', async () => {
@@ -1333,9 +1334,9 @@ test('bill item comments and serials persist through edits alongside freight and
   const edit=(lines)=>PATCH(req('PATCH',{...payload,id:record.id,revision:detail.revision,lines}));
   let result=await edit(detail.lines.map((l,i)=>i===0?{...l,comments:'Updated',serialNumber:'A-3'}:l));assert.equal(result.status,200,JSON.stringify(await result.clone().json()));
   detail=await read();assert.equal(detail.lines[0].comments,'Updated');assert.equal(detail.lines[0].serialNumber,'A-3');assert.equal(detail.lines[1].serialNumber,'B-1');assert.equal(detail.record.total,260);assert.equal(detail.lines.filter(l=>l.isFreightCharge).length,1);
-  assert.equal((await edit(detail.lines.map((l,i)=>i===0?{...l,comments:'x'.repeat(5001)}:l))).status,400);assert.equal((await read()).lines[0].comments,'Updated');
+  assert.equal((await edit(detail.lines.map((l,i)=>i===0?{...l,comments:'x'.repeat(20000),serialNumber:'s'.repeat(20000)}:l))).status,200);detail=await read();assert.equal(detail.lines[0].comments.length,20000);assert.equal(detail.lines[0].serialNumber.length,20000);
   result=await edit(detail.lines.map((l,i)=>i===0?{...l,comments:'',serialNumber:''}:l));assert.equal(result.status,200);detail=await read();assert.equal(detail.lines[0].comments,'');assert.equal(detail.lines[0].serialNumber,'');assert.equal(detail.record.total,260);assert.equal(detail.journal.reduce((n,l)=>n+l.debit,0),260);assert.equal(detail.journal.reduce((n,l)=>n+l.credit,0),260);
-  const bad=await POST(req('POST',{...payload,number:'BLD-BAD',lines:[{...payload.lines[0],serialNumber:'x'.repeat(5001)}]}));assert.equal(bad.status,400);
+  const expanded=await POST(req('POST',{...payload,number:'BLD-LONG',lines:[{...payload.lines[0],serialNumber:'x'.repeat(20000)}]}));assert.equal(expanded.status,201);const expandedId=(await expanded.json()).record.id;const stored=(await (await GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${companyId}&id=${expandedId}`))).json()).lines[0];assert.equal(stored.serialNumber.length,20000);
 });
 
 test('serial search links sales and purchases across inventories while isolating companies and literal searches', async () => {

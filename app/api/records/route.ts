@@ -427,7 +427,6 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const type = String(payload.type ?? "invoice");
     const comments = ["invoice", "bill"].includes(type) ? String(payload.comments ?? replacing?.comments ?? "") : "";
     const serialNumber = ["invoice", "bill"].includes(type) ? String(payload.serialNumber ?? replacing?.serialNumber ?? "") : "";
-    if (comments.length > 5000 || serialNumber.length > 5000) return Response.json({ error: "Comments and Serial Number must each be no more than 5,000 characters." }, { status: 400 });
     const conversionSourceId = ["invoice", "bill"].includes(type) ? Number(payload.sourceTransactionId) : NaN;
     let rawLines = Array.isArray(payload.lines) ? payload.lines as InputLine[] : [];
     if (Number.isInteger(conversionSourceId) && conversionSourceId > 0) {
@@ -518,7 +517,6 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const vatRates = configuredVatCodes.length ? Object.fromEntries(configuredVatCodes.map((vatCode) => [vatCode.code, Number(vatCode.rate)])) : fallbackVatRates;
     if (type === "bill") rawLines = rawLines.filter(line => !line.isFreightCharge);
     if (rawLines.some(line => !Number.isFinite(Number(line.freightCharge ?? 0)) || Number(line.freightCharge ?? 0) < 0)) return Response.json({ error: "Line freight charges must be finite, non-negative amounts." }, { status: 400 });
-    if (["invoice", "bill"].includes(type) && rawLines.some(line => String(line.comments ?? "").length > 5000 || String(line.serialNumber ?? "").length > 5000)) return Response.json({ error: "Line Comments and Serial Number must each be no more than 5,000 characters." }, { status: 400 });
     const prepared = rawLines.map((line) => {
       const quantity = Number(line.quantity ?? 1);
       const unitPrice = Number(line.unitPrice ?? 0);
@@ -810,7 +808,6 @@ async function handlePATCH(request: Request) {
               if (!line || seen.has(line.id)) return Response.json({ error: "Select unique lines belonging to this invoice." }, { status: 400 });
               const comments = String(input.comments ?? line.comments);
               const serialNumber = String(input.serialNumber ?? line.serialNumber);
-              if (comments.length > 5000 || serialNumber.length > 5000) return Response.json({ error: "Line Comments and Serial Number must each be no more than 5,000 characters." }, { status: 400 });
               seen.add(line.id);
               lineDetails.push({ id: line.id, comments, serialNumber });
             }
@@ -822,7 +819,6 @@ async function handlePATCH(request: Request) {
           const memo = String(payload.memo ?? "");
           const comments = existing.type === "invoice" ? String(payload.comments ?? existing.comments) : existing.comments;
           const serialNumber = existing.type === "invoice" ? String(payload.serialNumber ?? existing.serialNumber) : existing.serialNumber;
-          if (comments.length > 5000 || serialNumber.length > 5000) return Response.json({ error: "Comments and Serial Number must each be no more than 5,000 characters." }, { status: 400 });
           const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
           if (!number || number.length > 100 || !validDate(transactionDate) || (dueDate && !validDate(dueDate)) || memo.length > 5000 || salesman.length > 200) return Response.json({ error: "Enter a reference and valid dates. Memo must be no more than 5,000 characters." }, { status: 400 });
           if (salesman && salesman !== existing.salesman) {
