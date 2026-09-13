@@ -369,12 +369,20 @@ test('cheques credit the chosen currency bank and debit the selected AP or expen
   assert.equal((await database.query('SELECT count(*)::int AS n FROM transactions WHERE company_id=$1', [companyId])).rows[0].n, 0);
   for (const account of ['Cheque USD AP', 'Cheque Expense']) {
     const response = await pay({ account }); assert.equal(response.status, 201);
-    const id = (await response.json()).record.id;
+    const savedCheque = (await response.json()).record;
+    assert.equal(savedCheque.status, 'paid');
+    assert.ok(savedCheque.paidAt);
+    const id = savedCheque.id;
     const journal = (await database.query('SELECT jl.account_name, jl.debit, jl.credit FROM journal_lines jl JOIN journal_entries je ON jl.journal_entry_id=je.id WHERE je.transaction_id=$1 ORDER BY jl.id', [id])).rows;
     assert.deepEqual(journal, [{ account_name: account, debit: 367.5, credit: 0 }, { account_name: 'Cheque USD Bank', debit: 0, credit: 367.5 }]);
   }
   assert.equal((await database.query('SELECT balance FROM contacts WHERE company_id=$1', [companyId])).rows[0].balance, 400);
   const { GET, DELETE } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const legacyId = (await database.query("UPDATE transactions SET status='open',paid_at=NULL WHERE company_id=$1 RETURNING id", [companyId])).rows[0].id;
+  const legacyDetail = await (await GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${companyId}&id=${legacyId}`))).json();
+  assert.equal(legacyDetail.record.status,'paid');
+  const legacyList = await (await GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${companyId}`))).json();
+  assert.ok(legacyList.records.every((record) => record.status === 'paid'));
   const locationId = (await database.query("INSERT INTO inventory_locations (company_id,name,code,invoice_prefix) VALUES ($1,'Cheque stock','CHQ','CHQ-INV') RETURNING id", [companyId])).rows[0].id;
   const billId = (await database.query("INSERT INTO transactions (company_id,location_id,type,number,party,account,total,subtotal,currency,exchange_rate,transaction_date,status) VALUES ($1,$2,'bill','CHQ-BILL','Cheque Supplier','Cheque USD AP',200,200,'USD',3.675,'2026-09-11','open') RETURNING id", [companyId,locationId])).rows[0].id;
   const state = async () => (await database.query('SELECT status FROM transactions WHERE id=$1',[billId])).rows[0].status;

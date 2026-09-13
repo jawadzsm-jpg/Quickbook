@@ -115,7 +115,7 @@ async function refreshBillStatus(billId: number) {
 }
 
 function paymentDisplayRecord<T extends { type: string; status: string; total: number }>(record: T): T {
-  return record.type === "customer payment" && record.total > 0 && record.status === "open" ? { ...record, status: "paid" } : record;
+  return ["customer payment", "cheque"].includes(record.type) && record.total > 0 && record.status === "open" ? { ...record, status: "paid" } : record;
 }
 
 async function invoicePaidAmount(invoiceId: number, excludingPaymentId = 0) {
@@ -674,7 +674,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       companyId, locationId: Number.isInteger(locationId) ? locationId : null, number, type, party, billId, invoiceId, purchaseOrderId, salesSourceId,
       salesman: String(payload.salesman ?? ""), isImport: payload.isImport === true || String(payload.isImport) === "true",
       transactionDate, dueDate: String(payload.dueDate ?? ""),
-      account: String(payload.account ?? "Accounts Receivable"), status: type === "customer payment" && total > 0 ? "paid" : String(payload.status ?? "open"), ...(type === "customer payment" && total > 0 ? { paidAt: new Date().toISOString() } : {}), memo: String(payload.memo ?? ""),
+      account: String(payload.account ?? "Accounts Receivable"), status: ["customer payment", "cheque"].includes(type) && total > 0 ? "paid" : String(payload.status ?? "open"), ...(["customer payment", "cheque"].includes(type) && total > 0 ? { paidAt: new Date().toISOString() } : {}), memo: String(payload.memo ?? ""),
       subtotal, vatRate: Number(payload.vatRate ?? 5), vatAmount, total, currency, exchangeRate, baseTotal,
       sourceTransactionId: replacing ? replacing.sourceTransactionId : Number.isInteger(conversionSourceId) && conversionSourceId > 0 ? conversionSourceId : null,
     };
