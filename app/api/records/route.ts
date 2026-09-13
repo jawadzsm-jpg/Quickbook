@@ -148,7 +148,7 @@ export async function GET(request: Request) {
   if (authorization instanceof Response) return authorization;
   try {
     const url = new URL(request.url);
-    const kind = url.searchParams.get("kind") as RecordKind | "vendor-history" | "unpaid-bills" | "unpaid-invoices" | "po-receiving" | "sales-invoicing" | null;
+    const kind = url.searchParams.get("kind") as RecordKind | "vendor-history" | "unpaid-bills" | "unpaid-invoices" | "open-purchase-orders" | "po-receiving" | "sales-invoicing" | null;
     const id = Number(url.searchParams.get("id"));
     const companyId = Number(url.searchParams.get("companyId"));
     const locationId = Number(url.searchParams.get("locationId"));
@@ -165,6 +165,17 @@ export async function GET(request: Request) {
       if (!locations.some((location) => location.id === selectedLocation)) return Response.json({ error: "Select an inventory in this company." }, { status: 400 });
       const invoices = await db.select({ id: transactions.id, number: transactions.number, transactionDate: transactions.transactionDate, total: transactions.total, currency: transactions.currency, locationId: transactions.locationId }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.salesSourceId, sourceId))).orderBy(asc(transactions.id));
       return Response.json({ source, locations, locationId: selectedLocation, lines: await salesInventoryLines(sourceId, companyId, selectedLocation!), invoices }, { headers: { "Cache-Control": "no-store" } });
+    }
+    if (kind === "open-purchase-orders") {
+      if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
+      const party = url.searchParams.get("party");
+      if (!party) return Response.json({ error: "Select a vendor." }, { status: 400 });
+      const orders = await db.select({ id: transactions.id, number: transactions.number, transactionDate: transactions.transactionDate, currency: transactions.currency, inventory: inventoryLocations.name }).from(transactions)
+        .leftJoin(inventoryLocations, eq(transactions.locationId, inventoryLocations.id))
+        .where(and(eq(transactions.companyId, companyId), eq(transactions.party, party), eq(transactions.type, "purchase order"), sql`${transactions.convertedInvoiceId} IS NULL`, inArray(transactions.status, ["open", "pending", "overdue", "partially received"]),
+          sql`EXISTS (SELECT 1 FROM transaction_lines pol WHERE pol.transaction_id = ${transactions.id} AND pol.quantity > COALESCE((SELECT SUM(pra.quantity) FROM purchase_receipt_allocations pra WHERE pra.order_line_id = pol.id), 0))`))
+        .orderBy(asc(transactions.transactionDate), asc(transactions.id));
+      return Response.json({ orders }, { headers: { "Cache-Control": "no-store" } });
     }
     if (kind === "po-receiving") {
       if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });

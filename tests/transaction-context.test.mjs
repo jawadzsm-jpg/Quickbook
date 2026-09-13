@@ -787,6 +787,14 @@ test('partial PO receipts retain remaining quantities, block overreceipt and rev
   const poResponse = await POST(request('POST',{...base,type:'purchase order',number:'PO-PART',lines:[{itemId,description:'Laptop',quantity:50,unitPrice:100,unitCost:20,vatCode:'ZERO'}]}));
   assert.equal(poResponse.status,201); const po = (await poResponse.json()).record;
   const read = async () => (await (await GET(new Request('https://app.test/api/records?kind=po-receiving&companyId='+companyId+'&orderId='+po.id))).json());
+  const openOrders = async (party = base.party, company = companyId) => {
+    const response = await GET(new Request('https://app.test/api/records?kind=open-purchase-orders&companyId='+company+'&party='+encodeURIComponent(party)));
+    assert.equal(response.status, 200);
+    return (await response.json()).orders;
+  };
+  assert.deepEqual((await openOrders()).map((order) => order.id), [po.id]);
+  assert.equal((await openOrders('Different vendor')).length, 0);
+  assert.equal((await openOrders(base.party, companyId + 10000)).length, 0);
   const line = (await read()).lines[0];
   const receive = (quantity, changes={}) => POST(request('POST',{...base,type:'item receipt',purchaseOrderId:po.id,lines:[{orderLineId:line.id,quantity,unitPrice:1}],...changes}));
   const stock = async () => (await database.query('SELECT quantity FROM items WHERE id=$1',[itemId])).rows[0].quantity;
@@ -795,6 +803,7 @@ test('partial PO receipts retain remaining quantities, block overreceipt and rev
   assert.equal(firstRecord.total,2000);
   assert.equal(await stock(),20);
   assert.equal((await read()).order.status,'partially received');
+  assert.deepEqual((await openOrders()).map((order) => order.id), [po.id]);
   assert.equal((await read()).lines[0].remaining,30);
   assert.equal((await receive(31)).status,409);
   assert.equal((await receive(1,{lines:[{orderLineId:line.id,quantity:1},{orderLineId:line.id,quantity:1}]})).status,400);
@@ -803,10 +812,12 @@ test('partial PO receipts retain remaining quantities, block overreceipt and rev
   const last = await receive(30); assert.equal(last.status,201); const lastRecord = (await last.json()).record;
   assert.equal(await stock(),50);
   assert.equal((await read()).order.status,'received');
+  assert.equal((await openOrders()).length, 0);
   assert.equal((await read()).lines[0].remaining,0);
   assert.equal((await receive(1)).status,409);
   assert.equal((await DELETE(request('DELETE',{kind:'transactions',companyId,id:lastRecord.id}))).status,200);
   assert.equal((await read()).order.status,'partially received');
+  assert.deepEqual((await openOrders()).map((order) => order.id), [po.id]);
   assert.equal((await read()).lines[0].remaining,30);
   assert.equal(await stock(),20);
   assert.equal((await DELETE(request('DELETE',{kind:'transactions',companyId,id:firstRecord.id}))).status,200);

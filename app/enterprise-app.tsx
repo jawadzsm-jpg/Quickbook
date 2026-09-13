@@ -8,6 +8,7 @@ import { PaymentSalesRep } from "./payment-sales-rep";
 import { PaidInvoiceStamp } from "./paid-invoice-stamp";
 import { StatementFilters, StatementHeading, type StatementData } from "./statement-layout";
 import { SalesSourceInvoicing } from "./sales-source-invoicing";
+import { OpenPurchaseOrders } from "./open-purchase-orders";
 import { PurchaseOrderReceiving } from "./purchase-order-receiving";
 import { UnpaidInvoices } from "./unpaid-invoices";
 import { UnpaidBills } from "./unpaid-bills";
@@ -918,6 +919,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
       <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open && saving) { toast.info("Please wait until saving finishes."); return; } setDialogOpen(open); if (!open) { setEditingItemId(null); setEditorKind(null); } }}>
         <DialogContent showCloseButton={true} onInteractOutside={(event) => { if (["items", "transactions"].includes(activeEditorKind) || saving) event.preventDefault(); }} onEscapeKeyDown={(event) => { if (["items", "transactions"].includes(activeEditorKind) || saving) event.preventDefault(); }} data-record-kind={activeEditorKind} className={`max-h-[90vh] overflow-y-auto ${activeEditorKind === "transactions" || activeEditorKind === "items" || (activeEditorKind === "contacts" && view === "customers") ? "sm:max-w-5xl" : "sm:max-w-xl"}`}>
           <DialogHeader><DialogTitle>{editingItemId !== null && activeEditorKind === "items" ? "Edit Item" : editingRecordId !== null ? `Edit ${activeEditorKind === "transactions" ? form.type : activeEditorKind === "accounts" ? "Account" : form.type === "vendor" ? "Vendor" : "Customer"}` : editorLabel}</DialogTitle><DialogDescription>{editingItemId !== null && activeEditorKind === "items" ? "Update the category and item description details." : activeEditorKind === "transactions" && form.type === "bill" ? "Select the vendor and enter the bill items below." : "Enter the record details below. Required fields are marked."}</DialogDescription></DialogHeader>
+          {dialogOpen && activeEditorKind === "transactions" && form.type === "item receipt" && editingRecordId === null && form.party && <OpenPurchaseOrders key={`${activeCompanyId}:${form.party}`} companyId={activeCompanyId} party={form.party} onComplete={() => { setDialogOpen(false); void loadData(); }} onSaved={() => { void loadData(); }} />}
           <form onSubmit={saveRecord} className="space-y-5">
             <SkuLockNotice message={skuLock.message} /><fieldset disabled={!skuLock.ready} className="space-y-5">
             {linkedInventoryDocument && !salesDetailsOnly && <p role="status" className="text-sm text-slate-500">{documentInventory.key === documentInventoryKey && documentInventory.error ? documentInventory.error : !documentInventoryReady ? "Loading inventory items…" : `${documentItems.length} items available in the selected inventory.`}</p>}
