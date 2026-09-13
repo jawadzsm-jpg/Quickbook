@@ -1,5 +1,5 @@
 type StockItem = { id: number; locationId: number | null; sku: string; itemNumber: string | null; name: string; quantity: number; cost: number; lastPurchasePrice: number; salesPrice: number; grnPrice?: number | null };
-type PurchaseLine = { transactionId: number; itemId: number | null; description: string; quantity: number; subtotal: number; type: string; date: string; number: string; exchangeRate: number };
+type PurchaseLine = { freightCharge?: number; isFreightCharge?: boolean; transactionId: number; itemId: number | null; description: string; quantity: number; subtotal: number; type: string; date: string; number: string; exchangeRate: number };
 const round = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
 /** Current stock pricing estimate, not realized sales profit or inventory revaluation. */
@@ -18,13 +18,13 @@ export function stockPricingRows(stock: StockItem[], lines: PurchaseLine[], loca
     const stockLines = document.filter((line) => line.itemId && line.quantity > 0);
     const value = stockLines.reduce((sum, line) => sum + Math.max(0, line.subtotal), 0);
     const quantity = stockLines.reduce((sum, line) => sum + line.quantity, 0);
-    const freight = document.filter((line) => !line.itemId && /^freight charges?$/i.test(line.description.trim())).reduce((sum, line) => sum + line.subtotal, 0) * rate;
+    const freight = document.filter((line) => !line.isFreightCharge && !line.itemId && /^freight charges?$/i.test(line.description.trim())).reduce((sum, line) => sum + line.subtotal, 0) * rate;
     for (const itemId of new Set(stockLines.map((line) => line.itemId!))) {
       const itemLines = stockLines.filter((line) => line.itemId === itemId);
       const itemQty = itemLines.reduce((sum, line) => sum + line.quantity, 0);
       const itemValue = itemLines.reduce((sum, line) => sum + line.subtotal, 0);
       const allocation = value > 0 ? Math.max(0, itemValue) / value : itemQty / quantity;
-      const cost = { unit: itemValue * rate / itemQty, freight: freight * allocation / itemQty, reference: header.number, date: header.date, id: header.transactionId };
+      const cost = { unit: itemValue * rate / itemQty, freight: (freight * allocation + itemLines.reduce((sum, line) => sum + (line.freightCharge || 0), 0) * rate) / itemQty, reference: header.number, date: header.date, id: header.transactionId };
       const target = header.type === 'item receipt' ? receipts : bills;
       const previous = target.get(itemId);
       if (!previous || cost.date > previous.date || (cost.date === previous.date && cost.id > previous.id)) target.set(itemId, cost);

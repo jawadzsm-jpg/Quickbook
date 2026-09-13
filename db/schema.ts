@@ -270,6 +270,8 @@ export const transactionLines = pgTable("transaction_lines", {
   description: text("description").notNull(),
   quantity: doublePrecision("quantity").notNull().default(1),
   unitPrice: doublePrecision("unit_price").notNull().default(0),
+  freightCharge: doublePrecision("freight_charge").notNull().default(0),
+  isFreightCharge: boolean("is_freight_charge").notNull().default(false),
   unitCost: doublePrecision("unit_cost").notNull().default(0),
   vatCode: text("vat_code").notNull().default("STANDARD"),
   vatRate: doublePrecision("vat_rate").notNull().default(5),

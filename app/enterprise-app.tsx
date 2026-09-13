@@ -69,7 +69,7 @@ type AppearanceMode = "light" | "dark";
 type CurrentUser = { id: number; fullName: string; email: string; avatarData: string; themeColor: string; appearanceMode: AppearanceMode; role: AppRole; mustChangePassword: boolean };
 type Kind = "transactions" | "contacts" | "items" | "accounts";
 type DataRecord = Record<string, string | number | boolean> & { id: number };
-type LineForm = PricedInvoiceLine & { itemId: string; description: string; quantity: string; unitPrice: string; unitCost: string; vatCode: string; vatRate: string };
+type LineForm = PricedInvoiceLine & { freightCharge?: string; itemId: string; description: string; quantity: string; unitPrice: string; unitCost: string; vatCode: string; vatRate: string };
 type InventoryLocation = { id: number; companyId: number; name: string; code: string; invoicePrefix: string; nextInvoiceNumber: number; receivable?: number; payable?: number };
 type CompanyWorkspace = { id: number; name: string; baseCurrency: string; locations: InventoryLocation[] };
 type CompanySetup = { id: number; name: string; baseCurrency: string; logoData: string; stampData: string; addressLine1: string; addressLine2: string; city: string; country: string; phone: string; email: string; trn: string; bankName: string; bankAccountName: string; bankAccountNumber: string; bankIban: string; bankSwift: string; bankCurrency: string; documentTemplate: "classic" | "modern" | "minimal"; documentColor: string };
@@ -683,7 +683,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     if (saveKind === "transactions" && form.type === "bill") {
       const required = [form.party, form.number, form.transactionDate, form.currency, form.exchangeRate, form.billLocationId];
       if (required.some((value) => !value?.trim()) || Number(form.exchangeRate) <= 0) return toast.error("Complete the vendor, reference, date, inventory, currency and exchange rate.");
-      if (Number(form.freightCharges ?? 0) < 0) return toast.error("Freight charges cannot be negative.");
+      if (lines.some(line => !Number.isFinite(Number(line.freightCharge || 0)) || Number(line.freightCharge || 0) < 0)) return toast.error("Freight charges must be valid non-negative amounts.");
       if (lines.some((line) => !line.description.trim() || Number(line.quantity) <= 0 || Number(line.unitPrice) < 0)) return toast.error("Complete every bill line with a description, positive quantity and valid rate.");
     }
     if (saveKind === "transactions" && form.type === "bill payment" && !records.accounts.some((bank) => bank.active && (bank.type === "Bank" || bank.systemRole === "BANK") && bank.name === form.account && bank.currency === form.currency)) return toast.error("Select an active Pay From bank matching the payment currency.");
@@ -704,9 +704,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     try {
       const editingItem = saveKind === "items" && editingItemId !== null;
       const editing = editingItem || (["contacts", "accounts", "transactions"].includes(saveKind) && editingRecordId !== null);
-      const billFreightCharge = saveKind === "transactions" && form.type === "bill" ? Number(form.freightCharges ?? 0) : 0;
-      const billVatRate = form.isImport === "true" ? "5" : "0";
-      let submittedLines = billFreightCharge > 0 ? [...lines, { itemId: "", description: "Freight Charges", quantity: "1", unitPrice: String(billFreightCharge), unitCost: String(billFreightCharge), vatCode: billVatRate === "5" ? "STANDARD" : "ZERO", vatRate: billVatRate }] : lines;
+      let submittedLines = lines;
       const zeroVatPayment = saveKind === "transactions" && (["customer payment", "bill payment"].includes(form.type) || (form.type === "cheque" && (form.account || linkedAccountName(records.accounts, "AP", "Accounts Payable", form.currency)) === linkedAccountName(records.accounts, "AP", "Accounts Payable", form.currency)));
       if (zeroVatPayment) {
         submittedLines = submittedLines.map((line) => ({ ...line, vatCode: "ZERO", vatRate: "0" }));
@@ -770,7 +768,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
       setEditorKind("transactions");
       setActiveLocationId(locationId);
       setForm({ ...Object.fromEntries(Object.entries(purchase).map(([key, value]) => [key, String(value ?? "")])), revision: data.revision, billLocationId: String(locationId), transactionLocationId: String(locationId), freightCharges: "0" });
-      setLines(data.lines.map((line: DataRecord) => ({ itemId: line.itemId ? String(line.itemId) : "", description: String(line.description ?? ""), quantity: String(line.quantity), unitPrice: String(line.unitPrice), unitCost: String(line.unitCost), vatCode: String(line.vatCode), vatRate: String(line.vatRate) })));
+      setLines(data.lines.filter((line: DataRecord) => !line.isFreightCharge).map((line: DataRecord) => ({ freightCharge: String(line.freightCharge || 0), itemId: line.itemId ? String(line.itemId) : "", description: String(line.description ?? ""), quantity: String(line.quantity), unitPrice: String(line.unitPrice), unitCost: String(line.unitCost), vatCode: String(line.vatCode), vatRate: String(line.vatRate) })));
       setDetail(null);
       setDialogOpen(true);
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not load purchase"); }
@@ -1665,11 +1663,15 @@ function CurrencyExchangeChoice({ form, setForm, exchangeRates, baseCurrency }: 
 function BillFields({ form, setForm, items, vendors, salesmen, accounts, locations, lines, setLines, vatCodeOptions, exchangeRates, baseCurrency }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; items: DataRecord[]; vendors: DataRecord[]; salesmen: DataRecord[]; accounts: DataRecord[]; locations: InventoryLocation[]; lines: LineForm[]; setLines: (lines: LineForm[]) => void; vatCodeOptions: VatCodeOption[]; exchangeRates: ExchangeRateRecord[]; baseCurrency: string }) {
   const update = (index: number, changes: Partial<LineForm>) => setLines(lines.map((line, position) => position === index ? { ...line, ...changes } : line));
   const documentRate = Math.max(Number(form.exchangeRate) || 1, Number.EPSILON);
-  const subtotal = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0), 0);
-  const vat = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0) * Number(line.vatRate || 0) / 100, 0);
-  const freightCharges = Math.max(0, Number(form.freightCharges || 0));
+  const subtotal = lines.reduce((sum, line) => sum + Math.round(Number(line.quantity || 0) * Number(line.unitPrice || 0) * 100) / 100, 0);
+  const vat = lines.reduce((sum, line) => sum + Math.round(Math.round(Number(line.quantity || 0) * Number(line.unitPrice || 0) * 100) / 100 * Number(line.vatRate || 0)) / 100, 0);
+  const lineFreight = (line: LineForm) => Math.round(Number(line.freightCharge || 0) * 100) / 100;
+  const freightCharges = lines.reduce((sum, line) => sum + lineFreight(line), 0);
+  const legacyFreight = lines.filter(line => !line.itemId && /^freight charges?$/i.test(line.description.trim())).reduce((sum, line) => sum + Math.round(Number(line.quantity || 0) * Number(line.unitPrice || 0) * 100) / 100, 0);
   const totalQuantity = lines.reduce((sum, line) => sum + Number(line.quantity || 0), 0);
-  const freightVat = freightCharges * (form.isImport === "true" ? 0.05 : 0);
+  const freightByTax = new Map<string, { amount: number; rate: number }>();
+  lines.forEach(line => { const old = freightByTax.get(line.vatCode); freightByTax.set(line.vatCode, { amount: (old?.amount || 0) + lineFreight(line), rate: Number(line.vatRate || 0) }); });
+  const freightVat = [...freightByTax.values()].reduce((sum, group) => sum + Math.round(group.amount * group.rate) / 100, 0);
   const totalVat = vat + freightVat;
   const total = subtotal + freightCharges + totalVat;
   const purchaseAccounts = accounts.filter((account) => account.active && ["PURCHASES", "EXPENSE", "COGS"].includes(String(account.systemRole)));
@@ -1688,26 +1690,27 @@ function BillFields({ form, setForm, items, vendors, salesmen, accounts, locatio
       <div className="space-y-2"><Label>Purchase account *</Label><Select value={form.account} onValueChange={(account) => setForm({ ...form, account })}><SelectTrigger className="w-full"><SelectValue placeholder="Select linked account" /></SelectTrigger><SelectContent>{purchaseAccounts.map((account) => <SelectItem key={account.id} value={String(account.name)}>{String(account.name)}</SelectItem>)}</SelectContent></Select></div>
     </div>
     <div className="overflow-hidden rounded-xl border bg-white">
-      <div className="hidden grid-cols-[minmax(260px,1fr)_90px_130px_130px_170px_48px] gap-2 border-b bg-slate-100 px-3 py-3 text-sm font-bold text-slate-700 md:grid"><span>Description</span><span>QTY</span><span>Rate</span><span>Subtotal</span><span>VAT code</span><span /></div>
+      <div className="hidden grid-cols-[minmax(200px,1fr)_70px_100px_100px_110px_150px_40px] gap-2 border-b bg-slate-100 px-3 py-3 text-sm font-bold text-slate-700 xl:grid"><span>Description</span><span>QTY</span><span>Rate</span><span>Subtotal</span><span>Freight</span><span>VAT code</span><span /></div>
       <div className="divide-y">{lines.map((line, index) => {
         const lineSubtotal = Number(line.quantity || 0) * Number(line.unitPrice || 0);
         const selectedItem = items.find((entry) => String(entry.id) === line.itemId);
-        return <div key={index} className="grid gap-2 p-3 md:grid-cols-[minmax(260px,1fr)_90px_130px_130px_170px_48px]">
-          <div className="space-y-2"><Label className="md:hidden">Description</Label><Select value={line.itemId || "custom"} onValueChange={(value) => { const item = items.find((entry) => String(entry.id) === value); const lastHomePrice = Number(item?.lastPurchasePrice ?? item?.cost ?? 0); const documentPrice = lastHomePrice / documentRate; update(index, value === "custom" ? { itemId: "", description: "" } : { itemId: value, description: item ? itemDisplayDescription(item) || String(item.name) : "", unitPrice: String(Number(documentPrice.toFixed(2))), unitCost: String(lastHomePrice) }); }}><SelectTrigger className="w-full"><SelectValue placeholder="Select item" /></SelectTrigger><SelectContent><SelectItem value="custom">Custom description</SelectItem>{items.map((item) => <SelectItem key={item.id} value={String(item.id)}>{String(item.sku)} · {String(item.name)} · Last {baseCurrency} {Number(item.lastPurchasePrice ?? item.cost ?? 0).toFixed(2)}</SelectItem>)}</SelectContent></Select>{selectedItem && <p className="text-xs font-medium text-sky-700">Last purchase cost (home currency): {formatMoney(selectedItem.lastPurchasePrice ?? selectedItem.cost, baseCurrency)}</p>}{!line.itemId && <Input placeholder="Enter description" required value={line.description} onChange={(event) => update(index, { description: event.target.value })} />}</div>
-          <div className="space-y-2"><Label className="md:hidden">QTY</Label><Input aria-label="Quantity" type="number" min="0.01" step="0.01" value={line.quantity} onChange={(event) => update(index, { quantity: event.target.value })} /></div>
-          <div className="space-y-2"><Label className="md:hidden">Rate</Label><Input aria-label="Rate" type="number" min="0" step="0.01" value={line.unitPrice} onChange={(event) => update(index, { unitPrice: event.target.value, unitCost: event.target.value })} /></div>
-          <div className="space-y-2"><Label className="md:hidden">Subtotal</Label><Input aria-label="Subtotal" readOnly value={lineSubtotal.toFixed(2)} className="bg-slate-50 font-semibold" /></div>
-          <div className="space-y-2"><Label className="md:hidden">VAT code</Label><Select value={line.vatCode} onValueChange={(vatCode) => update(index, { vatCode, vatRate: vatRateForCode(vatCode, vatCodeOptions) })}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{vatCodeOptions.map((option) => <SelectItem key={option.code} value={option.code}><span className="flex flex-col"><span>{option.label}</span>{option.description ? <span className="text-xs text-slate-500">{option.description}</span> : null}</span></SelectItem>)}</SelectContent></Select></div>
+        return <div key={index} className="grid gap-2 p-3 xl:grid-cols-[minmax(200px,1fr)_70px_100px_100px_110px_150px_40px]">
+          <div className="space-y-2"><Label className="xl:hidden">Description</Label><Select value={line.itemId || "custom"} onValueChange={(value) => { const item = items.find((entry) => String(entry.id) === value); const lastHomePrice = Number(item?.lastPurchasePrice ?? item?.cost ?? 0); const documentPrice = lastHomePrice / documentRate; update(index, value === "custom" ? { itemId: "", description: "" } : { itemId: value, description: item ? itemDisplayDescription(item) || String(item.name) : "", unitPrice: String(Number(documentPrice.toFixed(2))), unitCost: String(lastHomePrice) }); }}><SelectTrigger className="w-full"><SelectValue placeholder="Select item" /></SelectTrigger><SelectContent><SelectItem value="custom">Custom description</SelectItem>{items.map((item) => <SelectItem key={item.id} value={String(item.id)}>{String(item.sku)} · {String(item.name)} · Last {baseCurrency} {Number(item.lastPurchasePrice ?? item.cost ?? 0).toFixed(2)}</SelectItem>)}</SelectContent></Select>{selectedItem && <p className="text-xs font-medium text-sky-700">Last purchase cost (home currency): {formatMoney(selectedItem.lastPurchasePrice ?? selectedItem.cost, baseCurrency)}</p>}{!line.itemId && <Input placeholder="Enter description" required value={line.description} onChange={(event) => update(index, { description: event.target.value })} />}</div>
+          <div className="space-y-2"><Label className="xl:hidden">QTY</Label><Input aria-label="Quantity" type="number" min="0.01" step="0.01" value={line.quantity} onChange={(event) => update(index, { quantity: event.target.value })} /></div>
+          <div className="space-y-2"><Label className="xl:hidden">Rate</Label><Input aria-label="Rate" type="number" min="0" step="0.01" value={line.unitPrice} onChange={(event) => update(index, { unitPrice: event.target.value, unitCost: event.target.value })} /></div>
+          <div className="space-y-2"><Label className="xl:hidden">Subtotal</Label><Input aria-label="Subtotal" readOnly value={lineSubtotal.toFixed(2)} className="bg-slate-50 font-semibold" /></div>
+          <div className="space-y-2"><Label className="xl:hidden">Freight</Label><Input aria-label={`Freight charges for line ${index + 1}`} type="number" min="0" step="0.01" value={line.freightCharge || "0"} onChange={(event) => update(index, { freightCharge: event.target.value })} /></div>
+          <div className="space-y-2"><Label className="xl:hidden">VAT code</Label><Select value={line.vatCode} onValueChange={(vatCode) => update(index, { vatCode, vatRate: vatRateForCode(vatCode, vatCodeOptions) })}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{vatCodeOptions.map((option) => <SelectItem key={option.code} value={option.code}><span className="flex flex-col"><span>{option.label}</span>{option.description ? <span className="text-xs text-slate-500">{option.description}</span> : null}</span></SelectItem>)}</SelectContent></Select></div>
           <Button type="button" variant="ghost" size="icon" disabled={lines.length === 1} onClick={() => setLines(lines.filter((_, position) => position !== index))} className="text-slate-400 hover:text-rose-600" title="Delete" aria-label="Delete"><Trash2 className="size-4" /></Button>
         </div>;
       })}</div>
-      <div className="flex justify-end border-t bg-slate-50 p-3"><Button type="button" variant="outline" size="sm" onClick={() => setLines([...lines, { itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatCode: form.isImport === "true" ? "STANDARD" : "ZERO", vatRate: form.isImport === "true" ? "5" : "0" }])}><Plus className="size-4" />Add line</Button></div>
+      <div className="flex justify-end border-t bg-slate-50 p-3"><Button type="button" className="brand-primary-button font-semibold" size="sm" onClick={() => setLines([...lines, { itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", freightCharge: "0", vatCode: form.isImport === "true" ? "STANDARD" : "ZERO", vatRate: form.isImport === "true" ? "5" : "0" }])}><Plus className="size-4" />Add line</Button></div>
     </div>
     <div className="grid gap-5 lg:grid-cols-[1fr_420px]">
       <div />
       <div className="space-y-4 rounded-xl border bg-slate-50 p-4">
-        <Field label="Freight Charges" name="freightCharges" type="number" form={form} setForm={setForm} placeholder="0.00" />
-        <div className="space-y-3 text-sm"><div className="flex justify-between"><span className="text-slate-500">Total quantity</span><strong>{totalQuantity.toLocaleString()}</strong></div><div className="flex justify-between"><span className="text-slate-500">Subtotal</span><strong>{formatMoney(subtotal + freightCharges, form.currency)}</strong></div><div className="flex justify-between"><span className="text-slate-500">VAT ({form.isImport === "true" ? "5" : "0"}%)</span><strong>{formatMoney(totalVat, form.currency)}</strong></div><div className="flex justify-between border-t pt-3 text-lg"><span className="font-bold">Total</span><strong>{formatMoney(total, form.currency)}</strong></div></div>
+        <div className="space-y-2"><Label htmlFor="bill-freight-total">Freight Charges ({form.currency})</Label><Input id="bill-freight-total" readOnly value={(freightCharges + legacyFreight).toFixed(2)} className="font-semibold" /><p className="text-xs text-slate-500">Total freight from all lines. Enter the total freight amount for each line, not per unit.{legacyFreight > 0 ? " Includes existing Freight Charges rows." : ""}</p></div>
+        <div className="space-y-3 text-sm"><div className="flex justify-between"><span className="text-slate-500">Total quantity</span><strong>{totalQuantity.toLocaleString()}</strong></div><div className="flex justify-between"><span className="text-slate-500">Subtotal</span><strong>{formatMoney(subtotal + freightCharges, form.currency)}</strong></div><div className="flex justify-between"><span className="text-slate-500">VAT</span><strong>{formatMoney(totalVat, form.currency)}</strong></div><div className="flex justify-between border-t pt-3 text-lg"><span className="font-bold">Total</span><strong>{formatMoney(total, form.currency)}</strong></div></div>
       </div>
     </div>
   </div>;
