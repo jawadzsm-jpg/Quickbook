@@ -1384,3 +1384,54 @@ test('company template settings and two logos persist with company/admin isolati
     globalThis.__transferTestUser={id:1,email:'admin@test',role:'admin',companyIds:[companyId]};assert.equal((await patch({...payload,rightLogoData:''})).status,200);assert.equal((await (await get()).json()).record.rightLogoData,'');
   } finally {delete globalThis.__transferTestUser;}
 });
+
+test('company clearing requires real All-Admin password, isolates companies, preserves audit and rolls back linked data', async () => {
+  const { POST } = await vite.ssrLoadModule('/app/api/company-setup/clear/route.ts');
+  const { hashPassword } = await vite.ssrLoadModule('/lib/password.ts');
+  const password = 'Company-clear-test-123';
+  const hash = await hashPassword(password);
+  const userId = (await database.query("INSERT INTO app_users (email,password_hash,role) VALUES ('clear-test@example.test',$1,'all_admin') RETURNING id", [hash])).rows[0].id;
+  const company = (await database.query("INSERT INTO companies (name,logo_data,right_logo_data,phone) VALUES ('Clear Test','left','right','123') RETURNING id")).rows[0].id;
+  const other = (await database.query("INSERT INTO companies (name,phone) VALUES ('Clear Other','456') RETURNING id")).rows[0].id;
+  const request = (scope, extra = {}) => new Request('http://localhost/api/company-setup/clear', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({companyId:company,scope,password,confirmation:`CLEAR ${scope === 'all' ? 'ALL' : 'SETUP'} Clear Test`,...extra})});
+  const resetBudget = () => database.query('DELETE FROM auth_rate_limits WHERE bucket=$1', [`company-clear:${userId}`]);
+  const tx = async (id,no) => (await database.query("INSERT INTO transactions (company_id,number,type,party,transaction_date) VALUES ($1,$2,'invoice','Customer','2026-09-13') RETURNING id", [id,no])).rows[0].id;
+  const first = await tx(company,'CLEAR-1'); const untouched = await tx(other,'OTHER-1');
+  try {
+    globalThis.__transferTestUser = {id:userId,email:'clear-test@example.test',role:'admin',companyIds:[company]};
+    assert.equal((await POST(request('setup'))).status,403);
+    globalThis.__transferTestUser.role='all_admin';
+    assert.equal((await POST(request('setup',{password:'wrong'}))).status,403);
+    assert.equal((await POST(request('setup',{confirmation:'yes'}))).status,400);
+    assert.equal((await POST(request('bad'))).status,400);
+    assert.equal((await POST(request('setup'))).status,200);
+    assert.equal((await database.query('SELECT logo_data,right_logo_data FROM companies WHERE id=$1',[company])).rows[0].logo_data,'');
+    assert.equal((await database.query('SELECT id FROM transactions WHERE id=$1',[first])).rows.length,1);
+    const loc = async (id,name) => (await database.query('INSERT INTO inventory_locations (company_id,name,code,invoice_prefix) VALUES ($1,$2,$2,$2) RETURNING id',[id,name])).rows[0].id;
+    const source=await loc(company,'CLEAR'),dest=await loc(other,'OTHER');
+    await database.query("INSERT INTO stock_transfers (reference,source_company_id,source_location_id,destination_company_id,destination_location_id,sku,item_name,quantity,transfer_date) VALUES ('CLEAR-X',$1,$2,$3,$4,'ITEM','Item',1,'2026-09-13')",[company,source,other,dest]);
+    assert.equal((await POST(request('all'))).status,409);
+    assert.equal((await database.query('SELECT id FROM transactions WHERE id=$1',[first])).rows.length,1);
+    await database.query("DELETE FROM stock_transfers WHERE reference='CLEAR-X'");
+    await resetBudget();
+    const invoice=await tx(company,'CLEAR-2');
+    await database.query('UPDATE transactions SET sales_source_id=$1 WHERE id=$2',[first,invoice]);
+    await database.query('INSERT INTO invoice_payment_allocations (payment_id,invoice_id,amount) VALUES ($1,$2,10)',[invoice,first]);
+    await database.query("INSERT INTO record_attachments (company_id,entity_type,entity_id,file_name,file_data) VALUES ($1,'transaction',$2,'test','data')",[company,first]);
+    // A restrict reference from another company must abort the whole clear transaction.
+    await database.query('INSERT INTO bill_payment_allocations (payment_id,bill_id,amount) VALUES ($1,$2,10)',[untouched,first]);
+    assert.equal((await POST(request('all'))).status,500);
+    assert.equal((await database.query('SELECT id FROM transactions WHERE company_id=$1',[company])).rows.length,2);
+    assert.equal((await database.query('SELECT id FROM invoice_payment_allocations WHERE payment_id=$1',[invoice])).rows.length,1);
+    await database.query('DELETE FROM bill_payment_allocations WHERE payment_id=$1',[untouched]);
+    assert.equal((await POST(request('all'))).status,200);
+    for (const table of ['transactions','inventory_locations','record_attachments']) assert.equal((await database.query(`SELECT * FROM ${table} WHERE company_id=$1`,[company])).rows.length,0);
+    assert.equal((await database.query('SELECT id FROM transactions WHERE id=$1',[untouched])).rows.length,1);
+    assert.equal((await database.query('SELECT phone FROM companies WHERE id=$1',[other])).rows[0].phone,'456');
+    assert.equal((await database.query('SELECT * FROM audit_log WHERE company_id=$1',[company])).rows.length,2);
+    assert.equal((await database.query('SELECT * FROM app_users WHERE id=$1',[userId])).rows.length,1);
+    await resetBudget();
+    for(let i=0;i<5;i++) assert.equal((await POST(request('setup',{password:'wrong'}))).status,403);
+    assert.equal((await POST(request('setup'))).status,429);
+  } finally { delete globalThis.__transferTestUser; }
+});
