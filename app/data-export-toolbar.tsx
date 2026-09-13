@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { FileSpreadsheet, FileText, Table2 } from "lucide-react";
+import { ChevronDown, Download, FileSpreadsheet, FileText, Table2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 
 type ExportTable = { title: string; headers: string[]; rows: string[][] };
@@ -196,11 +197,17 @@ export function DataExportToolbar() {
     }
   }
 
-  const toolbar = <div className="flex flex-wrap items-center justify-end gap-2 print:hidden" role="group" aria-label="Export current report or transaction table">
-    <span className="px-2 text-xs font-semibold text-muted-foreground">Export</span>
-    <Button type="button" size="sm" variant="outline" className="shadow-sm" onClick={() => run("excel")}><FileSpreadsheet className="size-4" />Excel</Button>
-    <Button type="button" size="sm" variant="outline" className="shadow-sm" onClick={() => run("pdf")}><FileText className="size-4" />PDF</Button>
-    <Button type="button" size="sm" variant="outline" className="shadow-sm" onClick={() => run("csv")}><Table2 className="size-4" />CSV</Button>
+  const toolbar = <div className="flex justify-end print:hidden">
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" size="sm" variant="outline" className="shadow-sm" aria-label="Export current report or transaction table"><Download className="size-4" />Export<ChevronDown className="size-4" /></Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" portalContainer={target} className="print:hidden" onEscapeKeyDown={(event) => event.stopPropagation()}>
+        <DropdownMenuItem onSelect={() => run("excel")}><FileSpreadsheet className="size-4" />Excel</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => run("pdf")}><FileText className="size-4" />PDF</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => run("csv")}><Table2 className="size-4" />CSV</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   </div>;
   // Keep export controls inside the modal's focus and pointer boundary.
   return createPortal(toolbar, target);
