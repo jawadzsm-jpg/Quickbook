@@ -1440,3 +1440,24 @@ test('company clearing requires real All-Admin password, isolates companies, pre
     assert.equal((await POST(request('setup'))).status,429);
   } finally { delete globalThis.__transferTestUser; }
 });
+
+test('shared out-of-stock catalogue crosses assignments but excludes in-stock, inactive and financial data', async () => {
+  const company=(await database.query("INSERT INTO companies (name) VALUES ('Shared catalogue company') RETURNING id")).rows[0].id;
+  const location=(await database.query("INSERT INTO inventory_locations (company_id,name,code,invoice_prefix) VALUES ($1,'Shared store','SHARED','SHARED') RETURNING id",[company])).rows[0].id;
+  const inactive=(await database.query("INSERT INTO inventory_locations (company_id,name,code,invoice_prefix,active) VALUES ($1,'Closed store','CLOSED','CLOSED',false) RETURNING id",[company])).rows[0].id;
+  const ids=[];
+  for (const [sku,quantity,warehouse] of [['SHARED-ZERO',0,location],['SHARED-NEGATIVE',-1,location],['SHARED-POSITIVE',1,location],['SHARED-CLOSED',0,inactive]]) ids.push((await database.query("INSERT INTO items (company_id,location_id,sku,name,quantity,cost,sales_price) VALUES ($1,$2,$3,$3,$4,987,1234) RETURNING id",[company,warehouse,sku,quantity])).rows[0].id);
+  const {GET}=await vite.ssrLoadModule('/app/api/out-of-stock/route.ts');
+  try {
+    globalThis.__transferTestUser={id:1,email:'viewer@test',role:'viewer',companyIds:[]};
+    const response=await GET(new Request('https://app.test/api/out-of-stock'));
+    assert.equal(response.status,200);assert.equal(response.headers.get('cache-control'),'private, no-store');
+    const rows=(await response.json()).records.filter(row=>ids.includes(row.id));
+    assert.deepEqual(rows.map(row=>row.sku).sort(),['SHARED-NEGATIVE','SHARED-ZERO']);
+    for(const row of rows){assert.equal(row.company,'Shared catalogue company');assert.equal(row.inventory,'Shared store');for(const key of ['cost','salesPrice','quantity','lastPurchasePrice','companyId'])assert.equal(key in row,false);}
+    await database.query('UPDATE companies SET active=false WHERE id=$1',[company]);
+    assert.equal((await (await GET(new Request('https://app.test/api/out-of-stock'))).json()).records.some(row=>ids.includes(row.id)),false);
+    globalThis.__transferTestUser=new Response('Unauthorized',{status:401});
+    assert.equal((await GET(new Request('https://app.test/api/out-of-stock'))).status,401);
+  } finally {delete globalThis.__transferTestUser;}
+});

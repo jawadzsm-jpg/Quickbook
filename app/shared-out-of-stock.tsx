@@ -1,0 +1,25 @@
+"use client";
+import { useEffect, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+
+type SharedItem = { id:number; itemNumber:string; sku:string; name:string; description:string; specifications:string; category:string; company:string; inventory:string };
+export function SharedOutOfStock({search,refresh}:{search:string;refresh:number}) {
+ const [state,setState]=useState<{records:SharedItem[];loading:boolean;error:string}>({records:[],loading:true,error:''});
+ useEffect(()=>{
+  const controller=new AbortController();
+  fetch('/api/out-of-stock',{cache:'no-store',signal:controller.signal}).then(async response=>{
+   const data=await response.json();if(!response.ok)throw new Error(data.error||'Could not load items.');
+   if(!controller.signal.aborted)setState({records:data.records,loading:false,error:''});
+  }).catch(error=>{if(!controller.signal.aborted)setState({records:[],loading:false,error:error instanceof Error?error.message:'Could not load items.'});});
+  return ()=>controller.abort();
+ },[refresh]);
+ const rows=state.records.filter(row=>Object.values(row).some(value=>String(value).toLowerCase().includes(search.trim().toLowerCase())));
+ const description=(row:SharedItem)=>{try{const specs=JSON.parse(row.specifications) as {value:string}[];return specs.map(s=>s.value).filter(v=>v&&v.trim().toLowerCase()!=='no').join(' | ')||row.description;}catch{return row.description;}};
+ const exportCsv=()=>{
+  const quote=(value:unknown)=>`"${String(value??'').replaceAll('"','""')}"`;
+  const csv=[['Company','Inventory','Item No.','SKU','Item','Category','Description','Status'],...rows.map(r=>[r.company,r.inventory,r.itemNumber||13000+r.id,r.sku,r.name,r.category,description(r),'Out of stock'])].map(row=>row.map(quote).join(',')).join('\r\n');
+  const url=URL.createObjectURL(new Blob(['\uFEFF',csv],{type:'text/csv;charset=utf-8'}));const link=document.createElement('a');link.href=url;link.download='out-of-stock-all-companies.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ };
+ return <div><div className="flex flex-wrap items-center justify-between gap-3 border-b p-4"><div><h3 className="font-semibold">Out of stock · All companies</h3><p className="text-sm text-muted-foreground">{state.loading?'Loading…':`${rows.length} items`} · Read-only shared catalogue</p></div><Button variant="outline" onClick={exportCsv} disabled={!rows.length}>Export CSV</Button></div>{state.error?<p role="alert" className="p-4 text-red-600">{state.error}</p>:<Table><TableHeader><TableRow>{['Company','Inventory','Item No.','SKU','Item & description','Category','Status'].map(label=><TableHead key={label}>{label}</TableHead>)}</TableRow></TableHeader><TableBody>{rows.length?rows.map(row=><TableRow key={row.id}><TableCell>{row.company}</TableCell><TableCell>{row.inventory}</TableCell><TableCell>{row.itemNumber||13000+row.id}</TableCell><TableCell>{row.sku}</TableCell><TableCell><p className="font-semibold">{row.name}</p><p className="max-w-xl whitespace-normal break-words text-xs text-muted-foreground">{description(row)}</p></TableCell><TableCell>{row.category}</TableCell><TableCell className="text-rose-600">Out of stock</TableCell></TableRow>):<TableRow><TableCell colSpan={7} className="p-8 text-center">{state.loading?'Loading items…':'No out-of-stock items found.'}</TableCell></TableRow>}</TableBody></Table>}</div>;
+}
