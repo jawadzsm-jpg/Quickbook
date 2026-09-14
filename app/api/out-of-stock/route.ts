@@ -18,14 +18,14 @@ export async function GET(request: Request) {
   const records = await getDb().select({
    id: items.id, itemNumber: items.itemNumber, sku: items.sku, name: items.name,
    description: items.description, specifications: items.specifications, category: items.category,
-   companyId: items.companyId, locationId: items.locationId,
+   companyId: items.companyId, locationId: items.locationId, quantity: items.quantity,
   }).from(items)
    .innerJoin(companies, eq(items.companyId, companies.id))
    .innerJoin(inventoryLocations, and(eq(items.locationId, inventoryLocations.id), eq(items.companyId, inventoryLocations.companyId)))
    .where(and(eq(companies.active, true), eq(inventoryLocations.active, true)))
    .orderBy(asc(items.name));
 
-  let shared = records;
+  let shared = records.filter(row => row.quantity <= 0);
   if (hasDestination) {
    const destinationSkus = new Set(
     records
