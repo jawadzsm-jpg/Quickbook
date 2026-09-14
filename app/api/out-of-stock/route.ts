@@ -1,4 +1,4 @@
-import { and, asc, eq, lte } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { companies, inventoryLocations, items } from '@/db/schema';
 import { requireApiUser } from '@/lib/auth';
@@ -6,18 +6,40 @@ import { requireApiUser } from '@/lib/auth';
 export async function GET(request: Request) {
  const user = await requireApiUser(request, 'inventory:read');
  if (user instanceof Response) return user;
- // Shared, read-only catalogue explicitly available across company assignments.
- // Only product identity and availability are shared; no cost or financial fields.
+ // Shared product catalogue across companies. A product created in one company is
+ // offered to other companies as an out-of-stock item that they can reuse.
+ // Source quantity, cost and prices are never exposed here.
  try {
+  const url = new URL(request.url);
+  const selectedCompanyId = Number(url.searchParams.get('companyId'));
+  const selectedLocationId = Number(url.searchParams.get('locationId'));
+  const hasDestination = Number.isInteger(selectedCompanyId) && selectedCompanyId > 0 && Number.isInteger(selectedLocationId) && selectedLocationId > 0;
+
   const records = await getDb().select({
    id: items.id, itemNumber: items.itemNumber, sku: items.sku, name: items.name,
    description: items.description, specifications: items.specifications, category: items.category,
-   company: companies.name, inventory: inventoryLocations.name,
+   companyId: items.companyId, locationId: items.locationId,
   }).from(items)
    .innerJoin(companies, eq(items.companyId, companies.id))
    .innerJoin(inventoryLocations, and(eq(items.locationId, inventoryLocations.id), eq(items.companyId, inventoryLocations.companyId)))
-   .where(and(lte(items.quantity, 0), eq(companies.active, true), eq(inventoryLocations.active, true)))
-   .orderBy(asc(companies.name), asc(inventoryLocations.name), asc(items.name));
-  return Response.json({ records }, { headers: { 'Cache-Control': 'private, no-store' } });
- } catch { return Response.json({ error: 'Could not load out-of-stock items.' }, { status: 500 }); }
+   .where(and(eq(companies.active, true), eq(inventoryLocations.active, true)))
+   .orderBy(asc(items.name));
+
+  let shared = records;
+  if (hasDestination) {
+   const destinationSkus = new Set(
+    records
+     .filter(row => row.companyId === selectedCompanyId && row.locationId === selectedLocationId)
+     .map(row => row.sku.trim().toLowerCase())
+     .filter(Boolean),
+   );
+   shared = records.filter(row =>
+    row.companyId !== selectedCompanyId && !destinationSkus.has(row.sku.trim().toLowerCase()),
+   );
+  }
+
+  return Response.json({
+   records: shared.map(({ companyId: _companyId, locationId: _locationId, ...record }) => record),
+  }, { headers: { 'Cache-Control': 'private, no-store' } });
+ } catch { return Response.json({ error: 'Could not load shared out-of-stock items.' }, { status: 500 }); }
 }
