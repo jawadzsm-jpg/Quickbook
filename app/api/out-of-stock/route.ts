@@ -39,7 +39,15 @@ export async function GET(request: Request) {
   }
 
   return Response.json({
-   records: shared.map(({ companyId: _companyId, locationId: _locationId, ...record }) => record),
+   records: shared.map(row => ({
+    id: row.id,
+    itemNumber: row.itemNumber,
+    sku: row.sku,
+    name: row.name,
+    description: row.description,
+    specifications: row.specifications,
+    category: row.category,
+   })),
   }, { headers: { 'Cache-Control': 'private, no-store' } });
  } catch { return Response.json({ error: 'Could not load shared out-of-stock items.' }, { status: 500 }); }
 }
