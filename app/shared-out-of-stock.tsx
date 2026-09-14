@@ -20,7 +20,8 @@ export function SharedOutOfStock({search,refresh,companyId,locationId,canUse,onU
   setBusy(sourceId);
   try{const response=await fetch('/api/shared-items',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sourceId,companyId,locationId})});const data=await response.json();if(!response.ok)throw new Error(data.error||'Could not add item.');toast.success(data.existing?'This item already exists in the selected inventory.':'Item added with the same Item No. and SKU, and zero stock and prices.');onUsed();}catch(error){toast.error(error instanceof Error?error.message:'Could not add item.');}finally{setBusy(null);}
  };
- const rows=state.records.filter(row=>Object.values(row).some(value=>String(value).toLowerCase().includes(search.trim().toLowerCase())));
+ const filteredRows=state.records.filter(row=>Object.values(row).some(value=>String(value).toLowerCase().includes(search.trim().toLowerCase())));
+ const rows=Array.from(new Map(filteredRows.map(row=>[(row.sku||`id-${row.id}`).trim().toLowerCase(),row])).values());
  const description=(row:SharedItem)=>{try{const specs=JSON.parse(row.specifications) as {value:string}[];return specs.map(s=>s.value).filter(v=>v&&v.trim().toLowerCase()!=='no').join(' | ')||row.description;}catch{return row.description;}};
  const exportCsv=()=>{
   const quote=(value:unknown)=>`"${String(value??'').replaceAll('"','""')}"`;
