@@ -4,17 +4,21 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
-type SharedItem = { id:number; itemNumber:string; sku:string; name:string; description:string; specifications:string; category:string; company:string; inventory:string };
+type SharedItem = { id:number; itemNumber:string; sku:string; name:string; description:string; specifications:string; category:string };
 export function SharedOutOfStock({search,refresh,companyId,locationId,canUse,onUsed}:{search:string;refresh:number;companyId?:number;locationId?:number;canUse:boolean;onUsed:()=>void}) {
  const [state,setState]=useState<{records:SharedItem[];loading:boolean;error:string}>({records:[],loading:true,error:''});
  useEffect(()=>{
   const controller=new AbortController();
-  fetch('/api/out-of-stock',{cache:'no-store',signal:controller.signal}).then(async response=>{
+  const params=new URLSearchParams();
+  if(companyId)params.set('companyId',String(companyId));
+  if(locationId)params.set('locationId',String(locationId));
+  const suffix=params.toString()?`?${params.toString()}`:'';
+  fetch(`/api/out-of-stock${suffix}`,{cache:'no-store',signal:controller.signal}).then(async response=>{
    const data=await response.json();if(!response.ok)throw new Error(data.error||'Could not load items.');
    if(!controller.signal.aborted)setState({records:data.records,loading:false,error:''});
   }).catch(error=>{if(!controller.signal.aborted)setState({records:[],loading:false,error:error instanceof Error?error.message:'Could not load items.'});});
   return ()=>controller.abort();
- },[refresh]);
+ },[refresh,companyId,locationId]);
  const [busy,setBusy]=useState<number|null>(null);
  const addItem=async(sourceId:number)=>{
   setBusy(sourceId);
@@ -28,5 +32,5 @@ export function SharedOutOfStock({search,refresh,companyId,locationId,canUse,onU
   const csv=[['Item No.','SKU','Item','Category','Description','Status'],...rows.map(r=>[r.itemNumber||13000+r.id,r.sku,r.name,r.category,description(r),'Out of stock'])].map(row=>row.map(quote).join(',')).join('\r\n');
   const url=URL.createObjectURL(new Blob(['\uFEFF',csv],{type:'text/csv;charset=utf-8'}));const link=document.createElement('a');link.href=url;link.download='out-of-stock-all-companies.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
  };
- return <div><div className="flex flex-wrap items-center justify-between gap-3 border-b p-4"><div><h3 className="font-semibold">Out of stock · All companies</h3><p className="text-sm text-muted-foreground">{state.loading?'Loading…':`${rows.length} items`} · {canUse?"Use items in your selected inventory":"Shared catalogue"}</p></div><Button variant="outline" onClick={exportCsv} disabled={!rows.length}>Export CSV</Button></div>{state.error?<p role="alert" className="p-4 text-red-600">{state.error}</p>:<Table><TableHeader><TableRow>{['Item No.','SKU','Item & description','Category','Status',...(canUse?['Actions']:[])].map(label=><TableHead key={label}>{label}</TableHead>)}</TableRow></TableHeader><TableBody>{rows.length?rows.map(row=><TableRow key={row.id}><TableCell>{row.itemNumber||13000+row.id}</TableCell><TableCell>{row.sku}</TableCell><TableCell><p className="font-semibold">{row.name}</p><p className="max-w-xl whitespace-normal break-words text-xs text-muted-foreground">{description(row)}</p></TableCell><TableCell>{row.category}</TableCell><TableCell className="text-rose-600">Out of stock</TableCell>{canUse&&<TableCell><Button type="button" variant="outline" disabled={busy!==null||!companyId||!locationId} onClick={()=>void addItem(row.id)}>{busy===row.id?"Adding…":"Use in selected inventory"}</Button></TableCell>}</TableRow>):<TableRow><TableCell colSpan={canUse?6:5} className="p-8 text-center">{state.loading?'Loading items…':'No out-of-stock items found.'}</TableCell></TableRow>}</TableBody></Table>}</div>;
+ return <div><div className="flex flex-wrap items-center justify-between gap-3 border-b p-4"><div><h3 className="font-semibold">Out of stock · All companies</h3><p className="text-sm text-muted-foreground">{state.loading?'Loading…':`${rows.length} items`} · {canUse?"Use items in your selected inventory":"Shared catalogue"}</p></div><Button variant="outline" onClick={exportCsv} disabled={!rows.length}>Export CSV</Button></div>{state.error?<p role="alert" className="p-4 text-red-600">{state.error}</p>:<Table><TableHeader><TableRow>{['Item No.','SKU','Item & description','Category','Status',...(canUse?['Actions']:[])].map(label=><TableHead key={label}>{label}</TableHead>)}</TableRow></TableHeader><TableBody>{rows.length?rows.map(row=><TableRow key={row.id}><TableCell>{row.itemNumber||13000+row.id}</TableCell><TableCell>{row.sku}</TableCell><TableCell><p className="font-semibold">{row.name}</p><p className="max-w-xl whitespace-normal break-words text-xs text-muted-foreground">{description(row)}</p></TableCell><TableCell>{row.category}</TableCell><TableCell className="text-rose-600">Out of stock</TableCell>{canUse&&<TableCell><Button type="button" variant="outline" disabled={busy!==null||!companyId||!locationId} onClick={()=>void addItem(row.id)}>{busy===row.id?"Adding…":"Use in selected inventory"}</Button></TableCell>}</TableRow>):<TableRow><TableCell colSpan={canUse?6:5} className="p-8 text-center">{state.loading?'Loading items…':'No shared items available for this inventory.'}</TableCell></TableRow>}</TableBody></Table>}</div>;
 }
