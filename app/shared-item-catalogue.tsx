@@ -25,7 +25,10 @@ export function SharedItemCatalogue({search,refresh,companyId,locationId,canUse,
   setBusy(sourceId);
   try{const response=await fetch('/api/shared-items',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sourceId,companyId,locationId})});const data=await response.json();if(!response.ok)throw new Error(data.error||'Could not add item.');toast.success(data.existing?'This item already exists in the selected inventory.':'Item added with the same Item No. and SKU, and zero stock and prices.');onUsed();}catch(error){toast.error(error instanceof Error?error.message:'Could not add item.');}finally{setBusy(null);}
  };
- const rows=useMemo(()=>state.records.filter(row=>[search,localSearch].every(term=>!term.trim()||Object.values(row).some(value=>String(value).toLowerCase().includes(term.trim().toLowerCase())))),[state.records,search,localSearch]);
+ const rows=useMemo(()=>{
+  const filtered=state.records.filter(row=>[search,localSearch].every(term=>!term.trim()||Object.values(row).some(value=>String(value).toLowerCase().includes(term.trim().toLowerCase()))));
+  return Array.from(new Map(filtered.map(row=>[((row.sku||'').trim().toLowerCase()||`id-${row.id}`),row])).values());
+ },[state.records,search,localSearch]);
  const totalPages=Math.max(1,Math.ceil(rows.length/PAGE_SIZE));
  const currentPage=Math.min(page,totalPages);
  const pagedRows=rows.slice((currentPage-1)*PAGE_SIZE,currentPage*PAGE_SIZE);
