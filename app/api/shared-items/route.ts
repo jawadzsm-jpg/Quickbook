@@ -9,17 +9,49 @@ export async function GET(request: Request) {
  // Shared, read-only catalogue explicitly available across company assignments.
  // Values in this catalogue are placeholders, never source stock or prices.
  try {
-  const records = await getDb().select({
+  const url = new URL(request.url);
+  const selectedCompanyId = Number(url.searchParams.get('companyId'));
+  const hasSelectedCompany = Number.isInteger(selectedCompanyId) && selectedCompanyId > 0;
+  const db = getDb();
+  const records = await db.select({
    id: items.id, itemNumber: items.itemNumber, sku: items.sku, name: items.name,
    description: items.description, specifications: items.specifications, category: items.category,
-   company: companies.name, inventory: inventoryLocations.name,
+   companyId: items.companyId, company: companies.name, inventory: inventoryLocations.name,
    quantity: sql<number>`0`, cost: sql<number>`0`, salesPrice: sql<number>`0`, grnPrice: sql<number>`0`,
   }).from(items)
    .innerJoin(companies, eq(items.companyId, companies.id))
    .innerJoin(inventoryLocations, and(eq(items.locationId, inventoryLocations.id), eq(items.companyId, inventoryLocations.companyId)))
    .where(and(eq(companies.active, true), eq(inventoryLocations.active, true)))
    .orderBy(asc(companies.name), asc(inventoryLocations.name), asc(items.name));
-  return Response.json({ records }, { headers: { 'Cache-Control': 'private, no-store' } });
+
+  let visible = records;
+  if (hasSelectedCompany) {
+   const companySkus = new Set(
+    records
+     .filter(row => row.companyId === selectedCompanyId)
+     .map(row => row.sku.trim().toLowerCase())
+     .filter(Boolean),
+   );
+   visible = records.filter(row => row.companyId !== selectedCompanyId && !companySkus.has(row.sku.trim().toLowerCase()));
+  }
+
+  return Response.json({
+   records: visible.map(row => ({
+    id: row.id,
+    itemNumber: row.itemNumber,
+    sku: row.sku,
+    name: row.name,
+    description: row.description,
+    specifications: row.specifications,
+    category: row.category,
+    company: row.company,
+    inventory: row.inventory,
+    quantity: row.quantity,
+    cost: row.cost,
+    salesPrice: row.salesPrice,
+    grnPrice: row.grnPrice,
+   })),
+  }, { headers: { 'Cache-Control': 'private, no-store' } });
  } catch { return Response.json({ error: 'Could not load shared items.' }, { status: 500 }); }
 }
 
