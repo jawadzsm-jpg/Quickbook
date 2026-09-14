@@ -19,6 +19,7 @@ export async function GET(request: Request) {
    id: items.id, itemNumber: items.itemNumber, sku: items.sku, name: items.name,
    description: items.description, specifications: items.specifications, category: items.category,
    companyId: items.companyId, locationId: items.locationId, quantity: items.quantity,
+   company: companies.name, inventory: inventoryLocations.name,
   }).from(items)
    .innerJoin(companies, eq(items.companyId, companies.id))
    .innerJoin(inventoryLocations, and(eq(items.locationId, inventoryLocations.id), eq(items.companyId, inventoryLocations.companyId)))
@@ -47,6 +48,8 @@ export async function GET(request: Request) {
     description: row.description,
     specifications: row.specifications,
     category: row.category,
+    company: row.company,
+    inventory: row.inventory,
    })),
   }, { headers: { 'Cache-Control': 'private, no-store' } });
  } catch { return Response.json({ error: 'Could not load shared out-of-stock items.' }, { status: 500 }); }
