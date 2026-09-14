@@ -14,12 +14,15 @@ export function SharedItemCatalogue({search,refresh,companyId,locationId,canUse,
  const [page,setPage]=useState(1);
  useEffect(()=>{
   const controller=new AbortController();
-  fetch('/api/shared-items',{cache:'no-store',signal:controller.signal}).then(async response=>{
+  const params=new URLSearchParams();
+  if(companyId)params.set('companyId',String(companyId));
+  const suffix=params.toString()?`?${params.toString()}`:'';
+  fetch(`/api/shared-items${suffix}`,{cache:'no-store',signal:controller.signal}).then(async response=>{
    const data=await response.json();if(!response.ok)throw new Error(data.error||'Could not load items.');
    if(!controller.signal.aborted)setState({records:data.records,loading:false,error:''});
   }).catch(error=>{if(!controller.signal.aborted)setState({records:[],loading:false,error:error instanceof Error?error.message:'Could not load items.'});});
   return ()=>controller.abort();
- },[refresh]);
+ },[refresh,companyId]);
  const [busy,setBusy]=useState<number|null>(null);
  const addItem=async(sourceId:number)=>{
   setBusy(sourceId);
