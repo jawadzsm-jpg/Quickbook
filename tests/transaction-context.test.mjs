@@ -1390,7 +1390,7 @@ test('company template settings and two logos persist with company/admin isolati
   } finally {delete globalThis.__transferTestUser;}
 });
 
-test('company clearing requires real All-Admin password, isolates companies, preserves audit and rolls back linked data', async () => {
+test('company clearing requires administrator password and company access, preserves audit and rolls back linked data', async () => {
   const { POST } = await vite.ssrLoadModule('/app/api/company-setup/clear/route.ts');
   const { hashPassword } = await vite.ssrLoadModule('/lib/password.ts');
   const password = 'Company-clear-test-123';
@@ -1403,7 +1403,7 @@ test('company clearing requires real All-Admin password, isolates companies, pre
   const tx = async (id,no) => (await database.query("INSERT INTO transactions (company_id,number,type,party,transaction_date) VALUES ($1,$2,'invoice','Customer','2026-09-13') RETURNING id", [id,no])).rows[0].id;
   const first = await tx(company,'CLEAR-1'); const untouched = await tx(other,'OTHER-1');
   try {
-    globalThis.__transferTestUser = {id:userId,email:'clear-test@example.test',role:'admin',companyIds:[company]};
+    globalThis.__transferTestUser = {id:userId,email:'clear-test@example.test',role:'admin',companyIds:[]};
     assert.equal((await POST(request('setup'))).status,403);
     globalThis.__transferTestUser.role='all_admin';
     assert.equal((await POST(request('setup',{password:'wrong'}))).status,403);
@@ -1438,6 +1438,11 @@ test('company clearing requires real All-Admin password, isolates companies, pre
     await resetBudget();
     for(let i=0;i<5;i++) assert.equal((await POST(request('setup',{password:'wrong'}))).status,403);
     assert.equal((await POST(request('setup'))).status,429);
+    await resetBudget();
+    await database.query("UPDATE app_users SET role='admin' WHERE id=$1",[userId]);
+    globalThis.__transferTestUser.role='admin';
+    globalThis.__transferTestUser.companyIds=[company];
+    assert.equal((await POST(request('setup'))).status,200);
   } finally { delete globalThis.__transferTestUser; }
 });
 
