@@ -6,7 +6,7 @@ import { requireApiUser, canAccessCompany, hasPermission } from '@/lib/auth';
 export async function GET(request: Request) {
  const user = await requireApiUser(request, 'inventory:read');
  if (user instanceof Response) return user;
- // Shared, read-only catalogue explicitly available across company assignments.
+ // Only out-of-stock product identities may cross company assignments.
  // Values in this catalogue are placeholders, never source stock or prices.
  try {
   const url = new URL(request.url);
@@ -16,7 +16,7 @@ export async function GET(request: Request) {
   const records = await db.select({
    id: items.id, itemNumber: items.itemNumber, sku: items.sku, name: items.name,
    description: items.description, specifications: items.specifications, category: items.category,
-   companyId: items.companyId, company: companies.name, inventory: inventoryLocations.name,
+   sourceQuantity: items.quantity, companyId: items.companyId, company: companies.name, inventory: inventoryLocations.name,
    quantity: sql<number>`0`, cost: sql<number>`0`, salesPrice: sql<number>`0`, grnPrice: sql<number>`0`,
   }).from(items)
    .innerJoin(companies, eq(items.companyId, companies.id))
@@ -24,7 +24,7 @@ export async function GET(request: Request) {
    .where(and(eq(companies.active, true), eq(inventoryLocations.active, true)))
    .orderBy(asc(companies.name), asc(inventoryLocations.name), asc(items.name));
 
-  let visible = records;
+  let visible = records.filter(row => row.sourceQuantity <= 0);
   if (hasSelectedCompany) {
    const companySkus = new Set(
     records
@@ -32,7 +32,7 @@ export async function GET(request: Request) {
      .map(row => row.sku.trim().toLowerCase())
      .filter(Boolean),
    );
-   visible = records.filter(row => row.companyId !== selectedCompanyId && !companySkus.has(row.sku.trim().toLowerCase()));
+   visible = visible.filter(row => row.companyId !== selectedCompanyId && !companySkus.has(row.sku.trim().toLowerCase()));
   }
 
   return Response.json({
@@ -68,9 +68,10 @@ export async function POST(request: Request) {
    const db=getDb();
    const [destination]=await db.select({id:inventoryLocations.id}).from(inventoryLocations).innerJoin(companies,eq(inventoryLocations.companyId,companies.id)).where(and(eq(inventoryLocations.id,locationId),eq(companies.id,companyId),eq(companies.active,true),eq(inventoryLocations.active,true))).limit(1);
    if(!destination)throw Response.json({error:'Select an active inventory in the destination company.'},{status:400});
-   const [entry]=await db.select({item:items}).from(items).innerJoin(companies,eq(items.companyId,companies.id)).innerJoin(inventoryLocations,and(eq(items.locationId,inventoryLocations.id),eq(items.companyId,inventoryLocations.companyId))).where(and(eq(items.id,sourceId),eq(companies.active,true),eq(inventoryLocations.active,true))).limit(1);
+   const [entry]=await db.select({item:items}).from(items).innerJoin(companies,eq(items.companyId,companies.id)).innerJoin(inventoryLocations,and(eq(items.locationId,inventoryLocations.id),eq(items.companyId,inventoryLocations.companyId))).where(and(eq(items.id,sourceId),eq(companies.active,true),eq(inventoryLocations.active,true))).limit(1).for('update', { of: items });
    if(!entry)throw Response.json({error:'Shared item is no longer available.'},{status:404});
    const source=entry.item;
+   if(source.quantity > 0)throw Response.json({error:'Shared item is no longer available.'},{status:404});
    const itemNumber=source.itemNumber||String(13000+source.id);
    const [created]=await db.insert(items).values({
     companyId,locationId,itemNumber,sku:source.sku,name:source.name,category:source.category,

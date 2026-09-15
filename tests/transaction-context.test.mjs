@@ -1477,17 +1477,29 @@ test('shared catalogue exposes zero values and reuses identifiers without source
  const post=body=>POST(new Request('https://app.test/api/shared-items',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}));
  try {
   globalThis.__transferTestUser={id:1,email:'target@test',role:'admin',companyIds:[targetCompany]};
+  const {GET:outOfStock}=await vite.ssrLoadModule('/app/api/out-of-stock/route.ts');
+  const payload={sourceId,companyId:targetCompany,locationId:targetLocation,quantity:999,cost:999};
+  for(const url of ['https://app.test/api/shared-items',`https://app.test/api/shared-items?companyId=${targetCompany}`])assert.equal((await (await GET(new Request(url))).json()).records.some(row=>row.id===sourceId),false);
+  for(const suffix of ['',`?companyId=${targetCompany}&locationId=${targetLocation}`])assert.equal((await (await outOfStock(new Request(`https://app.test/api/out-of-stock${suffix}`))).json()).records.some(row=>row.id===sourceId),false);
+  assert.equal((await post(payload)).status,404);
+  assert.equal((await database.query('SELECT id FROM items WHERE company_id=$1',[targetCompany])).rows.length,0);
+  await database.query('UPDATE items SET quantity=0 WHERE id=$1',[sourceId]);
+  assert.equal((await (await outOfStock(new Request(`https://app.test/api/out-of-stock?companyId=${targetCompany}&locationId=${targetLocation}`))).json()).records.some(row=>row.id===sourceId),true);
   const rows=(await (await GET(new Request('https://app.test/api/shared-items'))).json()).records;
   const shared=rows.find(row=>row.id===sourceId);assert(shared);for(const key of ['quantity','cost','salesPrice','grnPrice'])assert.equal(shared[key],0);assert.equal('lastPurchasePrice' in shared,false);
-  const payload={sourceId,companyId:targetCompany,locationId:targetLocation,quantity:999,cost:999};
   const response=await post(payload);assert.equal(response.status,201,JSON.stringify(await response.clone().json()));const created=(await response.json()).record;
   const saved=(await database.query('SELECT * FROM items WHERE id=$1',[created.id])).rows[0];assert.equal(saved.sku,'SHARED-SKU');assert.equal(saved.item_number,'SHARED-130');for(const key of ['quantity','cost','sales_price','grn_price','last_purchase_price'])assert.equal(saved[key],0);
   await database.query('UPDATE items SET quantity=3,cost=50 WHERE id=$1',[created.id]);
+  // Destination SKU suppression still includes its private in-stock items.
+  assert.equal((await (await GET(new Request(`https://app.test/api/shared-items?companyId=${targetCompany}`))).json()).records.some(row=>row.id===sourceId),false);
+  await database.query('UPDATE items SET quantity=15 WHERE id=$1',[sourceId]);
+  assert.equal((await post(payload)).status,404); // stale listing cannot reuse restocked source
+  await database.query('UPDATE items SET quantity=0 WHERE id=$1',[sourceId]);
   const again=await post(payload);assert.equal(again.status,200);assert.equal((await again.json()).record.id,created.id);assert.equal((await database.query('SELECT quantity FROM items WHERE id=$1',[created.id])).rows[0].quantity,3);
   assert.equal((await post({...payload,companyId:sourceCompany,locationId:sourceLocation})).status,403);
   assert.equal((await post({...payload,locationId:sourceLocation})).status,400);
   await database.query("UPDATE items SET item_number='OTHER' WHERE id=$1",[created.id]);assert.equal((await post(payload)).status,409);
   globalThis.__transferTestUser={id:1,email:'viewer@test',role:'viewer',companyIds:[targetCompany]};assert.equal((await post(payload)).status,403);
-  const source=(await database.query('SELECT quantity,cost,sales_price,grn_price FROM items WHERE id=$1',[sourceId])).rows[0];assert.deepEqual(source,{quantity:15,cost:900,sales_price:1200,grn_price:950});
+  const source=(await database.query('SELECT quantity,cost,sales_price,grn_price FROM items WHERE id=$1',[sourceId])).rows[0];assert.deepEqual(source,{quantity:0,cost:900,sales_price:1200,grn_price:950});
  }finally{delete globalThis.__transferTestUser;}
 });
