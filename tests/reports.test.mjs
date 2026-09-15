@@ -392,3 +392,64 @@ test('shared report dates filter activity, preserve ledger opening and as-of bal
   assert.equal((await report('sales-by-customer','2026-02-30','2026-09-30')).status,400);
   assert.equal((await report('sales-by-customer','2026-10-01','2026-09-30')).status,400);
 });
+
+test('all 14 financial reports reconcile posted accounts, settlements, dates and company links', async () => {
+ const c=(await (await workspaces.POST(post({type:'company',name:'Financial audit',baseCurrency:'AED'}))).json()).company;
+ const cid=c.id,loc=c.locations[0].id;
+ const addAccount=async(code,name,type,currency='AED')=>(await db.insert(schema.accounts).values({companyId:cid,code,name,type,currency}).returning())[0];
+ const bank=await addAccount('B1','Audit Bank','Bank'),bank2=await addAccount('B2','Audit Bank 2','Bank');
+ const ar=await addAccount('R1','Audit Receivable','Accounts Receivable','USD'),ap=await addAccount('P1','Audit Payable','Accounts Payable','USD');
+ const revenue=await addAccount('I1','Audit Income','Income'),cost=await addAccount('E1','Audit Cost','Cost of Goods Sold'),asset=await addAccount('A1','Audit Equipment','Fixed Asset'),equity=await addAccount('Q1','Audit Equity','Equity');
+ const entry=async(date,transactionId,lines,posted=true,location=loc)=>{
+  const [j]=await db.insert(schema.journalEntries).values({companyId:cid,locationId:location,entryDate:date,transactionId,reference:`AUD-${date}-${transactionId||lines[0][0].id}`,posted}).returning();
+  await db.insert(schema.journalLines).values(lines.map(([a,debit,credit])=>({journalEntryId:j.id,accountName:a.name,debit,credit})));
+ };
+ const doc=async(number,type,total,rate,date='2026-01-05',extra={})=>(await db.insert(schema.transactions).values({companyId:cid,locationId:loc,number,type,party:'Audit Party',currency:'USD',exchangeRate:rate,total,subtotal:total,baseTotal:total*rate,transactionDate:date,dueDate:'2026-02-01',...extra}).returning())[0];
+ await entry('2025-01-01',null,[[bank,1000,0],[equity,0,1000]]);
+ const invoice=await doc('AUD-INV','invoice',100,3);
+ await entry(invoice.transactionDate,invoice.id,[[ar,300,0],[revenue,0,300]]);
+ const bill=await doc('AUD-BILL','bill',100,3);
+ await entry(bill.transactionDate,bill.id,[[cost,300,0],[ap,0,300]]);
+ const payment=await doc('AUD-PAY','customer payment',40,4,'2026-01-06',{status:'paid'});
+ await entry(payment.transactionDate,payment.id,[[bank,160,0],[ar,0,160]]);
+ await db.insert(schema.invoicePaymentAllocations).values({paymentId:payment.id,invoiceId:invoice.id,amount:40});
+ const cheque=await doc('AUD-CHQ','cheque',20,4,'2026-01-07',{billId:bill.id,status:'paid'});
+ await entry(cheque.transactionDate,cheque.id,[[ap,80,0],[bank,0,80]]);
+ // A payment posted after the cutoff must not reduce the historical open amount.
+ const future=await doc('AUD-FUTURE','customer payment',10,3,'2027-01-01');
+ await entry(future.transactionDate,future.id,[[bank,30,0],[ar,0,30]]);
+ await db.insert(schema.invoicePaymentAllocations).values({paymentId:future.id,invoiceId:invoice.id,amount:10});
+ // Credits reverse P&L and remain separate unapplied credit positions.
+ const credit=await doc('AUD-CREDIT','credit memo',10,3,'2026-01-08');
+ await entry(credit.transactionDate,credit.id,[[revenue,30,0],[ar,0,30]]);
+ await entry('2026-01-09',null,[[asset,200,0],[bank,0,200]]);
+ await entry('2026-01-10',null,[[bank2,100,0],[bank,0,100]]);
+ await entry('2026-01-11',null,[[bank,50,0],[revenue,0,50]]);
+ await entry('2026-01-11',null,[[bank,9999,0],[revenue,0,9999]],false);
+ await db.insert(schema.exchangeRates).values({companyId:cid,currencyCode:'USD',name:'Dollar',rate:5});
+ const get=async(type,extra='')=>{const response=await GET(new Request(`https://app.test/api/reports?type=${type}&companyId=${cid}&locationId=${loc}&periodStart=2026-01-01&periodEnd=2026-01-31${extra}`));assert.equal(response.status,200);return(await response.json()).report;};
+ const {financialKeys}=await vite.ssrLoadModule('/lib/financial-reports.ts');assert.equal(financialKeys.length,14);
+ for(const key of financialKeys){const r=await get(key);assert.equal(r.companyId,cid);assert.equal(r.currency,'AED');assert.ok(r.title);for(const detail of r.financial.details){if(detail.accountId)assert.ok([bank.id,bank2.id,ar.id,ap.id,revenue.id,cost.id,asset.id,equity.id].includes(detail.accountId));}}
+ const inc=await get('income-customer-summary');assert.deepEqual(inc.rows,[{name:'Audit Party',amount:270},{name:'Unallocated',amount:50}]);
+ assert.equal((await get('income-customer-detail')).rows.reduce((n,r)=>n+r.amount,0),320);
+ assert.equal((await get('expenses-supplier-summary')).rows[0].amount,300); // cheque isn't a second expense
+ assert.equal((await get('expenses-supplier-detail')).rows.length,1);
+ assert.deepEqual((await get('income-expense-graph')).rows,[{month:'2026-01',income:320,expenses:300,net:20}]);
+ const standard=await get('balance-sheet');assert.equal(standard.rows.find(r=>r.name==='Accumulated earnings').amount,20);
+ const section=(rows,name)=>rows.filter(r=>r.section===name).reduce((n,r)=>n+r.amount,0);
+ assert.equal(section(standard.rows,'Assets'),section(standard.rows,'Liabilities')+section(standard.rows,'Equity'));
+ assert.deepEqual((await get('balance-sheet-detail')).rows,standard.rows);
+ const comparison=await get('balance-sheet-prev-year');assert.equal(comparison.rows.find(r=>r.accountId===bank.id).previous,1000);assert.equal(comparison.rows.find(r=>r.name==='Accumulated earnings').previous,0);
+ const summary=await get('balance-sheet-summary');assert.equal(summary.rows.find(r=>r.section==='Equity').amount,1020);
+ const worth=await get('net-worth-graph');assert.equal(worth.rows[0].netWorth,1020);
+ const flow=await get('cash-flow');const flowAmount=name=>flow.rows.find(r=>r.name===name).amount;
+ assert.equal(flowAmount('Opening cash'),1000);assert.equal(flowAmount('Operating'),130);assert.equal(flowAmount('Investing'),-200);assert.equal(flowAmount('Internal transfers'),0);assert.equal(flowAmount('Closing cash'),930);
+ const realised=await get('realised-gains-losses');assert.deepEqual(realised.rows.map(r=>[r.reference,r.gainLoss,r.accountId]),[['AUD-PAY',40,ar.id],['AUD-CHQ',-20,ap.id]]);
+ const unrealised=await get('unrealised-gains-losses');assert.deepEqual(unrealised.rows.map(r=>[r.reference,r.bookedValue,r.gainLoss]).sort(),[['AUD-BILL',-240,-160],['AUD-CREDIT',-30,-20],['AUD-INV',180,120]]);
+ const forecast=await get('cash-flow-forecast');assert.equal(forecast.rows[0].projected,930);assert.equal(forecast.rows.at(-1).projected,840);
+ assert.ok((await get('income-customer-detail')).rows.every(r=>r.accountId===revenue.id));
+ // Ambiguous account names must not link to the wrong ID or silently classify.
+ await addAccount('I2',revenue.name,'Expense');const ambiguous=await get('income-customer-summary');assert.equal(ambiguous.rows.length,0);assert.ok(ambiguous.financial.issues.some(s=>s.includes('multiple matches')));
+ // Reports retain company access restrictions and account-link permissions.
+ try{globalThis.__reportTestUser={id:2,role:'viewer',companyIds:[cid],mustChangePassword:false};assert.equal((await get('balance-sheet')).financial.canViewAccounts,false);const forbidden=await GET(new Request(`https://app.test/api/reports?type=balance-sheet&companyId=${companyId}`));assert.equal(forbidden.status,403);}finally{delete globalThis.__reportTestUser;}
+});
