@@ -1,22 +1,22 @@
 import { eq, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { appUsers, auditLog, companies } from "@/db/schema";
-import { isGlobalAdmin, requireApiUser } from "@/lib/auth";
+import { canAccessCompany, requireApiUser } from "@/lib/auth";
 import { verifyPassword } from "@/lib/password";
 import { consumeRateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
   const user = await requireApiUser(request, true, true);
   if (user instanceof Response) return user;
-  if (!isGlobalAdmin(user)) return Response.json({ error: "Only All-Admin can clear company data." }, { status: 403 });
   try {
     const payload = await request.json();
     const { companyId, scope, password, confirmation } = payload ?? {};
     if (!Number.isSafeInteger(companyId) || companyId <= 0 || !["setup", "all"].includes(scope) || typeof password !== "string" || !password || password.length > 128 || typeof confirmation !== "string") return Response.json({ error: "Select a company and clear option, then enter your password and confirmation." }, { status: 400 });
+    if (!canAccessCompany(user, companyId)) return Response.json({ error: "You do not have administrator access to this company." }, { status: 403 });
     const budget = await consumeRateLimit(`company-clear:${user.id}`, 5, 900);
     if (!budget.allowed) return Response.json({ error: "Too many attempts. Try again in 15 minutes." }, { status: 429, headers: { "Retry-After": String(budget.retryAfter) } });
     const [account] = await getDb().select().from(appUsers).where(eq(appUsers.id, user.id)).limit(1);
-    if (!account?.active || String(account.role) !== "all_admin" || account.mustChangePassword) return Response.json({ error: "Active All-Admin access required." }, { status: 403 });
+    if (!account?.active || !["all_admin", "admin"].includes(String(account.role)) || account.mustChangePassword) return Response.json({ error: "Active Administrator access required." }, { status: 403 });
     if ((account.lockedUntil && new Date(account.lockedUntil).getTime() > Date.now()) || !await verifyPassword(password, account.passwordHash)) return Response.json({ error: "Password verification failed." }, { status: 403 });
     return await withWriteTransaction(async () => {
       const db = getDb();
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
         }
       }
       const [record] = await db.update(companies).set({ logoData: "", rightLogoData: "", stampData: "", documentDesign: "", addressLine1: "", addressLine2: "", city: "", country: "", phone: "", email: "", trn: "", bankName: "", bankAccountName: "", bankAccountNumber: "", bankIban: "", bankSwift: "", bankCurrency: company.baseCurrency, documentTemplate: "modern", documentColor: "#10b981" }).where(eq(companies.id, companyId)).returning();
-      await db.insert(auditLog).values({ companyId, action: "cleared", entityType: "company_setup", entityId: companyId, details: `${scope === "all" ? "Company business data and setup" : "Company setup and logos"} cleared by All-Admin ${user.id} (${user.email}); company identity, base currency, user access and audit history retained.` });
+      await db.insert(auditLog).values({ companyId, action: "cleared", entityType: "company_setup", entityId: companyId, details: `${scope === "all" ? "Company business data and setup" : "Company setup and logos"} cleared by Administrator ${user.id} (${user.email}); company identity, base currency, user access and audit history retained.` });
       return Response.json({ record }, { headers: { "Cache-Control": "no-store" } });
     });
   } catch {
