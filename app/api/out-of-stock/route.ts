@@ -1,7 +1,7 @@
 import { and, asc, eq } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { companies, inventoryLocations, items } from '@/db/schema';
-import { requireApiUser } from '@/lib/auth';
+import { requireApiUser, canAccessCompany } from '@/lib/auth';
 
 export async function GET(request: Request) {
  const user = await requireApiUser(request, 'inventory:read');
@@ -11,6 +11,7 @@ export async function GET(request: Request) {
  try {
   const url = new URL(request.url);
   const selectedCompanyId = Number(url.searchParams.get('companyId'));
+  if (url.searchParams.has('companyId') && (!Number.isSafeInteger(selectedCompanyId) || selectedCompanyId <= 0 || !canAccessCompany(user, selectedCompanyId))) return Response.json({ error: 'Company access denied.' }, { status: 403 });
   const selectedLocationId = Number(url.searchParams.get('locationId'));
   const hasDestination = Number.isInteger(selectedCompanyId) && selectedCompanyId > 0 && Number.isInteger(selectedLocationId) && selectedLocationId > 0;
 

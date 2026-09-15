@@ -1479,6 +1479,8 @@ test('shared catalogue exposes zero values and reuses identifiers without source
   globalThis.__transferTestUser={id:1,email:'target@test',role:'admin',companyIds:[targetCompany]};
   const {GET:outOfStock}=await vite.ssrLoadModule('/app/api/out-of-stock/route.ts');
   const payload={sourceId,companyId:targetCompany,locationId:targetLocation,quantity:999,cost:999};
+  assert.equal((await GET(new Request(`https://app.test/api/shared-items?companyId=${sourceCompany}`))).status,403);
+  assert.equal((await outOfStock(new Request(`https://app.test/api/out-of-stock?companyId=${sourceCompany}&locationId=${sourceLocation}`))).status,403);
   for(const url of ['https://app.test/api/shared-items',`https://app.test/api/shared-items?companyId=${targetCompany}`])assert.equal((await (await GET(new Request(url))).json()).records.some(row=>row.id===sourceId),false);
   for(const suffix of ['',`?companyId=${targetCompany}&locationId=${targetLocation}`])assert.equal((await (await outOfStock(new Request(`https://app.test/api/out-of-stock${suffix}`))).json()).records.some(row=>row.id===sourceId),false);
   assert.equal((await post(payload)).status,404);
@@ -1501,5 +1503,37 @@ test('shared catalogue exposes zero values and reuses identifiers without source
   await database.query("UPDATE items SET item_number='OTHER' WHERE id=$1",[created.id]);assert.equal((await post(payload)).status,409);
   globalThis.__transferTestUser={id:1,email:'viewer@test',role:'viewer',companyIds:[targetCompany]};assert.equal((await post(payload)).status,403);
   const source=(await database.query('SELECT quantity,cost,sales_price,grn_price FROM items WHERE id=$1',[sourceId])).rows[0];assert.deepEqual(source,{quantity:0,cost:900,sales_price:1200,grn_price:950});
+ }finally{delete globalThis.__transferTestUser;}
+});
+
+test('inventory overview and transfer reads never expose stock from unassigned companies', async () => {
+ const makeCompany=async name=>(await database.query('INSERT INTO companies(name) VALUES($1) RETURNING id',[name])).rows[0].id;
+ const own=await makeCompany('Private own'),other=await makeCompany('Private other');
+ const loc=async company=>(await database.query("INSERT INTO inventory_locations(company_id,name,code,invoice_prefix) VALUES($1,'Store','STORE','INV') RETURNING id",[company])).rows[0].id;
+ const ownLoc=await loc(own),otherLoc=await loc(other);
+ const item=async(company,location,sku)=>(await database.query('INSERT INTO items(company_id,location_id,sku,name,quantity,sales_price) VALUES($1,$2,$3,$3,9,999) RETURNING id',[company,location,sku])).rows[0].id;
+ const ownItem=await item(own,ownLoc,'PRIVATE-OWN'),otherItem=await item(other,otherLoc,'PRIVATE-OTHER');
+ await database.query("INSERT INTO contacts(company_id,name,type) VALUES($1,'Private own rep','employee'),($2,'Private other rep','employee')",[own,other]);
+ const transfer=async(source,dest,sourceLoc,destLoc,ref)=>(await database.query("INSERT INTO stock_transfers(reference,source_company_id,destination_company_id,source_location_id,destination_location_id,sku,item_name,quantity,transfer_date) VALUES($1,$2,$3,$4,$5,'PRIVATE','Private laptop',1,'2026-09-15') RETURNING id",[ref,source,dest,sourceLoc,destLoc])).rows[0].id;
+ const ownTransfer=await transfer(own,own,ownLoc,ownLoc,'PRIVATE-OWN-T'),otherTransfer=await transfer(other,other,otherLoc,otherLoc,'PRIVATE-OTHER-T'),cross=await transfer(own,other,ownLoc,otherLoc,'PRIVATE-CROSS-T');
+ const overview=await vite.ssrLoadModule('/app/api/inventory-overview/route.ts'),transfers=await vite.ssrLoadModule('/app/api/transfers/route.ts');
+ const recordsApi=await vite.ssrLoadModule('/app/api/records/route.ts');
+ const get=async(module,path)=>(await (await module.GET(new Request(`https://app.test/api/${path}`))).json());
+ try {
+  for(const role of ['admin','inventory','viewer']){
+   globalThis.__transferTestUser={id:1,role,companyIds:[own]};
+   for(const kind of ['items','transactions','contacts','accounts']){
+    const denied=await recordsApi.GET(new Request(`https://app.test/api/records?kind=${kind}&companyId=${other}&locationId=${otherLoc}`));assert.equal(denied.status,403);
+   }
+   assert.equal((await recordsApi.GET(new Request(`https://app.test/api/records?kind=transactions&id=1&companyId=${other}`))).status,403);
+   const ownRecords=await get(recordsApi,`records?kind=items&companyId=${own}&locationId=${ownLoc}`);assert.deepEqual(ownRecords.records.map(r=>r.id),[ownItem]);
+   const stock=(await get(overview,'inventory-overview')).records;assert.ok(stock.some(r=>r.id===ownItem));assert.ok(stock.every(r=>r.companyId===own));
+   const catalogue=await get(transfers,'transfers?catalog=1');assert.ok(catalogue.records.every(r=>r.companyId===own));assert.ok(catalogue.salesmen.every(r=>r.companyId===own));
+   const history=(await get(transfers,'transfers')).records;assert.ok(history.some(r=>r.id===ownTransfer));assert.ok(history.every(r=>r.sourceCompanyId===own&&r.destinationCompanyId===own));assert.ok(!history.some(r=>[otherTransfer,cross].includes(r.id)));
+  }
+  globalThis.__transferTestUser={id:1,role:'viewer',companyIds:[]};
+  assert.equal((await get(overview,'inventory-overview')).records.length,0);assert.deepEqual(await get(transfers,'transfers?catalog=1'),{records:[],salesmen:[]});assert.equal((await get(transfers,'transfers')).records.length,0);
+  globalThis.__transferTestUser={id:1,role:'admin',companyIds:[own,other]};assert.ok((await get(transfers,'transfers')).records.some(r=>r.id===cross));
+  globalThis.__transferTestUser={id:1,role:'all_admin',companyIds:[]};assert.ok((await get(overview,'inventory-overview')).records.some(r=>r.id===otherItem));assert.ok((await get(transfers,'transfers')).records.some(r=>r.id===otherTransfer));
  }finally{delete globalThis.__transferTestUser;}
 });

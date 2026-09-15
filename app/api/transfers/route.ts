@@ -1,5 +1,5 @@
 import { skuWrite } from "@/lib/sku-locks";
-import { and, asc, desc, eq, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { getDb, withWriteTransaction } from "../../../db";
 import { auditLog, companies, contacts, inventoryLocations, items, stockTransfers } from "../../../db/schema";
@@ -18,8 +18,8 @@ export async function GET(request: Request) {
   try {
     const db = getDb();
     if (new URL(request.url).searchParams.get("catalog") === "1") {
-      const records = await db.select({ id: items.id, companyId: items.companyId, locationId: items.locationId, itemNumber: items.itemNumber, sku: items.sku, name: items.name, quantity: items.quantity }).from(items);
-      const salesmen = await db.select({ id: contacts.id, name: contacts.name, companyId: contacts.companyId }).from(contacts).where(eq(contacts.type, "employee"));
+      const records = await db.select({ id: items.id, companyId: items.companyId, locationId: items.locationId, itemNumber: items.itemNumber, sku: items.sku, name: items.name, quantity: items.quantity }).from(items).where(authorization.role === "all_admin" ? undefined : inArray(items.companyId, authorization.companyIds));
+      const salesmen = await db.select({ id: contacts.id, name: contacts.name, companyId: contacts.companyId }).from(contacts).where(and(eq(contacts.type, "employee"), authorization.role === "all_admin" ? undefined : inArray(contacts.companyId, authorization.companyIds)));
       return Response.json({ records: records.filter((item) => canAccessCompany(authorization, item.companyId)), salesmen }, { headers: { "Cache-Control": "no-store" } });
     }
     const sourceCompany = alias(companies, "source_company");
@@ -37,6 +37,7 @@ export async function GET(request: Request) {
       .innerJoin(sourceLocation, eq(stockTransfers.sourceLocationId, sourceLocation.id))
       .innerJoin(destinationCompany, eq(stockTransfers.destinationCompanyId, destinationCompany.id))
       .innerJoin(destinationLocation, eq(stockTransfers.destinationLocationId, destinationLocation.id))
+      .where(authorization.role === "all_admin" ? undefined : and(inArray(stockTransfers.sourceCompanyId, authorization.companyIds), inArray(stockTransfers.destinationCompanyId, authorization.companyIds)))
       .orderBy(desc(stockTransfers.transferDate), desc(stockTransfers.id)).limit(500);
     return Response.json({ records: records.map((record) => ({ ...record, canEdit: isAdministrator(authorization) && canAccessCompany(authorization, record.sourceCompanyId) && canAccessCompany(authorization, record.destinationCompanyId) })) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
