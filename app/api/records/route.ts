@@ -158,6 +158,7 @@ export async function GET(request: Request) {
     const companyId = Number(url.searchParams.get("companyId"));
     const locationId = Number(url.searchParams.get("locationId"));
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
+    if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     const db = getDb();
     if (kind === "open-sales-documents") {
       if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });

@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { companies, inventoryLocations, items } from "../../../db/schema";
 import { isAdministrator, requireApiUser } from "@/lib/auth";
@@ -33,8 +33,8 @@ export async function GET(request: Request) {
       locationCode: inventoryLocations.code,
     }).from(items)
       .innerJoin(companies, eq(items.companyId, companies.id))
-      .innerJoin(inventoryLocations, eq(items.locationId, inventoryLocations.id))
-      .where(and(eq(companies.active, true), eq(inventoryLocations.active, true), eq(items.status, "active")))
+      .innerJoin(inventoryLocations, and(eq(items.locationId, inventoryLocations.id), eq(items.companyId, inventoryLocations.companyId)))
+      .where(and(eq(companies.active, true), eq(inventoryLocations.active, true), eq(items.status, "active"), authorization.role === "all_admin" ? undefined : inArray(items.companyId, authorization.companyIds)))
       .orderBy(asc(items.category), asc(items.name), asc(companies.name), asc(inventoryLocations.name))
       .limit(5000);
 

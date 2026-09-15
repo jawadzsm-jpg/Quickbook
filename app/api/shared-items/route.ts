@@ -11,6 +11,7 @@ export async function GET(request: Request) {
  try {
   const url = new URL(request.url);
   const selectedCompanyId = Number(url.searchParams.get('companyId'));
+  if (url.searchParams.has('companyId') && (!Number.isSafeInteger(selectedCompanyId) || selectedCompanyId <= 0 || !canAccessCompany(user, selectedCompanyId))) return Response.json({ error: 'Company access denied.' }, { status: 403 });
   const hasSelectedCompany = Number.isInteger(selectedCompanyId) && selectedCompanyId > 0;
   const db = getDb();
   const records = await db.select({
