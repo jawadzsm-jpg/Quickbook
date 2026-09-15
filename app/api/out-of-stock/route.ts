@@ -6,8 +6,7 @@ import { requireApiUser } from '@/lib/auth';
 export async function GET(request: Request) {
  const user = await requireApiUser(request, 'inventory:read');
  if (user instanceof Response) return user;
- // Shared product catalogue across companies. A product created in one company is
- // offered to other companies as an out-of-stock item that they can reuse.
+ // Only items with zero or negative source stock are shared across companies.
  // Source quantity, cost and prices are never exposed here.
  try {
   const url = new URL(request.url);
@@ -34,7 +33,7 @@ export async function GET(request: Request) {
      .map(row => row.sku.trim().toLowerCase())
      .filter(Boolean),
    );
-   shared = records.filter(row =>
+   shared = shared.filter(row =>
     row.companyId !== selectedCompanyId && !destinationSkus.has(row.sku.trim().toLowerCase()),
    );
   }
