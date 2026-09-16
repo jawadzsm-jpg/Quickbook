@@ -7,12 +7,13 @@ import { toast } from 'sonner';
 export function TemplateManager({design,onChange,onEdit,editingId}:{design:DocumentDesign;onChange:(patch:Partial<DocumentDesign>)=>void;onEdit:(id:string)=>void;editingId:string}) {
  const templates=design.savedTemplates;
  const [includeInactive,setIncludeInactive]=useState(false);
- const [selectedId,setSelectedId]=useState(editingId||templates.find(t=>t.active)?.id||templates[0]?.id||'');
+ const [selectedId,setSelectedId]=useState(editingId||templates.find(t=>t.active!==false)?.id||templates[0]?.id||'');
  const [newType,setNewType]=useState<TemplateDocumentType>('Invoice');
- const visibleTemplates=useMemo(()=>templates.filter(t=>includeInactive||t.active),[templates,includeInactive]);
+ const visibleTemplates=useMemo(()=>templates.filter(t=>includeInactive||t.active!==false),[templates,includeInactive]);
  const preferredId=editingId&&templates.some(t=>t.id===editingId)?editingId:selectedId;
  const effectiveSelectedId=visibleTemplates.some(t=>t.id===preferredId)?preferredId:(visibleTemplates[0]?.id||'');
  const selected=templates.find(t=>t.id===effectiveSelectedId);
+ const selectedActive=selected ? selected.active!==false : false;
 
  const snapshot=()=>{const {savedTemplates,...value}=validateDocumentDesign(JSON.stringify(design));void savedTemplates;return value;};
  const uniqueName=(baseName:string)=>{
@@ -37,14 +38,14 @@ export function TemplateManager({design,onChange,onEdit,editingId}:{design:Docum
   if(templates.length>=20)return toast.error('Keep at most 20 saved templates.');
   const id=crypto.randomUUID();
   const name=uniqueName(selected.design.name);
-  onChange({savedTemplates:[...templates,{...selected,id,active:true,design:{...selected.design,name}}]});
+  onChange({savedTemplates:[...templates,{...selected,id,type:selected.type||'Invoice',active:true,design:{...selected.design,name}}]});
   setSelectedId(id);
   toast.success('Template duplicated.');
  };
  const toggleActive=()=>{
   if(!selected)return;
-  onChange({savedTemplates:templates.map(t=>t.id===selected.id?{...t,active:!t.active}:t)});
-  if(selected.active&&!includeInactive)setSelectedId(visibleTemplates.find(t=>t.id!==selected.id)?.id||'');
+  onChange({savedTemplates:templates.map(t=>t.id===selected.id?{...t,active:!selectedActive}:t)});
+  if(selectedActive&&!includeInactive)setSelectedId(visibleTemplates.find(t=>t.id!==selected.id)?.id||'');
  };
  const removeSelected=()=>{
   if(!selected)return;
@@ -84,9 +85,10 @@ export function TemplateManager({design,onChange,onEdit,editingId}:{design:Docum
     <tbody>
      {visibleTemplates.length===0?<tr><td colSpan={2} className="px-4 py-12 text-center text-muted-foreground">No templates yet. Choose a type below, then use Templates → New from current.</td></tr>:visibleTemplates.map(t=>{
       const activeRow=t.id===effectiveSelectedId;
-      return <tr key={t.id} onClick={()=>setSelectedId(t.id)} onDoubleClick={()=>onEdit(t.id)} className={`cursor-pointer border-b transition-colors ${activeRow?'bg-[#49a313] text-white':'hover:bg-slate-100 dark:hover:bg-slate-800'} ${!t.active?'opacity-55':''}`} aria-selected={activeRow}>
-       <td className="px-3 py-2.5"><span className="font-medium">{t.design.name}</span>{editingId===t.id&&<span className={`ml-2 text-xs ${activeRow?'text-white/80':'text-muted-foreground'}`}>(editing)</span>}{!t.active&&<span className={`ml-2 text-xs ${activeRow?'text-white/80':'text-muted-foreground'}`}>(inactive)</span>}</td>
-       <td className="px-3 py-2.5">{t.type}</td>
+      const isActive=t.active!==false;
+      return <tr key={t.id} onClick={()=>setSelectedId(t.id)} onDoubleClick={()=>onEdit(t.id)} className={`cursor-pointer border-b transition-colors ${activeRow?'bg-[#49a313] text-white':'hover:bg-slate-100 dark:hover:bg-slate-800'} ${!isActive?'opacity-55':''}`} aria-selected={activeRow}>
+       <td className="px-3 py-2.5"><span className="font-medium">{t.design.name}</span>{editingId===t.id&&<span className={`ml-2 text-xs ${activeRow?'text-white/80':'text-muted-foreground'}`}>(editing)</span>}{!isActive&&<span className={`ml-2 text-xs ${activeRow?'text-white/80':'text-muted-foreground'}`}>(inactive)</span>}</td>
+       <td className="px-3 py-2.5">{t.type||'Invoice'}</td>
       </tr>;
      })}
     </tbody>
@@ -97,7 +99,7 @@ export function TemplateManager({design,onChange,onEdit,editingId}:{design:Docum
     <option value="" disabled>Templates</option>
     <option value="new">New from current</option>
     <option value="duplicate" disabled={!selected}>Duplicate selected</option>
-    <option value="toggle" disabled={!selected}>{selected?.active?'Make inactive':'Make active'}</option>
+    <option value="toggle" disabled={!selected}>{selectedActive?'Make inactive':'Make active'}</option>
     <option value="download">Download template</option>
     <option value="delete" disabled={!selected}>Delete selected</option>
    </select>
@@ -106,7 +108,7 @@ export function TemplateManager({design,onChange,onEdit,editingId}:{design:Docum
    <div className="ml-auto flex flex-wrap items-center gap-2">
     <label className="text-xs text-muted-foreground">New template type</label>
     <select className="h-9 rounded-md border bg-background px-2 text-sm" value={newType} onChange={e=>setNewType(e.target.value as TemplateDocumentType)}>{templateDocumentTypes.map(type=><option key={type} value={type}>{type}</option>)}</select>
-    {selected&&<><label className="text-xs text-muted-foreground">Selected type</label><select className="h-9 rounded-md border bg-background px-2 text-sm" value={selected.type} onChange={e=>changeType(e.target.value as TemplateDocumentType)}>{templateDocumentTypes.map(type=><option key={type} value={type}>{type}</option>)}</select></>}
+    {selected&&<><label className="text-xs text-muted-foreground">Selected type</label><select className="h-9 rounded-md border bg-background px-2 text-sm" value={selected.type||'Invoice'} onChange={e=>changeType(e.target.value as TemplateDocumentType)}>{templateDocumentTypes.map(type=><option key={type} value={type}>{type}</option>)}</select></>}
    </div>
   </div>
   <p className="border-t bg-muted/30 px-3 py-2 text-xs text-muted-foreground">Select a row and choose Open Form to edit it. Double-clicking a row also opens it. Save Company Setup to keep template, type, active/inactive, edit, or delete changes.</p>
