@@ -1,4 +1,6 @@
 export type DesignField = { key: string; label: string; screen: boolean; print: boolean; width: number };
+export const templateDocumentTypes = ['Invoice','Credit Note','Sales Receipt','Purchase Order','Statement','Estimate','Sales Order','Delivery Note','Packing List','Proforma Invoice'] as const;
+export type TemplateDocumentType = typeof templateDocumentTypes[number];
 export type DocumentDesign = { properties: Record<string, ElementProperties>; savedTemplates: SavedTemplate[]; enabled: boolean; name: string; title: string; font: 'Arial' | 'Georgia' | 'Verdana'; fontSize: number; titleSize: number; companySize: number; color: string; leftLogo: boolean; rightLogo: boolean; logoWidth: number; logoHeight: number; showCompany: boolean; showAddress: boolean; showPhone: boolean; showEmail: boolean; statusStamp: boolean; headers: DesignField[]; columns: DesignField[]; footer: DesignField[]; message: string; disclaimer: string; paper: 'A4' | 'Letter'; orientation: 'portrait' | 'landscape'; margin: number; decimals: number };
 const field = (key: string, label: string, width = 1, visible = true): DesignField => ({ key, label, width, screen: visible, print: visible });
 export const defaultDocumentDesign: DocumentDesign = {
@@ -26,10 +28,13 @@ export function validateDocumentDesign(value: string): DocumentDesign {
    result.savedTemplates = input[key].map((entry: SavedTemplate) => {
     if (!entry || typeof entry.id !== 'string' || !/^[a-zA-Z0-9-]{1,80}$/.test(entry.id) || ids.has(entry.id) || !entry.design || typeof entry.design !== 'object' || 'savedTemplates' in entry.design) throw new Error('Invalid saved template.');
     ids.add(entry.id);
+    const type = entry.type === undefined ? 'Invoice' : entry.type;
+    const active = entry.active === undefined ? true : entry.active;
+    if (!templateDocumentTypes.includes(type as TemplateDocumentType) || typeof active !== 'boolean') throw new Error('Invalid saved template metadata.');
     const validated = validateDocumentDesign(JSON.stringify(entry.design));
     const { savedTemplates: omitted, ...snapshot } = validated;
     void omitted;
-    return { id: entry.id, design: snapshot };
+    return { id: entry.id, type: type as TemplateDocumentType, active, design: snapshot };
    });
    continue;
   }
@@ -51,7 +56,7 @@ export function validateDocumentDesign(value: string): DocumentDesign {
  return result;
 }
 
-export type SavedTemplate = { id: string; design: Omit<DocumentDesign, 'savedTemplates'> };
+export type SavedTemplate = { id: string; type: TemplateDocumentType; active: boolean; design: Omit<DocumentDesign, 'savedTemplates'> };
 export type ElementProperties = {
  align: 'left' | 'center' | 'right'; vertical: 'top' | 'middle' | 'bottom';
  font: 'Arial' | 'Georgia' | 'Verdana'; size: number; bold: boolean; italic: boolean; underline: boolean; color: string;
