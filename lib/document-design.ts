@@ -58,11 +58,13 @@ export type ElementProperties = {
  top: boolean; right: boolean; bottom: boolean; left: boolean;
  pattern: 'solid' | 'dotted' | 'dashed' | 'double'; thickness: number; radius: number; borderColor: string;
  fill: boolean; background: string; minHeight: number;
+ offsetX: number; offsetY: number; boxWidth: number; boxHeight: number;
 };
 export const defaultElementProperties: ElementProperties = {
  align:'left', vertical:'top', font:'Arial', size:11, bold:false, italic:false, underline:false, color:'#111111',
  top:false, right:false, bottom:false, left:false, pattern:'solid', thickness:1, radius:0, borderColor:'#bbbbbb',
  fill:false, background:'#ffffff', minHeight:0,
+ offsetX:0, offsetY:0, boxWidth:0, boxHeight:0,
 };
 export function propertyTargets(design: DocumentDesign) {
  return [{key:'company',label:'Company name'},{key:'title',label:'Invoice title'},
@@ -83,6 +85,7 @@ function validateProperties(value: unknown): Record<string, ElementProperties> {
   if (!['left','center','right'].includes(p.align) || !['top','middle','bottom'].includes(p.vertical) || !['Arial','Georgia','Verdana'].includes(p.font) || !['solid','dotted','dashed','double'].includes(p.pattern)) throw new Error('Invalid element formatting.');
   for (const color of [p.color,p.borderColor,p.background]) if (!/^#[0-9a-f]{6}$/i.test(color)) throw new Error('Invalid element color.');
   if (!Number.isInteger(p.size) || p.size<8 || p.size>40 || ![0.5,1,2,3].includes(p.thickness) || ![0,12,24,48].includes(p.radius) || !Number.isInteger(p.minHeight) || p.minHeight<0 || p.minHeight>300) throw new Error('Invalid element dimensions.');
+  if (!Number.isInteger(p.offsetX) || p.offsetX < -1200 || p.offsetX > 1200 || !Number.isInteger(p.offsetY) || p.offsetY < -1600 || p.offsetY > 1600 || !Number.isInteger(p.boxWidth) || p.boxWidth < 0 || p.boxWidth > 1200 || !Number.isInteger(p.boxHeight) || p.boxHeight < 0 || p.boxHeight > 800) throw new Error('Invalid element position.');
   result[key]=p;
  }
  return result;
