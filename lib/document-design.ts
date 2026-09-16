@@ -28,13 +28,17 @@ export function validateDocumentDesign(value: string): DocumentDesign {
    result.savedTemplates = input[key].map((entry: SavedTemplate) => {
     if (!entry || typeof entry.id !== 'string' || !/^[a-zA-Z0-9-]{1,80}$/.test(entry.id) || ids.has(entry.id) || !entry.design || typeof entry.design !== 'object' || 'savedTemplates' in entry.design) throw new Error('Invalid saved template.');
     ids.add(entry.id);
-    const type = entry.type === undefined ? 'Invoice' : entry.type;
-    const active = entry.active === undefined ? true : entry.active;
-    if (!templateDocumentTypes.includes(type as TemplateDocumentType) || typeof active !== 'boolean') throw new Error('Invalid saved template metadata.');
+    if (entry.type !== undefined && !templateDocumentTypes.includes(entry.type as TemplateDocumentType)) throw new Error('Invalid saved template metadata.');
+    if (entry.active !== undefined && typeof entry.active !== 'boolean') throw new Error('Invalid saved template metadata.');
     const validated = validateDocumentDesign(JSON.stringify(entry.design));
     const { savedTemplates: omitted, ...snapshot } = validated;
     void omitted;
-    return { id: entry.id, type: type as TemplateDocumentType, active, design: snapshot };
+    return {
+     id: entry.id,
+     ...(entry.type === undefined ? {} : { type: entry.type as TemplateDocumentType }),
+     ...(entry.active === undefined ? {} : { active: entry.active }),
+     design: snapshot,
+    };
    });
    continue;
   }
@@ -56,7 +60,7 @@ export function validateDocumentDesign(value: string): DocumentDesign {
  return result;
 }
 
-export type SavedTemplate = { id: string; type: TemplateDocumentType; active: boolean; design: Omit<DocumentDesign, 'savedTemplates'> };
+export type SavedTemplate = { id: string; type?: TemplateDocumentType; active?: boolean; design: Omit<DocumentDesign, 'savedTemplates'> };
 export type ElementProperties = {
  align: 'left' | 'center' | 'right'; vertical: 'top' | 'middle' | 'bottom';
  font: 'Arial' | 'Georgia' | 'Verdana'; size: number; bold: boolean; italic: boolean; underline: boolean; color: string;
