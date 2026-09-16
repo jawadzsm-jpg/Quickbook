@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { templateDocumentTypes, type DocumentDesign, type TemplateDocumentType, validateDocumentDesign } from '@/lib/document-design';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -10,12 +10,9 @@ export function TemplateManager({design,onChange,onEdit,editingId}:{design:Docum
  const [selectedId,setSelectedId]=useState(editingId||templates.find(t=>t.active)?.id||templates[0]?.id||'');
  const [newType,setNewType]=useState<TemplateDocumentType>('Invoice');
  const visibleTemplates=useMemo(()=>templates.filter(t=>includeInactive||t.active),[templates,includeInactive]);
- const selected=templates.find(t=>t.id===selectedId);
-
- useEffect(()=>{
-  if(editingId && templates.some(t=>t.id===editingId)){setSelectedId(editingId);return;}
-  if(!visibleTemplates.some(t=>t.id===selectedId))setSelectedId(visibleTemplates[0]?.id||'');
- },[editingId,selectedId,templates,visibleTemplates]);
+ const preferredId=editingId&&templates.some(t=>t.id===editingId)?editingId:selectedId;
+ const effectiveSelectedId=visibleTemplates.some(t=>t.id===preferredId)?preferredId:(visibleTemplates[0]?.id||'');
+ const selected=templates.find(t=>t.id===effectiveSelectedId);
 
  const snapshot=()=>{const {savedTemplates,...value}=validateDocumentDesign(JSON.stringify(design));void savedTemplates;return value;};
  const uniqueName=(baseName:string)=>{
@@ -85,8 +82,8 @@ export function TemplateManager({design,onChange,onEdit,editingId}:{design:Docum
    <table className="w-full border-collapse text-left text-sm">
     <thead className="sticky top-0 z-10 bg-white dark:bg-background"><tr className="border-b"><th className="w-[58%] px-3 py-2 font-medium uppercase tracking-wide text-muted-foreground">Name</th><th className="px-3 py-2 font-medium uppercase tracking-wide text-muted-foreground">Type</th></tr></thead>
     <tbody>
-     {visibleTemplates.length===0?<tr><td colSpan={2} className="px-4 py-12 text-center text-muted-foreground">No templates yet. Choose a type below, then use Templates → New from current.</td></tr>:visibleTemplates.map((t,index)=>{
-      const activeRow=t.id===selectedId;
+     {visibleTemplates.length===0?<tr><td colSpan={2} className="px-4 py-12 text-center text-muted-foreground">No templates yet. Choose a type below, then use Templates → New from current.</td></tr>:visibleTemplates.map(t=>{
+      const activeRow=t.id===effectiveSelectedId;
       return <tr key={t.id} onClick={()=>setSelectedId(t.id)} onDoubleClick={()=>onEdit(t.id)} className={`cursor-pointer border-b transition-colors ${activeRow?'bg-[#49a313] text-white':'hover:bg-slate-100 dark:hover:bg-slate-800'} ${!t.active?'opacity-55':''}`} aria-selected={activeRow}>
        <td className="px-3 py-2.5"><span className="font-medium">{t.design.name}</span>{editingId===t.id&&<span className={`ml-2 text-xs ${activeRow?'text-white/80':'text-muted-foreground'}`}>(editing)</span>}{!t.active&&<span className={`ml-2 text-xs ${activeRow?'text-white/80':'text-muted-foreground'}`}>(inactive)</span>}</td>
        <td className="px-3 py-2.5">{t.type}</td>
