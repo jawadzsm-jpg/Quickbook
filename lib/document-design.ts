@@ -67,8 +67,11 @@ export const defaultElementProperties: ElementProperties = {
  offsetX:0, offsetY:0, boxWidth:0, boxHeight:0,
 };
 export function propertyTargets(design: DocumentDesign) {
- return [{key:'company',label:'Company name'},{key:'title',label:'Invoice title'},
- ...(['headers','columns','footer'] as const).flatMap(group=>design[group].map(f=>({key:`${group}.${f.key}`,label:`${group === 'headers' ? 'Header' : group === 'columns' ? 'Column' : 'Footer'}: ${f.label}`})))];
+ return [
+  {key:'leftLogo',label:'Left logo'}, {key:'company',label:'Company name'}, {key:'title',label:'Invoice title'}, {key:'rightLogo',label:'Right logo'},
+  {key:'status',label:'Document status'}, {key:'itemsTable',label:'Items table'}, {key:'footerText',label:'Footer text block'}, {key:'totals',label:'Totals block'},
+  ...(['headers','columns','footer'] as const).flatMap(group=>design[group].map(f=>({key:`${group}.${f.key}`,label:`${group === 'headers' ? 'Header' : group === 'columns' ? 'Column' : 'Footer'}: ${f.label}`})))
+ ];
 }
 function validateProperties(value: unknown): Record<string, ElementProperties> {
  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid element properties.');
