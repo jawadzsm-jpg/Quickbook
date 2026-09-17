@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { resolveDocumentDesign, type TemplateDocumentType } from "@/lib/document-design";
@@ -36,6 +37,13 @@ const savedTemplateType: Partial<Record<SalesDocumentMode, TemplateDocumentType>
   "packing-list": "Packing List",
 };
 
+const relatedDocumentOutputs: Partial<Record<SalesDocumentMode, SalesDocumentMode[]>> = {
+  "tax-invoice": ["tax-invoice", "delivery-note", "packing-list"],
+  "sales-order": ["sales-order", "delivery-note", "packing-list"],
+  "proforma-invoice": ["proforma-invoice", "delivery-note", "packing-list"],
+  "cash-sales": ["cash-sales", "delivery-note", "packing-list"],
+};
+
 export function salesDocumentModeForTransaction(type: string): SalesDocumentMode | null {
   switch (type.toLowerCase()) {
     case "invoice": return "tax-invoice";
@@ -53,10 +61,14 @@ export function salesDocumentModeForTransaction(type: string): SalesDocumentMode
 }
 
 // Each transaction type resolves its own active saved Company Setup template.
-// Screen editing can use free-positioned elements, while print/PDF always uses a stable A4 flow.
+// Invoice-like documents can also switch to the saved Delivery Note or Packing List
+// layout from the document preview, so every template is connected to its real output.
 export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: { mode: SalesDocumentMode; record: RecordData; lines: RecordData[]; contact?: RecordData | null; setup: Branding; showBillingName: boolean; showShipping: boolean; showHsCode: boolean; showDimensions: boolean }) {
-  const { design, savedTemplate } = resolveDocumentDesign(setup.documentDesign, savedTemplateType[mode]);
-  if (!savedTemplate) design.title = salesDocumentTitles[mode];
+  const outputModes = relatedDocumentOutputs[mode] ?? [mode];
+  const [selection, setSelection] = useState<{ source: SalesDocumentMode; output: SalesDocumentMode }>({ source: mode, output: mode });
+  const activeMode = selection.source === mode && outputModes.includes(selection.output) ? selection.output : mode;
+  const { design, savedTemplate } = resolveDocumentDesign(setup.documentDesign, savedTemplateType[activeMode]);
+  if (!savedTemplate) design.title = salesDocumentTitles[activeMode];
 
   const a4Design = { ...design, paper: "A4" as const, printerMode: "specified" as const };
   const pageRule = documentPageRule(a4Design);
@@ -84,7 +96,11 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
         body:has(.custom-invoice) .custom-invoice table{width:100%!important;max-width:100%!important;table-layout:fixed!important}
         body:has(.custom-invoice) .custom-invoice th,body:has(.custom-invoice) .custom-invoice td{overflow-wrap:anywhere!important;word-break:break-word!important;white-space:normal!important}
       }`}</style>
-    <div className="document-internal-only mb-3 flex justify-end">
+    <div className="document-internal-only mb-3 flex flex-wrap items-center justify-between gap-2">
+      {outputModes.length > 1 ? <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-slate-50 p-2 text-sm">
+        <span className="px-1 font-semibold text-slate-700">Document layout</span>
+        {outputModes.map((outputMode) => <Button key={outputMode} type="button" size="sm" variant={activeMode === outputMode ? "default" : "outline"} aria-pressed={activeMode === outputMode} onClick={() => setSelection({ source: mode, output: outputMode })}>{salesDocumentTitles[outputMode]}</Button>)}
+      </div> : <div />}
       <Button type="button" variant="outline" onClick={() => window.print()}>
         <Printer className="size-4" />Print / Save PDF (A4)
       </Button>
