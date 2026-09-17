@@ -40,7 +40,7 @@ export function TemplateManager({design,onChange,onEdit,editingId}:{design:Docum
   const name=uniqueName(selected.design.name);
   onChange({savedTemplates:[...templates,{...selected,id,type:selected.type||'Invoice',active:true,design:{...selected.design,name}}]});
   setSelectedId(id);
-  toast.success('Template duplicated.');
+  toast.success('Template copied. Save Company Setup to keep this change.');
  };
  const toggleActive=()=>{
   if(!selected)return;
@@ -57,6 +57,10 @@ export function TemplateManager({design,onChange,onEdit,editingId}:{design:Docum
   if(!selected)return;
   onChange({savedTemplates:templates.map(t=>t.id===selected.id?{...t,type}:t)});
  };
+ const renameSelected=(name:string)=>{
+  if(!selected)return;
+  onChange({savedTemplates:templates.map(t=>t.id===selected.id?{...t,design:{...t.design,name:name.slice(0,80)}}:t)});
+ };
  const downloadSelected=()=>{
   try{
    const value=selected?.design||snapshot();
@@ -69,48 +73,60 @@ export function TemplateManager({design,onChange,onEdit,editingId}:{design:Docum
    setTimeout(()=>URL.revokeObjectURL(url),1000);
   }catch{toast.error('Check the template settings before downloading.');}
  };
- const runAction=(action:string)=>{
-  if(action==='new')copyCurrent();
-  if(action==='duplicate')duplicateSelected();
-  if(action==='toggle')toggleActive();
-  if(action==='delete')removeSelected();
-  if(action==='download')downloadSelected();
+ const downloadAll=()=>{
+  try{
+   const blob=new Blob([JSON.stringify(templates,null,2)],{type:'application/json'});
+   const url=URL.createObjectURL(blob);
+   const link=document.createElement('a');
+   link.href=url;
+   link.download='company-document-templates.json';
+   link.click();
+   setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }catch{toast.error('Unable to download templates.');}
+ };
+ const openSelected=()=>{
+  if(!selected)return toast.error('Select a template first.');
+  onEdit(selected.id);
  };
 
- return <div className="overflow-hidden rounded-md border border-[#6f9700] bg-background shadow-sm">
-  <div className="flex items-center justify-center bg-[#79a500] px-4 py-2 text-lg font-medium text-white">Templates</div>
-  <div className="min-h-[390px] overflow-auto bg-white dark:bg-background">
-   <table className="w-full border-collapse text-left text-sm">
-    <thead className="sticky top-0 z-10 bg-white dark:bg-background"><tr className="border-b"><th className="w-[58%] px-3 py-2 font-medium uppercase tracking-wide text-muted-foreground">Name</th><th className="px-3 py-2 font-medium uppercase tracking-wide text-muted-foreground">Type</th></tr></thead>
-    <tbody>
-     {visibleTemplates.length===0?<tr><td colSpan={2} className="px-4 py-12 text-center text-muted-foreground">No templates yet. Choose a type below, then use Templates → New from current.</td></tr>:visibleTemplates.map(t=>{
-      const activeRow=t.id===effectiveSelectedId;
-      const isActive=t.active!==false;
-      return <tr key={t.id} onClick={()=>setSelectedId(t.id)} onDoubleClick={()=>onEdit(t.id)} className={`cursor-pointer border-b transition-colors ${activeRow?'bg-[#49a313] text-white':'hover:bg-slate-100 dark:hover:bg-slate-800'} ${!isActive?'opacity-55':''}`} aria-selected={activeRow}>
-       <td className="px-3 py-2.5"><span className="font-medium">{t.design.name}</span>{editingId===t.id&&<span className={`ml-2 text-xs ${activeRow?'text-white/80':'text-muted-foreground'}`}>(editing)</span>}{!isActive&&<span className={`ml-2 text-xs ${activeRow?'text-white/80':'text-muted-foreground'}`}>(inactive)</span>}</td>
-       <td className="px-3 py-2.5">{t.type||'Invoice'}</td>
-      </tr>;
-     })}
-    </tbody>
-   </table>
+ return <div className="overflow-hidden rounded-md border border-[#6f9700] bg-white shadow-sm dark:bg-background">
+  <div className="flex items-center justify-center bg-[#79a500] px-4 py-2 text-lg font-semibold text-white">Manage Templates</div>
+  <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(260px,.9fr)]">
+   <section className="min-w-0 rounded-sm border bg-white dark:bg-background">
+    <div className="border-b px-3 py-2 text-xs font-bold uppercase tracking-wide text-slate-700 dark:text-slate-200">Select Template</div>
+    <div className="min-h-[360px] border-b p-3">
+     <div className="overflow-hidden border border-slate-400 bg-white text-sm dark:bg-background">
+      {visibleTemplates.length===0?<button type="button" className="block w-full px-3 py-8 text-center text-muted-foreground" onClick={copyCurrent}>No templates yet — create one from the current design</button>:visibleTemplates.map(t=>{
+       const activeRow=t.id===effectiveSelectedId;
+       const isActive=t.active!==false;
+       return <button type="button" key={t.id} onClick={()=>setSelectedId(t.id)} onDoubleClick={()=>onEdit(t.id)} className={`block w-full border-b px-3 py-2 text-left transition-colors last:border-b-0 ${activeRow?'bg-[#49a313] text-white':'hover:bg-slate-100 dark:hover:bg-slate-800'} ${!isActive?'opacity-55':''}`} aria-pressed={activeRow}>
+        <span className="font-medium">{t.design.name}</span>{!isActive&&<span className={`ml-2 text-xs ${activeRow?'text-white/80':'text-muted-foreground'}`}>(inactive)</span>}
+       </button>;
+      })}
+     </div>
+    </div>
+    <div className="grid grid-cols-2 gap-3 p-3"><Button type="button" variant="outline" disabled={!selected} onClick={duplicateSelected}>Copy</Button><Button type="button" variant="outline" disabled={!selected} onClick={removeSelected}>Delete</Button></div>
+   </section>
+
+   <section className="min-w-0 rounded-sm border bg-white p-4 dark:bg-background">
+    <div className="mb-4 text-xs font-bold uppercase tracking-wide text-slate-700 dark:text-slate-200">Template Details</div>
+    <label className="grid gap-1 text-sm"><span className="font-medium">Template Name</span><input className="h-10 rounded-md border bg-background px-3" maxLength={80} value={selected?.design.name||design.name} disabled={!selected} onChange={e=>renameSelected(e.target.value)}/></label>
+    <div className="mt-4 grid gap-3">
+     <label className="grid gap-1 text-sm"><span className="font-medium">Template Type</span><select className="h-10 rounded-md border bg-background px-3" value={selected?.type||'Invoice'} disabled={!selected} onChange={e=>changeType(e.target.value as TemplateDocumentType)}>{templateDocumentTypes.map(type=><option key={type} value={type}>{type}</option>)}</select></label>
+     <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={includeInactive} onChange={e=>setIncludeInactive(e.target.checked)}/>Include inactive templates</label>
+     <label className="grid gap-1 text-sm"><span className="font-medium">New template type</span><select className="h-10 rounded-md border bg-background px-3" value={newType} onChange={e=>setNewType(e.target.value as TemplateDocumentType)}>{templateDocumentTypes.map(type=><option key={type} value={type}>{type}</option>)}</select></label>
+     <Button type="button" variant="outline" onClick={copyCurrent}>New From Current</Button>
+     <Button type="button" variant="outline" disabled={!selected} onClick={toggleActive}>{selectedActive?'Make Inactive':'Make Active'}</Button>
+     <Button type="button" variant="outline" disabled={!selected} onClick={downloadSelected}>Download Selected Template</Button>
+    </div>
+    <div className="mt-5 rounded-md border border-[#79a500] bg-[#f7faef] p-3 dark:bg-background"><p className="font-semibold">A4 print / PDF ready</p><p className="mt-1 text-xs text-muted-foreground">The live preview on the right uses the selected company layout. Use <strong>Print / Save PDF — A4</strong> beside the preview for 210 × 297 mm output.</p></div>
+   </section>
   </div>
-  <div className="flex flex-wrap items-center gap-2 border-t bg-white p-3 dark:bg-background">
-   <select aria-label="Template actions" className="h-10 min-w-40 rounded-md border bg-background px-3 font-medium" defaultValue="" onChange={e=>{const action=e.target.value;e.currentTarget.value='';runAction(action);}}>
-    <option value="" disabled>Templates</option>
-    <option value="new">New from current</option>
-    <option value="duplicate" disabled={!selected}>Duplicate selected</option>
-    <option value="toggle" disabled={!selected}>{selectedActive?'Make inactive':'Make active'}</option>
-    <option value="download">Download template</option>
-    <option value="delete" disabled={!selected}>Delete selected</option>
-   </select>
-   <Button type="button" variant="outline" disabled={!selected} onClick={()=>selected&&onEdit(selected.id)}>Open Form</Button>
-   <label className="ml-1 flex items-center gap-2 whitespace-nowrap text-sm"><input type="checkbox" checked={includeInactive} onChange={e=>setIncludeInactive(e.target.checked)}/>Include inactive</label>
-   <div className="ml-auto flex flex-wrap items-center gap-2">
-    <label className="text-xs text-muted-foreground">New template type</label>
-    <select className="h-9 rounded-md border bg-background px-2 text-sm" value={newType} onChange={e=>setNewType(e.target.value as TemplateDocumentType)}>{templateDocumentTypes.map(type=><option key={type} value={type}>{type}</option>)}</select>
-    {selected&&<><label className="text-xs text-muted-foreground">Selected type</label><select className="h-9 rounded-md border bg-background px-2 text-sm" value={selected.type||'Invoice'} onChange={e=>changeType(e.target.value as TemplateDocumentType)}>{templateDocumentTypes.map(type=><option key={type} value={type}>{type}</option>)}</select></>}
-   </div>
+  <div className="flex flex-wrap items-center gap-2 border-t bg-slate-50 p-3 dark:bg-background">
+   <Button type="button" variant="outline" onClick={()=>toast.info('Select a template, use Copy/Delete as needed, then press OK to open it. Save Company Setup to permanently keep template changes.')}>Help</Button>
+   <Button type="button" variant="outline" className="ml-auto" onClick={downloadAll}>Download Templates...</Button>
+   <Button type="button" className="min-w-28 brand-primary-button" disabled={!selected} onClick={openSelected}>OK</Button>
+   <Button type="button" variant="outline" className="min-w-28" onClick={()=>toast.info('Template changes are not permanent until Company Setup is saved.')}>Cancel</Button>
   </div>
-  <p className="border-t bg-muted/30 px-3 py-2 text-xs text-muted-foreground">Select a row and choose Open Form to edit it. Double-clicking a row also opens it. Save Company Setup to keep template, type, active/inactive, edit, or delete changes.</p>
  </div>;
 }
