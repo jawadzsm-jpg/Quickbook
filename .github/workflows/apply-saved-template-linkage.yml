@@ -1,0 +1,31 @@
+name: Apply saved document template linkage
+
+on:
+  push:
+    paths:
+      - scripts/link-saved-document-templates.mjs
+      - .github/workflows/apply-saved-template-linkage.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    name: Apply document template linkage
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Apply exact codemod
+        run: node scripts/link-saved-document-templates.mjs
+      - name: Commit linkage
+        run: |
+          if git diff --quiet -- app/enterprise-app.tsx; then
+            echo "No enterprise-app change was needed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/enterprise-app.tsx
+          git commit -m "Link saved document templates to transaction views"
+          git push
