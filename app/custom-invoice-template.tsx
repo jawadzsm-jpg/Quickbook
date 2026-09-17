@@ -40,7 +40,7 @@ export function CustomInvoiceTemplate({design,record,lines,setup,contact,target=
  };
  const editableClass=(key:string,base='')=>`${base}${editable&&movable(key)?`${base?' ':''}ci-editable`:''}`;
  const headers=design.headers.filter(f=>f[target]); const columns=design.columns.filter(f=>f[target]); const footer=design.footer.filter(f=>f[target]);
- const money=(v:unknown)=>Number(v||0).toLocaleString('en-US',{minimumFractionDigits:design.decimals,maximumFractionDigits:design.decimals});
+ const money=(v:unknown)=>Number(v||0).toLocaleString('en-US',{minimumFractionDigits:design.printTrailingZeros?design.decimals:0,maximumFractionDigits:design.decimals});
  const values:Record<string,unknown>={number:record.number,date:record.transactionDate,billTo:contact?.billingName||contact?.company||record.party,shipTo:record.deliveryAddress||contact?.shippingAddress||contact?.country||'',terms:record.terms||contact?.paymentTerms||'',dueDate:record.dueDate,salesman:record.salesman,trn:setup.trn,source:record.sourceDocumentNumber||'',subtotal:record.subtotal,vatAmount:record.vatAmount,total:record.total,balance:record.balance??(record.status==='paid'?0:record.total),message:design.message,disclaimer:design.disclaimer};
  const textFooter=footer.filter(f=>['message','disclaimer'].includes(f.key));
  return <article className="custom-invoice" style={{fontFamily:design.font,fontSize:design.fontSize,color:'#111',background:'#fff',padding:20}}>
