@@ -1,5 +1,5 @@
 export type DesignField = { key: string; label: string; screen: boolean; print: boolean; width: number };
-export const templateDocumentTypes = ['Invoice','Credit Note','Sales Receipt','Purchase Order','Statement','Estimate','Sales Order','Delivery Note','Packing List','Proforma Invoice'] as const;
+export const templateDocumentTypes = ['Invoice','Credit Note','Refund','Sales Receipt','Purchase Order','Statement','Estimate','Sales Order','Delivery Note','Packing List','Proforma Invoice'] as const;
 export type TemplateDocumentType = typeof templateDocumentTypes[number];
 export type DocumentDesign = { properties: Record<string, ElementProperties>; savedTemplates: SavedTemplate[]; enabled: boolean; name: string; title: string; font: 'Arial' | 'Georgia' | 'Verdana'; fontSize: number; titleSize: number; companySize: number; color: string; leftLogo: boolean; rightLogo: boolean; logoWidth: number; logoHeight: number; showCompany: boolean; showAddress: boolean; showPhone: boolean; showEmail: boolean; statusStamp: boolean; pastDueStamp: boolean; headers: DesignField[]; columns: DesignField[]; footer: DesignField[]; message: string; disclaimer: string; printerMode: 'default' | 'specified'; copies: number; paper: 'A4' | 'A3' | 'Letter' | 'Legal' | 'Tabloid' | 'Custom'; customPaperWidth: number; customPaperHeight: number; orientation: 'portrait' | 'landscape'; margin: number; printPageNumbers: boolean; printTrailingZeros: boolean; decimals: number };
 const field = (key: string, label: string, width = 1, visible = true): DesignField => ({ key, label, width, screen: visible, print: visible });
@@ -12,6 +12,14 @@ export const defaultDocumentDesign: DocumentDesign = {
 };
 export function readDocumentDesign(value?: string): DocumentDesign {
  try { return validateDocumentDesign(value || ''); } catch { return structuredClone(defaultDocumentDesign); }
+}
+export function resolveDocumentDesign(value: string | undefined, type?: TemplateDocumentType) {
+ const root = readDocumentDesign(value);
+ const savedTemplate = type ? [...root.savedTemplates].reverse().find((template) => template.type === type && template.active !== false) ?? null : null;
+ if (savedTemplate) {
+  return { design: { ...structuredClone(savedTemplate.design), savedTemplates: root.savedTemplates } as DocumentDesign, savedTemplate };
+ }
+ return { design: root.enabled ? root : structuredClone(defaultDocumentDesign), savedTemplate: null as SavedTemplate | null };
 }
 export function validateDocumentDesign(value: string): DocumentDesign {
  if (!value) return structuredClone(defaultDocumentDesign);
