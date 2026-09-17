@@ -22,30 +22,41 @@ export function TemplateManager({design,onChange,onEdit,editingId}:{design:Docum
   while(templates.some(t=>t.design.name===name))name=`${base} copy ${count++}`;
   return name;
  };
+ const activateOnly=(id:string,type:TemplateDocumentType)=>templates.map(t=>t.id===id?{...t,type,active:true}:t.type===type&&t.active!==false?{...t,active:false}:t);
  const copyCurrent=()=>{
   try {
    if(templates.length>=20)throw new Error('Keep at most 20 saved templates.');
    const value=snapshot();
    const id=crypto.randomUUID();
    const name=uniqueName(value.name);
-   onChange({savedTemplates:[...templates,{id,type:newType,active:true,design:{...value,name}}]});
+   const next=activateOnly(id,newType);
+   onChange({savedTemplates:[...next,{id,type:newType,active:true,design:{...value,name}}]});
    setSelectedId(id);
-   toast.success('Template created. Save Company Setup to keep these changes.');
+   toast.success(`Saved customization enabled for ${newType}. Save Company Setup to keep these changes.`);
   }catch(error){toast.error(error instanceof Error?error.message:'Check the template settings.');}
  };
  const duplicateSelected=()=>{
   if(!selected)return;
   if(templates.length>=20)return toast.error('Keep at most 20 saved templates.');
   const id=crypto.randomUUID();
+  const type=selected.type||'Invoice';
   const name=uniqueName(selected.design.name);
-  onChange({savedTemplates:[...templates,{...selected,id,type:selected.type||'Invoice',active:true,design:{...selected.design,name}}]});
+  const next=activateOnly(id,type);
+  onChange({savedTemplates:[...next,{...selected,id,type,active:true,design:{...selected.design,name}}]});
   setSelectedId(id);
-  toast.success('Template copied. Save Company Setup to keep this change.');
+  toast.success(`Copied template and enabled it for ${type}. Save Company Setup to keep this change.`);
  };
- const toggleActive=()=>{
+ const setUseSavedCustomization=(enabled:boolean)=>{
   if(!selected)return;
-  onChange({savedTemplates:templates.map(t=>t.id===selected.id?{...t,active:!selectedActive}:t)});
-  if(selectedActive&&!includeInactive)setSelectedId(visibleTemplates.find(t=>t.id!==selected.id)?.id||'');
+  const type=selected.type||'Invoice';
+  if(enabled){
+   onChange({savedTemplates:activateOnly(selected.id,type)});
+   toast.success(`Saved customization enabled for ${type}.`);
+  } else {
+   onChange({savedTemplates:templates.map(t=>t.id===selected.id?{...t,active:false}:t)});
+   toast.success(`Saved customization disabled for ${type}.`);
+   if(!includeInactive)setSelectedId(visibleTemplates.find(t=>t.id!==selected.id)?.id||'');
+  }
  };
  const removeSelected=()=>{
   if(!selected)return;
@@ -55,7 +66,11 @@ export function TemplateManager({design,onChange,onEdit,editingId}:{design:Docum
  };
  const changeType=(type:TemplateDocumentType)=>{
   if(!selected)return;
-  onChange({savedTemplates:templates.map(t=>t.id===selected.id?{...t,type}:t)});
+  if(selectedActive){
+   onChange({savedTemplates:templates.map(t=>t.id===selected.id?{...t,type,active:true}:t.type===type&&t.active!==false?{...t,active:false}:t)});
+  }else{
+   onChange({savedTemplates:templates.map(t=>t.id===selected.id?{...t,type}:t)});
+  }
  };
  const renameSelected=(name:string)=>{
   if(!selected)return;
@@ -113,17 +128,17 @@ export function TemplateManager({design,onChange,onEdit,editingId}:{design:Docum
     <label className="grid gap-1 text-sm"><span className="font-medium">Template Name</span><input className="h-10 rounded-md border bg-background px-3" maxLength={80} value={selected?.design.name||design.name} disabled={!selected} onChange={e=>renameSelected(e.target.value)}/></label>
     <div className="mt-4 grid gap-3">
      <label className="grid gap-1 text-sm"><span className="font-medium">Template Type</span><select className="h-10 rounded-md border bg-background px-3" value={selected?.type||'Invoice'} disabled={!selected} onChange={e=>changeType(e.target.value as TemplateDocumentType)}>{templateDocumentTypes.map(type=><option key={type} value={type}>{type}</option>)}</select></label>
+     <label className="rounded-md border border-[#79a500] bg-[#f7faef] p-3 text-sm dark:bg-background"><span className="flex items-center gap-2 font-medium"><input type="checkbox" checked={selectedActive} disabled={!selected} onChange={e=>setUseSavedCustomization(e.target.checked)}/>Use my saved customization for {selected?.type||'this document type'}</span><span className="mt-1 block pl-6 text-xs text-muted-foreground">When enabled, this saved template is used for the selected document type. Only one saved customization can be active for each type.</span></label>
      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={includeInactive} onChange={e=>setIncludeInactive(e.target.checked)}/>Include inactive templates</label>
      <label className="grid gap-1 text-sm"><span className="font-medium">New template type</span><select className="h-10 rounded-md border bg-background px-3" value={newType} onChange={e=>setNewType(e.target.value as TemplateDocumentType)}>{templateDocumentTypes.map(type=><option key={type} value={type}>{type}</option>)}</select></label>
      <Button type="button" variant="outline" onClick={copyCurrent}>New From Current</Button>
-     <Button type="button" variant="outline" disabled={!selected} onClick={toggleActive}>{selectedActive?'Make Inactive':'Make Active'}</Button>
      <Button type="button" variant="outline" disabled={!selected} onClick={downloadSelected}>Download Selected Template</Button>
     </div>
     <div className="mt-5 rounded-md border border-[#79a500] bg-[#f7faef] p-3 dark:bg-background"><p className="font-semibold">A4 print / PDF ready</p><p className="mt-1 text-xs text-muted-foreground">The live preview on the right uses the selected company layout. Use <strong>Print / Save PDF — A4</strong> beside the preview for 210 × 297 mm output.</p></div>
    </section>
   </div>
   <div className="flex flex-wrap items-center gap-2 border-t bg-slate-50 p-3 dark:bg-background">
-   <Button type="button" variant="outline" onClick={()=>toast.info('Select a template, use Copy/Delete as needed, then press OK to open it. Save Company Setup to permanently keep template changes.')}>Help</Button>
+   <Button type="button" variant="outline" onClick={()=>toast.info('Select a template, choose its document type, then enable Use my saved customization. Save Company Setup to permanently keep template changes.')}>Help</Button>
    <Button type="button" variant="outline" className="ml-auto" onClick={downloadAll}>Download Templates...</Button>
    <Button type="button" className="min-w-28 brand-primary-button" disabled={!selected} onClick={openSelected}>OK</Button>
    <Button type="button" variant="outline" className="min-w-28" onClick={()=>toast.info('Template changes are not permanent until Company Setup is saved.')}>Cancel</Button>
