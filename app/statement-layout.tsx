@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { resolveDocumentDesign } from "@/lib/document-design";
+import { documentPageRule } from "@/lib/document-print";
 
 export type StatementData = {
   partyType?: "customer" | "vendor"; memo?: string;
@@ -38,11 +39,12 @@ export function StatementHeading({ statement, currency, company }: {
   const date = (value: string) => value ? new Date(value + "T12:00:00Z").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }) : "Beginning";
   const money = (amount: number) => new Intl.NumberFormat("en-AE", { style: "currency", currency }).format(amount);
   const { design, savedTemplate } = resolveDocumentDesign(company.documentDesign, "Statement");
-  if (!savedTemplate) design.title = "Statement of Account";
+  if (!savedTemplate || savedTemplate.appliesToAll || savedTemplate.type !== "Statement") design.title = "Statement of Account";
+  const printDesign = { ...design, paper: "A4" as const, printerMode: "specified" as const };
   const address = [company.addressLine1, company.addressLine2, company.city, company.country].filter(Boolean).join(", ");
   const contact = [company.phone, company.email].filter(Boolean).join(" · ");
-  return <section className="statement-heading" style={{ fontFamily: design.font, fontSize: design.fontSize }}>
-    <style>{`@page{size:${design.paper} ${design.orientation};margin:${design.margin}mm}.customer-statement .report-table{font-family:${design.font};font-size:${design.fontSize}px}.customer-statement .report-table thead th{color:${design.color}}`}</style>
+  return <section className="statement-heading" style={{ fontFamily: design.font, fontSize: design.fontSize, position: "relative" }}>
+    <style>{`${documentPageRule(printDesign)}.statement-box-print{display:none}.customer-statement .report-table{font-family:${design.font};font-size:${design.fontSize}px}.customer-statement .report-table thead th{color:${design.color}}@media print{.statement-box-screen{display:none!important}.statement-box-print{display:block!important}}`}</style>
     <div className="statement-brand">
       <div className="flex min-w-0 gap-4">
         {design.leftLogo && company.logoData ? <Image unoptimized width={design.logoWidth} height={design.logoHeight} src={company.logoData} alt={company.name} className="mb-3 max-h-20 max-w-52 object-contain" /> : null}
@@ -56,5 +58,9 @@ export function StatementHeading({ statement, currency, company }: {
     {design.message ? <div className="statement-memo"><strong>Message</strong><p className="whitespace-pre-wrap break-words">{design.message}</p></div> : null}
     <p className="statement-note">{statement.customer ? "Account activity and running balance for the selected period." : "Account activity for all selected accounts. Each row shows that account's running balance."} Balances include activity before the From date.</p>
     {design.disclaimer ? <p className="statement-note whitespace-pre-wrap break-words">{design.disclaimer}</p> : null}
+    {design.customBoxes.flatMap((box) => {
+      const style = { position: "absolute" as const, left: `${box.left / 7.6}%`, top: box.down, width: `${box.width / 7.6}%`, height: box.height, maxWidth: `${Math.max(0, (760 - box.left) / 7.6)}%`, padding: 6, overflow: "hidden", whiteSpace: "pre-wrap" as const, overflowWrap: "anywhere" as const, fontSize: box.fontSize, fontWeight: box.bold ? 700 : 400, border: box.border ? "1px solid #94a3b8" : "none", background: "#fff", zIndex: 5 };
+      return [box.screen ? <div key={`${box.id}-screen`} className="statement-box-screen" style={style}>{box.text}</div> : null, box.print ? <div key={`${box.id}-print`} className="statement-box-print" style={style}>{box.text}</div> : null];
+    })}
   </section>;
 }
