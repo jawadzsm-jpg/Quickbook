@@ -16,7 +16,10 @@ export function readDocumentDesign(value?: string): DocumentDesign {
 }
 export function resolveDocumentDesign(value: string | undefined, type?: TemplateDocumentType) {
  const root = readDocumentDesign(value);
- const savedTemplate = type ? [...root.savedTemplates].reverse().find((template) => template.type === type && template.active !== false) ?? null : null;
+ const activeTemplates = [...root.savedTemplates].reverse().filter((template) => template.active !== false);
+ const globalTemplate = activeTemplates.find((template) => template.appliesToAll === true) ?? null;
+ const typedTemplate = type ? activeTemplates.find((template) => template.type === type) ?? null : null;
+ const savedTemplate = globalTemplate ?? typedTemplate;
  if (savedTemplate) {
   return { design: { ...structuredClone(savedTemplate.design), savedTemplates: root.savedTemplates } as DocumentDesign, savedTemplate };
  }
@@ -50,6 +53,7 @@ export function validateDocumentDesign(value: string): DocumentDesign {
     ids.add(entry.id);
     if (entry.type !== undefined && !templateDocumentTypes.includes(entry.type as TemplateDocumentType)) throw new Error('Invalid saved template metadata.');
     if (entry.active !== undefined && typeof entry.active !== 'boolean') throw new Error('Invalid saved template metadata.');
+    if (entry.appliesToAll !== undefined && typeof entry.appliesToAll !== 'boolean') throw new Error('Invalid saved template metadata.');
     const validated = validateDocumentDesign(JSON.stringify(entry.design));
     const { savedTemplates: omitted, ...snapshot } = validated;
     void omitted;
@@ -57,6 +61,7 @@ export function validateDocumentDesign(value: string): DocumentDesign {
      id: entry.id,
      ...(entry.type === undefined ? {} : { type: entry.type as TemplateDocumentType }),
      ...(entry.active === undefined ? {} : { active: entry.active }),
+     ...(entry.appliesToAll === undefined ? {} : { appliesToAll: entry.appliesToAll }),
      design: snapshot,
     };
    });
@@ -80,7 +85,7 @@ export function validateDocumentDesign(value: string): DocumentDesign {
  return result;
 }
 
-export type SavedTemplate = { id: string; type?: TemplateDocumentType; active?: boolean; design: Omit<DocumentDesign, 'savedTemplates'> };
+export type SavedTemplate = { id: string; type?: TemplateDocumentType; active?: boolean; appliesToAll?: boolean; design: Omit<DocumentDesign, 'savedTemplates'> };
 export type ElementProperties = {
  align: 'left' | 'center' | 'right'; vertical: 'top' | 'middle' | 'bottom';
  font: 'Arial' | 'Georgia' | 'Verdana'; size: number; bold: boolean; italic: boolean; underline: boolean; color: string;
