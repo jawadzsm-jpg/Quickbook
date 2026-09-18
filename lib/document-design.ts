@@ -106,7 +106,8 @@ export function propertyTargets(design: DocumentDesign) {
  return [
   {key:'leftLogo',label:'Left logo'}, {key:'company',label:'Company name'}, {key:'title',label:'Invoice title'}, {key:'rightLogo',label:'Right logo'},
   {key:'status',label:'Document status'}, {key:'itemsTable',label:'Items table'}, {key:'footerText',label:'Footer text block'}, {key:'totals',label:'Totals block'},
-  ...(['headers','columns','footer'] as const).flatMap(group=>design[group].map(f=>({key:`${group}.${f.key}`,label:`${group === 'headers' ? 'Header' : group === 'columns' ? 'Column' : 'Footer'}: ${f.label}`})))
+  ...(['headers','columns','footer'] as const).flatMap(group=>design[group].map(f=>({key:`${group}.${f.key}`,label:`${group === 'headers' ? 'Header' : group === 'columns' ? 'Column' : 'Footer'}: ${f.label}`}))),
+  ...design.customBoxes.map((box,index)=>({key:`customBoxes.${box.id}`,label:`Added box ${index+1}: ${box.text.slice(0,30)||'Text box'}`}))
  ];
 }
 function validateProperties(value: unknown): Record<string, ElementProperties> {
@@ -115,7 +116,8 @@ function validateProperties(value: unknown): Record<string, ElementProperties> {
  const allowed = new Set(propertyTargets(defaultDocumentDesign).map(t=>t.key));
  for (const [key, raw] of Object.entries(value)) {
   const customFieldProperty = /^(headers|columns|footer)\.custom-[a-zA-Z0-9-]{1,72}$/.test(key);
-  if ((!allowed.has(key) && !customFieldProperty) || !raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Invalid property target.');
+  const customBoxProperty = /^customBoxes\.[a-zA-Z0-9-]{1,80}$/.test(key);
+  if ((!allowed.has(key) && !customFieldProperty && !customBoxProperty) || !raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Invalid property target.');
   const p = {...defaultElementProperties};
   for (const field of Object.keys(p) as (keyof ElementProperties)[]) {
    if (raw[field] === undefined) continue;
