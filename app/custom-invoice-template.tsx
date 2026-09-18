@@ -6,7 +6,7 @@ type Data = Record<string, string | number | boolean>;
 const templateToday = new Date().toISOString().slice(0,10);
 export type TemplateBranding = {name:string;logoData:string;rightLogoData?:string;phone:string;email?:string;trn:string;addressLine1:string;addressLine2:string;city:string;country:string};
 export function CustomInvoiceTemplate({design,record,lines,setup,contact,target='screen',editable=false,onMoveElement,onResizeElement,onMoveCustomBox,onResizeCustomBox}:{design:DocumentDesign;record:Data;lines:Data[];setup:TemplateBranding;contact?:Data|null;target?:'screen'|'print';editable?:boolean;onMoveElement?:(key:string,x:number,y:number)=>void;onResizeElement?:(key:string,width:number,height:number)=>void;onMoveCustomBox?:(id:string,left:number,down:number)=>void;onResizeCustomBox?:(id:string,width:number,height:number)=>void}) {
- const movable=(_key:string)=>true;
+ const movable=()=>true;
  const properties=(key:string):CSSProperties=>{
   const p=design.properties?.[key];
   if(!p)return editable&&movable(key)?{cursor:'move',touchAction:'none',position:'relative',zIndex:1}:{};
