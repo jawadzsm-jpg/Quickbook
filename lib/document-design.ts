@@ -70,9 +70,11 @@ export function validateDocumentDesign(value: string): DocumentDesign {
   const original = result[key];
   if (Array.isArray(original)) {
    const rows = input[key];
-   if (!Array.isArray(rows) || rows.length !== original.length || new Set(rows.map(r=>r?.key)).size !== original.length) throw new Error('Keep each template field exactly once.');
+   const allowedBuiltIn = new Set(original.map(row => row.key));
+   if (!Array.isArray(rows) || rows.length > 30 || new Set(rows.map(row=>row?.key)).size !== rows.length) throw new Error('Invalid template fields.');
    input[key] = rows.map(row => {
-    if (!original.some(f=>f.key===row?.key) || typeof row.label !== 'string' || row.label.length > 80 || !row.label.trim() || typeof row.screen !== 'boolean' || typeof row.print !== 'boolean' || !Number.isFinite(row.width) || row.width < 1 || row.width > 100) throw new Error('Invalid template field.');
+    const validKey = typeof row?.key === 'string' && (allowedBuiltIn.has(row.key) || /^custom-[a-zA-Z0-9-]{1,72}$/.test(row.key));
+    if (!validKey || typeof row.label !== 'string' || row.label.length > 80 || !row.label.trim() || typeof row.screen !== 'boolean' || typeof row.print !== 'boolean' || !Number.isFinite(row.width) || row.width < 1 || row.width > 100) throw new Error('Invalid template field.');
     return {key:row.key,label:row.label,screen:row.screen,print:row.print,width:row.width};
    });
   } else if (typeof input[key] !== typeof original) throw new Error('Invalid template setting.');
@@ -112,7 +114,8 @@ function validateProperties(value: unknown): Record<string, ElementProperties> {
  const result: Record<string, ElementProperties> = {};
  const allowed = new Set(propertyTargets(defaultDocumentDesign).map(t=>t.key));
  for (const [key, raw] of Object.entries(value)) {
-  if (!allowed.has(key) || !raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Invalid property target.');
+  const customFieldProperty = /^(headers|columns|footer)\.custom-[a-zA-Z0-9-]{1,72}$/.test(key);
+  if ((!allowed.has(key) && !customFieldProperty) || !raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Invalid property target.');
   const p = {...defaultElementProperties};
   for (const field of Object.keys(p) as (keyof ElementProperties)[]) {
    if (raw[field] === undefined) continue;
