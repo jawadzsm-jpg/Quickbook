@@ -1,10 +1,11 @@
 export type DesignField = { key: string; label: string; screen: boolean; print: boolean; width: number };
+export type CustomTemplateBox = { id: string; text: string; screen: boolean; print: boolean };
 export const templateDocumentTypes = ['Invoice','Credit Note','Refund','Sales Receipt','Purchase Order','Statement','Estimate','Sales Order','Delivery Note','Packing List','Proforma Invoice'] as const;
 export type TemplateDocumentType = typeof templateDocumentTypes[number];
-export type DocumentDesign = { properties: Record<string, ElementProperties>; savedTemplates: SavedTemplate[]; enabled: boolean; name: string; title: string; font: 'Arial' | 'Georgia' | 'Verdana'; fontSize: number; titleSize: number; companySize: number; color: string; leftLogo: boolean; rightLogo: boolean; logoWidth: number; logoHeight: number; showCompany: boolean; showAddress: boolean; showPhone: boolean; showEmail: boolean; statusStamp: boolean; pastDueStamp: boolean; headers: DesignField[]; columns: DesignField[]; footer: DesignField[]; message: string; disclaimer: string; printerMode: 'default' | 'specified'; copies: number; paper: 'A4' | 'A3' | 'Letter' | 'Legal' | 'Tabloid' | 'Custom'; customPaperWidth: number; customPaperHeight: number; orientation: 'portrait' | 'landscape'; margin: number; printPageNumbers: boolean; printTrailingZeros: boolean; decimals: number };
+export type DocumentDesign = { customBoxes: CustomTemplateBox[]; hiddenElements: string[]; properties: Record<string, ElementProperties>; savedTemplates: SavedTemplate[]; enabled: boolean; name: string; title: string; font: 'Arial' | 'Georgia' | 'Verdana'; fontSize: number; titleSize: number; companySize: number; color: string; leftLogo: boolean; rightLogo: boolean; logoWidth: number; logoHeight: number; showCompany: boolean; showAddress: boolean; showPhone: boolean; showEmail: boolean; statusStamp: boolean; pastDueStamp: boolean; headers: DesignField[]; columns: DesignField[]; footer: DesignField[]; message: string; disclaimer: string; printerMode: 'default' | 'specified'; copies: number; paper: 'A4' | 'A3' | 'Letter' | 'Legal' | 'Tabloid' | 'Custom'; customPaperWidth: number; customPaperHeight: number; orientation: 'portrait' | 'landscape'; margin: number; printPageNumbers: boolean; printTrailingZeros: boolean; decimals: number };
 const field = (key: string, label: string, width = 1, visible = true): DesignField => ({ key, label, width, screen: visible, print: visible });
 export const defaultDocumentDesign: DocumentDesign = {
- properties: {}, savedTemplates: [], enabled: false, name: 'Company invoice', title: 'Tax Invoice', font: 'Arial', fontSize: 11, titleSize: 26, companySize: 21, color: '#164e63', leftLogo: true, rightLogo: true, logoWidth: 150, logoHeight: 70, showCompany: true, showAddress: true, showPhone: true, showEmail: true, statusStamp: true, pastDueStamp: false,
+ customBoxes: [], hiddenElements: [], properties: {}, savedTemplates: [], enabled: false, name: 'Company invoice', title: 'Tax Invoice', font: 'Arial', fontSize: 11, titleSize: 26, companySize: 21, color: '#164e63', leftLogo: true, rightLogo: true, logoWidth: 150, logoHeight: 70, showCompany: true, showAddress: true, showPhone: true, showEmail: true, statusStamp: true, pastDueStamp: false,
  headers: [field('number','Invoice #'),field('date','Date'),field('billTo','Bill To'),field('shipTo','Ship To'),field('terms','Terms'),field('dueDate','Due Date'),field('salesman','Sales Rep'),field('trn','TRN'),field('source','Source Document',1,false)],
  columns: [field('sku','Item',12),field('description','Description',38),field('quantity','Qty',7),field('unitPrice','Rate',10),field('serialNumber','Serial Number',18),field('subtotal','Subtotal',10),field('vatAmount','VAT',8),field('total','Amount',10),field('comments','Comments',20,false)],
  footer: [field('subtotal','Subtotal'),field('vatAmount','VAT'),field('total','Total'),field('balance','Balance Due'),field('message','Customer Message'),field('disclaimer','Terms & Conditions')],
@@ -29,7 +30,22 @@ export function validateDocumentDesign(value: string): DocumentDesign {
  const result = structuredClone(defaultDocumentDesign);
  for (const key of Object.keys(result) as (keyof DocumentDesign)[]) {
   if (input[key] === undefined) continue;
-  if (key === 'properties') { result.properties = validateProperties(input[key]); continue; }
+  if (key === 'customBoxes') {
+   if (!Array.isArray(input[key]) || input[key].length > 50) throw new Error('Keep at most 50 custom text boxes.');
+   const ids = new Set<string>();
+   result.customBoxes = input[key].map((entry: CustomTemplateBox) => {
+    if (!entry || typeof entry.id !== 'string' || !/^[a-zA-Z0-9-]{1,80}$/.test(entry.id) || ids.has(entry.id) || typeof entry.text !== 'string' || entry.text.length > 2000 || typeof entry.screen !== 'boolean' || typeof entry.print !== 'boolean') throw new Error('Invalid custom text box.');
+    ids.add(entry.id);
+    return { id: entry.id, text: entry.text, screen: entry.screen, print: entry.print };
+   });
+   continue;
+  }
+  if (key === 'hiddenElements') {
+   if (!Array.isArray(input[key]) || input[key].length > 100 || input[key].some((entry: unknown) => typeof entry !== 'string' || entry.length > 120)) throw new Error('Invalid hidden template elements.');
+   result.hiddenElements = Array.from(new Set(input[key] as string[]));
+   continue;
+  }
+  if (key === 'properties') { result.properties = validateProperties(input[key], result); continue; }
   if (key === 'savedTemplates') {
    if (!Array.isArray(input[key]) || input[key].length > 20) throw new Error('Keep at most 20 saved templates.');
    const ids = new Set<string>();
@@ -61,6 +77,8 @@ export function validateDocumentDesign(value: string): DocumentDesign {
   } else if (typeof input[key] !== typeof original) throw new Error('Invalid template setting.');
   Object.assign(result, {[key]:input[key]});
  }
+ const allowedTargets = new Set(propertyTargets(result).map(target => target.key));
+ if (result.hiddenElements.some(key => !allowedTargets.has(key) || key.startsWith('custom.'))) throw new Error('Invalid hidden template element.');
  if (!['Arial','Georgia','Verdana'].includes(result.font) || !['default','specified'].includes(result.printerMode) || !['A4','A3','Letter','Legal','Tabloid','Custom'].includes(result.paper) || !['portrait','landscape'].includes(result.orientation) || !/^#[0-9a-f]{6}$/i.test(result.color)) throw new Error('Choose valid font, color and paper settings.');
  for (const [key,min,max] of [['fontSize',8,18],['titleSize',14,40],['companySize',12,36],['logoWidth',40,240],['logoHeight',30,150],['copies',1,99],['customPaperWidth',50,500],['customPaperHeight',50,500],['margin',5,25],['decimals',0,4]] as const) if (!Number.isInteger(result[key]) || result[key]<min || result[key]>max) throw new Error(`Invalid ${key}.`);
  if (result.name.length>80 || result.title.length>80 || !result.name.trim() || !result.title.trim() || result.message.length>5000 || result.disclaimer.length>15000) throw new Error('Check the template name, title and footer text lengths.');
@@ -85,15 +103,16 @@ export const defaultElementProperties: ElementProperties = {
 };
 export function propertyTargets(design: DocumentDesign) {
  return [
-  {key:'leftLogo',label:'Left logo'}, {key:'company',label:'Company name'}, {key:'title',label:'Invoice title'}, {key:'rightLogo',label:'Right logo'},
+  {key:'leftLogo',label:'Left logo'}, {key:'company',label:'Company name'}, {key:'title',label:'Document title'}, {key:'rightLogo',label:'Right logo'},
   {key:'status',label:'Document status'}, {key:'itemsTable',label:'Items table'}, {key:'footerText',label:'Footer text block'}, {key:'totals',label:'Totals block'},
-  ...(['headers','columns','footer'] as const).flatMap(group=>design[group].map(f=>({key:`${group}.${f.key}`,label:`${group === 'headers' ? 'Header' : group === 'columns' ? 'Column' : 'Footer'}: ${f.label}`})))
+  ...(['headers','columns','footer'] as const).flatMap(group=>design[group].map(f=>({key:`${group}.${f.key}`,label:`${group === 'headers' ? 'Header' : group === 'columns' ? 'Column' : 'Footer'}: ${f.label}`}))),
+  ...design.customBoxes.map(box=>({key:`custom.${box.id}`,label:`Text box: ${box.text.trim().slice(0,40) || 'Untitled'}`})),
  ];
 }
-function validateProperties(value: unknown): Record<string, ElementProperties> {
+function validateProperties(value: unknown, design: DocumentDesign): Record<string, ElementProperties> {
  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid element properties.');
  const result: Record<string, ElementProperties> = {};
- const allowed = new Set(propertyTargets(defaultDocumentDesign).map(t=>t.key));
+ const allowed = new Set(propertyTargets(design).map(t=>t.key));
  for (const [key, raw] of Object.entries(value)) {
   if (!allowed.has(key) || !raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Invalid property target.');
   const p = {...defaultElementProperties};
