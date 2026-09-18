@@ -24,5 +24,8 @@ export function documentPageSizeCss(design: DocumentDesign): string {
 
 export function documentPageRule(design: DocumentDesign): string {
   if (design.printerMode !== 'specified') return '';
-  return `@page{size:${documentPageSizeCss(design)};margin:${design.margin}mm}`;
+  const pageNumbers = design.printPageNumbers
+    ? '@bottom-center{content:"Page " counter(page) " of " counter(pages);font:10px Arial,sans-serif;color:#475569;}'
+    : '';
+  return `@page{size:${documentPageSizeCss(design)};margin:${design.margin}mm;${pageNumbers}}`;
 }
