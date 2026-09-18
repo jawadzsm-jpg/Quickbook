@@ -18,7 +18,7 @@ export const salesDocumentTitles = {
   "credit-note": "Credit Note",
   refund: "Refund",
   quotation: "Quotation",
-  "cash-sales": "Cash Sales",
+  "cash-sales": "Sales Receipt",
   "delivery-note": "Delivery Note",
   "packing-list": "Packing List",
 } as const;
@@ -51,7 +51,9 @@ export function salesDocumentModeForTransaction(type: string): SalesDocumentMode
     case "proforma invoice": return "proforma-invoice";
     case "sales order": return "sales-order";
     case "purchase order": return "purchase-order";
-    case "credit memo": return "credit-note";
+    case "credit memo":
+    case "credit note": return "credit-note";
+    case "refund": return "refund";
     case "sales receipt": return "cash-sales";
     case "quotation": return "quotation";
     case "delivery note": return "delivery-note";
@@ -67,8 +69,9 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
   const outputModes = relatedDocumentOutputs[mode] ?? [mode];
   const [selection, setSelection] = useState<{ source: SalesDocumentMode; output: SalesDocumentMode }>({ source: mode, output: mode });
   const activeMode = selection.source === mode && outputModes.includes(selection.output) ? selection.output : mode;
-  const { design, savedTemplate } = resolveDocumentDesign(setup.documentDesign, savedTemplateType[activeMode]);
-  if (!savedTemplate) design.title = salesDocumentTitles[activeMode];
+  const requestedTemplateType = savedTemplateType[activeMode];
+  const { design, savedTemplate } = resolveDocumentDesign(setup.documentDesign, requestedTemplateType);
+  if (!savedTemplate || savedTemplate.appliesToAll || (requestedTemplateType && savedTemplate.type !== requestedTemplateType)) design.title = salesDocumentTitles[activeMode];
 
   const a4Design = { ...design, paper: "A4" as const, printerMode: "specified" as const };
   const pageRule = documentPageRule(a4Design);
