@@ -19,7 +19,7 @@ export function resolveDocumentDesign(value: string | undefined, type?: Template
  const activeTemplates = [...root.savedTemplates].reverse().filter((template) => template.active !== false);
  const globalTemplate = activeTemplates.find((template) => template.appliesToAll === true) ?? null;
  const typedTemplate = type ? activeTemplates.find((template) => template.type === type) ?? null : null;
- const savedTemplate = globalTemplate ?? typedTemplate;
+ const savedTemplate = globalTemplate ?? typedTemplate ?? activeTemplates[0] ?? null;
  if (savedTemplate) {
   return { design: { ...structuredClone(savedTemplate.design), savedTemplates: root.savedTemplates } as DocumentDesign, savedTemplate };
  }
