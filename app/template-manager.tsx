@@ -14,6 +14,7 @@ export function TemplateManager({design,onChange,onEdit,editingId}:{design:Docum
  const effectiveSelectedId=visibleTemplates.some(t=>t.id===preferredId)?preferredId:(visibleTemplates[0]?.id||'');
  const selected=templates.find(t=>t.id===effectiveSelectedId);
  const selectedActive=selected ? selected.active!==false : false;
+ const selectedForAll=Boolean(selected?.appliesToAll);
 
  const snapshot=()=>{const {savedTemplates,...value}=validateDocumentDesign(JSON.stringify(design));void savedTemplates;return value;};
  const uniqueName=(baseName:string)=>{
@@ -45,6 +46,11 @@ export function TemplateManager({design,onChange,onEdit,editingId}:{design:Docum
   onChange({savedTemplates:[...next,{...selected,id,type,active:true,design:{...selected.design,name}}]});
   setSelectedId(id);
   toast.success(`Copied template and enabled it for ${type}. Save Company Setup to keep this change.`);
+ };
+ const setActiveForAll=(enabled:boolean)=>{
+  if(!selected)return;
+  onChange({savedTemplates:templates.map(t=>t.id===selected.id?{...t,active:true,appliesToAll:enabled}:{...t,appliesToAll:false})});
+  toast.success(enabled?'This template is now active for all document types.':'This template is no longer the all-document default.');
  };
  const setUseSavedCustomization=(enabled:boolean)=>{
   if(!selected)return;
@@ -128,7 +134,8 @@ export function TemplateManager({design,onChange,onEdit,editingId}:{design:Docum
     <label className="grid gap-1 text-sm"><span className="font-medium">Template Name</span><input className="h-10 rounded-md border bg-background px-3" maxLength={80} value={selected?.design.name||design.name} disabled={!selected} onChange={e=>renameSelected(e.target.value)}/></label>
     <div className="mt-4 grid gap-3">
      <label className="grid gap-1 text-sm"><span className="font-medium">Template Type</span><select className="h-10 rounded-md border bg-background px-3" value={selected?.type||'Invoice'} disabled={!selected} onChange={e=>changeType(e.target.value as TemplateDocumentType)}>{templateDocumentTypes.map(type=><option key={type} value={type}>{type}</option>)}</select></label>
-     <label className="rounded-md border border-[#79a500] bg-[#f7faef] p-3 text-sm dark:bg-background"><span className="flex items-center gap-2 font-medium"><input type="checkbox" checked={selectedActive} disabled={!selected} onChange={e=>setUseSavedCustomization(e.target.checked)}/>Use my saved customization for {selected?.type||'this document type'}</span><span className="mt-1 block pl-6 text-xs text-muted-foreground">When enabled, this saved template is used for the selected document type. Only one saved customization can be active for each type.</span></label>
+     <label className="rounded-md border border-[#79a500] bg-[#f7faef] p-3 text-sm dark:bg-background"><span className="flex items-center gap-2 font-medium"><input type="checkbox" checked={selectedActive} disabled={!selected} onChange={e=>setUseSavedCustomization(e.target.checked)}/>Use my saved customization for {selected?.type||'this document type'}</span><span className="mt-1 block pl-6 text-xs text-muted-foreground">When enabled, this saved template is used for the selected document type.</span></label>
+     <label className="rounded-md border border-[#2563eb] bg-[#eff6ff] p-3 text-sm dark:bg-background"><span className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={selectedForAll} disabled={!selected} onChange={e=>setActiveForAll(e.target.checked)}/>Make this template active for ALL document types</span><span className="mt-1 block pl-6 text-xs text-muted-foreground">Applies this same layout to Invoice, Credit Note, Refund, Sales Receipt, Purchase Order, Statement, Estimate, Sales Order, Delivery Note, Packing List, and Proforma Invoice. The document title still changes to the correct type.</span></label>
      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={includeInactive} onChange={e=>setIncludeInactive(e.target.checked)}/>Include inactive templates</label>
      <label className="grid gap-1 text-sm"><span className="font-medium">New template type</span><select className="h-10 rounded-md border bg-background px-3" value={newType} onChange={e=>setNewType(e.target.value as TemplateDocumentType)}>{templateDocumentTypes.map(type=><option key={type} value={type}>{type}</option>)}</select></label>
      <Button type="button" variant="outline" onClick={copyCurrent}>New From Current</Button>
@@ -138,7 +145,7 @@ export function TemplateManager({design,onChange,onEdit,editingId}:{design:Docum
    </section>
   </div>
   <div className="flex flex-wrap items-center gap-2 border-t bg-slate-50 p-3 dark:bg-background">
-   <Button type="button" variant="outline" onClick={()=>toast.info('Select a template, choose its document type, then enable Use my saved customization. Save Company Setup to permanently keep template changes.')}>Help</Button>
+   <Button type="button" variant="outline" onClick={()=>toast.info('Select a template and use Make this template active for ALL document types to connect the same layout everywhere. Save Company Setup to permanently keep template changes.')}>Help</Button>
    <Button type="button" variant="outline" className="ml-auto" onClick={downloadAll}>Download Templates...</Button>
    <Button type="button" className="min-w-28 brand-primary-button" disabled={!selected} onClick={openSelected}>OK</Button>
    <Button type="button" variant="outline" className="min-w-28" onClick={()=>toast.info('Template changes are not permanent until Company Setup is saved.')}>Cancel</Button>
