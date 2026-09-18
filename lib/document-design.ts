@@ -1,10 +1,11 @@
 export type DesignField = { key: string; label: string; screen: boolean; print: boolean; width: number };
+export type CustomTemplateBox = { id: string; text: string; screen: boolean; print: boolean; left: number; down: number; width: number; height: number; fontSize: number; bold: boolean; border: boolean };
 export const templateDocumentTypes = ['Invoice','Credit Note','Refund','Sales Receipt','Purchase Order','Statement','Estimate','Sales Order','Delivery Note','Packing List','Proforma Invoice'] as const;
 export type TemplateDocumentType = typeof templateDocumentTypes[number];
-export type DocumentDesign = { properties: Record<string, ElementProperties>; savedTemplates: SavedTemplate[]; enabled: boolean; name: string; title: string; font: 'Arial' | 'Georgia' | 'Verdana'; fontSize: number; titleSize: number; companySize: number; color: string; leftLogo: boolean; rightLogo: boolean; logoWidth: number; logoHeight: number; showCompany: boolean; showAddress: boolean; showPhone: boolean; showEmail: boolean; statusStamp: boolean; pastDueStamp: boolean; headers: DesignField[]; columns: DesignField[]; footer: DesignField[]; message: string; disclaimer: string; printerMode: 'default' | 'specified'; copies: number; paper: 'A4' | 'A3' | 'Letter' | 'Legal' | 'Tabloid' | 'Custom'; customPaperWidth: number; customPaperHeight: number; orientation: 'portrait' | 'landscape'; margin: number; printPageNumbers: boolean; printTrailingZeros: boolean; decimals: number };
+export type DocumentDesign = { properties: Record<string, ElementProperties>; savedTemplates: SavedTemplate[]; customBoxes: CustomTemplateBox[]; enabled: boolean; name: string; title: string; font: 'Arial' | 'Georgia' | 'Verdana'; fontSize: number; titleSize: number; companySize: number; color: string; leftLogo: boolean; rightLogo: boolean; logoWidth: number; logoHeight: number; showCompany: boolean; showAddress: boolean; showPhone: boolean; showEmail: boolean; statusStamp: boolean; pastDueStamp: boolean; headers: DesignField[]; columns: DesignField[]; footer: DesignField[]; message: string; disclaimer: string; printerMode: 'default' | 'specified'; copies: number; paper: 'A4' | 'A3' | 'Letter' | 'Legal' | 'Tabloid' | 'Custom'; customPaperWidth: number; customPaperHeight: number; orientation: 'portrait' | 'landscape'; margin: number; printPageNumbers: boolean; printTrailingZeros: boolean; decimals: number };
 const field = (key: string, label: string, width = 1, visible = true): DesignField => ({ key, label, width, screen: visible, print: visible });
 export const defaultDocumentDesign: DocumentDesign = {
- properties: {}, savedTemplates: [], enabled: false, name: 'Company invoice', title: 'Tax Invoice', font: 'Arial', fontSize: 11, titleSize: 26, companySize: 21, color: '#164e63', leftLogo: true, rightLogo: true, logoWidth: 150, logoHeight: 70, showCompany: true, showAddress: true, showPhone: true, showEmail: true, statusStamp: true, pastDueStamp: false,
+ properties: {}, savedTemplates: [], customBoxes: [], enabled: false, name: 'Company invoice', title: 'Tax Invoice', font: 'Arial', fontSize: 11, titleSize: 26, companySize: 21, color: '#164e63', leftLogo: true, rightLogo: true, logoWidth: 150, logoHeight: 70, showCompany: true, showAddress: true, showPhone: true, showEmail: true, statusStamp: true, pastDueStamp: false,
  headers: [field('number','Invoice #'),field('date','Date'),field('billTo','Bill To'),field('shipTo','Ship To'),field('terms','Terms'),field('dueDate','Due Date'),field('salesman','Sales Rep'),field('trn','TRN'),field('source','Source Document',1,false)],
  columns: [field('sku','Item',12),field('description','Description',38),field('quantity','Qty',7),field('unitPrice','Rate',10),field('serialNumber','Serial Number',18),field('subtotal','Subtotal',10),field('vatAmount','VAT',8),field('total','Amount',10),field('comments','Comments',20,false)],
  footer: [field('subtotal','Subtotal'),field('vatAmount','VAT'),field('total','Total'),field('balance','Balance Due'),field('message','Customer Message'),field('disclaimer','Terms & Conditions')],
@@ -30,6 +31,17 @@ export function validateDocumentDesign(value: string): DocumentDesign {
  for (const key of Object.keys(result) as (keyof DocumentDesign)[]) {
   if (input[key] === undefined) continue;
   if (key === 'properties') { result.properties = validateProperties(input[key]); continue; }
+  if (key === 'customBoxes') {
+   if (!Array.isArray(input[key]) || input[key].length > 30) throw new Error('Keep at most 30 added template boxes.');
+   const ids = new Set<string>();
+   result.customBoxes = input[key].map((raw: CustomTemplateBox) => {
+    if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string' || !/^[a-zA-Z0-9-]{1,80}$/.test(raw.id) || ids.has(raw.id)) throw new Error('Invalid custom template box.');
+    ids.add(raw.id);
+    if (typeof raw.text !== 'string' || raw.text.length > 2000 || typeof raw.screen !== 'boolean' || typeof raw.print !== 'boolean' || !Number.isInteger(raw.left) || raw.left < 0 || raw.left > 760 || !Number.isInteger(raw.down) || raw.down < 0 || raw.down > 1050 || !Number.isInteger(raw.width) || raw.width < 40 || raw.width > 760 || !Number.isInteger(raw.height) || raw.height < 20 || raw.height > 800 || !Number.isInteger(raw.fontSize) || raw.fontSize < 8 || raw.fontSize > 40 || typeof raw.bold !== 'boolean' || typeof raw.border !== 'boolean') throw new Error('Invalid custom template box.');
+    return { id: raw.id, text: raw.text, screen: raw.screen, print: raw.print, left: raw.left, down: raw.down, width: raw.width, height: raw.height, fontSize: raw.fontSize, bold: raw.bold, border: raw.border };
+   });
+   continue;
+  }
   if (key === 'savedTemplates') {
    if (!Array.isArray(input[key]) || input[key].length > 20) throw new Error('Keep at most 20 saved templates.');
    const ids = new Set<string>();
@@ -74,13 +86,13 @@ export type ElementProperties = {
  font: 'Arial' | 'Georgia' | 'Verdana'; size: number; bold: boolean; italic: boolean; underline: boolean; color: string;
  top: boolean; right: boolean; bottom: boolean; left: boolean;
  pattern: 'solid' | 'dotted' | 'dashed' | 'double'; thickness: number; radius: number; borderColor: string;
- fill: boolean; background: string; minHeight: number;
+ fill: boolean; background: string; minHeight: number; hidden: boolean;
  offsetX: number; offsetY: number; boxWidth: number; boxHeight: number;
 };
 export const defaultElementProperties: ElementProperties = {
  align:'left', vertical:'top', font:'Arial', size:11, bold:false, italic:false, underline:false, color:'#111111',
  top:false, right:false, bottom:false, left:false, pattern:'solid', thickness:1, radius:0, borderColor:'#bbbbbb',
- fill:false, background:'#ffffff', minHeight:0,
+ fill:false, background:'#ffffff', minHeight:0, hidden:false,
  offsetX:0, offsetY:0, boxWidth:0, boxHeight:0,
 };
 export function propertyTargets(design: DocumentDesign) {
