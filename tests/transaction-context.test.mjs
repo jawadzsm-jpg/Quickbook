@@ -1395,7 +1395,7 @@ test('company clearing requires administrator password and company access, prese
   const { hashPassword } = await vite.ssrLoadModule('/lib/password.ts');
   const password = 'Company-clear-test-123';
   const hash = await hashPassword(password);
-  const userId = (await database.query("INSERT INTO app_users (email,password_hash,role) VALUES ('clear-test@example.test',$1,'all_admin') RETURNING id", [hash])).rows[0].id;
+  const userId = (await database.query("INSERT INTO app_users (email,password_hash,role) VALUES ('clear-test@example.test',$1,'admin') RETURNING id", [hash])).rows[0].id;
   const company = (await database.query("INSERT INTO companies (name,logo_data,right_logo_data,phone) VALUES ('Clear Test','left','right','123') RETURNING id")).rows[0].id;
   const other = (await database.query("INSERT INTO companies (name,phone) VALUES ('Clear Other','456') RETURNING id")).rows[0].id;
   const request = (scope, extra = {}) => new Request('http://localhost/api/company-setup/clear', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({companyId:company,scope,password,confirmation:`CLEAR ${scope === 'all' ? 'ALL' : 'SETUP'} Clear Test`,...extra})});
@@ -1406,6 +1406,10 @@ test('company clearing requires administrator password and company access, prese
     globalThis.__transferTestUser = {id:userId,email:'clear-test@example.test',role:'admin',companyIds:[]};
     assert.equal((await POST(request('setup'))).status,403);
     globalThis.__transferTestUser.role='all_admin';
+    globalThis.__transferTestUser.companyIds=[company];
+    assert.equal((await POST(request('setup'))).status,403);
+    globalThis.__transferTestUser.role='admin';
+    globalThis.__transferTestUser.companyIds=[company];
     assert.equal((await POST(request('setup',{password:'wrong'}))).status,403);
     assert.equal((await POST(request('setup',{confirmation:'yes'}))).status,400);
     assert.equal((await POST(request('bad'))).status,400);
@@ -1439,7 +1443,6 @@ test('company clearing requires administrator password and company access, prese
     for(let i=0;i<5;i++) assert.equal((await POST(request('setup',{password:'wrong'}))).status,403);
     assert.equal((await POST(request('setup'))).status,429);
     await resetBudget();
-    await database.query("UPDATE app_users SET role='admin' WHERE id=$1",[userId]);
     globalThis.__transferTestUser.role='admin';
     globalThis.__transferTestUser.companyIds=[company];
     assert.equal((await POST(request('setup'))).status,200);
