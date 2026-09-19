@@ -112,7 +112,7 @@ export function propertyTargets(design: DocumentDesign) {
 }
 function validateProperties(value: unknown): Record<string, ElementProperties> {
  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid element properties.');
- const result: Record<string, ElementProperties> = {};
+ const entries: [string, ElementProperties][] = [];
  const allowed = new Set(propertyTargets(defaultDocumentDesign).map(t=>t.key));
  for (const [key, raw] of Object.entries(value)) {
   const customFieldProperty = /^(headers|columns|footer)\.custom-[a-zA-Z0-9-]{1,72}$/.test(key);
@@ -128,7 +128,7 @@ function validateProperties(value: unknown): Record<string, ElementProperties> {
   for (const color of [p.color,p.borderColor,p.background]) if (!/^#[0-9a-f]{6}$/i.test(color)) throw new Error('Invalid element color.');
   if (!Number.isInteger(p.size) || p.size<8 || p.size>40 || ![0.5,1,2,3].includes(p.thickness) || ![0,12,24,48].includes(p.radius) || !Number.isInteger(p.minHeight) || p.minHeight<0 || p.minHeight>300) throw new Error('Invalid element dimensions.');
   if (!Number.isInteger(p.offsetX) || p.offsetX < -1200 || p.offsetX > 1200 || !Number.isInteger(p.offsetY) || p.offsetY < -1600 || p.offsetY > 1600 || !Number.isInteger(p.boxWidth) || p.boxWidth < 0 || p.boxWidth > 1200 || !Number.isInteger(p.boxHeight) || p.boxHeight < 0 || p.boxHeight > 800) throw new Error('Invalid element position.');
-  result[key]=p;
+  entries.push([key,p]);
  }
- return result;
+ return Object.fromEntries(entries);
 }
