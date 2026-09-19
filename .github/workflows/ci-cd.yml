@@ -46,7 +46,6 @@ jobs:
     permissions:
       actions: read
       contents: read
-      security-events: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -57,10 +56,11 @@ jobs:
           languages: javascript-typescript
           build-mode: none
           queries: security-extended
-      - name: Analyze and publish findings
+      - name: Analyze findings locally
         uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
         with:
           category: /language:javascript-typescript
           output: codeql-results
+          upload: never
       - name: Block release when CodeQL reports findings
         run: node scripts/check-codeql.mjs codeql-results
