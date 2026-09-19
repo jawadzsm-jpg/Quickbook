@@ -1419,9 +1419,8 @@ test('company clearing requires administrator password and company access, prese
     const loc = async (id,name) => (await database.query('INSERT INTO inventory_locations (company_id,name,code,invoice_prefix) VALUES ($1,$2,$2,$2) RETURNING id',[id,name])).rows[0].id;
     const source=await loc(company,'CLEAR'),dest=await loc(other,'OTHER');
     await database.query("INSERT INTO stock_transfers (reference,source_company_id,source_location_id,destination_company_id,destination_location_id,sku,item_name,quantity,transfer_date) VALUES ('CLEAR-X',$1,$2,$3,$4,'ITEM','Item',1,'2026-09-13')",[company,source,other,dest]);
-    assert.equal((await POST(request('all'))).status,409);
+    assert.equal((await database.query("SELECT id FROM stock_transfers WHERE reference='CLEAR-X'")).rows.length,1);
     assert.equal((await database.query('SELECT id FROM transactions WHERE id=$1',[first])).rows.length,1);
-    await database.query("DELETE FROM stock_transfers WHERE reference='CLEAR-X'");
     await resetBudget();
     const invoice=await tx(company,'CLEAR-2');
     await database.query('UPDATE transactions SET sales_source_id=$1 WHERE id=$2',[first,invoice]);
@@ -1434,7 +1433,14 @@ test('company clearing requires administrator password and company access, prese
     assert.equal((await database.query('SELECT id FROM invoice_payment_allocations WHERE payment_id=$1',[invoice])).rows.length,1);
     await database.query('DELETE FROM bill_payment_allocations WHERE payment_id=$1',[untouched]);
     assert.equal((await POST(request('all'))).status,200);
-    for (const table of ['transactions','inventory_locations','record_attachments']) assert.equal((await database.query(`SELECT * FROM ${table} WHERE company_id=$1`,[company])).rows.length,0);
+    for (const table of ['transactions','record_attachments']) assert.equal((await database.query(`SELECT * FROM ${table} WHERE company_id=$1`,[company])).rows.length,0);
+    assert.equal((await database.query('SELECT * FROM inventory_locations WHERE company_id=$1 AND active=true',[company])).rows.length,0);
+    const preservedTransfer=(await database.query("SELECT source_location_id,destination_location_id FROM stock_transfers WHERE reference='CLEAR-X'")).rows[0];
+    assert.ok(preservedTransfer);
+    assert.equal(Number(preservedTransfer.source_location_id),Number(source));
+    assert.equal(Number(preservedTransfer.destination_location_id),Number(dest));
+    assert.equal((await database.query('SELECT active FROM inventory_locations WHERE id=$1',[source])).rows[0].active,false);
+    assert.equal((await database.query('SELECT active FROM inventory_locations WHERE id=$1',[dest])).rows[0].active,true);
     assert.equal((await database.query('SELECT id FROM transactions WHERE id=$1',[untouched])).rows.length,1);
     assert.equal((await database.query('SELECT phone FROM companies WHERE id=$1',[other])).rows[0].phone,'456');
     assert.equal((await database.query('SELECT * FROM audit_log WHERE company_id=$1',[company])).rows.length,2);
