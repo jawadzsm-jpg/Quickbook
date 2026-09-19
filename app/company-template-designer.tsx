@@ -15,7 +15,7 @@ export function CompanyTemplateDesigner({value,onChange,setup,disabled}:{value:s
  try { if (value) design={...design,...JSON.parse(value)} as DocumentDesign; } catch { /* Use default design for invalid saved data. */ }
  const [editingId,setEditingId]=useState('');
  const [tab,setTab]=useState('Basic');
- const [target,setTarget]=useState<'screen'|'print'>('print');
+ const [target,setTarget]=useState<'screen'|'print'>('screen');
  const [selectedElement,setSelectedElement]=useState('title');
  const [propertiesOpen,setPropertiesOpen]=useState(false);
  const preview=useRef<HTMLDivElement>(null);
@@ -131,20 +131,30 @@ export function CompanyTemplateDesigner({value,onChange,setup,disabled}:{value:s
   }
   update({properties:{...design.properties,[key]:next}});
  };
- const printPageSize=()=>{
-  const sizes:Record<'A4'|'A3'|'Letter'|'Legal'|'Tabloid',[number,number,'mm'|'in']>={A4:[210,297,'mm'],A3:[297,420,'mm'],Letter:[8.5,11,'in'],Legal:[8.5,14,'in'],Tabloid:[11,17,'in']};
-  const [width,height,unit]=design.paper==='Custom'?[design.customPaperWidth,design.customPaperHeight,'mm' as const]:sizes[design.paper];
-  return design.orientation==='landscape'?`${height}${unit} ${width}${unit}`:`${width}${unit} ${height}${unit}`;
+ const printPageDimensionsMm=(forceA4=false):[number,number]=>{
+  const sizes:Record<'A4'|'A3'|'Letter'|'Legal'|'Tabloid',[number,number]>={A4:[210,297],A3:[297,420],Letter:[215.9,279.4],Legal:[215.9,355.6],Tabloid:[279.4,431.8]};
+  const base=forceA4?[210,297] as [number,number]:design.paper==='Custom'?[design.customPaperWidth,design.customPaperHeight] as [number,number]:sizes[design.paper];
+  return design.orientation==='landscape'?[base[1],base[0]]:[base[0],base[1]];
+ };
+ const printPageSize=(forceA4=false)=>{
+  const [width,height]=printPageDimensionsMm(forceA4);
+  return `${width}mm ${height}mm`;
  };
  const print=(forceA4=false)=>{
   const popup=window.open('','_blank');if(!popup)return toast.error('Allow pop-ups for Print Preview.');popup.opener=null;
   const source=preview.current?.innerHTML||'';
-  const copies=Array.from({length:design.copies},()=>`<section class="print-copy">${source}</section>`).join('');
+  if(!source)return toast.error('Template preview is not ready yet.');
+  const sourceWidth=Math.max(1,Math.round(preview.current?.querySelector<HTMLElement>('.custom-invoice')?.getBoundingClientRect().width||760));
+  const [pageWidthMm,pageHeightMm]=printPageDimensionsMm(forceA4);
+  const printableWidthPx=Math.max(1,(pageWidthMm-design.margin*2)*96/25.4);
+  const printableHeightPx=Math.max(1,(pageHeightMm-design.margin*2)*96/25.4);
+  const copies=Array.from({length:design.copies},()=>`<section class="print-copy"><div class="print-fit">${source}</div></section>`).join('');
   const pageNumbers=design.printPageNumbers?'@bottom-center{content:"Page " counter(page) " of " counter(pages);font:10px Arial,sans-serif;color:#475569;}':'';
-  const pageRule=forceA4?`@page{size:A4 ${design.orientation};margin:${design.margin}mm;${pageNumbers}}`:design.printerMode==='specified'?`@page{size:${printPageSize()};margin:${design.margin}mm;${pageNumbers}}`:'';
-  popup.document.write(`<!doctype html><html><head><title>${forceA4?'A4 Invoice':'Invoice template preview'}</title><style>${pageRule}html,body{margin:0;padding:0;background:#fff}.print-copy{break-after:page;position:relative;max-width:100%}.print-copy:last-child{break-after:auto}@media print{html,body{width:auto;height:auto}.custom-invoice{max-width:100%!important;min-width:0!important}.custom-invoice table{width:100%!important;table-layout:fixed!important}}</style></head><body>${copies}</body></html>`);
-  popup.document.close();void Promise.all(Array.from(popup.document.images).map(img=>img.decode().catch(()=>{}))).then(()=>{popup.focus();popup.print();});
- };
+  const pageRule=`@page{size:${printPageSize(forceA4)};margin:${design.margin}mm;${pageNumbers}}`;
+  const fitScript=`<script>(()=>{const aw=${printableWidthPx};const ah=${printableHeightPx};const sw=${sourceWidth};const run=()=>{document.querySelectorAll('.print-copy').forEach(copy=>{const fit=copy.querySelector('.print-fit');const invoice=fit?.querySelector('.custom-invoice');if(!fit||!invoice)return;fit.style.width=sw+'px';const w=Math.max(sw,fit.scrollWidth,invoice.scrollWidth);const h=Math.max(1,fit.scrollHeight,invoice.scrollHeight);const scale=Math.min(1,aw/w,ah/h);fit.style.transform='scale('+scale+')';fit.style.transformOrigin='top left';copy.style.width=aw+'px';copy.style.height=(h*scale)+'px';});window.focus();window.print();};Promise.all(Array.from(document.images).map(img=>img.decode().catch(()=>{}))).then(()=>requestAnimationFrame(()=>requestAnimationFrame(run)));})();<\/script>`;
+  popup.document.write(`<!doctype html><html><head><title>${forceA4?'A4 Invoice':'Invoice template preview'}</title><style>${pageRule}html,body{margin:0;padding:0;background:#fff}.print-copy{break-after:page;position:relative;overflow:visible}.print-copy:last-child{break-after:auto}.print-fit{position:relative}.custom-invoice{max-width:none!important}.custom-invoice .ci-editable{outline:none!important;box-shadow:none!important}.custom-invoice .ci-editable::after{display:none!important}@media print{html,body{width:auto;height:auto}.print-copy{break-inside:avoid-page}.custom-invoice{max-width:none!important;min-width:0!important}.custom-invoice table{table-layout:fixed!important}}</style></head><body>${copies}${fitScript}</body></html>`);
+  popup.document.close();
+ }; 
  const resetPrint=()=>update({printerMode:defaultDocumentDesign.printerMode,copies:defaultDocumentDesign.copies,paper:defaultDocumentDesign.paper,customPaperWidth:defaultDocumentDesign.customPaperWidth,customPaperHeight:defaultDocumentDesign.customPaperHeight,orientation:defaultDocumentDesign.orientation,margin:defaultDocumentDesign.margin,printPageNumbers:defaultDocumentDesign.printPageNumbers,printTrailingZeros:defaultDocumentDesign.printTrailingZeros,decimals:defaultDocumentDesign.decimals});
  const selectedScheme=colorSchemes.find(s=>s.color.toLowerCase()===design.color.toLowerCase())?.value||'custom';
  return <section className="col-span-full space-y-5 rounded-xl border bg-white p-5">
