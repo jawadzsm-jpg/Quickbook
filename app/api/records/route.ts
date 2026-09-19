@@ -1028,11 +1028,12 @@ async function handlePATCH(request: Request) {
         if (oldNames.length > 1) return Response.json({ error: "Duplicate existing names must be resolved before renaming linked records." }, { status: 409 });
       }
       if (accountEdit) {
+        const account = existing as typeof accounts.$inferSelect;
         const code = String(payload.code ?? "").trim();
-        const type = String(payload.type ?? existing.type).trim();
+        const type = String(payload.type ?? account.type).trim();
         if (!code) return Response.json({ error: "Account code is required." }, { status: 400 });
         if (!accountTypeValues.has(type)) return Response.json({ error: "Select a valid account type." }, { status: 400 });
-        const role = String(existing.systemRole ?? "");
+        const role = String(account.systemRole ?? "");
         const compatible = compatibleAccountTypes[role];
         if (compatible && !compatible.has(type)) return Response.json({ error: `The linked system use ${role} requires account type: ${[...compatible].join(" or ")}.` }, { status: 409 });
         const codes = await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.code, code)));
