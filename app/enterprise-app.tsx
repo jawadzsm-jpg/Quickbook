@@ -208,6 +208,29 @@ const transactionTypes: Record<string, string[]> = {
   dashboard: ["invoice", "bill", "expense", "deposit", "cheque", "journal entry"],
 };
 
+const itemTypeValues = ["service", "stock-part", "non-stock-part", "other-charge", "subtotal", "group", "discount", "payment", "vat-item", "vat-group"] as const;
+type InventoryItemType = (typeof itemTypeValues)[number];
+const itemTypeDetails: Record<InventoryItemType, { label: string; description: string; linkedArea: string }> = {
+  service: { label: "Service", description: "Use for services you charge for or purchase, such as labour, consulting hours, or professional fees.", linkedArea: "Sales and purchase document lines" },
+  "stock-part": { label: "Stock Part", description: "Use for products you buy, keep in stock, and sell. Stock documents update quantity and inventory value.", linkedArea: "Sales, purchases, inventory and stock reports" },
+  "non-stock-part": { label: "Non-stock Part", description: "Use for products you buy or sell without tracking on-hand inventory.", linkedArea: "Sales and purchase document lines" },
+  "other-charge": { label: "Other Charge", description: "Use for freight, handling, setup fees, or other non-stock charges.", linkedArea: "Sales and purchase document lines" },
+  subtotal: { label: "Subtotal", description: "Use to identify subtotal behaviour for sales documents.", linkedArea: "Sales & Invoicing totals" },
+  group: { label: "Group", description: "Use to identify grouped or bundled products and services.", linkedArea: "Sales & Invoicing bundles" },
+  discount: { label: "Discount", description: "Use to identify a sales discount item.", linkedArea: "Sales & Invoicing discount controls" },
+  payment: { label: "Payment", description: "Use to identify customer payment handling.", linkedArea: "Receive Payment" },
+  "vat-item": { label: "VAT Item", description: "Use to identify a single VAT/tax item.", linkedArea: "VAT selectors and VAT Codes" },
+  "vat-group": { label: "VAT Group", description: "Use to identify grouped VAT/tax handling.", linkedArea: "VAT selectors and VAT Codes" },
+};
+const documentLineItemTypes = new Set<InventoryItemType>(["service", "stock-part", "non-stock-part", "other-charge"]);
+function itemTypeOf(value: unknown): InventoryItemType {
+  const candidate = String(value || "stock-part");
+  return (itemTypeValues as readonly string[]).includes(candidate) ? candidate as InventoryItemType : "stock-part";
+}
+function itemCanBeDocumentLine(item: DataRecord) {
+  return String(item.status || "active") !== "inactive" && documentLineItemTypes.has(itemTypeOf(item.itemType));
+}
+
 const allReports = [
   ["Profit & Loss Standard", "Income and expenses by period", "Profit & Loss", "profit-loss"],
   ["Profit & Loss by Item", "Sales, purchase cost, cost of sales and profit by item", "Profit & Loss", "profit-loss-item"],
@@ -646,7 +669,16 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     }
     else if (currentKind === "items") {
       const initialFields = specificationFields.filter((label) => label !== "Product Category").slice(0, 8);
-      const itemForm: Record<string, string> = { category: "Laptop", quantity: "0", reorderPoint: "0", salesPrice: "0", cost: "0", specCount: String(initialFields.length) };
+      const defaultCogs = records.accounts.find((account) => account.active && (account.systemRole === "COGS" || account.type === "Cost of Goods Sold"));
+      const defaultIncome = records.accounts.find((account) => account.active && (account.systemRole === "SALES" || account.type === "Income"));
+      const defaultAsset = records.accounts.find((account) => account.active && (account.systemRole === "INVENTORY" || account.type === "Other Current Asset"));
+      const defaultVat = vatCodeOptions.find((code) => code.code === "STANDARD")?.code ?? vatCodeOptions[0]?.code ?? "ZERO";
+      const itemForm: Record<string, string> = {
+        itemType: "stock-part", category: "Laptop", quantity: "0", reorderPoint: "0", salesPrice: "0", cost: "0",
+        purchaseVatCode: defaultVat, salesVatCode: defaultVat, cogsAccountId: defaultCogs ? String(defaultCogs.id) : "",
+        incomeAccountId: defaultIncome ? String(defaultIncome.id) : "", assetAccountId: defaultAsset ? String(defaultAsset.id) : "",
+        preferredSupplierId: "", status: "active", amountsIncludeVat: "false", specCount: String(initialFields.length),
+      };
       initialFields.forEach((label, index) => { itemForm[`specLabel${index}`] = label; itemForm[`specValue${index}`] = ""; });
       setForm(itemForm);
     }
@@ -669,7 +701,17 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     let specifications: Array<{ label: string; value: string }> = [];
     try { specifications = JSON.parse(String(item.specifications ?? "[]")); } catch { specifications = []; }
     if (!specifications.length) specifications = specificationFields.filter((label) => label !== "Product Category").slice(0, 8).map((label) => ({ label, value: "" }));
-    const itemForm: Record<string, string> = { category: String(item.category ?? "Laptop"), specCount: String(Math.min(30, specifications.length)) };
+    const itemForm: Record<string, string> = {
+      itemType: itemTypeOf(item.itemType), category: String(item.category ?? "Laptop"),
+      itemNumber: String(item.itemNumber ?? ""), sku: String(item.sku ?? ""), quantity: String(item.quantity ?? 0),
+      reorderPoint: String(item.reorderPoint ?? 0), salesPrice: String(item.salesPrice ?? 0), cost: String(item.cost ?? 0),
+      lastPurchasePrice: String(item.lastPurchasePrice ?? item.cost ?? 0), onPo: String(item.onPo ?? 0),
+      purchaseVatCode: String(item.purchaseVatCode ?? "STANDARD"), salesVatCode: String(item.salesVatCode ?? "STANDARD"),
+      cogsAccountId: item.cogsAccountId ? String(item.cogsAccountId) : "", incomeAccountId: item.incomeAccountId ? String(item.incomeAccountId) : "",
+      assetAccountId: item.assetAccountId ? String(item.assetAccountId) : "", preferredSupplierId: item.preferredSupplierId ? String(item.preferredSupplierId) : "",
+      status: String(item.status ?? "active"), amountsIncludeVat: item.amountsIncludeVat === true || String(item.amountsIncludeVat) === "true" ? "true" : "false",
+      specCount: String(Math.min(30, specifications.length)),
+    };
     specifications.slice(0, 30).forEach((specification, index) => {
       itemForm[`specLabel${index}`] = specification.label;
       itemForm[`specValue${index}`] = specification.value;
@@ -975,7 +1017,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
                 <label className="grid gap-2 text-sm font-medium">Inventory *<select required className="h-10 w-full rounded-md border bg-background px-3" value={activeLocations.some(location => location.id === activeLocationId) ? activeLocationId : ""} disabled={!activeLocations.length} onChange={event => { setRecords(current => ({ ...current, items: [] })); setActiveLocationId(Number(event.target.value)); }}><option value="" disabled>Select inventory</option>{activeLocations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
                 <p className="text-sm text-slate-500 sm:col-span-2">{activeLocations.length ? `The new item will be saved in ${activeCompany?.name || "the selected company"} · ${activeLocations.find(location => location.id === activeLocationId)?.name || "select an inventory"}.` : "This company has no active inventory. Add an inventory or select another company."}</p>
               </section>}
-              <ItemFields form={form} setForm={setForm} items={records.items} />
+              <ItemFields form={form} setForm={setForm} items={records.items} accounts={records.accounts} contacts={records.contacts} vatCodeOptions={vatCodeOptions} currency={baseCurrency} editing={editingItemId !== null} />
             </>}
             {activeEditorKind === "accounts" && editingRecordId === null && <AccountFields form={form} setForm={setForm} accounts={records.accounts} />}
             </fieldset><DialogFooter><Button type="button" variant="outline" disabled={saving} onClick={() => { setDialogOpen(false); setEditingItemId(null); setEditingRecordId(null); setEditorKind(null); }}>Cancel</Button><Button type="submit" disabled={saving || !skuLock.ready} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400">{saving ? "Saving…" : (editingRecordId !== null || editingItemId !== null && activeEditorKind === "items") ? "Save changes" : "Save record"}</Button></DialogFooter>
@@ -1669,6 +1711,7 @@ function BillFields({ form, setForm, items, vendors, salesmen, accounts, locatio
   const totalVat = vat + freightVat;
   const total = subtotal + freightCharges + totalVat;
   const purchaseAccounts = accounts.filter((account) => account.active && ["PURCHASES", "EXPENSE", "COGS"].includes(String(account.systemRole)));
+  const purchaseItems = items.filter(itemCanBeDocumentLine);
   return <div className="space-y-5">
     <div className="grid gap-4 rounded-xl border bg-slate-50 p-4 md:grid-cols-2 xl:grid-cols-6">
       <div className="space-y-2"><Label>Sales Rep</Label><Select value={form.salesman || undefined} onValueChange={(value) => setForm({ ...form, salesman: value })}><SelectTrigger className="w-full"><SelectValue placeholder="Select sales rep" /></SelectTrigger><SelectContent>{salesmen.length ? salesmen.map((salesman) => <SelectItem key={salesman.id} value={String(salesman.name)}>{String(salesman.name)}</SelectItem>) : <SelectItem value="no-salesmen" disabled>No sales reps available</SelectItem>}</SelectContent></Select></div>
@@ -1688,11 +1731,11 @@ function BillFields({ form, setForm, items, vendors, salesmen, accounts, locatio
       <div className="bill-item-heading bg-slate-50 text-sm font-bold"><div>#</div><div>Desc</div><div>QTY (pcs)</div><div>Rate</div><div>Subtotal</div><div>VAT</div><div><Button type="button" className="bg-green-600 text-white hover:bg-green-700" size="icon" aria-label="Add bill item" onClick={addLine}><Plus className="size-4" /></Button></div></div>
       {lines.map((line, index) => {
         const lineSubtotal = Math.round(Number(line.quantity || 0) * Number(line.unitPrice || 0) * 100) / 100;
-        const selectedItem = items.find((entry) => String(entry.id) === line.itemId);
+        const selectedItem = purchaseItems.find((entry) => String(entry.id) === line.itemId);
         const unitCost = Number(line.unitPrice || 0) + (Number(line.quantity) > 0 ? lineFreight(line) / Number(line.quantity) : 0);
         return <div key={index} className="bill-item-row">
           <div className="bill-item-number text-sm text-slate-500">{index + 1}</div>
-          <div className="bill-item-product space-y-2 min-w-0"><Select value={line.itemId || "custom"} onValueChange={(value) => { const item = items.find((entry) => String(entry.id) === value); const lastHomePrice = Number(item?.lastPurchasePrice ?? item?.cost ?? 0); const documentPrice = lastHomePrice / documentRate; update(index, value === "custom" ? { itemId: "", description: "" } : { itemId: value, description: item ? itemDisplayDescription(item) || String(item.name) : "", unitPrice: String(Number(documentPrice.toFixed(2))), unitCost: String(lastHomePrice) }); }}><SelectTrigger className="w-full"><SelectValue placeholder="Select Product" /></SelectTrigger><SelectContent><SelectItem value="custom">Custom description</SelectItem>{items.map((item) => <SelectItem key={item.id} value={String(item.id)}>{String(item.sku)} · {String(item.name)} · Last {baseCurrency} {Number(item.lastPurchasePrice ?? item.cost ?? 0).toFixed(2)}</SelectItem>)}</SelectContent></Select>{selectedItem && <p className="text-xs font-medium text-sky-700">Last purchase cost (home currency): {formatMoney(selectedItem.lastPurchasePrice ?? selectedItem.cost, baseCurrency)}</p>}{!line.itemId && <Input placeholder="Enter description" required value={line.description} onChange={(event) => update(index, { description: event.target.value })} />}<DocumentExtraFields value={{ comments: line.comments || "", serialNumber: line.serialNumber || "" }} onChange={value => update(index, value)} /></div>
+          <div className="bill-item-product space-y-2 min-w-0"><Select value={line.itemId || "custom"} onValueChange={(value) => { const item = purchaseItems.find((entry) => String(entry.id) === value); const purchaseVatCode = form.isImport === "true" ? String(item?.purchaseVatCode || "STANDARD") : "ZERO"; const purchaseVatRate = vatRateForCode(purchaseVatCode, vatCodeOptions); const storedHomePrice = Number(item?.lastPurchasePrice ?? item?.cost ?? 0); const lastHomePrice = item?.amountsIncludeVat === true && purchaseVatRate > 0 ? storedHomePrice / (1 + purchaseVatRate / 100) : storedHomePrice; const documentPrice = lastHomePrice / documentRate; update(index, value === "custom" ? { itemId: "", description: "" } : { itemId: value, description: item ? itemDisplayDescription(item) || String(item.name) : "", unitPrice: String(Number(documentPrice.toFixed(2))), unitCost: String(lastHomePrice), vatCode: purchaseVatCode, vatRate: String(purchaseVatRate) }); }}><SelectTrigger className="w-full"><SelectValue placeholder="Select Product" /></SelectTrigger><SelectContent><SelectItem value="custom">Custom description</SelectItem>{purchaseItems.map((item) => <SelectItem key={item.id} value={String(item.id)}>{String(item.sku)} · {String(item.name)} · {itemTypeDetails[itemTypeOf(item.itemType)].label} · Last {baseCurrency} {Number(item.lastPurchasePrice ?? item.cost ?? 0).toFixed(2)}</SelectItem>)}</SelectContent></Select>{selectedItem && <p className="text-xs font-medium text-sky-700">Last purchase cost (home currency): {formatMoney(selectedItem.lastPurchasePrice ?? selectedItem.cost, baseCurrency)}</p>}{!line.itemId && <Input placeholder="Enter description" required value={line.description} onChange={(event) => update(index, { description: event.target.value })} />}<DocumentExtraFields value={{ comments: line.comments || "", serialNumber: line.serialNumber || "" }} onChange={value => update(index, value)} /></div>
           <div><Label className="bill-mobile-label">QTY (pcs)</Label><Input aria-label={`Quantity for line ${index + 1}`} type="number" min="0.01" step="0.01" value={line.quantity} onChange={event => update(index, { quantity: event.target.value })} /></div>
           <div><Label className="bill-mobile-label">Rate</Label><Input aria-label={`Rate for line ${index + 1}`} type="number" min="0" step="0.01" value={line.unitPrice} onChange={event => update(index, { unitPrice: event.target.value, unitCost: event.target.value })} /></div>
           <div><Label className="bill-mobile-label">Subtotal</Label><Input aria-label={`Subtotal for line ${index + 1}`} readOnly value={lineSubtotal.toFixed(2)} className="bg-slate-100" /></div>
@@ -1810,6 +1853,8 @@ function TransactionFields({ form, setForm, types, items, contacts, accounts, lo
   if (["deposit", "transfer", "credit card charge", "cheque order"].includes(form.type)) return <BankTransactionFields form={form} setForm={setForm} contacts={contacts} accounts={accounts} locations={locations} lines={lines} setLines={setLines} vatCodeOptions={vatCodeOptions} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />;
   const update = (index: number, changes: Partial<LineForm>) => setLines(lines.map((line, position) => position === index ? { ...line, ...(changes.unitPrice !== undefined ? { homeUnitPrice: undefined } : {}), ...changes } : line));
   const customerDocument = ["invoice", "sales receipt", "quotation", "estimate", "proforma invoice", "sales order", "credit memo", "statement charge", "finance charge"].includes(form.type);
+  const purchaseDocument = ["bill", "purchase order", "item receipt", "received item bill"].includes(form.type);
+  const selectableItems = items.filter(itemCanBeDocumentLine);
   const documentRate = Math.max(Number(form.exchangeRate) || 1, Number.EPSILON);
   const changeInvoiceForm = (next: Record<string, string>) => {
     if (!customerDocument || (next.currency === form.currency && next.exchangeRate === form.exchangeRate)) { setForm(next); return; }
@@ -1836,7 +1881,7 @@ function TransactionFields({ form, setForm, types, items, contacts, accounts, lo
       <div className="flex items-center justify-between"><div><Label>Items and services</Label><p className="text-xs text-slate-500">Stock updates when invoices, bills, and item receipts post.</p></div><Button type="button" variant="outline" size="sm" className="brand-primary-button border-transparent font-semibold" onClick={() => setLines([...lines, { itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatCode: form.vatRate === "0" ? "ZERO" : "STANDARD", vatRate: form.vatRate ?? "5" }])}><Plus className="size-3" />Line</Button></div>
       <div className="transaction-lines">{lines.map((line, index) => <div key={index} className="transaction-line rounded-lg border bg-white p-3">
         <div className="transaction-line-description space-y-2"><Label htmlFor={`line-description-${index}`}>Item Description</Label>
-          <Select value={line.itemId || "custom"} onValueChange={(value) => { const item = items.find((entry) => String(entry.id) === value); const purchaseDocument = ["bill", "purchase order", "item receipt", "received item bill"].includes(form.type); const lastHomePrice = Number(item?.lastPurchasePrice ?? item?.cost ?? 0); const otherQuantity = lines.reduce((sum, entry, position) => position !== index && entry.itemId === value ? sum + Math.max(0, Number(entry.quantity) || 0) : sum, 0); const invoiceQuantity = form.type === "invoice" && !form.revision && item ? { quantity: String(Math.max(0, Number(item.quantity || 0) - otherQuantity)) } : {}; update(index, value === "custom" ? { itemId: "" } : { ...invoiceQuantity, itemId: value, description: item ? itemDisplayDescription(item) || String(item.name) : "", unitPrice: purchaseDocument ? String(Number((lastHomePrice / documentRate).toFixed(2))) : invoiceCurrencyAmount(Number(item?.salesPrice ?? 0), documentRate), unitCost: customerDocument ? invoiceCurrencyAmount(Number(item?.cost ?? 0), documentRate) : String(item?.cost ?? 0), homeUnitPrice: customerDocument ? Number(item?.salesPrice ?? 0) : undefined, homeUnitCost: customerDocument ? Number(item?.cost ?? 0) : undefined }); }}><SelectTrigger aria-label={`Item ${index + 1}`} className="w-full min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate"><SelectValue placeholder="Item" /></SelectTrigger><SelectContent position="popper" className="max-w-[calc(100vw-3rem)] [&_[data-slot=select-item]]:whitespace-normal [&_[data-slot=select-item]]:break-words"><SelectItem value="custom">Service / custom</SelectItem>{items.map((item) => <SelectItem key={item.id} value={String(item.id)}>{String(item.sku)} · {String(item.name)}</SelectItem>)}</SelectContent></Select>
+          <Select value={line.itemId || "custom"} onValueChange={(value) => { const item = selectableItems.find((entry) => String(entry.id) === value); const selectedVatCode = String(purchaseDocument ? item?.purchaseVatCode || line.vatCode : item?.salesVatCode || line.vatCode); const selectedVatRate = vatRateForCode(selectedVatCode, vatCodeOptions); const purchaseCostVatRate = vatRateForCode(String(item?.purchaseVatCode || "ZERO"), vatCodeOptions); const storedPurchasePrice = Number(item?.lastPurchasePrice ?? item?.cost ?? 0); const netPurchasePrice = item?.amountsIncludeVat === true && purchaseCostVatRate > 0 ? storedPurchasePrice / (1 + purchaseCostVatRate / 100) : storedPurchasePrice; const storedSalesPrice = Number(item?.salesPrice ?? 0); const netSalesPrice = item?.amountsIncludeVat === true && selectedVatRate > 0 ? storedSalesPrice / (1 + selectedVatRate / 100) : storedSalesPrice; const storedCost = Number(item?.cost ?? 0); const netCost = item?.amountsIncludeVat === true && purchaseCostVatRate > 0 ? storedCost / (1 + purchaseCostVatRate / 100) : storedCost; const otherQuantity = lines.reduce((sum, entry, position) => position !== index && entry.itemId === value ? sum + Math.max(0, Number(entry.quantity) || 0) : sum, 0); const invoiceQuantity = form.type === "invoice" && !form.revision && item && itemTypeOf(item.itemType) === "stock-part" ? { quantity: String(Math.max(0, Number(item.quantity || 0) - otherQuantity)) } : {}; update(index, value === "custom" ? { itemId: "" } : { ...invoiceQuantity, itemId: value, description: item ? itemDisplayDescription(item) || String(item.name) : "", unitPrice: purchaseDocument ? String(Number((netPurchasePrice / documentRate).toFixed(2))) : invoiceCurrencyAmount(netSalesPrice, documentRate), unitCost: customerDocument ? invoiceCurrencyAmount(netCost, documentRate) : String(netCost), homeUnitPrice: customerDocument ? netSalesPrice : undefined, homeUnitCost: customerDocument ? netCost : undefined, vatCode: selectedVatCode, vatRate: String(selectedVatRate) }); }}><SelectTrigger aria-label={`Item ${index + 1}`} className="w-full min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate"><SelectValue placeholder="Item" /></SelectTrigger><SelectContent position="popper" className="max-w-[calc(100vw-3rem)] [&_[data-slot=select-item]]:whitespace-normal [&_[data-slot=select-item]]:break-words"><SelectItem value="custom">Service / custom</SelectItem>{selectableItems.map((item) => <SelectItem key={item.id} value={String(item.id)}>{String(item.sku)} · {String(item.name)} · {itemTypeDetails[itemTypeOf(item.itemType)].label}</SelectItem>)}</SelectContent></Select>
           <Textarea id={`line-description-${index}`} aria-label={`Item description ${index + 1}`} placeholder="Description" required rows={2} className="min-h-16 w-full min-w-0 resize-y break-words" value={line.description} onChange={(e) => update(index, { description: e.target.value })} />
           {form.type === "invoice" && <DocumentExtraFields value={{ comments: line.comments || "", serialNumber: line.serialNumber || "" }} onChange={value => update(index, value)} />}
         </div>
@@ -1903,7 +1948,7 @@ function ContactFields({ form, setForm, accounts }: { form: Record<string, strin
     </div>
   </div>;
 }
-function ItemFields({ form, setForm, items }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; items: DataRecord[] }) {
+function ItemFields({ form, setForm, items, accounts, contacts, vatCodeOptions, currency, editing }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; items: DataRecord[]; accounts: DataRecord[]; contacts: DataRecord[]; vatCodeOptions: VatCodeOption[]; currency: string; editing: boolean }) {
   const count = Math.min(30, Math.max(1, Number(form.specCount ?? 8)));
   const [optionData, setOptionData] = useState<{ options: Record<string, string[]>; disabled: Record<string, string[]>; labels: string[]; disabledLabels: string[]; categories: string[]; disabledCategories: string[] }>({ options: {}, disabled: {}, labels: [...specificationFields], disabledLabels: [], categories: ["Laptop"], disabledCategories: [] });
   const loadOptions = useCallback(async () => {
@@ -1935,6 +1980,17 @@ function ItemFields({ form, setForm, items }: { form: Record<string, string>; se
   const savedCategories = items.map((item) => String(item.category ?? "").trim()).filter(Boolean);
   const categoryOptions = [...new Set([...optionData.categories, ...savedCategories])].filter((category) => !disabledCategories.has(category));
   const description = Array.from({ length: count }, (_, index) => form[`specValue${index}`]?.trim() ?? "").filter((value) => value && value.toLowerCase() !== "no").join(" | ");
+  const itemType = itemTypeOf(form.itemType);
+  const typeInfo = itemTypeDetails[itemType];
+  const standardLineItem = documentLineItemTypes.has(itemType);
+  const stockPart = itemType === "stock-part";
+  const activeAccounts = accounts.filter((account) => account.active !== false && String(account.active) !== "false");
+  const purchaseAccounts = activeAccounts.filter((account) => ["COGS", "PURCHASES", "EXPENSE"].includes(String(account.systemRole)) || ["Cost of Goods Sold", "Expense", "Other Expense"].includes(String(account.type)));
+  const incomeAccounts = activeAccounts.filter((account) => ["SALES", "OTHER_INCOME"].includes(String(account.systemRole)) || ["Income", "Other Income"].includes(String(account.type)));
+  const assetAccounts = activeAccounts.filter((account) => account.systemRole === "INVENTORY" || ["Other Current Asset", "Other Asset"].includes(String(account.type)));
+  const vendors = contacts.filter((contact) => contact.type === "vendor" && String(contact.status || "active") !== "inactive");
+  const selectedPurchaseVat = form.purchaseVatCode || vatCodeOptions.find((code) => code.code === "STANDARD")?.code || vatCodeOptions[0]?.code || "ZERO";
+  const selectedSalesVat = form.salesVatCode || vatCodeOptions.find((code) => code.code === "STANDARD")?.code || vatCodeOptions[0]?.code || "ZERO";
   const addSpecification = () => {
     if (count >= 30) return;
     setForm({ ...form, specCount: String(count + 1), [`specLabel${count}`]: specificationFields[count], [`specValue${count}`]: "" });
@@ -1961,7 +2017,49 @@ function ItemFields({ form, setForm, items }: { form: Record<string, string>; se
     const disabled = new Set(optionData.disabled[label] ?? []);
     return [...new Set([...(optionData.options[label] ?? []), ...saved])].filter((value) => !disabled.has(value));
   };
+  const accountPicker = (label: string, name: "cogsAccountId" | "incomeAccountId" | "assetAccountId", choices: DataRecord[]) => <div className="space-y-2"><Label>{label}</Label><Select value={form[name] || "none"} onValueChange={(value) => setForm({ ...form, [name]: value === "none" ? "" : value })}><SelectTrigger className="w-full"><SelectValue placeholder="Select account" /></SelectTrigger><SelectContent><SelectItem value="none">Not linked</SelectItem>{choices.map((account) => <SelectItem key={account.id} value={String(account.id)}>{String(account.code || "")} · {String(account.name)}</SelectItem>)}</SelectContent></Select><p className="text-xs text-slate-500">Linked to Chart of Accounts.</p></div>;
+  const vatPicker = (label: string, name: "purchaseVatCode" | "salesVatCode", value: string) => <div className="space-y-2"><Label>{label}</Label><Select value={value} onValueChange={(next) => setForm({ ...form, [name]: next })}><SelectTrigger className="w-full"><SelectValue placeholder="Select VAT code" /></SelectTrigger><SelectContent>{vatCodeOptions.map((option) => <SelectItem key={option.code} value={option.code}>{option.label}</SelectItem>)}</SelectContent></Select><p className="text-xs text-slate-500">Linked to Management &gt; VAT Codes.</p></div>;
   return <div data-attachments-excluded="true" className="grid gap-4 sm:grid-cols-2">
+    <section className="space-y-4 rounded-xl border bg-white p-4 sm:col-span-2">
+      <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
+        <div className="space-y-2"><Label>Type *</Label><Select value={itemType} onValueChange={(value) => { const nextType = itemTypeOf(value); setForm({ ...form, itemType: nextType, ...(nextType === "stock-part" ? {} : { quantity: "0", reorderPoint: "0", assetAccountId: "" }) }); }}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{itemTypeValues.map((value) => <SelectItem key={value} value={value}>{itemTypeDetails[value].label}</SelectItem>)}</SelectContent></Select></div>
+        <div className="rounded-lg border bg-slate-50 p-3"><p className="font-semibold text-slate-900">{typeInfo.label}</p><p className="mt-1 text-sm leading-6 text-slate-600">{typeInfo.description}</p><p className="mt-2 text-xs font-semibold text-emerald-700">Linked area: {typeInfo.linkedArea}</p></div>
+      </div>
+    </section>
+
+    {standardLineItem && <><section className="space-y-4 rounded-xl border bg-slate-50 p-4">
+      <div><h3 className="font-bold text-slate-900">Purchase information</h3><p className="mt-1 text-xs text-slate-500">Defaults used when this item is selected on purchase documents.</p></div>
+      <Field label={stockPart ? `Cost (${currency})` : `Purchase Cost / Rate (${currency})`} name="cost" type="number" form={form} setForm={setForm} />
+      {vatPicker("Purch VAT Code", "purchaseVatCode", selectedPurchaseVat)}
+      {accountPicker(stockPart ? "COGS Account" : "Expense / COGS Account", "cogsAccountId", purchaseAccounts)}
+      <div className="space-y-2"><Label>Preferred Supplier</Label><Select value={form.preferredSupplierId || "none"} onValueChange={(value) => setForm({ ...form, preferredSupplierId: value === "none" ? "" : value })}><SelectTrigger className="w-full"><SelectValue placeholder="Select supplier" /></SelectTrigger><SelectContent><SelectItem value="none">No preferred supplier</SelectItem>{vendors.map((vendor) => <SelectItem key={vendor.id} value={String(vendor.id)}>{String(vendor.company || vendor.name)}</SelectItem>)}</SelectContent></Select><p className="text-xs text-slate-500">Linked to Vendor Center.</p></div>
+    </section>
+    <section className="space-y-4 rounded-xl border bg-slate-50 p-4">
+      <div><h3 className="font-bold text-slate-900">Sales information</h3><p className="mt-1 text-xs text-slate-500">Defaults used when this item is selected on sales documents.</p></div>
+      <Field label={itemType === "service" ? `Rate (${currency})` : `Sales Price (${currency})`} name="salesPrice" type="number" form={form} setForm={setForm} />
+      {vatPicker("Sales VAT Code", "salesVatCode", selectedSalesVat)}
+      {accountPicker("Income Account", "incomeAccountId", incomeAccounts)}
+    </section></>}
+
+    {stockPart && <section className="space-y-4 rounded-xl border bg-white p-4 sm:col-span-2">
+      <div><h3 className="font-bold text-slate-900">Stock information</h3><p className="mt-1 text-xs text-slate-500">On-hand stock changes only from stock documents after the opening quantity is saved.</p></div>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <div className="xl:col-span-1">{accountPicker("Asset Account", "assetAccountId", assetAccounts)}</div>
+        <Field label="Reorder Point (Min)" name="reorderPoint" type="number" form={form} setForm={setForm} />
+        <div className="space-y-2"><Label>On Hand</Label><Input type="number" min="0" step="0.01" readOnly={editing} value={form.quantity || "0"} onChange={(event) => setForm({ ...form, quantity: event.target.value })} className={editing ? "bg-slate-100" : ""} /><p className="text-xs text-slate-500">{editing ? "Updated by posted stock documents." : "Opening quantity for this inventory."}</p></div>
+        <div className="space-y-2"><Label>Average Cost</Label><Input readOnly value={Number(form.cost || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })} className="bg-slate-100" /></div>
+        <div className="space-y-2"><Label>On P.O.</Label><Input readOnly value={Number(form.onPo || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })} className="bg-slate-100" /><p className="text-xs text-slate-500">Open purchase order quantity.</p></div>
+      </div>
+    </section>}
+
+    {!standardLineItem && <section className="rounded-xl border border-sky-200 bg-sky-50 p-4 sm:col-span-2"><h3 className="font-bold text-sky-950">Document control item</h3><p className="mt-1 text-sm leading-6 text-sky-900">{typeInfo.label} is linked to <strong>{typeInfo.linkedArea}</strong> rather than the normal stock/service item selector, so it will not change inventory quantity.</p></section>}
+
+    <section className="grid gap-4 rounded-xl border bg-white p-4 sm:col-span-2 md:grid-cols-2">
+      <label className="flex items-center gap-3 text-sm font-medium"><Checkbox checked={form.status === "inactive"} onCheckedChange={(checked) => setForm({ ...form, status: checked === true ? "inactive" : "active" })} />Item is inactive</label>
+      <label className="flex items-center gap-3 text-sm font-medium"><Checkbox checked={form.amountsIncludeVat === "true"} onCheckedChange={(checked) => setForm({ ...form, amountsIncludeVat: checked === true ? "true" : "false" })} />Amounts Inc VAT</label>
+      {form.amountsIncludeVat === "true" && <p className="text-xs text-slate-500 md:col-span-2">Saved Cost and Sales Price/Rate are treated as VAT-inclusive. Document lines convert them to net values using the linked VAT code.</p>}
+    </section>
+
     <div className="space-y-2 sm:col-span-2"><div><Label>Category</Label><p className="mt-1 text-xs text-slate-500">SKU and Item No. are generated automatically for every new item.</p></div><SpecificationValuePicker
       label="Item category"
       placeholder="Select or type category"

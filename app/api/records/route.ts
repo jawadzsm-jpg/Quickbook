@@ -21,6 +21,10 @@ function errorMessage(error: unknown) {
 const round = (value: number) => Math.round(value * 100) / 100;
 const fallbackVatRates: Record<string, number> = { STANDARD: 5, ZERO: 0, EXEMPT: 0, OUT_OF_SCOPE: 0 };
 const accountRoles = ["BANK", "AR", "AP", "INVENTORY", "INPUT_VAT", "OUTPUT_VAT", "EQUITY", "SALES", "OTHER_INCOME", "COGS", "PURCHASES", "EXPENSE", "PAYROLL", "SUSPENSE"];
+const itemTypeValues = new Set(["service", "stock-part", "non-stock-part", "other-charge", "subtotal", "group", "discount", "payment", "vat-item", "vat-group"]);
+const documentLineItemTypes = new Set(["service", "stock-part", "non-stock-part", "other-charge"]);
+const normalizedItemType = (value: unknown) => itemTypeValues.has(String(value ?? "")) ? String(value) : "stock-part";
+const optionalId = (value: unknown) => { const id = Number(value); return Number.isInteger(id) && id > 0 ? id : null; };
 
 function writePermission(kind: RecordKind, payload: Record<string, unknown>): Permission | "admin" {
   if (kind === "items") return "inventory:manage";
@@ -281,7 +285,18 @@ export async function GET(request: Request) {
       return Response.json({ revision: purchaseRevision(record, lines), record: { ...paymentDisplayRecord(record), ...(invoiceBalance !== undefined ? { balance: invoiceBalance } : {}), sourceDocumentNumber: sourceDocument?.number ?? "", sourceDocumentType: sourceDocument?.type ?? "", convertedDocumentNumber: convertedDocument?.number ?? "", convertedDocumentType: convertedDocument?.type ?? "", convertedInvoiceNumber: convertedDocument?.type === "invoice" ? convertedDocument.number : "" }, lines, journal, partyContact: partyContact ?? null });
     }
     if (kind === "contacts") return Response.json({ records: await db.select().from(contacts).where(eq(contacts.companyId, companyId)).orderBy(asc(contacts.name)) });
-    if (kind === "items") return Response.json({ records: await db.select().from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId))).orderBy(asc(items.name)) });
+    if (kind === "items") {
+      const records = await db.select().from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId))).orderBy(asc(items.name));
+      const openPoLines = await db.select({ id: transactionLines.id, itemId: transactionLines.itemId, quantity: transactionLines.quantity }).from(transactionLines)
+        .innerJoin(transactions, eq(transactionLines.transactionId, transactions.id))
+        .where(and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId), eq(transactions.type, "purchase order"), inArray(transactions.status, ["open", "pending", "overdue", "partially received"]), sql`${transactionLines.itemId} IS NOT NULL`));
+      const allocations = openPoLines.length ? await db.select({ orderLineId: purchaseReceiptAllocations.orderLineId, quantity: purchaseReceiptAllocations.quantity }).from(purchaseReceiptAllocations).where(inArray(purchaseReceiptAllocations.orderLineId, openPoLines.map((line) => line.id))) : [];
+      const receivedByLine = new Map<number, number>();
+      for (const allocation of allocations) receivedByLine.set(allocation.orderLineId, (receivedByLine.get(allocation.orderLineId) ?? 0) + Number(allocation.quantity));
+      const onPoByItem = new Map<number, number>();
+      for (const line of openPoLines) if (line.itemId) onPoByItem.set(line.itemId, (onPoByItem.get(line.itemId) ?? 0) + Math.max(0, Number(line.quantity) - (receivedByLine.get(line.id) ?? 0)));
+      return Response.json({ records: records.map((item) => ({ ...item, onPo: round(onPoByItem.get(item.id) ?? 0) })) });
+    }
     if (kind === "accounts") {
       const accountRows = await db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(asc(accounts.code));
       const journalFilter = Number.isInteger(locationId) && locationId > 0 ? and(eq(journalEntries.companyId, companyId), eq(journalEntries.locationId, locationId)) : eq(journalEntries.companyId, companyId);
@@ -370,8 +385,10 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
         const [created] = await db.insert(items).values({
           companyId, locationId, sku, name: source.name, category: source.category, description: source.description,
           specifications: source.specifications, hsCode: source.hsCode, countryOfOrigin: source.countryOfOrigin, dimensionText: source.dimensionText,
-          lengthCm: source.lengthCm, widthCm: source.widthCm, heightCm: source.heightCm, weightKg: source.weightKg, quantity: 0, reorderPoint: source.reorderPoint,
-          salesPrice: source.salesPrice, cost: source.cost, lastPurchasePrice: source.lastPurchasePrice, status: source.status,
+          lengthCm: source.lengthCm, widthCm: source.widthCm, heightCm: source.heightCm, weightKg: source.weightKg, quantity: 0, itemType: source.itemType, reorderPoint: source.reorderPoint,
+          salesPrice: source.salesPrice, cost: source.cost, purchaseVatCode: source.purchaseVatCode, cogsAccountId: source.cogsAccountId, preferredSupplierId: source.preferredSupplierId,
+          salesVatCode: source.salesVatCode, incomeAccountId: source.incomeAccountId, assetAccountId: source.assetAccountId, amountsIncludeVat: source.amountsIncludeVat,
+          lastPurchasePrice: source.lastPurchasePrice, status: source.status,
         }).returning();
         const [record] = await db.update(items).set({ itemNumber: String(13000 + created.id) }).where(eq(items.id, created.id)).returning();
         await db.insert(auditLog).values({ companyId, action: "duplicated", entityType: "item", entityId: record.id, details: `${source.sku} duplicated as ${record.sku}; opening quantity 0` });
@@ -388,11 +405,34 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       // Keep labels in structured specifications for editing/filtering; the customer-facing description contains values only.
       const description = specifications.map((specification) => specification.value).filter((value) => value.trim().toLowerCase() !== "no").join(" | ");
       const parsedWeight = Number.parseFloat(specificationValue("Weight"));
+      const itemType = normalizedItemType(payload.itemType);
+      const purchaseVatCode = String(payload.purchaseVatCode ?? "STANDARD").trim().toUpperCase();
+      const salesVatCode = String(payload.salesVatCode ?? "STANDARD").trim().toUpperCase();
+      const cogsAccountId = optionalId(payload.cogsAccountId);
+      const preferredSupplierId = optionalId(payload.preferredSupplierId);
+      const incomeAccountId = optionalId(payload.incomeAccountId);
+      const assetAccountId = itemType === "stock-part" ? optionalId(payload.assetAccountId) : null;
+      const accountIds = [...new Set([cogsAccountId, incomeAccountId, assetAccountId].filter((id): id is number => id !== null))];
+      const linkedAccounts = accountIds.length ? await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true), inArray(accounts.id, accountIds))) : [];
+      if (linkedAccounts.length !== accountIds.length) return Response.json({ error: "Select active item accounts from this company’s Chart of Accounts." }, { status: 400 });
+      if (preferredSupplierId) {
+        const [supplier] = await db.select({ id: contacts.id }).from(contacts).where(and(eq(contacts.id, preferredSupplierId), eq(contacts.companyId, companyId), eq(contacts.type, "vendor"), eq(contacts.status, "active"))).limit(1);
+        if (!supplier) return Response.json({ error: "Select an active preferred supplier from this company." }, { status: 400 });
+      }
+      const activeVatCodes = await db.select({ code: vatCodes.code }).from(vatCodes).where(and(eq(vatCodes.companyId, companyId), eq(vatCodes.active, true)));
+      if (activeVatCodes.length && [purchaseVatCode, salesVatCode].some((code) => !activeVatCodes.some((entry) => entry.code === code))) return Response.json({ error: "Select active purchase and sales VAT codes for this company." }, { status: 400 });
+      const quantity = itemType === "stock-part" ? Number(payload.quantity ?? 0) : 0;
+      const reorderPoint = itemType === "stock-part" ? Number(payload.reorderPoint ?? 0) : 0;
+      const salesPrice = Number(payload.salesPrice ?? 0);
+      const cost = Number(payload.cost ?? 0);
+      if (![quantity, reorderPoint, salesPrice, cost].every((value) => Number.isFinite(value) && value >= 0)) return Response.json({ error: "Quantity, reorder point, cost and sales price must be non-negative numbers." }, { status: 400 });
       const [created] = await db.insert(items).values({
         companyId, locationId, name, sku, category, description,
         specifications: JSON.stringify(specifications), countryOfOrigin: specificationValue("Country of Origin").toUpperCase(),
-        dimensionText: specificationValue("Dimensions"), weightKg: Number.isFinite(parsedWeight) ? parsedWeight : 0, quantity: Number(payload.quantity ?? 0),
-        reorderPoint: Number(payload.reorderPoint ?? 0), salesPrice: Number(payload.salesPrice ?? 0), cost: Number(payload.cost ?? 0),
+        dimensionText: specificationValue("Dimensions"), weightKg: Number.isFinite(parsedWeight) ? parsedWeight : 0, quantity, itemType, reorderPoint, salesPrice, cost,
+        purchaseVatCode, cogsAccountId, preferredSupplierId, salesVatCode, incomeAccountId, assetAccountId,
+        amountsIncludeVat: payload.amountsIncludeVat === true || String(payload.amountsIncludeVat) === "true",
+        status: String(payload.status) === "inactive" ? "inactive" : "active",
       }).returning();
       const [record] = await db.update(items).set({ itemNumber: String(13000 + created.id) }).where(eq(items.id, created.id)).returning();
       return Response.json({ record }, { status: 201 });
@@ -543,20 +583,24 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       return Response.json({ error: "Select a valid inventory item on every stock line." }, { status: 400 });
     }
     const linkedItemIds = [...new Set(prepared.flatMap((line) => line.itemId ? [line.itemId] : []))];
+    let linkedItems: Array<{ id: number; itemType: string; status: string; cogsAccountId: number | null; incomeAccountId: number | null; assetAccountId: number | null }> = [];
     if (["bill", "invoice", "estimate", "proforma invoice", "sales order", "quotation"].includes(type) || linkedItemIds.length) {
       const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).limit(1);
       if (!location) return Response.json({ error: "Select a valid inventory in this company." }, { status: 400 });
       if (linkedItemIds.length) {
-        const linkedItems = await db.select({ id: items.id }).from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId), inArray(items.id, linkedItemIds)));
+        linkedItems = await db.select({ id: items.id, itemType: items.itemType, status: items.status, cogsAccountId: items.cogsAccountId, incomeAccountId: items.incomeAccountId, assetAccountId: items.assetAccountId }).from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId), inArray(items.id, linkedItemIds)));
         if (linkedItems.length !== linkedItemIds.length) return Response.json({ error: "Select items from the document’s company and inventory." }, { status: 400 });
+        if (linkedItems.some((item) => item.status === "inactive")) return Response.json({ error: "Inactive items cannot be added to a new document." }, { status: 409 });
+        if (linkedItems.some((item) => !documentLineItemTypes.has(item.itemType))) return Response.json({ error: "Subtotal, group, discount, payment and VAT control items must be used in their dedicated document areas, not as stock/service lines." }, { status: 400 });
       }
     }
+    const stockItemIds = new Set(linkedItems.filter((item) => item.itemType === "stock-part").map((item) => item.id));
     const stockReducing = ["invoice", "sales receipt"].includes(type);
     let usedAdminNegativeStockOverride = false;
     if (stockReducing) {
       if (!Number.isInteger(locationId) || locationId <= 0) return Response.json({ error: "Select an inventory before creating the document." }, { status: 400 });
       const requestedByItem = new Map<number, number>();
-      for (const line of prepared) if (line.itemId) requestedByItem.set(line.itemId, (requestedByItem.get(line.itemId) ?? 0) + line.quantity);
+      for (const line of prepared) if (line.itemId && stockItemIds.has(line.itemId)) requestedByItem.set(line.itemId, (requestedByItem.get(line.itemId) ?? 0) + line.quantity);
       const itemIds = [...requestedByItem.keys()];
       if (itemIds.length) {
         const available = await db.select({ id: items.id, sku: items.sku, name: items.name, quantity: items.quantity }).from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId), inArray(items.id, itemIds))).orderBy(asc(items.id)).for("update");
@@ -739,9 +783,81 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const postingAccountRole = linkedRows.find((account) => account.name.toLowerCase() === record.account.toLowerCase())?.systemRole ?? "";
     if (!nonPosting) {
       const [entry] = await db.insert(journalEntries).values({ companyId, locationId: Number.isInteger(locationId) && locationId > 0 ? locationId : null, transactionId: record.id, entryDate: transactionDate, reference: number, description: `${type}: ${party}` }).returning();
-      const baseLines = postingLines(type, record.account, record.party, baseSubtotal, baseVatAmount, baseTotal, linkedAccounts);
-      const cogs = ["invoice", "sales receipt"].includes(type) ? round(prepared.reduce((sum, line) => sum + line.quantity * line.unitCost, 0) * exchangeRate) : 0;
-      if (cogs) baseLines.push({ accountName: linkedAccounts.COGS ?? "Cost of Goods Sold", debit: cogs, credit: 0 }, { accountName: linkedAccounts.INVENTORY ?? "Inventory Asset", debit: 0, credit: cogs });
+      let baseLines = postingLines(type, record.account, record.party, baseSubtotal, baseVatAmount, baseTotal, linkedAccounts);
+      const itemConfig = new Map(linkedItems.map((item) => [item.id, item]));
+      const accountById = new Map(linkedRows.map((account) => [account.id, account.name]));
+      const itemAccount = (itemId: number | null, field: "incomeAccountId" | "cogsAccountId" | "assetAccountId", fallback: string) => {
+        const accountId = itemId ? itemConfig.get(itemId)?.[field] : null;
+        return accountId ? accountById.get(accountId) ?? fallback : fallback;
+      };
+      const addAmount = (totals: Map<string, number>, accountName: string, amount: number) => totals.set(accountName, round((totals.get(accountName) ?? 0) + amount));
+      const matchTarget = (totals: Map<string, number>, target: number, fallback: string) => {
+        const current = round([...totals.values()].reduce((sum, amount) => sum + amount, 0));
+        const difference = round(target - current);
+        if (difference) {
+          const first = totals.keys().next().value as string | undefined;
+          const accountName = first ?? fallback;
+          totals.set(accountName, round((totals.get(accountName) ?? 0) + difference));
+        }
+      };
+      if (["invoice", "sales receipt"].includes(type)) {
+        const salesFallback = linkedAccounts.SALES ?? "Sales Revenue";
+        const incomeTotals = new Map<string, number>();
+        for (const line of prepared) addAmount(incomeTotals, itemAccount(line.itemId, "incomeAccountId", salesFallback), round(line.subtotal * exchangeRate));
+        matchTarget(incomeTotals, baseSubtotal, salesFallback);
+        baseLines = [
+          { accountName: type === "invoice" ? linkedAccounts.AR ?? "Accounts Receivable" : linkedAccounts.BANK ?? "Business Bank", debit: baseTotal, credit: 0 },
+          ...[...incomeTotals].filter(([, amount]) => amount !== 0).map(([accountName, amount]) => ({ accountName, debit: 0, credit: amount })),
+          ...(baseVatAmount ? [{ accountName: linkedAccounts.OUTPUT_VAT ?? "VAT Payable", debit: 0, credit: baseVatAmount }] : []),
+        ];
+      } else if (type === "bill") {
+        const purchaseFallback = record.account || linkedAccounts.PURCHASES || "Purchases";
+        const inventoryFallback = linkedAccounts.INVENTORY ?? "Inventory Asset";
+        const purchaseTotals = new Map<string, number>();
+        for (const line of prepared) {
+          const accountName = line.itemId && stockItemIds.has(line.itemId)
+            ? itemAccount(line.itemId, "assetAccountId", inventoryFallback)
+            : itemAccount(line.itemId, "cogsAccountId", purchaseFallback);
+          addAmount(purchaseTotals, accountName, round(line.subtotal * exchangeRate));
+        }
+        matchTarget(purchaseTotals, baseSubtotal, purchaseFallback);
+        baseLines = [
+          ...[...purchaseTotals].filter(([, amount]) => amount !== 0).map(([accountName, amount]) => ({ accountName, debit: amount, credit: 0 })),
+          ...(baseVatAmount ? [{ accountName: linkedAccounts.INPUT_VAT ?? "Recoverable VAT", debit: baseVatAmount, credit: 0 }] : []),
+          { accountName: linkedAccounts.AP ?? "Accounts Payable", debit: 0, credit: baseTotal },
+        ];
+      } else if (type === "item receipt") {
+        const purchaseFallback = record.account || linkedAccounts.PURCHASES || "Purchases";
+        const inventoryFallback = linkedAccounts.INVENTORY ?? "Inventory Asset";
+        const receiptTotals = new Map<string, number>();
+        for (const line of prepared) {
+          const accountName = line.itemId && stockItemIds.has(line.itemId)
+            ? itemAccount(line.itemId, "assetAccountId", inventoryFallback)
+            : itemAccount(line.itemId, "cogsAccountId", purchaseFallback);
+          addAmount(receiptTotals, accountName, round(line.subtotal * exchangeRate));
+        }
+        matchTarget(receiptTotals, baseSubtotal, purchaseFallback);
+        baseLines = [
+          ...[...receiptTotals].filter(([, amount]) => amount !== 0).map(([accountName, amount]) => ({ accountName, debit: amount, credit: 0 })),
+          { accountName: record.account || linkedAccounts.SUSPENSE || "Suspense", debit: 0, credit: baseSubtotal },
+        ];
+      }
+      if (["invoice", "sales receipt"].includes(type)) {
+        const cogsDebits = new Map<string, number>();
+        const assetCredits = new Map<string, number>();
+        const cogsFallback = linkedAccounts.COGS ?? "Cost of Goods Sold";
+        const inventoryFallback = linkedAccounts.INVENTORY ?? "Inventory Asset";
+        for (const line of prepared.filter((entry) => entry.itemId && stockItemIds.has(entry.itemId))) {
+          const homeCogs = round(line.quantity * line.unitCost * exchangeRate);
+          if (!homeCogs) continue;
+          addAmount(cogsDebits, itemAccount(line.itemId, "cogsAccountId", cogsFallback), homeCogs);
+          addAmount(assetCredits, itemAccount(line.itemId, "assetAccountId", inventoryFallback), homeCogs);
+        }
+        baseLines.push(
+          ...[...cogsDebits].map(([accountName, amount]) => ({ accountName, debit: amount, credit: 0 })),
+          ...[...assetCredits].map(([accountName, amount]) => ({ accountName, debit: 0, credit: amount })),
+        );
+      }
       const pnlRoleTypes: Record<string, string[]> = { SALES: ["Income"], OTHER_INCOME: ["Other Income", "Income"], COGS: ["Cost of Goods Sold"], PURCHASES: ["Expense", "Cost of Goods Sold"], EXPENSE: ["Expense", "Other Expense"], PAYROLL: ["Expense"] };
       for (const line of baseLines) {
         const matches = linkedRows.filter(a => a.name === line.accountName);
@@ -756,9 +872,11 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     if (!nonPosting) {
       const direction = ["invoice", "sales receipt"].includes(type) ? -1 : ["bill", "item receipt"].includes(type) ? 1 : 0;
       if (direction) for (const line of prepared.filter((entry) => entry.itemId)) {
-        const quantity = direction * line.quantity;
         const homeCurrencyPurchaseCost = round(line.unitPrice * exchangeRate);
-        await db.update(items).set(["bill", "item receipt"].includes(type) ? { quantity: sql`${items.quantity} + ${quantity}`, lastPurchasePrice: homeCurrencyPurchaseCost } : { quantity: sql`${items.quantity} + ${quantity}` }).where(eq(items.id, line.itemId!));
+        if (["bill", "item receipt"].includes(type)) await db.update(items).set({ lastPurchasePrice: homeCurrencyPurchaseCost }).where(eq(items.id, line.itemId!));
+        if (!stockItemIds.has(line.itemId!)) continue;
+        const quantity = direction * line.quantity;
+        await db.update(items).set({ quantity: sql`${items.quantity} + ${quantity}` }).where(eq(items.id, line.itemId!));
         await db.insert(inventoryMovements).values({ itemId: line.itemId!, transactionId: record.id, movementDate: transactionDate, movementType: type, quantity, unitCost: line.unitCost, reference: number });
       }
       const balanceChange = contactBalanceChange(type, total, postingAccountRole);
@@ -934,10 +1052,34 @@ async function handlePATCH(request: Request) {
     const specificationValue = (label: string) => specifications.find((specification) => specification.label.toLowerCase() === label.toLowerCase())?.value ?? "";
     const category = String(payload.category ?? existing.category).trim() || existing.category;
     const generatedName = [specificationValue("Brand"), specificationValue("Model") || specificationValue("Part Number")].filter(Boolean).join(" ");
+    const itemType = normalizedItemType(payload.itemType ?? existing.itemType);
+    if (existing.itemType === "stock-part" && itemType !== "stock-part" && Math.abs(existing.quantity) > 0.000001) return Response.json({ error: "Reduce on-hand quantity to zero before changing a Stock Part to a non-stock item type." }, { status: 409 });
+    const purchaseVatCode = String(payload.purchaseVatCode ?? existing.purchaseVatCode).trim().toUpperCase();
+    const salesVatCode = String(payload.salesVatCode ?? existing.salesVatCode).trim().toUpperCase();
+    const cogsAccountId = optionalId(payload.cogsAccountId ?? existing.cogsAccountId);
+    const preferredSupplierId = optionalId(payload.preferredSupplierId ?? existing.preferredSupplierId);
+    const incomeAccountId = optionalId(payload.incomeAccountId ?? existing.incomeAccountId);
+    const assetAccountId = itemType === "stock-part" ? optionalId(payload.assetAccountId ?? existing.assetAccountId) : null;
+    const accountIds = [...new Set([cogsAccountId, incomeAccountId, assetAccountId].filter((accountId): accountId is number => accountId !== null))];
+    const linkedAccounts = accountIds.length ? await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true), inArray(accounts.id, accountIds))) : [];
+    if (linkedAccounts.length !== accountIds.length) return Response.json({ error: "Select active item accounts from this company’s Chart of Accounts." }, { status: 400 });
+    if (preferredSupplierId) {
+      const [supplier] = await db.select({ id: contacts.id }).from(contacts).where(and(eq(contacts.id, preferredSupplierId), eq(contacts.companyId, companyId), eq(contacts.type, "vendor"), eq(contacts.status, "active"))).limit(1);
+      if (!supplier) return Response.json({ error: "Select an active preferred supplier from this company." }, { status: 400 });
+    }
+    const activeVatCodes = await db.select({ code: vatCodes.code }).from(vatCodes).where(and(eq(vatCodes.companyId, companyId), eq(vatCodes.active, true)));
+    if (activeVatCodes.length && [purchaseVatCode, salesVatCode].some((code) => !activeVatCodes.some((entry) => entry.code === code))) return Response.json({ error: "Select active purchase and sales VAT codes for this company." }, { status: 400 });
+    const reorderPoint = itemType === "stock-part" ? Number(payload.reorderPoint ?? existing.reorderPoint) : 0;
+    const salesPrice = Number(payload.salesPrice ?? existing.salesPrice);
+    const cost = Number(payload.cost ?? existing.cost);
+    if (![reorderPoint, salesPrice, cost].every((value) => Number.isFinite(value) && value >= 0)) return Response.json({ error: "Reorder point, cost and sales price must be non-negative numbers." }, { status: 400 });
     const [record] = await db.update(items).set({
       category,
       sku: existing.sku,
       name: generatedName || existing.name,
+      itemType, reorderPoint, salesPrice, cost, purchaseVatCode, cogsAccountId, preferredSupplierId, salesVatCode, incomeAccountId, assetAccountId,
+      amountsIncludeVat: payload.amountsIncludeVat === true || String(payload.amountsIncludeVat) === "true",
+      status: String(payload.status ?? existing.status) === "inactive" ? "inactive" : "active",
       // Keep labels in structured specifications for editing/filtering; the customer-facing description contains values only.
       description: specifications.map((specification) => specification.value).filter((value) => value.trim().toLowerCase() !== "no").join(" | "),
       specifications: JSON.stringify(specifications),
