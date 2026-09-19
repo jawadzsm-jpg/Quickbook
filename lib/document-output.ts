@@ -9,7 +9,7 @@ function cleanFilePart(value: unknown, fallback: string) {
   const cleaned = text
     .replace(/[^\p{L}\p{N}._-]+/gu, "_")
     .replace(/_+/g, "_")
-    .replace(/^[_\.\-]+|[_\.\-]+$/g, "");
+    .replace(/^[_.-]+|[_.-]+$/g, "");
   return cleaned || fallback;
 }
 
