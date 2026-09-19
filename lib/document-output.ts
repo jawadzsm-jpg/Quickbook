@@ -25,7 +25,7 @@ async function imageAsDataUrl(image: HTMLImageElement): Promise<string | null> {
   if (source.startsWith("data:")) return source;
   try {
     const response = await fetch(source, { credentials: "same-origin", cache: "force-cache", mode: "cors" });
-    if (!response.ok) throw new Error("Image fetch failed.");
+    if (!response.ok) return null;
     const blob = await response.blob();
     return await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
@@ -38,116 +38,186 @@ async function imageAsDataUrl(image: HTMLImageElement): Promise<string | null> {
   }
 }
 
-function safeComputedValue(value: string) {
-  if (!value.includes("url(")) return value;
-  const urls = Array.from(value.matchAll(/url\((['"]?)(.*?)\1\)/g), (match) => match[2]);
-  return urls.every((url) => url.startsWith("data:")) ? value : "none";
+function cssNumber(value: string, fallback = 0) {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function copyComputedStyles(source: Element, target: Element) {
-  const computed = window.getComputedStyle(source);
-  if (target instanceof HTMLElement || target instanceof SVGElement) {
-    for (const property of Array.from(computed)) {
-      target.style.setProperty(property, safeComputedValue(computed.getPropertyValue(property)), computed.getPropertyPriority(property));
-    }
+function cssColor(value: string): [number, number, number, number] | null {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || normalized === "transparent") return null;
+  const rgb = normalized.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+))?\s*\)$/);
+  if (rgb) {
+    return [
+      Math.max(0, Math.min(255, Math.round(Number(rgb[1])))),
+      Math.max(0, Math.min(255, Math.round(Number(rgb[2])))),
+      Math.max(0, Math.min(255, Math.round(Number(rgb[3])))),
+      rgb[4] === undefined ? 1 : Math.max(0, Math.min(1, Number(rgb[4]))),
+    ];
   }
-  const sourceChildren = Array.from(source.children);
-  const targetChildren = Array.from(target.children);
-  sourceChildren.forEach((child, index) => {
-    const cloneChild = targetChildren[index];
-    if (cloneChild) copyComputedStyles(child, cloneChild);
-  });
+  const hex = normalized.match(/^#([0-9a-f]{6})([0-9a-f]{2})?$/i);
+  if (hex) {
+    const value6 = hex[1];
+    return [
+      Number.parseInt(value6.slice(0, 2), 16),
+      Number.parseInt(value6.slice(2, 4), 16),
+      Number.parseInt(value6.slice(4, 6), 16),
+      hex[2] ? Number.parseInt(hex[2], 16) / 255 : 1,
+    ];
+  }
+  return null;
 }
 
-async function renderElementToCanvas(element: HTMLElement, omitImages = false): Promise<HTMLCanvasElement> {
+function directText(element: HTMLElement) {
+  return Array.from(element.childNodes)
+    .filter((node) => node.nodeType === Node.TEXT_NODE)
+    .map((node) => node.textContent || "")
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function visibleElement(element: HTMLElement) {
+  const style = window.getComputedStyle(element);
+  if (style.display === "none" || style.visibility === "hidden" || cssNumber(style.opacity, 1) <= 0.01) return false;
   const rect = element.getBoundingClientRect();
-  const width = Math.max(1, Math.ceil(Math.max(rect.width, element.scrollWidth)));
-  const height = Math.max(1, Math.ceil(Math.max(rect.height, element.scrollHeight)));
-  const clone = element.cloneNode(true) as HTMLElement;
-  copyComputedStyles(element, clone);
-  clone.style.width = `${width}px`;
-  clone.style.maxWidth = "none";
-  clone.style.height = "auto";
-  clone.style.margin = "0";
-  clone.style.transform = "none";
-  clone.style.transformOrigin = "top left";
-  clone.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
+  return rect.width > 0 && rect.height > 0;
+}
 
-  const sourceImages = Array.from(element.querySelectorAll("img"));
-  const cloneImages = Array.from(clone.querySelectorAll("img"));
-  await Promise.all(sourceImages.map(async (image, index) => {
-    const clonedImage = cloneImages[index];
-    if (!clonedImage) return;
-    clonedImage.removeAttribute("srcset");
-    clonedImage.removeAttribute("sizes");
-    if (omitImages) {
-      clonedImage.style.visibility = "hidden";
-      clonedImage.removeAttribute("src");
-      return;
-    }
-    const embedded = await imageAsDataUrl(image);
-    if (embedded) {
-      clonedImage.src = embedded;
-    } else {
-      clonedImage.style.visibility = "hidden";
-      clonedImage.removeAttribute("src");
-    }
-  }));
-
-  const serialized = new XMLSerializer().serializeToString(clone);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><foreignObject x="0" y="0" width="100%" height="100%">${serialized}</foreignObject></svg>`;
-  const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-
-  try {
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const rendered = new Image();
-      rendered.onload = () => resolve(rendered);
-      rendered.onerror = () => reject(new Error("Could not render the document preview."));
-      rendered.src = url;
-    });
-    const maxArea = 28_000_000;
-    const scale = Math.max(0.5, Math.min(2, Math.sqrt(maxArea / Math.max(1, width * height))));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(width * scale));
-    canvas.height = Math.max(1, Math.round(height * scale));
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("Could not create the PDF canvas.");
-    context.fillStyle = "#ffffff";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.scale(scale, scale);
-    context.drawImage(image, 0, 0, width, height);
-    try {
-      canvas.toDataURL("image/png");
-      return canvas;
-    } catch (error) {
-      if (!omitImages && error instanceof DOMException && error.name === "SecurityError") {
-        return renderElementToCanvas(element, true);
-      }
-      throw error;
-    }
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+function imageFormat(dataUrl: string): "PNG" | "JPEG" | "WEBP" | null {
+  if (dataUrl.startsWith("data:image/png")) return "PNG";
+  if (dataUrl.startsWith("data:image/jpeg") || dataUrl.startsWith("data:image/jpg")) return "JPEG";
+  if (dataUrl.startsWith("data:image/webp")) return "WEBP";
+  return null;
 }
 
 export async function createA4PdfBlob(element: HTMLElement, options: PdfPageOptions = {}) {
   const { jsPDF } = await import("jspdf");
   const orientation = options.orientation === "landscape" ? "landscape" : "portrait";
   const margin = Math.max(0, Math.min(25, options.marginMm ?? 10));
-  const canvas = await renderElementToCanvas(element);
   const pdf = new jsPDF({ orientation, unit: "mm", format: "a4", compress: true });
   pdf.setProperties({ title: options.title || "Document" });
+
+  const all = [element, ...Array.from(element.querySelectorAll<HTMLElement>("*"))]
+    .filter((node) => !["SCRIPT", "STYLE", "NOSCRIPT"].includes(node.tagName))
+    .filter(visibleElement);
+
+  if (!all.length) throw new Error("Document preview is empty.");
+
+  const rects = all.map((node) => node.getBoundingClientRect());
+  const rootRect = element.getBoundingClientRect();
+  const minLeft = Math.min(rootRect.left, ...rects.map((rect) => rect.left));
+  const minTop = Math.min(rootRect.top, ...rects.map((rect) => rect.top));
+  const maxRight = Math.max(rootRect.right, ...rects.map((rect) => rect.right));
+  const maxBottom = Math.max(rootRect.bottom, ...rects.map((rect) => rect.bottom));
+  const sourceWidth = Math.max(1, maxRight - minLeft);
+  const sourceHeight = Math.max(1, maxBottom - minTop);
+
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
   const printableWidth = Math.max(1, pageWidth - margin * 2);
   const printableHeight = Math.max(1, pageHeight - margin * 2);
-  const ratio = Math.min(printableWidth / canvas.width, printableHeight / canvas.height);
-  const imageWidth = canvas.width * ratio;
-  const imageHeight = canvas.height * ratio;
-  const x = margin + Math.max(0, (printableWidth - imageWidth) / 2);
-  const y = margin;
-  pdf.addImage(canvas.toDataURL("image/jpeg", 0.97), "JPEG", x, y, imageWidth, imageHeight, undefined, "FAST");
+  const scale = Math.min(printableWidth / sourceWidth, printableHeight / sourceHeight);
+  const offsetX = margin + Math.max(0, (printableWidth - sourceWidth * scale) / 2);
+  const offsetY = margin;
+
+  const xOf = (px: number) => offsetX + (px - minLeft) * scale;
+  const yOf = (px: number) => offsetY + (px - minTop) * scale;
+
+  // First pass: backgrounds and borders. This keeps the visible template geometry
+  // without using a browser canvas, so cross-origin logos can never taint the export.
+  for (const node of all) {
+    const rect = node.getBoundingClientRect();
+    const style = window.getComputedStyle(node);
+    const x = xOf(rect.left);
+    const y = yOf(rect.top);
+    const width = rect.width * scale;
+    const height = rect.height * scale;
+
+    const background = cssColor(style.backgroundColor);
+    if (background && background[3] > 0.04) {
+      pdf.setFillColor(background[0], background[1], background[2]);
+      pdf.rect(x, y, width, height, "F");
+    }
+
+    const sides = [
+      ["Top", x, y, x + width, y],
+      ["Right", x + width, y, x + width, y + height],
+      ["Bottom", x, y + height, x + width, y + height],
+      ["Left", x, y, x, y + height],
+    ] as const;
+    for (const [side, x1, y1, x2, y2] of sides) {
+      const borderStyle = style[`border${side}Style` as keyof CSSStyleDeclaration];
+      const borderWidth = cssNumber(String(style[`border${side}Width` as keyof CSSStyleDeclaration]));
+      const borderColor = cssColor(String(style[`border${side}Color` as keyof CSSStyleDeclaration]));
+      if (borderStyle === "none" || borderWidth <= 0 || !borderColor || borderColor[3] <= 0.04) continue;
+      pdf.setDrawColor(borderColor[0], borderColor[1], borderColor[2]);
+      pdf.setLineWidth(Math.max(0.08, borderWidth * scale));
+      pdf.line(x1, y1, x2, y2);
+    }
+  }
+
+  // Second pass: logos and other images. Images that cannot be read because of CORS
+  // are skipped instead of aborting the entire PDF.
+  const images = Array.from(element.querySelectorAll<HTMLImageElement>("img")).filter(visibleElement);
+  for (const image of images) {
+    const dataUrl = await imageAsDataUrl(image);
+    const format = dataUrl ? imageFormat(dataUrl) : null;
+    if (!dataUrl || !format) continue;
+    const rect = image.getBoundingClientRect();
+    try {
+      pdf.addImage(dataUrl, format, xOf(rect.left), yOf(rect.top), rect.width * scale, rect.height * scale, undefined, "FAST");
+    } catch {
+      // Keep the rest of the document downloadable even if one image is unsupported.
+    }
+  }
+
+  // Third pass: text. Drawing text directly into jsPDF avoids canvas security rules.
+  for (const node of all) {
+    const text = directText(node);
+    if (!text) continue;
+    const style = window.getComputedStyle(node);
+    const rect = node.getBoundingClientRect();
+    const color = cssColor(style.color) || [17, 17, 17, 1];
+    pdf.setTextColor(color[0], color[1], color[2]);
+
+    const family = style.fontFamily.toLowerCase();
+    const font = family.includes("georgia") || family.includes("times") ? "times" : family.includes("courier") || family.includes("mono") ? "courier" : "helvetica";
+    const weight = style.fontWeight === "bold" || cssNumber(style.fontWeight) >= 600;
+    const italic = style.fontStyle === "italic" || style.fontStyle === "oblique";
+    const fontStyle = weight && italic ? "bolditalic" : weight ? "bold" : italic ? "italic" : "normal";
+    pdf.setFont(font, fontStyle);
+
+    const fontPx = Math.max(6, cssNumber(style.fontSize, 12));
+    const fontPt = Math.max(4, fontPx * scale * 72 / 25.4);
+    pdf.setFontSize(fontPt);
+
+    const paddingLeft = cssNumber(style.paddingLeft);
+    const paddingRight = cssNumber(style.paddingRight);
+    const paddingTop = cssNumber(style.paddingTop);
+    const maxWidth = Math.max(1, (rect.width - paddingLeft - paddingRight) * scale);
+    const lines = pdf.splitTextToSize(text, maxWidth) as string[];
+    const lineHeightPx = style.lineHeight === "normal" ? fontPx * 1.2 : Math.max(fontPx, cssNumber(style.lineHeight, fontPx * 1.2));
+    const lineHeightMm = lineHeightPx * scale;
+    const totalHeight = Math.max(fontPx * scale, lines.length * lineHeightMm);
+
+    const align = style.textAlign === "center" ? "center" : style.textAlign === "right" || style.textAlign === "end" ? "right" : "left";
+    const x = align === "center"
+      ? xOf(rect.left + rect.width / 2)
+      : align === "right"
+        ? xOf(rect.right - paddingRight)
+        : xOf(rect.left + paddingLeft);
+
+    let y = yOf(rect.top + paddingTop) + fontPx * scale * 0.82;
+    if (style.alignContent === "center" || style.verticalAlign === "middle") {
+      y = yOf(rect.top) + Math.max(fontPx * scale * 0.82, (rect.height * scale - totalHeight) / 2 + fontPx * scale * 0.82);
+    } else if (style.alignContent === "end" || style.verticalAlign === "bottom") {
+      y = yOf(rect.bottom) - totalHeight + fontPx * scale * 0.82;
+    }
+
+    pdf.text(lines, x, y, { align, lineHeightFactor: Math.max(1, lineHeightPx / fontPx) });
+  }
+
   return pdf.output("blob");
 }
 
