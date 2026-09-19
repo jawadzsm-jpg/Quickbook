@@ -2004,7 +2004,7 @@ function ItemFields({ form, setForm, items, accounts, contacts, vatCodeOptions, 
     const name = normalizedAccountValue(account.name);
     return ["cogs", "purchases", "expense"].includes(role)
       || ["cost of goods sold", "cogs", "purchase", "purchases", "expense", "other expense"].includes(type)
-      || name.includes("cost of goods sold")
+      || name.includes("cost of goods")
       || name === "cogs"
       || name.includes("purchases");
   });
