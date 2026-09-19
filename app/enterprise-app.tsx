@@ -681,9 +681,9 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     }
     else if (currentKind === "items") {
       const initialFields = specificationFields.filter((label) => label !== "Product Category").slice(0, 8);
-      const defaultCogs = records.accounts.find((account) => account.active && (account.systemRole === "COGS" || account.type === "Cost of Goods Sold"));
-      const defaultIncome = records.accounts.find((account) => account.active && (account.systemRole === "SALES" || account.type === "Income"));
-      const defaultAsset = records.accounts.find((account) => account.active && (account.systemRole === "INVENTORY" || account.type === "Other Current Asset"));
+      const defaultCogs = records.accounts.find((account) => account.active && (account.systemRole === "COGS" || account.type === "Cost of Goods Sold" || /cost of goods/i.test(String(account.name || ""))));
+      const defaultIncome = records.accounts.find((account) => account.active && (account.systemRole === "SALES" || account.type === "Income" || /^income$/i.test(String(account.name || ""))));
+      const defaultAsset = records.accounts.find((account) => account.active && (account.systemRole === "INVENTORY" || account.type === "Other Current Asset" || /inventory asset/i.test(String(account.name || ""))));
       const defaultVat = vatCodeOptions.find((code) => code.code === "STANDARD")?.code ?? vatCodeOptions[0]?.code ?? "ZERO";
       const itemForm: Record<string, string> = {
         itemType: "stock-part", category: "Laptop", quantity: "0", reorderPoint: "0", salesPrice: "0", cost: "0",
@@ -710,6 +710,9 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   }
 
   function openItemEdit(item: DataRecord) {
+    const defaultCogs = records.accounts.find((account) => account.active && (account.systemRole === "COGS" || account.type === "Cost of Goods Sold" || /cost of goods/i.test(String(account.name || ""))));
+    const defaultIncome = records.accounts.find((account) => account.active && (account.systemRole === "SALES" || account.type === "Income" || /^income$/i.test(String(account.name || ""))));
+    const defaultAsset = records.accounts.find((account) => account.active && (account.systemRole === "INVENTORY" || account.type === "Other Current Asset" || /inventory asset/i.test(String(account.name || ""))));
     let specifications: Array<{ label: string; value: string }> = [];
     try { specifications = JSON.parse(String(item.specifications ?? "[]")); } catch { specifications = []; }
     if (!specifications.length) specifications = specificationFields.filter((label) => label !== "Product Category").slice(0, 8).map((label) => ({ label, value: "" }));
@@ -719,8 +722,8 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
       reorderPoint: String(item.reorderPoint ?? 0), salesPrice: String(item.salesPrice ?? 0), cost: String(item.cost ?? 0),
       lastPurchasePrice: String(item.lastPurchasePrice ?? item.cost ?? 0), onPo: String(item.onPo ?? 0),
       purchaseVatCode: String(item.purchaseVatCode ?? "STANDARD"), salesVatCode: String(item.salesVatCode ?? "STANDARD"),
-      cogsAccountId: item.cogsAccountId ? String(item.cogsAccountId) : "", incomeAccountId: item.incomeAccountId ? String(item.incomeAccountId) : "",
-      assetAccountId: item.assetAccountId ? String(item.assetAccountId) : "", preferredSupplierId: item.preferredSupplierId ? String(item.preferredSupplierId) : "",
+      cogsAccountId: item.cogsAccountId ? String(item.cogsAccountId) : (defaultCogs ? String(defaultCogs.id) : ""), incomeAccountId: item.incomeAccountId ? String(item.incomeAccountId) : (defaultIncome ? String(defaultIncome.id) : ""),
+      assetAccountId: item.assetAccountId ? String(item.assetAccountId) : (defaultAsset ? String(defaultAsset.id) : ""), preferredSupplierId: item.preferredSupplierId ? String(item.preferredSupplierId) : "",
       status: String(item.status ?? "active"), amountsIncludeVat: item.amountsIncludeVat === true || String(item.amountsIncludeVat) === "true" ? "true" : "false",
       specCount: String(Math.min(30, specifications.length)),
     };
