@@ -5,7 +5,7 @@ import { Download, FileDown, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { resolveDocumentDesign, type TemplateDocumentType } from "@/lib/document-design";
 import { documentPageRule } from "@/lib/document-print";
-import { createA4PdfBlob, documentPdfFileName, downloadPdfBlob, openPdfBlob } from "@/lib/document-output";
+import { createA4PdfBlob, documentPdfFileName, downloadPdfBlob, savePdfBlob } from "@/lib/document-output";
 import { CustomInvoiceTemplate, type TemplateBranding } from "./custom-invoice-template";
 import { toast } from "sonner";
 
@@ -144,18 +144,13 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
   const savePdf = async () => {
     const target = pdfElement();
     if (!target) return toast.error("Document preview is not ready.");
-    const popup = window.open("", "_blank");
-    if (!popup) return toast.error("Allow pop-ups to open the PDF.");
-    popup.opener = null;
-    popup.document.write("<!doctype html><title>Preparing PDF</title><body style='font:16px Arial;padding:24px'>Preparing PDF…</body>");
-    popup.document.close();
     setPdfBusy(true);
     try {
       const blob = await createA4PdfBlob(target, { orientation: a4Design.orientation, marginMm: a4Design.margin, title: pdfTitle });
-      openPdfBlob(blob, popup);
+      await savePdfBlob(blob, pdfFileName);
+      toast.success(`PDF saved as ${pdfFileName}`);
     } catch (error) {
-      popup.close();
-      toast.error(error instanceof Error ? error.message : "Could not create the PDF.");
+      toast.error(error instanceof Error ? error.message : "Could not save the PDF.");
     } finally {
       setPdfBusy(false);
     }

@@ -38,6 +38,31 @@ async function imageAsDataUrl(image: HTMLImageElement): Promise<string | null> {
   }
 }
 
+async function flattenImageDataUrl(dataUrl: string): Promise<string> {
+  if (!dataUrl.startsWith("data:image/")) return dataUrl;
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const loaded = new Image();
+      loaded.onload = () => resolve(loaded);
+      loaded.onerror = () => reject(new Error("Could not prepare the document logo."));
+      loaded.src = dataUrl;
+    });
+    const width = Math.max(1, image.naturalWidth || image.width);
+    const height = Math.max(1, image.naturalHeight || image.height);
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) return dataUrl;
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+    return canvas.toDataURL("image/jpeg", 0.98);
+  } catch {
+    return dataUrl;
+  }
+}
+
 function cssNumber(value: string, fallback = 0) {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -161,9 +186,11 @@ export async function createA4PdfBlob(element: HTMLElement, options: PdfPageOpti
   // are skipped instead of aborting the entire PDF.
   const images = Array.from(element.querySelectorAll<HTMLImageElement>("img")).filter(visibleElement);
   for (const image of images) {
-    const dataUrl = await imageAsDataUrl(image);
-    const format = dataUrl ? imageFormat(dataUrl) : null;
-    if (!dataUrl || !format) continue;
+    const originalDataUrl = await imageAsDataUrl(image);
+    if (!originalDataUrl) continue;
+    const dataUrl = await flattenImageDataUrl(originalDataUrl);
+    const format = imageFormat(dataUrl);
+    if (!format) continue;
     const rect = image.getBoundingClientRect();
     try {
       pdf.addImage(dataUrl, format, xOf(rect.left), yOf(rect.top), rect.width * scale, rect.height * scale, undefined, "FAST");
@@ -231,6 +258,38 @@ export function downloadPdfBlob(blob: Blob, filename: string) {
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
+type SaveFilePickerWindow = Window & {
+  showSaveFilePicker?: (options: {
+    suggestedName?: string;
+    types?: Array<{ description: string; accept: Record<string, string[]> }>;
+  }) => Promise<{
+    createWritable: () => Promise<{
+      write: (data: Blob) => Promise<void>;
+      close: () => Promise<void>;
+    }>;
+  }>;
+};
+
+export async function savePdfBlob(blob: Blob, filename: string) {
+  const picker = (window as SaveFilePickerWindow).showSaveFilePicker;
+  if (!picker) {
+    downloadPdfBlob(blob, filename);
+    return;
+  }
+  try {
+    const handle = await picker({
+      suggestedName: filename,
+      types: [{ description: "PDF document", accept: { "application/pdf": [".pdf"] } }],
+    });
+    const writable = await handle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") return;
+    throw error;
+  }
 }
 
 export function openPdfBlob(blob: Blob, targetWindow: Window | null) {
