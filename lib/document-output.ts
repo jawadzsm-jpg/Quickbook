@@ -19,29 +19,36 @@ export function documentPdfFileName(customerName: unknown, referenceNumber: unkn
   return `${customer}_${reference}.pdf`;
 }
 
-async function imageAsDataUrl(image: HTMLImageElement) {
+async function imageAsDataUrl(image: HTMLImageElement): Promise<string | null> {
   const source = image.currentSrc || image.src;
-  if (!source || source.startsWith("data:") || source.startsWith("blob:")) return source;
+  if (!source) return null;
+  if (source.startsWith("data:")) return source;
   try {
-    const response = await fetch(source, { credentials: "same-origin", cache: "force-cache" });
+    const response = await fetch(source, { credentials: "same-origin", cache: "force-cache", mode: "cors" });
     if (!response.ok) throw new Error("Image fetch failed.");
     const blob = await response.blob();
     return await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || source));
+      reader.onload = () => resolve(String(reader.result || ""));
       reader.onerror = () => reject(reader.error);
       reader.readAsDataURL(blob);
     });
   } catch {
-    return new URL(source, window.location.href).href;
+    return null;
   }
+}
+
+function safeComputedValue(value: string) {
+  if (!value.includes("url(")) return value;
+  const urls = Array.from(value.matchAll(/url\((['"]?)(.*?)\1\)/g), (match) => match[2]);
+  return urls.every((url) => url.startsWith("data:")) ? value : "none";
 }
 
 function copyComputedStyles(source: Element, target: Element) {
   const computed = window.getComputedStyle(source);
   if (target instanceof HTMLElement || target instanceof SVGElement) {
     for (const property of Array.from(computed)) {
-      target.style.setProperty(property, computed.getPropertyValue(property), computed.getPropertyPriority(property));
+      target.style.setProperty(property, safeComputedValue(computed.getPropertyValue(property)), computed.getPropertyPriority(property));
     }
   }
   const sourceChildren = Array.from(source.children);
@@ -52,7 +59,7 @@ function copyComputedStyles(source: Element, target: Element) {
   });
 }
 
-async function renderElementToCanvas(element: HTMLElement) {
+async function renderElementToCanvas(element: HTMLElement, omitImages = false): Promise<HTMLCanvasElement> {
   const rect = element.getBoundingClientRect();
   const width = Math.max(1, Math.ceil(Math.max(rect.width, element.scrollWidth)));
   const height = Math.max(1, Math.ceil(Math.max(rect.height, element.scrollHeight)));
@@ -71,9 +78,20 @@ async function renderElementToCanvas(element: HTMLElement) {
   await Promise.all(sourceImages.map(async (image, index) => {
     const clonedImage = cloneImages[index];
     if (!clonedImage) return;
-    clonedImage.src = await imageAsDataUrl(image);
     clonedImage.removeAttribute("srcset");
     clonedImage.removeAttribute("sizes");
+    if (omitImages) {
+      clonedImage.style.visibility = "hidden";
+      clonedImage.removeAttribute("src");
+      return;
+    }
+    const embedded = await imageAsDataUrl(image);
+    if (embedded) {
+      clonedImage.src = embedded;
+    } else {
+      clonedImage.style.visibility = "hidden";
+      clonedImage.removeAttribute("src");
+    }
   }));
 
   const serialized = new XMLSerializer().serializeToString(clone);
@@ -99,7 +117,15 @@ async function renderElementToCanvas(element: HTMLElement) {
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.scale(scale, scale);
     context.drawImage(image, 0, 0, width, height);
-    return canvas;
+    try {
+      canvas.toDataURL("image/png");
+      return canvas;
+    } catch (error) {
+      if (!omitImages && error instanceof DOMException && error.name === "SecurityError") {
+        return renderElementToCanvas(element, true);
+      }
+      throw error;
+    }
   } finally {
     URL.revokeObjectURL(url);
   }
