@@ -62,5 +62,6 @@ jobs:
           category: /language:javascript-typescript
           output: codeql-results
           upload: never
+          upload-database: false
       - name: Block release when CodeQL reports findings
         run: node scripts/check-codeql.mjs codeql-results
