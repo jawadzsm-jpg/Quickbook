@@ -21,6 +21,15 @@ function errorMessage(error: unknown) {
 const round = (value: number) => Math.round(value * 100) / 100;
 const fallbackVatRates: Record<string, number> = { STANDARD: 5, ZERO: 0, EXEMPT: 0, OUT_OF_SCOPE: 0 };
 const accountRoles = ["BANK", "AR", "AP", "INVENTORY", "INPUT_VAT", "OUTPUT_VAT", "EQUITY", "SALES", "OTHER_INCOME", "COGS", "PURCHASES", "EXPENSE", "PAYROLL", "SUSPENSE"];
+const accountTypeValues = new Set(["Income", "Expense", "Cost of Goods Sold", "Other Income", "Other Expense", "Fixed Asset", "Bank", "Loan", "Credit Card", "Equity", "Accounts Receivable", "Other Current Asset", "Other Asset", "Accounts Payable", "Other Current Liability", "Long Term Liability"]);
+const compatibleAccountTypes: Record<string, Set<string>> = {
+  BANK: new Set(["Bank"]), AR: new Set(["Accounts Receivable"]), AP: new Set(["Accounts Payable"]),
+  INVENTORY: new Set(["Other Current Asset", "Other Asset"]), INPUT_VAT: new Set(["Other Current Asset"]),
+  OUTPUT_VAT: new Set(["Other Current Liability"]), EQUITY: new Set(["Equity"]), SALES: new Set(["Income"]),
+  OTHER_INCOME: new Set(["Other Income", "Income"]), COGS: new Set(["Cost of Goods Sold"]),
+  PURCHASES: new Set(["Expense", "Cost of Goods Sold"]), EXPENSE: new Set(["Expense", "Other Expense"]),
+  PAYROLL: new Set(["Expense"]), SUSPENSE: new Set(["Other Current Asset", "Other Asset", "Expense"]),
+};
 const itemTypeValues = new Set(["service", "stock-part", "non-stock-part", "other-charge", "subtotal", "group", "discount", "payment", "vat-item", "vat-group"]);
 const documentLineItemTypes = new Set(["service", "stock-part", "non-stock-part", "other-charge"]);
 const normalizedItemType = (value: unknown) => itemTypeValues.has(String(value ?? "")) ? String(value) : "stock-part";
@@ -1020,15 +1029,20 @@ async function handlePATCH(request: Request) {
       }
       if (accountEdit) {
         const code = String(payload.code ?? "").trim();
+        const type = String(payload.type ?? existing.type).trim();
         if (!code) return Response.json({ error: "Account code is required." }, { status: 400 });
+        if (!accountTypeValues.has(type)) return Response.json({ error: "Select a valid account type." }, { status: 400 });
+        const role = String(existing.systemRole ?? "");
+        const compatible = compatibleAccountTypes[role];
+        if (compatible && !compatible.has(type)) return Response.json({ error: `The linked system use ${role} requires account type: ${[...compatible].join(" or ")}.` }, { status: 409 });
         const codes = await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.code, code)));
         if (codes.some((entry) => entry.id !== id)) return Response.json({ error: "Account code already exists." }, { status: 409 });
-        const [record] = await db.update(accounts).set({ code, name }).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId))).returning();
+        const [record] = await db.update(accounts).set({ code, name, type }).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId))).returning();
         if (name !== existing.name) {
           await db.update(transactions).set({ account: name }).where(and(eq(transactions.companyId, companyId), eq(transactions.account, existing.name)));
           await db.update(journalLines).set({ accountName: name }).where(and(eq(journalLines.accountName, existing.name), inArray(journalLines.journalEntryId, db.select({ id: journalEntries.id }).from(journalEntries).where(eq(journalEntries.companyId, companyId)))));
         }
-        await db.insert(auditLog).values({ companyId, action: "updated", entityType: "account", entityId: id, details: `${existing.name} → ${name}` });
+        await db.insert(auditLog).values({ companyId, action: "updated", entityType: "account", entityId: id, details: JSON.stringify({ name: { before: existing.name, after: name }, type: { before: existing.type, after: record.type } }) });
         return Response.json({ record });
       }
       const changes: Record<string, string> = { name };
