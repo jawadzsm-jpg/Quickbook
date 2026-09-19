@@ -1,6 +1,7 @@
 export type PdfPageOptions = {
   orientation?: "portrait" | "landscape";
   marginMm?: number;
+  title?: string;
 };
 
 function cleanFilePart(value: unknown, fallback: string) {
@@ -110,6 +111,7 @@ export async function createA4PdfBlob(element: HTMLElement, options: PdfPageOpti
   const margin = Math.max(0, Math.min(25, options.marginMm ?? 10));
   const canvas = await renderElementToCanvas(element);
   const pdf = new jsPDF({ orientation, unit: "mm", format: "a4", compress: true });
+  pdf.setProperties({ title: options.title || "Document" });
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
   const printableWidth = Math.max(1, pageWidth - margin * 2);
