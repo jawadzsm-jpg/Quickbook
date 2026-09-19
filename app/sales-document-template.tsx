@@ -87,22 +87,58 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
 
   const printA4 = () => {
     const popup = window.open("", "_blank");
-    if (!popup) return;
+    if (!popup) return toast.error("Allow pop-ups to print this document.");
     popup.opener = null;
     const source = screenPreviewRef.current?.innerHTML || "";
-    if (!source) { popup.close(); return; }
     const invoice = screenPreviewRef.current?.querySelector<HTMLElement>(".custom-invoice");
-    const sourceWidth = Math.max(1, Math.round(invoice?.getBoundingClientRect().width || 760));
+    if (!source || !invoice) { popup.close(); return toast.error("Document preview is not ready."); }
+
+    const rect = invoice.getBoundingClientRect();
+    const sourceWidth = Math.max(1, Math.ceil(Math.max(rect.width, invoice.scrollWidth)));
+    const sourceHeight = Math.max(1, Math.ceil(Math.max(rect.height, invoice.scrollHeight)));
     const portrait = a4Design.orientation !== "landscape";
     const pageWidthMm = portrait ? 210 : 297;
     const pageHeightMm = portrait ? 297 : 210;
     const printableWidthPx = Math.max(1, (pageWidthMm - a4Design.margin * 2) * 96 / 25.4);
     const printableHeightPx = Math.max(1, (pageHeightMm - a4Design.margin * 2) * 96 / 25.4);
-    const copies = Array.from({ length: a4Design.copies }, () => `<section class="print-copy"><div class="print-fit">${source}</div></section>`).join("");
+    const scale = Math.min(1, printableWidthPx / sourceWidth, printableHeightPx / sourceHeight);
+    const scaledHeight = Math.max(1, Math.ceil(sourceHeight * scale));
+    const copies = Array.from({ length: a4Design.copies }, () =>
+      `<section class="print-copy" style="width:${printableWidthPx}px;height:${scaledHeight}px"><div class="print-fit" style="width:${sourceWidth}px;transform:scale(${scale});transform-origin:top left">${source}</div></section>`
+    ).join("");
     const pageNumbers = a4Design.printPageNumbers ? '@bottom-center{content:"Page " counter(page) " of " counter(pages);font:10px Arial,sans-serif;color:#475569;}' : "";
-    const fitScript = `<script>(()=>{const aw=${printableWidthPx};const ah=${printableHeightPx};const sw=${sourceWidth};const run=()=>{document.querySelectorAll('.print-copy').forEach(copy=>{const fit=copy.querySelector('.print-fit');const inv=fit?.querySelector('.custom-invoice');if(!fit||!inv)return;fit.style.width=sw+'px';const w=Math.max(sw,fit.scrollWidth,inv.scrollWidth);const h=Math.max(1,fit.scrollHeight,inv.scrollHeight);const scale=Math.min(1,aw/w,ah/h);fit.style.transform='scale('+scale+')';fit.style.transformOrigin='top left';copy.style.width=aw+'px';copy.style.height=(h*scale)+'px';});window.focus();window.print();};Promise.all(Array.from(document.images).map(img=>img.decode().catch(()=>{}))).then(()=>requestAnimationFrame(()=>requestAnimationFrame(run)));})();<\\/script>`;
-    popup.document.write(`<!doctype html><html><head><title>${pdfTitle}</title><style>@page{size:A4 ${a4Design.orientation};margin:${a4Design.margin}mm;${pageNumbers}}html,body{margin:0;padding:0;background:#fff}.print-copy{break-after:page;position:relative;overflow:visible}.print-copy:last-child{break-after:auto}.print-fit{position:relative}.custom-invoice{max-width:none!important}.custom-invoice .ci-editable{outline:none!important;box-shadow:none!important}.custom-invoice .ci-editable::after{display:none!important}@media print{.print-copy{break-inside:avoid-page}.custom-invoice{max-width:none!important;min-width:0!important}.custom-invoice table{table-layout:fixed!important}}</style></head><body>${copies}${fitScript}</body></html>`);
+
+    popup.document.write(`<!doctype html><html><head><title>${pdfTitle}</title><style>
+      @page{size:A4 ${a4Design.orientation};margin:${a4Design.margin}mm;${pageNumbers}}
+      html,body{margin:0;padding:0;background:#fff}
+      .print-toolbar{position:sticky;top:0;z-index:9999;display:flex;justify-content:flex-end;gap:8px;padding:10px;background:#0f172a}
+      .print-toolbar button{border:1px solid #64748b;border-radius:8px;background:#fff;color:#0f172a;padding:8px 14px;font:600 14px Arial,sans-serif;cursor:pointer}
+      .print-copy{break-after:page;position:relative;overflow:visible}
+      .print-copy:last-child{break-after:auto}
+      .print-fit{position:relative}
+      .custom-invoice{max-width:none!important}
+      .custom-invoice .ci-editable{outline:none!important;box-shadow:none!important}
+      .custom-invoice .ci-editable::after{display:none!important}
+      @media print{
+        .print-toolbar{display:none!important}
+        .print-copy{break-inside:avoid-page}
+        .custom-invoice{max-width:none!important;min-width:0!important}
+        .custom-invoice table{table-layout:fixed!important}
+      }
+    </style></head><body>
+      <div class="print-toolbar"><button type="button" onclick="window.print()">Print</button><button type="button" onclick="window.close()">Close</button></div>
+      ${copies}
+    </body></html>`);
     popup.document.close();
+
+    const triggerPrint = () => {
+      if (popup.closed) return;
+      popup.focus();
+      try { popup.print(); } catch { /* The visible Print button remains available as a fallback. */ }
+    };
+    const images = Array.from(popup.document.images);
+    void Promise.all(images.map((img) => img.complete ? Promise.resolve() : img.decode().catch(() => undefined)))
+      .then(() => window.setTimeout(triggerPrint, 100));
   };
 
   const savePdf = async () => {
