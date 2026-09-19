@@ -1,11 +1,13 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Printer } from "lucide-react";
+import { Download, FileDown, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { resolveDocumentDesign, type TemplateDocumentType } from "@/lib/document-design";
 import { documentPageRule } from "@/lib/document-print";
+import { createA4PdfBlob, documentPdfFileName, downloadPdfBlob, openPdfBlob } from "@/lib/document-output";
 import { CustomInvoiceTemplate, type TemplateBranding } from "./custom-invoice-template";
+import { toast } from "sonner";
 
 type RecordData = Record<string, string | number | boolean>;
 type Branding = TemplateBranding & { documentDesign?: string };
@@ -68,6 +70,7 @@ export function salesDocumentModeForTransaction(type: string): SalesDocumentMode
 export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: { mode: SalesDocumentMode; record: RecordData; lines: RecordData[]; contact?: RecordData | null; setup: Branding; showBillingName: boolean; showShipping: boolean; showHsCode: boolean; showDimensions: boolean }) {
   const outputModes = relatedDocumentOutputs[mode] ?? [mode];
   const [selection, setSelection] = useState<{ source: SalesDocumentMode; output: SalesDocumentMode }>({ source: mode, output: mode });
+  const [pdfBusy, setPdfBusy] = useState(false);
   const activeMode = selection.source === mode && outputModes.includes(selection.output) ? selection.output : mode;
   const requestedTemplateType = savedTemplateType[activeMode];
   const { design, savedTemplate } = resolveDocumentDesign(setup.documentDesign, requestedTemplateType);
@@ -76,6 +79,12 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
   const a4Design = { ...design, paper: "A4" as const, printerMode: "specified" as const };
   const pageRule = documentPageRule(a4Design);
   const screenPreviewRef = useRef<HTMLDivElement>(null);
+  const customerName = String(contact?.billingName || contact?.company || record.party || "Customer");
+  const referenceNumber = String(record.number || "Document");
+  const pdfFileName = documentPdfFileName(customerName, referenceNumber);
+  const pdfTitle = pdfFileName.replace(/\.pdf$/i, "");
+  const pdfElement = () => screenPreviewRef.current?.querySelector<HTMLElement>(".custom-invoice") || null;
+
   const printA4 = () => {
     const popup = window.open("", "_blank");
     if (!popup) return;
@@ -92,8 +101,42 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
     const copies = Array.from({ length: a4Design.copies }, () => `<section class="print-copy"><div class="print-fit">${source}</div></section>`).join("");
     const pageNumbers = a4Design.printPageNumbers ? '@bottom-center{content:"Page " counter(page) " of " counter(pages);font:10px Arial,sans-serif;color:#475569;}' : "";
     const fitScript = `<script>(()=>{const aw=${printableWidthPx};const ah=${printableHeightPx};const sw=${sourceWidth};const run=()=>{document.querySelectorAll('.print-copy').forEach(copy=>{const fit=copy.querySelector('.print-fit');const inv=fit?.querySelector('.custom-invoice');if(!fit||!inv)return;fit.style.width=sw+'px';const w=Math.max(sw,fit.scrollWidth,inv.scrollWidth);const h=Math.max(1,fit.scrollHeight,inv.scrollHeight);const scale=Math.min(1,aw/w,ah/h);fit.style.transform='scale('+scale+')';fit.style.transformOrigin='top left';copy.style.width=aw+'px';copy.style.height=(h*scale)+'px';});window.focus();window.print();};Promise.all(Array.from(document.images).map(img=>img.decode().catch(()=>{}))).then(()=>requestAnimationFrame(()=>requestAnimationFrame(run)));})();<\\/script>`;
-    popup.document.write(`<!doctype html><html><head><title>${salesDocumentTitles[activeMode]}</title><style>@page{size:A4 ${a4Design.orientation};margin:${a4Design.margin}mm;${pageNumbers}}html,body{margin:0;padding:0;background:#fff}.print-copy{break-after:page;position:relative;overflow:visible}.print-copy:last-child{break-after:auto}.print-fit{position:relative}.custom-invoice{max-width:none!important}.custom-invoice .ci-editable{outline:none!important;box-shadow:none!important}.custom-invoice .ci-editable::after{display:none!important}@media print{.print-copy{break-inside:avoid-page}.custom-invoice{max-width:none!important;min-width:0!important}.custom-invoice table{table-layout:fixed!important}}</style></head><body>${copies}${fitScript}</body></html>`);
+    popup.document.write(`<!doctype html><html><head><title>${pdfTitle}</title><style>@page{size:A4 ${a4Design.orientation};margin:${a4Design.margin}mm;${pageNumbers}}html,body{margin:0;padding:0;background:#fff}.print-copy{break-after:page;position:relative;overflow:visible}.print-copy:last-child{break-after:auto}.print-fit{position:relative}.custom-invoice{max-width:none!important}.custom-invoice .ci-editable{outline:none!important;box-shadow:none!important}.custom-invoice .ci-editable::after{display:none!important}@media print{.print-copy{break-inside:avoid-page}.custom-invoice{max-width:none!important;min-width:0!important}.custom-invoice table{table-layout:fixed!important}}</style></head><body>${copies}${fitScript}</body></html>`);
     popup.document.close();
+  };
+
+  const savePdf = async () => {
+    const target = pdfElement();
+    if (!target) return toast.error("Document preview is not ready.");
+    const popup = window.open("", "_blank");
+    if (!popup) return toast.error("Allow pop-ups to open the PDF.");
+    popup.opener = null;
+    popup.document.write("<!doctype html><title>Preparing PDF</title><body style='font:16px Arial;padding:24px'>Preparing PDF…</body>");
+    popup.document.close();
+    setPdfBusy(true);
+    try {
+      const blob = await createA4PdfBlob(target, { orientation: a4Design.orientation, marginMm: a4Design.margin, title: pdfTitle });
+      openPdfBlob(blob, popup);
+    } catch (error) {
+      popup.close();
+      toast.error(error instanceof Error ? error.message : "Could not create the PDF.");
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
+  const downloadPdf = async () => {
+    const target = pdfElement();
+    if (!target) return toast.error("Document preview is not ready.");
+    setPdfBusy(true);
+    try {
+      const blob = await createA4PdfBlob(target, { orientation: a4Design.orientation, marginMm: a4Design.margin, title: pdfTitle });
+      downloadPdfBlob(blob, pdfFileName);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not download the PDF.");
+    } finally {
+      setPdfBusy(false);
+    }
   };
 
   return <>
@@ -124,9 +167,17 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
         <span className="px-1 font-semibold text-slate-700">Document layout</span>
         {outputModes.map((outputMode) => <Button key={outputMode} type="button" size="sm" variant={activeMode === outputMode ? "default" : "outline"} aria-pressed={activeMode === outputMode} onClick={() => setSelection({ source: mode, output: outputMode })}>{salesDocumentTitles[outputMode]}</Button>)}
       </div> : <div />}
-      <Button type="button" variant="outline" onClick={printA4}>
-        <Printer className="size-4" />Print / Save PDF (A4)
-      </Button>
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button type="button" variant="outline" onClick={printA4}>
+          <Printer className="size-4" />Print
+        </Button>
+        <Button type="button" variant="outline" onClick={() => void savePdf()} disabled={pdfBusy}>
+          <FileDown className="size-4" />{pdfBusy ? "Preparing…" : "Save as PDF"}
+        </Button>
+        <Button type="button" variant="outline" onClick={() => void downloadPdf()} disabled={pdfBusy}>
+          <Download className="size-4" />Download
+        </Button>
+      </div>
     </div>
     <div ref={screenPreviewRef} className="invoice-screen-only"><CustomInvoiceTemplate design={design} record={record} lines={lines} contact={contact} setup={setup} /></div>
     <div className="invoice-print-only"><CustomInvoiceTemplate design={a4Design} record={record} lines={lines} contact={contact} setup={setup} target="print" /></div>
