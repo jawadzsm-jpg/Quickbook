@@ -204,7 +204,7 @@ const transactionTypes: Record<string, string[]> = {
   "receive-payment": ["customer payment"],
   purchases: ["bill", "purchase order", "item receipt", "received item bill", "expense", "vendor credit", "bill payment"],
   "write-cheque": ["cheque"],
-  banking: ["deposit", "cheque", "credit card charge", "transfer", "cheque order", "opening balance"],
+  banking: ["deposit", "cheque", "credit card charge", "transfer", "cheque order"],
   dashboard: ["invoice", "bill", "expense", "deposit", "cheque", "journal entry"],
 };
 
@@ -378,7 +378,7 @@ const accountTypesForRole = (role: string) => {
 const accountRoleOptions = [
   ["BANK", "Bank / cash"], ["AR", "Accounts Receivable (A/R)"], ["AP", "Accounts Payable (A/P)"],
   ["INVENTORY", "Inventory asset"], ["INPUT_VAT", "Recoverable VAT"], ["OUTPUT_VAT", "VAT payable"],
-  ["EQUITY", "Opening balance equity"], ["SALES", "Sales income"], ["OTHER_INCOME", "Other income"],
+  ["EQUITY", "Equity"], ["SALES", "Sales income"], ["OTHER_INCOME", "Other income"],
   ["COGS", "Cost of Goods Sold"], ["PURCHASES", "Purchases"], ["EXPENSE", "Operating expense"],
   ["PAYROLL", "Payroll expense"], ["SUSPENSE", "Suspense"],
 ] as const;
@@ -1022,7 +1022,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
             {salesDetailsOnly && form.type === "invoice" && <div className="space-y-3"><h3 className="font-semibold">Items and services</h3>{lines.map((line, index) => <div key={line.id} className="space-y-2"><p className="text-sm font-medium">{index + 1}. {line.description}</p><DocumentExtraFields value={{ comments: line.comments || "", serialNumber: line.serialNumber || "" }} onChange={value => setLines(lines.map((entry, position) => position === index ? { ...entry, ...value } : entry))} /></div>)}</div>}
             {activeEditorKind === "transactions" && ["invoice", "bill"].includes(form.type) && <DocumentExtraFields value={{ comments: form.comments || "", serialNumber: form.serialNumber || "" }} onChange={value => setForm({ ...form, ...value })} />}
             {activeEditorKind === "contacts" && editingRecordId === null && <ContactFields form={form} setForm={setForm} accounts={records.accounts} />}
-            {editingRecordId !== null && ["contacts", "accounts"].includes(activeEditorKind) && <div className="grid gap-4 sm:grid-cols-2">{(activeEditorKind === "accounts" ? [["Account code", "code"], ["Account name", "name"]] : [["Name", "name"], ["Company", "company"], ["Billing name", "billingName"], ["Email", "email"], ["Phone", "phone"], ["WhatsApp", "whatsapp"], ["Country", "country"], ["TRN", "trn"], ["Reseller", "reseller"], ["Planet", "planet"], ["Passport", "passport"], ["Description", "description"]]).map(([label, name]) => <Field key={name} label={label} name={name} form={form} setForm={setForm} required={name === "name" || name === "code"} />)}{activeEditorKind === "accounts" && <Choice label="Account type" name="type" values={accountTypesForRole(form.systemRole || "")} form={form} setForm={setForm} />}<p className="text-xs text-slate-500 sm:col-span-2">{activeEditorKind === "accounts" ? "Account type can be changed. Currency, opening balance and system link are preserved." : "Currency, balances and ledger links are preserved when editing these details."}</p></div>}
+            {editingRecordId !== null && ["contacts", "accounts"].includes(activeEditorKind) && <div className="grid gap-4 sm:grid-cols-2">{(activeEditorKind === "accounts" ? [["Account code", "code"], ["Account name", "name"]] : [["Name", "name"], ["Company", "company"], ["Billing name", "billingName"], ["Email", "email"], ["Phone", "phone"], ["WhatsApp", "whatsapp"], ["Country", "country"], ["TRN", "trn"], ["Reseller", "reseller"], ["Planet", "planet"], ["Passport", "passport"], ["Description", "description"]]).map(([label, name]) => <Field key={name} label={label} name={name} form={form} setForm={setForm} required={name === "name" || name === "code"} />)}{activeEditorKind === "accounts" && <Choice label="Account type" name="type" values={accountTypesForRole(form.systemRole || "")} form={form} setForm={setForm} />}<p className="text-xs text-slate-500 sm:col-span-2">{activeEditorKind === "accounts" ? "Account type can be changed. Currency and system link are preserved." : "Currency, balances and ledger links are preserved when editing these details."}</p></div>}
             {activeEditorKind === "items" && <>
               {editingItemId === null && <section className="grid gap-4 rounded-xl border bg-slate-50 p-4 sm:grid-cols-2">
                 <label className="grid gap-2 text-sm font-medium">Company *<select required className="h-10 w-full rounded-md border bg-background px-3" value={activeCompanyId || ""} onChange={event => { const company = companies.find(entry => entry.id === Number(event.target.value)); if (!company) return; setRecords({ transactions: [], contacts: [], items: [], accounts: [] }); setActiveCompanyId(company.id); setActiveLocationId(company.locations[0]?.id ?? 0); }}><option value="" disabled>Select company</option>{companies.map(company => <option key={company.id} value={company.id}>{company.name}</option>)}</select></label>
@@ -1936,7 +1936,7 @@ function ContactFields({ form, setForm, accounts }: { form: Record<string, strin
       <Field label="TRN" name="trn" form={form} setForm={setForm} placeholder="Enter TRN" />
     </div>
   </div>;
-  if (form.type !== "customer") return <div className="grid gap-4 sm:grid-cols-2"><div className="sm:col-span-2"><Field label="Name" name="name" form={form} setForm={setForm} required /></div><Field label="Company" name="company" form={form} setForm={setForm} /><Field label="Opening balance" name="balance" type="number" form={form} setForm={setForm} /><Field label="Email" name="email" type="email" form={form} setForm={setForm} /><Field label="Phone" name="phone" form={form} setForm={setForm} /></div>;
+  if (form.type !== "customer") return <div className="grid gap-4 sm:grid-cols-2"><div className="sm:col-span-2"><Field label="Name" name="name" form={form} setForm={setForm} required /></div><Field label="Company" name="company" form={form} setForm={setForm} /><Field label="Email" name="email" type="email" form={form} setForm={setForm} /><Field label="Phone" name="phone" form={form} setForm={setForm} /></div>;
 
   return <div className="space-y-5">
     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
@@ -1955,7 +1955,7 @@ function ContactFields({ form, setForm, accounts }: { form: Record<string, strin
       <Field label="Email Address" name="email" type="email" form={form} setForm={setForm} placeholder="Enter email address" />
       <Field label="Passport #" name="passport" form={form} setForm={setForm} placeholder="Enter passport #" />
       {currencyAndAccount}
-      <Field label="Opening Balance" name="balance" type="number" form={form} setForm={setForm} />
+      
       <div className="space-y-2 md:col-span-2"><Label htmlFor="description">Description</Label><Textarea id="description" name="description" rows={4} placeholder="Add customer notes" value={form.description ?? ""} onChange={(event) => setForm({ ...form, description: event.target.value })} /></div>
     </div>
   </div>;
@@ -2182,6 +2182,6 @@ function AccountFields({ form, setForm, accounts }: { form: Record<string, strin
     <div className="space-y-2"><Label>Linked system use</Label><Select value={form.systemRole || "none"} onValueChange={changeSystemRole}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">No system link</SelectItem>{availableRoles.map(([role, label]) => <SelectItem key={role} value={role}>{label}</SelectItem>)}</SelectContent></Select><p className="text-xs text-slate-500">{multiCurrencyRole ? "Add one control account for each currency used by customers or vendors." : "Linked accounts appear in invoices, bills, banking, VAT and inventory postings."}</p></div>
     <Choice label={multiCurrencyRole ? "Control account currency *" : "Account currency *"} name="currency" values={currencies} form={form} setForm={setForm} />
     <div className="space-y-2"><Label>Sub-account of</Label><Select value={form.parentAccountId || "none"} onValueChange={(value) => setForm({ ...form, parentAccountId: value === "none" ? "" : value })}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Not a sub-account</SelectItem>{accounts.map((account) => <SelectItem key={account.id} value={String(account.id)}>{String(account.code)} · {String(account.name)}</SelectItem>)}</SelectContent></Select></div>
-    <Field label="Opening balance" name="balance" type="number" form={form} setForm={setForm} />
+    
   </div>;
 }
