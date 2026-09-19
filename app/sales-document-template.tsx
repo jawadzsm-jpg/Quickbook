@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { resolveDocumentDesign, type TemplateDocumentType } from "@/lib/document-design";
@@ -75,6 +75,26 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
 
   const a4Design = { ...design, paper: "A4" as const, printerMode: "specified" as const };
   const pageRule = documentPageRule(a4Design);
+  const screenPreviewRef = useRef<HTMLDivElement>(null);
+  const printA4 = () => {
+    const popup = window.open("", "_blank");
+    if (!popup) return;
+    popup.opener = null;
+    const source = screenPreviewRef.current?.innerHTML || "";
+    if (!source) { popup.close(); return; }
+    const invoice = screenPreviewRef.current?.querySelector<HTMLElement>(".custom-invoice");
+    const sourceWidth = Math.max(1, Math.round(invoice?.getBoundingClientRect().width || 760));
+    const portrait = a4Design.orientation !== "landscape";
+    const pageWidthMm = portrait ? 210 : 297;
+    const pageHeightMm = portrait ? 297 : 210;
+    const printableWidthPx = Math.max(1, (pageWidthMm - a4Design.margin * 2) * 96 / 25.4);
+    const printableHeightPx = Math.max(1, (pageHeightMm - a4Design.margin * 2) * 96 / 25.4);
+    const copies = Array.from({ length: a4Design.copies }, () => `<section class="print-copy"><div class="print-fit">${source}</div></section>`).join("");
+    const pageNumbers = a4Design.printPageNumbers ? '@bottom-center{content:"Page " counter(page) " of " counter(pages);font:10px Arial,sans-serif;color:#475569;}' : "";
+    const fitScript = `<script>(()=>{const aw=${printableWidthPx};const ah=${printableHeightPx};const sw=${sourceWidth};const run=()=>{document.querySelectorAll('.print-copy').forEach(copy=>{const fit=copy.querySelector('.print-fit');const inv=fit?.querySelector('.custom-invoice');if(!fit||!inv)return;fit.style.width=sw+'px';const w=Math.max(sw,fit.scrollWidth,inv.scrollWidth);const h=Math.max(1,fit.scrollHeight,inv.scrollHeight);const scale=Math.min(1,aw/w,ah/h);fit.style.transform='scale('+scale+')';fit.style.transformOrigin='top left';copy.style.width=aw+'px';copy.style.height=(h*scale)+'px';});window.focus();window.print();};Promise.all(Array.from(document.images).map(img=>img.decode().catch(()=>{}))).then(()=>requestAnimationFrame(()=>requestAnimationFrame(run)));})();<\\/script>`;
+    popup.document.write(`<!doctype html><html><head><title>${salesDocumentTitles[activeMode]}</title><style>@page{size:A4 ${a4Design.orientation};margin:${a4Design.margin}mm;${pageNumbers}}html,body{margin:0;padding:0;background:#fff}.print-copy{break-after:page;position:relative;overflow:visible}.print-copy:last-child{break-after:auto}.print-fit{position:relative}.custom-invoice{max-width:none!important}.custom-invoice .ci-editable{outline:none!important;box-shadow:none!important}.custom-invoice .ci-editable::after{display:none!important}@media print{.print-copy{break-inside:avoid-page}.custom-invoice{max-width:none!important;min-width:0!important}.custom-invoice table{table-layout:fixed!important}}</style></head><body>${copies}${fitScript}</body></html>`);
+    popup.document.close();
+  };
 
   return <>
     <style>{`${pageRule}
@@ -104,11 +124,11 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
         <span className="px-1 font-semibold text-slate-700">Document layout</span>
         {outputModes.map((outputMode) => <Button key={outputMode} type="button" size="sm" variant={activeMode === outputMode ? "default" : "outline"} aria-pressed={activeMode === outputMode} onClick={() => setSelection({ source: mode, output: outputMode })}>{salesDocumentTitles[outputMode]}</Button>)}
       </div> : <div />}
-      <Button type="button" variant="outline" onClick={() => window.print()}>
+      <Button type="button" variant="outline" onClick={printA4}>
         <Printer className="size-4" />Print / Save PDF (A4)
       </Button>
     </div>
-    <div className="invoice-screen-only"><CustomInvoiceTemplate design={design} record={record} lines={lines} contact={contact} setup={setup} /></div>
+    <div ref={screenPreviewRef} className="invoice-screen-only"><CustomInvoiceTemplate design={design} record={record} lines={lines} contact={contact} setup={setup} /></div>
     <div className="invoice-print-only"><CustomInvoiceTemplate design={a4Design} record={record} lines={lines} contact={contact} setup={setup} target="print" /></div>
   </>;
 }
