@@ -1398,7 +1398,7 @@ test('company clearing requires administrator password and company access, prese
   const userId = (await database.query("INSERT INTO app_users (email,password_hash,role) VALUES ('clear-test@example.test',$1,'admin') RETURNING id", [hash])).rows[0].id;
   const company = (await database.query("INSERT INTO companies (name,logo_data,right_logo_data,phone) VALUES ('Clear Test','left','right','123') RETURNING id")).rows[0].id;
   const other = (await database.query("INSERT INTO companies (name,phone) VALUES ('Clear Other','456') RETURNING id")).rows[0].id;
-  const request = (scope, extra = {}) => new Request('http://localhost/api/company-setup/clear', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({companyId:company,scope,password,confirmation:`CLEAR ${scope === 'all' ? 'ALL' : 'SETUP'} Clear Test`,...extra})});
+  const request = (scope, extra = {}) => new Request('http://localhost/api/company-setup/clear', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({companyId:company,scope,password,confirmation:'Clear Test',...extra})});
   const resetBudget = () => database.query('DELETE FROM auth_rate_limits WHERE bucket=$1', [`company-clear:${userId}`]);
   const tx = async (id,no) => (await database.query("INSERT INTO transactions (company_id,number,type,party,transaction_date) VALUES ($1,$2,'invoice','Customer','2026-09-13') RETURNING id", [id,no])).rows[0].id;
   const first = await tx(company,'CLEAR-1'); const untouched = await tx(other,'OTHER-1');

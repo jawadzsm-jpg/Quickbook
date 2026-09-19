@@ -24,7 +24,7 @@ export async function POST(request: Request) {
       await db.execute(sql`LOCK TABLE companies, stock_transfers, transactions, transaction_lines, inventory_movements, journal_entries, journal_lines, invoice_payment_allocations, bill_payment_allocations, sales_invoice_allocations, purchase_receipt_allocations, inventory_locations, items, contacts, accounts, record_attachments, memorised_reports, inventory_check_reports, inventory_check_lines, vat_returns, vat_adjustments, vat_codes, exchange_rates, company_settings, idempotency_requests IN SHARE ROW EXCLUSIVE MODE`);
       const [company] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1);
       if (!company) return Response.json({ error: "Company not found." }, { status: 404 });
-      if (confirmation !== `CLEAR ${scope === "all" ? "ALL" : "SETUP"} ${company.name}`) return Response.json({ error: "The confirmation text does not match this company." }, { status: 400 });
+      if (confirmation.trim() !== company.name) return Response.json({ error: "Type the company name exactly to confirm this action." }, { status: 400 });
       if (scope === "all") {
         const linked = await db.execute(sql`SELECT id FROM stock_transfers WHERE (source_company_id = ${companyId} OR destination_company_id = ${companyId}) AND source_company_id <> destination_company_id LIMIT 1`);
         if (linked.rows.length) return Response.json({ error: "This company has transfers linked to another company. Resolve those transfers before clearing all data." }, { status: 409 });
