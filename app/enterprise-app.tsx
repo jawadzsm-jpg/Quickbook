@@ -204,7 +204,7 @@ const transactionTypes: Record<string, string[]> = {
   "receive-payment": ["customer payment"],
   purchases: ["bill", "purchase order", "item receipt", "received item bill", "expense", "vendor credit", "bill payment"],
   "write-cheque": ["cheque"],
-  banking: ["deposit", "cheque", "credit card charge", "transfer", "cheque order"],
+  banking: ["deposit", "cheque", "credit card charge", "transfer", "cheque order", "opening balance"],
   dashboard: ["invoice", "bill", "expense", "deposit", "cheque", "journal entry"],
 };
 
@@ -378,7 +378,7 @@ const accountTypesForRole = (role: string) => {
 const accountRoleOptions = [
   ["BANK", "Bank / cash"], ["AR", "Accounts Receivable (A/R)"], ["AP", "Accounts Payable (A/P)"],
   ["INVENTORY", "Inventory asset"], ["INPUT_VAT", "Recoverable VAT"], ["OUTPUT_VAT", "VAT payable"],
-  ["EQUITY", "Equity"], ["SALES", "Sales income"], ["OTHER_INCOME", "Other income"],
+  ["EQUITY", "Opening balance equity"], ["SALES", "Sales income"], ["OTHER_INCOME", "Other income"],
   ["COGS", "Cost of Goods Sold"], ["PURCHASES", "Purchases"], ["EXPENSE", "Operating expense"],
   ["PAYROLL", "Payroll expense"], ["SUSPENSE", "Suspense"],
 ] as const;
@@ -1022,7 +1022,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
             {salesDetailsOnly && form.type === "invoice" && <div className="space-y-3"><h3 className="font-semibold">Items and services</h3>{lines.map((line, index) => <div key={line.id} className="space-y-2"><p className="text-sm font-medium">{index + 1}. {line.description}</p><DocumentExtraFields value={{ comments: line.comments || "", serialNumber: line.serialNumber || "" }} onChange={value => setLines(lines.map((entry, position) => position === index ? { ...entry, ...value } : entry))} /></div>)}</div>}
             {activeEditorKind === "transactions" && ["invoice", "bill"].includes(form.type) && <DocumentExtraFields value={{ comments: form.comments || "", serialNumber: form.serialNumber || "" }} onChange={value => setForm({ ...form, ...value })} />}
             {activeEditorKind === "contacts" && editingRecordId === null && <ContactFields form={form} setForm={setForm} accounts={records.accounts} />}
-            {editingRecordId !== null && ["contacts", "accounts"].includes(activeEditorKind) && <div className="grid gap-4 sm:grid-cols-2">{(activeEditorKind === "accounts" ? [["Account code", "code"], ["Account name", "name"]] : [["Name", "name"], ["Company", "company"], ["Billing name", "billingName"], ["Email", "email"], ["Phone", "phone"], ["WhatsApp", "whatsapp"], ["Country", "country"], ["TRN", "trn"], ["Reseller", "reseller"], ["Planet", "planet"], ["Passport", "passport"], ["Description", "description"]]).map(([label, name]) => <Field key={name} label={label} name={name} form={form} setForm={setForm} required={name === "name" || name === "code"} />)}{activeEditorKind === "accounts" && <Choice label="Account type" name="type" values={accountTypesForRole(form.systemRole || "")} form={form} setForm={setForm} />}<p className="text-xs text-slate-500 sm:col-span-2">{activeEditorKind === "accounts" ? "Account type can be changed. Currency and system link are preserved." : "Currency, balances and ledger links are preserved when editing these details."}</p></div>}
+            {editingRecordId !== null && ["contacts", "accounts"].includes(activeEditorKind) && <div className="grid gap-4 sm:grid-cols-2">{(activeEditorKind === "accounts" ? [["Account code", "code"], ["Account name", "name"]] : [["Name", "name"], ["Company", "company"], ["Billing name", "billingName"], ["Email", "email"], ["Phone", "phone"], ["WhatsApp", "whatsapp"], ["Country", "country"], ["TRN", "trn"], ["Reseller", "reseller"], ["Planet", "planet"], ["Passport", "passport"], ["Description", "description"]]).map(([label, name]) => <Field key={name} label={label} name={name} form={form} setForm={setForm} required={name === "name" || name === "code"} />)}{activeEditorKind === "accounts" && <Choice label="Account type" name="type" values={accountTypesForRole(form.systemRole || "")} form={form} setForm={setForm} />}<p className="text-xs text-slate-500 sm:col-span-2">{activeEditorKind === "accounts" ? "Account type can be changed. Currency, opening balance and system link are preserved." : "Currency, balances and ledger links are preserved when editing these details."}</p></div>}
             {activeEditorKind === "items" && <>
               {editingItemId === null && <section className="grid gap-4 rounded-xl border bg-slate-50 p-4 sm:grid-cols-2">
                 <label className="grid gap-2 text-sm font-medium">Company *<select required className="h-10 w-full rounded-md border bg-background px-3" value={activeCompanyId || ""} onChange={event => { const company = companies.find(entry => entry.id === Number(event.target.value)); if (!company) return; setRecords({ transactions: [], contacts: [], items: [], accounts: [] }); setActiveCompanyId(company.id); setActiveLocationId(company.locations[0]?.id ?? 0); }}><option value="" disabled>Select company</option>{companies.map(company => <option key={company.id} value={company.id}>{company.name}</option>)}</select></label>
