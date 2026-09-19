@@ -23,6 +23,9 @@ export const salesDocumentTitles = {
   "cash-sales": "Sales Receipt",
   "delivery-note": "Delivery Note",
   "packing-list": "Packing List",
+  "payment-receipt": "Payment Receipt",
+  "paid-to": "Paid To",
+  "warranty-received": "Warranty Received",
 } as const;
 export type SalesDocumentMode = keyof typeof salesDocumentTitles;
 
@@ -37,6 +40,9 @@ const savedTemplateType: Partial<Record<SalesDocumentMode, TemplateDocumentType>
   "cash-sales": "Sales Receipt",
   "delivery-note": "Delivery Note",
   "packing-list": "Packing List",
+  "payment-receipt": "Payment Receipt",
+  "paid-to": "Paid To",
+  "warranty-received": "Warranty Received",
 };
 
 const relatedDocumentOutputs: Partial<Record<SalesDocumentMode, SalesDocumentMode[]>> = {
@@ -60,6 +66,11 @@ export function salesDocumentModeForTransaction(type: string): SalesDocumentMode
     case "quotation": return "quotation";
     case "delivery note": return "delivery-note";
     case "packing list": return "packing-list";
+    case "customer payment": return "payment-receipt";
+    case "bill payment":
+    case "vendor payment":
+    case "cheque": return "paid-to";
+    case "item receipt": return "warranty-received";
     default: return null;
   }
 }
