@@ -1997,9 +1997,30 @@ function ItemFields({ form, setForm, items, accounts, contacts, vatCodeOptions, 
   const standardLineItem = documentLineItemTypes.has(itemType);
   const stockPart = itemType === "stock-part";
   const activeAccounts = accounts.filter((account) => account.active !== false && String(account.active) !== "false");
-  const purchaseAccounts = activeAccounts.filter((account) => ["COGS", "PURCHASES", "EXPENSE"].includes(String(account.systemRole)) || ["Cost of Goods Sold", "Expense", "Other Expense"].includes(String(account.type)));
-  const incomeAccounts = activeAccounts.filter((account) => ["SALES", "OTHER_INCOME"].includes(String(account.systemRole)) || ["Income", "Other Income"].includes(String(account.type)));
-  const assetAccounts = activeAccounts.filter((account) => account.systemRole === "INVENTORY" || ["Other Current Asset", "Other Asset"].includes(String(account.type)));
+  const normalizedAccountValue = (value: unknown) => String(value ?? "").trim().toLowerCase();
+  const purchaseAccounts = activeAccounts.filter((account) => {
+    const role = normalizedAccountValue(account.systemRole);
+    const type = normalizedAccountValue(account.type);
+    const name = normalizedAccountValue(account.name);
+    return ["cogs", "purchases", "expense"].includes(role)
+      || ["cost of goods sold", "cogs", "purchase", "purchases", "expense", "other expense"].includes(type)
+      || name.includes("cost of goods sold")
+      || name === "cogs"
+      || name.includes("purchases");
+  });
+  const incomeAccounts = activeAccounts.filter((account) => {
+    const role = normalizedAccountValue(account.systemRole);
+    const type = normalizedAccountValue(account.type);
+    return ["sales", "other_income"].includes(role) || ["income", "other income"].includes(type);
+  });
+  const assetAccounts = activeAccounts.filter((account) => {
+    const role = normalizedAccountValue(account.systemRole);
+    const type = normalizedAccountValue(account.type);
+    const name = normalizedAccountValue(account.name);
+    return role === "inventory"
+      || ["current asset", "other current asset", "other asset", "inventory asset"].includes(type)
+      || name.includes("inventory asset");
+  });
   const vendors = contacts.filter((contact) => contact.type === "vendor" && String(contact.status || "active") !== "inactive");
   const selectedPurchaseVat = form.purchaseVatCode || vatCodeOptions.find((code) => code.code === "STANDARD")?.code || vatCodeOptions[0]?.code || "ZERO";
   const selectedSalesVat = form.salesVatCode || vatCodeOptions.find((code) => code.code === "STANDARD")?.code || vatCodeOptions[0]?.code || "ZERO";
