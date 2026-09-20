@@ -475,6 +475,21 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
           return Response.json({ error: "Stock Asset Account must be the Inventory Asset account from Chart of Accounts." }, { status: 400 });
         }
       }
+      if (incomeAccountId) {
+        const incomeAccount = linkedAccounts.find((account) => account.id === incomeAccountId);
+        if (!incomeAccount || !["Income", "Other Income"].includes(incomeAccount.type)) {
+          return Response.json({ error: "Income Account must be an Income account from Chart of Accounts." }, { status: 400 });
+        }
+      }
+      if (cogsAccountId) {
+        const costAccount = linkedAccounts.find((account) => account.id === cogsAccountId);
+        const validCost = itemType === "stock-part"
+          ? costAccount?.type === "Cost of Goods Sold"
+          : Boolean(costAccount && ["Cost of Goods Sold", "Expense", "Other Expense"].includes(costAccount.type));
+        if (!validCost) {
+          return Response.json({ error: itemType === "stock-part" ? "Stock COGS Account must be a Cost of Goods Sold account." : "Purchase account must be an Expense or Cost of Goods Sold account." }, { status: 400 });
+        }
+      }
       if (preferredSupplierId) {
         const [supplier] = await db.select({ id: contacts.id }).from(contacts).where(and(eq(contacts.id, preferredSupplierId), eq(contacts.companyId, companyId), eq(contacts.type, "vendor"), eq(contacts.status, "active"))).limit(1);
         if (!supplier) return Response.json({ error: "Select an active preferred supplier from this company." }, { status: 400 });

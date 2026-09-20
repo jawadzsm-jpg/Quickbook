@@ -219,6 +219,40 @@ test("stock revaluation balances journals, preserves quantity and rejects stale 
   assert.deepEqual((await database.query('SELECT quantity, last_purchase_price FROM items WHERE id = $1',[foreignPurchaseItem])).rows,[{quantity:2,last_purchase_price:367.25}]);
 });
 
+test('Chart of Accounts system roles stay connected to their accounting purpose', async () => {
+  const companyId=(await database.query("INSERT INTO companies(name,base_currency) VALUES('COA purpose audit','AED') RETURNING id")).rows[0].id;
+  const locationId=(await database.query("INSERT INTO inventory_locations(company_id,name,code,invoice_prefix) VALUES($1,'Main','COA','COA') RETURNING id",[companyId])).rows[0].id;
+  const rows=(await database.query("INSERT INTO accounts(company_id,code,name,type,system_role,currency) VALUES
+    ($1,'1000','Audit Bank','Bank','BANK','AED'),
+    ($1,'1100','Audit AR','Accounts Receivable','AR','AED'),
+    ($1,'1200','Audit Inventory','Other Current Asset','INVENTORY','AED'),
+    ($1,'1300','Audit Input VAT','Other Current Asset','INPUT_VAT','AED'),
+    ($1,'2000','Audit AP','Accounts Payable','AP','AED'),
+    ($1,'2100','Audit Output VAT','Other Current Liability','OUTPUT_VAT','AED'),
+    ($1,'3000','Audit Equity','Equity','EQUITY','AED'),
+    ($1,'4000','Audit Sales','Income','SALES','AED'),
+    ($1,'4100','Audit Other Income','Other Income','OTHER_INCOME','AED'),
+    ($1,'5000','Audit COGS','Cost of Goods Sold','COGS','AED'),
+    ($1,'6000','Audit Purchases','Expense','PURCHASES','AED'),
+    ($1,'6100','Audit Expense','Expense','EXPENSE','AED'),
+    ($1,'6200','Audit Payroll','Expense','PAYROLL','AED'),
+    ($1,'9999','Audit Suspense','Other Current Asset','SUSPENSE','AED')
+    RETURNING id,name,system_role,type",[companyId])).rows;
+  const byRole=(role)=>rows.find(row=>row.system_role===role);
+  assert.deepEqual(
+    Object.fromEntries(rows.map(row=>[row.system_role,row.type])),
+    {BANK:'Bank',AR:'Accounts Receivable',INVENTORY:'Other Current Asset',INPUT_VAT:'Other Current Asset',AP:'Accounts Payable',OUTPUT_VAT:'Other Current Liability',EQUITY:'Equity',SALES:'Income',OTHER_INCOME:'Other Income',COGS:'Cost of Goods Sold',PURCHASES:'Expense',EXPENSE:'Expense',PAYROLL:'Expense',SUSPENSE:'Other Current Asset'}
+  );
+  const {POST}=await vite.ssrLoadModule('/app/api/records/route.ts');
+  const req=(body)=>new Request('https://app.test/api/records',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+  const wrongCogs=await POST(req({kind:'items',companyId,locationId,itemType:'stock-part',name:'Wrong COGS',quantity:0,cost:0,salesPrice:0,assetAccountId:byRole('INVENTORY').id,cogsAccountId:byRole('PURCHASES').id,incomeAccountId:byRole('SALES').id}));
+  assert.equal(wrongCogs.status,400);
+  const wrongIncome=await POST(req({kind:'items',companyId,locationId,itemType:'stock-part',name:'Wrong income',quantity:0,cost:0,salesPrice:0,assetAccountId:byRole('INVENTORY').id,cogsAccountId:byRole('COGS').id,incomeAccountId:byRole('EXPENSE').id}));
+  assert.equal(wrongIncome.status,400);
+  const good=await POST(req({kind:'items',companyId,locationId,itemType:'stock-part',name:'Correct links',quantity:0,cost:0,salesPrice:0,assetAccountId:byRole('INVENTORY').id,cogsAccountId:byRole('COGS').id,incomeAccountId:byRole('SALES').id}));
+  assert.equal(good.status,201,await good.clone().text());
+});
+
 test('stock item links Inventory Asset and calculates average purchase cost in home currency', async () => {
   const companyId = (await database.query("INSERT INTO companies (name,base_currency) VALUES ('Item costing test','AED') RETURNING id")).rows[0].id;
   const locationId = (await database.query("INSERT INTO inventory_locations (company_id,name,code,invoice_prefix) VALUES ($1,'Main','AVG','AVG') RETURNING id",[companyId])).rows[0].id;

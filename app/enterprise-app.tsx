@@ -2046,14 +2046,19 @@ function ItemFields({ form, setForm, items, accounts, contacts, vatCodeOptions, 
   const stockPart = itemType === "stock-part";
   const activeAccounts = accounts.filter((account) => account.active !== false && String(account.active) !== "false");
   const normalizedAccountValue = (value: unknown) => String(value ?? "").trim().toLowerCase();
+  const stockCogsAccounts = activeAccounts.filter((account) => {
+    const role = normalizedAccountValue(account.systemRole);
+    const type = normalizedAccountValue(account.type);
+    const name = normalizedAccountValue(account.name);
+    return role === "cogs" || type === "cost of goods sold" || name.includes("cost of goods");
+  });
   const purchaseAccounts = activeAccounts.filter((account) => {
     const role = normalizedAccountValue(account.systemRole);
     const type = normalizedAccountValue(account.type);
     const name = normalizedAccountValue(account.name);
     return ["cogs", "purchases", "expense"].includes(role)
-      || ["cost of goods sold", "cogs", "purchase", "purchases", "expense", "other expense"].includes(type)
+      || ["cost of goods sold", "expense", "other expense"].includes(type)
       || name.includes("cost of goods")
-      || name === "cogs"
       || name.includes("purchases");
   });
   const incomeAccounts = activeAccounts.filter((account) => {
@@ -2109,7 +2114,7 @@ function ItemFields({ form, setForm, items, accounts, contacts, vatCodeOptions, 
       <div><h3 className="font-bold text-slate-900">Purchase information</h3><p className="mt-1 text-xs text-slate-500">Defaults used when this item is selected on purchase documents.</p></div>
       <Field label={stockPart ? `Cost (${currency})` : `Purchase Cost / Rate (${currency})`} name="cost" type="number" form={form} setForm={setForm} />
       {vatPicker("Purch VAT Code", "purchaseVatCode", selectedPurchaseVat)}
-      {accountPicker(stockPart ? "COGS Account" : "Expense / COGS Account", "cogsAccountId", purchaseAccounts)}
+      {accountPicker(stockPart ? "COGS Account" : "Expense / COGS Account", "cogsAccountId", stockPart ? stockCogsAccounts : purchaseAccounts)}
       <div className="space-y-2"><Label>Preferred Supplier</Label><Select value={form.preferredSupplierId || "none"} onValueChange={(value) => setForm({ ...form, preferredSupplierId: value === "none" ? "" : value })}><SelectTrigger className="w-full"><SelectValue placeholder="Select supplier" /></SelectTrigger><SelectContent><SelectItem value="none">No preferred supplier</SelectItem>{vendors.map((vendor) => <SelectItem key={vendor.id} value={String(vendor.id)}>{String(vendor.company || vendor.name)}</SelectItem>)}</SelectContent></Select><p className="text-xs text-slate-500">Linked to Vendor Center.</p></div>
     </section>
     <section className="space-y-4 rounded-xl border bg-slate-50 p-4">
