@@ -149,7 +149,7 @@ test("sales postings hit revenue, VAT, COGS and inventory accounts and sales rep
   assert.equal(byCustomer.rows.find((row) => row.name === "Sales Audit Customer").amount, 100);
 
   const customerDetail = await reportGet("sales-by-customer-detail");
-  const customerRow = customerDetail.rows.find((row) => row.number === "SALE-AUDIT-1");
+  const customerRow = customerDetail.rows.find((row) => row.number === invoice.number);
   assert.equal(customerRow.amount, 100);
   assert.equal(customerRow.vat, 5);
   assert.equal(customerRow.total, 105);
@@ -158,13 +158,13 @@ test("sales postings hit revenue, VAT, COGS and inventory accounts and sales rep
   assert.equal(byItem.rows.find((row) => row.name === "Sales Stock").amount, 100);
 
   const itemDetail = await reportGet("sales-by-item-detail");
-  assert.equal(itemDetail.rows.find((row) => row.number === "SALE-AUDIT-1").amount, 100);
+  assert.equal(itemDetail.rows.find((row) => row.number === invoice.number).amount, 100);
 
   const byRep = await reportGet("sales-by-rep-summary");
   assert.equal(byRep.rows.find((row) => row.salesman === "Rep Audit").amount, 100);
 
   const repDetail = await reportGet("sales-by-rep-detail");
-  assert.equal(repDetail.rows.find((row) => row.number === "SALE-AUDIT-1").amount, 100);
+  assert.equal(repDetail.rows.find((row) => row.number === invoice.number).amount, 100);
 
   const daily = await reportGet("daily-sales-summary");
   const dailyRow = daily.rows.find((row) => row.date === "2026-09-20");
@@ -247,16 +247,16 @@ test("customer postings hit the right accounts and customer reports stay in sync
 
   const open = await reportGet("customer-open-balance");
   assert.equal(open.openBalance.totalOpen, 65);
-  assert.equal(open.rows.find((row) => row.number === "CUS-AUDIT-1").openBalance, 65);
+  assert.equal(open.rows.find((row) => row.number === invoice.number).openBalance, 65);
 
   const agingDetail = await reportGet("ar-aging-detail");
-  assert.equal(agingDetail.rows.find((row) => row.number === "CUS-AUDIT-1").amount, 65);
+  assert.equal(agingDetail.rows.find((row) => row.number === invoice.number).amount, 65);
 
   const agingSummary = await reportGet("ar-aging-summary");
   assert.equal(agingSummary.rows.find((row) => row.name === "Customer Audit").total, 65);
 
   const openInvoices = await reportGet("open-invoices");
-  assert.equal(openInvoices.rows.find((row) => row.number === "CUS-AUDIT-1").amount, 65);
+  assert.equal(openInvoices.rows.find((row) => row.number === invoice.number).amount, 65);
 
   const balance = await reportGet("customer-balances");
   assert.equal(balance.rows.find((row) => row.name === "Customer Audit").amount, 65);
@@ -268,7 +268,7 @@ test("customer postings hit the right accounts and customer reports stay in sync
   assert.equal(sales.rows.find((row) => row.name === "Customer Audit").amount, 105);
 
   const received = await reportGet("online-received-payments");
-  assert.equal(received.rows.find((row) => row.number === "CUS-PAY-1").amount, 40);
+  assert.equal(received.rows.find((row) => row.number === payment.number).amount, 40);
 
   const pnl = await reportGet("profit-loss");
   assert.equal(pnl.summary.income, 100);
@@ -322,7 +322,7 @@ test("purchase postings hit the right accounts and purchase reports stay in sync
   };
 
   const supplierDetail = await reportGet("purchases-by-supplier-detail");
-  const purchaseRow = supplierDetail.rows.find((row) => row.number === "PUR-AUDIT-1");
+  const purchaseRow = supplierDetail.rows.find((row) => row.number === bill.number);
   assert.equal(purchaseRow.subtotal, 150);
   assert.equal(purchaseRow.vat, 7.5);
   assert.equal(purchaseRow.total, 157.5);
@@ -337,9 +337,9 @@ test("purchase postings hit the right accounts and purchase reports stay in sync
   await database.query("INSERT INTO bill_payment_allocations(payment_id,bill_id,amount) VALUES ($1,$2,57.5)", [payment,bill.id]);
 
   const agingDetail = await reportGet("ap-aging-detail");
-  assert.equal(agingDetail.rows.find((row) => row.number === "PUR-AUDIT-1").amount, 100);
+  assert.equal(agingDetail.rows.find((row) => row.number === bill.number).amount, 100);
   const unpaid = await reportGet("unpaid-bills-detail");
-  assert.equal(unpaid.rows.find((row) => row.number === "PUR-AUDIT-1").amount, 100);
+  assert.equal(unpaid.rows.find((row) => row.number === bill.number).amount, 100);
   const agingSummary = await reportGet("ap-aging-summary");
   assert.equal(agingSummary.rows.find((row) => row.name === "Purchase Audit Vendor").total, 100);
 });
