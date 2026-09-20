@@ -13,6 +13,7 @@ const { hashAdminPin, verifyAdminPin } = await sourceModule("../lib/admin-pin.ts
 const { dashboardMetrics } = await sourceModule("../lib/dashboard-metrics.ts");
 const { filterZeroQohRows, hasInventoryQohFilter } = await sourceModule("../lib/inventory-report-filter.ts");
 const { linkReportAccounts } = await sourceModule("../lib/report-account-links.ts");
+const { filterRecordListByDate, recordListReport } = await sourceModule("../lib/record-list-export.ts");
 
 test("email validation accepts ordinary addresses and rejects malformed or oversized input", () => {
   for (const email of ["name@example.com", "name+sales@example.co.uk"]) assert.equal(isValidEmail(email), true);
@@ -58,6 +59,22 @@ test("inventory report QOH option hides only zero rows", () => {
   assert.equal(filterZeroQohRows("inventory-valuation-detail", rows, false).length, 3);
   assert.equal(filterZeroQohRows("profit-loss", rows, true).length, 3);
   assert.deepEqual(filterZeroQohRows("pending-builds", [{ sku: "ZERO", onHand: 0 }, { sku: "ONE", onHand: 1 }], true).map((row) => row.sku), ["ONE"]);
+});
+
+test("shared transaction lists filter inclusive dates and export professional columns", () => {
+  const records = [
+    { transactionDate: "2026-09-01", type: "invoice", number: "INV-1", party: "Customer", status: "open", currency: "AED", total: 100 },
+    { transactionDate: "2026-09-15", type: "cheque", number: "CHQ-1", party: "Supplier", status: "paid", currency: "AED", total: 200 },
+    { transactionDate: "2026-10-01", type: "bill", number: "BIL-1", party: "Vendor", status: "open", currency: "AED", total: 300 },
+  ];
+  const filtered = filterRecordListByDate(records, "transactions", "2026-09-01", "2026-09-30");
+  assert.deepEqual(filtered.map((record) => record.number), ["INV-1", "CHQ-1"]);
+  assert.equal(filterRecordListByDate(records, "contacts", "2026-09-01", "2026-09-30").length, 3);
+  const report = recordListReport("write-cheque", "transactions", filtered, "AED", "2026-09-01", "2026-09-30", "2026-09-20T00:00:00.000Z");
+  assert.equal(report.title, "Cheque Register");
+  assert.equal(report.period.label, "2026-09-01 to 2026-09-30");
+  assert.deepEqual(report.columns.map((column) => column.label), ["Date", "Type", "Reference", "Name", "Status", "Currency", "Amount"]);
+  assert.equal(report.rows[1].amount, 200);
 });
 
 test("report account links use codes or currency and never guess duplicate names", () => {

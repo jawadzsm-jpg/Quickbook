@@ -30,13 +30,15 @@ import type { PnlMeta, PnlReport } from "@/lib/profit-loss";
 import { LiveProfitLossSummary } from "./live-profit-loss-summary";
 import { dashboardMetrics } from "@/lib/dashboard-metrics";
 import { filterZeroQohRows, hasInventoryQohFilter } from "@/lib/inventory-report-filter";
+import { filterRecordListByDate, recordListReport } from "@/lib/record-list-export";
+import { reportCsv, reportFilename, reportPdf, reportWorkbook } from "@/lib/report-export";
 import { convertInvoiceLines, invoiceCurrencyAmount, validDocumentRate, type PricedInvoiceLine } from "@/lib/invoice-pricing";
 import { SalesDocumentTemplate, salesDocumentModeForTransaction } from "./sales-document-template";
 import {
   AlertTriangle, ArrowRightLeft, BadgeDollarSign, Bell, BookOpen, BookOpenCheck, BookmarkPlus, Boxes, Building2, CheckCircle2, Copy,
-  Check, ChevronDown, ChevronRight, CircleDollarSign, Clock3, Download, FileBarChart2, Landmark,
+  Check, ChevronDown, ChevronRight, CircleDollarSign, Clock3, Download, FileBarChart2, FileSpreadsheet, FileText, Landmark,
   Eye, ImageUp, KeyRound, LayoutDashboard, LogOut, PackageCheck, PackageSearch, PackageX, Palette, Pencil, Plus, ReceiptText, RefreshCw,
-  Search, Settings, ShieldCheck, ShoppingCart, Stamp, Sun, Moon, Trash2, Users, WalletCards, Percent,
+  Search, Settings, ShieldCheck, ShoppingCart, Stamp, Sun, Moon, Table2, Trash2, Users, WalletCards, Percent,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,6 +49,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { specificationFields } from "@/lib/specification-presets";
@@ -1296,6 +1299,7 @@ function RecordView({ companyId, locationId, onEdit, view, kind, records, accoun
   const [sharedRefresh,setSharedRefresh] = useState(0);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [exportingList, setExportingList] = useState<"xlsx" | "pdf" | "csv" | null>(null);
   const [accountCurrency, setAccountCurrency] = useState("all");
   const [selectedCategory, setSelectedCategory] = useState<"All" | AccountCategory>("All");
   const accountCurrencies = [...new Set(accounts.map((account) => String(account.currency || currency)))].sort();
@@ -1309,24 +1313,30 @@ function RecordView({ companyId, locationId, onEdit, view, kind, records, accoun
   } : { all: 0, in: 0, low: 0, out: 0 };
   const currencyAccounts = records.filter((record) => selectedAccountCurrency === "all" || String(record.currency || currency) === selectedAccountCurrency);
   const unfilteredRecords = kind === "accounts" ? currencyAccounts.filter((record) => selectedCategory === "All" || accountCategory(record.type) === selectedCategory) : kind !== "items" || stockFilter === "all" ? records : records.filter((record) => stockFilter === "in" ? Number(record.quantity) > 0 : stockFilter === "low" ? Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint) : Number(record.quantity) <= 0);
-  const visibleRecords = view === "write-cheque" ? unfilteredRecords.filter((record) => {
-    const transactionDate = String(record.transactionDate || "");
-    return (!dateFrom || transactionDate >= dateFrom) && (!dateTo || transactionDate <= dateTo);
-  }) : unfilteredRecords;
-  function exportCsv() {
+  const visibleRecords = filterRecordListByDate(unfilteredRecords, kind, dateFrom, dateTo);
+  async function exportList(format: "xlsx" | "pdf" | "csv") {
     if (!visibleRecords.length) return toast.error("There are no records to export.");
-    const headers = Array.from(new Set(visibleRecords.flatMap((record) => Object.keys(record))));
-    const escape = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
-    const csv = [headers.map(escape).join(","), ...visibleRecords.map((record) => headers.map((header) => escape(record[header])).join(","))].join("\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `comnet-${view}-${today()}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-    toast.success("CSV exported");
+    setExportingList(format);
+    try {
+      const report = recordListReport(view, kind, visibleRecords, currency, dateFrom, dateTo);
+      const content = format === "csv" ? reportCsv(report, "COMNET Enterprise Accounting", "Current selection") : format === "xlsx" ? await reportWorkbook(report, "COMNET Enterprise Accounting", "Current selection") : await reportPdf(report, "COMNET Enterprise Accounting", "Current selection");
+      const blob = new Blob([content as BlobPart], { type: format === "csv" ? "text/csv;charset=utf-8" : format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = reportFilename(report, format);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast.success(`${format === "xlsx" ? "Excel" : format.toUpperCase()} export downloaded.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not create this export.");
+    } finally {
+      setExportingList(null);
+    }
   }
-  return <section className="rounded-xl border border-slate-200 bg-white shadow-sm"><div className="flex flex-col gap-3 border-b p-4 lg:flex-row lg:items-center lg:justify-between"><div className="flex min-w-0 flex-1 flex-wrap items-center gap-2"><div className="relative w-full sm:max-w-sm"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={`Search ${view}…`} className="pl-9" /></div>{view === "write-cheque" && <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filter cheques by date"><Input type="date" value={dateFrom} max={dateTo || undefined} onChange={(event) => setDateFrom(event.target.value)} aria-label="Cheque date from" title="From date" className="w-[150px]" /><span className="text-xs text-muted-foreground">to</span><Input type="date" value={dateTo} min={dateFrom || undefined} onChange={(event) => setDateTo(event.target.value)} aria-label="Cheque date to" title="To date" className="w-[150px]" />{(dateFrom || dateTo) && <Button type="button" variant="ghost" size="sm" onClick={() => { setDateFrom(""); setDateTo(""); }}>Clear dates</Button>}</div>}</div><div className="flex flex-wrap gap-2">{kind === "accounts" && <Select value={selectedAccountCurrency} onValueChange={setAccountCurrency}><SelectTrigger className="w-40" aria-label="Filter accounts by currency"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All currencies</SelectItem>{accountCurrencies.map((code) => <SelectItem key={code} value={code}>{code}</SelectItem>)}</SelectContent></Select>}<Button variant="outline" size="icon" onClick={() => { if(kind === "items" && ["out","shared"].includes(stockFilter)) setSharedRefresh(value => value + 1); else onRefresh(); }} aria-label="Refresh"><RefreshCw className="size-4" /></Button>{!(kind === "items" && ["out","shared"].includes(stockFilter)) && <Button variant="outline" onClick={exportCsv}><Download className="size-4" />Export</Button>}{canWrite && <Button onClick={onCreate} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400"><Plus className="size-4" />Add new</Button>}</div></div>
+  return <section className="rounded-xl border border-slate-200 bg-white shadow-sm"><div className="flex flex-col gap-3 border-b p-4 lg:flex-row lg:items-center lg:justify-between"><div className="flex min-w-0 flex-1 flex-wrap items-center gap-2"><div className="relative w-full sm:max-w-sm"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={`Search ${view}…`} className="pl-9" /></div>{kind === "transactions" && <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/20 p-1" role="group" aria-label="Filter transactions by date"><span className="px-2 text-xs font-medium text-muted-foreground">Date</span><Input type="date" value={dateFrom} max={dateTo || undefined} onChange={(event) => setDateFrom(event.target.value)} aria-label="Transaction date from" title="From date" className="w-[150px] border-0 bg-background shadow-none" /><span className="text-xs text-muted-foreground">to</span><Input type="date" value={dateTo} min={dateFrom || undefined} onChange={(event) => setDateTo(event.target.value)} aria-label="Transaction date to" title="To date" className="w-[150px] border-0 bg-background shadow-none" />{(dateFrom || dateTo) && <Button type="button" variant="ghost" size="sm" onClick={() => { setDateFrom(""); setDateTo(""); }}>Clear</Button>}</div>}</div><div className="flex flex-wrap gap-2">{kind === "accounts" && <Select value={selectedAccountCurrency} onValueChange={setAccountCurrency}><SelectTrigger className="w-40" aria-label="Filter accounts by currency"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All currencies</SelectItem>{accountCurrencies.map((code) => <SelectItem key={code} value={code}>{code}</SelectItem>)}</SelectContent></Select>}<Button variant="outline" size="icon" onClick={() => { if(kind === "items" && ["out","shared"].includes(stockFilter)) setSharedRefresh(value => value + 1); else onRefresh(); }} aria-label="Refresh"><RefreshCw className="size-4" /></Button>{!(kind === "items" && ["out","shared"].includes(stockFilter)) && <DropdownMenu modal={false}><DropdownMenuTrigger asChild><Button type="button" variant="outline" disabled={Boolean(exportingList) || !visibleRecords.length}><Download className="size-4" />{exportingList ? "Preparing…" : "Export"}<ChevronDown className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => void exportList("pdf")}><FileText className="size-4" />PDF · A4</DropdownMenuItem><DropdownMenuItem onSelect={() => void exportList("xlsx")}><FileSpreadsheet className="size-4" />Excel (.xlsx)</DropdownMenuItem><DropdownMenuItem onSelect={() => void exportList("csv")}><Table2 className="size-4" />CSV</DropdownMenuItem></DropdownMenuContent></DropdownMenu>}{canWrite && <Button onClick={onCreate} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400"><Plus className="size-4" />Add new</Button>}</div></div>
     {kind === "accounts" && <div className="flex flex-wrap gap-2 border-b bg-slate-50 p-3" aria-label="Account categories"><Button type="button" size="sm" variant={selectedCategory === "All" ? "default" : "outline"} aria-pressed={selectedCategory === "All"} onClick={() => setSelectedCategory("All")}>All accounts <Badge variant="secondary">{currencyAccounts.length}</Badge></Button>{accountCategories.filter(category => category !== "Other / Unclassified" || currencyAccounts.some(record => accountCategory(record.type) === category)).map(category => <Button key={category} type="button" size="sm" variant={selectedCategory === category ? "default" : "outline"} aria-pressed={selectedCategory === category} onClick={() => setSelectedCategory(category)}>{category}<Badge variant="secondary">{currencyAccounts.filter(record => accountCategory(record.type) === category).length}</Badge></Button>)}</div>}
     {kind === "items" ? <div className="flex flex-wrap gap-2 border-b bg-slate-50 p-3"><Button type="button" size="sm" variant={stockFilter === "all" ? "default" : "outline"} onClick={() => setStockFilter("all")}><Boxes className="size-4" />All items <Badge variant="secondary">{stockCounts.all}</Badge></Button><Button type="button" size="sm" variant={stockFilter === "in" ? "default" : "outline"} onClick={() => setStockFilter("in")}><PackageCheck className="size-4" />In stock <Badge variant="secondary">{stockCounts.in}</Badge></Button><Button type="button" size="sm" variant={stockFilter === "low" ? "default" : "outline"} onClick={() => setStockFilter("low")}><AlertTriangle className="size-4" />Low stock <Badge variant="secondary">{stockCounts.low}</Badge></Button><Button type="button" size="sm" variant={stockFilter === "out" ? "destructive" : "outline"} onClick={() => setStockFilter("out")}><PackageX className="size-4" />Out of stock · All companies</Button></div> : null}
     {kind === "items" && stockFilter === "shared" ? <SharedItemCatalogue key={sharedRefresh} search={search} refresh={sharedRefresh} companyId={companyId} locationId={locationId} canUse={canWrite} onUsed={onRefresh} /> : kind === "items" && stockFilter === "out" ? <SharedOutOfStock key={sharedRefresh} search={search} refresh={sharedRefresh} companyId={companyId} locationId={locationId} canUse={canWrite} onUsed={onRefresh} /> : kind === "transactions" ? <TransactionTable onEdit={onEdit} records={visibleRecords} empty={loading ? "Loading records…" : "No transactions found."} onDelete={canDelete ? onDelete : undefined} onOpen={onOpenDetail} /> : kind === "contacts" ? <ContactTable onEdit={canWrite ? onEdit : undefined} records={visibleRecords} accounts={accounts} empty={loading ? "Loading records…" : "No contacts found."} onDelete={canDelete ? onDelete : undefined} /> : kind === "items" ? <ItemTable records={visibleRecords} currency={currency} empty={loading ? "Loading records…" : stockFilter === "out" ? "No out-of-stock items found." : "No inventory items found."} onDelete={canDelete ? onDelete : undefined} onEdit={canWrite ? onEditItem : undefined} onDuplicate={canWrite ? onDuplicateItem : undefined} /> : <AccountTable onOpenTransaction={onOpenDetail} accounts={accounts} onEdit={canWrite ? onEdit : undefined} records={visibleRecords} currency={currency} empty={loading ? "Loading records…" : "No accounts found."} onDelete={canDelete ? onDelete : undefined} />}
