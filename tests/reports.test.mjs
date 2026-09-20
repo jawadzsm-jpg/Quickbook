@@ -101,6 +101,90 @@ async function report(type, location = locationId) {
   return report;
 }
 
+test("sales postings hit revenue, VAT, COGS and inventory accounts and sales reports reconcile", async () => {
+  const created = await workspaces.POST(post({ type: "company", name: "Sales account audit", baseCurrency: "AED" }));
+  assert.equal(created.status, 201);
+  const { company: salesCompany } = await created.json();
+  const cid = salesCompany.id, lid = salesCompany.locations[0].id;
+
+  const accounts = (await database.query("SELECT id,name,system_role FROM accounts WHERE company_id=$1", [cid])).rows;
+  const idFor = (role) => accounts.find((account) => account.system_role === role)?.id;
+  assert.ok(idFor("AR") && idFor("SALES") && idFor("OUTPUT_VAT") && idFor("COGS") && idFor("INVENTORY"));
+
+  await database.query("INSERT INTO contacts(company_id,type,name,currency,ledger_account_id) VALUES ($1,'customer','Sales Audit Customer','AED',$2)", [cid,idFor("AR")]);
+  const itemId = (await database.query("INSERT INTO items(company_id,location_id,sku,item_number,name,item_type,quantity,cost,sales_price,income_account_id,cogs_account_id,asset_account_id) VALUES ($1,$2,'SALE-STOCK','SALE-1','Sales Stock','stock-part',5,60,100,$3,$4,$5) RETURNING id", [cid,lid,idFor("SALES"),idFor("COGS"),idFor("INVENTORY")])).rows[0].id;
+
+  const records = await vite.ssrLoadModule("/app/api/records/route.ts");
+  const response = await records.POST(new Request("https://app.test/api/records", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      kind: "transactions", type: "invoice", companyId: cid, locationId: lid,
+      number: "SALE-AUDIT-1", party: "Sales Audit Customer", salesman: "Rep Audit",
+      transactionDate: "2026-09-20", dueDate: "2026-09-30", currency: "AED", exchangeRate: 1,
+      lines: [{ itemId, description: "Sales Stock", quantity: 1, unitPrice: 100, unitCost: 60, vatCode: "STANDARD" }],
+    }),
+  }));
+  assert.equal(response.status, 201, await response.text());
+  const invoice = (await response.json()).record;
+
+  const journal = (await database.query("SELECT jl.account_name,jl.debit,jl.credit FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.transaction_id=$1 ORDER BY jl.id", [invoice.id])).rows;
+  assert.deepEqual(journal, [
+    { account_name: "Accounts Receivable", debit: 105, credit: 0 },
+    { account_name: "Sales Revenue", debit: 0, credit: 100 },
+    { account_name: "VAT Payable", debit: 0, credit: 5 },
+    { account_name: "Cost of Goods Sold", debit: 60, credit: 0 },
+    { account_name: "Inventory Asset", debit: 0, credit: 60 },
+  ]);
+  assert.equal((await database.query("SELECT quantity FROM items WHERE id=$1", [itemId])).rows[0].quantity, 4);
+
+  const reportGet = async (type) => {
+    const result = await GET(new Request("https://app.test/api/reports?" + new URLSearchParams({
+      type, companyId: String(cid), locationId: String(lid), periodStart: "2026-09-01", periodEnd: "2026-09-30",
+    })));
+    assert.equal(result.status, 200, await result.text());
+    return (await result.json()).report;
+  };
+
+  const byCustomer = await reportGet("sales-by-customer");
+  assert.equal(byCustomer.rows.find((row) => row.name === "Sales Audit Customer").amount, 100);
+
+  const customerDetail = await reportGet("sales-by-customer-detail");
+  const customerRow = customerDetail.rows.find((row) => row.number === "SALE-AUDIT-1");
+  assert.equal(customerRow.amount, 100);
+  assert.equal(customerRow.vat, 5);
+  assert.equal(customerRow.total, 105);
+
+  const byItem = await reportGet("sales-by-item");
+  assert.equal(byItem.rows.find((row) => row.name === "Sales Stock").amount, 100);
+
+  const itemDetail = await reportGet("sales-by-item-detail");
+  assert.equal(itemDetail.rows.find((row) => row.number === "SALE-AUDIT-1").amount, 100);
+
+  const byRep = await reportGet("sales-by-rep-summary");
+  assert.equal(byRep.rows.find((row) => row.salesman === "Rep Audit").amount, 100);
+
+  const repDetail = await reportGet("sales-by-rep-detail");
+  assert.equal(repDetail.rows.find((row) => row.number === "SALE-AUDIT-1").amount, 100);
+
+  const daily = await reportGet("daily-sales-summary");
+  const dailyRow = daily.rows.find((row) => row.date === "2026-09-20");
+  assert.equal(dailyRow.sales, 100);
+  assert.equal(dailyRow.vat, 5);
+  assert.equal(dailyRow.total, 105);
+
+  const graph = await reportGet("sales-graph");
+  assert.equal(graph.rows.find((row) => row.month === "2026-09").netSales, 100);
+
+  const profitability = await reportGet("item-profitability");
+  const profitRow = profitability.rows.find((row) => row.name === "Sales Stock");
+  assert.equal(profitRow.amount, 100);
+  assert.equal(profitRow.cost, 60);
+  assert.equal(profitRow.profit, 40);
+
+  const pnl = await reportGet("profit-loss");
+  assert.deepEqual(pnl.summary, { income: 100, expenses: 60, netIncome: 40 });
+});
+
 test("customer postings hit the right accounts and customer reports stay in sync", async () => {
   const created = await workspaces.POST(post({ type: "company", name: "Customer account audit", baseCurrency: "AED" }));
   assert.equal(created.status, 201);
@@ -336,7 +420,7 @@ test("live P&L totals are the same ledger figures as the standard report", async
 test("summary destinations preserve their titles and selected inventory", async () => {
   const customers = await report("sales-by-customer");
   assert.equal(customers.title, "Sales by Customer Summary");
-  assert.equal(customers.rows[0].amount, 3858.75);
+  assert.equal(customers.rows[0].amount, 3675);
   assert.equal((await report("sales-by-item")).title, "Sales by Item Summary");
   assert.equal((await report("sales-by-item")).rows.length, 1);
   assert.equal((await report("sales-by-item", 0)).rows.length, 2);
