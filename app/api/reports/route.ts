@@ -94,29 +94,16 @@ export async function GET(request: Request) {
     }
     ledger.push(...[...datedLedger.values()].sort((a,b)=>a.name.localeCompare(b.name)));
     const accountTypes = new Map(allAccounts.map((account) => [account.name, account.type]));
-    const accountsByName = new Map<string, (typeof allAccounts)[number][]>();
-    for (const account of allAccounts) accountsByName.set(account.name, [...(accountsByName.get(account.name) ?? []), account]);
-    const resolveJournalAccount = (row: typeof journal[number]) => {
-      const candidates = accountsByName.get(row.account) ?? [];
-      if (candidates.length <= 1) return candidates[0];
-      const rowCurrency = String(row.entryCurrency || currency).toUpperCase();
-      return candidates.find((account) => String(account.currency).toUpperCase() === rowCurrency) ?? candidates[0];
+    const accountCandidates = new Map<string, typeof allAccounts>();
+    for (const account of allAccounts) accountCandidates.set(account.name, [...(accountCandidates.get(account.name) ?? []), account]);
+    const journalAccount = (row: typeof journal[number]) => {
+      const candidates = accountCandidates.get(row.account) ?? [];
+      if (candidates.length === 1) return candidates[0];
+      const entryCurrency = String(row.entryCurrency || currency).toUpperCase();
+      const currencyMatches = candidates.filter((account) => String(account.currency).toUpperCase() === entryCurrency);
+      return currencyMatches.length === 1 ? currencyMatches[0] : undefined;
     };
     const ledgerRows = ledger.map((row) => ({ name: row.name, type: accountTypes.get(row.name) ?? "Unclassified", debit: Number(row.debit ?? 0), credit: Number(row.credit ?? 0), balance: Number(row.debit ?? 0) - Number(row.credit ?? 0) }));
-    const balanceSheetLedger = new Map<string, { name: string; type: string; accountCurrency: string; debit: number; credit: number; balance: number }>();
-    for (const row of journal) {
-      const account = resolveJournalAccount(row);
-      const type = account?.type ?? accountTypes.get(row.account) ?? "Unclassified";
-      const accountCurrency = String(account?.currency || currency).toUpperCase();
-      const duplicateName = (accountsByName.get(row.account)?.length ?? 0) > 1;
-      const key = duplicateName ? `${row.account}::${accountCurrency}` : row.account;
-      const existing = balanceSheetLedger.get(key) ?? { name: duplicateName ? `${row.account} (${accountCurrency})` : row.account, type, accountCurrency, debit: 0, credit: 0, balance: 0 };
-      existing.debit += Number(row.debit);
-      existing.credit += Number(row.credit);
-      existing.balance = existing.debit - existing.credit;
-      balanceSheetLedger.set(key, existing);
-    }
-    const balanceSheetRows = [...balanceSheetLedger.values()];
     const incomeTypes = new Set(["Income", "Other Income"]);
     const expenseTypes = new Set(["Expense", "Cost of Goods Sold", "Other Expense"]);
     const assetTypes = new Set(["Bank", "Accounts Receivable", "Other Current Asset", "Fixed Asset", "Other Asset"]);
@@ -266,12 +253,12 @@ export async function GET(request: Request) {
       columns = [{ key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "name", label: "Name" }, { key: "currency", label: "Currency" }, { key: "bookedRate", label: "Booked Rate" }, { key: "currentRate", label: realised ? "Settlement Rate" : "Current Rate" }, { key: "bookedValue", label: "Booked Value", ...money }, { key: "currentValue", label: "Revalued Value", ...money }, { key: "gainLoss", label: "Gain / Loss", ...money }];
     } else if (key === "balance-sheet" || key === "balance-sheet-detail") {
       title = key === "balance-sheet-detail" ? "Balance Sheet Detail" : "Balance Sheet Standard";
-      rows = balanceSheetRows.filter((row) => assetTypes.has(row.type) || liabilityTypes.has(row.type) || row.type === "Equity").map((row) => ({ name: row.name, section: assetTypes.has(row.type) ? "Assets" : liabilityTypes.has(row.type) ? "Liabilities" : "Equity", debit: row.debit, credit: row.credit, amount: assetTypes.has(row.type) ? row.balance : -row.balance }));
+      rows = ledgerRows.filter((row) => assetTypes.has(row.type) || liabilityTypes.has(row.type) || row.type === "Equity").map((row) => ({ name: row.name, section: assetTypes.has(row.type) ? "Assets" : liabilityTypes.has(row.type) ? "Liabilities" : "Equity", debit: row.debit, credit: row.credit, amount: assetTypes.has(row.type) ? row.balance : -row.balance }));
       columns = key === "balance-sheet-detail" ? [{ key: "section", label: "Section" }, { key: "name", label: "Account" }, { key: "debit", label: "Debit", ...money }, { key: "credit", label: "Credit", ...money }, { key: "amount", label: "Balance", ...money }] : [{ key: "section", label: "Section" }, { key: "name", label: "Account" }, { key: "amount", label: "Balance", ...money }];
     } else if (key === "balance-sheet-summary") {
       title = "Balance Sheet Summary";
       const sections = new Map<string, number>();
-      balanceSheetRows.filter((row) => assetTypes.has(row.type) || liabilityTypes.has(row.type) || row.type === "Equity").forEach((row) => { const section = assetTypes.has(row.type) ? "Assets" : liabilityTypes.has(row.type) ? "Liabilities" : "Equity"; sections.set(section, (sections.get(section) ?? 0) + (section === "Assets" ? row.balance : -row.balance)); });
+      ledgerRows.filter((row) => assetTypes.has(row.type) || liabilityTypes.has(row.type) || row.type === "Equity").forEach((row) => { const section = assetTypes.has(row.type) ? "Assets" : liabilityTypes.has(row.type) ? "Liabilities" : "Equity"; sections.set(section, (sections.get(section) ?? 0) + (section === "Assets" ? row.balance : -row.balance)); });
       rows = [...sections].map(([section, amount]) => ({ section, amount }));
       columns = [{ key: "section", label: "Section" }, { key: "amount", label: "Balance", ...money }];
     } else if (key === "balance-sheet-prev-year") {
@@ -392,20 +379,19 @@ export async function GET(request: Request) {
       columns = [{ key: "month", label: "Due Month" }, { key: "inflow", label: "Expected Inflow", ...money }, { key: "outflow", label: "Expected Outflow", ...money }, { key: "projected", label: "Projected Cash", ...money }];
     } else if (key === "bank-register") {
       title = "Bank Register";
-      const balances = new Map<string, number>();
+      const balances = new Map<number, number>();
       rows = journal.flatMap((row) => {
-        const account = resolveJournalAccount(row);
+        const account = journalAccount(row);
         if (!account || !(account.systemRole === "BANK" || account.type === "Bank")) return [];
-        const accountCurrency = String(account.currency || currency).toUpperCase();
-        const duplicateName = (accountsByName.get(row.account)?.length ?? 0) > 1;
-        const accountKey = `${account.id}`;
-        const rowCurrency = String(row.entryCurrency || currency).toUpperCase();
+        const bankCurrency = String(account.currency || currency).toUpperCase();
+        const entryCurrency = String(row.entryCurrency || currency).toUpperCase();
         const rate = Number(row.exchangeRate || 1);
-        const nativeDebit = row.originalDebit != null ? Number(row.originalDebit) : accountCurrency === currency ? Number(row.debit) : rowCurrency === accountCurrency && rate > 0 ? Number(row.debit) / rate : Number(row.debit);
-        const nativeCredit = row.originalCredit != null ? Number(row.originalCredit) : accountCurrency === currency ? Number(row.credit) : rowCurrency === accountCurrency && rate > 0 ? Number(row.credit) / rate : Number(row.credit);
-        const balance = (balances.get(accountKey) ?? 0) + nativeDebit - nativeCredit;
-        balances.set(accountKey, balance);
-        return [{ account: duplicateName ? `${row.account} (${accountCurrency})` : row.account, currency: accountCurrency, date: row.date, reference: row.reference, description: row.description, debit: nativeDebit.toFixed(2), credit: nativeCredit.toFixed(2), balance: balance.toFixed(2) }];
+        const debit = row.originalDebit != null ? Number(row.originalDebit) : entryCurrency === bankCurrency && bankCurrency !== currency && rate > 0 ? Number(row.debit) / rate : Number(row.debit);
+        const credit = row.originalCredit != null ? Number(row.originalCredit) : entryCurrency === bankCurrency && bankCurrency !== currency && rate > 0 ? Number(row.credit) / rate : Number(row.credit);
+        const balance = (balances.get(account.id) ?? 0) + debit - credit;
+        balances.set(account.id, balance);
+        const duplicateName = (accountCandidates.get(account.name)?.length ?? 0) > 1;
+        return [{ account: duplicateName ? `${account.name} (${bankCurrency})` : account.name, currency: bankCurrency, date: row.date, reference: row.reference, description: row.description, debit: `${debit.toFixed(2)} ${bankCurrency}`, credit: `${credit.toFixed(2)} ${bankCurrency}`, balance: `${balance.toFixed(2)} ${bankCurrency}` }];
       });
       columns = [{ key: "account", label: "Bank Account" }, { key: "currency", label: "Currency" }, { key: "date", label: "Date" }, { key: "reference", label: "Reference" }, { key: "description", label: "Description" }, { key: "debit", label: "Debit" }, { key: "credit", label: "Credit" }, { key: "balance", label: "Balance" }];
     } else if (key === "bank-reconciliation") {
