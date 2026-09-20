@@ -8,7 +8,7 @@ import { accounts, auditLog, billPaymentAllocations, companies, contacts, exchan
 import { stockPricingRows } from "@/lib/stock-pricing";
 import { canAccessCompany, hasPermission, isAdministrator, requireApiUser } from "@/lib/auth";
 
-type Row = Record<string, string | number>;
+type Row = Record<string, string | number | null>;
 const money = { type: "money" as const };
 const amountColumns = (first = "Account") => [
   { key: "name", label: first }, { key: "debit", label: "Debit", ...money }, { key: "credit", label: "Credit", ...money }, { key: "balance", label: "Balance", ...money },
