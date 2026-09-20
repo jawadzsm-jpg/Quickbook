@@ -32,7 +32,7 @@ export async function profitLoss(companyId: number, locationId: number, currency
   const db = getDb();
   const [chart, entries, docs, lines, stock, locations] = await Promise.all([
     db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(asc(accounts.code)),
-    db.select({ entryId: journalEntries.id, transactionId: journalEntries.transactionId, locationId: journalEntries.locationId, date: journalEntries.entryDate, reference: journalEntries.reference, description: journalEntries.description, account: journalLines.accountName, debit: journalLines.debit, credit: journalLines.credit }).from(journalLines).innerJoin(journalEntries, eq(journalEntries.id, journalLines.journalEntryId)).where(and(eq(journalEntries.companyId, companyId), eq(journalEntries.posted, true), locationId ? eq(journalEntries.locationId, locationId) : undefined)).orderBy(asc(journalEntries.entryDate), asc(journalLines.id)),
+    db.select({ entryId: journalEntries.id, transactionId: journalEntries.transactionId, locationId: journalEntries.locationId, date: journalEntries.entryDate, reference: journalEntries.reference, description: journalEntries.description, account: journalLines.accountName, debit: journalLines.debit, credit: journalLines.credit, entryCurrency: journalEntries.currency }).from(journalLines).innerJoin(journalEntries, eq(journalEntries.id, journalLines.journalEntryId)).where(and(eq(journalEntries.companyId, companyId), eq(journalEntries.posted, true), locationId ? eq(journalEntries.locationId, locationId) : undefined)).orderBy(asc(journalEntries.entryDate), asc(journalLines.id)),
     db.select().from(transactions).where(eq(transactions.companyId, companyId)),
     db.select({ id: transactionLines.id, transactionId: transactionLines.transactionId, itemId: transactionLines.itemId, description: transactionLines.description, quantity: transactionLines.quantity, subtotal: transactionLines.subtotal, unitCost: transactionLines.unitCost }).from(transactionLines).innerJoin(transactions, eq(transactions.id, transactionLines.transactionId)).where(eq(transactions.companyId, companyId)).orderBy(asc(transactionLines.id)),
     db.select({ id: items.id, name: items.name, sku: items.sku }).from(items).where(eq(items.companyId, companyId)),
@@ -40,7 +40,17 @@ export async function profitLoss(companyId: number, locationId: number, currency
   ]);
   const names = new Map<string, typeof chart>();
   chart.forEach(a => names.set(a.name, [...(names.get(a.name) || []), a]));
-  const accountFor = (name: string) => names.get(name)?.length === 1 ? names.get(name)![0] : undefined;
+  const accountFor = (name: string, entryCurrency?: string | null) => {
+    const matches = names.get(name) || [];
+    if (matches.length === 1) return matches[0];
+    const homeMatches = matches.filter((account) => account.currency === currency);
+    if (homeMatches.length === 1) return homeMatches[0];
+    if (entryCurrency) {
+      const currencyMatches = matches.filter((account) => account.currency === entryCurrency);
+      if (currencyMatches.length === 1) return currencyMatches[0];
+    }
+    return undefined;
+  };
   const docMap = new Map(docs.map(d => [d.id, d]));
   const itemMap = new Map(stock.map(i => [i.id, i]));
   const locationMap = new Map(locations.map(l => [l.id, l.name]));
@@ -49,15 +59,15 @@ export async function profitLoss(companyId: number, locationId: number, currency
   const inPeriod = (date: string, start = from, end = to) => (!start || date >= start) && (!end || date <= end);
   const current = entries.filter(e => inPeriod(e.date));
   const warnings = new Set<string>();
-  for (const entry of entries.filter(e => inPeriod(e.date) || comparison && inPeriod(e.date, prior(from), prior(to)))) if (!accountFor(entry.account)) warnings.add(`Account “${entry.account}” has ${names.has(entry.account) ? "duplicate names" : "no Chart of Accounts match"}. Its postings are excluded from classified profit; review Unclassified.`);
+  for (const entry of entries.filter(e => inPeriod(e.date) || comparison && inPeriod(e.date, prior(from), prior(to)))) if (!accountFor(entry.account, entry.entryCurrency)) warnings.add(`Account “${entry.account}” has ${names.has(entry.account) ? "duplicate names" : "no Chart of Accounts match"}. Its postings are excluded from classified profit; review Unclassified.`);
   const roleTypes: Record<string, string[]> = { SALES: ["Income"], OTHER_INCOME: ["Other Income", "Income"], COGS: ["Cost of Goods Sold"], PURCHASES: ["Cost of Goods Sold", "Expense"], EXPENSE: ["Expense", "Other Expense"], PAYROLL: ["Expense"] };
   chart.filter(a => a.active && a.systemRole && roleTypes[a.systemRole]).forEach(a => {
     if (!roleTypes[a.systemRole!].includes(a.type)) warnings.add(`${a.name}: ${a.systemRole} is linked to ${a.type}; review the account type in Chart of Accounts.`);
   });
   const details: PnlRow[] = current.filter(e => {
-    const a = accountFor(e.account); return a && (incomeTypes.has(a.type) || expenseTypes.has(a.type));
+    const a = accountFor(e.account, e.entryCurrency); return a && (incomeTypes.has(a.type) || expenseTypes.has(a.type));
   }).map(e => {
-    const a = accountFor(e.account)!; const d = docMap.get(e.transactionId || 0);
+    const a = accountFor(e.account, e.entryCurrency)!; const d = docMap.get(e.transactionId || 0);
     return { date: e.date, reference: e.reference, description: e.description, account: e.account, accountId: a.id, code: a.code, type: a.type, transactionId: d?.id || 0, entryId: e.entryId, location: locationMap.get(e.locationId || 0) || "Unassigned", salesman: d?.salesman || "Unallocated", documentType: d?.type || "Manual journal", income: incomeTypes.has(a.type) ? round(e.credit - e.debit) : 0, cost: a.type === "Cost of Goods Sold" ? round(e.debit - e.credit) : 0, expenses: ["Expense", "Other Expense"].includes(a.type) ? round(e.debit - e.credit) : 0, amount: round(incomeTypes.has(a.type) ? e.credit - e.debit : e.debit - e.credit) };
   });
   const summary = details.reduce<PnlReport["summary"]>((s, r) => ({ income: round(s.income + Number(r.income)), expenses: round(s.expenses + Number(r.cost) + Number(r.expenses)), netIncome: round(s.netIncome + Number(r.income) - Number(r.cost) - Number(r.expenses)) }), { income: 0, expenses: 0, netIncome: 0 });
@@ -67,7 +77,7 @@ export async function profitLoss(companyId: number, locationId: number, currency
     report.columns = [{ key: "date", label: "Date" }, { key: "reference", label: "Reference" }, { key: "account", label: "Account" }, { key: "type", label: "Classification" }, money("income", "Income"), money("cost", "Cost of sales"), money("expenses", "Other expenses")];
   } else if (key === "profit-loss-unclassified") {
     report.title = "Profit & Loss Unclassified";
-    report.rows = current.filter(e => !accountFor(e.account)).map(e => ({ ...e, transactionId: docMap.has(e.transactionId || 0) ? e.transactionId! : 0, locationId: e.locationId || 0 }));
+    report.rows = current.filter(e => !accountFor(e.account, e.entryCurrency)).map(e => ({ ...e, transactionId: docMap.has(e.transactionId || 0) ? e.transactionId! : 0, locationId: e.locationId || 0 }));
     report.columns = [{ key: "date", label: "Date" }, { key: "reference", label: "Reference" }, { key: "account", label: "Unmatched account" }, money("debit", "Debit"), money("credit", "Credit")];
   } else if (comparison) {
     report.title = key === "profit-loss-ytd" ? "Profit & Loss YTD Comparison" : "Profit & Loss Previous Year Comparison";
