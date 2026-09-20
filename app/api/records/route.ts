@@ -637,13 +637,14 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const prepared = rawLines.map((line) => {
       const quantity = Number(line.quantity ?? 1);
       const unitPrice = Number(line.unitPrice ?? 0);
-      const unitCost = Number(line.unitCost ?? 0);
+      const freightCharge = type === "bill" ? round(Number(line.freightCharge ?? 0)) : 0;
+      const unitCost = type === "bill" && quantity > 0 ? round(unitPrice + freightCharge / quantity) : Number(line.unitCost ?? 0);
       const requestedVatCode = type === "item receipt" ? "ZERO" : String(line.vatCode ?? (Number(line.vatRate ?? payload.vatRate ?? 5) === 5 ? "STANDARD" : "ZERO")).trim().toUpperCase();
       const vatCode = Object.hasOwn(vatRates, requestedVatCode) ? requestedVatCode : Object.hasOwn(vatRates, "STANDARD") ? "STANDARD" : Object.keys(vatRates)[0];
       const vatRate = vatRates[vatCode];
       const subtotal = round(quantity * unitPrice);
       const vatAmount = round(subtotal * vatRate / 100);
-      return { itemId: line.itemId ? Number(line.itemId) : null, description: String(line.description ?? "").trim(), comments: ["invoice", "bill"].includes(type) ? String(line.comments ?? "") : "", serialNumber: ["invoice", "bill"].includes(type) ? String(line.serialNumber ?? "") : "", quantity, unitPrice, unitCost, freightCharge: type === "bill" ? round(Number(line.freightCharge ?? 0)) : 0, isFreightCharge: false, vatCode, vatRate, subtotal, vatAmount, total: round(subtotal + vatAmount) };
+      return { itemId: line.itemId ? Number(line.itemId) : null, description: String(line.description ?? "").trim(), comments: ["invoice", "bill"].includes(type) ? String(line.comments ?? "") : "", serialNumber: ["invoice", "bill"].includes(type) ? String(line.serialNumber ?? "") : "", quantity, unitPrice, unitCost, freightCharge, isFreightCharge: false, vatCode, vatRate, subtotal, vatAmount, total: round(subtotal + vatAmount) };
     }).filter((line) => line.description || line.itemId || line.subtotal > 0);
     if (!prepared.length && Number(payload.total) > 0) {
       const subtotal = Number(payload.total);
@@ -892,10 +893,11 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
         const inventoryFallback = linkedAccounts.INVENTORY ?? "Inventory Asset";
         const purchaseTotals = new Map<string, number>();
         for (const line of prepared) {
+          if (line.isFreightCharge) continue;
           const accountName = line.itemId && stockItemIds.has(line.itemId)
             ? itemAccount(line.itemId, "assetAccountId", inventoryFallback)
             : itemAccount(line.itemId, "cogsAccountId", purchaseFallback);
-          addAmount(purchaseTotals, accountName, round(line.subtotal * exchangeRate));
+          addAmount(purchaseTotals, accountName, round((line.subtotal + line.freightCharge) * exchangeRate));
         }
         matchTarget(purchaseTotals, baseSubtotal, purchaseFallback);
         baseLines = [
@@ -949,12 +951,12 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     if (!nonPosting) {
       const direction = ["invoice", "sales receipt"].includes(type) ? -1 : ["bill", "item receipt"].includes(type) ? 1 : 0;
       if (direction) for (const line of prepared.filter((entry) => entry.itemId)) {
-        const homeCurrencyPurchaseCost = round(line.unitPrice * exchangeRate);
+        const homeCurrencyPurchaseCost = round((type === "bill" ? line.unitCost : line.unitPrice) * exchangeRate);
         if (["bill", "item receipt"].includes(type)) await db.update(items).set({ lastPurchasePrice: homeCurrencyPurchaseCost }).where(eq(items.id, line.itemId!));
         if (!stockItemIds.has(line.itemId!)) continue;
         const quantity = direction * line.quantity;
         await db.update(items).set({ quantity: sql`${items.quantity} + ${quantity}` }).where(eq(items.id, line.itemId!));
-        await db.insert(inventoryMovements).values({ itemId: line.itemId!, transactionId: record.id, movementDate: transactionDate, movementType: type, quantity, unitCost: line.unitCost, reference: number });
+        await db.insert(inventoryMovements).values({ itemId: line.itemId!, transactionId: record.id, movementDate: transactionDate, movementType: type, quantity, unitCost: type === "bill" ? homeCurrencyPurchaseCost : line.unitCost, reference: number });
       }
       const balanceChange = contactBalanceChange(type, total, postingAccountRole);
       if (balanceChange && partyContactType) await db.update(contacts).set({ balance: sql`${contacts.balance} + ${balanceChange}` }).where(and(eq(contacts.companyId, companyId), eq(contacts.name, party), eq(contacts.type, partyContactType)));

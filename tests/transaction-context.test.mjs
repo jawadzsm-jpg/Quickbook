@@ -1365,6 +1365,8 @@ test('bill line freight is saved, taxed, edited and attributed to items exactly 
   assert.equal(record.subtotal,430);assert.equal(record.vatAmount,15.5);assert.equal(record.total,445.5);assert.equal(record.baseTotal,891);
   const read=async()=> (await (await GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${companyId}&id=${record.id}`))).json());
   let detail=await read();assert.equal(detail.lines.filter(l=>l.isFreightCharge).length,2);assert.equal(detail.lines.find(l=>l.itemId===stock[0].id).freightCharge,10);
+  assert.equal(detail.journal.find(line=>line.accountName==='Inventory Asset')?.debit,860);assert.equal(detail.journal.find(line=>line.accountName==='Purchases'),undefined);
+  assert.equal(Number((await database.query('SELECT last_purchase_price FROM items WHERE id=$1',[stock[0].id])).rows[0].last_purchase_price),206.66);
   const {stockPricingRows}=await vite.ssrLoadModule('/lib/stock-pricing.ts');
   const costs=stockPricingRows(stock.map((s,i)=>({...s,locationId,sku:`F-${i}`,name:'Laptop',quantity:10,cost:0,lastPurchasePrice:0,salesPrice:400,itemNumber:null})),detail.lines.map(l=>({...l,transactionId:record.id,type:'bill',date:record.transactionDate,number:record.number,exchangeRate:2})),[]);
   assert.equal(costs[0].freightCost,6.67);assert.equal(costs[1].freightCost,20);
