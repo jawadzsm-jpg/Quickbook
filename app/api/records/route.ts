@@ -308,11 +308,26 @@ export async function GET(request: Request) {
     }
     if (kind === "accounts") {
       const accountRows = await db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(asc(accounts.code));
+      const [accountCompany] = await db.select({ baseCurrency: companies.baseCurrency }).from(companies).where(eq(companies.id, companyId)).limit(1);
       const journalFilter = Number.isInteger(locationId) && locationId > 0 ? and(eq(journalEntries.companyId, companyId), eq(journalEntries.locationId, locationId)) : eq(journalEntries.companyId, companyId);
-      const balances = await db.select({ name: journalLines.accountName, debit: sql<number>`sum(${journalLines.debit})`, credit: sql<number>`sum(${journalLines.credit})` }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(journalFilter).groupBy(journalLines.accountName);
-      const ledger = new Map(balances.map((balance) => [balance.name, { debit: Number(balance.debit ?? 0), credit: Number(balance.credit ?? 0) }]));
+      const balanceLines = await db.select({ name: journalLines.accountName, entryCurrency: journalEntries.currency, debit: journalLines.debit, credit: journalLines.credit }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(journalFilter);
+      const duplicateNames = new Set(accountRows.filter((account, index, rows) => rows.some((other, otherIndex) => otherIndex !== index && other.name === account.name)).map((account) => account.name));
+      const byName = new Map<string, { debit: number; credit: number }>();
+      const byNameCurrency = new Map<string, { debit: number; credit: number }>();
+      for (const line of balanceLines) {
+        const total = byName.get(line.name) ?? { debit: 0, credit: 0 };
+        total.debit += Number(line.debit); total.credit += Number(line.credit); byName.set(line.name, total);
+        const lineCurrency = String(line.entryCurrency || accountCompany?.baseCurrency || "AED").toUpperCase();
+        const key = `${line.name}::${lineCurrency}`;
+        const scoped = byNameCurrency.get(key) ?? { debit: 0, credit: 0 };
+        scoped.debit += Number(line.debit); scoped.credit += Number(line.credit); byNameCurrency.set(key, scoped);
+      }
       const creditNormal = new Set(["Income", "Other Income", "Loan", "Credit Card", "Equity", "Accounts Payable", "Other Current Liability", "Long Term Liability"]);
-      return Response.json({ records: accountRows.map((account) => { const activity = ledger.get(account.name) ?? { debit: 0, credit: 0 }; const movement = creditNormal.has(account.type) ? activity.credit - activity.debit : activity.debit - activity.credit; return { ...account, balance: round(Number(account.balance) + movement) }; }) });
+      return Response.json({ records: accountRows.map((account) => {
+        const activity = duplicateNames.has(account.name) ? byNameCurrency.get(`${account.name}::${account.currency}`) ?? { debit: 0, credit: 0 } : byName.get(account.name) ?? { debit: 0, credit: 0 };
+        const movement = creditNormal.has(account.type) ? activity.credit - activity.debit : activity.debit - activity.credit;
+        return { ...account, balance: round(Number(account.balance) + movement) };
+      }) });
     }
     const transactionFilter = Number.isInteger(locationId) && locationId > 0 ? and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId)) : eq(transactions.companyId, companyId);
     return Response.json({ records: (await db.select().from(transactions).where(transactionFilter).orderBy(desc(transactions.transactionDate), desc(transactions.id)).limit(500)).map(paymentDisplayRecord) });
@@ -791,7 +806,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     if (creditCardAccount) linkedAccounts.CREDIT_CARD = creditCardAccount.name;
     const postingAccountRole = linkedRows.find((account) => account.name.toLowerCase() === record.account.toLowerCase())?.systemRole ?? "";
     if (!nonPosting) {
-      const [entry] = await db.insert(journalEntries).values({ companyId, locationId: Number.isInteger(locationId) && locationId > 0 ? locationId : null, transactionId: record.id, entryDate: transactionDate, reference: number, description: `${type}: ${party}` }).returning();
+      const [entry] = await db.insert(journalEntries).values({ companyId, locationId: Number.isInteger(locationId) && locationId > 0 ? locationId : null, transactionId: record.id, entryDate: transactionDate, reference: number, description: `${type}: ${party}`, currency, exchangeRate }).returning();
       let baseLines = postingLines(type, record.account, record.party, baseSubtotal, baseVatAmount, baseTotal, linkedAccounts);
       const itemConfig = new Map(linkedItems.map((item) => [item.id, item]));
       const accountById = new Map(linkedRows.map((account) => [account.id, account.name]));
