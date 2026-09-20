@@ -35,6 +35,6 @@ export async function GET(request: Request) {
         coalesce((select json_agg(paged order by date desc,id desc) from paged), '[]'::json) as rows
     `);
     const row = result.rows[0];
-    return Response.json({ accountId, companyId, currency: account.accountCurrency, page, pageSize: 50, total: Number(row.total), rows: row.rows }, { headers: { "Cache-Control": "private, no-store" } });
+    return Response.json({ accountId, companyId, currency: account.baseCurrency, page, pageSize: 50, total: Number(row.total), rows: row.rows }, { headers: { "Cache-Control": "private, no-store" } });
   } catch { return Response.json({ error: "Could not load account history. Please retry." }, { status: 500 }); }
 }
