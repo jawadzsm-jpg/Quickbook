@@ -30,9 +30,18 @@ export async function financialReport(companyId:number,locationId:number,currenc
  const accountFor=(name:string,entryCurrency?:string|null)=>{
   const matches=byName.get(name)||[];
   if(matches.length===1)return matches[0];
-  if(!entryCurrency)return undefined;
-  const currencyMatches=matches.filter(a=>a.currency===entryCurrency);
-  return currencyMatches.length===1?currencyMatches[0]:undefined;
+  const bankLike=matches.length>0&&matches.every(a=>a.type==='Bank'||a.type==='Credit Card');
+  if(bankLike&&entryCurrency){
+   const currencyMatches=matches.filter(a=>a.currency===entryCurrency);
+   if(currencyMatches.length===1)return currencyMatches[0];
+  }
+  const homeMatches=matches.filter(a=>a.currency===currency);
+  if(homeMatches.length===1)return homeMatches[0];
+  if(entryCurrency){
+   const currencyMatches=matches.filter(a=>a.currency===entryCurrency);
+   if(currencyMatches.length===1)return currencyMatches[0];
+  }
+  return undefined;
  };
  const selected=entries.filter(e=>!locationId||e.locationId===locationId);
  const inRange=(date:string)=> (!from||date>=from)&&(!to||date<=to);
