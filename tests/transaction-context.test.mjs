@@ -1167,6 +1167,29 @@ test("inventory removal requires company admin access and preserves used invento
   } finally { delete globalThis.__transferTestUser; }
 });
 
+test("company deletion is restricted to all-admin and requires exact confirmation", async () => {
+  const { DELETE } = await vite.ssrLoadModule('/app/api/workspaces/route.ts');
+  const target = (await database.query("INSERT INTO companies(name) VALUES ('Delete Company Test') RETURNING id")).rows[0].id;
+  const targetLocation = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES ($1,'DELETE','Delete inventory','DELETE') RETURNING id", [target])).rows[0].id;
+  await database.query("INSERT INTO items(company_id,location_id,sku,name,quantity) VALUES ($1,$2,'DELETE-SKU','Delete item',1)", [target,targetLocation]);
+  const other = (await database.query("INSERT INTO companies(name) VALUES ('Delete Company Keep') RETURNING id")).rows[0].id;
+  const otherLocation = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES ($1,'KEEP-CO','Keep inventory','KEEP-CO') RETURNING id", [other])).rows[0].id;
+  await database.query("INSERT INTO stock_transfers(reference,source_company_id,source_location_id,destination_company_id,destination_location_id,sku,item_name,quantity,transfer_date) VALUES ('DELETE-BLOCK',$1,$2,$3,$4,'DELETE-SKU','Delete item',1,'2026-09-20')", [target,targetLocation,other,otherLocation]);
+  const remove = (confirmName) => DELETE(new Request('https://app.test/api/workspaces',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'company',companyId:target,confirmName})}));
+  try {
+    globalThis.__transferTestUser={id:1,role:'admin',companyIds:[target]};
+    assert.equal((await remove('Delete Company Test')).status,403);
+    globalThis.__transferTestUser={id:2,role:'all_admin',companyIds:[]};
+    assert.equal((await remove('Wrong name')).status,400);
+    assert.equal((await remove('Delete Company Test')).status,409);
+    await database.query("DELETE FROM stock_transfers WHERE reference='DELETE-BLOCK'");
+    assert.equal((await remove('Delete Company Test')).status,200);
+    assert.equal((await database.query('SELECT id FROM companies WHERE id=$1',[target])).rows.length,0);
+    assert.equal((await database.query('SELECT id FROM inventory_locations WHERE company_id=$1',[target])).rows.length,0);
+    assert.equal((await database.query('SELECT id FROM items WHERE company_id=$1',[target])).rows.length,0);
+  } finally { delete globalThis.__transferTestUser; }
+});
+
 test("account history scopes posted ledger entries to the account company, aggregates split lines and paginates", async () => {
   const { GET } = await vite.ssrLoadModule('/app/api/account-history/route.ts');
   const company = (await database.query("INSERT INTO companies(name,base_currency) VALUES ('Account history test','AED') RETURNING id")).rows[0].id;

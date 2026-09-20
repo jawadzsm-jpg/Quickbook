@@ -95,9 +95,28 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const user = await requireApiUser(request, true, true);
   if (user instanceof Response) return user;
-  if (!isAdministrator(user)) return Response.json({ error: "Only Admin and All-Admin can remove inventories." }, { status: 403 });
   try {
     const payload = await request.json();
+    if (payload.type === "company") {
+      if (user.role !== "all_admin") return Response.json({ error: "Only an All-Admin can delete a company." }, { status: 403 });
+      const companyId = Number(payload.companyId), confirmName = String(payload.confirmName ?? "").trim();
+      if (!Number.isSafeInteger(companyId) || companyId <= 0 || !confirmName) return Response.json({ error: "Select a company and enter its exact name." }, { status: 400 });
+      return await withWriteTransaction(async () => {
+        const db = getDb();
+        const [company] = await db.select().from(companies).where(and(eq(companies.id, companyId), eq(companies.active, true))).for("update");
+        if (!company) return Response.json({ error: "Company not found." }, { status: 404 });
+        if (confirmName !== company.name) return Response.json({ error: "The company name does not match." }, { status: 400 });
+        const activeCompanies = await db.select({ id: companies.id }).from(companies).where(eq(companies.active, true));
+        if (activeCompanies.length <= 1) return Response.json({ error: "Keep at least one active company." }, { status: 409 });
+        const transferUsage = await db.execute(sql`select exists (
+          select 1 from stock_transfers where source_company_id=${companyId} or destination_company_id=${companyId}
+        ) as used`);
+        if (transferUsage.rows[0]?.used) return Response.json({ error: "This company is referenced by stock transfers. Remove those transfers before deleting the company." }, { status: 409 });
+        await db.delete(companies).where(eq(companies.id, companyId));
+        return Response.json({ success: true });
+      });
+    }
+    if (!isAdministrator(user)) return Response.json({ error: "Only Admin and All-Admin can remove inventories." }, { status: 403 });
     const companyId = Number(payload.companyId), locationId = Number(payload.locationId);
     if (payload.type !== "location" || !Number.isSafeInteger(companyId) || companyId <= 0 || !Number.isSafeInteger(locationId) || locationId <= 0) return Response.json({ error: "Select a valid inventory." }, { status: 400 });
     if (!canAccessCompany(user, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
