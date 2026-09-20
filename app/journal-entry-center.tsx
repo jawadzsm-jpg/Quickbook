@@ -71,7 +71,12 @@ export function JournalEntryCenter({ companyId, companyName, locationId, locatio
     setEditing(entry);
     setEntryCurrency(entry.currency || currency); setExchangeRate(String(entry.exchangeRate || 1));
     setEntryDate(entry.entryDate); setReference(entry.reference); setDescription(entry.description);
-    setLines(entry.lines.map((line) => ({ accountId: String(activeAccounts.find((account) => account.name === line.accountName)?.id ?? ""), debit: String(line.originalDebit ?? line.debit), credit: String(line.originalCredit ?? line.credit) })));
+    setLines(entry.lines.map((line) => {
+      const entryCode = String(entry.currency || currency).toUpperCase();
+      const matching = activeAccounts.filter((account) => account.name === line.accountName);
+      const account = matching.find((candidate) => String(candidate.currency).toUpperCase() === entryCode) ?? (matching.length === 1 ? matching[0] : undefined);
+      return { accountId: String(account?.id ?? ""), debit: String(line.originalDebit ?? line.debit), credit: String(line.originalCredit ?? line.credit) };
+    }));
     setSelected(null); setEditorOpen(true);
   }
 
