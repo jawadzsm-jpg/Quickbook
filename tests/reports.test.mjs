@@ -107,7 +107,6 @@ test("purchase postings hit the right accounts and purchase reports stay in sync
   const { company: purchaseCompany } = await created.json();
   const cid = purchaseCompany.id, lid = purchaseCompany.locations[0].id;
 
-  const accountRows = await db.select().from(schema.accounts).where(schema.accounts.companyId ? undefined : undefined);
   // Use SQL here because report fixtures need exact system-role IDs.
   const accounts = (await database.query("SELECT id,name,system_role FROM accounts WHERE company_id=$1", [cid])).rows;
   const idFor = (role) => accounts.find((account) => account.system_role === role)?.id;
