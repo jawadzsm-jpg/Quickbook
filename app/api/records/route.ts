@@ -629,7 +629,9 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       payload.salesman = order.salesman; payload.account = type === "bill" ? String(payload.account || "Purchases") : "Suspense"; payload.status = "open";
       payload.memo = [order.memo, String(payload.memo || ""), `Received from PO ${order.number}`].filter(Boolean).join(" · ");
     }
-    const party = String(payload.party ?? "").trim();
+    const requestedParty = String(payload.party ?? "").trim();
+    const chequeType = String(payload.chequeType ?? "").trim();
+    const party = type === "cheque" && !requestedParty && ["expense", "salary"].includes(chequeType) ? "General expense" : requestedParty;
     const configuredVatCodes = await db.select({ code: vatCodes.code, rate: vatCodes.rate }).from(vatCodes).where(and(eq(vatCodes.companyId, companyId), eq(vatCodes.active, true)));
     const vatRates = configuredVatCodes.length ? Object.fromEntries(configuredVatCodes.map((vatCode) => [vatCode.code, Number(vatCode.rate)])) : fallbackVatRates;
     if (type === "bill") rawLines = rawLines.filter(line => !line.isFreightCharge);
