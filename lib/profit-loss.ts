@@ -2,7 +2,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { accounts, inventoryLocations, items, journalEntries, journalLines, transactionLines, transactions } from "@/db/schema";
 
-export type PnlRow = Record<string, string | number>;
+export type PnlRow = Record<string, string | number | null>;
 export type PnlMeta = { from: string; to: string; location: string; canViewAccounts: boolean; warnings: string[]; details: PnlRow[] };
 export type PnlReport = { key: string; companyId: number; title: string; description: string; generatedAt: string; currency: string; columns: { key: string; label: string; type?: "money" }[]; rows: PnlRow[]; pnl: PnlMeta; summary: { income: number; expenses: number; netIncome: number } };
 const incomeTypes = new Set(["Income", "Other Income"]);
