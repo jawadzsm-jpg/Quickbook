@@ -588,8 +588,11 @@ export async function GET(request: Request) {
       columns = [{ key: "date", label: "Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "customer", label: "Customer" }, { key: "salesman", label: "Sales Rep" }, { key: "status", label: "Status" }, { key: "amount", label: "Amount", ...money }];
     } else if (key === "sales-by-customer" || key === "customer-balances") {
       title = key === "sales-by-customer" ? "Sales by Customer Summary" : "Customer Balance Summary";
-      if (key === "sales-by-customer") rows = groupTransactions(["invoice", "sales receipt"]);
-      else {
+      if (key === "sales-by-customer") {
+        const grouped = new Map<string, number>();
+        scopedTransactions.filter((row) => ["invoice", "sales receipt"].includes(row.type)).forEach((row) => grouped.set(row.party, (grouped.get(row.party) ?? 0) + baseSubtotal(row)));
+        rows = [...grouped].map(([name, amount]) => ({ name, amount })).sort((a, b) => b.amount - a.amount);
+      } else {
         const balances = new Map<string, number>();
         customerActivities.forEach((row) => balances.set(row.party, (balances.get(row.party) ?? 0) + customerImpact(row)));
         rows = [...balances].map(([name, amount]) => ({ name, amount })).sort((a, b) => a.name.localeCompare(b.name));
