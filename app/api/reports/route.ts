@@ -675,7 +675,16 @@ export async function GET(request: Request) {
       title = "Pending Builds";
       rows = allItems.filter((row) => row.status === "active" && row.quantity < row.reorderPoint).map((row) => ({ itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, category: row.category, onHand: row.quantity, buildLevel: row.reorderPoint, required: Math.max(0, row.reorderPoint - row.quantity), status: row.quantity <= 0 ? "Required" : "Below Level" }));
       columns = [{ key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item / Assembly" }, { key: "category", label: "Category" }, { key: "onHand", label: "On Hand" }, { key: "buildLevel", label: "Build Level" }, { key: "required", label: "Required Qty" }, { key: "status", label: "Status" }];
-    } else if (key === "open-invoices") { title = "Open Invoices"; rows = txRows(["invoice"]).filter((row) => !["paid", "cleared"].includes(String(row.status))); }
+    } else if (key === "open-invoices") {
+      title = "Open Invoices";
+      const invoiceAllocations = await db.select({ invoiceId: invoicePaymentAllocations.invoiceId, amount: invoicePaymentAllocations.amount }).from(invoicePaymentAllocations).innerJoin(transactions, eq(transactions.id, invoicePaymentAllocations.paymentId)).where(eq(transactions.companyId, companyId));
+      rows = scopedTransactions.filter((row) => row.type === "invoice" && !["paid", "cleared"].includes(row.status)).map((row) => {
+        const allocated = invoiceAllocations.filter((payment) => payment.invoiceId === row.id).reduce((sum, payment) => sum + payment.amount, 0);
+        const openAmount = Math.max(0, row.total - allocated) * row.exchangeRate;
+        return { date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, customer: row.party, status: row.status, currency: row.currency, amount: openAmount };
+      }).filter((row) => row.amount > 0.005);
+      columns = [{ key: "date", label: "Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "No." }, { key: "customer", label: "Customer" }, { key: "status", label: "Status" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Open Amount", ...money }];
+    }
     else if (key === "sales-orders") { title = "Sales Order Fulfilment"; rows = txRows(["sales order"]); }
     else if (key === "open-purchase-orders") {
       title = "Open Purchase Orders";
