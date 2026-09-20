@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "../../../db";
 import {
-  accounts, auditLog, companies, companySettings, contacts, inventoryLocations, inventoryMovements, items, journalEntries,
+  accounts, auditLog, companies, companySettings, contacts, exchangeRates, inventoryLocations, inventoryMovements, items, journalEntries,
   journalLines, transactionLines, transactions, vatCodes, billPaymentAllocations, invoicePaymentAllocations, purchaseReceiptAllocations, salesInvoiceAllocations,
 } from "../../../db/schema";
 import { verifyAdminPin } from "../../../lib/admin-pin";
@@ -335,12 +335,16 @@ export async function GET(request: Request) {
       }) });
     }
     if (kind === "accounts") {
-      const accountRows = await db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(asc(accounts.code));
-      const [accountCompany] = await db.select({ baseCurrency: companies.baseCurrency }).from(companies).where(eq(companies.id, companyId)).limit(1);
       const journalFilter = Number.isInteger(locationId) && locationId > 0 ? and(eq(journalEntries.companyId, companyId), eq(journalEntries.locationId, locationId)) : eq(journalEntries.companyId, companyId);
-      const balanceLines = await db.select({ name: journalLines.accountName, entryCurrency: journalEntries.currency, exchangeRate: journalEntries.exchangeRate, debit: journalLines.debit, credit: journalLines.credit, originalDebit: journalLines.originalDebit, originalCredit: journalLines.originalCredit }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(journalFilter);
+      const [accountRows, [accountCompany], currentRates, balanceLines] = await Promise.all([
+        db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(asc(accounts.code)),
+        db.select({ baseCurrency: companies.baseCurrency }).from(companies).where(eq(companies.id, companyId)).limit(1),
+        db.select({ currencyCode: exchangeRates.currencyCode, rate: exchangeRates.rate }).from(exchangeRates).where(and(eq(exchangeRates.companyId, companyId), eq(exchangeRates.active, true))),
+        db.select({ name: journalLines.accountName, entryCurrency: journalEntries.currency, exchangeRate: journalEntries.exchangeRate, debit: journalLines.debit, credit: journalLines.credit, originalDebit: journalLines.originalDebit, originalCredit: journalLines.originalCredit }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(journalFilter),
+      ]);
       const duplicateNames = new Set(accountRows.filter((account, index, rows) => rows.some((other, otherIndex) => otherIndex !== index && other.name === account.name)).map((account) => account.name));
       const creditNormal = new Set(["Income", "Other Income", "Loan", "Credit Card", "Equity", "Accounts Payable", "Other Current Liability", "Long Term Liability"]);
+      const rateMap = new Map(currentRates.map((rate) => [String(rate.currencyCode).toUpperCase(), Number(rate.rate)]));
       return Response.json({ records: accountRows.map((account) => {
         const accountCurrency = String(account.currency || accountCompany?.baseCurrency || "AED").toUpperCase();
         const baseCurrency = String(accountCompany?.baseCurrency || "AED").toUpperCase();
@@ -354,10 +358,12 @@ export async function GET(request: Request) {
           const rate = Number(line.exchangeRate || 1);
           const nativeDebit = accountCurrency === baseCurrency ? Number(line.debit) : entryCurrency === accountCurrency ? Number(line.originalDebit ?? (rate > 0 ? Number(line.debit) / rate : line.debit)) : 0;
           const nativeCredit = accountCurrency === baseCurrency ? Number(line.credit) : entryCurrency === accountCurrency ? Number(line.originalCredit ?? (rate > 0 ? Number(line.credit) / rate : line.credit)) : 0;
-          return { debit: total.debit + nativeDebit, credit: total.credit + nativeCredit };
-        }, { debit: 0, credit: 0 });
+          return { debit: total.debit + nativeDebit, credit: total.credit + nativeCredit, baseDebit: total.baseDebit + Number(line.debit), baseCredit: total.baseCredit + Number(line.credit) };
+        }, { debit: 0, credit: 0, baseDebit: 0, baseCredit: 0 });
         const movement = creditNormal.has(account.type) ? activity.credit - activity.debit : activity.debit - activity.credit;
-        return { ...account, balance: round(Number(account.balance) + movement) };
+        const baseMovement = creditNormal.has(account.type) ? activity.baseCredit - activity.baseDebit : activity.baseDebit - activity.baseCredit;
+        const openingRate = accountCurrency === baseCurrency ? 1 : rateMap.get(accountCurrency) ?? 0;
+        return { ...account, balance: round(Number(account.balance) + movement), baseBalance: round(Number(account.balance) * openingRate + baseMovement) };
       }) });
     }
     const transactionFilter = Number.isInteger(locationId) && locationId > 0 ? and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId)) : eq(transactions.companyId, companyId);

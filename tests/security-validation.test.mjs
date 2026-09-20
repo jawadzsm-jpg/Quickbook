@@ -10,6 +10,7 @@ async function sourceModule(path) {
 }
 const { isValidEmail } = await sourceModule("../lib/email-validation.ts");
 const { hashAdminPin, verifyAdminPin } = await sourceModule("../lib/admin-pin.ts");
+const { dashboardMetrics } = await sourceModule("../lib/dashboard-metrics.ts");
 
 test("email validation accepts ordinary addresses and rejects malformed or oversized input", () => {
   for (const email of ["name@example.com", "name+sales@example.co.uk"]) assert.equal(isValidEmail(email), true);
@@ -31,6 +32,20 @@ test("dark mode keeps striped report rows and darkest utility text readable", ()
   for (const token of ["text-slate-950", "text-emerald-950", "text-sky-950", "text-amber-950", "text-red-950"]) assert.match(css, new RegExp(`\\.${token}`));
   assert.match(pnl, /dark:even:bg-slate-900/);
   assert.match(pnl, /dark:bg-emerald-950 dark:text-emerald-100/);
+});
+
+test("dashboard totals use linked ledger accounts without counting payments as income or expense", () => {
+  assert.deepEqual(dashboardMetrics([
+    { active: true, type: "Bank", systemRole: "BANK", balance: 10, baseBalance: 150 },
+    { active: true, type: "Accounts Receivable", systemRole: "AR", baseBalance: 200 },
+    { active: true, type: "Accounts Payable", systemRole: "AP", baseBalance: 300 },
+    { active: true, type: "Other Current Asset", systemRole: "INVENTORY", baseBalance: 400 },
+    { active: true, type: "Income", systemRole: "SALES", baseBalance: 500 },
+    { active: true, type: "Other Income", baseBalance: 25 },
+    { active: true, type: "Cost of Goods Sold", systemRole: "COGS", baseBalance: 175 },
+    { active: true, type: "Expense", systemRole: "EXPENSE", baseBalance: 50 },
+    { active: false, type: "Bank", baseBalance: 999 },
+  ]), { cash: 150, receivable: 200, payable: 300, inventory: 400, sales: 525, expenses: 225 });
 });
 
 const {defaultDocumentDesign,defaultElementProperties,validateDocumentDesign} = await sourceModule('../lib/document-design.ts');

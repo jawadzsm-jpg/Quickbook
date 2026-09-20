@@ -28,6 +28,7 @@ import { UnpaidBills } from "./unpaid-bills";
 import { ProfitLossReport } from "./profit-loss-report";
 import type { PnlMeta, PnlReport } from "@/lib/profit-loss";
 import { LiveProfitLossSummary } from "./live-profit-loss-summary";
+import { dashboardMetrics } from "@/lib/dashboard-metrics";
 import { convertInvoiceLines, invoiceCurrencyAmount, validDocumentRate, type PricedInvoiceLine } from "@/lib/invoice-pricing";
 import { SalesDocumentTemplate, salesDocumentModeForTransaction } from "./sales-document-template";
 import {
@@ -597,14 +598,8 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   useEffect(() => { if (activeCompanyId) loadMemorisedReports(); }, [activeCompanyId, loadMemorisedReports]);
 
   const metrics = useMemo(() => {
-    const tx = records.transactions;
-    const sales = tx.filter((r) => ["invoice", "sales receipt", "customer payment", "deposit"].includes(String(r.type))).reduce((n, r) => n + Number(r.baseTotal ?? r.total), 0);
-    const expenses = tx.filter((r) => ["bill", "expense", "cheque", "bill payment"].includes(String(r.type))).reduce((n, r) => n + Number(r.baseTotal ?? r.total), 0);
-    const receivable = tx.reduce((balance, transaction) => ["invoice", "statement charge", "finance charge"].includes(String(transaction.type)) ? balance + Number(transaction.baseTotal ?? transaction.total) : ["customer payment", "credit memo"].includes(String(transaction.type)) ? balance - Number(transaction.baseTotal ?? transaction.total) : balance, 0);
-    const payableAccounts = new Set(records.accounts.filter((account) => account.active && account.systemRole === "AP").map((account) => String(account.name)));
-    const payable = tx.reduce((balance, transaction) => ["bill", "received item bill"].includes(String(transaction.type)) ? balance + Number(transaction.baseTotal ?? transaction.total) : ["bill payment", "vendor payment", "vendor credit"].includes(String(transaction.type)) || (transaction.type === "cheque" && payableAccounts.has(String(transaction.account))) ? balance - Number(transaction.baseTotal ?? transaction.total) : balance, 0);
-    return { sales, expenses, receivable, payable, cash: sales - expenses };
-  }, [records.accounts, records.transactions]);
+    return dashboardMetrics(records.accounts);
+  }, [records.accounts]);
 
   const currentKind: Kind = view === "customers" || view === "vendors" || view === "employees" ? "contacts" : view === "inventory" ? "items" : view === "accounts" ? "accounts" : "transactions";
   const managementView = view === "serial-search" || view === "inventory-overview" || view === "item-logistics" || view === "inventory-check-reports" || view === "transfers" || view === "journal-entries" || view === "vat-management" || view === "companies" || view === "company-setup" || view === "inventories" || view === "invoice-series" || view === "currencies" || view === "vat-codes" || view === "admin-controls";
@@ -1072,10 +1067,10 @@ function Dashboard({ metrics, records, companyName, currency, themeColor, themeS
   const [dashboardTab, setDashboardTab] = useState<"home" | "insights">("home");
   const recent = records.transactions.slice(0, 6);
   const cards = [
-    ["Cash position", metrics.cash, CircleDollarSign, "Available net cash", "emerald"],
-    ["Accounts receivable", metrics.receivable, Clock3, "Open customer invoices", "blue"],
-    ["Accounts payable", metrics.payable, BadgeDollarSign, "Open vendor bills", "amber"],
-    ["Inventory value", records.items.reduce((n, i) => n + Number(i.quantity) * Number(i.cost), 0), PackageSearch, `${records.items.length} active items`, "violet"],
+    ["Cash position", metrics.cash, CircleDollarSign, "Linked Bank accounts", "emerald"],
+    ["Accounts receivable", metrics.receivable, Clock3, "Linked AR control accounts", "blue"],
+    ["Accounts payable", metrics.payable, BadgeDollarSign, "Linked AP control accounts", "amber"],
+    ["Inventory value", metrics.inventory, PackageSearch, "Linked Inventory Asset account", "violet"],
   ] as const;
   const max = Math.max(metrics.sales, metrics.expenses, 1);
   return <div className="space-y-6">
@@ -1091,7 +1086,7 @@ function Dashboard({ metrics, records, companyName, currency, themeColor, themeS
     </section>
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{cards.map(([label, value, Icon, detail, color]) => <article key={label} className="rounded-xl border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,.04)]"><div className="flex items-start justify-between"><div><p className="text-sm font-medium text-slate-500">{label}</p><p className="mt-2 text-2xl font-bold tracking-tight text-slate-900">{formatMoney(value, currency)}</p></div><div className={`metric-icon metric-${color}`}><Icon className="size-5" /></div></div><p className="mt-4 text-xs text-slate-500">{detail}</p></article>)}</section>
     <section className="grid gap-5 xl:grid-cols-[1.35fr_.65fr]">
-      <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><div><h3 className="font-bold text-slate-900">Income vs expenses</h3><p className="text-xs text-slate-500">All posted company transactions</p></div><Badge variant="outline">{currency}</Badge></div><div className="mt-8 grid grid-cols-[80px_1fr] gap-x-4 gap-y-5 text-sm"><span className="text-slate-500">Income</span><div className="flex items-center gap-3"><div className="brand-chart-bar h-8 rounded-r-md" style={{ width: `${Math.max((metrics.sales / max) * 100, metrics.sales ? 6 : 1)}%` }} /><strong className="whitespace-nowrap text-slate-800">{formatMoney(metrics.sales, currency)}</strong></div><span className="text-slate-500">Expenses</span><div className="flex items-center gap-3"><div className="h-8 rounded-r-md bg-sky-400" style={{ width: `${Math.max((metrics.expenses / max) * 100, metrics.expenses ? 6 : 1)}%` }} /><strong className="whitespace-nowrap text-slate-800">{formatMoney(metrics.expenses, currency)}</strong></div></div><div className="mt-7 flex items-center justify-between border-t pt-4"><span className="text-sm text-slate-500">Net result</span><strong className={metrics.sales - metrics.expenses >= 0 ? "brand-accent-text" : "text-rose-600"}>{formatMoney(metrics.sales - metrics.expenses, currency)}</strong></div></article>
+      <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><div><h3 className="font-bold text-slate-900">Income vs expenses</h3><p className="text-xs text-slate-500">Posted income and expense accounts</p></div><Badge variant="outline">{currency}</Badge></div><div className="mt-8 grid grid-cols-[80px_1fr] gap-x-4 gap-y-5 text-sm"><span className="text-slate-500">Income</span><div className="flex items-center gap-3"><div className="brand-chart-bar h-8 rounded-r-md" style={{ width: `${Math.max((metrics.sales / max) * 100, metrics.sales ? 6 : 1)}%` }} /><strong className="whitespace-nowrap text-slate-800">{formatMoney(metrics.sales, currency)}</strong></div><span className="text-slate-500">Expenses</span><div className="flex items-center gap-3"><div className="h-8 rounded-r-md bg-sky-400" style={{ width: `${Math.max((metrics.expenses / max) * 100, metrics.expenses ? 6 : 1)}%` }} /><strong className="whitespace-nowrap text-slate-800">{formatMoney(metrics.expenses, currency)}</strong></div></div><div className="mt-7 flex items-center justify-between border-t pt-4"><span className="text-sm text-slate-500">Net result</span><strong className={metrics.sales - metrics.expenses >= 0 ? "brand-accent-text" : "text-rose-600"}>{formatMoney(metrics.sales - metrics.expenses, currency)}</strong></div></article>
       <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><h3 className="font-bold text-slate-900">Business status</h3><div className="mt-5 space-y-4"><StatusLine label="Customers" value={records.contacts.filter((r) => r.type === "customer").length} action={() => onNavigate("customers")} /><StatusLine label="Vendors" value={records.contacts.filter((r) => r.type === "vendor").length} action={() => onNavigate("vendors")} /><StatusLine label="Inventory items" value={records.items.length} action={() => onNavigate("inventory")} /><StatusLine label="Transactions" value={records.transactions.length} action={() => onNavigate("sales")} /></div></article>
     </section>
     <article className="rounded-xl border border-slate-200 bg-white shadow-sm"><div className="flex items-center justify-between border-b px-5 py-4"><div><h3 className="font-bold text-slate-900">Recent activity</h3><p className="text-xs text-slate-500">Latest entries across the company file</p></div><Button variant="ghost" size="sm" onClick={() => onNavigate("sales")}>View all <ChevronRight /></Button></div><TransactionTable records={recent} empty="No transactions yet. Use Record transaction to add your first entry." onOpen={onOpenDetail} /></article>
