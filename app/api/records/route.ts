@@ -703,7 +703,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const [bank] = await db.select().from(accounts).where(and(eq(accounts.id, bankId), eq(accounts.companyId, companyId), eq(accounts.active, true))).limit(1);
       if (!bank || (bank.type !== "Bank" && bank.systemRole !== "BANK") || bank.currency !== currency) return Response.json({ error: "Select an active bank in this company matching the cheque currency." }, { status: 400 });
       const [posting] = await db.select().from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.name, String(payload.account ?? "")), eq(accounts.active, true))).limit(1);
-      if (!posting || !["AP", "EXPENSE", "PURCHASES"].includes(posting.systemRole ?? "") || (posting.systemRole === "AP" && posting.currency !== currency)) return Response.json({ error: "Select an expense account or Accounts Payable in the cheque currency." }, { status: 400 });
+      const expensePosting = posting && (["EXPENSE", "PURCHASES", "COGS", "PAYROLL"].includes(posting.systemRole ?? "") || ["Expense", "Other Expense", "Cost of Goods Sold"].includes(posting.type));
+      if (!posting || (!expensePosting && posting.systemRole !== "AP") || (posting.systemRole === "AP" && posting.currency !== currency)) return Response.json({ error: "Select an expense account or Accounts Payable in the cheque currency." }, { status: 400 });
       if (payload.billId && posting.systemRole !== "AP") return Response.json({ error: "Use Accounts Payable to pay a selected bill." }, { status: 400 });
       if (posting.systemRole === "AP" && vatAmount !== 0) return Response.json({ error: "A cheque against Accounts Payable must use zero VAT." }, { status: 400 });
       if (posting.systemRole === "AP") {
