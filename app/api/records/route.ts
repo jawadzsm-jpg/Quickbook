@@ -310,21 +310,24 @@ export async function GET(request: Request) {
       const accountRows = await db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(asc(accounts.code));
       const [accountCompany] = await db.select({ baseCurrency: companies.baseCurrency }).from(companies).where(eq(companies.id, companyId)).limit(1);
       const journalFilter = Number.isInteger(locationId) && locationId > 0 ? and(eq(journalEntries.companyId, companyId), eq(journalEntries.locationId, locationId)) : eq(journalEntries.companyId, companyId);
-      const balanceLines = await db.select({ name: journalLines.accountName, entryCurrency: journalEntries.currency, debit: journalLines.debit, credit: journalLines.credit }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(journalFilter);
+      const balanceLines = await db.select({ name: journalLines.accountName, entryCurrency: journalEntries.currency, exchangeRate: journalEntries.exchangeRate, debit: journalLines.debit, credit: journalLines.credit, originalDebit: journalLines.originalDebit, originalCredit: journalLines.originalCredit }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(journalFilter);
       const duplicateNames = new Set(accountRows.filter((account, index, rows) => rows.some((other, otherIndex) => otherIndex !== index && other.name === account.name)).map((account) => account.name));
-      const byName = new Map<string, { debit: number; credit: number }>();
-      const byNameCurrency = new Map<string, { debit: number; credit: number }>();
-      for (const line of balanceLines) {
-        const total = byName.get(line.name) ?? { debit: 0, credit: 0 };
-        total.debit += Number(line.debit); total.credit += Number(line.credit); byName.set(line.name, total);
-        const lineCurrency = String(line.entryCurrency || accountCompany?.baseCurrency || "AED").toUpperCase();
-        const key = `${line.name}::${lineCurrency}`;
-        const scoped = byNameCurrency.get(key) ?? { debit: 0, credit: 0 };
-        scoped.debit += Number(line.debit); scoped.credit += Number(line.credit); byNameCurrency.set(key, scoped);
-      }
       const creditNormal = new Set(["Income", "Other Income", "Loan", "Credit Card", "Equity", "Accounts Payable", "Other Current Liability", "Long Term Liability"]);
       return Response.json({ records: accountRows.map((account) => {
-        const activity = duplicateNames.has(account.name) ? byNameCurrency.get(`${account.name}::${account.currency}`) ?? { debit: 0, credit: 0 } : byName.get(account.name) ?? { debit: 0, credit: 0 };
+        const accountCurrency = String(account.currency || accountCompany?.baseCurrency || "AED").toUpperCase();
+        const baseCurrency = String(accountCompany?.baseCurrency || "AED").toUpperCase();
+        const matched = balanceLines.filter((line) => {
+          if (line.name !== account.name) return false;
+          if (!duplicateNames.has(account.name)) return true;
+          return String(line.entryCurrency || baseCurrency).toUpperCase() === accountCurrency;
+        });
+        const activity = matched.reduce((total, line) => {
+          const entryCurrency = String(line.entryCurrency || baseCurrency).toUpperCase();
+          const rate = Number(line.exchangeRate || 1);
+          const nativeDebit = accountCurrency === baseCurrency ? Number(line.debit) : entryCurrency === accountCurrency ? Number(line.originalDebit ?? (rate > 0 ? Number(line.debit) / rate : line.debit)) : 0;
+          const nativeCredit = accountCurrency === baseCurrency ? Number(line.credit) : entryCurrency === accountCurrency ? Number(line.originalCredit ?? (rate > 0 ? Number(line.credit) / rate : line.credit)) : 0;
+          return { debit: total.debit + nativeDebit, credit: total.credit + nativeCredit };
+        }, { debit: 0, credit: 0 });
         const movement = creditNormal.has(account.type) ? activity.credit - activity.debit : activity.debit - activity.credit;
         return { ...account, balance: round(Number(account.balance) + movement) };
       }) });
