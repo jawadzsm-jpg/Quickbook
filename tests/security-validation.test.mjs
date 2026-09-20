@@ -12,6 +12,7 @@ const { isValidEmail } = await sourceModule("../lib/email-validation.ts");
 const { hashAdminPin, verifyAdminPin } = await sourceModule("../lib/admin-pin.ts");
 const { dashboardMetrics } = await sourceModule("../lib/dashboard-metrics.ts");
 const { filterZeroQohRows, hasInventoryQohFilter } = await sourceModule("../lib/inventory-report-filter.ts");
+const { linkReportAccounts } = await sourceModule("../lib/report-account-links.ts");
 
 test("email validation accepts ordinary addresses and rejects malformed or oversized input", () => {
   for (const email of ["name@example.com", "name+sales@example.co.uk"]) assert.equal(isValidEmail(email), true);
@@ -57,6 +58,25 @@ test("inventory report QOH option hides only zero rows", () => {
   assert.equal(filterZeroQohRows("inventory-valuation-detail", rows, false).length, 3);
   assert.equal(filterZeroQohRows("profit-loss", rows, true).length, 3);
   assert.deepEqual(filterZeroQohRows("pending-builds", [{ sku: "ZERO", onHand: 0 }, { sku: "ONE", onHand: 1 }], true).map((row) => row.sku), ["ONE"]);
+});
+
+test("report account links use codes or currency and never guess duplicate names", () => {
+  const accounts = [
+    { id: 1, code: "1000", name: "Business Bank", currency: "AED" },
+    { id: 2, code: "1001", name: "Business Bank", currency: "USD" },
+    { id: 3, code: "1200", name: "Inventory Asset", currency: "AED" },
+  ];
+  const result = linkReportAccounts([
+    { account: "Business Bank", currency: "USD" },
+    { account: "1000 · Business Bank" },
+    { account: "Business Bank" },
+    { account: "Inventory Asset" },
+  ], [{ key: "account", label: "Account" }], accounts);
+  assert.equal(result.rows[0].accountAccountId, 2);
+  assert.equal(result.rows[1].accountAccountId, 1);
+  assert.equal(result.rows[2].accountAccountId, undefined);
+  assert.equal(result.rows[3].accountAccountId, 3);
+  assert.equal(result.issues.length, 1);
 });
 
 const {defaultDocumentDesign,defaultElementProperties,validateDocumentDesign} = await sourceModule('../lib/document-design.ts');

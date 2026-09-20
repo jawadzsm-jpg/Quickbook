@@ -370,6 +370,7 @@ test("every Report Center entry opens its matching backend report", async () => 
     .map((match) => ({ name: match[1], description: match[2], category: match[3], key: match[4] }));
   assert.ok(definitions.length >= 100, `Expected full Report Center catalogue, found ${definitions.length}`);
   assert.equal(new Set(definitions.map((definition) => definition.key)).size, definitions.length, "Report Center keys must be unique");
+  assert.equal(new Set(definitions.map((definition) => definition.name)).size, definitions.length, "Report Center titles must be unique");
 
   // Statement reports need a matching vendor as well as the customer fixture.
   await db.insert(schema.contacts).values({ companyId, name: "USD Customer", type: "vendor", currency: "USD", balance: 0 });
@@ -690,9 +691,12 @@ test('shared report downloads are date-stamped, safe, styled, and include linked
   const book = new ExcelJS.Workbook(); await book.xlsx.load(bytes);
   assert.equal(book.getWorksheet('Report').getCell('B10').value, '=BAD()');
   assert.equal(book.getWorksheet('Report').views[0].ySplit, 9);
+  assert.equal(book.getWorksheet('Report').pageSetup.paperSize, 9);
+  assert.equal(book.getWorksheet('Report').pageSetup.fitToWidth, 1);
   assert.equal(book.getWorksheet('Account detail').getCell('C2').value, 'Inventory Asset');
   const pdf = Buffer.from(await reportPdf(report, 'Audit Company', 'Main Inventory')).toString('latin1');
   assert.ok(pdf.startsWith('%PDF-'));
+  const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(page); assert.ok(Math.abs(Number(page[1]) - 595.28) < 0.01); assert.ok(Math.abs(Number(page[2]) - 841.89) < 0.01);
 });
 
 test('report date presets handle weeks, leap days, month ends and fiscal boundaries', async () => {
@@ -712,20 +716,25 @@ test('report date presets handle weeks, leap days, month ends and fiscal boundar
 
 test('shared report dates filter activity, preserve ledger opening and as-of balances, reject invalid dates', async () => {
   const companyId=(await database.query("INSERT INTO companies(name) VALUES ('Report date filters') RETURNING id")).rows[0].id;
-  await database.query("INSERT INTO accounts(company_id,code,name,type) VALUES ($1,'1000','Date Bank','Bank')",[companyId]);
+  const aedAccount=(await database.query("INSERT INTO accounts(company_id,code,name,type,currency) VALUES ($1,'1000','Date Bank','Bank','AED') RETURNING id",[companyId])).rows[0].id;
+  const usdAccount=(await database.query("INSERT INTO accounts(company_id,code,name,type,currency) VALUES ($1,'1001','Date Bank','Bank','USD') RETURNING id",[companyId])).rows[0].id;
   for(const [date,n] of [['2026-08-31',10],['2026-09-01',20],['2026-09-30',30],['2026-10-01',40]]) {
     await database.query("INSERT INTO transactions(company_id,number,type,party,transaction_date,subtotal,total,base_total) VALUES ($1,$2,'invoice','Date Customer',$2,$3,$3,$3)",[companyId,date,n]);
     const id=(await database.query("INSERT INTO journal_entries(company_id,reference,entry_date,description,posted) VALUES ($1,$2,$2,'Date test',true) RETURNING id",[companyId,date])).rows[0].id;
     await database.query("INSERT INTO journal_lines(journal_entry_id,account_name,debit,credit) VALUES ($1,'Date Bank',$2,0)",[id,n]);
   }
+  const usdEntry=(await database.query("INSERT INTO journal_entries(company_id,reference,entry_date,description,posted,currency) VALUES ($1,'USD-DATE','2026-09-15','USD duplicate-name test',true,'USD') RETURNING id",[companyId])).rows[0].id;
+  await database.query("INSERT INTO journal_lines(journal_entry_id,account_name,debit,credit) VALUES ($1,'Date Bank',5,0)",[usdEntry]);
   const {GET}=await vite.ssrLoadModule('/app/api/reports/route.ts');
   const report=async (type,from='2026-09-01',to='2026-09-30') => GET(new Request(`http://localhost/api/reports?type=${type}&companyId=${companyId}&periodStart=${from}&periodEnd=${to}`));
   const sales=(await (await report('sales-by-customer')).json()).report;
   assert.equal(sales.rows[0].amount,50);assert.equal(sales.period.from,'2026-09-01');
   const ledger=(await (await report('general-ledger')).json()).report;
-  assert.equal(ledger.rows.length,2);assert.equal(ledger.rows[0].balance,30);assert.equal(ledger.rows[1].balance,60);
+  assert.equal(ledger.rows.length,3);assert.equal(ledger.rows.find(r=>r.reference==='2026-09-30').balance,60);assert.equal(ledger.rows.find(r=>r.reference==='USD-DATE').balance,5);
+  assert.equal(ledger.rows.find(r=>r.reference==='2026-09-30').accountAccountId,aedAccount);assert.equal(ledger.rows.find(r=>r.reference==='USD-DATE').accountAccountId,usdAccount);
   const trial=(await (await report('trial-balance')).json()).report;
-  assert.equal(trial.rows.find(r=>r.name==='Date Bank').balance,60);assert.equal(trial.period.mode,'asof');
+  assert.equal(trial.rows.find(r=>r.name==='1000 · Date Bank').balance,60);assert.equal(trial.rows.find(r=>r.name==='1001 · Date Bank').balance,5);assert.equal(trial.period.mode,'asof');
+  assert.deepEqual(new Set(trial.rows.map(r=>r.nameAccountId)),new Set([aedAccount,usdAccount]));assert.deepEqual(trial.accountLinkIssues,[]);
   const all=(await (await report('sales-by-customer','','')).json()).report;assert.equal(all.rows[0].amount,100);
   assert.equal((await report('sales-by-customer','2026-02-30','2026-09-30')).status,400);
   assert.equal((await report('sales-by-customer','2026-10-01','2026-09-30')).status,400);
