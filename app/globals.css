@@ -379,7 +379,7 @@ button, input, select { font: inherit; }
 .bill-mobile-label { display: block; margin-bottom: 0.4rem; }
 @container (min-width: 780px) {
   .bill-mobile-heading, .bill-mobile-label { display: none; }
-  .bill-item-heading, .bill-item-row { display: grid; grid-template-columns: 2.5rem minmax(0, 1fr) 5.5rem 6.5rem 8rem 6.5rem 8rem 3.5rem; }
+  .bill-item-heading, .bill-item-row { display: grid; grid-template-columns: 2.5rem minmax(0, 1fr) 5.5rem 6.5rem 6.5rem 8rem 3.5rem; }
   .bill-item-heading > div { padding: 0.65rem; border-right: 1px solid var(--border); display: flex; align-items: center; }
   .bill-item-heading { border-bottom: 1px solid var(--border); }
   .bill-item-number, .bill-item-product { grid-column: auto; }
