@@ -671,6 +671,30 @@ test("P&L reports reconcile item, rep, inventory and class to posted ledger with
   assert.ok(pdf.startsWith("%PDF-")); const box = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(box); assert.ok(Math.abs(Number(box[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(box[2]) - 595.28) < 0.01);
 });
 
+test('shared report downloads are date-stamped, safe, styled, and include linked account detail', async () => {
+  const { reportCsv, reportFilename, reportPdf, reportWorkbook } = await vite.ssrLoadModule('/lib/report-export.ts');
+  const report = {
+    key: 'balance-sheet-detail', title: 'Balance Sheet Detail', generatedAt: '2026-09-20T10:00:00.000Z', currency: 'AED',
+    period: { label: 'As of 2026-09-20' },
+    columns: [{ key: 'section', label: 'Section' }, { key: 'name', label: 'Account' }, { key: 'amount', label: 'Balance', type: 'money' }],
+    rows: [{ section: 'Assets', name: '=BAD()', amount: 1250.5 }],
+    financial: { details: [{ date: '2026-09-20', reference: 'J-1', account: 'Inventory Asset', amount: 1250.5 }] },
+  };
+  assert.equal(reportFilename(report, 'xlsx', new Date('2026-09-20T10:00:00.000Z')), 'balance-sheet-detail-2026-09-20.xlsx');
+  const csv = reportCsv(report, 'Audit Company', 'Main Inventory');
+  assert.ok(csv.includes('"Audit Company"'));
+  assert.ok(csv.includes('"Main Inventory"'));
+  assert.ok(csv.includes("'=BAD()"));
+  const bytes = await reportWorkbook(report, 'Audit Company', 'Main Inventory');
+  const { default: ExcelJS } = await import('exceljs');
+  const book = new ExcelJS.Workbook(); await book.xlsx.load(bytes);
+  assert.equal(book.getWorksheet('Report').getCell('B10').value, '=BAD()');
+  assert.equal(book.getWorksheet('Report').views[0].ySplit, 9);
+  assert.equal(book.getWorksheet('Account detail').getCell('C2').value, 'Inventory Asset');
+  const pdf = Buffer.from(await reportPdf(report, 'Audit Company', 'Main Inventory')).toString('latin1');
+  assert.ok(pdf.startsWith('%PDF-'));
+});
+
 test('report date presets handle weeks, leap days, month ends and fiscal boundaries', async () => {
   const {presetDates,reportPeriod,reportMonths,previousYearDate} = await vite.ssrLoadModule('/lib/report-period.ts');
   assert.deepEqual(reportMonths('2026-12-15','2027-01-10'),[{month:'2026-12',from:'2026-12-15',to:'2026-12-31'},{month:'2027-01',from:'2027-01-01',to:'2027-01-10'}]);

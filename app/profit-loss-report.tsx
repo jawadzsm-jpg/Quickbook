@@ -12,10 +12,10 @@ export function ProfitLossReport({ report, company, loading, onOpen }: { report:
   async function download(kind: "xlsx" | "csv" | "pdf") {
     setExporting(true);
     try {
-      const { pnlCsv, pnlWorkbook, pnlPdf } = await import("@/lib/pnl-export");
+      const [{ pnlCsv, pnlWorkbook, pnlPdf }, { reportFilename }] = await Promise.all([import("@/lib/pnl-export"), import("@/lib/report-export")]);
       const data = kind === "csv" ? pnlCsv(report, company) : kind === "xlsx" ? await pnlWorkbook(report, company) : await pnlPdf(report, company);
       const blob = new Blob([data as BlobPart], { type: kind === "csv" ? "text/csv;charset=utf-8" : kind === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-      const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${report.key}-${report.pnl.to || "all-dates"}.${kind}`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+      const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = reportFilename(report, kind); document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch { toast.error("Export could not be generated. Please try again."); } finally { setExporting(false); }
   }
   const accountLink = (row: PnlRow, label: string) => report.pnl.canViewAccounts && Number(row.accountId) > 0 ? <button className="text-left underline underline-offset-2" onClick={() => setAccount({ id: Number(row.accountId), name: String(row.account) })}>{label}</button> : label;
