@@ -362,7 +362,7 @@ test('cheques credit the chosen currency bank and debit the selected AP or expen
   const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Cheque bank test') RETURNING id")).rows[0].id;
   const rows = (await database.query("INSERT INTO accounts (company_id, code, name, type, system_role, currency) VALUES ($1, 'AED', 'Cheque AED Bank', 'Bank', 'BANK', 'AED'), ($1, 'USD', 'Cheque USD Bank', 'Bank', 'BANK', 'USD'), ($1, 'AP', 'Cheque USD AP', 'Accounts Payable', 'AP', 'USD'), ($1, 'EXP', 'Cheque Expense', 'Expense', 'EXPENSE', 'AED'), ($1, 'DIRECT', 'Direct Expense', 'Expense', NULL, 'AED') RETURNING id, name", [companyId])).rows;
   const bankAccountId = rows.find(r => r.name === 'Cheque USD Bank').id;
-  await database.query("INSERT INTO contacts (company_id, type, name, currency, balance) VALUES ($1, 'vendor', 'Cheque Supplier', 'USD', 500)", [companyId]);
+  await database.query("INSERT INTO contacts (company_id, type, name, currency, balance) VALUES ($1, 'vendor', 'Cheque Supplier', 'USD', 500), ($1, 'employee', 'Salary Employee', 'USD', 0)", [companyId]);
   const { POST } = await vite.ssrLoadModule('/app/api/records/route.ts');
   const pay = (changes = {}) => POST(new Request('https://app.test/api/records', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'transactions', companyId, type: 'cheque', number: 'CHQ-TEST', party: 'Cheque Supplier', account: 'Cheque USD AP', bankAccountId, currency: 'USD', exchangeRate: 3.675, transactionDate: '2026-09-11', lines: [{ description: 'Cheque', quantity: 1, unitPrice: 100, unitCost: 0, vatCode: 'ZERO' }], ...changes }) }));
   for (const changes of [{ bankAccountId: null }, { bankAccountId: rows[0].id }, { bankAccountId: rows[2].id }, { account: 'Missing AP' }]) assert.equal((await pay(changes)).status, 400);
@@ -376,7 +376,11 @@ test('cheques credit the chosen currency bank and debit the selected AP or expen
     const journal = (await database.query('SELECT jl.account_name, jl.debit, jl.credit FROM journal_lines jl JOIN journal_entries je ON jl.journal_entry_id=je.id WHERE je.transaction_id=$1 ORDER BY jl.id', [id])).rows;
     assert.deepEqual(journal, [{ account_name: account, debit: 367.5, credit: 0 }, { account_name: 'Cheque USD Bank', debit: 0, credit: 367.5 }]);
   }
-  assert.equal((await database.query('SELECT balance FROM contacts WHERE company_id=$1', [companyId])).rows[0].balance, 400);
+  assert.equal((await database.query("SELECT balance FROM contacts WHERE company_id=$1 AND name='Cheque Supplier'", [companyId])).rows[0].balance, 400);
+  const salary = await pay({ party: 'Salary Employee', account: 'Direct Expense', number: 'CHQ-SALARY', memo: 'September payroll', lines: [{ description: 'September 2026 salary', quantity: 1, unitPrice: 200, vatCode: 'ZERO' }] });
+  assert.equal(salary.status, 201);
+  const salaryId = (await salary.json()).record.id;
+  assert.deepEqual((await database.query('SELECT jl.account_name, jl.debit, jl.credit FROM journal_lines jl JOIN journal_entries je ON jl.journal_entry_id=je.id WHERE je.transaction_id=$1 ORDER BY jl.id', [salaryId])).rows, [{ account_name: 'Direct Expense', debit: 735, credit: 0 }, { account_name: 'Cheque USD Bank', debit: 0, credit: 735 }]);
   const { GET, DELETE } = await vite.ssrLoadModule('/app/api/records/route.ts');
   const legacyId = (await database.query("UPDATE transactions SET status='open',paid_at=NULL WHERE company_id=$1 RETURNING id", [companyId])).rows[0].id;
   const legacyDetail = await (await GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${companyId}&id=${legacyId}`))).json();
