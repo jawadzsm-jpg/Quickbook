@@ -601,7 +601,8 @@ test('company stock pricing lists only its inventories and saves selected prices
   const { GET, PATCH } = await vite.ssrLoadModule('/app/api/stock-pricing/route.ts');
   const company = (await database.query("INSERT INTO companies (name, base_currency) VALUES ('Batch prices', 'USD') RETURNING id")).rows[0].id;
   const location = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'BP', 'Batch', 'BP') RETURNING id", [company])).rows[0].id;
-  const ids = (await database.query("INSERT INTO items (company_id, location_id, sku, name, sales_price) VALUES ($1, $2, 'BP1', 'First', 10), ($1, $2, 'BP2', 'Second', 20) RETURNING id", [company, location])).rows.map(r => r.id);
+  const ids = (await database.query("INSERT INTO items (company_id, location_id, sku, name, sales_price, quantity) VALUES ($1, $2, 'BP1', 'First', 10, 1), ($1, $2, 'BP2', 'Second', 20, 2) RETURNING id", [company, location])).rows.map(r => r.id);
+  const zeroStockId = (await database.query("INSERT INTO items (company_id, location_id, sku, name, sales_price, quantity) VALUES ($1, $2, 'BP-ZERO', 'Zero stock', 30, 0) RETURNING id", [company, location])).rows[0].id;
   const records = ids.map((itemId, i) => ({ itemId, companyId: company, salesPrice: 100, grnPrice: 50, expectedPrice: (i + 1) * 10, expectedGrnPrice: null }));
   const save = records => PATCH(new Request('http://localhost/api/stock-pricing', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ records }) }));
   const get = id => GET(new Request(`http://localhost/api/stock-pricing?companyId=${id}`));
@@ -617,7 +618,8 @@ test('company stock pricing lists only its inventories and saves selected prices
     assert.equal((await database.query('SELECT sales_price FROM items WHERE id=$1', [ids[0]])).rows[0].sales_price, 10);
     assert.equal((await database.query('SELECT count(*)::int AS n FROM audit_log WHERE company_id=$1', [company])).rows[0].n, 0);
     assert.equal((await save(records)).status, 200);
-    assert.ok((await database.query('SELECT sales_price, grn_price FROM items WHERE company_id=$1', [company])).rows.every(r => r.sales_price === 100 && r.grn_price === 50));
+    assert.ok((await database.query('SELECT sales_price, grn_price FROM items WHERE id = ANY($1::int[])', [ids])).rows.every(r => r.sales_price === 100 && r.grn_price === 50));
+    assert.deepEqual((await database.query('SELECT sales_price, grn_price FROM items WHERE id=$1', [zeroStockId])).rows[0], { sales_price: 30, grn_price: null });
     globalThis.__transferTestUser = { id: 1, role: 'inventory', companyIds: [company] };
     assert.equal((await get(company)).status, 403);
     assert.equal((await save(records)).status, 403);

@@ -1,5 +1,5 @@
 import { skuWrite } from "@/lib/sku-locks";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, gt } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { items, companies, auditLog, inventoryLocations } from "@/db/schema";
 import { canAccessCompany, isAdministrator, requireApiUser } from "@/lib/auth";
@@ -14,7 +14,7 @@ export async function GET(request: Request) {
   if (!canAccessCompany(user, companyId)) return Response.json({ error: "Company access denied." }, { status: 403 });
   const records = await getDb().select({ id: items.id, name: items.name, sku: items.sku, itemNumber: items.itemNumber, description: items.description, quantity: items.quantity, grnPrice: items.grnPrice, grnCost: items.lastPurchasePrice, salesPrice: items.salesPrice, companyId: items.companyId, companyName: companies.name, homeCurrency: companies.baseCurrency, locationId: items.locationId, locationName: inventoryLocations.name }).from(items)
     .innerJoin(companies, eq(items.companyId, companies.id)).innerJoin(inventoryLocations, and(eq(items.locationId, inventoryLocations.id), eq(items.companyId, inventoryLocations.companyId)))
-    .where(and(eq(items.companyId, companyId), eq(companies.active, true), eq(inventoryLocations.active, true), eq(items.status, "active"))).orderBy(asc(inventoryLocations.name), asc(items.name), asc(items.id));
+    .where(and(eq(items.companyId, companyId), gt(items.quantity, 0), eq(companies.active, true), eq(inventoryLocations.active, true), eq(items.status, "active"))).orderBy(asc(inventoryLocations.name), asc(items.name), asc(items.id));
   return Response.json({ records, canEdit: true }, { headers: { "Cache-Control": "no-store" } });
 }
 
