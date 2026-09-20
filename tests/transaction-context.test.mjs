@@ -381,6 +381,10 @@ test('cheques credit the chosen currency bank and debit the selected AP or expen
   assert.equal(salary.status, 201);
   const salaryId = (await salary.json()).record.id;
   assert.deepEqual((await database.query('SELECT jl.account_name, jl.debit, jl.credit FROM journal_lines jl JOIN journal_entries je ON jl.journal_entry_id=je.id WHERE je.transaction_id=$1 ORDER BY jl.id', [salaryId])).rows, [{ account_name: 'Direct Expense', debit: 735, credit: 0 }, { account_name: 'Cheque USD Bank', debit: 0, credit: 735 }]);
+  const vendorExpense = await pay({ party: 'Cheque Supplier', account: 'Direct Expense', number: 'CHQ-EXPENSE-VAT', memo: 'Vendor expense', lines: [{ description: 'Taxable vendor expense', quantity: 1, unitPrice: 100, vatCode: 'STANDARD' }] });
+  assert.equal(vendorExpense.status, 201);
+  const vendorExpenseId = (await vendorExpense.json()).record.id;
+  assert.deepEqual((await database.query('SELECT jl.account_name, jl.debit, jl.credit FROM journal_lines jl JOIN journal_entries je ON jl.journal_entry_id=je.id WHERE je.transaction_id=$1 ORDER BY jl.id', [vendorExpenseId])).rows, [{ account_name: 'Direct Expense', debit: 367.5, credit: 0 }, { account_name: 'Recoverable VAT', debit: 18.38, credit: 0 }, { account_name: 'Cheque USD Bank', debit: 0, credit: 385.88 }]);
   const { GET, DELETE } = await vite.ssrLoadModule('/app/api/records/route.ts');
   const legacyId = (await database.query("UPDATE transactions SET status='open',paid_at=NULL WHERE company_id=$1 RETURNING id", [companyId])).rows[0].id;
   const legacyDetail = await (await GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${companyId}&id=${legacyId}`))).json();
