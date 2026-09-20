@@ -296,6 +296,29 @@ export async function GET(request: Request) {
     if (kind === "contacts") return Response.json({ records: await db.select().from(contacts).where(eq(contacts.companyId, companyId)).orderBy(asc(contacts.name)) });
     if (kind === "items") {
       const records = await db.select().from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId))).orderBy(asc(items.name));
+      const purchaseCostLines = await db.select({
+        itemId: transactionLines.itemId,
+        quantity: transactionLines.quantity,
+        unitPrice: transactionLines.unitPrice,
+        exchangeRate: transactions.exchangeRate,
+      }).from(transactionLines)
+        .innerJoin(transactions, eq(transactionLines.transactionId, transactions.id))
+        .where(and(
+          eq(transactions.companyId, companyId),
+          eq(transactions.locationId, locationId),
+          inArray(transactions.type, ["bill", "item receipt"]),
+          sql`${transactionLines.itemId} IS NOT NULL`,
+        ));
+      const weightedCosts = new Map<number, { quantity: number; value: number }>();
+      for (const line of purchaseCostLines) {
+        if (!line.itemId || Number(line.quantity) <= 0) continue;
+        const old = weightedCosts.get(line.itemId) ?? { quantity: 0, value: 0 };
+        const quantity = Number(line.quantity);
+        weightedCosts.set(line.itemId, {
+          quantity: old.quantity + quantity,
+          value: old.value + quantity * Number(line.unitPrice) * Number(line.exchangeRate),
+        });
+      }
       const openPoLines = await db.select({ id: transactionLines.id, itemId: transactionLines.itemId, quantity: transactionLines.quantity }).from(transactionLines)
         .innerJoin(transactions, eq(transactionLines.transactionId, transactions.id))
         .where(and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId), eq(transactions.type, "purchase order"), inArray(transactions.status, ["open", "pending", "overdue", "partially received"]), sql`${transactionLines.itemId} IS NOT NULL`));
@@ -304,7 +327,11 @@ export async function GET(request: Request) {
       for (const allocation of allocations) receivedByLine.set(allocation.orderLineId, (receivedByLine.get(allocation.orderLineId) ?? 0) + Number(allocation.quantity));
       const onPoByItem = new Map<number, number>();
       for (const line of openPoLines) if (line.itemId) onPoByItem.set(line.itemId, (onPoByItem.get(line.itemId) ?? 0) + Math.max(0, Number(line.quantity) - (receivedByLine.get(line.id) ?? 0)));
-      return Response.json({ records: records.map((item) => ({ ...item, onPo: round(onPoByItem.get(item.id) ?? 0) })) });
+      return Response.json({ records: records.map((item) => {
+        const weighted = weightedCosts.get(item.id);
+        const averageCost = weighted && weighted.quantity > 0 ? round(weighted.value / weighted.quantity) : round(Number(item.cost) || 0);
+        return { ...item, averageCost, onPo: round(onPoByItem.get(item.id) ?? 0) };
+      }) });
     }
     if (kind === "accounts") {
       const accountRows = await db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(asc(accounts.code));
@@ -440,8 +467,14 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const incomeAccountId = optionalId(payload.incomeAccountId);
       const assetAccountId = itemType === "stock-part" ? optionalId(payload.assetAccountId) : null;
       const accountIds = [...new Set([cogsAccountId, incomeAccountId, assetAccountId].filter((id): id is number => id !== null))];
-      const linkedAccounts = accountIds.length ? await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true), inArray(accounts.id, accountIds))) : [];
+      const linkedAccounts = accountIds.length ? await db.select({ id: accounts.id, type: accounts.type, systemRole: accounts.systemRole, name: accounts.name }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true), inArray(accounts.id, accountIds))) : [];
       if (linkedAccounts.length !== accountIds.length) return Response.json({ error: "Select active item accounts from this company’s Chart of Accounts." }, { status: 400 });
+      if (assetAccountId) {
+        const assetAccount = linkedAccounts.find((account) => account.id === assetAccountId);
+        if (!assetAccount || (assetAccount.systemRole !== "INVENTORY" && !/inventory asset/i.test(assetAccount.name))) {
+          return Response.json({ error: "Stock Asset Account must be the Inventory Asset account from Chart of Accounts." }, { status: 400 });
+        }
+      }
       if (preferredSupplierId) {
         const [supplier] = await db.select({ id: contacts.id }).from(contacts).where(and(eq(contacts.id, preferredSupplierId), eq(contacts.companyId, companyId), eq(contacts.type, "vendor"), eq(contacts.status, "active"))).limit(1);
         if (!supplier) return Response.json({ error: "Select an active preferred supplier from this company." }, { status: 400 });

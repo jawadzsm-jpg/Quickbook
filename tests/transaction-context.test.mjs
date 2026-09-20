@@ -219,6 +219,32 @@ test("stock revaluation balances journals, preserves quantity and rejects stale 
   assert.deepEqual((await database.query('SELECT quantity, last_purchase_price FROM items WHERE id = $1',[foreignPurchaseItem])).rows,[{quantity:2,last_purchase_price:367.25}]);
 });
 
+test('stock item links Inventory Asset and calculates average purchase cost in home currency', async () => {
+  const companyId = (await database.query("INSERT INTO companies (name,base_currency) VALUES ('Item costing test','AED') RETURNING id")).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations (company_id,name,code,invoice_prefix) VALUES ($1,'Main','AVG','AVG') RETURNING id",[companyId])).rows[0].id;
+  const accounts = (await database.query("INSERT INTO accounts (company_id,code,name,type,system_role,currency) VALUES ($1,'1200','Inventory Asset','Other Current Asset','INVENTORY','AED'),($1,'1300','Recoverable VAT','Other Current Asset','INPUT_VAT','AED'),($1,'2000','Accounts Payable','Accounts Payable','AP','AED'),($1,'5000','Cost of Goods Sold','Cost of Goods Sold','COGS','AED'),($1,'4000','Sales Revenue','Income','SALES','AED') RETURNING id,name",[companyId])).rows;
+  const inventoryId = accounts.find(a=>a.name==='Inventory Asset').id;
+  const vatId = accounts.find(a=>a.name==='Recoverable VAT').id;
+  const {POST,GET}=await vite.ssrLoadModule('/app/api/records/route.ts');
+  const req=(body)=>new Request('https://app.test/api/records',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+  const bad=await POST(req({kind:'items',companyId,locationId,itemType:'stock-part',name:'Bad asset item',assetAccountId:vatId,quantity:0,cost:0,salesPrice:0}));
+  assert.equal(bad.status,400);
+  const good=await POST(req({kind:'items',companyId,locationId,itemType:'stock-part',name:'Average cost item',assetAccountId:inventoryId,quantity:0,cost:0,salesPrice:0}));
+  assert.equal(good.status,201,await good.clone().text());
+  const item=(await good.json()).record;
+  await database.query("INSERT INTO contacts(company_id,type,name,currency) VALUES ($1,'vendor','Average Vendor','AED')",[companyId]);
+  for (const [number,qty,price,rate] of [['AVG-1',2,100,1],['AVG-2',1,200,1]]) {
+    const purchase=await POST(req({kind:'transactions',type:'bill',companyId,locationId,number,party:'Average Vendor',currency:'AED',exchangeRate:rate,lines:[{itemId:item.id,description:'Average cost item',quantity:qty,unitPrice:price,unitCost:price,vatCode:'ZERO'}]}));
+    assert.equal(purchase.status,201,await purchase.clone().text());
+  }
+  const response=await GET(new Request(`https://app.test/api/records?kind=items&companyId=${companyId}&locationId=${locationId}`));
+  assert.equal(response.status,200);
+  const saved=(await response.json()).records.find(row=>row.id===item.id);
+  assert.equal(saved.assetAccountId,inventoryId);
+  assert.equal(saved.quantity,3);
+  assert.equal(saved.averageCost,133.33);
+});
+
 test('vendor changes and deletion are administrator-only, scoped and audited', async () => {
   const company = (await database.query("INSERT INTO companies (name) VALUES ('Vendor permissions') RETURNING id")).rows[0].id;
   const vendor = (await database.query("INSERT INTO contacts (company_id, type, name, currency, balance) VALUES ($1, 'vendor', 'Audit vendor', 'AED', 0) RETURNING id", [company])).rows[0].id;

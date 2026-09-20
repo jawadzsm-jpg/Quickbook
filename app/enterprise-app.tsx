@@ -683,7 +683,8 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
       const initialFields = specificationFields.filter((label) => label !== "Product Category").slice(0, 8);
       const defaultCogs = records.accounts.find((account) => account.active && (account.systemRole === "COGS" || account.type === "Cost of Goods Sold" || /cost of goods/i.test(String(account.name || ""))));
       const defaultIncome = records.accounts.find((account) => account.active && (account.systemRole === "SALES" || account.type === "Income" || /^income$/i.test(String(account.name || ""))));
-      const defaultAsset = records.accounts.find((account) => account.active && (account.systemRole === "INVENTORY" || account.type === "Other Current Asset" || /inventory asset/i.test(String(account.name || ""))));
+      const defaultAsset = records.accounts.find((account) => account.active && account.systemRole === "INVENTORY")
+        ?? records.accounts.find((account) => account.active && /inventory asset/i.test(String(account.name || "")));
       const defaultVat = vatCodeOptions.find((code) => code.code === "STANDARD")?.code ?? vatCodeOptions[0]?.code ?? "ZERO";
       const itemForm: Record<string, string> = {
         itemType: "stock-part", category: "Laptop", quantity: "0", reorderPoint: "0", salesPrice: "0", cost: "0",
@@ -712,14 +713,15 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   function openItemEdit(item: DataRecord) {
     const defaultCogs = records.accounts.find((account) => account.active && (account.systemRole === "COGS" || account.type === "Cost of Goods Sold" || /cost of goods/i.test(String(account.name || ""))));
     const defaultIncome = records.accounts.find((account) => account.active && (account.systemRole === "SALES" || account.type === "Income" || /^income$/i.test(String(account.name || ""))));
-    const defaultAsset = records.accounts.find((account) => account.active && (account.systemRole === "INVENTORY" || account.type === "Other Current Asset" || /inventory asset/i.test(String(account.name || ""))));
+    const defaultAsset = records.accounts.find((account) => account.active && account.systemRole === "INVENTORY")
+        ?? records.accounts.find((account) => account.active && /inventory asset/i.test(String(account.name || "")));
     let specifications: Array<{ label: string; value: string }> = [];
     try { specifications = JSON.parse(String(item.specifications ?? "[]")); } catch { specifications = []; }
     if (!specifications.length) specifications = specificationFields.filter((label) => label !== "Product Category").slice(0, 8).map((label) => ({ label, value: "" }));
     const itemForm: Record<string, string> = {
       itemType: itemTypeOf(item.itemType), category: String(item.category ?? "Laptop"),
       itemNumber: String(item.itemNumber ?? ""), sku: String(item.sku ?? ""), quantity: String(item.quantity ?? 0),
-      reorderPoint: String(item.reorderPoint ?? 0), salesPrice: String(item.salesPrice ?? 0), cost: String(item.cost ?? 0),
+      reorderPoint: String(item.reorderPoint ?? 0), salesPrice: String(item.salesPrice ?? 0), cost: String(item.averageCost ?? item.cost ?? 0),
       lastPurchasePrice: String(item.lastPurchasePrice ?? item.cost ?? 0), onPo: String(item.onPo ?? 0),
       purchaseVatCode: String(item.purchaseVatCode ?? "STANDARD"), salesVatCode: String(item.salesVatCode ?? "STANDARD"),
       cogsAccountId: item.cogsAccountId ? String(item.cogsAccountId) : (defaultCogs ? String(defaultCogs.id) : ""), incomeAccountId: item.incomeAccountId ? String(item.incomeAccountId) : (defaultIncome ? String(defaultIncome.id) : ""),
@@ -2061,11 +2063,8 @@ function ItemFields({ form, setForm, items, accounts, contacts, vatCodeOptions, 
   });
   const assetAccounts = activeAccounts.filter((account) => {
     const role = normalizedAccountValue(account.systemRole);
-    const type = normalizedAccountValue(account.type);
     const name = normalizedAccountValue(account.name);
-    return role === "inventory"
-      || ["current asset", "other current asset", "other asset", "inventory asset"].includes(type)
-      || name.includes("inventory asset");
+    return role === "inventory" || name.includes("inventory asset");
   });
   const vendors = contacts.filter((contact) => contact.type === "vendor" && String(contact.status || "active") !== "inactive");
   const selectedPurchaseVat = form.purchaseVatCode || vatCodeOptions.find((code) => code.code === "STANDARD")?.code || vatCodeOptions[0]?.code || "ZERO";
@@ -2126,7 +2125,7 @@ function ItemFields({ form, setForm, items, accounts, contacts, vatCodeOptions, 
         <div className="xl:col-span-1">{accountPicker("Asset Account", "assetAccountId", assetAccounts)}</div>
         <Field label="Reorder Point (Min)" name="reorderPoint" type="number" form={form} setForm={setForm} />
         <div className="space-y-2"><Label>On Hand</Label><Input type="number" min="0" step="0.01" readOnly={editing} value={form.quantity || "0"} onChange={(event) => setForm({ ...form, quantity: event.target.value })} className={editing ? "bg-slate-100" : ""} /><p className="text-xs text-slate-500">{editing ? "Updated by posted stock documents." : "Opening quantity for this inventory."}</p></div>
-        <div className="space-y-2"><Label>Average Cost</Label><Input readOnly value={Number(form.cost || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })} className="bg-slate-100" /></div>
+        <div className="space-y-2"><Label>Average Cost</Label><Input readOnly value={Number(form.cost || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })} className="bg-slate-100" /><p className="text-xs text-slate-500">Calculated from posted stock purchases in home currency.</p></div>
         <div className="space-y-2"><Label>On P.O.</Label><Input readOnly value={Number(form.onPo || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })} className="bg-slate-100" /><p className="text-xs text-slate-500">Open purchase order quantity.</p></div>
       </div>
     </section>}
