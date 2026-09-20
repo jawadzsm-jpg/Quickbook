@@ -11,6 +11,7 @@ async function sourceModule(path) {
 const { isValidEmail } = await sourceModule("../lib/email-validation.ts");
 const { hashAdminPin, verifyAdminPin } = await sourceModule("../lib/admin-pin.ts");
 const { dashboardMetrics } = await sourceModule("../lib/dashboard-metrics.ts");
+const { filterZeroQohRows, hasInventoryQohFilter } = await sourceModule("../lib/inventory-report-filter.ts");
 
 test("email validation accepts ordinary addresses and rejects malformed or oversized input", () => {
   for (const email of ["name@example.com", "name+sales@example.co.uk"]) assert.equal(isValidEmail(email), true);
@@ -46,6 +47,16 @@ test("dashboard totals use linked ledger accounts without counting payments as i
     { active: true, type: "Expense", systemRole: "EXPENSE", baseBalance: 50 },
     { active: false, type: "Bank", baseBalance: 999 },
   ]), { cash: 150, receivable: 200, payable: 300, inventory: 400, sales: 525, expenses: 225 });
+});
+
+test("inventory report QOH option hides only zero rows", () => {
+  const rows = [{ sku: "ZERO", quantity: 0 }, { sku: "POSITIVE", quantity: 2 }, { sku: "NEGATIVE", quantity: -1 }];
+  assert.equal(hasInventoryQohFilter("inventory-valuation-detail"), true);
+  assert.equal(hasInventoryQohFilter("profit-loss"), false);
+  assert.deepEqual(filterZeroQohRows("inventory-valuation-detail", rows, true).map((row) => row.sku), ["POSITIVE", "NEGATIVE"]);
+  assert.equal(filterZeroQohRows("inventory-valuation-detail", rows, false).length, 3);
+  assert.equal(filterZeroQohRows("profit-loss", rows, true).length, 3);
+  assert.deepEqual(filterZeroQohRows("pending-builds", [{ sku: "ZERO", onHand: 0 }, { sku: "ONE", onHand: 1 }], true).map((row) => row.sku), ["ONE"]);
 });
 
 const {defaultDocumentDesign,defaultElementProperties,validateDocumentDesign} = await sourceModule('../lib/document-design.ts');
