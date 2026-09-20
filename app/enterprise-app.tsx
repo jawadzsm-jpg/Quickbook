@@ -1742,7 +1742,19 @@ function BillFields({ form, setForm, items, vendors, salesmen, accounts, locatio
   const freightVat = [...freightByTax.values()].reduce((sum, group) => sum + Math.round(group.amount * group.rate) / 100, 0);
   const totalVat = vat + freightVat;
   const total = subtotal + freightCharges + totalVat;
-  const purchaseAccounts = accounts.filter((account) => account.active && ["PURCHASES", "EXPENSE", "COGS"].includes(String(account.systemRole)));
+  const purchaseAccounts = accounts.filter((account) => account.active && (
+    ["PURCHASES", "EXPENSE", "COGS"].includes(String(account.systemRole))
+    || ["Expense", "Other Expense", "Cost of Goods Sold"].includes(String(account.type))
+  ));
+  const defaultPurchaseAccount = String(
+    purchaseAccounts.find((account) => account.systemRole === "PURCHASES")?.name
+    ?? purchaseAccounts.find((account) => account.type === "Expense")?.name
+    ?? purchaseAccounts[0]?.name
+    ?? ""
+  );
+  useEffect(() => {
+    if (!form.account && defaultPurchaseAccount) setForm({ ...form, account: defaultPurchaseAccount });
+  }, [defaultPurchaseAccount, form, setForm]);
   const purchaseItems = items.filter(itemCanBeDocumentLine);
   return <div className="space-y-5">
     <div className="grid gap-4 rounded-xl border bg-slate-50 p-4 md:grid-cols-2 xl:grid-cols-6">
@@ -1756,7 +1768,7 @@ function BillFields({ form, setForm, items, vendors, salesmen, accounts, locatio
     <div className="grid gap-4 md:grid-cols-3">
       <div className="space-y-2"><Label>Vendor *</Label><Select value={form.party} onValueChange={(value) => { const vendor = vendors.find((entry) => String(entry.name) === value); const currency = String(vendor?.currency || form.currency); const savedRate = exchangeRates.find((entry) => entry.currencyCode === currency)?.rate; setForm({ ...form, party: value, currency, exchangeRate: currency === baseCurrency ? "1" : savedRate ? String(savedRate) : "" }); }}><SelectTrigger className="w-full"><SelectValue placeholder="Select vendor" /></SelectTrigger><SelectContent>{vendors.length ? vendors.map((vendor) => <SelectItem key={vendor.id} value={String(vendor.name)}>{String(vendor.company || vendor.name)} · {String(vendor.currency)}</SelectItem>) : <SelectItem value="no-vendors" disabled>No vendors available</SelectItem>}</SelectContent></Select></div>
       <Field label="Date" name="transactionDate" type="date" form={form} setForm={setForm} required />
-      <div className="space-y-2"><Label>Purchase account *</Label><Select value={form.account} onValueChange={(account) => setForm({ ...form, account })}><SelectTrigger className="w-full"><SelectValue placeholder="Select linked account" /></SelectTrigger><SelectContent>{purchaseAccounts.map((account) => <SelectItem key={account.id} value={String(account.name)}>{String(account.name)}</SelectItem>)}</SelectContent></Select></div>
+      <div className="space-y-2"><Label>Purchase account *</Label><Select value={form.account || defaultPurchaseAccount} onValueChange={(account) => setForm({ ...form, account })}><SelectTrigger className="w-full"><SelectValue placeholder="Select purchase / expense account" /></SelectTrigger><SelectContent>{purchaseAccounts.length ? purchaseAccounts.map((account) => <SelectItem key={account.id} value={String(account.name)}>{String(account.code || "")} · {String(account.name)} · {String(account.type)}</SelectItem>) : <SelectItem value="no-purchase-accounts" disabled>No purchase / expense accounts available</SelectItem>}</SelectContent></Select><p className="text-xs text-slate-500">Used for non-stock purchases and fallback posting. Stock items use their linked Inventory Asset account.</p></div>
     </div>
     <div className="bill-item-table overflow-hidden rounded-lg border bg-white">
       <div className="flex items-center justify-between border-b p-3 bill-mobile-heading"><strong>Bill items</strong><Button type="button" className="bg-green-600 text-white hover:bg-green-700" size="icon" aria-label="Add bill item" onClick={addLine}><Plus className="size-4" /></Button></div>
@@ -1764,6 +1776,7 @@ function BillFields({ form, setForm, items, vendors, salesmen, accounts, locatio
       {lines.map((line, index) => {
         const lineSubtotal = Math.round(Number(line.quantity || 0) * Number(line.unitPrice || 0) * 100) / 100;
         const selectedItem = purchaseItems.find((entry) => String(entry.id) === line.itemId);
+        const averageCostHome = Number(selectedItem?.averageCost ?? selectedItem?.lastPurchasePrice ?? selectedItem?.cost ?? 0);
         const unitCost = Number(line.unitPrice || 0) + (Number(line.quantity) > 0 ? lineFreight(line) / Number(line.quantity) : 0);
         return <div key={index} className="bill-item-row">
           <div className="bill-item-number text-sm text-slate-500">{index + 1}</div>
@@ -1773,7 +1786,7 @@ function BillFields({ form, setForm, items, vendors, salesmen, accounts, locatio
           <div><Label className="bill-mobile-label">Subtotal</Label><Input aria-label={`Subtotal for line ${index + 1}`} readOnly value={lineSubtotal.toFixed(2)} className="bg-slate-100" /></div>
           <div className="space-y-2"><Label className="bill-mobile-label">VAT</Label><Input aria-label={`VAT amount for line ${index + 1}`} readOnly value={(Math.round(lineSubtotal * Number(line.vatRate || 0)) / 100).toFixed(2)} className="bg-slate-100" /><Select value={line.vatCode} onValueChange={(vatCode) => update(index, { vatCode, vatRate: vatRateForCode(vatCode, vatCodeOptions) })}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{vatCodeOptions.map((option) => <SelectItem key={option.code} value={option.code}><span className="flex flex-col"><span>{option.label}</span>{option.description ? <span className="text-xs text-slate-500">{option.description}</span> : null}</span></SelectItem>)}</SelectContent></Select></div>
           <div className="bill-item-delete"><Button type="button" size="icon" disabled={lines.length === 1} onClick={() => setLines(lines.filter((_, position) => position !== index))} className="bg-red-600 text-white hover:bg-red-700" aria-label={`Delete bill item ${index + 1}`}><Trash2 className="size-4" /></Button></div>
-          <div className="bill-item-cost"><Input aria-label={`Unit cost including freight in ${form.currency} for line ${index + 1}`} title={`Unit cost including freight (${form.currency})`} readOnly placeholder="Cost" value={unitCost.toFixed(2)} /><span className="text-xs text-slate-500">Cost incl. freight</span></div>
+          <div className="bill-item-cost space-y-2"><div><Input aria-label={`Average cost in home currency for line ${index + 1}`} title={`Average cost (${baseCurrency})`} readOnly value={averageCostHome.toFixed(2)} className="bg-slate-100" /><span className="text-xs text-slate-500">Average cost (${baseCurrency})</span></div><div><Input aria-label={`Unit cost including freight in ${form.currency} for line ${index + 1}`} title={`Unit cost including freight (${form.currency})`} readOnly placeholder="Cost" value={unitCost.toFixed(2)} /><span className="text-xs text-slate-500">Cost incl. freight (${form.currency})</span></div></div>
           <div className="bill-item-freight"><label className="flex items-center gap-3 text-xs text-slate-500">Freight ({form.currency})<Input aria-label={`Freight charges for line ${index + 1}`} className="max-w-40" type="number" min="0" step="0.01" value={line.freightCharge || "0"} onChange={event => update(index, { freightCharge: event.target.value })} /></label></div>
         </div>;
       })}
