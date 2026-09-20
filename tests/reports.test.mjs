@@ -101,6 +101,95 @@ async function report(type, location = locationId) {
   return report;
 }
 
+test("customer postings hit the right accounts and customer reports stay in sync", async () => {
+  const created = await workspaces.POST(post({ type: "company", name: "Customer account audit", baseCurrency: "AED" }));
+  assert.equal(created.status, 201);
+  const { company: salesCompany } = await created.json();
+  const cid = salesCompany.id, lid = salesCompany.locations[0].id;
+
+  const accounts = (await database.query("SELECT id,name,system_role FROM accounts WHERE company_id=$1", [cid])).rows;
+  const idFor = (role) => accounts.find((account) => account.system_role === role)?.id;
+  assert.ok(idFor("AR") && idFor("SALES") && idFor("OUTPUT_VAT") && idFor("BANK"));
+
+  await database.query("INSERT INTO contacts(company_id,type,name,currency,ledger_account_id) VALUES ($1,'customer','Customer Audit','AED',$2)", [cid,idFor("AR")]);
+  const itemId = (await database.query("INSERT INTO items(company_id,location_id,sku,item_number,name,item_type,quantity,cost,sales_price,income_account_id) VALUES ($1,$2,'CUS-ITEM','CUS-1','Customer Item','non-stock-part',0,0,100,$3) RETURNING id", [cid,lid,idFor("SALES")])).rows[0].id;
+
+  const records = await vite.ssrLoadModule("/app/api/records/route.ts");
+  const invoiceResponse = await records.POST(new Request("https://app.test/api/records", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      kind: "transactions", type: "invoice", companyId: cid, locationId: lid,
+      number: "CUS-AUDIT-1", party: "Customer Audit", transactionDate: "2026-09-20", dueDate: "2026-09-30",
+      currency: "AED", exchangeRate: 1,
+      lines: [{ itemId, description: "Customer Item", quantity: 1, unitPrice: 100, unitCost: 0, vatCode: "STANDARD" }],
+    }),
+  }));
+  assert.equal(invoiceResponse.status, 201, await invoiceResponse.text());
+  const invoice = (await invoiceResponse.json()).record;
+
+  const invoiceJournal = (await database.query("SELECT jl.account_name,jl.debit,jl.credit FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.transaction_id=$1 ORDER BY jl.id", [invoice.id])).rows;
+  assert.deepEqual(invoiceJournal, [
+    { account_name: "Accounts Receivable", debit: 105, credit: 0 },
+    { account_name: "Sales Revenue", debit: 0, credit: 100 },
+    { account_name: "VAT Payable", debit: 0, credit: 5 },
+  ]);
+
+  const paymentResponse = await records.POST(new Request("https://app.test/api/records", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      kind: "transactions", type: "customer payment", companyId: cid, locationId: lid,
+      number: "CUS-PAY-1", party: "Customer Audit", account: "Business Bank",
+      transactionDate: "2026-09-21", currency: "AED", exchangeRate: 1,
+      invoiceIds: [invoice.id],
+      lines: [{ description: "Partial payment", quantity: 1, unitPrice: 40, unitCost: 0, vatCode: "ZERO" }],
+    }),
+  }));
+  assert.equal(paymentResponse.status, 201, await paymentResponse.text());
+  const payment = (await paymentResponse.json()).record;
+  const paymentJournal = (await database.query("SELECT jl.account_name,jl.debit,jl.credit FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.transaction_id=$1 ORDER BY jl.id", [payment.id])).rows;
+  assert.deepEqual(paymentJournal, [
+    { account_name: "Business Bank", debit: 40, credit: 0 },
+    { account_name: "Accounts Receivable", debit: 0, credit: 40 },
+  ]);
+
+  const reportGet = async (type) => {
+    const result = await GET(new Request("https://app.test/api/reports?" + new URLSearchParams({
+      type, companyId: String(cid), locationId: String(lid), currency: "AED",
+      customer: "Customer Audit", statementDate: "2026-09-30", periodStart: "2026-09-01", periodEnd: "2026-09-30",
+    })));
+    assert.equal(result.status, 200, await result.text());
+    return (await result.json()).report;
+  };
+
+  const open = await reportGet("customer-open-balance");
+  assert.equal(open.openBalance.totalOpen, 65);
+  assert.equal(open.rows.find((row) => row.number === "CUS-AUDIT-1").openBalance, 65);
+
+  const agingDetail = await reportGet("ar-aging-detail");
+  assert.equal(agingDetail.rows.find((row) => row.number === "CUS-AUDIT-1").amount, 65);
+
+  const agingSummary = await reportGet("ar-aging-summary");
+  assert.equal(agingSummary.rows.find((row) => row.name === "Customer Audit").total, 65);
+
+  const openInvoices = await reportGet("open-invoices");
+  assert.equal(openInvoices.rows.find((row) => row.number === "CUS-AUDIT-1").amount, 65);
+
+  const balance = await reportGet("customer-balances");
+  assert.equal(balance.rows.find((row) => row.name === "Customer Audit").amount, 65);
+
+  const detail = await reportGet("customer-balance-detail");
+  assert.equal(detail.rows.filter((row) => row.customer === "Customer Audit").at(-1).balance, 65);
+
+  const sales = await reportGet("sales-by-customer");
+  assert.equal(sales.rows.find((row) => row.name === "Customer Audit").amount, 105);
+
+  const received = await reportGet("online-received-payments");
+  assert.equal(received.rows.find((row) => row.number === "CUS-PAY-1").amount, 40);
+
+  const pnl = await reportGet("profit-loss");
+  assert.equal(pnl.summary.income, 100);
+});
+
 test("purchase postings hit the right accounts and purchase reports stay in sync", async () => {
   const created = await workspaces.POST(post({ type: "company", name: "Purchase account audit", baseCurrency: "AED" }));
   assert.equal(created.status, 201);
