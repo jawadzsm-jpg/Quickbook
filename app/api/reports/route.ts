@@ -4,7 +4,7 @@ import { profitLoss } from "@/lib/profit-loss";
 import { customerOpenBalance } from "@/lib/customer-open-balance";
 import { and, asc, eq, inArray, sum } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { accounts, auditLog, billPaymentAllocations, companies, contacts, exchangeRates, inventoryLocations, items, journalEntries, journalLines, transactionLines, transactions, vatCodes } from "../../../db/schema";
+import { accounts, auditLog, billPaymentAllocations, companies, contacts, exchangeRates, inventoryLocations, invoicePaymentAllocations, items, journalEntries, journalLines, transactionLines, transactions, vatCodes } from "../../../db/schema";
 import { stockPricingRows } from "@/lib/stock-pricing";
 import { canAccessCompany, hasPermission, isAdministrator, requireApiUser } from "@/lib/auth";
 

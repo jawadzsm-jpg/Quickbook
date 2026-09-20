@@ -124,7 +124,7 @@ test("sales postings hit revenue, VAT, COGS and inventory accounts and sales rep
       lines: [{ itemId, description: "Sales Stock", quantity: 1, unitPrice: 100, unitCost: 60, vatCode: "STANDARD" }],
     }),
   }));
-  assert.equal(response.status, 201, await response.text());
+  assert.equal(response.status, 201, await response.clone().text());
   const invoice = (await response.json()).record;
 
   const journal = (await database.query("SELECT jl.account_name,jl.debit,jl.credit FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.transaction_id=$1 ORDER BY jl.id", [invoice.id])).rows;
@@ -141,7 +141,7 @@ test("sales postings hit revenue, VAT, COGS and inventory accounts and sales rep
     const result = await GET(new Request("https://app.test/api/reports?" + new URLSearchParams({
       type, companyId: String(cid), locationId: String(lid), periodStart: "2026-09-01", periodEnd: "2026-09-30",
     })));
-    assert.equal(result.status, 200, await result.text());
+    assert.equal(result.status, 200, await result.clone().text());
     return (await result.json()).report;
   };
 
@@ -208,7 +208,7 @@ test("customer postings hit the right accounts and customer reports stay in sync
       lines: [{ itemId, description: "Customer Item", quantity: 1, unitPrice: 100, unitCost: 0, vatCode: "STANDARD" }],
     }),
   }));
-  assert.equal(invoiceResponse.status, 201, await invoiceResponse.text());
+  assert.equal(invoiceResponse.status, 201, await invoiceResponse.clone().text());
   const invoice = (await invoiceResponse.json()).record;
 
   const invoiceJournal = (await database.query("SELECT jl.account_name,jl.debit,jl.credit FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.transaction_id=$1 ORDER BY jl.id", [invoice.id])).rows;
@@ -228,7 +228,7 @@ test("customer postings hit the right accounts and customer reports stay in sync
       lines: [{ description: "Partial payment", quantity: 1, unitPrice: 40, unitCost: 0, vatCode: "ZERO" }],
     }),
   }));
-  assert.equal(paymentResponse.status, 201, await paymentResponse.text());
+  assert.equal(paymentResponse.status, 201, await paymentResponse.clone().text());
   const payment = (await paymentResponse.json()).record;
   const paymentJournal = (await database.query("SELECT jl.account_name,jl.debit,jl.credit FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.transaction_id=$1 ORDER BY jl.id", [payment.id])).rows;
   assert.deepEqual(paymentJournal, [
@@ -241,7 +241,7 @@ test("customer postings hit the right accounts and customer reports stay in sync
       type, companyId: String(cid), locationId: String(lid), currency: "AED",
       customer: "Customer Audit", statementDate: "2026-09-30", periodStart: "2026-09-01", periodEnd: "2026-09-30",
     })));
-    assert.equal(result.status, 200, await result.text());
+    assert.equal(result.status, 200, await result.clone().text());
     return (await result.json()).report;
   };
 
@@ -302,7 +302,7 @@ test("purchase postings hit the right accounts and purchase reports stay in sync
       ],
     }),
   }));
-  assert.equal(response.status, 201, await response.text());
+  assert.equal(response.status, 201, await response.clone().text());
   const bill = (await response.json()).record;
 
   const journal = (await database.query("SELECT jl.account_name,jl.debit,jl.credit FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.transaction_id=$1 ORDER BY jl.id", [bill.id])).rows;
@@ -317,7 +317,7 @@ test("purchase postings hit the right accounts and purchase reports stay in sync
     const result = await GET(new Request("https://app.test/api/reports?" + new URLSearchParams({
       type, companyId: String(cid), locationId: String(lid), periodStart: "2026-09-01", periodEnd: "2026-09-30",
     })));
-    assert.equal(result.status, 200, await result.text());
+    assert.equal(result.status, 200, await result.clone().text());
     return (await result.json()).report;
   };
 
