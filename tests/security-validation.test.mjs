@@ -24,6 +24,15 @@ test("stock PIN verification rejects absent, wrong and malformed credentials", (
   assert.equal(verifyAdminPin("583921", "invalid"), false);
 });
 
+test("dark mode keeps striped report rows and darkest utility text readable", () => {
+  const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  const pnl = readFileSync(new URL("../app/profit-loss-report.tsx", import.meta.url), "utf8");
+  assert.match(css, /even\\:bg-slate-50:nth-child\(even\).*background-color: #152136/);
+  for (const token of ["text-slate-950", "text-emerald-950", "text-sky-950", "text-amber-950", "text-red-950"]) assert.match(css, new RegExp(`\\.${token}`));
+  assert.match(pnl, /dark:even:bg-slate-900/);
+  assert.match(pnl, /dark:bg-emerald-950 dark:text-emerald-100/);
+});
+
 const {defaultDocumentDesign,defaultElementProperties,validateDocumentDesign} = await sourceModule('../lib/document-design.ts');
 test('template properties and saved copies validate without breaking older settings', () => {
  const {properties,savedTemplates,...legacy}=structuredClone(defaultDocumentDesign);void properties;void savedTemplates;
