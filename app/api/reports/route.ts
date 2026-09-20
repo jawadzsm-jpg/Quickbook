@@ -142,9 +142,16 @@ export async function GET(request: Request) {
       });
       return [...grouped].map(([name, value]) => ({ name, ...value, profit: value.amount - value.cost }));
     };
+    const billAllocations = await db.select({ billId: billPaymentAllocations.billId, amount: billPaymentAllocations.amount }).from(billPaymentAllocations).innerJoin(transactions, eq(transactions.id, billPaymentAllocations.paymentId)).where(eq(transactions.companyId, companyId));
+    const openBillAmount = (row: typeof scopedTransactions[number]) => Math.max(0,
+      row.total
+      - rawTransactions.filter((payment) => payment.billId === row.id).reduce((sum, payment) => sum + payment.total, 0)
+      - billAllocations.filter((payment) => payment.billId === row.id).reduce((sum, payment) => sum + payment.amount, 0)
+    ) * row.exchangeRate;
     const aged = (types: string[]) => scopedTransactions.filter((row) => types.includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => {
+      const amount = openBillAmount(row);
       const age = row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0;
-      return { name: row.party, current: age <= 0 ? row.baseTotal : 0, days30: age > 0 && age <= 30 ? row.baseTotal : 0, days60: age > 30 && age <= 60 ? row.baseTotal : 0, days90: age > 60 ? row.baseTotal : 0, total: row.baseTotal };
+      return { name: row.party, current: age <= 0 ? amount : 0, days30: age > 0 && age <= 30 ? amount : 0, days60: age > 30 && age <= 60 ? amount : 0, days90: age > 60 ? amount : 0, total: amount };
     });
     const agingColumns = [{ key: "name", label: "Name" }, { key: "current", label: "Current", ...money }, { key: "days30", label: "1–30", ...money }, { key: "days60", label: "31–60", ...money }, { key: "days90", label: "61+", ...money }, { key: "total", label: "Total", ...money }];
     const customerTypes = new Set(["invoice", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"]);
@@ -406,7 +413,7 @@ export async function GET(request: Request) {
       columns = agingColumns;
     } else if (key === "ap-aging-detail") {
       title = "A/P Aging Detail";
-      rows = scopedTransactions.filter((row) => ["bill", "received item bill"].includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => { const age = row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0; return { supplier: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, status: row.status, age, amount: row.baseTotal }; });
+      rows = scopedTransactions.filter((row) => ["bill", "received item bill"].includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => { const age = row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0; return { supplier: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, status: row.status, age, amount: openBillAmount(row) }; });
       columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "No." }, { key: "status", label: "Status" }, { key: "age", label: "Days Overdue" }, { key: "amount", label: "Open Amount", ...money }];
     } else if (key === "customer-statements" || key === "vendor-statements") {
       const vendor = key === "vendor-statements";
@@ -608,8 +615,7 @@ export async function GET(request: Request) {
       columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "charge", label: "Bill / Charge", ...money }, { key: "payment", label: "Payment / Credit", ...money }, { key: "balance", label: "Balance", ...money }];
     } else if (key === "unpaid-bills-detail") {
       title = "Unpaid Bills Detail";
-      const billAllocations = await db.select({billId:billPaymentAllocations.billId,amount:billPaymentAllocations.amount}).from(billPaymentAllocations).innerJoin(transactions,eq(transactions.id,billPaymentAllocations.paymentId)).where(eq(transactions.companyId,companyId));
-      rows = scopedTransactions.filter((row) => ["bill", "received item bill"].includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => ({ supplier: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, type: row.type, status: row.status, overdueDays: row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0, currency: row.currency, amount: Math.max(0, row.total - rawTransactions.filter((payment) => payment.billId === row.id).reduce((sum, payment) => sum + payment.total, 0) - billAllocations.filter((payment) => payment.billId === row.id).reduce((sum,payment) => sum + payment.amount,0)) * row.exchangeRate }));
+      rows = scopedTransactions.filter((row) => ["bill", "received item bill"].includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => ({ supplier: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, type: row.type, status: row.status, overdueDays: row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0, currency: row.currency, amount: openBillAmount(row) }));
       columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Bill Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "Bill No." }, { key: "type", label: "Type" }, { key: "status", label: "Status" }, { key: "overdueDays", label: "Days Overdue" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Open Amount", ...money }];
     } else if (key === "accounts-payable-graph") {
       title = "Accounts Payable Graph";
