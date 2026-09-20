@@ -101,6 +101,54 @@ async function report(type, location = locationId) {
   return report;
 }
 
+test("every Report Center entry opens its matching backend report", async () => {
+  // Keep this test tied directly to the visible Report Center catalogue so a renamed,
+  // moved, or newly added button cannot silently fall back to a different report.
+  const enterpriseSource = await readFile(`${root}app/enterprise-app.tsx`, "utf8");
+  const start = enterpriseSource.indexOf("const allReports = [");
+  const end = enterpriseSource.indexOf("] as const;", start);
+  assert.ok(start >= 0 && end > start, "Report Center catalogue not found");
+  const catalogue = enterpriseSource.slice(start, end);
+  const definitions = [...catalogue.matchAll(/\["([^"]+)",\s*"([^"]+)",\s*"([^"]+)",\s*"([^"]+)"\]/g)]
+    .map((match) => ({ name: match[1], description: match[2], category: match[3], key: match[4] }));
+  assert.ok(definitions.length >= 100, `Expected full Report Center catalogue, found ${definitions.length}`);
+  assert.equal(new Set(definitions.map((definition) => definition.key)).size, definitions.length, "Report Center keys must be unique");
+
+  // Statement reports need a matching vendor as well as the customer fixture.
+  await db.insert(schema.contacts).values({ companyId, name: "USD Customer", type: "vendor", currency: "USD", balance: 0 });
+
+  const failures = [];
+  for (const definition of definitions) {
+    const params = new URLSearchParams({
+      type: definition.key,
+      companyId: String(companyId),
+      locationId: String(locationId),
+      currency: "USD",
+      customer: "USD Customer",
+      statementDate: "2026-09-30",
+      periodStart: "2026-09-01",
+      periodEnd: "2026-09-30",
+      memo: "Report Center smoke check",
+    });
+    const response = await GET(new Request(`https://app.test/api/reports?${params}`));
+    if (response.status !== 200) {
+      let error = "";
+      try { error = JSON.stringify(await response.clone().json()); } catch { error = await response.text(); }
+      failures.push(`${definition.key}: HTTP ${response.status} ${error}`);
+      continue;
+    }
+    const payload = await response.json();
+    if (!payload.report || payload.report.key !== definition.key) {
+      failures.push(`${definition.key}: returned ${payload.report?.key ?? "no report key"}`);
+      continue;
+    }
+    if (!Array.isArray(payload.report.columns) || !Array.isArray(payload.report.rows) || !payload.report.title) {
+      failures.push(`${definition.key}: incomplete report payload`);
+    }
+  }
+  assert.deepEqual(failures, []);
+});
+
 test("customer summary matches detail in home currency after payments and credits", async () => {
   const summary = await report("customer-balances");
   const detail = await report("customer-balance-detail");
