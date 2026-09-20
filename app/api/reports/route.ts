@@ -71,7 +71,7 @@ export async function GET(request: Request) {
       db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(asc(accounts.code)),
       db.select({ name: journalLines.accountName, debit: sum(journalLines.debit), credit: sum(journalLines.credit) }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(journalFilter).groupBy(journalLines.accountName).orderBy(asc(journalLines.accountName)),
       db.select({ date: journalEntries.entryDate, reference: journalEntries.reference, description: journalEntries.description, account: journalLines.accountName, debit: journalLines.debit, credit: journalLines.credit, originalDebit: journalLines.originalDebit, originalCredit: journalLines.originalCredit, entryCurrency: journalEntries.currency, exchangeRate: journalEntries.exchangeRate }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(journalFilter).orderBy(asc(journalEntries.entryDate), asc(journalLines.id)),
-      db.select({ itemId: transactionLines.itemId, description: transactionLines.description, quantity: transactionLines.quantity, subtotal: transactionLines.subtotal, unitCost: transactionLines.unitCost, vatCode: transactionLines.vatCode, vatRate: transactionLines.vatRate, vatAmount: transactionLines.vatAmount, type: transactions.type, status: transactions.status, locationId: transactions.locationId, party: transactions.party, date: transactions.transactionDate, number: transactions.number, transactionCurrency: transactions.currency, exchangeRate: transactions.exchangeRate, isImport: transactions.isImport }).from(transactionLines).innerJoin(transactions, eq(transactionLines.transactionId, transactions.id)).where(and(eq(transactions.companyId, companyId), scoped ? eq(transactions.locationId, locationId) : undefined)),
+      db.select({ itemId: transactionLines.itemId, description: transactionLines.description, quantity: transactionLines.quantity, unitPrice: transactionLines.unitPrice, subtotal: transactionLines.subtotal, unitCost: transactionLines.unitCost, freightCharge: transactionLines.freightCharge, isFreightCharge: transactionLines.isFreightCharge, vatCode: transactionLines.vatCode, vatRate: transactionLines.vatRate, vatAmount: transactionLines.vatAmount, type: transactions.type, status: transactions.status, locationId: transactions.locationId, party: transactions.party, date: transactions.transactionDate, number: transactions.number, transactionCurrency: transactions.currency, exchangeRate: transactions.exchangeRate, isImport: transactions.isImport }).from(transactionLines).innerJoin(transactions, eq(transactionLines.transactionId, transactions.id)).where(and(eq(transactions.companyId, companyId), scoped ? eq(transactions.locationId, locationId) : undefined)),
       db.select().from(vatCodes).where(eq(vatCodes.companyId, companyId)).orderBy(asc(vatCodes.code)),
       db.select().from(exchangeRates).where(and(eq(exchangeRates.companyId, companyId), eq(exchangeRates.active, true))),
       db.select().from(inventoryLocations).where(eq(inventoryLocations.companyId, companyId)),
@@ -114,6 +114,28 @@ export async function GET(request: Request) {
     const baseSubtotal = (row: typeof allTransactions[number]) => Number(row.subtotal) * Number(row.exchangeRate);
     const rateMap = new Map(currentRates.map((rate) => [rate.currencyCode, Number(rate.rate)]));
     const accountType = (name: string) => accountTypes.get(name) ?? "Unclassified";
+    const activeInventoryAccounts = allAccounts.filter((account) => account.active && (account.systemRole === "INVENTORY" || /inventory asset/i.test(account.name)));
+    const defaultInventoryAccount = activeInventoryAccounts.find((account) => account.currency === currency) ?? activeInventoryAccounts[0];
+    const inventoryAccountFor = (item: typeof allItems[number]) => {
+      const linked = activeInventoryAccounts.find((account) => account.id === item.assetAccountId) ?? defaultInventoryAccount;
+      return linked ? `${linked.code} · ${linked.name}` : "Inventory Asset not configured";
+    };
+    const weightedInventoryCosts = new Map<number, { quantity: number; value: number }>();
+    for (const line of rawLines.filter((entry) => entry.itemId && !entry.isFreightCharge && ["bill", "item receipt"].includes(entry.type))) {
+      const quantity = Number(line.quantity);
+      if (!line.itemId || quantity <= 0) continue;
+      const old = weightedInventoryCosts.get(line.itemId) ?? { quantity: 0, value: 0 };
+      weightedInventoryCosts.set(line.itemId, {
+        quantity: old.quantity + quantity,
+        value: old.value + (quantity * Number(line.unitPrice) + Number(line.freightCharge || 0)) * Number(line.exchangeRate),
+      });
+    }
+    const inventoryCostFor = (item: typeof allItems[number]) => {
+      const weighted = weightedInventoryCosts.get(item.id);
+      const amount = weighted && weighted.quantity > 0 ? weighted.value / weighted.quantity : Number(item.lastPurchasePrice) || Number(item.cost) || 0;
+      return Math.round(amount * 100) / 100;
+    };
+    const stockItems = allItems.filter((item) => item.status === "active" && item.itemType === "stock-part");
     const pnlAmount = (entry: typeof journal[number]) => incomeTypes.has(accountType(entry.account)) ? Number(entry.credit) - Number(entry.debit) : expenseTypes.has(accountType(entry.account)) ? Number(entry.debit) - Number(entry.credit) : 0;
     const periodProfit = (start: string, end: string) => journal.filter((entry) => entry.date >= start && entry.date <= end).reduce((sum, entry) => sum + (incomeTypes.has(accountType(entry.account)) ? Number(entry.credit) - Number(entry.debit) : -(expenseTypes.has(accountType(entry.account)) ? Number(entry.debit) - Number(entry.credit) : 0)), 0);
     const reportYear = new Date().getUTCFullYear();
@@ -650,34 +672,34 @@ export async function GET(request: Request) {
       columns = [{ key: "name", label: "Item" }, { key: "quantity", label: "Quantity" }, { key: "amount", label: "Sales / Purchases", ...money }, ...(key === "item-profitability" ? [{ key: "profit", label: "Gross Profit", ...money }] : [])];
     } else if (key === "inventory-valuation") {
       title = "Stock Valuation Summary";
-      const grouped = new Map<string, { items: number; quantity: number; value: number }>();
-      allItems.filter((row) => row.status === "active").forEach((row) => { const category = row.category || "General"; const old = grouped.get(category) ?? { items: 0, quantity: 0, value: 0 }; grouped.set(category, { items: old.items + 1, quantity: old.quantity + row.quantity, value: old.value + row.quantity * row.cost }); });
-      rows = [...grouped].map(([category, value]) => ({ category, ...value })).sort((a, b) => b.value - a.value);
-      columns = [{ key: "category", label: "Category" }, { key: "items", label: "Items" }, { key: "quantity", label: "On Hand" }, { key: "value", label: "Stock Value", ...money }];
+      const grouped = new Map<string, { account: string; category: string; items: number; quantity: number; value: number }>();
+      stockItems.forEach((row) => { const account = inventoryAccountFor(row); const category = row.category || "General"; const groupKey = `${account}\u0000${category}`; const old = grouped.get(groupKey) ?? { account, category, items: 0, quantity: 0, value: 0 }; grouped.set(groupKey, { ...old, items: old.items + 1, quantity: old.quantity + row.quantity, value: old.value + row.quantity * inventoryCostFor(row) }); });
+      rows = [...grouped.values()].sort((a, b) => a.account.localeCompare(b.account) || b.value - a.value);
+      columns = [{ key: "account", label: "Inventory Asset Account" }, { key: "category", label: "Category" }, { key: "items", label: "Items" }, { key: "quantity", label: "On Hand" }, { key: "value", label: "Stock Value", ...money }];
     } else if (key === "inventory-valuation-detail") {
       title = "Stock Valuation Detail";
-      rows = allItems.filter((row) => row.status === "active").map((row) => ({ itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, category: row.category, quantity: row.quantity, cost: row.cost, value: row.quantity * row.cost }));
-      columns = [{ key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "category", label: "Category" }, { key: "quantity", label: "On Hand" }, { key: "cost", label: "Avg. Cost", ...money }, { key: "value", label: "Stock Value", ...money }];
+      rows = stockItems.map((row) => ({ account: inventoryAccountFor(row), itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, category: row.category, quantity: row.quantity, cost: inventoryCostFor(row), value: row.quantity * inventoryCostFor(row) }));
+      columns = [{ key: "account", label: "Inventory Asset Account" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "category", label: "Category" }, { key: "quantity", label: "On Hand" }, { key: "cost", label: "Avg. Cost", ...money }, { key: "value", label: "Stock Value", ...money }];
     } else if (key === "inventory-status") {
       title = "Stock Status by Item";
-      rows = allItems.filter((row) => row.status === "active").map((row) => ({ itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, quantity: row.quantity, reorder: row.reorderPoint, available: Math.max(0, row.quantity), status: row.quantity <= 0 ? "Out of Stock" : row.quantity <= row.reorderPoint ? "Low Stock" : "In Stock", value: row.quantity * row.cost }));
-      columns = [{ key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "quantity", label: "On Hand" }, { key: "available", label: "Available" }, { key: "reorder", label: "Reorder" }, { key: "status", label: "Status" }, { key: "value", label: "Stock Value", ...money }];
+      rows = stockItems.map((row) => ({ account: inventoryAccountFor(row), itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, quantity: row.quantity, reorder: row.reorderPoint, available: Math.max(0, row.quantity), status: row.quantity <= 0 ? "Out of Stock" : row.quantity <= row.reorderPoint ? "Low Stock" : "In Stock", value: row.quantity * inventoryCostFor(row) }));
+      columns = [{ key: "account", label: "Inventory Asset Account" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "quantity", label: "On Hand" }, { key: "available", label: "Available" }, { key: "reorder", label: "Reorder" }, { key: "status", label: "Status" }, { key: "value", label: "Stock Value", ...money }];
     } else if (key === "inventory-status-supplier") {
       title = "Stock Status by Supplier";
       const latestSupplier = new Map<number, { date: string; supplier: string }>();
-      lines.filter((line) => line.itemId && ["bill", "received item bill"].includes(line.type)).forEach((line) => { const itemId = Number(line.itemId); const old = latestSupplier.get(itemId); if (!old || line.date >= old.date) latestSupplier.set(itemId, { date: line.date, supplier: line.party }); });
-      const grouped = new Map<string, { items: number; quantity: number; lowStock: number; outOfStock: number; value: number }>();
-      allItems.filter((row) => row.status === "active").forEach((row) => { const supplier = latestSupplier.get(row.id)?.supplier ?? "Unassigned"; const old = grouped.get(supplier) ?? { items: 0, quantity: 0, lowStock: 0, outOfStock: 0, value: 0 }; grouped.set(supplier, { items: old.items + 1, quantity: old.quantity + row.quantity, lowStock: old.lowStock + (row.quantity > 0 && row.quantity <= row.reorderPoint ? 1 : 0), outOfStock: old.outOfStock + (row.quantity <= 0 ? 1 : 0), value: old.value + row.quantity * row.cost }); });
-      rows = [...grouped].map(([supplier, value]) => ({ supplier, ...value })).sort((a, b) => b.value - a.value);
-      columns = [{ key: "supplier", label: "Latest Supplier" }, { key: "items", label: "Items" }, { key: "quantity", label: "On Hand" }, { key: "lowStock", label: "Low Stock" }, { key: "outOfStock", label: "Out of Stock" }, { key: "value", label: "Stock Value", ...money }];
+      rawLines.filter((line) => line.itemId && !line.isFreightCharge && ["bill", "item receipt"].includes(line.type)).forEach((line) => { const itemId = Number(line.itemId); const old = latestSupplier.get(itemId); if (!old || line.date >= old.date) latestSupplier.set(itemId, { date: line.date, supplier: line.party }); });
+      const grouped = new Map<string, { account: string; supplier: string; items: number; quantity: number; lowStock: number; outOfStock: number; value: number }>();
+      stockItems.forEach((row) => { const account = inventoryAccountFor(row); const supplier = latestSupplier.get(row.id)?.supplier ?? "Unassigned"; const groupKey = `${account}\u0000${supplier}`; const old = grouped.get(groupKey) ?? { account, supplier, items: 0, quantity: 0, lowStock: 0, outOfStock: 0, value: 0 }; grouped.set(groupKey, { ...old, items: old.items + 1, quantity: old.quantity + row.quantity, lowStock: old.lowStock + (row.quantity > 0 && row.quantity <= row.reorderPoint ? 1 : 0), outOfStock: old.outOfStock + (row.quantity <= 0 ? 1 : 0), value: old.value + row.quantity * inventoryCostFor(row) }); });
+      rows = [...grouped.values()].sort((a, b) => a.account.localeCompare(b.account) || b.value - a.value);
+      columns = [{ key: "account", label: "Inventory Asset Account" }, { key: "supplier", label: "Latest Supplier" }, { key: "items", label: "Items" }, { key: "quantity", label: "On Hand" }, { key: "lowStock", label: "Low Stock" }, { key: "outOfStock", label: "Out of Stock" }, { key: "value", label: "Stock Value", ...money }];
     } else if (key === "physical-inventory") {
       title = "Physical Stock Worksheet";
-      rows = allItems.filter((row) => row.status === "active").map((row) => ({ itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, category: row.category, quantity: row.quantity, count: "", difference: "" }));
-      columns = [{ key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "category", label: "Category" }, { key: "quantity", label: "System Qty" }, { key: "count", label: "Physical Count" }, { key: "difference", label: "Difference" }];
+      rows = stockItems.map((row) => ({ account: inventoryAccountFor(row), itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, category: row.category, quantity: row.quantity, count: "", difference: "" }));
+      columns = [{ key: "account", label: "Inventory Asset Account" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "category", label: "Category" }, { key: "quantity", label: "System Qty" }, { key: "count", label: "Physical Count" }, { key: "difference", label: "Difference" }];
     } else if (key === "pending-builds") {
       title = "Pending Builds";
-      rows = allItems.filter((row) => row.status === "active" && row.quantity < row.reorderPoint).map((row) => ({ itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, category: row.category, onHand: row.quantity, buildLevel: row.reorderPoint, required: Math.max(0, row.reorderPoint - row.quantity), status: row.quantity <= 0 ? "Required" : "Below Level" }));
-      columns = [{ key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item / Assembly" }, { key: "category", label: "Category" }, { key: "onHand", label: "On Hand" }, { key: "buildLevel", label: "Build Level" }, { key: "required", label: "Required Qty" }, { key: "status", label: "Status" }];
+      rows = stockItems.filter((row) => row.quantity < row.reorderPoint).map((row) => ({ account: inventoryAccountFor(row), itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, category: row.category, onHand: row.quantity, buildLevel: row.reorderPoint, required: Math.max(0, row.reorderPoint - row.quantity), status: row.quantity <= 0 ? "Required" : "Below Level" }));
+      columns = [{ key: "account", label: "Inventory Asset Account" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item / Assembly" }, { key: "category", label: "Category" }, { key: "onHand", label: "On Hand" }, { key: "buildLevel", label: "Build Level" }, { key: "required", label: "Required Qty" }, { key: "status", label: "Status" }];
     } else if (key === "open-invoices") {
       title = "Open Invoices";
       const invoiceAllocations = await db.select({ invoiceId: invoicePaymentAllocations.invoiceId, amount: invoicePaymentAllocations.amount }).from(invoicePaymentAllocations).innerJoin(transactions, eq(transactions.id, invoicePaymentAllocations.paymentId)).where(eq(transactions.companyId, companyId));

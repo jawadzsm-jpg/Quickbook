@@ -286,7 +286,7 @@ test("purchase postings hit the right accounts and purchase reports stay in sync
   assert.ok(idFor("INVENTORY") && idFor("PURCHASES") && idFor("INPUT_VAT") && idFor("AP"));
 
   await database.query("INSERT INTO contacts(company_id,type,name,currency) VALUES ($1,'vendor','Purchase Audit Vendor','AED')", [cid]);
-  const stockId = (await database.query("INSERT INTO items(company_id,location_id,sku,item_number,name,item_type,quantity,cost,asset_account_id,cogs_account_id) VALUES ($1,$2,'PUR-STOCK','PUR-1','Purchase Stock','stock-part',0,0,$3,$4) RETURNING id", [cid,lid,idFor("INVENTORY"),idFor("PURCHASES")])).rows[0].id;
+  const stockId = (await database.query("INSERT INTO items(company_id,location_id,sku,item_number,name,item_type,quantity,reorder_point,cost,asset_account_id,cogs_account_id) VALUES ($1,$2,'PUR-STOCK','PUR-1','Purchase Stock','stock-part',0,2,0,$3,$4) RETURNING id", [cid,lid,idFor("INVENTORY"),idFor("PURCHASES")])).rows[0].id;
   const serviceId = (await database.query("INSERT INTO items(company_id,location_id,sku,item_number,name,item_type,quantity,cost,cogs_account_id) VALUES ($1,$2,'PUR-SERVICE','PUR-2','Purchase Service','non-stock-part',0,0,$3) RETURNING id", [cid,lid,idFor("PURCHASES")])).rows[0].id;
 
   const records = await vite.ssrLoadModule("/app/api/records/route.ts");
@@ -332,6 +332,20 @@ test("purchase postings hit the right accounts and purchase reports stay in sync
 
   const pnl = await reportGet("profit-loss");
   assert.equal(pnl.summary.expenses, 50); // Stock stays on Inventory Asset; only non-stock purchase is expensed.
+
+  for (const type of ["inventory-valuation", "inventory-valuation-detail", "inventory-status", "inventory-status-supplier", "physical-inventory", "pending-builds"]) {
+    const inventoryReport = await reportGet(type);
+    assert.ok(inventoryReport.columns.some((column) => column.key === "account" && column.label === "Inventory Asset Account"));
+    assert.ok(inventoryReport.rows.length > 0, `${type} should include the stock item`);
+    assert.ok(inventoryReport.rows.every((row) => row.account === "1200 · Inventory Asset"));
+    assert.ok(inventoryReport.rows.every((row) => row.sku !== "PUR-SERVICE"), `${type} must exclude non-stock items`);
+  }
+  const valuationDetail = await reportGet("inventory-valuation-detail");
+  assert.deepEqual(valuationDetail.rows.map((row) => ({ sku: row.sku, cost: row.cost, value: row.value })), [{ sku: "PUR-STOCK", cost: 100, value: 100 }]);
+  const supplierStock = await reportGet("inventory-status-supplier");
+  assert.equal(supplierStock.rows[0].supplier, "Purchase Audit Vendor");
+  const pendingBuilds = await reportGet("pending-builds");
+  assert.equal(pendingBuilds.rows[0].required, 1);
 
   const payment = (await database.query("INSERT INTO transactions(company_id,location_id,number,type,party,transaction_date,total,base_total,currency,exchange_rate,status) VALUES ($1,$2,'PUR-PAY-1','bill payment','Purchase Audit Vendor','2026-09-21',57.5,57.5,'AED',1,'paid') RETURNING id", [cid,lid])).rows[0].id;
   await database.query("INSERT INTO bill_payment_allocations(payment_id,bill_id,amount) VALUES ($1,$2,57.5)", [payment,bill.id]);
