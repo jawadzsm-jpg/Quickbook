@@ -13,8 +13,10 @@ export async function GET(request: Request) {
   if (!canAccessCompany(user, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
   try {
     const db = getDb();
-    const [account] = await db.select({ name: accounts.name, currency: companies.baseCurrency }).from(accounts).innerJoin(companies, eq(companies.id, accounts.companyId)).where(and(eq(accounts.id, accountId), eq(accounts.companyId, companyId)));
+    const [account] = await db.select({ name: accounts.name, accountCurrency: accounts.currency, baseCurrency: companies.baseCurrency }).from(accounts).innerJoin(companies, eq(companies.id, accounts.companyId)).where(and(eq(accounts.id, accountId), eq(accounts.companyId, companyId)));
     if (!account) return Response.json({ error: "Account not found." }, { status: 404 });
+    const [duplicate] = await db.select({ count: sql<number>`count(*)` }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.name, account.name)));
+    const currencyFilter = Number(duplicate?.count ?? 0) > 1 ? sql`and coalesce(j.currency, ${account.baseCurrency}) = ${account.accountCurrency}` : sql``;
     const result = await db.execute(sql`
       with history as (
         select j.id, j.entry_date as date, j.reference, j.description,
@@ -26,13 +28,13 @@ export async function GET(request: Request) {
         join journal_lines lines on lines.journal_entry_id=j.id
         left join transactions t on t.id=j.transaction_id and t.company_id=j.company_id
         left join inventory_locations l on l.id=j.location_id and l.company_id=j.company_id
-        where j.company_id=${companyId} and j.posted=true and lines.account_name=${account.name}
+        where j.company_id=${companyId} and j.posted=true and lines.account_name=${account.name} ${currencyFilter}
         group by j.id,t.id,l.name
       ), paged as (select * from history order by date desc,id desc limit 50 offset ${(page - 1) * 50})
       select (select count(*)::int from history) as total,
         coalesce((select json_agg(paged order by date desc,id desc) from paged), '[]'::json) as rows
     `);
     const row = result.rows[0];
-    return Response.json({ accountId, companyId, currency: account.currency, page, pageSize: 50, total: Number(row.total), rows: row.rows }, { headers: { "Cache-Control": "private, no-store" } });
+    return Response.json({ accountId, companyId, currency: account.accountCurrency, page, pageSize: 50, total: Number(row.total), rows: row.rows }, { headers: { "Cache-Control": "private, no-store" } });
   } catch { return Response.json({ error: "Could not load account history. Please retry." }, { status: 500 }); }
 }
