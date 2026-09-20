@@ -384,8 +384,23 @@ const accountRoleOptions = [
 ] as const;
 const controlAccountFor = (accounts: DataRecord[], role: "AR" | "AP", currency: string) => accounts.find((account) => account.active && account.systemRole === role && String(account.currency) === currency);
 const linkedAccountName = (accounts: DataRecord[], role: string, fallback: string, currency?: string) => String(accounts.find((account) => account.active && account.systemRole === role && (!currency || String(account.currency) === currency))?.name ?? accounts.find((account) => account.active && account.systemRole === role)?.name ?? fallback);
+const defaultBillPurchaseAccount = (accounts: DataRecord[]) => {
+  const eligible = accounts.filter((account) => account.active && (
+    ["PURCHASES", "EXPENSE", "COGS"].includes(String(account.systemRole))
+    || ["Expense", "Other Expense", "Cost of Goods Sold"].includes(String(account.type))
+  ));
+  return String(
+    eligible.find((account) => String(account.code) === "4000" && (account.systemRole === "COGS" || account.type === "Cost of Goods Sold" || /cost of goods/i.test(String(account.name))))?.name
+    ?? eligible.find((account) => account.systemRole === "COGS")?.name
+    ?? eligible.find((account) => account.type === "Cost of Goods Sold")?.name
+    ?? eligible.find((account) => account.systemRole === "PURCHASES")?.name
+    ?? eligible.find((account) => account.type === "Expense")?.name
+    ?? eligible[0]?.name
+    ?? "Cost of Goods Sold"
+  );
+};
 const defaultPostingAccount = (type: string, accounts: DataRecord[]) => {
-  if (type === "bill") return linkedAccountName(accounts, "PURCHASES", "Purchases");
+  if (type === "bill") return defaultBillPurchaseAccount(accounts);
   if (type === "bill payment") return linkedAccountName(accounts, "BANK", "Business Bank");
   if (["item receipt", "received item bill"].includes(type)) return linkedAccountName(accounts, "SUSPENSE", "Suspense");
   if (type === "cheque") return linkedAccountName(accounts, "AP", "Accounts Payable");
@@ -1746,10 +1761,7 @@ function BillFields({ form, setForm, items, vendors, salesmen, accounts, locatio
     || ["Expense", "Other Expense", "Cost of Goods Sold"].includes(String(account.type))
   ));
   const defaultPurchaseAccount = String(
-    purchaseAccounts.find((account) => account.systemRole === "PURCHASES")?.name
-    ?? purchaseAccounts.find((account) => account.type === "Expense")?.name
-    ?? purchaseAccounts[0]?.name
-    ?? ""
+    defaultBillPurchaseAccount(purchaseAccounts)
   );
   useEffect(() => {
     if (!form.account && defaultPurchaseAccount) setForm({ ...form, account: defaultPurchaseAccount });
