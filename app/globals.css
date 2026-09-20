@@ -374,16 +374,14 @@ button, input, select { font: inherit; }
 .bill-item-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-bottom: 1px solid var(--border); }
 .bill-item-row:last-child { border-bottom: 0; }
 .bill-item-row > div { min-width: 0; padding: 0.65rem; }
-.bill-item-product, .bill-item-freight { grid-column: 1 / -1; }
+.bill-item-product { grid-column: 1 / -1; }
 .bill-item-number { grid-column: 1 / -1; }
 .bill-mobile-label { display: block; margin-bottom: 0.4rem; }
 @container (min-width: 780px) {
   .bill-mobile-heading, .bill-mobile-label { display: none; }
-  .bill-item-heading, .bill-item-row { display: grid; grid-template-columns: 2.5rem minmax(0, 1fr) 5.5rem 6.5rem 6.5rem 8rem 3.5rem; }
+  .bill-item-heading, .bill-item-row { display: grid; grid-template-columns: 2.5rem minmax(0, 1fr) 5.5rem 6.5rem 8rem 6.5rem 8rem 3.5rem; }
   .bill-item-heading > div { padding: 0.65rem; border-right: 1px solid var(--border); display: flex; align-items: center; }
   .bill-item-heading { border-bottom: 1px solid var(--border); }
   .bill-item-number, .bill-item-product { grid-column: auto; }
   .bill-item-row > div { border-right: 1px solid var(--border); }
-  .bill-item-cost { grid-column: 4; border-top: 1px solid var(--border); }
-  .bill-item-freight { grid-column: 2 / -1; }
 }
