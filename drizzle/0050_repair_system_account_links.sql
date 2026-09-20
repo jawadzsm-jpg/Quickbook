@@ -56,6 +56,7 @@ WHERE a.active = true
   AND lower(trim(a.name)) IN ('purchases','purchase account')
   AND a.type IN ('Expense','Cost of Goods Sold')
   AND NOT EXISTS (SELECT 1 FROM accounts x WHERE x.company_id=a.company_id AND x.system_role='PURCHASES');
+--> statement-breakpoint
 
 -- Create only missing control/default accounts. Codes are company-safe even if a legacy numeric code is already occupied.
 INSERT INTO accounts (company_id, code, name, type, system_role, currency)
@@ -86,6 +87,7 @@ INSERT INTO accounts (company_id, code, name, type, system_role, currency)
 SELECT c.id, 'SYS-SUSPENSE-'||c.id, 'Suspense', 'Other Current Asset', 'SUSPENSE', c.base_currency
 FROM companies c
 WHERE NOT EXISTS (SELECT 1 FROM accounts a WHERE a.company_id=c.id AND a.system_role='SUSPENSE');
+--> statement-breakpoint
 
 -- Backfill item links to the valid account purpose for legacy stock items with blank or incorrect links.
 UPDATE items i
