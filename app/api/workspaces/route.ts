@@ -108,10 +108,7 @@ export async function DELETE(request: Request) {
         if (confirmName !== company.name) return Response.json({ error: "The company name does not match." }, { status: 400 });
         const activeCompanies = await db.select({ id: companies.id }).from(companies).where(eq(companies.active, true));
         if (activeCompanies.length <= 1) return Response.json({ error: "Keep at least one active company." }, { status: 409 });
-        const transferUsage = await db.execute(sql`select exists (
-          select 1 from stock_transfers where source_company_id=${companyId} or destination_company_id=${companyId}
-        ) as used`);
-        if (transferUsage.rows[0]?.used) return Response.json({ error: "This company is referenced by stock transfers. Remove those transfers before deleting the company." }, { status: 409 });
+        await db.execute(sql`DELETE FROM stock_transfers WHERE source_company_id=${companyId} OR destination_company_id=${companyId}`);
         await db.delete(companies).where(eq(companies.id, companyId));
         return Response.json({ success: true });
       });

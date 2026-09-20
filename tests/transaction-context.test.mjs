@@ -1181,10 +1181,10 @@ test("company deletion is restricted to all-admin and requires exact confirmatio
     assert.equal((await remove('Delete Company Test')).status,403);
     globalThis.__transferTestUser={id:2,role:'all_admin',companyIds:[]};
     assert.equal((await remove('Wrong name')).status,400);
-    assert.equal((await remove('Delete Company Test')).status,409);
-    await database.query("DELETE FROM stock_transfers WHERE reference='DELETE-BLOCK'");
     assert.equal((await remove('Delete Company Test')).status,200);
+    assert.equal((await database.query("SELECT id FROM stock_transfers WHERE reference='DELETE-BLOCK'")).rows.length,0);
     assert.equal((await database.query('SELECT id FROM companies WHERE id=$1',[target])).rows.length,0);
+    assert.equal((await database.query('SELECT id FROM companies WHERE id=$1',[other])).rows.length,1);
     assert.equal((await database.query('SELECT id FROM inventory_locations WHERE company_id=$1',[target])).rows.length,0);
     assert.equal((await database.query('SELECT id FROM items WHERE company_id=$1',[target])).rows.length,0);
   } finally { delete globalThis.__transferTestUser; }
