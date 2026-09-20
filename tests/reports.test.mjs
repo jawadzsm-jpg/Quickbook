@@ -265,7 +265,7 @@ test("customer postings hit the right accounts and customer reports stay in sync
   assert.equal(detail.rows.filter((row) => row.customer === "Customer Audit").at(-1).balance, 65);
 
   const sales = await reportGet("sales-by-customer");
-  assert.equal(sales.rows.find((row) => row.name === "Customer Audit").amount, 105);
+  assert.equal(sales.rows.find((row) => row.name === "Customer Audit").amount, 100); // Net sales excludes VAT.
 
   const received = await reportGet("online-received-payments");
   assert.equal(received.rows.find((row) => row.number === payment.number).amount, 40);
