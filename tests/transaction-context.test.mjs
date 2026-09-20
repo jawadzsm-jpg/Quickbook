@@ -267,8 +267,8 @@ test('stock item links Inventory Asset and calculates average purchase cost in h
   assert.equal(good.status,201,await good.clone().text());
   const item=(await good.json()).record;
   await database.query("INSERT INTO contacts(company_id,type,name,currency) VALUES ($1,'vendor','Average Vendor','AED')",[companyId]);
-  for (const [number,qty,price,rate] of [['AVG-1',2,100,1],['AVG-2',1,200,1]]) {
-    const purchase=await POST(req({kind:'transactions',type:'bill',companyId,locationId,number,party:'Average Vendor',currency:'AED',exchangeRate:rate,lines:[{itemId:item.id,description:'Average cost item',quantity:qty,unitPrice:price,unitCost:price,vatCode:'ZERO'}]}));
+  for (const [number,qty,price,rate,freight] of [['AVG-1',2,100,1,20],['AVG-2',1,200,1,0]]) {
+    const purchase=await POST(req({kind:'transactions',type:'bill',companyId,locationId,number,party:'Average Vendor',currency:'AED',exchangeRate:rate,lines:[{itemId:item.id,description:'Average cost item',quantity:qty,unitPrice:price,unitCost:price,freightCharge:freight,vatCode:'ZERO'}]}));
     assert.equal(purchase.status,201,await purchase.clone().text());
   }
   const response=await GET(new Request(`https://app.test/api/records?kind=items&companyId=${companyId}&locationId=${locationId}`));
@@ -276,7 +276,7 @@ test('stock item links Inventory Asset and calculates average purchase cost in h
   const saved=(await response.json()).records.find(row=>row.id===item.id);
   assert.equal(saved.assetAccountId,inventoryId);
   assert.equal(saved.quantity,3);
-  assert.equal(saved.averageCost,133.33);
+  assert.equal(saved.averageCost,140);
   await database.query('DELETE FROM transactions WHERE company_id=$1',[companyId]);
   await database.query('UPDATE items SET last_purchase_price=175,cost=0 WHERE id=$1',[item.id]);
   const fallback=await GET(new Request(`https://app.test/api/records?kind=items&companyId=${companyId}&locationId=${locationId}`));

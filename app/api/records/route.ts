@@ -300,6 +300,7 @@ export async function GET(request: Request) {
         itemId: transactionLines.itemId,
         quantity: transactionLines.quantity,
         unitPrice: transactionLines.unitPrice,
+        freightCharge: transactionLines.freightCharge,
         exchangeRate: transactions.exchangeRate,
       }).from(transactionLines)
         .innerJoin(transactions, eq(transactionLines.transactionId, transactions.id))
@@ -316,7 +317,7 @@ export async function GET(request: Request) {
         const quantity = Number(line.quantity);
         weightedCosts.set(line.itemId, {
           quantity: old.quantity + quantity,
-          value: old.value + quantity * Number(line.unitPrice) * Number(line.exchangeRate),
+          value: old.value + (quantity * Number(line.unitPrice) + Number(line.freightCharge || 0)) * Number(line.exchangeRate),
         });
       }
       const openPoLines = await db.select({ id: transactionLines.id, itemId: transactionLines.itemId, quantity: transactionLines.quantity }).from(transactionLines)
