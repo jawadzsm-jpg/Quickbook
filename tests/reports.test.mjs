@@ -101,6 +101,77 @@ async function report(type, location = locationId) {
   return report;
 }
 
+test("purchase postings hit the right accounts and purchase reports stay in sync", async () => {
+  const created = await workspaces.POST(post({ type: "company", name: "Purchase account audit", baseCurrency: "AED" }));
+  assert.equal(created.status, 201);
+  const { company: purchaseCompany } = await created.json();
+  const cid = purchaseCompany.id, lid = purchaseCompany.locations[0].id;
+
+  const accountRows = await db.select().from(schema.accounts).where(schema.accounts.companyId ? undefined : undefined);
+  // Use SQL here because report fixtures need exact system-role IDs.
+  const accounts = (await database.query("SELECT id,name,system_role FROM accounts WHERE company_id=$1", [cid])).rows;
+  const idFor = (role) => accounts.find((account) => account.system_role === role)?.id;
+  assert.ok(idFor("INVENTORY") && idFor("PURCHASES") && idFor("INPUT_VAT") && idFor("AP"));
+
+  await database.query("INSERT INTO contacts(company_id,type,name,currency) VALUES ($1,'vendor','Purchase Audit Vendor','AED')", [cid]);
+  const stockId = (await database.query("INSERT INTO items(company_id,location_id,sku,item_number,name,item_type,quantity,cost,asset_account_id,cogs_account_id) VALUES ($1,$2,'PUR-STOCK','PUR-1','Purchase Stock','stock-part',0,0,$3,$4) RETURNING id", [cid,lid,idFor("INVENTORY"),idFor("PURCHASES")])).rows[0].id;
+  const serviceId = (await database.query("INSERT INTO items(company_id,location_id,sku,item_number,name,item_type,quantity,cost,cogs_account_id) VALUES ($1,$2,'PUR-SERVICE','PUR-2','Purchase Service','non-stock-part',0,0,$3) RETURNING id", [cid,lid,idFor("PURCHASES")])).rows[0].id;
+
+  const records = await vite.ssrLoadModule("/app/api/records/route.ts");
+  const response = await records.POST(new Request("https://app.test/api/records", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      kind: "transactions", type: "bill", companyId: cid, locationId: lid,
+      number: "PUR-AUDIT-1", party: "Purchase Audit Vendor", account: "Purchases",
+      transactionDate: "2026-09-20", dueDate: "2026-09-30", currency: "AED", exchangeRate: 1,
+      lines: [
+        { itemId: stockId, description: "Purchase Stock", quantity: 1, unitPrice: 100, unitCost: 100, vatCode: "STANDARD" },
+        { itemId: serviceId, description: "Purchase Service", quantity: 1, unitPrice: 50, unitCost: 50, vatCode: "STANDARD" },
+      ],
+    }),
+  }));
+  assert.equal(response.status, 201, await response.text());
+  const bill = (await response.json()).record;
+
+  const journal = (await database.query("SELECT jl.account_name,jl.debit,jl.credit FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.transaction_id=$1 ORDER BY jl.id", [bill.id])).rows;
+  assert.deepEqual(journal, [
+    { account_name: "Inventory Asset", debit: 100, credit: 0 },
+    { account_name: "Purchases", debit: 50, credit: 0 },
+    { account_name: "Recoverable VAT", debit: 7.5, credit: 0 },
+    { account_name: "Accounts Payable", debit: 0, credit: 157.5 },
+  ]);
+
+  const reportGet = async (type) => {
+    const result = await GET(new Request("https://app.test/api/reports?" + new URLSearchParams({
+      type, companyId: String(cid), locationId: String(lid), periodStart: "2026-09-01", periodEnd: "2026-09-30",
+    })));
+    assert.equal(result.status, 200, await result.text());
+    return (await result.json()).report;
+  };
+
+  const supplierDetail = await reportGet("purchases-by-supplier-detail");
+  const purchaseRow = supplierDetail.rows.find((row) => row.number === "PUR-AUDIT-1");
+  assert.equal(purchaseRow.subtotal, 150);
+  assert.equal(purchaseRow.vat, 7.5);
+  assert.equal(purchaseRow.total, 157.5);
+
+  const itemSummary = await reportGet("purchases-by-item");
+  assert.equal(Math.round(itemSummary.rows.reduce((sum, row) => sum + Number(row.amount), 0) * 100) / 100, 150);
+
+  const pnl = await reportGet("profit-loss");
+  assert.equal(pnl.summary.expenses, 50); // Stock stays on Inventory Asset; only non-stock purchase is expensed.
+
+  const payment = (await database.query("INSERT INTO transactions(company_id,location_id,number,type,party,transaction_date,total,base_total,currency,exchange_rate,status) VALUES ($1,$2,'PUR-PAY-1','bill payment','Purchase Audit Vendor','2026-09-21',57.5,57.5,'AED',1,'paid') RETURNING id", [cid,lid])).rows[0].id;
+  await database.query("INSERT INTO bill_payment_allocations(payment_id,bill_id,amount) VALUES ($1,$2,57.5)", [payment,bill.id]);
+
+  const agingDetail = await reportGet("ap-aging-detail");
+  assert.equal(agingDetail.rows.find((row) => row.number === "PUR-AUDIT-1").amount, 100);
+  const unpaid = await reportGet("unpaid-bills-detail");
+  assert.equal(unpaid.rows.find((row) => row.number === "PUR-AUDIT-1").amount, 100);
+  const agingSummary = await reportGet("ap-aging-summary");
+  assert.equal(agingSummary.rows.find((row) => row.name === "Purchase Audit Vendor").total, 100);
+});
+
 test("every Report Center entry opens its matching backend report", async () => {
   // Keep this test tied directly to the visible Report Center catalogue so a renamed,
   // moved, or newly added button cannot silently fall back to a different report.
