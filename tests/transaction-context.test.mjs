@@ -277,6 +277,10 @@ test('stock item links Inventory Asset and calculates average purchase cost in h
   assert.equal(saved.assetAccountId,inventoryId);
   assert.equal(saved.quantity,3);
   assert.equal(saved.averageCost,133.33);
+  await database.query('DELETE FROM transactions WHERE company_id=$1',[companyId]);
+  await database.query('UPDATE items SET last_purchase_price=175,cost=0 WHERE id=$1',[item.id]);
+  const fallback=await GET(new Request(`https://app.test/api/records?kind=items&companyId=${companyId}&locationId=${locationId}`));
+  assert.equal((await fallback.json()).records.find(row=>row.id===item.id).averageCost,175);
 });
 
 test('vendor changes and deletion are administrator-only, scoped and audited', async () => {

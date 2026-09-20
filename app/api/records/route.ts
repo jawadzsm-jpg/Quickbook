@@ -329,7 +329,7 @@ export async function GET(request: Request) {
       for (const line of openPoLines) if (line.itemId) onPoByItem.set(line.itemId, (onPoByItem.get(line.itemId) ?? 0) + Math.max(0, Number(line.quantity) - (receivedByLine.get(line.id) ?? 0)));
       return Response.json({ records: records.map((item) => {
         const weighted = weightedCosts.get(item.id);
-        const averageCost = weighted && weighted.quantity > 0 ? round(weighted.value / weighted.quantity) : round(Number(item.cost) || 0);
+        const averageCost = weighted && weighted.quantity > 0 ? round(weighted.value / weighted.quantity) : round(Number(item.lastPurchasePrice) || Number(item.cost) || 0);
         return { ...item, averageCost, onPo: round(onPoByItem.get(item.id) ?? 0) };
       }) });
     }
