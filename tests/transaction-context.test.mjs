@@ -222,7 +222,7 @@ test("stock revaluation balances journals, preserves quantity and rejects stale 
 test('Chart of Accounts system roles stay connected to their accounting purpose', async () => {
   const companyId=(await database.query("INSERT INTO companies(name,base_currency) VALUES('COA purpose audit','AED') RETURNING id")).rows[0].id;
   const locationId=(await database.query("INSERT INTO inventory_locations(company_id,name,code,invoice_prefix) VALUES($1,'Main','COA','COA') RETURNING id",[companyId])).rows[0].id;
-  const rows=(await database.query("INSERT INTO accounts(company_id,code,name,type,system_role,currency) VALUES
+  const rows=(await database.query(`INSERT INTO accounts(company_id,code,name,type,system_role,currency) VALUES
     ($1,'1000','Audit Bank','Bank','BANK','AED'),
     ($1,'1100','Audit AR','Accounts Receivable','AR','AED'),
     ($1,'1200','Audit Inventory','Other Current Asset','INVENTORY','AED'),
@@ -237,7 +237,7 @@ test('Chart of Accounts system roles stay connected to their accounting purpose'
     ($1,'6100','Audit Expense','Expense','EXPENSE','AED'),
     ($1,'6200','Audit Payroll','Expense','PAYROLL','AED'),
     ($1,'9999','Audit Suspense','Other Current Asset','SUSPENSE','AED')
-    RETURNING id,name,system_role,type",[companyId])).rows;
+    RETURNING id,name,system_role,type`,[companyId])).rows;
   const byRole=(role)=>rows.find(row=>row.system_role===role);
   assert.deepEqual(
     Object.fromEntries(rows.map(row=>[row.system_role,row.type])),
