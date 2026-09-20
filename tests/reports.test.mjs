@@ -609,6 +609,14 @@ test("P&L reports reconcile item, rep, inventory and class to posted ledger with
   await entry("2026-09-10", invoice.id, [{ accountName: "Sales Revenue", credit: 1102.5 }, { accountName: "Cost of Goods Sold", debit: 661.5 }, { accountName: "VAT Payable", credit: 55.125 }]);
   await entry("2026-09-11", credit.id, [{ accountName: "Sales Revenue", debit: 50 }]);
   await entry("2026-09-12", null, [{ accountName: "Operating Expenses", debit: 100 }]);
+  // Balance-sheet/control accounts must never leak into Profit & Loss.
+  await entry("2026-09-12", null, [
+    { accountName: "Business Bank", debit: 500 },
+    { accountName: "Accounts Receivable", debit: 250 },
+    { accountName: "Inventory Asset", debit: 150 },
+    { accountName: "Accounts Payable", credit: 300 },
+    { accountName: "Opening Balance Equity", credit: 600 },
+  ]);
   await entry("2026-09-12", null, [{ accountName: "Sales Revenue", credit: 99999 }], false);
   await entry("2025-09-10", null, [{ accountName: "Sales Revenue", credit: 200 }]);
   const get = async (type, dates = "periodStart=2026-09-01&periodEnd=2026-09-30") => {
@@ -628,6 +636,7 @@ test("P&L reports reconcile item, rep, inventory and class to posted ledger with
   assert.equal(byItem.rows.find(r => r.name === "Unallocated").expenses, 100);
   assert.equal((await get("profit-loss-rep")).rows.find(r => r.name === "Rep A").income, 1052.5);
   assert.ok(standard.pnl.details.every(r => r.accountId > 0));
+  assert.ok(standard.pnl.details.every(r => !["Business Bank","Accounts Receivable","Accounts Payable","Inventory Asset","Opening Balance Equity","VAT Payable"].includes(String(r.account))));
   assert.equal(standard.pnl.details.find(r => r.reference === "J-2026-09-10").transactionId, invoice.id);
   assert.equal((await get("profit-loss", "periodStart=2026-10-01")).summary.netIncome, 0);
   assert.equal((await get("profit-loss-ytd")).rows.at(-1).previous, 200);
