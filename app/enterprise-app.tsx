@@ -1735,7 +1735,6 @@ function BillFields({ form, setForm, items, vendors, salesmen, accounts, locatio
   const vat = lines.reduce((sum, line) => sum + Math.round(Math.round(Number(line.quantity || 0) * Number(line.unitPrice || 0) * 100) / 100 * Number(line.vatRate || 0)) / 100, 0);
   const lineFreight = (line: LineForm) => Math.round(Number(line.freightCharge || 0) * 100) / 100;
   const freightCharges = lines.reduce((sum, line) => sum + lineFreight(line), 0);
-  const legacyFreight = lines.filter(line => !line.itemId && /^freight charges?$/i.test(line.description.trim())).reduce((sum, line) => sum + Math.round(Number(line.quantity || 0) * Number(line.unitPrice || 0) * 100) / 100, 0);
   const totalQuantity = lines.reduce((sum, line) => sum + Number(line.quantity || 0), 0);
   const freightByTax = new Map<string, { amount: number; rate: number }>();
   lines.forEach(line => { const old = freightByTax.get(line.vatCode); freightByTax.set(line.vatCode, { amount: (old?.amount || 0) + lineFreight(line), rate: Number(line.vatRate || 0) }); });
