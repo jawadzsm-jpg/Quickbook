@@ -47,3 +47,10 @@ test("CodeQL fails closed on findings or missing results", () => {
   report.runs[0].results.push({ ruleId: "js/test" });
   assert.throws(() => requireCleanSarif([report]));
 });
+test("CodeQL permits only explicit in-source suppressions", () => {
+  const suppressed = { ruleId: "js/test", suppressions: [{ kind: "inSource", justification: "Reviewed false positive." }] };
+  const report = { version: "2.1.0", runs: [{ tool: { driver: { name: "CodeQL" } }, results: [suppressed] }] };
+  requireCleanSarif([report]);
+  report.runs[0].results = [{ ...suppressed, suppressions: [{ kind: "external" }] }];
+  assert.throws(() => requireCleanSarif([report]));
+});
