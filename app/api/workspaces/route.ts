@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 91971)
-Total output lines: 2764
-
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "../../../db";
 import { accounts, auditLog, companies, exchangeRates, inventoryLocations, transactions, vatCodes } from "../../../db/schema";
