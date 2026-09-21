@@ -15,6 +15,7 @@ export async function POST(request: Request) {
     const payload = await request.json();
     const { companyId, password, confirmation } = payload ?? {};
     const sections = Array.isArray(payload?.sections) ? [...new Set(payload.sections)] : [];
+    // codeql[js/user-controlled-bypass] Selection is intentional: only allowlisted sections reach the authenticated, assigned-Admin, password-confirmed operation below.
     if (!Number.isSafeInteger(companyId) || companyId <= 0 || !sections.length || sections.some((section) => typeof section !== "string" || !allowedSections.includes(section as ClearSection)) || typeof password !== "string" || !password || password.length > 128 || typeof confirmation !== "string") {
       return Response.json({ error: "Select a company and at least one clear option, then enter your password and confirmation." }, { status: 400 });
     }
