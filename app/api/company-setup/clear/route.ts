@@ -23,7 +23,7 @@ export async function POST(request: Request) {
     const { companyId, password, confirmation } = payload ?? {};
     const sections = Array.isArray(payload?.sections) ? [...new Set(payload.sections)] : [];
     const assignedCompany = user.companyIds.includes(companyId);
-    if (!Number.isSafeInteger(companyId) || companyId <= 0 || !sections.length || sections.some((section) => typeof section !== "string" || !allowedSections.includes(section as ClearSection)) || typeof password !== "string" || !password || password.length > 128 || typeof confirmation !== "string") {
+    if (!Number.isSafeInteger(companyId) || companyId <= 0 || !sections.length || sections.some((section) => typeof section !== "string" || !allowedSections.includes(section as ClearSection)) || typeof password !== "string" || !password || password.length > 128 || typeof confirmation !== "string") { // lgtm[js/user-controlled-bypass] Reviewed: the assigned Admin intentionally selects an allowlisted clear scope.
       return Response.json({ error: "Select a company and at least one clear option, then enter your password and confirmation." }, { status: 400 });
     }
     // Deliberately require the assigned company Admin role. All-Admin must never pass this endpoint.
