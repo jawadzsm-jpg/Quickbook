@@ -1,4 +1,7 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+Warning: truncated output (original token count: 91971)
+Total output lines: 2764
+
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "../../../db";
 import { accounts, auditLog, companies, exchangeRates, inventoryLocations, transactions, vatCodes } from "../../../db/schema";
 import { canAccessCompany, isAdministrator, requireApiUser } from "@/lib/auth";
@@ -55,12 +58,25 @@ export async function POST(request: Request) {
       if (authorization.role !== "all_admin") return Response.json({ error: "Only an All-Admin can create a company." }, { status: 403 });
       const name = String(payload.name ?? "").trim(); const baseCurrency = String(payload.baseCurrency ?? "AED").trim().toUpperCase();
       if (!name || !/^[A-Z]{3}$/.test(baseCurrency)) return Response.json({ error: "Company name and a valid currency code are required." }, { status: 400 });
-      const [company] = await db.insert(companies).values({ name, baseCurrency }).returning();
-      const [location] = await db.insert(inventoryLocations).values({ companyId: company.id, name: "Main Inventory", code: "MAIN", invoicePrefix: "MAIN" }).returning();
-      await db.insert(accounts).values(standardAccounts.map(([code, accountName, accountType, systemRole]) => ({ companyId: company.id, code, name: accountName, type: accountType, systemRole })));
-      await db.insert(vatCodes).values(standardVatCodes.map((vatCode) => ({ companyId: company.id, ...vatCode })));
-      await db.insert(exchangeRates).values({ companyId: company.id, currencyCode: baseCurrency, rate: 1 });
-      return Response.json({ company: { ...company, locations: [location] } }, { status: 201 });
+      const sourceCompanyId = Number(payload.sourceCompanyId);
+      const sourceAccounts = Number.isSafeInteger(sourceCompanyId) && sourceCompanyId > 0
+        ? await db.select({ code: accounts.code, name: accounts.name, type: accounts.type, systemRole: accounts.systemRole, currency: accounts.currency, sourceBaseCurrency: companies.baseCurrency, active: accounts.active })
+          .from(accounts).innerJoin(companies, eq(companies.id, accounts.companyId))
+          .where(and(eq(accounts.companyId, sourceCompanyId), eq(companies.active, true), isNull(accounts.parentAccountId))).orderBy(asc(accounts.code))
+        : [];
+      if (Number.isSafeInteger(sourceCompanyId) && sourceCompanyId > 0 && !sourceAccounts.length) return Response.json({ error: "The selected company has no main Chart of Accounts to copy." }, { status: 400 });
+      return await withWriteTransaction(async () => {
+        const tx = getDb();
+        const [company] = await tx.insert(companies).values({ name, baseCurrency }).returning();
+        const [location] = await tx.insert(inventoryLocations).values({ companyId: company.id, name: "Main Inventory", code: "MAIN", invoicePrefix: "MAIN" }).returning();
+        const accountValues = sourceAccounts.length
+          ? sourceAccounts.map((account) => ({ companyId: company.id, code: account.code, name: account.name, type: account.type, systemRole: account.systemRole, currency: account.currency === account.sourceBaseCurrency ? baseCurrency : account.currency, active: account.active, parentAccountId: null, balance: 0 }))
+          : standardAccounts.map(([code, accountName, accountType, systemRole]) => ({ companyId: company.id, code, name: accountName, type: accountType, systemRole, currency: baseCurrency, parentAccountId: null, balance: 0 }));
+        await tx.insert(accounts).values(accountValues);
+        await tx.insert(vatCodes).values(standardVatCodes.map((vatCode) => ({ companyId: company.id, ...vatCode })));
+        await tx.insert(exchangeRates).values({ companyId: company.id, currencyCode: baseCurrency, rate: 1 });
+        return Response.json({ company: { ...company, locations: [location] } }, { status: 201 });
+      });
     }
     const companyId = Number(payload.companyId); const name = String(payload.name ?? "").trim(); const code = String(payload.code ?? "").trim().toUpperCase();
     if (!Number.isInteger(companyId) || !name || !code) return Response.json({ error: "Company, location name and code are required." }, { status: 400 });

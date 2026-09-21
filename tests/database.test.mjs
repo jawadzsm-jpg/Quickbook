@@ -251,3 +251,22 @@ test("shared login budgets saturate and reset without trusting client IP headers
   await database.exec("UPDATE auth_rate_limits SET reset_at = now() - interval '1 second' WHERE bucket = 'test-budget'");
   assert.equal((await consumeRateLimit("test-budget",2,60)).allowed,true);
 });
+
+test("new companies copy only main accounts at zero and start with no history", async () => {
+  const routes = await vite.ssrLoadModule("/app/api/workspaces/route.ts");
+  const source = (await database.query("INSERT INTO companies (name,base_currency) VALUES ('Chart Copy Source','AED') RETURNING id")).rows[0];
+  const sourceLocation = (await database.query("INSERT INTO inventory_locations (company_id,name,code,invoice_prefix) VALUES ($1,'Main Inventory','MAIN','MAIN') RETURNING id", [source.id])).rows[0];
+  const parent = (await database.query("INSERT INTO accounts (company_id,code,name,type,currency,balance) VALUES ($1,'COPY-7000','Copy parent','Expense','AED',725) RETURNING id", [source.id])).rows[0];
+  await database.query("INSERT INTO accounts (company_id,code,name,type,currency,parent_account_id,balance) VALUES ($1,'COPY-7010','Do not copy sub-account','Expense','AED',$2,80)", [source.id, parent.id]);
+  await database.query("INSERT INTO transactions (company_id,location_id,number,type,party,transaction_date,total) VALUES ($1,$2,'COPY-HISTORY','invoice','History customer','2026-09-21',725)", [source.id, sourceLocation.id]);
+  const response = await routes.POST(post({ type: "company", name: "Clean Chart Copy", baseCurrency: "USD", sourceCompanyId: source.id }));
+  const result = await response.json();
+  assert.equal(response.status, 201, JSON.stringify(result));
+  const copied = await database.query("SELECT code,name,type,system_role,currency,parent_account_id,balance,active FROM accounts WHERE company_id=$1 ORDER BY code", [result.company.id]);
+  const sourceMain = await database.query("SELECT code,name,type,system_role,'USD'::text AS currency,NULL::integer AS parent_account_id,0::double precision AS balance,active FROM accounts WHERE company_id=$1 AND parent_account_id IS NULL ORDER BY code", [source.id]);
+  assert.deepEqual(copied.rows, sourceMain.rows);
+  assert.equal(copied.rows.some((account) => account.code === "COPY-7010"), false);
+  for (const table of ["transactions", "journal_entries", "audit_log"]) {
+    assert.equal((await database.query(`SELECT count(*)::int AS count FROM ${table} WHERE company_id=$1`, [result.company.id])).rows[0].count, 0);
+  }
+});
