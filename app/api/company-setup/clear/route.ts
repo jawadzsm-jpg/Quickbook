@@ -7,6 +7,19 @@ import { consumeRateLimit } from "@/lib/rate-limit";
 
 const allowedSections = ["transactions", "inventory", "contacts", "reports", "settings", "setup"] as const;
 type ClearSection = typeof allowedSections[number];
+type ClearRequest = { companyId: number; password: string; confirmation: string; sections: ClearSection[] };
+
+class InvalidClearRequest extends Error {}
+
+function parseClearRequest(payload: unknown): ClearRequest {
+  if (!payload || typeof payload !== "object") throw new InvalidClearRequest();
+  const value = payload as Record<string, unknown>;
+  const sections = Array.isArray(value.sections) ? [...new Set(value.sections)] : [];
+  if (!Number.isSafeInteger(value.companyId) || Number(value.companyId) <= 0 || !sections.length || sections.some((section) => typeof section !== "string" || !allowedSections.includes(section as ClearSection)) || typeof value.password !== "string" || !value.password || value.password.length > 128 || typeof value.confirmation !== "string") {
+    throw new InvalidClearRequest();
+  }
+  return { companyId: Number(value.companyId), password: value.password, confirmation: value.confirmation, sections: sections as ClearSection[] };
+}
 
 export async function POST(request: Request) {
   const user = await requireApiUser(request, true, true);
@@ -19,13 +32,8 @@ export async function POST(request: Request) {
   if (account.lockedUntil && new Date(account.lockedUntil).getTime() > Date.now()) return Response.json({ error: "Password verification failed." }, { status: 403 });
   const passwordHash = account.passwordHash;
   try {
-    const payload = await request.json();
-    const { companyId, password, confirmation } = payload ?? {};
-    const sections = Array.isArray(payload?.sections) ? [...new Set(payload.sections)] : [];
+    const { companyId, password, confirmation, sections } = parseClearRequest(await request.json());
     const assignedCompany = user.companyIds.includes(companyId);
-    if (!Number.isSafeInteger(companyId) || companyId <= 0 || !sections.length || sections.some((section) => typeof section !== "string" || !allowedSections.includes(section as ClearSection)) || typeof password !== "string" || !password || password.length > 128 || typeof confirmation !== "string") { // lgtm[js/user-controlled-bypass] Reviewed: the assigned Admin intentionally selects an allowlisted clear scope.
-      return Response.json({ error: "Select a company and at least one clear option, then enter your password and confirmation." }, { status: 400 });
-    }
     // Deliberately require the assigned company Admin role. All-Admin must never pass this endpoint.
     if (!assignedCompany) return Response.json({ error: "Only the Administrator assigned to this company can clear it." }, { status: 403 });
     const budget = await consumeRateLimit(rateLimitKey, 5, 900);
@@ -103,7 +111,8 @@ export async function POST(request: Request) {
       await db.insert(auditLog).values({ companyId, action: "cleared", entityType: "company_setup", entityId: companyId, details: `Selected company data (${sections.join(", ")}) cleared by assigned company Administrator ${user.id} (${user.email}) for ${company.name}; Chart of Accounts, company identity, base currency, user access, audit history and cross-company stock-transfer history retained.` });
       return Response.json({ record, cleared: sections }, { headers: { "Cache-Control": "no-store" } });
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof InvalidClearRequest) return Response.json({ error: "Select a company and at least one clear option, then enter your password and confirmation." }, { status: 400 });
     return Response.json({ error: "Could not clear the company. No changes were committed; check linked records and try again." }, { status: 500 });
   }
 }
