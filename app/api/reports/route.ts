@@ -773,7 +773,7 @@ export async function GET(request: Request) {
     if (key === "bank-register") rows = rows.filter(row => inPeriod(String(row.date)));
     if (["accounts-receivable-graph", "accounts-payable-graph", "net-worth-graph"].includes(key)) rows = rows.filter(row => (!periodStart || String(row.month) >= periodStart.slice(0,7)) && (!periodEnd || String(row.month) <= periodEnd.slice(0,7)));
     const linkedAccounts = linkReportAccounts(rows, columns, allAccounts);
-    return Response.json({ report: { key, period, companyId, canViewAccounts: hasPermission(authorization, "accounting:manage"), accountLinkIssues: linkedAccounts.issues, title, generatedAt: new Date().toISOString(), currency, columns, rows: linkedAccounts.rows, chart, summary } }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ report: { key, period, companyId, canViewAccounts: hasPermission(authorization, "accounting:manage"), accountLinkIssues: linkedAccounts.issues, vatCodes: key === "vat-detail" ? configuredVatCodes.map(({ code, name, rate }) => ({ code, name, rate })) : undefined, title, generatedAt: new Date().toISOString(), currency, columns, rows: linkedAccounts.rows, chart, summary } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not generate report." }, { status: 500 });
   }
