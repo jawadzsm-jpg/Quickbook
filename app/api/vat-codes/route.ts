@@ -18,7 +18,7 @@ function validRate(value: unknown) {
   return Number.isFinite(rate) && rate >= 0 && rate <= 100 ? rate : null;
 }
 
-export async function GET(request: Request) {
+async function getVatCodes(request: Request) {
   const companyId = Number(new URL(request.url).searchParams.get("companyId"));
   const authorization = await requireCompanyAccess(request, companyId, "workspace:read");
   if (authorization instanceof Response) return authorization;
@@ -32,7 +32,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function createVatCode(request: Request) {
   const authorization = await requireApiUser(request, true, true);
   if (authorization instanceof Response) return authorization;
   try {
@@ -57,7 +57,7 @@ export async function POST(request: Request) {
   }
 }
 
-export async function PATCH(request: Request) {
+async function updateVatCode(request: Request) {
   const authorization = await requireApiUser(request, true, true);
   if (authorization instanceof Response) return authorization;
   try {
@@ -67,10 +67,11 @@ export async function PATCH(request: Request) {
     const name = String(payload.name ?? "").trim();
     const description = String(payload.description ?? "").trim();
     const rate = validRate(payload.rate);
-    if (!Number.isInteger(id) || !Number.isInteger(companyId) || !name || name.length > 80 || description.length > 500 || rate === null) {
+    if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
+    if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
+    if (!Number.isInteger(id) || !name || name.length > 80 || description.length > 500 || rate === null) {
       return Response.json({ error: "Enter valid VAT-code details." }, { status: 400 });
     }
-    if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     const db = getDb();
     const [existing] = await db.select().from(vatCodes).where(and(eq(vatCodes.id, id), eq(vatCodes.companyId, companyId))).limit(1);
     if (!existing) return Response.json({ error: "VAT code not found." }, { status: 404 });
@@ -82,4 +83,21 @@ export async function PATCH(request: Request) {
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
   }
+}
+
+function noStore(response: Response) {
+  response.headers.set("Cache-Control", "no-store");
+  return response;
+}
+
+export async function GET(request: Request) {
+  return noStore(await getVatCodes(request));
+}
+
+export async function POST(request: Request) {
+  return noStore(await createVatCode(request));
+}
+
+export async function PATCH(request: Request) {
+  return noStore(await updateVatCode(request));
 }

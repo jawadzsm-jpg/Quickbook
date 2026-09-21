@@ -33,7 +33,7 @@ async function calculateVat(companyId: number, locationId: number, periodStart: 
   return { outputVat, inputVat, adjustments: adjustmentTotal, netVatDue: round(outputVat - inputVat + adjustmentTotal), transactionLines: lines.length };
 }
 
-export async function GET(request: Request) {
+async function getVatManagement(request: Request) {
   const url = new URL(request.url);
   const companyId = Number(url.searchParams.get("companyId"));
   const authorization = await requireCompanyAccess(request, companyId, "reports:read");
@@ -57,7 +57,7 @@ export async function GET(request: Request) {
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Could not load VAT management." }, { status: 500 }); }
 }
 
-export async function POST(request: Request) {
+async function updateVatManagement(request: Request) {
   const user = await requireApiUser(request, "accounting:manage", true);
   if (user instanceof Response) return user;
   try {
@@ -65,8 +65,9 @@ export async function POST(request: Request) {
     const companyId = Number(payload.companyId);
     const locationId = Number(payload.locationId);
     const action = String(payload.action ?? "");
-    if (!Number.isInteger(companyId) || companyId <= 0 || !Number.isInteger(locationId) || locationId <= 0) return Response.json({ error: "Select a company and inventory." }, { status: 400 });
+    if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     if (!canAccessCompany(user, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
+    if (!Number.isInteger(locationId) || locationId <= 0) return Response.json({ error: "Select an inventory." }, { status: 400 });
     const db = getDb();
     const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId), eq(inventoryLocations.active, true))).limit(1);
     if (!location) return Response.json({ error: "The selected inventory was not found." }, { status: 404 });
@@ -114,4 +115,17 @@ export async function POST(request: Request) {
 
     return Response.json({ error: "Choose a valid VAT action." }, { status: 400 });
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Could not update VAT." }, { status: 500 }); }
+}
+
+function noStore(response: Response) {
+  response.headers.set("Cache-Control", "no-store");
+  return response;
+}
+
+export async function GET(request: Request) {
+  return noStore(await getVatManagement(request));
+}
+
+export async function POST(request: Request) {
+  return noStore(await updateVatManagement(request));
 }
