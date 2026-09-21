@@ -11,21 +11,27 @@ type ClearSection = typeof allowedSections[number];
 export async function POST(request: Request) {
   const user = await requireApiUser(request, true, true);
   if (user instanceof Response) return user;
+  // Authorize from server-controlled identity data before inspecting request fields.
+  if (user.role !== "admin") return Response.json({ error: "Only the Administrator assigned to this company can clear it." }, { status: 403 });
+  const rateLimitKey = `company-clear:${user.id}`;
+  const [account] = await getDb().select().from(appUsers).where(eq(appUsers.id, user.id)).limit(1);
+  if (!account?.active || String(account.role) !== "admin" || account.mustChangePassword) return Response.json({ error: "Only an active company Administrator can clear this company." }, { status: 403 });
+  if (account.lockedUntil && new Date(account.lockedUntil).getTime() > Date.now()) return Response.json({ error: "Password verification failed." }, { status: 403 });
+  const passwordHash = account.passwordHash;
   try {
     const payload = await request.json();
     const { companyId, password, confirmation } = payload ?? {};
     const sections = Array.isArray(payload?.sections) ? [...new Set(payload.sections)] : [];
-    // lgtm[js/user-controlled-bypass] Selection is intentional: only allowlisted sections reach the authenticated, assigned-Admin, password-confirmed operation below.
+    const assignedCompany = user.companyIds.includes(companyId);
     if (!Number.isSafeInteger(companyId) || companyId <= 0 || !sections.length || sections.some((section) => typeof section !== "string" || !allowedSections.includes(section as ClearSection)) || typeof password !== "string" || !password || password.length > 128 || typeof confirmation !== "string") {
       return Response.json({ error: "Select a company and at least one clear option, then enter your password and confirmation." }, { status: 400 });
     }
     // Deliberately require the assigned company Admin role. All-Admin must never pass this endpoint.
-    if (user.role !== "admin" || !user.companyIds.includes(companyId)) return Response.json({ error: "Only the Administrator assigned to this company can clear it." }, { status: 403 });
-    const budget = await consumeRateLimit(`company-clear:${user.id}`, 5, 900);
+    if (!assignedCompany) return Response.json({ error: "Only the Administrator assigned to this company can clear it." }, { status: 403 });
+    const budget = await consumeRateLimit(rateLimitKey, 5, 900);
     if (!budget.allowed) return Response.json({ error: "Too many attempts. Try again in 15 minutes." }, { status: 429, headers: { "Retry-After": String(budget.retryAfter) } });
-    const [account] = await getDb().select().from(appUsers).where(eq(appUsers.id, user.id)).limit(1);
-    if (!account?.active || String(account.role) !== "admin" || account.mustChangePassword) return Response.json({ error: "Only an active company Administrator can clear this company." }, { status: 403 });
-    if ((account.lockedUntil && new Date(account.lockedUntil).getTime() > Date.now()) || !await verifyPassword(password, account.passwordHash)) return Response.json({ error: "Password verification failed." }, { status: 403 });
+    const passwordVerified = await verifyPassword(password, passwordHash);
+    if (!passwordVerified) return Response.json({ error: "Password verification failed." }, { status: 403 });
     return await withWriteTransaction(async () => {
       const db = getDb();
       const selected = new Set(sections as ClearSection[]);

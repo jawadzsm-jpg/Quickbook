@@ -16,11 +16,8 @@ export function requireCleanSarif(reports) {
       if (run.invocations?.some((invocation) => invocation.executionSuccessful === false)) {
         throw new Error("CodeQL analysis failed.");
       }
+      findings += run.results.length;
       for (const result of run.results) {
-        // CodeQL retains source-suppressed results in SARIF. Respect only explicit
-        // in-source suppressions; every other result must continue to fail closed.
-        if (result.suppressions?.some((suppression) => suppression.kind === "inSource")) continue;
-        findings += 1;
         const location = result.locations?.[0]?.physicalLocation;
         console.error(JSON.stringify({
           rule: result.ruleId,
@@ -39,5 +36,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const reports = readdirSync(directory).filter((name) => name.endsWith(".sarif"))
     .map((name) => JSON.parse(readFileSync(join(directory, name), "utf8")));
   requireCleanSarif(reports);
-  console.log("CodeQL reports contain no unsuppressed findings.");
+  console.log("CodeQL reports contain no findings.");
 }
