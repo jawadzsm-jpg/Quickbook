@@ -1505,22 +1505,23 @@ test('company clearing requires administrator password and company access, prese
   const userId = (await database.query("INSERT INTO app_users (email,password_hash,role) VALUES ('clear-test@example.test',$1,'admin') RETURNING id", [hash])).rows[0].id;
   const company = (await database.query("INSERT INTO companies (name,logo_data,right_logo_data,phone) VALUES ('Clear Test','left','right','123') RETURNING id")).rows[0].id;
   const other = (await database.query("INSERT INTO companies (name,phone) VALUES ('Clear Other','456') RETURNING id")).rows[0].id;
-  const request = (scope, extra = {}) => new Request('http://localhost/api/company-setup/clear', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({companyId:company,scope,password,confirmation:'Clear Test',...extra})});
+  const request = (sections, extra = {}) => new Request('http://localhost/api/company-setup/clear', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({companyId:company,sections,password,confirmation:'Clear Test',...extra})});
   const resetBudget = () => database.query('DELETE FROM auth_rate_limits WHERE bucket=$1', [`company-clear:${userId}`]);
   const tx = async (id,no) => (await database.query("INSERT INTO transactions (company_id,number,type,party,transaction_date) VALUES ($1,$2,'invoice','Customer','2026-09-13') RETURNING id", [id,no])).rows[0].id;
   const first = await tx(company,'CLEAR-1'); const untouched = await tx(other,'OTHER-1');
   try {
     globalThis.__transferTestUser = {id:userId,email:'clear-test@example.test',role:'admin',companyIds:[]};
-    assert.equal((await POST(request('setup'))).status,403);
+    assert.equal((await POST(request(['setup']))).status,403);
     globalThis.__transferTestUser.role='all_admin';
     globalThis.__transferTestUser.companyIds=[company];
-    assert.equal((await POST(request('setup'))).status,403);
+    assert.equal((await POST(request(['setup']))).status,403);
     globalThis.__transferTestUser.role='admin';
     globalThis.__transferTestUser.companyIds=[company];
-    assert.equal((await POST(request('setup',{password:'wrong'}))).status,403);
-    assert.equal((await POST(request('setup',{confirmation:'yes'}))).status,400);
-    assert.equal((await POST(request('bad'))).status,400);
-    assert.equal((await POST(request('setup'))).status,200);
+    assert.equal((await POST(request(['setup'],{password:'wrong'}))).status,403);
+    assert.equal((await POST(request(['setup'],{confirmation:'yes'}))).status,400);
+    assert.equal((await POST(request(['bad']))).status,400);
+    assert.equal((await POST(request([]))).status,400);
+    assert.equal((await POST(request(['setup']))).status,200);
     assert.equal((await database.query('SELECT logo_data,right_logo_data FROM companies WHERE id=$1',[company])).rows[0].logo_data,'');
     assert.equal((await database.query('SELECT id FROM transactions WHERE id=$1',[first])).rows.length,1);
     const loc = async (id,name) => (await database.query('INSERT INTO inventory_locations (company_id,name,code,invoice_prefix) VALUES ($1,$2,$2,$2) RETURNING id',[id,name])).rows[0].id;
@@ -1530,16 +1531,18 @@ test('company clearing requires administrator password and company access, prese
     assert.equal((await database.query('SELECT id FROM transactions WHERE id=$1',[first])).rows.length,1);
     await resetBudget();
     const invoice=await tx(company,'CLEAR-2');
+    await database.query("INSERT INTO transactions (company_id,number,type,party,transaction_date,total) VALUES ($1,'CLEAR-PAY','customer payment','Customer','2026-09-13',10),($1,'CLEAR-CHQ','cheque','Vendor','2026-09-13',20)",[company]);
+    const keptAccount=(await database.query("INSERT INTO accounts (company_id,code,name,type,balance) VALUES ($1,'KEEP-100','Kept main account','Bank',250) RETURNING id",[company])).rows[0].id;
     await database.query('UPDATE transactions SET sales_source_id=$1 WHERE id=$2',[first,invoice]);
     await database.query('INSERT INTO invoice_payment_allocations (payment_id,invoice_id,amount) VALUES ($1,$2,10)',[invoice,first]);
     await database.query("INSERT INTO record_attachments (company_id,entity_type,entity_id,file_name,file_data) VALUES ($1,'transaction',$2,'test','data')",[company,first]);
     // A restrict reference from another company must abort the whole clear transaction.
     await database.query('INSERT INTO bill_payment_allocations (payment_id,bill_id,amount) VALUES ($1,$2,10)',[untouched,first]);
-    assert.equal((await POST(request('all'))).status,500);
-    assert.equal((await database.query('SELECT id FROM transactions WHERE company_id=$1',[company])).rows.length,2);
+    assert.equal((await POST(request(['transactions','inventory','contacts','reports','settings','setup']))).status,409);
+    assert.equal((await database.query('SELECT id FROM transactions WHERE company_id=$1',[company])).rows.length,4);
     assert.equal((await database.query('SELECT id FROM invoice_payment_allocations WHERE payment_id=$1',[invoice])).rows.length,1);
     await database.query('DELETE FROM bill_payment_allocations WHERE payment_id=$1',[untouched]);
-    assert.equal((await POST(request('all'))).status,200);
+    assert.equal((await POST(request(['transactions','inventory','contacts','reports','settings','setup']))).status,200);
     for (const table of ['transactions','record_attachments']) assert.equal((await database.query(`SELECT * FROM ${table} WHERE company_id=$1`,[company])).rows.length,0);
     assert.equal((await database.query('SELECT * FROM inventory_locations WHERE company_id=$1 AND active=true',[company])).rows.length,0);
     const preservedTransfer=(await database.query("SELECT source_location_id,destination_location_id FROM stock_transfers WHERE reference='CLEAR-X'")).rows[0];
@@ -1549,17 +1552,32 @@ test('company clearing requires administrator password and company access, prese
     assert.equal((await database.query('SELECT active FROM inventory_locations WHERE id=$1',[source])).rows[0].active,false);
     assert.equal((await database.query('SELECT active FROM inventory_locations WHERE id=$1',[dest])).rows[0].active,true);
     assert.equal((await database.query('SELECT id FROM transactions WHERE id=$1',[untouched])).rows.length,1);
+    assert.deepEqual((await database.query('SELECT id,balance FROM accounts WHERE id=$1',[keptAccount])).rows,[{id:keptAccount,balance:0}]);
     assert.equal((await database.query('SELECT phone FROM companies WHERE id=$1',[other])).rows[0].phone,'456');
     assert.equal((await database.query('SELECT * FROM audit_log WHERE company_id=$1',[company])).rows.length,2);
     assert.equal((await database.query('SELECT * FROM app_users WHERE id=$1',[userId])).rows.length,1);
     await resetBudget();
-    for(let i=0;i<5;i++) assert.equal((await POST(request('setup',{password:'wrong'}))).status,403);
-    assert.equal((await POST(request('setup'))).status,429);
+    for(let i=0;i<5;i++) assert.equal((await POST(request(['setup'],{password:'wrong'}))).status,403);
+    assert.equal((await POST(request(['setup']))).status,429);
     await resetBudget();
     globalThis.__transferTestUser.role='admin';
     globalThis.__transferTestUser.companyIds=[company];
-    assert.equal((await POST(request('setup'))).status,200);
+    assert.equal((await POST(request(['setup']))).status,200);
   } finally { delete globalThis.__transferTestUser; }
+});
+
+test('Chart of Accounts deletion is limited to unused sub-accounts', async () => {
+  const company=(await database.query("INSERT INTO companies (name) VALUES ('Sub-account delete test') RETURNING id")).rows[0].id;
+  const main=(await database.query("INSERT INTO accounts (company_id,code,name,type) VALUES ($1,'MAIN-100','Protected main account','Bank') RETURNING id",[company])).rows[0].id;
+  const sub=(await database.query("INSERT INTO accounts (company_id,code,name,type,parent_account_id) VALUES ($1,'SUB-110','Deletable sub-account','Bank',$2) RETURNING id",[company,main])).rows[0].id;
+  const child=(await database.query("INSERT INTO accounts (company_id,code,name,type,parent_account_id) VALUES ($1,'SUB-111','Nested sub-account','Bank',$2) RETURNING id",[company,sub])).rows[0].id;
+  const {DELETE}=await vite.ssrLoadModule('/app/api/records/route.ts');
+  const remove=(id)=>DELETE(new Request('https://app.test/api/records',{method:'DELETE',headers:{'content-type':'application/json'},body:JSON.stringify({kind:'accounts',companyId:company,id})}));
+  assert.equal((await remove(main)).status,409);
+  assert.equal((await remove(sub)).status,409);
+  assert.equal((await remove(child)).status,200);
+  assert.equal((await remove(sub)).status,200);
+  assert.equal((await database.query('SELECT id FROM accounts WHERE id=$1',[main])).rows.length,1);
 });
 
 test('shared out-of-stock catalogue crosses assignments but excludes in-stock, inactive and financial data', async () => {

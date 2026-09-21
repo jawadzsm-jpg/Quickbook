@@ -1271,12 +1271,14 @@ async function handleDELETE(request: Request) {
     });
     else if (kind === "items") await db.delete(items).where(and(eq(items.id, id), eq(items.companyId, companyId)));
     else if (kind === "accounts") {
-      const [account] = await db.select({ name: accounts.name, systemRole: accounts.systemRole }).from(accounts).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId))).limit(1);
-      if (account?.systemRole) return Response.json({ error: "Linked system accounts cannot be deleted." }, { status: 409 });
-      if (account) {
-        const [activity] = await db.select({ id: journalLines.id }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(and(eq(journalEntries.companyId, companyId), eq(journalLines.accountName, account.name))).limit(1);
-        if (activity) return Response.json({ error: "Accounts with journal activity cannot be deleted." }, { status: 409 });
-      }
+      const [account] = await db.select({ name: accounts.name, systemRole: accounts.systemRole, parentAccountId: accounts.parentAccountId }).from(accounts).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId))).limit(1);
+      if (!account) return Response.json({ error: "Account not found." }, { status: 404 });
+      if (!account.parentAccountId) return Response.json({ error: "Only sub-accounts can be deleted. Main Chart of Accounts entries must be kept." }, { status: 409 });
+      if (account.systemRole) return Response.json({ error: "Linked system accounts cannot be deleted." }, { status: 409 });
+      const [child] = await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.parentAccountId, id))).limit(1);
+      if (child) return Response.json({ error: "Move or delete this account's sub-accounts first." }, { status: 409 });
+      const [activity] = await db.select({ id: journalLines.id }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(and(eq(journalEntries.companyId, companyId), eq(journalLines.accountName, account.name))).limit(1);
+      if (activity) return Response.json({ error: "Sub-accounts with journal activity cannot be deleted." }, { status: 409 });
       await db.delete(accounts).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId)));
     }
     else return await withWriteTransaction(async () => {
