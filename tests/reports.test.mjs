@@ -800,3 +800,47 @@ test('all 14 financial reports reconcile posted accounts, settlements, dates and
  // Reports retain company access restrictions and account-link permissions.
  try{globalThis.__reportTestUser={id:2,role:'viewer',companyIds:[cid],mustChangePassword:false};assert.equal((await get('balance-sheet')).financial.canViewAccounts,false);const forbidden=await GET(new Request(`https://app.test/api/reports?type=balance-sheet&companyId=${companyId}`));assert.equal(forbidden.status,403);}finally{delete globalThis.__reportTestUser;}
 });
+
+test('VAT management includes every taxable document type and posts adjustments to the linked accounts', async () => {
+ const c=(await (await workspaces.POST(post({type:'company',name:'VAT management audit',baseCurrency:'AED'}))).json()).company;
+ const cid=c.id,loc=c.locations[0].id;
+ const [userRow]=await db.insert(schema.appUsers).values({fullName:'VAT Auditor',email:`vat-auditor-${cid}@example.test`,passwordHash:'test',role:'admin'}).returning();
+ const add=async(type,number,vatAmount)=>{
+  const [record]=await db.insert(schema.transactions).values({companyId:cid,locationId:loc,type,number,party:'VAT Audit',transactionDate:'2026-09-21',currency:'AED',exchangeRate:1,subtotal:100,total:100+vatAmount,vatAmount,baseTotal:100+vatAmount}).returning();
+  await db.insert(schema.transactionLines).values({transactionId:record.id,description:number,quantity:1,subtotal:100,vatAmount,total:100+vatAmount});
+ };
+ for(const [type,number,vat] of [
+  ['invoice','VAT-INV',5],['sales receipt','VAT-RECEIPT',5],['statement charge','VAT-STATEMENT',5],['credit memo','VAT-CREDIT',2],
+  ['bill','VAT-BILL',5],['received item bill','VAT-ITEM-BILL',5],['expense','VAT-EXPENSE',5],['cheque','VAT-CHEQUE',5],['credit card charge','VAT-CARD',5],['vendor credit','VAT-VENDOR-CREDIT',2],
+ ]) await add(type,number,vat);
+
+ const vatManagement=await vite.ssrLoadModule('/app/api/vat-management/route.ts');
+ const summaryUrl=`https://app.test/api/vat-management?companyId=${cid}&locationId=${loc}&periodStart=2026-09-01&periodEnd=2026-09-30`;
+ const readSummary=async()=>{const response=await vatManagement.GET(new Request(summaryUrl));assert.equal(response.status,200,await response.clone().text());return(await response.json()).summary;};
+ assert.deepEqual(await readSummary(),{outputVat:13,inputVat:23,adjustments:0,netVatDue:-10,transactionLines:10});
+
+ globalThis.__reportTestUser={id:userRow.id,email:userRow.email,role:'all_admin',companyIds:[],mustChangePassword:false};
+ try {
+  const adjust=await vatManagement.POST(post({action:'adjust',companyId:cid,locationId:loc,adjustmentDate:'2026-09-21',reference:'VAT-ADJ-1',reason:'Audit correction',direction:'increase',amount:3}));
+  assert.equal(adjust.status,201,await adjust.clone().text());
+  assert.deepEqual(await readSummary(),{outputVat:13,inputVat:23,adjustments:3,netVatDue:-7,transactionLines:10});
+  const lines=(await database.query("SELECT jl.account_name,jl.debit,jl.credit FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.reference='VAT-ADJ-1' ORDER BY jl.id")).rows;
+  assert.deepEqual(lines,[{account_name:'Suspense',debit:3,credit:0},{account_name:'VAT Payable',debit:0,credit:3}]);
+  const duplicate=await vatManagement.POST(post({action:'adjust',companyId:cid,locationId:loc,adjustmentDate:'2026-09-21',reference:'VAT-ADJ-1',reason:'Duplicate',direction:'increase',amount:3}));
+  assert.equal(duplicate.status,409);
+  assert.equal((await database.query("SELECT count(*)::int AS count FROM journal_entries WHERE reference='VAT-ADJ-1'")).rows[0].count,1);
+
+  const filed=await vatManagement.POST(post({action:'file',companyId:cid,locationId:loc,periodStart:'2026-09-01',periodEnd:'2026-09-30',reference:'VAT-RETURN-SEP'}));
+  assert.equal(filed.status,201,await filed.clone().text());
+  const filedRecord=(await filed.json()).record;
+  assert.deepEqual({outputVat:filedRecord.outputVat,inputVat:filedRecord.inputVat,adjustments:filedRecord.adjustments,netVatDue:filedRecord.netVatDue},{outputVat:13,inputVat:23,adjustments:3,netVatDue:-7});
+
+  const vatCodes=await vite.ssrLoadModule('/app/api/vat-codes/route.ts');
+  const createdCode=await vatCodes.POST(post({companyId:cid,code:'REDUCED_75',name:'Reduced 7.5%',rate:7.5,description:'Audit code'}));
+  assert.equal(createdCode.status,201,await createdCode.clone().text());
+  const code=(await createdCode.json()).record;
+  const updatedCode=await vatCodes.PATCH(new Request('https://app.test/api/vat-codes',{method:'PATCH',headers:{origin:'https://app.test','content-type':'application/json'},body:JSON.stringify({companyId:cid,id:code.id,name:'Reduced VAT',rate:7,description:'Updated',active:true})}));
+  assert.equal(updatedCode.status,200,await updatedCode.clone().text());
+  assert.equal((await updatedCode.json()).record.rate,7);
+ } finally { delete globalThis.__reportTestUser; }
+});

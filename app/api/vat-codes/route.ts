@@ -1,7 +1,7 @@
 import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { auditLog, companies, vatCodes } from "../../../db/schema";
-import { requireApiUser } from "@/lib/auth";
+import { canAccessCompany, requireApiUser, requireCompanyAccess } from "@/lib/auth";
 
 function errorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : "Could not update VAT codes.";
@@ -19,10 +19,10 @@ function validRate(value: unknown) {
 }
 
 export async function GET(request: Request) {
-  const authorization = await requireApiUser(request, "workspace:read");
+  const companyId = Number(new URL(request.url).searchParams.get("companyId"));
+  const authorization = await requireCompanyAccess(request, companyId, "workspace:read");
   if (authorization instanceof Response) return authorization;
   try {
-    const companyId = Number(new URL(request.url).searchParams.get("companyId"));
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     const db = getDb();
     const codes = await db.select().from(vatCodes).where(eq(vatCodes.companyId, companyId)).orderBy(asc(vatCodes.code));
@@ -43,6 +43,7 @@ export async function POST(request: Request) {
     const description = String(payload.description ?? "").trim();
     const rate = validRate(payload.rate);
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
+    if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     if (!/^[A-Z0-9][A-Z0-9_-]{0,19}$/.test(code)) return Response.json({ error: "VAT code must use 1–20 letters, numbers, hyphens or underscores." }, { status: 400 });
     if (!name || name.length > 80 || description.length > 500 || rate === null) return Response.json({ error: "Enter a name, a VAT rate from 0 to 100, and an optional description up to 500 characters." }, { status: 400 });
     const db = getDb();
@@ -69,6 +70,7 @@ export async function PATCH(request: Request) {
     if (!Number.isInteger(id) || !Number.isInteger(companyId) || !name || name.length > 80 || description.length > 500 || rate === null) {
       return Response.json({ error: "Enter valid VAT-code details." }, { status: 400 });
     }
+    if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     const db = getDb();
     const [existing] = await db.select().from(vatCodes).where(and(eq(vatCodes.id, id), eq(vatCodes.companyId, companyId))).limit(1);
     if (!existing) return Response.json({ error: "VAT code not found." }, { status: 404 });
