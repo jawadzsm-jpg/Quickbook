@@ -56,7 +56,7 @@ export async function skuKeys(input: LockInput, user: SessionUser) {
       const [report] = await db.select().from(inventoryCheckReports).where(eq(inventoryCheckReports.id, Number(input.id)));
       if (report) for (const line of await db.select().from(inventoryCheckLines).where(eq(inventoryCheckLines.reportId, report.id))) await add(report.locationId, line.sku);
     } else if (Number(input.locationId) > 0) {
-      for (const item of await db.select().from(items).where(eq(items.locationId, Number(input.locationId)))) await add(item.locationId!, item.sku);
+      for (const line of objects(input.lines)) if (typeof line.sku === "string") await add(Number(input.locationId), line.sku);
     }
   } else throw new RequestError("Unknown inventory workflow.");
   const unique = ids(itemIds);

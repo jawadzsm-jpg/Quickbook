@@ -2,11 +2,12 @@
 
 import { useSkuLock, SkuLockNotice } from "./use-sku-lock";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { ClipboardList, Pencil, Plus, Printer, Search, Trash2, Users } from "lucide-react";
+import { ClipboardList, Pencil, Plus, Printer, Search, Trash2, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,10 +15,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 type ReportRecord = { id: number; companyId: number; locationId: number; memo: string; createdAt: string; updatedAt: string; creator: string | null; creatorEmail: string | null; locationName: string };
-type ReportLine = { id: number; itemNumber: string; sku: string; itemName: string; systemQuantity: number; countedQuantity: number | null };
+type CompanyColumn = { id: number; name: string };
+type CompanyQuantity = { companyId: number; companyName: string; quantity: number };
+type StockOption = { itemId: number; itemNumber: string; sku: string; itemName: string; totalQuantity: number; companyQuantities: CompanyQuantity[] };
+type ReportLine = { id: number; itemId: number | null; itemNumber: string; sku: string; itemName: string; systemQuantity: number; companyQuantities: CompanyQuantity[]; remark: string };
 
 const formatDate = (value: string) => new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 const quantity = (value: number) => Number(value).toLocaleString("en-AE", { maximumFractionDigits: 2 });
+const keyOf = (sku: string) => sku.trim().toUpperCase();
+const qtyFor = (values: CompanyQuantity[], companyId: number) => values.find((value) => value.companyId === companyId)?.quantity ?? 0;
 
 export function InventoryCheckReports({ companyId, companyName, locationId, locationName, canManage, currentUserName }: { companyId: number; companyName: string; locationId: number; locationName: string; canManage: boolean; currentUserName: string }) {
   const [records, setRecords] = useState<ReportRecord[]>([]);
@@ -28,10 +34,18 @@ export function InventoryCheckReports({ companyId, companyName, locationId, loca
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [newMemo, setNewMemo] = useState("");
+  const [stock, setStock] = useState<StockOption[]>([]);
+  const [stockCompanies, setStockCompanies] = useState<CompanyColumn[]>([]);
+  const [stockLoading, setStockLoading] = useState(false);
+  const [stockSearch, setStockSearch] = useState("");
+  const [selectedSkus, setSelectedSkus] = useState<string[]>([]);
+  const [remarks, setRemarks] = useState<Record<string, string>>({});
   const [detail, setDetail] = useState<ReportRecord | null>(null);
+  const [detailCompanies, setDetailCompanies] = useState<CompanyColumn[]>([]);
   const [lines, setLines] = useState<ReportLine[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [addSearch, setAddSearch] = useState("");
   const skuLock = useSkuLock(editing && detail ? { resource: "inventory-check-reports", id: detail.id } : null);
   const [deleteTarget, setDeleteTarget] = useState<ReportRecord | null>(null);
 
@@ -47,6 +61,18 @@ export function InventoryCheckReports({ companyId, companyName, locationId, loca
     finally { setLoading(false); }
   }, [companyId, locationId]);
 
+  const loadStock = useCallback(async () => {
+    setStockLoading(true);
+    try {
+      const response = await fetch(`/api/inventory-check-reports?companyId=${companyId}&locationId=${locationId}&options=1`, { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not load in-stock items");
+      setStock(data.items as StockOption[]);
+      setStockCompanies(data.companies as CompanyColumn[]);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not load in-stock items"); }
+    finally { setStockLoading(false); }
+  }, [companyId, locationId]);
+
   // Refresh whenever the selected company inventory changes.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void loadReports(); }, [loadReports]);
@@ -59,37 +85,73 @@ export function InventoryCheckReports({ companyId, companyName, locationId, loca
   const size = Number(pageSize);
   const pages = Math.max(1, Math.ceil(filtered.length / size));
   const visible = filtered.slice((Math.min(page, pages) - 1) * size, Math.min(page, pages) * size);
+  const matchingStock = useMemo(() => {
+    const term = stockSearch.trim().toLowerCase();
+    const rows = term ? stock.filter((item) => [item.itemNumber, item.sku, item.itemName].some((value) => value.toLowerCase().includes(term))) : stock;
+    return rows.slice(0, 150);
+  }, [stock, stockSearch]);
+  const addableStock = useMemo(() => {
+    const selected = new Set(lines.map((line) => keyOf(line.sku)));
+    const term = addSearch.trim().toLowerCase();
+    return stock.filter((item) => !selected.has(keyOf(item.sku)) && (!term || [item.itemNumber, item.sku, item.itemName].some((value) => value.toLowerCase().includes(term)))).slice(0, 25);
+  }, [stock, lines, addSearch]);
+
+  async function beginCreate() {
+    setSelectedSkus([]); setRemarks({}); setNewMemo(""); setStockSearch(""); setCreateOpen(true);
+    await loadStock();
+  }
+
+  function toggleSelected(sku: string, checked: boolean) {
+    const key = keyOf(sku);
+    setSelectedSkus((current) => checked ? [...new Set([...current, key])] : current.filter((value) => value !== key));
+  }
 
   async function createReport(event: FormEvent) {
-    event.preventDefault(); setSaving(true);
+    event.preventDefault();
+    if (!selectedSkus.length) return toast.error("Select at least one in-stock item.");
+    setSaving(true);
     try {
-      const response = await fetch("/api/inventory-check-reports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, locationId, memo: newMemo }) });
+      const response = await fetch("/api/inventory-check-reports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, locationId, memo: newMemo, lines: selectedSkus.map((sku) => ({ sku, remark: remarks[sku] || "" })) }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not create inventory check report");
-      setCreateOpen(false); setNewMemo(""); await loadReports(); toast.success(`Inventory check report #${data.record.id} created`);
+      setCreateOpen(false); await loadReports(); toast.success(`Inventory check report #${data.record.id} created`);
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not create inventory check report"); }
     finally { setSaving(false); }
   }
 
   async function openReport(record: ReportRecord, edit = false) {
-    setDetail(record); setEditing(edit && canManage); setDetailLoading(true); setLines([]);
+    setDetail(record); setEditing(edit && canManage); setDetailLoading(true); setLines([]); setDetailCompanies([]); setAddSearch("");
     try {
-      const response = await fetch(`/api/inventory-check-reports?companyId=${companyId}&reportId=${record.id}`, { cache: "no-store" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not open inventory check report");
-      setLines(data.lines as ReportLine[]);
+      const requests: Promise<Response>[] = [fetch(`/api/inventory-check-reports?companyId=${companyId}&reportId=${record.id}`, { cache: "no-store" })];
+      if (edit && canManage) requests.push(fetch(`/api/inventory-check-reports?companyId=${companyId}&locationId=${locationId}&options=1`, { cache: "no-store" }));
+      const responses = await Promise.all(requests);
+      const data = await responses[0].json();
+      if (!responses[0].ok) throw new Error(data.error || "Could not open inventory check report");
+      setLines(data.lines as ReportLine[]); setDetailCompanies(data.companies as CompanyColumn[]);
+      if (responses[1]) {
+        const options = await responses[1].json();
+        if (!responses[1].ok) throw new Error(options.error || "Could not load in-stock items");
+        setStock(options.items as StockOption[]); setStockCompanies(options.companies as CompanyColumn[]);
+      }
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not open inventory check report"); setDetail(null); }
     finally { setDetailLoading(false); }
   }
 
+  async function startEditing() { if (!canManage) return; await loadStock(); setEditing(true); }
+
+  function addLine(option: StockOption) {
+    setLines((current) => [...current, { id: -Date.now(), itemId: option.itemId, itemNumber: option.itemNumber, sku: option.sku, itemName: option.itemName, systemQuantity: option.totalQuantity, companyQuantities: option.companyQuantities, remark: "" }]);
+  }
+
   async function saveReport() {
-    if (!skuLock.ready) return;
-    if (!detail || !canManage) return; setSaving(true);
+    if (!skuLock.ready || !detail || !canManage) return;
+    if (!lines.length) return toast.error("Keep at least one item on the report.");
+    setSaving(true);
     try {
-      const response = await fetch("/api/inventory-check-reports", { method: "PATCH", headers: { "Content-Type": "application/json", ...skuLock.headers }, body: JSON.stringify({ companyId, id: detail.id, memo: detail.memo, lines: lines.map((line) => ({ id: line.id, countedQuantity: line.countedQuantity })) }) });
+      const response = await fetch("/api/inventory-check-reports", { method: "PATCH", headers: { "Content-Type": "application/json", ...skuLock.headers }, body: JSON.stringify({ companyId, id: detail.id, memo: detail.memo, lines: lines.map((line) => ({ id: line.id > 0 ? line.id : undefined, sku: line.sku, remark: line.remark })) }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not save inventory check report");
-      setEditing(false); await loadReports(); toast.success(`Report #${detail.id} saved`);
+      setEditing(false); await loadReports(); await openReport({ ...detail, memo: detail.memo }); toast.success(`Report #${detail.id} saved`);
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save inventory check report"); }
     finally { setSaving(false); }
   }
@@ -105,18 +167,25 @@ export function InventoryCheckReports({ companyId, companyName, locationId, loca
     finally { setSaving(false); }
   }
 
+  const reportColumns = useMemo(() => {
+    const columns = new Map<number, CompanyColumn>();
+    for (const company of detailCompanies) columns.set(company.id, company);
+    if (editing || !detailCompanies.length) for (const company of stockCompanies) columns.set(company.id, company);
+    return [...columns.values()];
+  }, [detailCompanies, editing, stockCompanies]);
+
   return <div className="space-y-5">
     <section className="rounded-xl border bg-white shadow-sm">
-      <div className="flex flex-col gap-4 border-b bg-slate-50 p-5 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-3"><div className="grid size-11 place-items-center rounded-xl bg-blue-600 text-white"><ClipboardList className="size-5" /></div><div><h2 className="font-bold text-slate-900">Inventory Check Reports</h2><p className="text-sm text-slate-500">{companyName} · {locationName}</p></div></div><div className="flex items-center gap-2"><Badge variant="outline" className="bg-white"><Users className="mr-1 size-3.5" />{records.length} reports</Badge><Button onClick={() => setCreateOpen(true)}><Plus className="size-4" />New report</Button></div></div>
+      <div className="flex flex-col gap-4 border-b bg-slate-50 p-5 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-3"><div className="grid size-11 place-items-center rounded-xl bg-blue-600 text-white"><ClipboardList className="size-5" /></div><div><h2 className="font-bold text-slate-900">Inventory Check Reports</h2><p className="text-sm text-slate-500">{companyName} · {locationName} · Compare in-stock quantities across accessible companies</p></div></div><div className="flex items-center gap-2"><Badge variant="outline" className="bg-white"><Users className="mr-1 size-3.5" />{records.length} reports</Badge><Button onClick={() => void beginCreate()}><Plus className="size-4" />New report</Button></div></div>
       <div className="flex flex-col gap-3 border-b p-4 md:flex-row md:items-center md:justify-between"><div className="flex items-center gap-2 text-sm text-slate-600"><span>Show</span><Select value={pageSize} onValueChange={(value) => { setPageSize(value); setPage(1); }}><SelectTrigger className="w-20"><SelectValue /></SelectTrigger><SelectContent>{[10, 25, 50].map((value) => <SelectItem key={value} value={String(value)}>{value}</SelectItem>)}</SelectContent></Select><span>entries</span></div><div className="relative w-full md:max-w-sm"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Search by memo, report number or creator" className="pl-9" /></div></div>
-      <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Report Date</TableHead><TableHead>Report #</TableHead><TableHead className="min-w-72">Memo</TableHead><TableHead>Creator</TableHead><TableHead>Inventory</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{loading ? <TableRow><TableCell colSpan={6} className="py-12 text-center text-slate-500">Loading inventory check reports…</TableCell></TableRow> : visible.length ? visible.map((record) => <TableRow key={record.id}><TableCell><span className="font-semibold text-rose-600">{formatDate(record.createdAt).split(",")[0]}</span><span className="block text-xs text-slate-500">{formatDate(record.createdAt).split(",").slice(1).join(",").trim()}</span></TableCell><TableCell className="font-mono font-semibold">{record.id}</TableCell><TableCell>{record.memo || <span className="text-slate-400">No memo</span>}</TableCell><TableCell className="font-semibold">{record.creator || record.creatorEmail || "Unknown"}</TableCell><TableCell>{record.locationName}</TableCell><TableCell><div className="flex justify-end gap-2"><Button type="button" size="icon" variant="outline" className="border-amber-300 text-amber-600" onClick={() => void openReport(record)} aria-label={`Print report ${record.id}`}><Printer className="size-4" /></Button>{canManage ? <><Button type="button" size="icon" variant="outline" className="border-blue-300 text-blue-600" onClick={() => void openReport(record, true)} aria-label={`Edit report ${record.id}`}><Pencil className="size-4" /></Button><Button type="button" size="icon" variant="outline" className="border-rose-300 text-rose-600" onClick={() => setDeleteTarget(record)} aria-label={`Delete report ${record.id}`} title="Delete"><Trash2 className="size-4" /></Button></> : null}</div></TableCell></TableRow>) : <TableRow><TableCell colSpan={6} className="py-12 text-center text-slate-500">No inventory check reports found.</TableCell></TableRow>}</TableBody></Table></div>
+      <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Report Date</TableHead><TableHead>Report #</TableHead><TableHead className="min-w-72">Memo</TableHead><TableHead>Creator</TableHead><TableHead>Inventory</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{loading ? <TableRow><TableCell colSpan={6} className="py-12 text-center text-slate-500">Loading inventory check reports…</TableCell></TableRow> : visible.length ? visible.map((record) => <TableRow key={record.id}><TableCell><span className="font-semibold text-rose-600">{formatDate(record.createdAt).split(",")[0]}</span><span className="block text-xs text-slate-500">{formatDate(record.createdAt).split(",").slice(1).join(",").trim()}</span></TableCell><TableCell className="font-mono font-semibold">{record.id}</TableCell><TableCell>{record.memo || <span className="text-slate-400">No memo</span>}</TableCell><TableCell className="font-semibold">{record.creator || record.creatorEmail || "Unknown"}</TableCell><TableCell>{record.locationName}</TableCell><TableCell><div className="flex justify-end gap-2"><Button type="button" size="icon" variant="outline" className="border-amber-300 text-amber-600" onClick={() => void openReport(record)} aria-label={`Print report ${record.id}`}><Printer className="size-4" /></Button>{canManage ? <><Button type="button" size="icon" variant="outline" className="border-blue-300 text-blue-600" onClick={() => void openReport(record, true)} aria-label={`Edit report ${record.id}`}><Pencil className="size-4" /></Button><Button type="button" size="icon" variant="outline" className="border-rose-300 text-rose-600" onClick={() => setDeleteTarget(record)} aria-label={`Delete report ${record.id}`}><Trash2 className="size-4" /></Button></> : null}</div></TableCell></TableRow>) : <TableRow><TableCell colSpan={6} className="py-12 text-center text-slate-500">No inventory check reports found.</TableCell></TableRow>}</TableBody></Table></div>
       <div className="flex items-center justify-between border-t p-4 text-sm text-slate-500"><span>Showing {visible.length ? (Math.min(page, pages) - 1) * size + 1 : 0} to {Math.min(Math.min(page, pages) * size, filtered.length)} of {filtered.length}</span><div className="flex gap-1"><Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous</Button><Badge className="grid min-w-9 place-items-center">{Math.min(page, pages)}</Badge><Button size="sm" variant="outline" disabled={page >= pages} onClick={() => setPage((value) => Math.min(pages, value + 1))}>Next</Button></div></div>
     </section>
 
-    <Dialog open={createOpen} onOpenChange={setCreateOpen}><DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>New inventory check report</DialogTitle><DialogDescription>A snapshot of every active item in {locationName} will be saved for counting.</DialogDescription></DialogHeader><form onSubmit={createReport} className="space-y-4"><div className="space-y-2"><Label>Memo</Label><Input value={newMemo} onChange={(event) => setNewMemo(event.target.value)} maxLength={240} placeholder="Example: Monthly laptop stock count" /></div><div className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600"><strong>Creator:</strong> {currentUserName}<br /><strong>Inventory:</strong> {locationName}</div><DialogFooter><Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button><Button disabled={saving}>{saving ? "Creating…" : "Create report"}</Button></DialogFooter></form></DialogContent></Dialog>
+    <Dialog open={createOpen} onOpenChange={(open) => { if (!saving) setCreateOpen(open); }}><DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-7xl"><DialogHeader><DialogTitle>Create Inventory Check Report</DialogTitle><DialogDescription>Only items currently in stock are available. Select the items to save a quantity snapshot for each accessible company.</DialogDescription></DialogHeader><form onSubmit={createReport} className="space-y-4"><div className="grid gap-4 sm:grid-cols-[1fr_240px]"><div className="space-y-2"><Label>Memo</Label><Input value={newMemo} onChange={(event) => setNewMemo(event.target.value)} maxLength={240} placeholder="Example: HP notebook stock check" /></div><div className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600"><strong>Date:</strong> {new Date().toLocaleDateString("en-GB")}<br /><strong>Creator:</strong> {currentUserName}<br /><strong>Selected:</strong> {selectedSkus.length}</div></div><div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input value={stockSearch} onChange={(event) => setStockSearch(event.target.value)} className="pl-9" placeholder="Search by item number, SKU, brand or model" /></div><div className="max-h-[48vh] overflow-auto rounded-xl border"><Table><TableHeader className="sticky top-0 z-10 bg-white"><TableRow><TableHead className="w-12">Select</TableHead><TableHead>Item # / SKU</TableHead><TableHead className="min-w-72">Description</TableHead>{stockCompanies.map((company) => <TableHead key={company.id} className="min-w-28 text-right">{company.name}</TableHead>)}<TableHead className="min-w-52">Remark</TableHead></TableRow></TableHeader><TableBody>{stockLoading ? <TableRow><TableCell colSpan={4 + stockCompanies.length} className="py-12 text-center text-slate-500">Loading in-stock items…</TableCell></TableRow> : matchingStock.length ? matchingStock.map((item) => { const key = keyOf(item.sku); const selected = selectedSkus.includes(key); return <TableRow key={key} className={selected ? "bg-blue-50/60" : ""}><TableCell><Checkbox checked={selected} onCheckedChange={(checked) => toggleSelected(item.sku, checked === true)} aria-label={`Select ${item.itemName}`} /></TableCell><TableCell><span className="font-medium">#{item.itemNumber || "—"}</span><span className="block font-mono text-xs text-slate-500">{item.sku}</span></TableCell><TableCell className="font-medium">{item.itemName}</TableCell>{stockCompanies.map((company) => <TableCell key={company.id} className="text-right font-semibold">{quantity(qtyFor(item.companyQuantities, company.id))}</TableCell>)}<TableCell><Input disabled={!selected} value={remarks[key] || ""} onChange={(event) => setRemarks((current) => ({ ...current, [key]: event.target.value }))} maxLength={500} placeholder="Optional" /></TableCell></TableRow>; }) : <TableRow><TableCell colSpan={4 + stockCompanies.length} className="py-12 text-center text-slate-500">No in-stock items match your search.</TableCell></TableRow>}</TableBody></Table></div>{stock.length > 150 && !stockSearch ? <p className="text-xs text-slate-500">Showing the first 150 in-stock items. Search by SKU, item number, brand, or model to find another item.</p> : null}<DialogFooter><Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>Back</Button><Button disabled={saving || stockLoading || !selectedSkus.length}>{saving ? "Saving…" : `Save ${selectedSkus.length || ""} selected item${selectedSkus.length === 1 ? "" : "s"}`}</Button></DialogFooter></form></DialogContent></Dialog>
 
-    <Dialog open={Boolean(detail)} onOpenChange={(open) => { if (!open) { setDetail(null); setEditing(false); } }}><DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-6xl"><SkuLockNotice message={skuLock.message} /><DialogHeader><div className="flex flex-col gap-3 pr-8 sm:flex-row sm:items-start sm:justify-between"><div><DialogTitle>Inventory Check Report #{detail?.id}</DialogTitle><DialogDescription>{companyName} · {detail?.locationName} · {detail ? formatDate(detail.createdAt) : ""}</DialogDescription></div><Button variant="outline" onClick={() => window.print()} disabled={detailLoading}><Printer className="size-4" />Print</Button></div></DialogHeader>{detail ? <><div className="grid gap-4 rounded-xl bg-slate-50 p-4 sm:grid-cols-[1fr_220px]"><div className="space-y-2"><Label>Memo</Label>{editing ? <Input disabled={!skuLock.ready} value={detail.memo} onChange={(event) => setDetail({ ...detail, memo: event.target.value })} maxLength={240} /> : <p className="rounded-md border bg-white px-3 py-2 text-sm">{detail.memo || "No memo"}</p>}</div><div><Label>Creator</Label><p className="mt-2 text-sm font-semibold">{detail.creator || detail.creatorEmail || "Unknown"}</p></div></div><div className="overflow-x-auto rounded-xl border"><Table><TableHeader><TableRow><TableHead>Item #</TableHead><TableHead>SKU</TableHead><TableHead>Item</TableHead><TableHead className="text-right">System Qty</TableHead><TableHead className="text-right">Physical Count</TableHead><TableHead className="text-right">Difference</TableHead></TableRow></TableHeader><TableBody>{detailLoading ? <TableRow><TableCell colSpan={6} className="py-12 text-center text-slate-500">Loading report items…</TableCell></TableRow> : lines.length ? lines.map((line, index) => { const difference = line.countedQuantity === null ? null : Number(line.countedQuantity) - Number(line.systemQuantity); return <TableRow key={line.id}><TableCell>{line.itemNumber || "—"}</TableCell><TableCell className="font-mono text-xs">{line.sku}</TableCell><TableCell className="font-medium">{line.itemName}</TableCell><TableCell className="text-right">{quantity(line.systemQuantity)}</TableCell><TableCell className="text-right">{editing ? <Input disabled={!skuLock.ready} type="number" step="0.01" className="ml-auto w-28 text-right" value={line.countedQuantity ?? ""} onChange={(event) => { const value = event.target.value; setLines((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, countedQuantity: value === "" ? null : Number(value) } : entry)); }} /> : line.countedQuantity === null ? "—" : quantity(line.countedQuantity)}</TableCell><TableCell className={`text-right font-semibold ${difference === null || difference === 0 ? "text-slate-500" : difference > 0 ? "text-emerald-600" : "text-rose-600"}`}>{difference === null ? "—" : quantity(difference)}</TableCell></TableRow>; }) : <TableRow><TableCell colSpan={6} className="py-12 text-center text-slate-500">No active inventory items were included.</TableCell></TableRow>}</TableBody></Table></div>{editing ? <DialogFooter><Button variant="outline" onClick={() => setEditing(false)}>Cancel editing</Button><Button onClick={() => void saveReport()} disabled={saving || !skuLock.ready}>{saving ? "Saving…" : "Save report"}</Button></DialogFooter> : canManage ? <DialogFooter><Button onClick={() => setEditing(true)}><Pencil className="size-4" />Edit report</Button></DialogFooter> : null}</> : null}</DialogContent></Dialog>
+    <Dialog open={Boolean(detail)} onOpenChange={(open) => { if (!open && !saving) { setDetail(null); setEditing(false); } }}><DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-7xl"><SkuLockNotice message={skuLock.message} /><DialogHeader><div className="flex flex-col gap-3 pr-8 sm:flex-row sm:items-start sm:justify-between"><div><DialogTitle>Inventory Check Report #{detail?.id}</DialogTitle><DialogDescription>{companyName} · {detail?.locationName} · {detail ? formatDate(detail.createdAt) : ""}</DialogDescription></div><Button variant="outline" onClick={() => window.print()} disabled={detailLoading}><Printer className="size-4" />Print</Button></div></DialogHeader>{detail ? <><div className="grid gap-4 rounded-xl bg-slate-50 p-4 sm:grid-cols-[1fr_220px]"><div className="space-y-2"><Label>Memo</Label>{editing ? <Input disabled={!skuLock.ready} value={detail.memo} onChange={(event) => setDetail({ ...detail, memo: event.target.value })} maxLength={240} /> : <p className="rounded-md border bg-white px-3 py-2 text-sm">{detail.memo || "No memo"}</p>}</div><div><Label>Creator</Label><p className="mt-2 text-sm font-semibold">{detail.creator || detail.creatorEmail || "Unknown"}</p></div></div>{editing ? <div className="rounded-xl border border-dashed p-3"><Label>Add another in-stock item</Label><div className="relative mt-2"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input value={addSearch} onChange={(event) => setAddSearch(event.target.value)} className="pl-9" placeholder="Search available items" /></div>{addSearch ? <div className="mt-2 max-h-44 overflow-auto rounded-lg border bg-white">{addableStock.length ? addableStock.map((item) => <button type="button" key={item.sku} onClick={() => { addLine(item); setAddSearch(""); }} className="flex w-full items-center justify-between gap-3 border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-slate-50"><span><strong>{item.itemName}</strong><span className="block font-mono text-xs text-slate-500">{item.sku}</span></span><Plus className="size-4 text-blue-600" /></button>) : <p className="p-3 text-sm text-slate-500">No additional in-stock items found.</p>}</div> : null}</div> : null}<div className="overflow-x-auto rounded-xl border"><Table><TableHeader><TableRow><TableHead>Item # / SKU</TableHead><TableHead className="min-w-72">Description</TableHead>{reportColumns.map((company) => <TableHead key={company.id} className="min-w-28 text-right">{company.name}</TableHead>)}<TableHead className="min-w-52">Remark</TableHead>{editing ? <TableHead className="w-14" /> : null}</TableRow></TableHeader><TableBody>{detailLoading ? <TableRow><TableCell colSpan={4 + reportColumns.length} className="py-12 text-center text-slate-500">Loading report items…</TableCell></TableRow> : lines.length ? lines.map((line, index) => <TableRow key={`${line.id}-${line.sku}`}><TableCell><span className="font-medium">#{line.itemNumber || "—"}</span><span className="block font-mono text-xs text-slate-500">{line.sku}</span></TableCell><TableCell className="font-medium">{line.itemName}</TableCell>{reportColumns.map((company) => <TableCell key={company.id} className="text-right font-semibold">{quantity(qtyFor(line.companyQuantities, company.id))}</TableCell>)}<TableCell>{editing ? <Input disabled={!skuLock.ready} value={line.remark} onChange={(event) => setLines((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, remark: event.target.value } : entry))} maxLength={500} /> : line.remark || <span className="text-slate-400">—</span>}</TableCell>{editing ? <TableCell><Button type="button" size="icon" variant="ghost" className="text-rose-600" onClick={() => setLines((current) => current.filter((_, entryIndex) => entryIndex !== index))} aria-label={`Remove ${line.itemName}`}><X className="size-4" /></Button></TableCell> : null}</TableRow>) : <TableRow><TableCell colSpan={4 + reportColumns.length} className="py-12 text-center text-slate-500">No items were selected for this report.</TableCell></TableRow>}</TableBody></Table></div>{editing ? <DialogFooter><Button variant="outline" onClick={() => void openReport(detail)}>Cancel editing</Button><Button onClick={() => void saveReport()} disabled={saving || !skuLock.ready || !lines.length}>{saving ? "Saving…" : "Save report"}</Button></DialogFooter> : canManage ? <DialogFooter><Button onClick={() => void startEditing()}><Pencil className="size-4" />Edit report</Button></DialogFooter> : null}</> : null}</DialogContent></Dialog>
 
-    <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete report #{deleteTarget?.id}?</AlertDialogTitle><AlertDialogDescription>This permanently removes the inventory check report and all recorded counts.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction variant="destructive" disabled={saving} onClick={() => void deleteReport()}>{saving ? "Deleting…" : "Delete report"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+    <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete report #{deleteTarget?.id}?</AlertDialogTitle><AlertDialogDescription>This permanently removes the inventory check report and its saved company quantity snapshot.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction variant="destructive" disabled={saving} onClick={() => void deleteReport()}>{saving ? "Deleting…" : "Delete report"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
   </div>;
 }

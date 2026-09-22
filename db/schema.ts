@@ -324,6 +324,8 @@ export const inventoryCheckLines = pgTable("inventory_check_lines", {
   itemName: text("item_name").notNull(),
   systemQuantity: doublePrecision("system_quantity").notNull().default(0),
   countedQuantity: doublePrecision("counted_quantity"),
+  companyQuantities: text("company_quantities").notNull().default("[]"),
+  remark: text("remark").notNull().default(""),
 }, (table) => [index("idx_inventory_check_lines_report").on(table.reportId), index("idx_inventory_check_lines_item").on(table.itemId)]);
 
 export const accounts = pgTable("accounts", {

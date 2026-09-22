@@ -188,7 +188,7 @@ const viewTitles: Record<View, { title: string; sub: string }> = {
   vendors: { title: "Vendor Center", sub: "Suppliers, payables and purchasing history" },
   inventory: { title: "Inventory Center", sub: "Stock levels, pricing, costs and reorder controls" },
   "item-logistics": { title: "HS Code, COO & Dimensions", sub: "Maintain customs classifications, country of origin, dimensions and weight" },
-  "inventory-check-reports": { title: "Inventory Check Reports", sub: "Create, print and review physical stock count reports" },
+  "inventory-check-reports": { title: "Inventory Check Reports", sub: "Select in-stock items and compare quantities across your companies" },
   transfers: { title: "Stock Transfers", sub: "Move stock between companies and inventory locations" },
   banking: { title: "Banking", sub: "Deposits, cheques, transfers and account activity" },
   "journal-entries": { title: "General Journal Entries", sub: "Post balanced debits and credits directly to the ledger" },
