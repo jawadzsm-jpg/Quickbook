@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Download, History, PackagePlus, Plus, Printer, Trash2 } from "lucide-react";
+import { CheckCircle2, Download, History, PackagePlus, Pencil, Plus, Printer, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -64,6 +64,15 @@ function initialDraft(lines: InvoiceLine[]) {
   return lines.map((line, index) => makeDraft(line, `invoice-${line.id}`, String(index + 1)));
 }
 
+function savedDrafts(list: PackingList): Draft[] {
+  return list.lines.map((line, index) => ({
+    key: `saved-${line.id}-${index}`, invoiceLineId: line.invoiceLineId, selected: true, extra: true,
+    packedQuantity: String(line.packedQuantity), unitsPerCarton: String(line.unitsPerCarton), cartonReference: line.cartonReference,
+    grossWeightKg: String(line.grossWeightKg), dimensionText: line.dimensionText,
+    lengthCm: String(line.lengthCm), widthCm: String(line.widthCm), heightCm: String(line.heightCm),
+  }));
+}
+
 export function InvoicePackingListDialog({ open, onOpenChange, companyId, companyName, invoiceId }: { open: boolean; onOpenChange: (open: boolean) => void; companyId: number; companyName: string; invoiceId: number }) {
   const [data, setData] = useState<PackingData | null>(null);
   const [drafts, setDrafts] = useState<Draft[]>([]);
@@ -74,6 +83,7 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
   const [saving, setSaving] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [selectedListId, setSelectedListId] = useState<number | null>(null);
+  const [editingListId, setEditingListId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     if (!open || !invoiceId) return;
@@ -117,8 +127,17 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
     return { quantity, cartons: cbmByCarton.size, weight, cbm: [...cbmByCarton.values()].reduce((sum, value) => sum + value, 0) };
   }, [selectedRows]);
   const activeList = data?.packingLists.find((list) => list.id === selectedListId) ?? null;
-  const remainingTotal = (data?.lines || []).reduce((sum, line) => sum + line.remainingQuantity, 0);
+  const editingList = data?.packingLists.find((list) => list.id === editingListId) ?? null;
+  const editingQuantityByLine = useMemo(() => {
+    const quantities = new Map<number, number>();
+    for (const line of editingList?.lines ?? []) quantities.set(line.invoiceLineId, (quantities.get(line.invoiceLineId) ?? 0) + Number(line.packedQuantity));
+    return quantities;
+  }, [editingList]);
+  const availableQuantity = (line: InvoiceLine) => line.remainingQuantity + (editingQuantityByLine.get(line.id) ?? 0);
+  const remainingTotal = (data?.lines || []).reduce((sum, line) => sum + availableQuantity(line), 0);
   const remainingAfterDraft = remainingTotal - totals.quantity;
+  const editingTotal = editingList?.lines.reduce((sum, line) => sum + Number(line.packedQuantity), 0) ?? 0;
+  const packedBeforeDraft = (data?.lines || []).reduce((sum, line) => sum + Number(line.packedQuantity), 0) - editingTotal;
   const selectedQuantityByLine = useMemo(() => {
     const quantities = new Map<number, number>();
     for (const row of selectedRows) quantities.set(row.line.id, (quantities.get(row.line.id) ?? 0) + row.quantity);
@@ -130,7 +149,7 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
   }
 
   function addLine() {
-    const line = data?.lines.find((entry) => entry.remainingQuantity > 0);
+    const line = data?.lines.find((entry) => availableQuantity(entry) > 0);
     if (!line) return toast.error("All invoice quantities are already packed.");
     setDrafts((current) => {
       const numericCartons = current.flatMap((draft) => cartonKeys(draft.cartonReference)).map(Number).filter(Number.isFinite);
@@ -146,6 +165,21 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
     update(draft.key, replacement);
   }
 
+  function editList(list: PackingList) {
+    setEditingListId(list.id);
+    setSelectedListId(list.id);
+    setPackingDate(list.packingDate);
+    setDeliveryAddress(list.deliveryAddress);
+    setMemo(list.memo);
+    setDrafts(savedDrafts(list));
+  }
+
+  function cancelEdit() {
+    setEditingListId(null);
+    setDrafts(initialDraft(data?.lines ?? []));
+    setMemo("");
+  }
+
   async function save() {
     if (!selectedRows.length) return toast.error("Select at least one invoice item to pack.");
     const selectedByLine = new Map<number, number>();
@@ -155,17 +189,18 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
       if (number(row.draft.unitsPerCarton) <= 0) return toast.error(`Enter units per carton for ${row.line.description}.`);
       if (row.cartonKeys.length < row.cartons) return toast.error(`${row.line.description} needs ${row.cartons} carton number(s). Use a range such as 1-${row.cartons}.`);
     }
-    for (const [lineId, quantity] of selectedByLine) { const line = data?.lines.find((entry) => entry.id === lineId); if (line && quantity > line.remainingQuantity + 0.000001) return toast.error(`${line.description} has only ${display(line.remainingQuantity, 2)} remaining.`); }
+    for (const [lineId, quantity] of selectedByLine) { const line = data?.lines.find((entry) => entry.id === lineId); const available = line ? availableQuantity(line) : 0; if (line && quantity > available + 0.000001) return toast.error(`${line.description} has only ${display(available, 2)} available.`); }
     setSaving(true);
     try {
-      const response = await fetch("/api/packing-lists", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
-        companyId, invoiceId, packingDate, deliveryAddress, memo,
+      const response = await fetch("/api/packing-lists", { method: editingListId ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        companyId, invoiceId, packingListId: editingListId, packingDate, deliveryAddress, memo,
         lines: selectedRows.map(({ line, draft, quantity, cartonReference }) => ({ invoiceLineId: line.id, packedQuantity: quantity, unitsPerCarton: number(draft.unitsPerCarton), cartonReference, grossWeightKg: number(draft.grossWeightKg), dimensionText: draft.dimensionText, lengthCm: number(draft.lengthCm), widthCm: number(draft.widthCm), heightCm: number(draft.heightCm) })),
       }) });
       const next = await response.json() as PackingData & { error?: string };
       if (!response.ok) throw new Error(next.error || "Could not save packing list");
-      setData(next); setDrafts(initialDraft(next.lines)); setMemo(""); setSelectedListId(next.createdId ?? next.packingLists.at(-1)?.id ?? null);
-      toast.success(`Packing list ${next.packingLists.find((list) => list.id === next.createdId)?.number || "saved"}`);
+      const savedNumber = next.packingLists.find((list) => list.id === next.createdId)?.number || "saved";
+      setData(next); setDrafts(initialDraft(next.lines)); setMemo(""); setEditingListId(null); setSelectedListId(next.createdId ?? next.packingLists.at(-1)?.id ?? null);
+      toast.success(`Packing list ${savedNumber} ${editingListId ? "updated" : "saved"}`);
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save packing list"); }
     finally { setSaving(false); }
   }
@@ -236,32 +271,34 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
 
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[94vh] w-[calc(100vw-2rem)] !max-w-[calc(100vw-2rem)] overflow-y-auto"><DialogHeader><DialogTitle>Invoice Packing Lists · {data?.invoice.number || "Loading…"}</DialogTitle><DialogDescription>Select invoice items and pack only the remaining balance. Add another line to split repacked cartons or use the same CTN number for multiple items in one carton.</DialogDescription></DialogHeader>
     {loading || !data ? <p className="py-16 text-center text-slate-500">Loading invoice packing details…</p> : <div className="space-y-5">
-      <div className="grid gap-3 rounded-xl border bg-slate-50 p-4 text-sm dark:bg-slate-900/70 sm:grid-cols-4"><div><span className="text-slate-500 dark:text-slate-400">Customer</span><strong className="block">{data.invoice.party}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Invoice Qty</span><strong className="block">{display(data.lines.reduce((sum, line) => sum + Number(line.invoicedQuantity), 0), 2)}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Already Packed + Current</span><strong className="block">{display(data.lines.reduce((sum, line) => sum + Number(line.packedQuantity), 0) + totals.quantity, 2)}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Balance After This Packing</span><strong className={`block ${remainingAfterDraft < 0 ? "text-red-600" : "text-amber-700 dark:text-amber-400"}`}>{display(Math.max(0, remainingAfterDraft), 2)}</strong></div></div>
-      {data.packingLists.length ? <section className="rounded-xl border"><div className="flex items-center gap-2 border-b p-3"><History className="size-4" /><strong className="text-sm">Saved Packing Lists</strong></div><div className="flex flex-wrap gap-2 p-3">{data.packingLists.map((list) => <Button key={list.id} type="button" size="sm" variant={selectedListId === list.id ? "default" : "outline"} onClick={() => setSelectedListId(list.id)}>{list.number} · {list.lines.reduce((sum, line) => sum + line.packedQuantity, 0)} pcs</Button>)}</div>{activeList ? <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-emerald-50 p-3 text-sm dark:bg-emerald-950/30"><span><CheckCircle2 className="mr-1 inline size-4 text-emerald-600" /><strong>{activeList.number}</strong> · {activeList.packingDate} · {uniqueCartonCount(activeList)} carton(s) · {display(activeList.lines.reduce((sum, line) => sum + line.totalCbm, 0))} m³</span><div className="flex flex-wrap gap-2"><Button type="button" size="sm" variant="outline" onClick={() => printList(activeList)}><Printer className="size-4" />Print A4 Landscape</Button><Button type="button" size="sm" variant="outline" disabled={pdfBusy} onClick={() => void downloadListPdf(activeList)}><Download className="size-4" />{pdfBusy ? "Creating PDF…" : "Download PDF"}</Button></div></div> : null}</section> : null}
+      <div className="grid gap-3 rounded-xl border bg-slate-50 p-4 text-sm dark:bg-slate-900/70 sm:grid-cols-4"><div><span className="text-slate-500 dark:text-slate-400">Customer</span><strong className="block">{data.invoice.party}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Invoice Qty</span><strong className="block">{display(data.lines.reduce((sum, line) => sum + Number(line.invoicedQuantity), 0), 2)}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Already Packed + Current</span><strong className="block">{display(packedBeforeDraft + totals.quantity, 2)}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Balance After This Packing</span><strong className={`block ${remainingAfterDraft < 0 ? "text-red-600" : "text-amber-700 dark:text-amber-400"}`}>{display(Math.max(0, remainingAfterDraft), 2)}</strong></div></div>
+      {data.packingLists.length ? <section className="rounded-xl border"><div className="flex items-center gap-2 border-b p-3"><History className="size-4" /><strong className="text-sm">Saved Packing Lists</strong></div><div className="flex flex-wrap gap-2 p-3">{data.packingLists.map((list) => <Button key={list.id} type="button" size="sm" variant={selectedListId === list.id ? "default" : "outline"} onClick={() => setSelectedListId(list.id)}>{list.number} · {list.lines.reduce((sum, line) => sum + line.packedQuantity, 0)} pcs</Button>)}</div>{activeList ? <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-emerald-50 p-3 text-sm dark:bg-emerald-950/30"><span><CheckCircle2 className="mr-1 inline size-4 text-emerald-600" /><strong>{activeList.number}</strong> · {activeList.packingDate} · {uniqueCartonCount(activeList)} carton(s) · {display(activeList.lines.reduce((sum, line) => sum + line.totalCbm, 0))} m³</span><div className="flex flex-wrap gap-2"><Button type="button" size="sm" variant="outline" onClick={() => editList(activeList)}><Pencil className="size-4" />Edit</Button><Button type="button" size="sm" variant="outline" onClick={() => printList(activeList)}><Printer className="size-4" />Print A4 Landscape</Button><Button type="button" size="sm" variant="outline" disabled={pdfBusy} onClick={() => void downloadListPdf(activeList)}><Download className="size-4" />{pdfBusy ? "Creating PDF…" : "Download PDF"}</Button></div></div> : null}</section> : null}
+      {editingList ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-400 bg-amber-50 p-3 text-sm text-amber-950 dark:bg-amber-950/40 dark:text-amber-100"><strong>Editing {editingList.number}</strong><Button type="button" size="sm" variant="outline" onClick={cancelEdit}>Cancel Edit</Button></div> : null}
       <section className="space-y-3"><div className="grid gap-3 sm:grid-cols-3"><label className="space-y-1 text-sm"><Label>Packing Date</Label><Input type="date" value={packingDate} onChange={(event) => setPackingDate(event.target.value)} /></label><label className="space-y-1 text-sm sm:col-span-2"><Label>Delivery Address</Label><Input value={deliveryAddress} onChange={(event) => setDeliveryAddress(event.target.value)} maxLength={500} /></label></div>
         <div className="overflow-x-auto rounded-xl border">
-          <Table className="min-w-[1600px]"><TableHeader><TableRow><TableHead>Select</TableHead><TableHead className="min-w-72">Invoice Item</TableHead><TableHead>Invoice</TableHead><TableHead>Packed</TableHead><TableHead>Balance</TableHead><TableHead className="min-w-28">Pack Qty</TableHead><TableHead className="min-w-28">PCS / CTN</TableHead><TableHead>CTN</TableHead><TableHead className="min-w-28">CTN No</TableHead><TableHead>HS Code</TableHead><TableHead>COO</TableHead><TableHead className="min-w-44">L × W × H cm</TableHead><TableHead className="min-w-28">Gross KG</TableHead><TableHead>CBM</TableHead><TableHead /></TableRow></TableHeader>
+          <Table className="min-w-[1850px]"><TableHeader><TableRow><TableHead>Select</TableHead><TableHead className="min-w-72">Invoice Item</TableHead><TableHead>Invoice</TableHead><TableHead>Packed</TableHead><TableHead>Balance</TableHead><TableHead className="min-w-28">Pack Qty</TableHead><TableHead className="min-w-28">PCS / CTN</TableHead><TableHead>CTN</TableHead><TableHead className="min-w-28">CTN No</TableHead><TableHead>HS Code</TableHead><TableHead>COO</TableHead><TableHead className="min-w-[430px] text-center">L × W × H cm</TableHead><TableHead className="min-w-28">Gross KG</TableHead><TableHead>CBM</TableHead><TableHead /></TableRow></TableHeader>
             <TableBody>{drafts.map((draft, draftIndex) => {
               const line = data.lines.find((entry) => entry.id === draft.invoiceLineId);
               if (!line) return null;
               const selected = draft.selected;
+              const available = availableQuantity(line);
               const quantity = number(draft.packedQuantity); const units = number(draft.unitsPerCarton);
               const cartons = units > 0 ? Math.ceil(quantity / units) : 0;
               const normalized = cartonReferenceForCount(draft.cartonReference, cartons);
               const keys = normalized.keys;
               const displayedCartons = keys.length || cartons;
               const cbm = number(draft.lengthCm) * number(draft.widthCm) * number(draft.heightCm) / 1_000_000 * displayedCartons;
-              const lineBalance = line.remainingQuantity - (selectedQuantityByLine.get(line.id) ?? 0);
+              const lineBalance = available - (selectedQuantityByLine.get(line.id) ?? 0);
               const invalid = selected && (quantity <= 0 || units <= 0 || keys.length < cartons || lineBalance < -0.000001);
-              return <TableRow key={draft.key} className={line.remainingQuantity <= 0 ? "opacity-55" : invalid ? "bg-red-50 text-red-700 dark:bg-red-950/45 dark:text-red-300" : selected ? "bg-blue-50/60 dark:bg-blue-950/35" : ""}>
-                <TableCell><Checkbox className="size-5 border-2 border-slate-500 bg-white shadow-sm data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600 dark:border-slate-200 dark:bg-slate-800 dark:data-[state=checked]:border-blue-400 dark:data-[state=checked]:bg-blue-500" disabled={line.remainingQuantity <= 0} checked={selected} onCheckedChange={(checked) => update(draft.key, { selected: checked === true })} aria-label={`Select packing row ${draftIndex + 1}`} /></TableCell>
-                <TableCell>{draft.extra ? <Select value={String(line.id)} onValueChange={(value) => changeLine(draft, Number(value))}><SelectTrigger className="w-full min-w-64"><SelectValue /></SelectTrigger><SelectContent>{data.lines.filter((entry) => entry.remainingQuantity > 0).map((entry) => <SelectItem key={entry.id} value={String(entry.id)}>#{entry.itemNumber || "—"} · {entry.description}</SelectItem>)}</SelectContent></Select> : <><strong>{line.description}</strong><span className="block font-mono text-xs text-slate-500 dark:text-slate-400">#{line.itemNumber || "—"} · {line.sku || "—"}</span></>}</TableCell>
+              return <TableRow key={draft.key} className={available <= 0 ? "opacity-55" : invalid ? "bg-red-50 text-red-700 dark:bg-red-950/45 dark:text-red-300" : selected ? "bg-blue-50/60 dark:bg-blue-950/35" : ""}>
+                <TableCell><Checkbox className="size-5 border-2 border-slate-500 bg-white shadow-sm data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600 dark:border-slate-200 dark:bg-slate-800 dark:data-[state=checked]:border-blue-400 dark:data-[state=checked]:bg-blue-500" disabled={available <= 0} checked={selected} onCheckedChange={(checked) => update(draft.key, { selected: checked === true })} aria-label={`Select packing row ${draftIndex + 1}`} /></TableCell>
+                <TableCell>{draft.extra ? <Select value={String(line.id)} onValueChange={(value) => changeLine(draft, Number(value))}><SelectTrigger className="w-full min-w-64"><SelectValue /></SelectTrigger><SelectContent>{data.lines.filter((entry) => availableQuantity(entry) > 0).map((entry) => <SelectItem key={entry.id} value={String(entry.id)}>#{entry.itemNumber || "—"} · {entry.description}</SelectItem>)}</SelectContent></Select> : <><strong>{line.description}</strong><span className="block font-mono text-xs text-slate-500 dark:text-slate-400">#{line.itemNumber || "—"} · {line.sku || "—"}</span></>}</TableCell>
                 <TableCell>{display(line.invoicedQuantity, 2)}</TableCell><TableCell>{display(line.packedQuantity, 2)}</TableCell><TableCell className={`font-bold ${lineBalance < 0 ? "text-red-600" : "text-amber-700 dark:text-amber-400"}`}>{display(Math.max(0, lineBalance), 2)}</TableCell>
-                <TableCell><Input disabled={!selected} type="number" min="0.01" max={line.remainingQuantity} step="0.01" value={draft.packedQuantity} onChange={(event) => update(draft.key, { packedQuantity: event.target.value, grossWeightKg: line.unitWeightKg > 0 ? String(Number((line.unitWeightKg * number(event.target.value)).toFixed(3))) : draft.grossWeightKg })} /></TableCell>
+                <TableCell><Input disabled={!selected} type="number" min="0.01" max={available} step="0.01" value={draft.packedQuantity} onChange={(event) => update(draft.key, { packedQuantity: event.target.value, grossWeightKg: line.unitWeightKg > 0 ? String(Number((line.unitWeightKg * number(event.target.value)).toFixed(3))) : draft.grossWeightKg })} /></TableCell>
                 <TableCell><Input disabled={!selected} type="number" min="0.01" step="0.01" value={draft.unitsPerCarton} onChange={(event) => update(draft.key, { unitsPerCarton: event.target.value })} /></TableCell>
                 <TableCell className="font-bold">{displayedCartons}</TableCell><TableCell><Input disabled={!selected} value={draft.cartonReference} onChange={(event) => update(draft.key, { cartonReference: event.target.value })} placeholder="1 or 1-3" maxLength={120} /></TableCell>
                 <TableCell>{line.hsCode || "—"}</TableCell><TableCell>{line.countryOfOrigin || "—"}</TableCell>
-                <TableCell><div className="grid grid-cols-3 gap-1">{(["lengthCm", "widthCm", "heightCm"] as const).map((field) => <Input key={field} disabled={!selected} type="number" min="0" step="0.01" value={draft[field]} onChange={(event) => update(draft.key, { [field]: event.target.value })} aria-label={field} />)}</div></TableCell>
+                <TableCell><div className="grid min-w-[400px] grid-cols-3 gap-3">{(["lengthCm", "widthCm", "heightCm"] as const).map((field) => <Input key={field} className="h-14 min-w-[124px] bg-white px-4 text-lg font-bold text-slate-950 md:text-lg dark:bg-slate-800 dark:text-white" disabled={!selected} type="number" min="0" step="0.01" value={draft[field]} onChange={(event) => update(draft.key, { [field]: event.target.value })} aria-label={field} />)}</div></TableCell>
                 <TableCell><Input disabled={!selected} type="number" min="0" step="0.001" value={draft.grossWeightKg} onChange={(event) => update(draft.key, { grossWeightKg: event.target.value })} /></TableCell><TableCell className="font-semibold">{display(cbm)} m³</TableCell>
                 <TableCell>{draft.extra ? <Button type="button" size="icon" variant="outline" className="border-rose-300 text-rose-600" onClick={() => setDrafts((current) => current.filter((entry) => entry.key !== draft.key))} aria-label="Remove packing row"><Trash2 className="size-4" /></Button> : null}</TableCell>
               </TableRow>;
@@ -273,6 +310,6 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
         <label className="space-y-1 text-sm"><Label>Memo</Label><Textarea value={memo} onChange={(event) => setMemo(event.target.value)} maxLength={1000} placeholder="Optional packing instructions" /></label>
       </section>
     </div>}
-    <DialogFooter><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Close</Button><Button type="button" disabled={loading || saving || !selectedRows.length} onClick={() => void save()}><PackagePlus className="size-4" />{saving ? "Saving…" : "Save Packing List"}</Button></DialogFooter>
+    <DialogFooter><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Close</Button><Button type="button" disabled={loading || saving || !selectedRows.length} onClick={() => void save()}><PackagePlus className="size-4" />{saving ? "Saving…" : editingListId ? "Update Packing List" : "Save Packing List"}</Button></DialogFooter>
   </DialogContent></Dialog>;
 }

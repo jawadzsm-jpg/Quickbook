@@ -84,11 +84,12 @@ export async function GET(request: Request) {
   } catch (error) { return Response.json({ error: errorMessage(error) }, { status: 500 }); }
 }
 
-export async function POST(request: Request) {
+async function savePackingList(request: Request, editing: boolean) {
   try {
     const payload = await request.json() as Record<string, unknown>;
     const companyId = Number(payload.companyId);
     const invoiceId = Number(payload.invoiceId);
+    const packingListId = editing ? Number(payload.packingListId) : 0;
     const packingDate = clean(payload.packingDate, 10);
     const deliveryAddress = clean(payload.deliveryAddress, 500);
     const memo = clean(payload.memo, 1_000);
@@ -96,22 +97,26 @@ export async function POST(request: Request) {
     const user = await requireCompanyAccess(request, companyId, "sales:write", true);
     if (user instanceof Response) return user;
     if (!Number.isInteger(invoiceId) || invoiceId <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(packingDate)) return Response.json({ error: "Select an invoice and packing date." }, { status: 400 });
+    if (editing && (!Number.isInteger(packingListId) || packingListId <= 0)) return Response.json({ error: "Select a saved packing list to edit." }, { status: 400 });
     if (!requested.length) return Response.json({ error: "Select at least one invoice item to pack." }, { status: 400 });
     return await withWriteTransaction(async () => {
       const db = getDb();
       await db.execute(sql`SELECT id FROM transactions WHERE id = ${invoiceId} FOR UPDATE`);
       const invoice = await invoiceForCompany(invoiceId, companyId);
       if (!invoice) return Response.json({ error: "Customer invoice not found." }, { status: 404 });
+      const [existingList] = editing ? await db.select().from(packingLists).where(and(eq(packingLists.id, packingListId), eq(packingLists.invoiceId, invoiceId), eq(packingLists.companyId, companyId))).limit(1) : [];
+      if (editing && !existingList) return Response.json({ error: "Packing list not found." }, { status: 404 });
+      if (existingList) await db.execute(sql`SELECT id FROM packing_lists WHERE id = ${packingListId} FOR UPDATE`);
       const sourceLines = await db.select({
         id: transactionLines.id, itemId: transactionLines.itemId, description: transactionLines.description, invoicedQuantity: transactionLines.quantity,
         itemNumber: items.itemNumber, sku: items.sku, hsCode: items.hsCode, countryOfOrigin: items.countryOfOrigin,
         dimensionText: items.dimensionText, lengthCm: items.lengthCm, widthCm: items.widthCm, heightCm: items.heightCm, unitWeightKg: items.weightKg,
       }).from(transactionLines).leftJoin(items, eq(transactionLines.itemId, items.id)).where(eq(transactionLines.transactionId, invoiceId));
       const source = new Map(sourceLines.map((line) => [line.id, line]));
-      const packedRows = await db.select({ invoiceLineId: packingListLines.invoiceLineId, packedQuantity: packingListLines.packedQuantity })
+      const packedRows = await db.select({ packingListId: packingListLines.packingListId, invoiceLineId: packingListLines.invoiceLineId, packedQuantity: packingListLines.packedQuantity })
         .from(packingListLines).innerJoin(packingLists, eq(packingListLines.packingListId, packingLists.id)).where(eq(packingLists.invoiceId, invoiceId));
       const alreadyPacked = new Map<number, number>();
-      for (const row of packedRows) alreadyPacked.set(row.invoiceLineId, (alreadyPacked.get(row.invoiceLineId) ?? 0) + Number(row.packedQuantity));
+      for (const row of packedRows) if (row.packingListId !== packingListId) alreadyPacked.set(row.invoiceLineId, (alreadyPacked.get(row.invoiceLineId) ?? 0) + Number(row.packedQuantity));
       let nextAutomaticCarton = 1;
       const reservedCartons = new Set(requested.flatMap((input) => cartonKeys(clean(input.cartonReference, 120))));
       const requestedByLine = new Map<number, number>();
@@ -166,17 +171,28 @@ export async function POST(request: Request) {
         if (assignedCartons.has(key)) return sum;
         assignedCartons.add(key); return sum + (cbmByCarton.get(key) ?? 0);
       }, 0)) }));
-      const existingLists = await db.select({ id: packingLists.id }).from(packingLists).where(eq(packingLists.invoiceId, invoiceId));
-      const sequence = existingLists.length + 1;
-      const number = `PL-${clean(invoice.number, 80)}-${String(sequence).padStart(2, "0")}`;
-      const [packingList] = await db.insert(packingLists).values({ companyId, locationId: invoice.locationId, invoiceId, number, packingDate, deliveryAddress, memo, createdByUserId: user.id }).returning();
-      await db.insert(packingListLines).values(rows.map((line) => ({ ...line, packingListId: packingList.id })));
-      await db.insert(auditLog).values({ companyId, action: "created", entityType: "packing_list", entityId: packingList.id, details: `${number} created from invoice ${invoice.number} with ${rows.length} item line(s) by ${user.email}` });
+      let targetId = packingListId;
+      let number = existingList?.number ?? "";
+      if (existingList) {
+        await db.delete(packingListLines).where(eq(packingListLines.packingListId, packingListId));
+        await db.update(packingLists).set({ packingDate, deliveryAddress, memo }).where(eq(packingLists.id, packingListId));
+      } else {
+        const existingLists = await db.select({ id: packingLists.id }).from(packingLists).where(eq(packingLists.invoiceId, invoiceId));
+        const sequence = existingLists.length + 1;
+        number = `PL-${clean(invoice.number, 80)}-${String(sequence).padStart(2, "0")}`;
+        const [packingList] = await db.insert(packingLists).values({ companyId, locationId: invoice.locationId, invoiceId, number, packingDate, deliveryAddress, memo, createdByUserId: user.id }).returning();
+        targetId = packingList.id;
+      }
+      await db.insert(packingListLines).values(rows.map((line) => ({ ...line, packingListId: targetId })));
+      await db.insert(auditLog).values({ companyId, action: existingList ? "updated" : "created", entityType: "packing_list", entityId: targetId, details: `${number} ${existingList ? "updated" : "created"} from invoice ${invoice.number} with ${rows.length} item line(s) by ${user.email}` });
       const data = await responseData(invoiceId, companyId);
-      return Response.json({ ...data, createdId: packingList.id }, { status: 201 });
+      return Response.json({ ...data, createdId: targetId }, { status: existingList ? 200 : 201 });
     });
   } catch (error) {
     const message = errorMessage(error);
     return Response.json({ error: message }, { status: message.includes("remaining to pack") || message.includes("carton number(s)") || message.startsWith("Enter ") || message.startsWith("One or more") ? 409 : 500 });
   }
 }
+
+export async function POST(request: Request) { return savePackingList(request, false); }
+export async function PATCH(request: Request) { return savePackingList(request, true); }

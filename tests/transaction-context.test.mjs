@@ -1680,7 +1680,7 @@ test('invoice packing lists preserve logistics, calculate cartons and expose onl
   await database.query("INSERT INTO contacts(company_id,type,name,country) VALUES($1,'customer','Packing customer','AFGHANISTAN')",[company]);
   const invoice=(await database.query("INSERT INTO transactions(company_id,location_id,number,type,party,transaction_date) VALUES($1,$2,'INV-PACK-1','invoice','Packing customer','2026-09-22') RETURNING id",[company,location])).rows[0].id;
   const invoiceLine=(await database.query("INSERT INTO transaction_lines(transaction_id,item_id,description,quantity) VALUES($1,$2,'Packed router',100) RETURNING id",[invoice,item])).rows[0].id;
-  const {GET,POST}=await vite.ssrLoadModule('/app/api/packing-lists/route.ts');
+  const {GET,POST,PATCH}=await vite.ssrLoadModule('/app/api/packing-lists/route.ts');
   const save=(quantity)=>POST(new Request('https://app.test/api/packing-lists',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({companyId:company,invoiceId:invoice,packingDate:'2026-09-22',deliveryAddress:'Kabul Airport',memo:'Export packing',lines:[{invoiceLineId:invoiceLine,packedQuantity:quantity,unitsPerCarton:10,cartonReference:'5',grossWeightKg:quantity*0.5,lengthCm:50,widthCm:40,heightCm:30}]})}));
   let response=await save(20);
   assert.equal(response.status,201,await response.clone().text());
@@ -1706,6 +1706,10 @@ test('invoice packing lists preserve logistics, calculate cartons and expose onl
   response=await split([25,25]);assert.equal(response.status,201,await response.clone().text());data=await response.json();
   const repacked=data.packingLists.at(-1);assert.equal(repacked.lines.length,2);assert.ok(repacked.lines.every(line=>line.cartonReference==='9'&&line.cartonCount===1));assert.equal(repacked.lines.reduce((sum,line)=>sum+line.totalCbm,0),0.06);
   assert.equal(data.lines[0].remainingQuantity,0);
+  const firstList=data.packingLists[0];
+  response=await PATCH(new Request('https://app.test/api/packing-lists',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({companyId:company,invoiceId:invoice,packingListId:firstList.id,packingDate:'2026-09-23',deliveryAddress:'Updated Kabul Airport',memo:'Updated packing',lines:[{invoiceLineId:invoiceLine,packedQuantity:20,unitsPerCarton:10,cartonReference:'20',grossWeightKg:10,lengthCm:55,widthCm:45,heightCm:35}]})}));
+  assert.equal(response.status,200,await response.clone().text());data=await response.json();
+  assert.equal(data.packingLists.length,3);assert.equal(data.packingLists[0].number,'PL-INV-PACK-1-01');assert.equal(data.packingLists[0].packingDate,'2026-09-23');assert.equal(data.packingLists[0].deliveryAddress,'Updated Kabul Airport');assert.equal(data.packingLists[0].lines.length,1);assert.equal(data.packingLists[0].lines[0].cartonReference,'20-21');assert.equal(data.lines[0].remainingQuantity,0);
   const refreshed=await GET(new Request(`https://app.test/api/packing-lists?companyId=${company}&invoiceId=${invoice}`));
   assert.equal(refreshed.status,200);
   assert.equal((await refreshed.json()).lines[0].remainingQuantity,0);
