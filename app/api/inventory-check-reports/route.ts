@@ -4,7 +4,7 @@ import { getDb } from "@/db";
 import { appUsers, auditLog, companies, inventoryCheckLines, inventoryCheckReports, inventoryLocations, items } from "@/db/schema";
 import { requireCompanyAccess, type SessionUser } from "@/lib/auth";
 
-type CompanyQuantity = { companyId: number; companyName: string; quantity: number };
+type CompanyQuantity = { companyId: number; companyName: string; quantity: number; countedQuantity: number | null };
 type StockOption = { itemId: number; itemNumber: string; sku: string; itemName: string; totalQuantity: number; companyQuantities: CompanyQuantity[] };
 
 const clean = (value: unknown, max = 240) => String(value ?? "").trim().slice(0, max);
@@ -49,7 +49,7 @@ async function availableStock(user: SessionUser): Promise<{ companies: Array<{ i
         sku: row.sku,
         itemName: row.itemName,
         totalQuantity: 0,
-        companyQuantities: companyRows.map((company) => ({ companyId: company.id, companyName: company.name, quantity: 0 })),
+        companyQuantities: companyRows.map((company) => ({ companyId: company.id, companyName: company.name, quantity: 0, countedQuantity: null })),
       };
       bySku.set(key, option);
     }
@@ -64,11 +64,26 @@ function parsedQuantities(value: string, fallback?: CompanyQuantity): CompanyQua
   try {
     const parsed = JSON.parse(value) as unknown;
     if (Array.isArray(parsed)) {
-      const quantities = parsed.filter((entry): entry is CompanyQuantity => Boolean(entry) && typeof entry === "object" && Number.isInteger(Number((entry as CompanyQuantity).companyId))).map((entry) => ({ companyId: Number(entry.companyId), companyName: clean(entry.companyName, 160), quantity: Number(entry.quantity) || 0 }));
+      const quantities = parsed.filter((entry): entry is CompanyQuantity => Boolean(entry) && typeof entry === "object" && Number.isInteger(Number((entry as CompanyQuantity).companyId))).map((entry) => {
+        const raw = (entry as { countedQuantity?: unknown }).countedQuantity;
+        const counted = raw === null || raw === undefined || raw === "" ? null : Number(raw);
+        return { companyId: Number(entry.companyId), companyName: clean(entry.companyName, 160), quantity: Number(entry.quantity) || 0, countedQuantity: counted !== null && Number.isFinite(counted) ? counted : null };
+      });
       return quantities.length ? quantities : fallback ? [fallback] : [];
     }
   } catch { /* Older report rows use the fallback below. */ }
   return fallback ? [fallback] : [];
+}
+
+function quantitiesWithCounts(values: CompanyQuantity[], counts: unknown): CompanyQuantity[] {
+  const input = counts && typeof counts === "object" ? counts as Record<string, unknown> : {};
+  return values.map((entry) => {
+    const raw = input[String(entry.companyId)];
+    if (raw === "" || raw === null || raw === undefined) return { ...entry, countedQuantity: null };
+    const countedQuantity = Number(raw);
+    if (!Number.isFinite(countedQuantity) || countedQuantity < 0 || countedQuantity > 1_000_000_000) throw new Error("Enter a valid checked quantity.");
+    return { ...entry, countedQuantity };
+  });
 }
 
 export async function GET(request: Request) {
@@ -86,7 +101,7 @@ export async function GET(request: Request) {
       if (!record) return Response.json({ error: "Inventory check report not found." }, { status: 404 });
       const [ownerCompany] = await db.select({ id: companies.id, name: companies.name }).from(companies).where(eq(companies.id, record.companyId)).limit(1);
       const stored = await db.select().from(inventoryCheckLines).where(eq(inventoryCheckLines.reportId, reportId)).orderBy(asc(inventoryCheckLines.itemName));
-      const lines = stored.map((line) => ({ ...line, companyQuantities: parsedQuantities(line.companyQuantities, ownerCompany ? { companyId: ownerCompany.id, companyName: ownerCompany.name, quantity: Number(line.systemQuantity) } : undefined) }));
+      const lines = stored.map((line) => ({ ...line, companyQuantities: parsedQuantities(line.companyQuantities, ownerCompany ? { companyId: ownerCompany.id, companyName: ownerCompany.name, quantity: Number(line.systemQuantity), countedQuantity: line.countedQuantity } : undefined) }));
       const companyMap = new Map<number, { id: number; name: string }>();
       for (const line of lines) for (const company of line.companyQuantities) companyMap.set(company.companyId, { id: company.companyId, name: company.companyName });
       return Response.json({ record, lines, companies: [...companyMap.values()] });
@@ -101,7 +116,23 @@ export async function GET(request: Request) {
       .leftJoin(appUsers, eq(inventoryCheckReports.createdByUserId, appUsers.id))
       .innerJoin(inventoryLocations, eq(inventoryCheckReports.locationId, inventoryLocations.id))
       .where(and(...conditions)).orderBy(desc(inventoryCheckReports.createdAt));
-    return Response.json({ records });
+    const reportIds = records.map((record) => record.id);
+    const summaryLines = reportIds.length ? await db.select({ reportId: inventoryCheckLines.reportId, systemQuantity: inventoryCheckLines.systemQuantity, companyQuantities: inventoryCheckLines.companyQuantities, remark: inventoryCheckLines.remark }).from(inventoryCheckLines).where(inArray(inventoryCheckLines.reportId, reportIds)) : [];
+    const summaries = new Map<number, { itemCount: number; totalQuantity: number; checkedCount: number; expectedCheckCount: number; mismatchedCount: number; remarks: string[] }>();
+    for (const line of summaryLines) {
+      const summary = summaries.get(line.reportId) ?? { itemCount: 0, totalQuantity: 0, checkedCount: 0, expectedCheckCount: 0, mismatchedCount: 0, remarks: [] };
+      const quantities = parsedQuantities(line.companyQuantities);
+      summary.itemCount += 1;
+      summary.totalQuantity += Number(line.systemQuantity);
+      summary.expectedCheckCount += quantities.length;
+      for (const company of quantities) if (company.countedQuantity !== null) {
+        summary.checkedCount += 1;
+        if (Math.abs(company.countedQuantity - company.quantity) > 0.000001) summary.mismatchedCount += 1;
+      }
+      if (line.remark && !summary.remarks.includes(line.remark)) summary.remarks.push(line.remark);
+      summaries.set(line.reportId, summary);
+    }
+    return Response.json({ records: records.map((record) => { const summary = summaries.get(record.id) ?? { itemCount: 0, totalQuantity: 0, checkedCount: 0, expectedCheckCount: 0, mismatchedCount: 0, remarks: [] }; return { ...record, ...summary, remarkSummary: summary.remarks.join("; ").slice(0, 240) }; }) });
   } catch (error) { return Response.json({ error: databaseError(error) }, { status: 500 }); }
 }
 
@@ -122,17 +153,17 @@ async function handlePOST(request: Request) {
     if (!location) return Response.json({ error: "Inventory not found for this company." }, { status: 404 });
     const stock = await availableStock(user);
     const available = new Map(stock.items.map((item) => [skuKey(item.sku), item]));
-    const selected = new Map<string, { option: StockOption; remark: string }>();
+    const selected = new Map<string, { option: StockOption; remark: string; counts: unknown }>();
     for (const line of requestedLines) {
       const key = skuKey(line.sku);
       const option = available.get(key);
-      if (option) selected.set(key, { option, remark: clean(line.remark, 500) });
+      if (option) selected.set(key, { option, remark: clean(line.remark, 500), counts: line.counts });
     }
     if (!selected.size) return Response.json({ error: "The selected items are no longer in stock." }, { status: 409 });
     const [record] = await db.insert(inventoryCheckReports).values({ companyId, locationId, memo, createdByUserId: user.id }).returning();
-    await db.insert(inventoryCheckLines).values([...selected.values()].map(({ option, remark }) => ({
+    await db.insert(inventoryCheckLines).values([...selected.values()].map(({ option, remark, counts }) => ({
       reportId: record.id, itemId: option.itemId, itemNumber: option.itemNumber, sku: option.sku, itemName: option.itemName,
-      systemQuantity: option.totalQuantity, companyQuantities: JSON.stringify(option.companyQuantities), remark,
+      systemQuantity: option.totalQuantity, companyQuantities: JSON.stringify(quantitiesWithCounts(option.companyQuantities, counts)), remark,
     })));
     await db.insert(auditLog).values({ companyId, action: "created", entityType: "inventory_check_report", entityId: record.id, details: `Inventory check report #${record.id} created with ${selected.size} selected item(s) by ${user.email}` });
     return Response.json({ record }, { status: 201 });
@@ -156,7 +187,8 @@ async function handlePATCH(request: Request) {
     const byId = new Map(current.map((line) => [line.id, line]));
     const seenSkus = new Set<string>();
     const keepIds = new Set<number>();
-    const additions: Array<{ sku: string; remark: string }> = [];
+    const [ownerCompany] = await db.select({ id: companies.id, name: companies.name }).from(companies).where(eq(companies.id, record.companyId)).limit(1);
+    const additions: Array<{ sku: string; remark: string; counts: unknown }> = [];
     for (const line of requestedLines) {
       const existing = byId.get(Number(line.id));
       const key = skuKey(existing?.sku ?? line.sku);
@@ -164,16 +196,17 @@ async function handlePATCH(request: Request) {
       seenSkus.add(key);
       if (existing) {
         keepIds.add(existing.id);
-        await db.update(inventoryCheckLines).set({ remark: clean(line.remark, 500) }).where(and(eq(inventoryCheckLines.id, existing.id), eq(inventoryCheckLines.reportId, id)));
-      } else additions.push({ sku: key, remark: clean(line.remark, 500) });
+        const quantities = parsedQuantities(existing.companyQuantities, ownerCompany ? { companyId: ownerCompany.id, companyName: ownerCompany.name, quantity: Number(existing.systemQuantity), countedQuantity: existing.countedQuantity } : undefined);
+        await db.update(inventoryCheckLines).set({ remark: clean(line.remark, 500), companyQuantities: JSON.stringify(quantitiesWithCounts(quantities, line.counts)) }).where(and(eq(inventoryCheckLines.id, existing.id), eq(inventoryCheckLines.reportId, id)));
+      } else additions.push({ sku: key, remark: clean(line.remark, 500), counts: line.counts });
     }
     for (const line of current) if (!keepIds.has(line.id)) await db.delete(inventoryCheckLines).where(and(eq(inventoryCheckLines.id, line.id), eq(inventoryCheckLines.reportId, id)));
     if (additions.length) {
       const stock = await availableStock(user);
       const available = new Map(stock.items.map((item) => [skuKey(item.sku), item]));
-      const rows = additions.map((line) => ({ line, option: available.get(line.sku) })).filter((entry): entry is { line: { sku: string; remark: string }; option: StockOption } => Boolean(entry.option));
+      const rows = additions.map((line) => ({ line, option: available.get(line.sku) })).filter((entry): entry is { line: { sku: string; remark: string; counts: unknown }; option: StockOption } => Boolean(entry.option));
       if (rows.length !== additions.length) throw new Error("One or more selected items are no longer in stock. Refresh the report and try again.");
-      if (rows.length) await db.insert(inventoryCheckLines).values(rows.map(({ line, option }) => ({ reportId: id, itemId: option.itemId, itemNumber: option.itemNumber, sku: option.sku, itemName: option.itemName, systemQuantity: option.totalQuantity, companyQuantities: JSON.stringify(option.companyQuantities), remark: line.remark })));
+      if (rows.length) await db.insert(inventoryCheckLines).values(rows.map(({ line, option }) => ({ reportId: id, itemId: option.itemId, itemNumber: option.itemNumber, sku: option.sku, itemName: option.itemName, systemQuantity: option.totalQuantity, companyQuantities: JSON.stringify(quantitiesWithCounts(option.companyQuantities, line.counts)), remark: line.remark })));
     }
     const remaining = await db.select({ id: inventoryCheckLines.id }).from(inventoryCheckLines).where(eq(inventoryCheckLines.reportId, id)).limit(1);
     if (!remaining.length) throw new Error("At least one in-stock item must remain on the report.");
