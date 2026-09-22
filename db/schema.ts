@@ -397,6 +397,42 @@ export const salesInvoiceAllocations = pgTable("sales_invoice_allocations", {
   quantity: doublePrecision("quantity").notNull(),
 }, (table) => [index("idx_sales_invoice_source_line").on(table.sourceLineId), uniqueIndex("idx_sales_invoice_pair").on(table.invoiceId, table.sourceLineId)]);
 
+export const packingLists = pgTable("packing_lists", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  locationId: integer("location_id").references(() => inventoryLocations.id, { onDelete: "set null" }),
+  invoiceId: integer("invoice_id").notNull().references(() => transactions.id, { onDelete: "cascade" }),
+  number: text("number").notNull(),
+  packingDate: text("packing_date").notNull(),
+  deliveryAddress: text("delivery_address").notNull().default(""),
+  memo: text("memo").notNull().default(""),
+  createdByUserId: integer("created_by_user_id").references(() => appUsers.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("idx_packing_lists_company_number").on(table.companyId, table.number), index("idx_packing_lists_invoice").on(table.invoiceId), index("idx_packing_lists_company_date").on(table.companyId, table.packingDate)]);
+
+export const packingListLines = pgTable("packing_list_lines", {
+  id: serial("id").primaryKey(),
+  packingListId: integer("packing_list_id").notNull().references(() => packingLists.id, { onDelete: "cascade" }),
+  invoiceLineId: integer("invoice_line_id").notNull().references(() => transactionLines.id, { onDelete: "restrict" }),
+  itemId: integer("item_id").references(() => items.id, { onDelete: "set null" }),
+  itemNumber: text("item_number").notNull().default(""),
+  sku: text("sku").notNull().default(""),
+  description: text("description").notNull(),
+  hsCode: text("hs_code").notNull().default(""),
+  countryOfOrigin: text("country_of_origin").notNull().default(""),
+  packedQuantity: doublePrecision("packed_quantity").notNull(),
+  unitsPerCarton: doublePrecision("units_per_carton").notNull(),
+  cartonCount: integer("carton_count").notNull(),
+  grossWeightKg: doublePrecision("gross_weight_kg").notNull().default(0),
+  cartonWeightKg: doublePrecision("carton_weight_kg").notNull().default(0),
+  dimensionText: text("dimension_text").notNull().default(""),
+  lengthCm: doublePrecision("length_cm").notNull().default(0),
+  widthCm: doublePrecision("width_cm").notNull().default(0),
+  heightCm: doublePrecision("height_cm").notNull().default(0),
+  cbmPerCarton: doublePrecision("cbm_per_carton").notNull().default(0),
+  totalCbm: doublePrecision("total_cbm").notNull().default(0),
+}, (table) => [index("idx_packing_list_lines_list").on(table.packingListId), index("idx_packing_list_lines_invoice_line").on(table.invoiceLineId)]);
+
 // A SKU is exclusive only within its inventory; rows are renewed by active editors.
 export const skuWorkLocks = pgTable("sku_work_locks", {
   lockKey: text("lock_key").primaryKey(),

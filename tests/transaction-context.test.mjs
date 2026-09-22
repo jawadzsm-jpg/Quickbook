@@ -1671,3 +1671,36 @@ test('inventory overview and transfer reads never expose stock from unassigned c
   globalThis.__transferTestUser={id:1,role:'all_admin',companyIds:[]};assert.ok((await get(overview,'inventory-overview')).records.some(r=>r.id===otherItem));assert.ok((await get(transfers,'transfers')).records.some(r=>r.id===otherTransfer));
  }finally{delete globalThis.__transferTestUser;}
 });
+
+test('invoice packing lists preserve logistics, calculate cartons and expose only the unpacked balance', async () => {
+  await database.query("INSERT INTO app_users(id,email,password_hash,role) VALUES(1,'test@example.test','test','all_admin') ON CONFLICT (id) DO NOTHING");
+  const company=(await database.query("INSERT INTO companies(name) VALUES('Packing list company') RETURNING id")).rows[0].id;
+  const location=(await database.query("INSERT INTO inventory_locations(company_id,name,code,invoice_prefix) VALUES($1,'Packing store','PACK','INV') RETURNING id",[company])).rows[0].id;
+  const item=(await database.query("INSERT INTO items(company_id,location_id,item_number,sku,name,quantity,hs_code,country_of_origin,dimension_text,length_cm,width_cm,height_cm,weight_kg) VALUES($1,$2,'ID-100','PACK-100','Packed router',100,'84718000','CHINA','50 x 40 x 30 cm',50,40,30,0.5) RETURNING id",[company,location])).rows[0].id;
+  await database.query("INSERT INTO contacts(company_id,type,name,country) VALUES($1,'customer','Packing customer','AFGHANISTAN')",[company]);
+  const invoice=(await database.query("INSERT INTO transactions(company_id,location_id,number,type,party,transaction_date) VALUES($1,$2,'INV-PACK-1','invoice','Packing customer','2026-09-22') RETURNING id",[company,location])).rows[0].id;
+  const invoiceLine=(await database.query("INSERT INTO transaction_lines(transaction_id,item_id,description,quantity) VALUES($1,$2,'Packed router',100) RETURNING id",[invoice,item])).rows[0].id;
+  const {GET,POST}=await vite.ssrLoadModule('/app/api/packing-lists/route.ts');
+  const save=(quantity)=>POST(new Request('https://app.test/api/packing-lists',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({companyId:company,invoiceId:invoice,packingDate:'2026-09-22',deliveryAddress:'Kabul Airport',memo:'Export packing',lines:[{invoiceLineId:invoiceLine,packedQuantity:quantity,unitsPerCarton:10,grossWeightKg:quantity*0.5,lengthCm:50,widthCm:40,heightCm:30}]})}));
+  let response=await save(20);
+  assert.equal(response.status,201,await response.clone().text());
+  let data=await response.json();
+  assert.equal(data.packingLists[0].number,'PL-INV-PACK-1-01');
+  assert.equal(data.packingLists[0].lines[0].cartonCount,2);
+  assert.equal(data.packingLists[0].lines[0].totalCbm,0.12);
+  assert.equal(data.packingLists[0].lines[0].hsCode,'84718000');
+  assert.equal(data.packingLists[0].lines[0].countryOfOrigin,'CHINA');
+  assert.equal(data.lines[0].remainingQuantity,80);
+  response=await save(81);
+  assert.equal(response.status,409);
+  assert.match((await response.json()).error,/only 80 remaining/);
+  response=await save(30);
+  assert.equal(response.status,201,await response.clone().text());
+  data=await response.json();
+  assert.deepEqual(data.packingLists.map(list=>list.number),['PL-INV-PACK-1-01','PL-INV-PACK-1-02']);
+  assert.equal(data.lines[0].packedQuantity,50);
+  assert.equal(data.lines[0].remainingQuantity,50);
+  const refreshed=await GET(new Request(`https://app.test/api/packing-lists?companyId=${company}&invoiceId=${invoice}`));
+  assert.equal(refreshed.status,200);
+  assert.equal((await refreshed.json()).lines[0].remainingQuantity,50);
+});

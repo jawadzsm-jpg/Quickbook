@@ -67,7 +67,7 @@ export function salesDocumentModeForTransaction(type: string): SalesDocumentMode
 // Each transaction type resolves its own active saved Company Setup template.
 // Invoice-like documents can also switch to the saved Delivery Note or Packing List
 // layout from the document preview, so every template is connected to its real output.
-export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: { mode: SalesDocumentMode; record: RecordData; lines: RecordData[]; contact?: RecordData | null; setup: Branding; showBillingName: boolean; showShipping: boolean; showHsCode: boolean; showDimensions: boolean }) {
+export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onPackingList }: { mode: SalesDocumentMode; record: RecordData; lines: RecordData[]; contact?: RecordData | null; setup: Branding; showBillingName: boolean; showShipping: boolean; showHsCode: boolean; showDimensions: boolean; onPackingList?: () => void }) {
   const outputModes = relatedDocumentOutputs[mode] ?? [mode];
   const [selection, setSelection] = useState<{ source: SalesDocumentMode; output: SalesDocumentMode }>({ source: mode, output: mode });
   const [pdfBusy, setPdfBusy] = useState(false);
@@ -196,7 +196,7 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
     <div className="document-internal-only mb-3 flex flex-wrap items-center justify-between gap-2">
       {outputModes.length > 1 ? <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-slate-50 p-2 text-sm">
         <span className="px-1 font-semibold text-slate-700">Document layout</span>
-        {outputModes.map((outputMode) => <Button key={outputMode} type="button" size="sm" variant={activeMode === outputMode ? "default" : "outline"} aria-pressed={activeMode === outputMode} onClick={() => setSelection({ source: mode, output: outputMode })}>{salesDocumentTitles[outputMode]}</Button>)}
+        {outputModes.map((outputMode) => <Button key={outputMode} type="button" size="sm" variant={activeMode === outputMode && !(outputMode === "packing-list" && onPackingList) ? "default" : "outline"} aria-pressed={activeMode === outputMode} onClick={() => outputMode === "packing-list" && onPackingList ? onPackingList() : setSelection({ source: mode, output: outputMode })}>{salesDocumentTitles[outputMode]}</Button>)}
       </div> : <div />}
       <div className="flex flex-wrap justify-end gap-2">
         <Button type="button" variant="outline" onClick={printA4}>

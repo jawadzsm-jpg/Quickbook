@@ -1,0 +1,140 @@
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { getDb, withWriteTransaction } from "@/db";
+import { appUsers, auditLog, contacts, items, packingListLines, packingLists, transactionLines, transactions } from "@/db/schema";
+import { requireCompanyAccess } from "@/lib/auth";
+
+const clean = (value: unknown, max = 240) => String(value ?? "").trim().slice(0, max);
+const finite = (value: unknown, fallback = 0) => { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : fallback; };
+const round = (value: number, places = 6) => Number(value.toFixed(places));
+
+function errorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : "Could not save packing list.";
+  return message.includes("does not exist") ? "The packing-list database is being updated. Please refresh in a moment." : message;
+}
+
+async function invoiceForCompany(invoiceId: number, companyId: number) {
+  const [invoice] = await getDb().select().from(transactions).where(and(eq(transactions.id, invoiceId), eq(transactions.companyId, companyId), eq(transactions.type, "invoice"))).limit(1);
+  return invoice;
+}
+
+async function responseData(invoiceId: number, companyId: number) {
+  const db = getDb();
+  const invoice = await invoiceForCompany(invoiceId, companyId);
+  if (!invoice) return null;
+  const invoiceLines = await db.select({
+    id: transactionLines.id,
+    itemId: transactionLines.itemId,
+    itemNumber: items.itemNumber,
+    sku: items.sku,
+    description: transactionLines.description,
+    invoicedQuantity: transactionLines.quantity,
+    hsCode: items.hsCode,
+    countryOfOrigin: items.countryOfOrigin,
+    dimensionText: items.dimensionText,
+    lengthCm: items.lengthCm,
+    widthCm: items.widthCm,
+    heightCm: items.heightCm,
+    unitWeightKg: items.weightKg,
+  }).from(transactionLines).leftJoin(items, eq(transactionLines.itemId, items.id)).where(eq(transactionLines.transactionId, invoiceId)).orderBy(asc(transactionLines.id));
+  const packedRows = await db.select({ invoiceLineId: packingListLines.invoiceLineId, packedQuantity: packingListLines.packedQuantity })
+    .from(packingListLines).innerJoin(packingLists, eq(packingListLines.packingListId, packingLists.id)).where(eq(packingLists.invoiceId, invoiceId));
+  const packed = new Map<number, number>();
+  for (const row of packedRows) packed.set(row.invoiceLineId, (packed.get(row.invoiceLineId) ?? 0) + Number(row.packedQuantity));
+  const lists = await db.select({
+    id: packingLists.id, number: packingLists.number, packingDate: packingLists.packingDate, deliveryAddress: packingLists.deliveryAddress,
+    memo: packingLists.memo, createdAt: packingLists.createdAt, creator: appUsers.fullName, creatorEmail: appUsers.email,
+  }).from(packingLists).leftJoin(appUsers, eq(packingLists.createdByUserId, appUsers.id)).where(eq(packingLists.invoiceId, invoiceId)).orderBy(asc(packingLists.id));
+  const listIds = lists.map((list) => list.id);
+  const savedLines = listIds.length ? await db.select().from(packingListLines).where(inArray(packingListLines.packingListId, listIds)).orderBy(asc(packingListLines.id)) : [];
+  const [customer] = await db.select().from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "customer"), eq(contacts.name, invoice.party))).limit(1);
+  return {
+    invoice,
+    customer: customer ?? null,
+    lines: invoiceLines.map((line) => {
+      const packedQuantity = round(packed.get(line.id) ?? 0);
+      return { ...line, packedQuantity, remainingQuantity: round(Math.max(0, Number(line.invoicedQuantity) - packedQuantity)) };
+    }),
+    packingLists: lists.map((list) => ({ ...list, lines: savedLines.filter((line) => line.packingListId === list.id) })),
+  };
+}
+
+export async function GET(request: Request) {
+  try {
+    const url = new URL(request.url);
+    const companyId = Number(url.searchParams.get("companyId"));
+    const invoiceId = Number(url.searchParams.get("invoiceId"));
+    const user = await requireCompanyAccess(request, companyId, "inventory:read");
+    if (user instanceof Response) return user;
+    if (!Number.isInteger(invoiceId) || invoiceId <= 0) return Response.json({ error: "Select a customer invoice." }, { status: 400 });
+    const data = await responseData(invoiceId, companyId);
+    return data ? Response.json(data, { headers: { "Cache-Control": "no-store" } }) : Response.json({ error: "Customer invoice not found." }, { status: 404 });
+  } catch (error) { return Response.json({ error: errorMessage(error) }, { status: 500 }); }
+}
+
+export async function POST(request: Request) {
+  try {
+    const payload = await request.json() as Record<string, unknown>;
+    const companyId = Number(payload.companyId);
+    const invoiceId = Number(payload.invoiceId);
+    const packingDate = clean(payload.packingDate, 10);
+    const deliveryAddress = clean(payload.deliveryAddress, 500);
+    const memo = clean(payload.memo, 1_000);
+    const requested = Array.isArray(payload.lines) ? payload.lines.slice(0, 500) as Array<Record<string, unknown>> : [];
+    const user = await requireCompanyAccess(request, companyId, "sales:write", true);
+    if (user instanceof Response) return user;
+    if (!Number.isInteger(invoiceId) || invoiceId <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(packingDate)) return Response.json({ error: "Select an invoice and packing date." }, { status: 400 });
+    if (!requested.length) return Response.json({ error: "Select at least one invoice item to pack." }, { status: 400 });
+    return await withWriteTransaction(async () => {
+      const db = getDb();
+      await db.execute(sql`SELECT id FROM transactions WHERE id = ${invoiceId} FOR UPDATE`);
+      const invoice = await invoiceForCompany(invoiceId, companyId);
+      if (!invoice) return Response.json({ error: "Customer invoice not found." }, { status: 404 });
+      const sourceLines = await db.select({
+        id: transactionLines.id, itemId: transactionLines.itemId, description: transactionLines.description, invoicedQuantity: transactionLines.quantity,
+        itemNumber: items.itemNumber, sku: items.sku, hsCode: items.hsCode, countryOfOrigin: items.countryOfOrigin,
+        dimensionText: items.dimensionText, lengthCm: items.lengthCm, widthCm: items.widthCm, heightCm: items.heightCm, unitWeightKg: items.weightKg,
+      }).from(transactionLines).leftJoin(items, eq(transactionLines.itemId, items.id)).where(eq(transactionLines.transactionId, invoiceId));
+      const source = new Map(sourceLines.map((line) => [line.id, line]));
+      const packedRows = await db.select({ invoiceLineId: packingListLines.invoiceLineId, packedQuantity: packingListLines.packedQuantity })
+        .from(packingListLines).innerJoin(packingLists, eq(packingListLines.packingListId, packingLists.id)).where(eq(packingLists.invoiceId, invoiceId));
+      const alreadyPacked = new Map<number, number>();
+      for (const row of packedRows) alreadyPacked.set(row.invoiceLineId, (alreadyPacked.get(row.invoiceLineId) ?? 0) + Number(row.packedQuantity));
+      const seen = new Set<number>();
+      const rows = requested.map((input) => {
+        const invoiceLineId = Number(input.invoiceLineId);
+        const line = source.get(invoiceLineId);
+        if (!line || seen.has(invoiceLineId)) throw new Error("One or more selected items do not belong to this invoice.");
+        seen.add(invoiceLineId);
+        const packedQuantity = finite(input.packedQuantity, -1);
+        const remaining = Number(line.invoicedQuantity) - (alreadyPacked.get(invoiceLineId) ?? 0);
+        if (packedQuantity <= 0 || packedQuantity > remaining + 0.000001) throw new Error(`${line.description} has only ${round(Math.max(0, remaining), 2)} remaining to pack.`);
+        const unitsPerCarton = finite(input.unitsPerCarton, -1);
+        if (unitsPerCarton <= 0) throw new Error(`Enter units per carton for ${line.description}.`);
+        const cartonCount = Math.ceil(packedQuantity / unitsPerCarton);
+        const lengthCm = Math.max(0, finite(input.lengthCm, Number(line.lengthCm)));
+        const widthCm = Math.max(0, finite(input.widthCm, Number(line.widthCm)));
+        const heightCm = Math.max(0, finite(input.heightCm, Number(line.heightCm)));
+        const defaultWeight = packedQuantity * Number(line.unitWeightKg || 0);
+        const grossWeightKg = Math.max(0, finite(input.grossWeightKg, defaultWeight));
+        const cbmPerCarton = round(lengthCm * widthCm * heightCm / 1_000_000);
+        return {
+          invoiceLineId, itemId: line.itemId, itemNumber: line.itemNumber ?? "", sku: line.sku ?? "", description: line.description,
+          hsCode: line.hsCode ?? "", countryOfOrigin: line.countryOfOrigin ?? "", packedQuantity, unitsPerCarton, cartonCount,
+          grossWeightKg: round(grossWeightKg, 3), cartonWeightKg: round(cartonCount ? grossWeightKg / cartonCount : 0, 3),
+          dimensionText: clean(input.dimensionText || line.dimensionText, 120), lengthCm, widthCm, heightCm, cbmPerCarton, totalCbm: round(cbmPerCarton * cartonCount),
+        };
+      });
+      const existingLists = await db.select({ id: packingLists.id }).from(packingLists).where(eq(packingLists.invoiceId, invoiceId));
+      const sequence = existingLists.length + 1;
+      const number = `PL-${clean(invoice.number, 80)}-${String(sequence).padStart(2, "0")}`;
+      const [packingList] = await db.insert(packingLists).values({ companyId, locationId: invoice.locationId, invoiceId, number, packingDate, deliveryAddress, memo, createdByUserId: user.id }).returning();
+      await db.insert(packingListLines).values(rows.map((line) => ({ ...line, packingListId: packingList.id })));
+      await db.insert(auditLog).values({ companyId, action: "created", entityType: "packing_list", entityId: packingList.id, details: `${number} created from invoice ${invoice.number} with ${rows.length} item line(s) by ${user.email}` });
+      const data = await responseData(invoiceId, companyId);
+      return Response.json({ ...data, createdId: packingList.id }, { status: 201 });
+    });
+  } catch (error) {
+    const message = errorMessage(error);
+    return Response.json({ error: message }, { status: message.includes("remaining to pack") || message.startsWith("Enter ") || message.startsWith("One or more") ? 409 : 500 });
+  }
+}
