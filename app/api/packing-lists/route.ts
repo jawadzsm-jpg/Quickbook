@@ -127,6 +127,11 @@ export async function POST(request: Request) {
         const minimumCartons = Math.ceil(packedQuantity / unitsPerCarton);
         let cartonReference = clean(input.cartonReference, 120);
         const keys = cartonKeys(cartonReference);
+        if (minimumCartons > 1 && keys.length === 1 && /^\d+$/.test(keys[0])) {
+          const start = Number(keys[0]);
+          keys.splice(0, 1, ...Array.from({ length: minimumCartons }, (_, offset) => String(start + offset)));
+          cartonReference = `${start}-${start + minimumCartons - 1}`;
+        }
         if (!keys.length) {
           while (keys.length < minimumCartons) {
             const candidate = String(nextAutomaticCarton++);

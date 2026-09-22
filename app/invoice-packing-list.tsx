@@ -34,6 +34,16 @@ function cartonKeys(value: string) {
   return [...new Set(keys)];
 }
 
+function cartonReferenceForCount(value: string, count: number) {
+  const cleaned = value.trim();
+  const keys = cartonKeys(cleaned);
+  if (count > 1 && keys.length === 1 && /^\d+$/.test(keys[0])) {
+    const start = Number(keys[0]);
+    return { reference: `${start}-${start + count - 1}`, keys: Array.from({ length: count }, (_, offset) => String(start + offset)) };
+  }
+  return { reference: cleaned, keys };
+}
+
 const lineCartonKeys = (line: Pick<PackedLine, "cartonReference" | "cartonCount">, index: number) => {
   const saved = cartonKeys(line.cartonReference || "");
   return saved.length ? saved : Array.from({ length: Math.max(1, line.cartonCount) }, (_, offset) => `auto-${index}-${offset}`);
@@ -91,10 +101,11 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
     const quantity = Math.max(0, number(draft.packedQuantity));
     const perCarton = Math.max(0, number(draft.unitsPerCarton));
     const cartons = perCarton > 0 ? Math.ceil(quantity / perCarton) : 0;
-    const keys = cartonKeys(draft.cartonReference);
+    const normalized = cartonReferenceForCount(draft.cartonReference, cartons);
+    const keys = normalized.keys;
     const effectiveKeys = keys.length ? keys : Array.from({ length: cartons }, (_, offset) => `draft-${index}-${offset}`);
     const cbmPerCarton = number(draft.lengthCm) * number(draft.widthCm) * number(draft.heightCm) / 1_000_000;
-    return [{ line, draft, quantity, cartons, cartonKeys: effectiveKeys, cbmPerCarton, weight: Math.max(0, number(draft.grossWeightKg)) }];
+    return [{ line, draft, quantity, cartons, cartonReference: normalized.reference, cartonKeys: effectiveKeys, cbmPerCarton, weight: Math.max(0, number(draft.grossWeightKg)) }];
   }), [data?.lines, drafts]);
   const totals = useMemo(() => {
     const cbmByCarton = new Map<string, number>();
@@ -107,6 +118,12 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
   }, [selectedRows]);
   const activeList = data?.packingLists.find((list) => list.id === selectedListId) ?? null;
   const remainingTotal = (data?.lines || []).reduce((sum, line) => sum + line.remainingQuantity, 0);
+  const remainingAfterDraft = remainingTotal - totals.quantity;
+  const selectedQuantityByLine = useMemo(() => {
+    const quantities = new Map<number, number>();
+    for (const row of selectedRows) quantities.set(row.line.id, (quantities.get(row.line.id) ?? 0) + row.quantity);
+    return quantities;
+  }, [selectedRows]);
 
   function update(key: string, changes: Partial<Draft>) {
     setDrafts((current) => current.map((draft) => draft.key === key ? { ...draft, ...changes } : draft));
@@ -143,7 +160,7 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
     try {
       const response = await fetch("/api/packing-lists", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
         companyId, invoiceId, packingDate, deliveryAddress, memo,
-        lines: selectedRows.map(({ line, draft, quantity }) => ({ invoiceLineId: line.id, packedQuantity: quantity, unitsPerCarton: number(draft.unitsPerCarton), cartonReference: draft.cartonReference, grossWeightKg: number(draft.grossWeightKg), dimensionText: draft.dimensionText, lengthCm: number(draft.lengthCm), widthCm: number(draft.widthCm), heightCm: number(draft.heightCm) })),
+        lines: selectedRows.map(({ line, draft, quantity, cartonReference }) => ({ invoiceLineId: line.id, packedQuantity: quantity, unitsPerCarton: number(draft.unitsPerCarton), cartonReference, grossWeightKg: number(draft.grossWeightKg), dimensionText: draft.dimensionText, lengthCm: number(draft.lengthCm), widthCm: number(draft.widthCm), heightCm: number(draft.heightCm) })),
       }) });
       const next = await response.json() as PackingData & { error?: string };
       if (!response.ok) throw new Error(next.error || "Could not save packing list");
@@ -178,7 +195,7 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
     const cartons = uniqueCartonCount(list);
     const weight = list.lines.reduce((sum, line) => sum + Number(line.grossWeightKg), 0);
     const cbm = [...cartonCbm.values()].reduce((sum, value) => sum + value, 0);
-    const styles = `@page{size:A4 portrait;margin:8mm}*{box-sizing:border-box}.packing-page{width:194mm;max-width:194mm;margin:0 auto;background:#fff;color:#111;font:9px Arial,sans-serif}.packing-page .company{text-align:center;font-weight:700;font-size:10px;margin:0 0 3px}.packing-page h1{text-align:center;font-size:19px;margin:3px 0 11px}.packing-page .meta{margin-bottom:10px;font-size:9px;line-height:1.5}.packing-page .meta strong{display:inline-block;min-width:76px}.packing-page table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:6.5px}.packing-page col.no{width:2.5%}.packing-page col.description{width:21%}.packing-page col.qty{width:4.5%}.packing-page col.gross{width:8%}.packing-page col.origin{width:8%}.packing-page col.hs{width:8%}.packing-page col.ctn{width:4%}.packing-page col.ref{width:5%}.packing-page col.weight{width:9%}.packing-page col.dimension{width:15%}.packing-page col.cbm{width:15%}.packing-page thead{display:table-header-group}.packing-page tr{break-inside:avoid;page-break-inside:avoid}.packing-page th,.packing-page td{border:.25mm solid #222;padding:3px 1.5px;text-align:center;vertical-align:middle;overflow-wrap:anywhere;word-break:break-word}.packing-page th{background:#eee;font-size:6.2px;line-height:1.15}.packing-page .description{font-weight:600}.packing-page small{display:block;margin-top:2px;color:#444;font-size:5.8px}.packing-page .totals{margin-top:10px;font-size:9.5px;font-weight:700;line-height:1.55}.packing-page .memo{margin-top:7px;font-size:8px}@media print{html,body{margin:0;padding:0;background:#fff}.print-toolbar{display:none!important}.packing-page{width:100%;max-width:none;-webkit-print-color-adjust:exact;print-color-adjust:exact}}`;
+    const styles = `@page{size:A4 landscape;margin:8mm}*{box-sizing:border-box}.packing-page{width:281mm;max-width:281mm;margin:0 auto;background:#fff;color:#111;font:9px Arial,sans-serif}.packing-page .company{text-align:center;font-weight:700;font-size:11px;margin:0 0 3px}.packing-page h1{text-align:center;font-size:20px;margin:3px 0 11px}.packing-page .meta{display:grid;grid-template-columns:1fr 1fr;gap:2px 18px;margin-bottom:10px;font-size:9px;line-height:1.45}.packing-page .meta strong{display:inline-block;min-width:76px}.packing-page table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:7.5px}.packing-page col.no{width:3%}.packing-page col.description{width:25%}.packing-page col.qty{width:6%}.packing-page col.gross{width:9%}.packing-page col.origin{width:8%}.packing-page col.hs{width:9%}.packing-page col.ctn{width:5%}.packing-page col.ref{width:6%}.packing-page col.weight{width:9%}.packing-page col.dimension{width:12%}.packing-page col.cbm{width:8%}.packing-page thead{display:table-header-group}.packing-page tr{break-inside:avoid;page-break-inside:avoid}.packing-page th,.packing-page td{border:.25mm solid #222;padding:4px 2px;text-align:center;vertical-align:middle;overflow-wrap:anywhere;word-break:break-word}.packing-page th{background:#eee;font-size:7px;line-height:1.15}.packing-page .description{font-weight:600}.packing-page small{display:block;margin-top:2px;color:#444;font-size:6.5px}.packing-page .totals{margin-top:10px;font-size:10px;font-weight:700;line-height:1.55}.packing-page .memo{margin-top:7px;font-size:9px}@media print{html,body{margin:0;padding:0;background:#fff}.print-toolbar{display:none!important}.packing-page{width:100%;max-width:none;-webkit-print-color-adjust:exact;print-color-adjust:exact}}`;
     const html = `<div class="packing-page"><p class="company">${escapeHtml(companyName)}</p><h1>PACKING LIST</h1><div class="meta"><div><strong>Customer Name:</strong> ${escapeHtml(data.invoice.party)}</div><div><strong>Delivery Address:</strong> ${escapeHtml(list.deliveryAddress || "—")}</div><div><strong>Date:</strong> ${escapeHtml(list.packingDate)}</div><div><strong>Invoice #:</strong> ${escapeHtml(data.invoice.number)}</div><div><strong>Packing List:</strong> ${escapeHtml(list.number)}</div></div><table><colgroup><col class="no"><col class="description"><col class="qty"><col class="gross"><col class="origin"><col class="hs"><col class="ctn"><col class="ref"><col class="weight"><col class="dimension"><col class="cbm"></colgroup><thead><tr><th>#</th><th>DESCRIPTION</th><th>QTY</th><th>TOTAL GROSS<br>WEIGHT/KG</th><th>MADE IN</th><th>HS CODE</th><th>CTN</th><th>CTN #</th><th>CTN WEIGHT/KG</th><th>CTN DIMENSION/CM</th><th>TOTAL CTN CBM</th></tr></thead><tbody>${rows}</tbody></table><div class="totals"><div>Total Qty → ${display(quantity, 2)} PCS</div><div>Total CTN(s) → ${cartons}</div><div>Total Weight → ${display(weight)} KG</div><div>Total CBM → ${display(cbm)} m³</div></div>${list.memo ? `<p class="memo"><strong>Memo:</strong> ${escapeHtml(list.memo)}</p>` : ""}</div>`;
     return { styles, html };
   }
@@ -189,7 +206,7 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
     const popup = window.open("", "_blank");
     if (!popup) return toast.error("Allow pop-ups to print the packing list.");
     popup.opener = null;
-    popup.document.write(`<!doctype html><html><head><title>${escapeHtml(list.number)}</title><style>${document.styles}</style><style>body{margin:0;padding:8mm;background:#fff}.print-toolbar{display:flex;justify-content:flex-end;gap:8px;width:194mm;margin:0 auto 8px}.print-toolbar button{padding:7px 14px}</style></head><body><div class="print-toolbar"><button onclick="window.print()">Print</button><button onclick="window.close()">Close</button></div>${document.html}</body></html>`);
+    popup.document.write(`<!doctype html><html><head><title>${escapeHtml(list.number)}</title><style>${document.styles}</style><style>body{margin:0;padding:8mm;background:#fff}.print-toolbar{display:flex;justify-content:flex-end;gap:8px;width:281mm;margin:0 auto 8px}.print-toolbar button{padding:7px 14px}</style></head><body><div class="print-toolbar"><button onclick="window.print()">Print</button><button onclick="window.close()">Close</button></div>${document.html}</body></html>`);
     popup.document.close();
   }
 
@@ -198,7 +215,7 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
     if (!output) return;
     setPdfBusy(true);
     const host = window.document.createElement("div");
-    host.style.cssText = "position:fixed;left:-10000px;top:0;width:194mm;background:#fff;z-index:-1";
+    host.style.cssText = "position:fixed;left:-10000px;top:0;width:281mm;background:#fff;z-index:-1";
     host.innerHTML = `<style>${output.styles}</style>${output.html}`;
     window.document.body.appendChild(host);
     try {
@@ -206,7 +223,7 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       const page = host.querySelector<HTMLElement>(".packing-page");
       if (!page) throw new Error("Could not prepare the packing list PDF.");
-      const blob = await createA4PdfBlob(page, { orientation: "portrait", marginMm: 8, title: list.number });
+      const blob = await createA4PdfBlob(page, { orientation: "landscape", marginMm: 8, title: list.number });
       downloadPdfBlob(blob, `${list.number}.pdf`);
       toast.success("Packing list PDF downloaded.");
     } catch (error) {
@@ -219,28 +236,31 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
 
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[94vh] w-[calc(100vw-2rem)] !max-w-[calc(100vw-2rem)] overflow-y-auto"><DialogHeader><DialogTitle>Invoice Packing Lists · {data?.invoice.number || "Loading…"}</DialogTitle><DialogDescription>Select invoice items and pack only the remaining balance. Add another line to split repacked cartons or use the same CTN number for multiple items in one carton.</DialogDescription></DialogHeader>
     {loading || !data ? <p className="py-16 text-center text-slate-500">Loading invoice packing details…</p> : <div className="space-y-5">
-      <div className="grid gap-3 rounded-xl border bg-slate-50 p-4 text-sm dark:bg-slate-900/70 sm:grid-cols-4"><div><span className="text-slate-500 dark:text-slate-400">Customer</span><strong className="block">{data.invoice.party}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Invoice Qty</span><strong className="block">{display(data.lines.reduce((sum, line) => sum + Number(line.invoicedQuantity), 0), 2)}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Already Packed</span><strong className="block">{display(data.lines.reduce((sum, line) => sum + Number(line.packedQuantity), 0), 2)}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Balance Qty</span><strong className="block text-amber-700 dark:text-amber-400">{display(remainingTotal, 2)}</strong></div></div>
-      {data.packingLists.length ? <section className="rounded-xl border"><div className="flex items-center gap-2 border-b p-3"><History className="size-4" /><strong className="text-sm">Saved Packing Lists</strong></div><div className="flex flex-wrap gap-2 p-3">{data.packingLists.map((list) => <Button key={list.id} type="button" size="sm" variant={selectedListId === list.id ? "default" : "outline"} onClick={() => setSelectedListId(list.id)}>{list.number} · {list.lines.reduce((sum, line) => sum + line.packedQuantity, 0)} pcs</Button>)}</div>{activeList ? <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-emerald-50 p-3 text-sm dark:bg-emerald-950/30"><span><CheckCircle2 className="mr-1 inline size-4 text-emerald-600" /><strong>{activeList.number}</strong> · {activeList.packingDate} · {uniqueCartonCount(activeList)} carton(s) · {display(activeList.lines.reduce((sum, line) => sum + line.totalCbm, 0))} m³</span><div className="flex flex-wrap gap-2"><Button type="button" size="sm" variant="outline" onClick={() => printList(activeList)}><Printer className="size-4" />Print A4 Portrait</Button><Button type="button" size="sm" variant="outline" disabled={pdfBusy} onClick={() => void downloadListPdf(activeList)}><Download className="size-4" />{pdfBusy ? "Creating PDF…" : "Download PDF"}</Button></div></div> : null}</section> : null}
+      <div className="grid gap-3 rounded-xl border bg-slate-50 p-4 text-sm dark:bg-slate-900/70 sm:grid-cols-4"><div><span className="text-slate-500 dark:text-slate-400">Customer</span><strong className="block">{data.invoice.party}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Invoice Qty</span><strong className="block">{display(data.lines.reduce((sum, line) => sum + Number(line.invoicedQuantity), 0), 2)}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Already Packed + Current</span><strong className="block">{display(data.lines.reduce((sum, line) => sum + Number(line.packedQuantity), 0) + totals.quantity, 2)}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Balance After This Packing</span><strong className={`block ${remainingAfterDraft < 0 ? "text-red-600" : "text-amber-700 dark:text-amber-400"}`}>{display(Math.max(0, remainingAfterDraft), 2)}</strong></div></div>
+      {data.packingLists.length ? <section className="rounded-xl border"><div className="flex items-center gap-2 border-b p-3"><History className="size-4" /><strong className="text-sm">Saved Packing Lists</strong></div><div className="flex flex-wrap gap-2 p-3">{data.packingLists.map((list) => <Button key={list.id} type="button" size="sm" variant={selectedListId === list.id ? "default" : "outline"} onClick={() => setSelectedListId(list.id)}>{list.number} · {list.lines.reduce((sum, line) => sum + line.packedQuantity, 0)} pcs</Button>)}</div>{activeList ? <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-emerald-50 p-3 text-sm dark:bg-emerald-950/30"><span><CheckCircle2 className="mr-1 inline size-4 text-emerald-600" /><strong>{activeList.number}</strong> · {activeList.packingDate} · {uniqueCartonCount(activeList)} carton(s) · {display(activeList.lines.reduce((sum, line) => sum + line.totalCbm, 0))} m³</span><div className="flex flex-wrap gap-2"><Button type="button" size="sm" variant="outline" onClick={() => printList(activeList)}><Printer className="size-4" />Print A4 Landscape</Button><Button type="button" size="sm" variant="outline" disabled={pdfBusy} onClick={() => void downloadListPdf(activeList)}><Download className="size-4" />{pdfBusy ? "Creating PDF…" : "Download PDF"}</Button></div></div> : null}</section> : null}
       <section className="space-y-3"><div className="grid gap-3 sm:grid-cols-3"><label className="space-y-1 text-sm"><Label>Packing Date</Label><Input type="date" value={packingDate} onChange={(event) => setPackingDate(event.target.value)} /></label><label className="space-y-1 text-sm sm:col-span-2"><Label>Delivery Address</Label><Input value={deliveryAddress} onChange={(event) => setDeliveryAddress(event.target.value)} maxLength={500} /></label></div>
         <div className="overflow-x-auto rounded-xl border">
-          <Table className="min-w-[1500px]"><TableHeader><TableRow><TableHead>Select</TableHead><TableHead className="min-w-72">Invoice Item</TableHead><TableHead>Invoice</TableHead><TableHead>Packed</TableHead><TableHead>Balance</TableHead><TableHead className="min-w-28">Pack Qty</TableHead><TableHead className="min-w-28">PCS / CTN</TableHead><TableHead>CTN</TableHead><TableHead className="min-w-28">CTN No</TableHead><TableHead>HS Code / COO</TableHead><TableHead className="min-w-44">L × W × H cm</TableHead><TableHead className="min-w-28">Gross KG</TableHead><TableHead>CBM</TableHead><TableHead /></TableRow></TableHeader>
+          <Table className="min-w-[1600px]"><TableHeader><TableRow><TableHead>Select</TableHead><TableHead className="min-w-72">Invoice Item</TableHead><TableHead>Invoice</TableHead><TableHead>Packed</TableHead><TableHead>Balance</TableHead><TableHead className="min-w-28">Pack Qty</TableHead><TableHead className="min-w-28">PCS / CTN</TableHead><TableHead>CTN</TableHead><TableHead className="min-w-28">CTN No</TableHead><TableHead>HS Code</TableHead><TableHead>COO</TableHead><TableHead className="min-w-44">L × W × H cm</TableHead><TableHead className="min-w-28">Gross KG</TableHead><TableHead>CBM</TableHead><TableHead /></TableRow></TableHeader>
             <TableBody>{drafts.map((draft, draftIndex) => {
               const line = data.lines.find((entry) => entry.id === draft.invoiceLineId);
               if (!line) return null;
               const selected = draft.selected;
               const quantity = number(draft.packedQuantity); const units = number(draft.unitsPerCarton);
               const cartons = units > 0 ? Math.ceil(quantity / units) : 0;
-              const keys = cartonKeys(draft.cartonReference);
+              const normalized = cartonReferenceForCount(draft.cartonReference, cartons);
+              const keys = normalized.keys;
               const displayedCartons = keys.length || cartons;
               const cbm = number(draft.lengthCm) * number(draft.widthCm) * number(draft.heightCm) / 1_000_000 * displayedCartons;
-              return <TableRow key={draft.key} className={line.remainingQuantity <= 0 ? "opacity-55" : selected ? "bg-blue-50/60 dark:bg-blue-950/35" : ""}>
+              const lineBalance = line.remainingQuantity - (selectedQuantityByLine.get(line.id) ?? 0);
+              const invalid = selected && (quantity <= 0 || units <= 0 || keys.length < cartons || lineBalance < -0.000001);
+              return <TableRow key={draft.key} className={line.remainingQuantity <= 0 ? "opacity-55" : invalid ? "bg-red-50 text-red-700 dark:bg-red-950/45 dark:text-red-300" : selected ? "bg-blue-50/60 dark:bg-blue-950/35" : ""}>
                 <TableCell><Checkbox className="size-5 border-2 border-slate-500 bg-white shadow-sm data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600 dark:border-slate-200 dark:bg-slate-800 dark:data-[state=checked]:border-blue-400 dark:data-[state=checked]:bg-blue-500" disabled={line.remainingQuantity <= 0} checked={selected} onCheckedChange={(checked) => update(draft.key, { selected: checked === true })} aria-label={`Select packing row ${draftIndex + 1}`} /></TableCell>
                 <TableCell>{draft.extra ? <Select value={String(line.id)} onValueChange={(value) => changeLine(draft, Number(value))}><SelectTrigger className="w-full min-w-64"><SelectValue /></SelectTrigger><SelectContent>{data.lines.filter((entry) => entry.remainingQuantity > 0).map((entry) => <SelectItem key={entry.id} value={String(entry.id)}>#{entry.itemNumber || "—"} · {entry.description}</SelectItem>)}</SelectContent></Select> : <><strong>{line.description}</strong><span className="block font-mono text-xs text-slate-500 dark:text-slate-400">#{line.itemNumber || "—"} · {line.sku || "—"}</span></>}</TableCell>
-                <TableCell>{display(line.invoicedQuantity, 2)}</TableCell><TableCell>{display(line.packedQuantity, 2)}</TableCell><TableCell className="font-bold text-amber-700 dark:text-amber-400">{display(line.remainingQuantity, 2)}</TableCell>
+                <TableCell>{display(line.invoicedQuantity, 2)}</TableCell><TableCell>{display(line.packedQuantity, 2)}</TableCell><TableCell className={`font-bold ${lineBalance < 0 ? "text-red-600" : "text-amber-700 dark:text-amber-400"}`}>{display(Math.max(0, lineBalance), 2)}</TableCell>
                 <TableCell><Input disabled={!selected} type="number" min="0.01" max={line.remainingQuantity} step="0.01" value={draft.packedQuantity} onChange={(event) => update(draft.key, { packedQuantity: event.target.value, grossWeightKg: line.unitWeightKg > 0 ? String(Number((line.unitWeightKg * number(event.target.value)).toFixed(3))) : draft.grossWeightKg })} /></TableCell>
                 <TableCell><Input disabled={!selected} type="number" min="0.01" step="0.01" value={draft.unitsPerCarton} onChange={(event) => update(draft.key, { unitsPerCarton: event.target.value })} /></TableCell>
                 <TableCell className="font-bold">{displayedCartons}</TableCell><TableCell><Input disabled={!selected} value={draft.cartonReference} onChange={(event) => update(draft.key, { cartonReference: event.target.value })} placeholder="1 or 1-3" maxLength={120} /></TableCell>
-                <TableCell><span className="block">{line.hsCode || "—"}</span><span className="block text-xs text-slate-500 dark:text-slate-400">{line.countryOfOrigin || "—"}</span></TableCell>
+                <TableCell>{line.hsCode || "—"}</TableCell><TableCell>{line.countryOfOrigin || "—"}</TableCell>
                 <TableCell><div className="grid grid-cols-3 gap-1">{(["lengthCm", "widthCm", "heightCm"] as const).map((field) => <Input key={field} disabled={!selected} type="number" min="0" step="0.01" value={draft[field]} onChange={(event) => update(draft.key, { [field]: event.target.value })} aria-label={field} />)}</div></TableCell>
                 <TableCell><Input disabled={!selected} type="number" min="0" step="0.001" value={draft.grossWeightKg} onChange={(event) => update(draft.key, { grossWeightKg: event.target.value })} /></TableCell><TableCell className="font-semibold">{display(cbm)} m³</TableCell>
                 <TableCell>{draft.extra ? <Button type="button" size="icon" variant="outline" className="border-rose-300 text-rose-600" onClick={() => setDrafts((current) => current.filter((entry) => entry.key !== draft.key))} aria-label="Remove packing row"><Trash2 className="size-4" /></Button> : null}</TableCell>

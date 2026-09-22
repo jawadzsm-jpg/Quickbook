@@ -1681,12 +1681,13 @@ test('invoice packing lists preserve logistics, calculate cartons and expose onl
   const invoice=(await database.query("INSERT INTO transactions(company_id,location_id,number,type,party,transaction_date) VALUES($1,$2,'INV-PACK-1','invoice','Packing customer','2026-09-22') RETURNING id",[company,location])).rows[0].id;
   const invoiceLine=(await database.query("INSERT INTO transaction_lines(transaction_id,item_id,description,quantity) VALUES($1,$2,'Packed router',100) RETURNING id",[invoice,item])).rows[0].id;
   const {GET,POST}=await vite.ssrLoadModule('/app/api/packing-lists/route.ts');
-  const save=(quantity)=>POST(new Request('https://app.test/api/packing-lists',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({companyId:company,invoiceId:invoice,packingDate:'2026-09-22',deliveryAddress:'Kabul Airport',memo:'Export packing',lines:[{invoiceLineId:invoiceLine,packedQuantity:quantity,unitsPerCarton:10,grossWeightKg:quantity*0.5,lengthCm:50,widthCm:40,heightCm:30}]})}));
+  const save=(quantity)=>POST(new Request('https://app.test/api/packing-lists',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({companyId:company,invoiceId:invoice,packingDate:'2026-09-22',deliveryAddress:'Kabul Airport',memo:'Export packing',lines:[{invoiceLineId:invoiceLine,packedQuantity:quantity,unitsPerCarton:10,cartonReference:'5',grossWeightKg:quantity*0.5,lengthCm:50,widthCm:40,heightCm:30}]})}));
   let response=await save(20);
   assert.equal(response.status,201,await response.clone().text());
   let data=await response.json();
   assert.equal(data.packingLists[0].number,'PL-INV-PACK-1-01');
   assert.equal(data.packingLists[0].lines[0].cartonCount,2);
+  assert.equal(data.packingLists[0].lines[0].cartonReference,'5-6');
   assert.equal(data.packingLists[0].lines[0].totalCbm,0.12);
   assert.equal(data.packingLists[0].lines[0].hsCode,'84718000');
   assert.equal(data.packingLists[0].lines[0].countryOfOrigin,'CHINA');
