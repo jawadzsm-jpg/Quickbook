@@ -117,22 +117,24 @@ export async function GET(request: Request) {
       .innerJoin(inventoryLocations, eq(inventoryCheckReports.locationId, inventoryLocations.id))
       .where(and(...conditions)).orderBy(desc(inventoryCheckReports.createdAt));
     const reportIds = records.map((record) => record.id);
-    const summaryLines = reportIds.length ? await db.select({ reportId: inventoryCheckLines.reportId, systemQuantity: inventoryCheckLines.systemQuantity, companyQuantities: inventoryCheckLines.companyQuantities, remark: inventoryCheckLines.remark }).from(inventoryCheckLines).where(inArray(inventoryCheckLines.reportId, reportIds)) : [];
-    const summaries = new Map<number, { itemCount: number; totalQuantity: number; checkedCount: number; expectedCheckCount: number; mismatchedCount: number; remarks: string[] }>();
+    const summaryLines = reportIds.length ? await db.select({ reportId: inventoryCheckLines.reportId, itemNumber: inventoryCheckLines.itemNumber, systemQuantity: inventoryCheckLines.systemQuantity, companyQuantities: inventoryCheckLines.companyQuantities, remark: inventoryCheckLines.remark }).from(inventoryCheckLines).where(inArray(inventoryCheckLines.reportId, reportIds)) : [];
+    const summaries = new Map<number, { itemCount: number; totalQuantity: number; checkedCount: number; expectedCheckCount: number; mismatchedCount: number; itemNumbers: string[]; remarks: string[] }>();
     for (const line of summaryLines) {
-      const summary = summaries.get(line.reportId) ?? { itemCount: 0, totalQuantity: 0, checkedCount: 0, expectedCheckCount: 0, mismatchedCount: 0, remarks: [] };
+      const summary = summaries.get(line.reportId) ?? { itemCount: 0, totalQuantity: 0, checkedCount: 0, expectedCheckCount: 0, mismatchedCount: 0, itemNumbers: [], remarks: [] };
       const quantities = parsedQuantities(line.companyQuantities);
+      const relevantQuantities = quantities.filter((company) => company.quantity > 0.000001 || company.countedQuantity !== null);
       summary.itemCount += 1;
       summary.totalQuantity += Number(line.systemQuantity);
-      summary.expectedCheckCount += quantities.length;
-      for (const company of quantities) if (company.countedQuantity !== null) {
+      summary.expectedCheckCount += relevantQuantities.length;
+      for (const company of relevantQuantities) if (company.countedQuantity !== null) {
         summary.checkedCount += 1;
         if (Math.abs(company.countedQuantity - company.quantity) > 0.000001) summary.mismatchedCount += 1;
       }
+      if (line.itemNumber && !summary.itemNumbers.includes(line.itemNumber)) summary.itemNumbers.push(line.itemNumber);
       if (line.remark && !summary.remarks.includes(line.remark)) summary.remarks.push(line.remark);
       summaries.set(line.reportId, summary);
     }
-    return Response.json({ records: records.map((record) => { const summary = summaries.get(record.id) ?? { itemCount: 0, totalQuantity: 0, checkedCount: 0, expectedCheckCount: 0, mismatchedCount: 0, remarks: [] }; return { ...record, ...summary, remarkSummary: summary.remarks.join("; ").slice(0, 240) }; }) });
+    return Response.json({ records: records.map((record) => { const summary = summaries.get(record.id) ?? { itemCount: 0, totalQuantity: 0, checkedCount: 0, expectedCheckCount: 0, mismatchedCount: 0, itemNumbers: [], remarks: [] }; return { ...record, ...summary, itemIdSummary: summary.itemNumbers.map((value) => `#${value}`).join(", "), remarkSummary: summary.remarks.join("; ").slice(0, 240) }; }) });
   } catch (error) { return Response.json({ error: databaseError(error) }, { status: 500 }); }
 }
 
