@@ -7,6 +7,19 @@ const clean = (value: unknown, max = 240) => String(value ?? "").trim().slice(0,
 const finite = (value: unknown, fallback = 0) => { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : fallback; };
 const round = (value: number, places = 6) => Number(value.toFixed(places));
 
+function cartonKeys(value: string) {
+  const keys: string[] = [];
+  for (const part of value.split(",").map((entry) => entry.trim()).filter(Boolean)) {
+    const range = part.match(/^(\d+)\s*-\s*(\d+)$/);
+    if (range) {
+      const start = Number(range[1]); const end = Number(range[2]);
+      if (end >= start && end - start < 500) for (let current = start; current <= end; current += 1) keys.push(String(current));
+      else keys.push(part);
+    } else keys.push(part);
+  }
+  return [...new Set(keys)];
+}
+
 function errorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : "Could not save packing list.";
   return message.includes("does not exist") ? "The packing-list database is being updated. Please refresh in a moment." : message;
@@ -99,18 +112,30 @@ export async function POST(request: Request) {
         .from(packingListLines).innerJoin(packingLists, eq(packingListLines.packingListId, packingLists.id)).where(eq(packingLists.invoiceId, invoiceId));
       const alreadyPacked = new Map<number, number>();
       for (const row of packedRows) alreadyPacked.set(row.invoiceLineId, (alreadyPacked.get(row.invoiceLineId) ?? 0) + Number(row.packedQuantity));
-      const seen = new Set<number>();
-      const rows = requested.map((input) => {
+      let nextAutomaticCarton = 1;
+      const reservedCartons = new Set(requested.flatMap((input) => cartonKeys(clean(input.cartonReference, 120))));
+      const requestedByLine = new Map<number, number>();
+      const preparedRows = requested.map((input) => {
         const invoiceLineId = Number(input.invoiceLineId);
         const line = source.get(invoiceLineId);
-        if (!line || seen.has(invoiceLineId)) throw new Error("One or more selected items do not belong to this invoice.");
-        seen.add(invoiceLineId);
+        if (!line) throw new Error("One or more selected items do not belong to this invoice.");
         const packedQuantity = finite(input.packedQuantity, -1);
-        const remaining = Number(line.invoicedQuantity) - (alreadyPacked.get(invoiceLineId) ?? 0);
-        if (packedQuantity <= 0 || packedQuantity > remaining + 0.000001) throw new Error(`${line.description} has only ${round(Math.max(0, remaining), 2)} remaining to pack.`);
+        if (packedQuantity <= 0) throw new Error(`Enter a packing quantity for ${line.description}.`);
+        requestedByLine.set(invoiceLineId, (requestedByLine.get(invoiceLineId) ?? 0) + packedQuantity);
         const unitsPerCarton = finite(input.unitsPerCarton, -1);
         if (unitsPerCarton <= 0) throw new Error(`Enter units per carton for ${line.description}.`);
-        const cartonCount = Math.ceil(packedQuantity / unitsPerCarton);
+        const minimumCartons = Math.ceil(packedQuantity / unitsPerCarton);
+        let cartonReference = clean(input.cartonReference, 120);
+        const keys = cartonKeys(cartonReference);
+        if (!keys.length) {
+          while (keys.length < minimumCartons) {
+            const candidate = String(nextAutomaticCarton++);
+            if (!reservedCartons.has(candidate)) keys.push(candidate);
+          }
+          cartonReference = keys.length === 1 ? keys[0] : keys.join(", ");
+        }
+        if (keys.length < minimumCartons) throw new Error(`${line.description} needs at least ${minimumCartons} carton number(s). Use a range such as 1-${minimumCartons}.`);
+        const cartonCount = keys.length;
         const lengthCm = Math.max(0, finite(input.lengthCm, Number(line.lengthCm)));
         const widthCm = Math.max(0, finite(input.widthCm, Number(line.widthCm)));
         const heightCm = Math.max(0, finite(input.heightCm, Number(line.heightCm)));
@@ -119,11 +144,23 @@ export async function POST(request: Request) {
         const cbmPerCarton = round(lengthCm * widthCm * heightCm / 1_000_000);
         return {
           invoiceLineId, itemId: line.itemId, itemNumber: line.itemNumber ?? "", sku: line.sku ?? "", description: line.description,
-          hsCode: line.hsCode ?? "", countryOfOrigin: line.countryOfOrigin ?? "", packedQuantity, unitsPerCarton, cartonCount,
+          hsCode: line.hsCode ?? "", countryOfOrigin: line.countryOfOrigin ?? "", packedQuantity, unitsPerCarton, cartonCount, cartonReference, cartonKeys: keys,
           grossWeightKg: round(grossWeightKg, 3), cartonWeightKg: round(cartonCount ? grossWeightKg / cartonCount : 0, 3),
-          dimensionText: clean(input.dimensionText || line.dimensionText, 120), lengthCm, widthCm, heightCm, cbmPerCarton, totalCbm: round(cbmPerCarton * cartonCount),
+          dimensionText: clean(input.dimensionText || line.dimensionText, 120), lengthCm, widthCm, heightCm, cbmPerCarton, totalCbm: 0,
         };
       });
+      for (const [invoiceLineId, quantity] of requestedByLine) {
+        const line = source.get(invoiceLineId)!;
+        const remaining = Number(line.invoicedQuantity) - (alreadyPacked.get(invoiceLineId) ?? 0);
+        if (quantity > remaining + 0.000001) throw new Error(`${line.description} has only ${round(Math.max(0, remaining), 2)} remaining to pack.`);
+      }
+      const cbmByCarton = new Map<string, number>();
+      for (const row of preparedRows) for (const key of row.cartonKeys) cbmByCarton.set(key, Math.max(cbmByCarton.get(key) ?? 0, row.cbmPerCarton));
+      const assignedCartons = new Set<string>();
+      const rows = preparedRows.map(({ cartonKeys: keys, ...row }) => ({ ...row, totalCbm: round(keys.reduce((sum, key) => {
+        if (assignedCartons.has(key)) return sum;
+        assignedCartons.add(key); return sum + (cbmByCarton.get(key) ?? 0);
+      }, 0)) }));
       const existingLists = await db.select({ id: packingLists.id }).from(packingLists).where(eq(packingLists.invoiceId, invoiceId));
       const sequence = existingLists.length + 1;
       const number = `PL-${clean(invoice.number, 80)}-${String(sequence).padStart(2, "0")}`;
@@ -135,6 +172,6 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     const message = errorMessage(error);
-    return Response.json({ error: message }, { status: message.includes("remaining to pack") || message.startsWith("Enter ") || message.startsWith("One or more") ? 409 : 500 });
+    return Response.json({ error: message }, { status: message.includes("remaining to pack") || message.includes("carton number(s)") || message.startsWith("Enter ") || message.startsWith("One or more") ? 409 : 500 });
   }
 }

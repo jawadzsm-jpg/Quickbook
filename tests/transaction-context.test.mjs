@@ -1700,7 +1700,12 @@ test('invoice packing lists preserve logistics, calculate cartons and expose onl
   assert.deepEqual(data.packingLists.map(list=>list.number),['PL-INV-PACK-1-01','PL-INV-PACK-1-02']);
   assert.equal(data.lines[0].packedQuantity,50);
   assert.equal(data.lines[0].remainingQuantity,50);
+  const split=(quantities,cartonReference='9')=>POST(new Request('https://app.test/api/packing-lists',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({companyId:company,invoiceId:invoice,packingDate:'2026-09-22',lines:quantities.map(quantity=>({invoiceLineId:invoiceLine,packedQuantity:quantity,unitsPerCarton:quantity,cartonReference,grossWeightKg:quantity*0.5,lengthCm:50,widthCm:40,heightCm:30}))})}));
+  response=await split([30,30]);assert.equal(response.status,409);assert.match((await response.json()).error,/only 50 remaining/);
+  response=await split([25,25]);assert.equal(response.status,201,await response.clone().text());data=await response.json();
+  const repacked=data.packingLists.at(-1);assert.equal(repacked.lines.length,2);assert.ok(repacked.lines.every(line=>line.cartonReference==='9'&&line.cartonCount===1));assert.equal(repacked.lines.reduce((sum,line)=>sum+line.totalCbm,0),0.06);
+  assert.equal(data.lines[0].remainingQuantity,0);
   const refreshed=await GET(new Request(`https://app.test/api/packing-lists?companyId=${company}&invoiceId=${invoice}`));
   assert.equal(refreshed.status,200);
-  assert.equal((await refreshed.json()).lines[0].remainingQuantity,50);
+  assert.equal((await refreshed.json()).lines[0].remainingQuantity,0);
 });

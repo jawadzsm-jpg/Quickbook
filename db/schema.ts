@@ -423,6 +423,7 @@ export const packingListLines = pgTable("packing_list_lines", {
   packedQuantity: doublePrecision("packed_quantity").notNull(),
   unitsPerCarton: doublePrecision("units_per_carton").notNull(),
   cartonCount: integer("carton_count").notNull(),
+  cartonReference: text("carton_reference").notNull().default(""),
   grossWeightKg: doublePrecision("gross_weight_kg").notNull().default(0),
   cartonWeightKg: doublePrecision("carton_weight_kg").notNull().default(0),
   dimensionText: text("dimension_text").notNull().default(""),
