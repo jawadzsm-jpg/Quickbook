@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Download, History, PackagePlus, Pencil, Plus, Printer, Trash2 } from "lucide-react";
+import { CheckCircle2, Download, FileText, History, PackagePlus, Pencil, Plus, Printer, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -13,10 +13,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { createA4PdfBlob, downloadPdfBlob } from "@/lib/document-output";
 
-type InvoiceLine = { id: number; itemId: number | null; itemNumber: string | null; sku: string | null; description: string; invoicedQuantity: number; packedQuantity: number; remainingQuantity: number; hsCode: string | null; countryOfOrigin: string | null; dimensionText: string | null; lengthCm: number; widthCm: number; heightCm: number; unitWeightKg: number };
+type InvoiceLine = { id: number; itemId: number | null; itemNumber: string | null; sku: string | null; description: string; invoicedQuantity: number; unitPrice: number; packedQuantity: number; remainingQuantity: number; hsCode: string | null; countryOfOrigin: string | null; dimensionText: string | null; lengthCm: number; widthCm: number; heightCm: number; unitWeightKg: number };
 type PackedLine = { id: number; packingListId: number; invoiceLineId: number; itemNumber: string; sku: string; description: string; hsCode: string; countryOfOrigin: string; packedQuantity: number; unitsPerCarton: number; cartonCount: number; cartonReference: string; grossWeightKg: number; cartonWeightKg: number; dimensionText: string; lengthCm: number; widthCm: number; heightCm: number; cbmPerCarton: number; totalCbm: number };
 type PackingList = { id: number; number: string; packingDate: string; deliveryAddress: string; memo: string; createdAt: string; creator: string | null; creatorEmail: string | null; lines: PackedLine[] };
-type PackingData = { invoice: { id: number; number: string; party: string; transactionDate: string }; customer: { company?: string; billingName?: string; country?: string; phone?: string; email?: string } | null; lines: InvoiceLine[]; packingLists: PackingList[]; createdId?: number };
+type PackingData = { invoice: { id: number; number: string; party: string; transactionDate: string; currency: string }; customer: { company?: string; billingName?: string; country?: string; phone?: string; email?: string } | null; lines: InvoiceLine[]; packingLists: PackingList[]; createdId?: number };
 type Draft = { key: string; invoiceLineId: number; selected: boolean; extra: boolean; packedQuantity: string; unitsPerCarton: string; cartonReference: string; grossWeightKg: string; dimensionText: string; lengthCm: string; widthCm: string; heightCm: string };
 
 const number = (value: unknown) => { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : 0; };
@@ -82,6 +82,7 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [hsPdfBusy, setHsPdfBusy] = useState(false);
   const [selectedListId, setSelectedListId] = useState<number | null>(null);
   const [editingListId, setEditingListId] = useState<number | null>(null);
 
@@ -235,6 +236,73 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
     return { styles, html };
   }
 
+  function hsCodeSummaryDocument(list: PackingList) {
+    if (!data) return null;
+    const invoiceLines = new Map(data.lines.map((line) => [line.id, line]));
+    const grouped = new Map<string, { country: string; description: string; hsCode: string; weight: number; units: number; value: number }>();
+
+    for (const packed of list.lines) {
+      const source = invoiceLines.get(packed.invoiceLineId);
+      const country = (packed.countryOfOrigin || source?.countryOfOrigin || "—").trim() || "—";
+      const description = (packed.description || source?.description || "—").trim() || "—";
+      const hsCode = (packed.hsCode || source?.hsCode || "—").trim() || "—";
+      const key = [country.toUpperCase(), description.toUpperCase(), hsCode.toUpperCase()].join("|");
+      const current = grouped.get(key) ?? { country, description, hsCode, weight: 0, units: 0, value: 0 };
+      current.weight += Number(packed.grossWeightKg || 0);
+      current.units += Number(packed.packedQuantity || 0);
+      current.value += Number(packed.packedQuantity || 0) * Number(source?.unitPrice || 0);
+      grouped.set(key, current);
+    }
+
+    const summaryRows = [...grouped.values()];
+    const totalQty = summaryRows.reduce((sum, row) => sum + row.units, 0);
+    const totalWeight = summaryRows.reduce((sum, row) => sum + row.weight, 0);
+    const totalValue = summaryRows.reduce((sum, row) => sum + row.value, 0);
+    const currency = data.invoice.currency || "AED";
+    const rows = summaryRows.map((row, index) =>
+      `<tr><td>${index + 1}</td><td>${escapeHtml(row.country)}</td><td class="goods">${escapeHtml(row.description)}</td><td>${escapeHtml(row.hsCode)}</td><td>${display(row.weight, 2)}</td><td>${display(row.units, 2)}</td><td>${row.value.toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>`
+    ).join("");
+
+    const styles = `@page{size:A4 portrait;margin:10mm}*{box-sizing:border-box}.hs-summary-page{width:190mm;max-width:190mm;margin:0 auto;background:#fff;color:#111;font:10px Arial,sans-serif}.hs-summary-page .company{text-align:center;font-weight:700;font-size:11px;margin:0 0 5px}.hs-summary-page h1{text-align:center;font-size:19px;margin:4px 0 18px}.hs-summary-page .meta{font-size:11px;line-height:1.55;margin-bottom:28px}.hs-summary-page .meta strong{display:inline-block;min-width:92px}.hs-summary-page .stat{text-align:center;font-size:13px;font-weight:700;margin:0 0 28px}.hs-summary-page table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:9px}.hs-summary-page th,.hs-summary-page td{border:.3mm solid #222;padding:6px 4px;text-align:center;vertical-align:middle;overflow-wrap:anywhere}.hs-summary-page th{background:#eee;font-size:8.5px}.hs-summary-page .goods{font-weight:600}.hs-summary-page .totals{margin-top:14px;font-size:11px;font-weight:700;line-height:1.6}@media print{html,body{margin:0;padding:0;background:#fff}.print-toolbar{display:none!important}.hs-summary-page{width:100%;max-width:none;-webkit-print-color-adjust:exact;print-color-adjust:exact}}`;
+    const customerName = data.customer?.company || data.customer?.billingName || data.invoice.party;
+    const html = `<div class="hs-summary-page"><p class="company">${escapeHtml(companyName)}</p><h1>DETAILED COMMODITY CLASSIFICATION FORM</h1><div class="meta"><div><strong>Customer Name:</strong> ${escapeHtml(customerName)}</div><div><strong>Delivery Address:</strong> ${escapeHtml(list.deliveryAddress || "—")}</div><div><strong>Date:</strong> ${escapeHtml(list.packingDate)}</div><div><strong>Invoice #:</strong> ${escapeHtml(data.invoice.number)}</div><div><strong>Packing List:</strong> ${escapeHtml(list.number)}</div></div><div class="stat">(FOR STATISTICAL USE)</div><table><colgroup><col style="width:5%"><col style="width:19%"><col style="width:25%"><col style="width:14%"><col style="width:12%"><col style="width:12%"><col style="width:13%"></colgroup><thead><tr><th>#</th><th>COUNTRY OF ORIGIN</th><th>DESCRIPTION OF GOODS</th><th>H.S.CODE</th><th>WEIGHT /KG</th><th>NO. OF UNITS</th><th>VALUE</th></tr></thead><tbody>${rows}</tbody></table><div class="totals"><div>Total Qty → ${display(totalQty, 2)} PCS</div><div>Total Weight → ${display(totalWeight, 2)} KG(s)</div><div>Total Value → ${totalValue.toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${escapeHtml(currency)}</div></div></div>`;
+    return { styles, html };
+  }
+
+  function printHsCodeSummary(list: PackingList) {
+    const document = hsCodeSummaryDocument(list);
+    if (!document) return;
+    const popup = window.open("", "_blank");
+    if (!popup) return toast.error("Allow pop-ups to print the HS Code Summary.");
+    popup.opener = null;
+    popup.document.write(`<!doctype html><html><head><title>HS Code Summary - ${escapeHtml(list.number)}</title><style>${document.styles}</style><style>body{margin:0;padding:10mm;background:#fff}.print-toolbar{display:flex;justify-content:flex-end;gap:8px;width:190mm;margin:0 auto 8px}.print-toolbar button{padding:7px 14px}</style></head><body><div class="print-toolbar"><button onclick="window.print()">Print</button><button onclick="window.close()">Close</button></div>${document.html}</body></html>`);
+    popup.document.close();
+  }
+
+  async function downloadHsCodeSummaryPdf(list: PackingList) {
+    const output = hsCodeSummaryDocument(list);
+    if (!output) return;
+    setHsPdfBusy(true);
+    const host = window.document.createElement("div");
+    host.style.cssText = "position:fixed;left:-10000px;top:0;width:190mm;background:#fff;z-index:-1";
+    host.innerHTML = `<style>${output.styles}</style>${output.html}`;
+    window.document.body.appendChild(host);
+    try {
+      await window.document.fonts.ready;
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const page = host.querySelector<HTMLElement>(".hs-summary-page");
+      if (!page) throw new Error("Could not prepare the HS Code Summary PDF.");
+      const blob = await createA4PdfBlob(page, { orientation: "portrait", marginMm: 10, title: `HS Code Summary - ${list.number}` });
+      downloadPdfBlob(blob, `${list.number}-HS-Code-Summary.pdf`);
+      toast.success("HS Code Summary PDF downloaded.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not create the HS Code Summary PDF.");
+    } finally {
+      host.remove();
+      setHsPdfBusy(false);
+    }
+  }
+
   function printList(list: PackingList) {
     const document = packingListDocument(list);
     if (!document) return;
@@ -272,7 +340,7 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[94vh] w-[calc(100vw-2rem)] !max-w-[calc(100vw-2rem)] overflow-y-auto"><DialogHeader><DialogTitle>Invoice Packing Lists · {data?.invoice.number || "Loading…"}</DialogTitle><DialogDescription>Select invoice items and pack only the remaining balance. Add another line to split repacked cartons or use the same CTN number for multiple items in one carton.</DialogDescription></DialogHeader>
     {loading || !data ? <p className="py-16 text-center text-slate-500">Loading invoice packing details…</p> : <div className="space-y-5">
       <div className="grid gap-3 rounded-xl border bg-slate-50 p-4 text-sm dark:bg-slate-900/70 sm:grid-cols-4"><div><span className="text-slate-500 dark:text-slate-400">Customer</span><strong className="block">{data.invoice.party}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Invoice Qty</span><strong className="block">{display(data.lines.reduce((sum, line) => sum + Number(line.invoicedQuantity), 0), 2)}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Already Packed + Current</span><strong className="block">{display(packedBeforeDraft + totals.quantity, 2)}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Balance After This Packing</span><strong className={`block ${remainingAfterDraft < 0 ? "text-red-600" : "text-amber-700 dark:text-amber-400"}`}>{display(Math.max(0, remainingAfterDraft), 2)}</strong></div></div>
-      {data.packingLists.length ? <section className="rounded-xl border"><div className="flex items-center gap-2 border-b p-3"><History className="size-4" /><strong className="text-sm">Saved Packing Lists</strong></div><div className="flex flex-wrap gap-2 p-3">{data.packingLists.map((list) => <Button key={list.id} type="button" size="sm" variant={selectedListId === list.id ? "default" : "outline"} onClick={() => setSelectedListId(list.id)}>{list.number} · {list.lines.reduce((sum, line) => sum + line.packedQuantity, 0)} pcs</Button>)}</div>{activeList ? <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-emerald-50 p-3 text-sm dark:bg-emerald-950/30"><span><CheckCircle2 className="mr-1 inline size-4 text-emerald-600" /><strong>{activeList.number}</strong> · {activeList.packingDate} · {uniqueCartonCount(activeList)} carton(s) · {display(activeList.lines.reduce((sum, line) => sum + line.totalCbm, 0))} m³</span><div className="flex flex-wrap gap-2"><Button type="button" size="sm" variant="outline" onClick={() => editList(activeList)}><Pencil className="size-4" />Edit</Button><Button type="button" size="sm" variant="outline" onClick={() => printList(activeList)}><Printer className="size-4" />Print A4 Landscape</Button><Button type="button" size="sm" variant="outline" disabled={pdfBusy} onClick={() => void downloadListPdf(activeList)}><Download className="size-4" />{pdfBusy ? "Creating PDF…" : "Download PDF"}</Button></div></div> : null}</section> : null}
+      {data.packingLists.length ? <section className="rounded-xl border"><div className="flex items-center gap-2 border-b p-3"><History className="size-4" /><strong className="text-sm">Saved Packing Lists</strong></div><div className="flex flex-wrap gap-2 p-3">{data.packingLists.map((list) => <Button key={list.id} type="button" size="sm" variant={selectedListId === list.id ? "default" : "outline"} onClick={() => setSelectedListId(list.id)}>{list.number} · {list.lines.reduce((sum, line) => sum + line.packedQuantity, 0)} pcs</Button>)}</div>{activeList ? <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-emerald-50 p-3 text-sm dark:bg-emerald-950/30"><span><CheckCircle2 className="mr-1 inline size-4 text-emerald-600" /><strong>{activeList.number}</strong> · {activeList.packingDate} · {uniqueCartonCount(activeList)} carton(s) · {display(activeList.lines.reduce((sum, line) => sum + line.totalCbm, 0))} m³</span><div className="flex flex-wrap gap-2"><Button type="button" size="sm" variant="outline" onClick={() => editList(activeList)}><Pencil className="size-4" />Edit</Button><Button type="button" size="sm" variant="outline" onClick={() => printList(activeList)}><Printer className="size-4" />Print Packing List</Button><Button type="button" size="sm" variant="outline" disabled={pdfBusy} onClick={() => void downloadListPdf(activeList)}><Download className="size-4" />{pdfBusy ? "Creating PDF…" : "Packing PDF"}</Button><Button type="button" size="sm" variant="outline" onClick={() => printHsCodeSummary(activeList)}><FileText className="size-4" />Print HS Code Summary</Button><Button type="button" size="sm" variant="outline" disabled={hsPdfBusy} onClick={() => void downloadHsCodeSummaryPdf(activeList)}><Download className="size-4" />{hsPdfBusy ? "Creating HS PDF…" : "HS Summary PDF"}</Button></div></div> : null}</section> : null}
       {editingList ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-400 bg-amber-50 p-3 text-sm text-amber-950 dark:bg-amber-950/40 dark:text-amber-100"><strong>Editing {editingList.number}</strong><Button type="button" size="sm" variant="outline" onClick={cancelEdit}>Cancel Edit</Button></div> : null}
       <section className="space-y-3"><div className="grid gap-3 sm:grid-cols-3"><label className="space-y-1 text-sm"><Label>Packing Date</Label><Input type="date" value={packingDate} onChange={(event) => setPackingDate(event.target.value)} /></label><label className="space-y-1 text-sm sm:col-span-2"><Label>Delivery Address</Label><Input value={deliveryAddress} onChange={(event) => setDeliveryAddress(event.target.value)} maxLength={500} /></label></div>
         <div className="overflow-x-auto rounded-xl border">
