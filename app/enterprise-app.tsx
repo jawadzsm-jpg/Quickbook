@@ -471,6 +471,22 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     return () => { delete document.documentElement.dataset.userTheme; };
   }, [themeColor]);
 
+  useEffect(() => {
+    if (view !== "inventory-overview") return;
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+      const openLayer = document.querySelector(
+        '[data-slot="dialog-content"][data-state="open"], [data-slot="sheet-content"][data-state="open"], [data-slot="drawer-content"][data-state="open"], [data-slot="alert-dialog-content"][data-state="open"], [role="dialog"][aria-modal="true"]'
+      );
+      if (openLayer) return;
+      event.preventDefault();
+      setView("dashboard");
+      setSearch("");
+    };
+    document.addEventListener("keydown", onEscape);
+    return () => document.removeEventListener("keydown", onEscape);
+  }, [view]);
+
   const activeCompany = companies.find((company) => company.id === activeCompanyId);
   const activeLocations = useMemo(() => activeCompany?.locations ?? [], [activeCompany]);
   const baseCurrency = activeCompany?.baseCurrency ?? "AED";
@@ -1070,6 +1086,22 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
 
 function Dashboard({ metrics, records, companyName, currency, themeColor, themeSaving, onThemeChange, onNavigate, onWorkflow, onCreate, onOpenDetail, canCreate, canViewReports }: { metrics: Record<string, number>; records: Record<Kind, DataRecord[]>; companyName: string; currency: string; themeColor: UserTheme; themeSaving: boolean; onThemeChange: (theme: UserTheme) => void; onNavigate: (v: View) => void; onWorkflow: (type: string, target: View) => void; onCreate: () => void; onOpenDetail: (id: number) => void; canCreate: boolean; canViewReports: boolean }) {
   const [dashboardTab, setDashboardTab] = useState<"home" | "insights">("home");
+
+  useEffect(() => {
+    if (dashboardTab !== "insights") return;
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+      const openLayer = document.querySelector(
+        '[data-slot="dialog-content"][data-state="open"], [data-slot="sheet-content"][data-state="open"], [data-slot="drawer-content"][data-state="open"], [data-slot="alert-dialog-content"][data-state="open"], [role="dialog"][aria-modal="true"]'
+      );
+      if (openLayer) return;
+      event.preventDefault();
+      setDashboardTab("home");
+    };
+    document.addEventListener("keydown", onEscape);
+    return () => document.removeEventListener("keydown", onEscape);
+  }, [dashboardTab]);
+
   const recent = records.transactions.slice(0, 6);
   const cards = [
     ["Cash position", metrics.cash, CircleDollarSign, "Linked Bank accounts", "emerald"],
