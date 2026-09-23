@@ -41,6 +41,7 @@ async function responseData(invoiceId: number, companyId: number) {
     sku: items.sku,
     description: transactionLines.description,
     invoicedQuantity: transactionLines.quantity,
+    unitPrice: transactionLines.unitPrice,
     hsCode: items.hsCode,
     countryOfOrigin: items.countryOfOrigin,
     dimensionText: items.dimensionText,
