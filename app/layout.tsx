@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { DataExportToolbar } from "./data-export-toolbar";
 import { AttachmentCapture } from "./attachment-capture";
+import { EscapeWindowCloser } from "./escape-window-closer";
 
 export const metadata: Metadata = {
   title: "ComNet Enterprise Accounting",
@@ -21,6 +22,7 @@ export default function RootLayout({
     <html lang="en">
       <body className="antialiased">
         {children}
+        <EscapeWindowCloser />
         <DataExportToolbar />
         <AttachmentCapture />
       </body>
