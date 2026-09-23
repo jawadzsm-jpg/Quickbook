@@ -183,9 +183,9 @@ test("list edits preserve financial fields and rename linked records within the 
   const result = await edit({kind:'accounts',id:account,name:'Updated bank',code:'EDIT2',balance:999,currency:'USD',systemRole:'AR'});
   assert.equal(result.status,200,await result.text());
   assert.deepEqual((await database.query('SELECT name, code, balance, currency FROM accounts WHERE id = $1',[account])).rows,[{name:'Updated bank',code:'EDIT2',balance:125,currency:'AED'}]);
-  const customer = await edit({kind:'contacts',id:contact,name:'Updated customer',phone:'123',balance:999,currency:'USD',type:'vendor'});
+  const customer = await edit({kind:'contacts',id:contact,name:'Updated customer',phone:'+971501234567',whatsapp:'+971501234568',balance:999,currency:'USD',type:'vendor'});
   assert.equal(customer.status,200,await customer.text());
-  assert.deepEqual((await database.query('SELECT name, phone, type, balance, currency FROM contacts WHERE id = $1',[contact])).rows,[{name:'Updated customer',phone:'123',type:'customer',balance:50,currency:'AED'}]);
+  assert.deepEqual((await database.query('SELECT name, phone, type, balance, currency FROM contacts WHERE id = $1',[contact])).rows,[{name:'Updated customer',phone:'+971501234567',type:'customer',balance:50,currency:'AED'}]);
   const other = (await database.query("INSERT INTO companies (name) VALUES ('Other edit company') RETURNING id")).rows[0].id;
   const foreign = await edit({kind:'accounts',companyId:other,id:account,name:'Wrong company',code:'EDIT3'});
   assert.equal(foreign.status,404);
