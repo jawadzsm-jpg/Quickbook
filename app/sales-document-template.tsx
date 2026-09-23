@@ -24,6 +24,7 @@ export const salesDocumentTitles = {
   "cash-sales": "Sales Receipt",
   "delivery-note": "Delivery Note",
   "packing-list": "Packing List",
+  "hs-code-summary": "HS Code Summary",
 } as const;
 export type SalesDocumentMode = keyof typeof salesDocumentTitles;
 
@@ -41,7 +42,7 @@ const savedTemplateType: Partial<Record<SalesDocumentMode, TemplateDocumentType>
 };
 
 const relatedDocumentOutputs: Partial<Record<SalesDocumentMode, SalesDocumentMode[]>> = {
-  "tax-invoice": ["tax-invoice", "delivery-note", "packing-list"],
+  "tax-invoice": ["tax-invoice", "delivery-note", "packing-list", "hs-code-summary"],
   "sales-order": ["sales-order", "delivery-note", "packing-list"],
   "proforma-invoice": ["proforma-invoice", "delivery-note", "packing-list"],
   "cash-sales": ["cash-sales", "delivery-note", "packing-list"],
@@ -73,6 +74,7 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
   const [selection, setSelection] = useState<{ source: SalesDocumentMode; output: SalesDocumentMode }>({ source: mode, output: mode });
   const [pdfBusy, setPdfBusy] = useState(false);
   const [packingOpen, setPackingOpen] = useState(false);
+  const [packingView, setPackingView] = useState<"packing" | "hs-summary">("packing");
   const connectedPackingList = String(record.type) === "invoice";
   const activeMode = selection.source === mode && outputModes.includes(selection.output) ? selection.output : mode;
   const requestedTemplateType = savedTemplateType[activeMode];
@@ -199,7 +201,17 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
     <div className="document-internal-only mb-3 flex flex-wrap items-center justify-between gap-2">
       {outputModes.length > 1 ? <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-slate-50 p-2 text-sm">
         <span className="px-1 font-semibold text-slate-700">Document layout</span>
-        {outputModes.map((outputMode) => <Button key={outputMode} type="button" size="sm" variant={activeMode === outputMode && !(outputMode === "packing-list" && connectedPackingList) ? "default" : "outline"} aria-pressed={activeMode === outputMode} onClick={() => outputMode === "packing-list" && connectedPackingList ? setPackingOpen(true) : setSelection({ source: mode, output: outputMode })}>{salesDocumentTitles[outputMode]}</Button>)}
+        {outputModes.map((outputMode) => {
+          const packingLinked = connectedPackingList && (outputMode === "packing-list" || outputMode === "hs-code-summary");
+          return <Button key={outputMode} type="button" size="sm" variant={activeMode === outputMode && !packingLinked ? "default" : "outline"} aria-pressed={activeMode === outputMode} onClick={() => {
+            if (packingLinked) {
+              setPackingView(outputMode === "hs-code-summary" ? "hs-summary" : "packing");
+              setPackingOpen(true);
+              return;
+            }
+            setSelection({ source: mode, output: outputMode });
+          }}>{salesDocumentTitles[outputMode]}</Button>;
+        })}
       </div> : <div />}
       <div className="flex flex-wrap justify-end gap-2">
         <Button type="button" variant="outline" onClick={printA4}>
@@ -215,6 +227,6 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
     </div>
     <div ref={screenPreviewRef} className="invoice-screen-only"><CustomInvoiceTemplate design={design} record={record} lines={lines} contact={contact} setup={setup} /></div>
     <div className="invoice-print-only"><CustomInvoiceTemplate design={a4Design} record={record} lines={lines} contact={contact} setup={setup} target="print" /></div>
-    {connectedPackingList ? <InvoicePackingListDialog open={packingOpen} onOpenChange={setPackingOpen} companyId={Number(record.companyId)} companyName={String(setup.name || "Company")} invoiceId={Number(record.id)} /> : null}
+    {connectedPackingList ? <InvoicePackingListDialog open={packingOpen} onOpenChange={setPackingOpen} companyId={Number(record.companyId)} companyName={String(setup.name || "Company")} invoiceId={Number(record.id)} initialView={packingView} /> : null}
   </>;
 }
