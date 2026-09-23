@@ -385,24 +385,25 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
                   <Button type="button" size="sm" variant="outline" disabled={hsPdfBusy} onClick={() => void downloadHsCodeSummaryPdf(activeList)}><Download className="size-4" />{hsPdfBusy ? "Creating PDF…" : "Download HS Summary PDF"}</Button>
                 </div>
               </div>
-              <div className="mx-auto w-full max-w-[900px] rounded-xl border bg-white p-6 text-black shadow-sm">
-                <p className="text-center text-sm font-bold">{companyName}</p>
-                <h2 className="mt-2 text-center text-2xl font-black">DETAILED COMMODITY CLASSIFICATION FORM</h2>
-                <div className="mt-8 space-y-1 text-sm">
+              <div className="hs-summary-preview mx-auto w-full max-w-[1050px] overflow-hidden rounded-xl border border-slate-300 bg-white p-8 text-black shadow-lg">
+                <style>{`.hs-summary-preview,.hs-summary-preview *{color:#000!important}.hs-summary-preview{background:#fff!important}.hs-summary-preview table{background:#fff!important}.hs-summary-preview th{background:#f1f5f9!important;color:#000!important;border-color:#111!important}.hs-summary-preview td{background:#fff!important;color:#000!important;border-color:#111!important}.hs-summary-preview strong{color:#000!important}`}</style>
+                <p className="text-center text-base font-bold">{companyName}</p>
+                <h2 className="mt-2 text-center text-[28px] font-black leading-tight">DETAILED COMMODITY CLASSIFICATION FORM</h2>
+                <div className="mt-8 space-y-1.5 text-base leading-6">
                   <div><strong>Customer Name:</strong> {data.customer?.company || data.customer?.billingName || data.invoice.party}</div>
                   <div><strong>Delivery Address:</strong> {activeList.deliveryAddress || "—"}</div>
                   <div><strong>Date:</strong> {activeList.packingDate}</div>
                   <div><strong>Invoice #:</strong> {data.invoice.number}</div>
                   <div><strong>Packing List:</strong> {activeList.number}</div>
                 </div>
-                <div className="my-8 text-center text-lg font-bold">(FOR STATISTICAL USE)</div>
+                <div className="my-9 text-center text-xl font-black">(FOR STATISTICAL USE)</div>
                 <div className="overflow-x-auto">
-                  <table className="w-full border-collapse text-sm">
-                    <thead><tr>{["#","COUNTRY OF ORIGIN","DESCRIPTION OF GOODS","H.S.CODE","WEIGHT /KG","NO. OF UNITS","VALUE"].map((label) => <th key={label} className="border border-black bg-slate-100 px-2 py-2 text-center text-xs font-black">{label}</th>)}</tr></thead>
-                    <tbody>{summary.rows.map((row, index) => <tr key={`${row.country}-${row.description}-${row.hsCode}-${index}`}><td className="border border-black px-2 py-2 text-center">{index + 1}</td><td className="border border-black px-2 py-2 text-center">{row.country}</td><td className="border border-black px-2 py-2 text-center font-semibold">{row.description}</td><td className="border border-black px-2 py-2 text-center">{row.hsCode}</td><td className="border border-black px-2 py-2 text-center">{display(row.weight, 2)}</td><td className="border border-black px-2 py-2 text-center">{display(row.units, 2)}</td><td className="border border-black px-2 py-2 text-center">{row.value.toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>)}</tbody>
+                  <table className="w-full border-collapse text-[15px]">
+                    <thead><tr>{["#","COUNTRY OF ORIGIN","DESCRIPTION OF GOODS","H.S.CODE","WEIGHT /KG","NO. OF UNITS","VALUE"].map((label) => <th key={label} className="border border-black px-3 py-3 text-center text-sm font-black">{label}</th>)}</tr></thead>
+                    <tbody>{summary.rows.map((row, index) => <tr key={`${row.country}-${row.description}-${row.hsCode}-${index}`}><td className="border border-black px-3 py-3 text-center">{index + 1}</td><td className="border border-black px-3 py-3 text-center">{row.country}</td><td className="border border-black px-3 py-3 text-center font-semibold">{row.description}</td><td className="border border-black px-3 py-3 text-center">{row.hsCode}</td><td className="border border-black px-3 py-3 text-center">{display(row.weight, 2)}</td><td className="border border-black px-3 py-3 text-center">{display(row.units, 2)}</td><td className="border border-black px-3 py-3 text-center">{row.value.toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>)}</tbody>
                   </table>
                 </div>
-                <div className="mt-5 space-y-1 text-sm font-bold">
+                <div className="mt-6 space-y-1.5 text-base font-bold leading-6">
                   <div>Total Qty → {display(summary.totalQty, 2)} PCS</div>
                   <div>Total Weight → {display(summary.totalWeight, 2)} KG(s)</div>
                   <div>Total Value → {summary.totalValue.toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {summary.currency}</div>
