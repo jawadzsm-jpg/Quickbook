@@ -251,6 +251,19 @@ button, input, select { font: inherit; }
   [data-appearance="dark"] .brand-soft-icon { background: color-mix(in srgb, var(--user-color-500) 22%, #101a2a); color: var(--user-color-300); }
   [data-appearance="dark"] .brand-status-line:hover { background: color-mix(in srgb, var(--user-color-500) 10%, #101a2a); }
   [data-appearance="dark"] .brand-accent-text { color: var(--user-color-300); }
+  [data-appearance="dark"] .report-center-shell,
+  [data-appearance="dark"] .report-memorised-panel,
+  [data-appearance="dark"] .report-live-card { background: #0d1726 !important; border-color: #2a394d !important; }
+  [data-appearance="dark"] .report-library-panel { background: #080f1c !important; }
+  [data-appearance="dark"] .report-center-card,
+  [data-appearance="dark"] .report-center-empty,
+  [data-appearance="dark"] .report-memorised-card { background: #101a2a !important; border-color: #2a394d !important; }
+  [data-appearance="dark"] .report-center-card:hover,
+  [data-appearance="dark"] .report-memorised-card:hover { background: #12271f !important; border-color: #27745b !important; }
+  [data-appearance="dark"] .report-memorised-header { background: #152136 !important; border-color: #2a394d !important; }
+  [data-appearance="dark"] .report-center-search { background: #101a2a !important; border-color: #475569 !important; color: #f8fafc !important; }
+  [data-appearance="dark"] .report-center-search::placeholder { color: #94a3b8 !important; }
+  [data-appearance="dark"] .report-category-active { background: var(--user-color-400) !important; color: var(--user-color-contrast) !important; }
 }
 
 .brand-workspace { background: var(--user-workspace); }
