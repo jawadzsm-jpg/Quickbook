@@ -14,10 +14,17 @@ const { dashboardMetrics } = await sourceModule("../lib/dashboard-metrics.ts");
 const { filterZeroQohRows, hasInventoryQohFilter } = await sourceModule("../lib/inventory-report-filter.ts");
 const { linkReportAccounts } = await sourceModule("../lib/report-account-links.ts");
 const { filterRecordListByDate, recordListReport } = await sourceModule("../lib/record-list-export.ts");
+const { normalizeComparableText, uppercaseText } = await sourceModule("../lib/text-normalization.ts");
 
 test("email validation accepts ordinary addresses and rejects malformed or oversized input", () => {
   for (const email of ["name@example.com", "name+sales@example.co.uk"]) assert.equal(isValidEmail(email), true);
   for (const email of ["", "@example.com", "name@@example.com", "name@example", "name@.com", "name@example..com", "name @example.com", "!@".repeat(100_000), "!@!.".repeat(100_000)]) assert.equal(isValidEmail(email), false);
+});
+
+test("master record comparison ignores case, spacing and punctuation while item text uses capitals", () => {
+  const variants = ["Example LLC", "example l.l.c", " EXAMPLE-Llc "];
+  assert.equal(new Set(variants.map(normalizeComparableText)).size, 1);
+  assert.equal(uppercaseText("  Gaming laptop Pro  "), "GAMING LAPTOP PRO");
 });
 test("stock PIN verification rejects absent, wrong and malformed credentials", () => {
   const stored = hashAdminPin("583921");

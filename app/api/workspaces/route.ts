@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "../../../db";
 import { accounts, auditLog, companies, exchangeRates, inventoryLocations, transactions, vatCodes } from "../../../db/schema";
 import { canAccessCompany, isAdministrator, requireApiUser } from "@/lib/auth";
+import { normalizeComparableText } from "@/lib/text-normalization";
 
 const standardAccounts = [
   ["1000", "Business Bank", "Bank", "BANK"], ["1100", "Accounts Receivable", "Accounts Receivable", "AR"],
@@ -55,6 +56,8 @@ export async function POST(request: Request) {
       if (authorization.role !== "all_admin") return Response.json({ error: "Only an All-Admin can create a company." }, { status: 403 });
       const name = String(payload.name ?? "").trim(); const baseCurrency = String(payload.baseCurrency ?? "AED").trim().toUpperCase();
       if (!name || !/^[A-Z]{3}$/.test(baseCurrency)) return Response.json({ error: "Company name and a valid currency code are required." }, { status: 400 });
+      const companyNames = await db.select({ name: companies.name }).from(companies);
+      if (companyNames.some((company) => normalizeComparableText(company.name) === normalizeComparableText(name))) return Response.json({ error: "A company with this name already exists." }, { status: 409 });
       const sourceCompanyId = Number(payload.sourceCompanyId);
       const sourceAccounts = Number.isSafeInteger(sourceCompanyId) && sourceCompanyId > 0
         ? await db.select({ code: accounts.code, name: accounts.name, type: accounts.type, systemRole: accounts.systemRole, currency: accounts.currency, sourceBaseCurrency: companies.baseCurrency, active: accounts.active })
@@ -78,6 +81,9 @@ export async function POST(request: Request) {
     const companyId = Number(payload.companyId); const name = String(payload.name ?? "").trim(); const code = String(payload.code ?? "").trim().toUpperCase();
     if (!Number.isInteger(companyId) || !name || !code) return Response.json({ error: "Company, location name and code are required." }, { status: 400 });
     if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
+    const locations = await db.select({ name: inventoryLocations.name, code: inventoryLocations.code }).from(inventoryLocations).where(eq(inventoryLocations.companyId, companyId));
+    if (locations.some((location) => normalizeComparableText(location.name) === normalizeComparableText(name))) return Response.json({ error: "An inventory with this name already exists." }, { status: 409 });
+    if (locations.some((location) => normalizeComparableText(location.code) === normalizeComparableText(code))) return Response.json({ error: "An inventory with this code already exists." }, { status: 409 });
     const [location] = await db.insert(inventoryLocations).values({ companyId, name, code, invoicePrefix: code }).returning();
     return Response.json({ location }, { status: 201 });
   } catch (error) { return Response.json({ error: message(error) }, { status: 500 }); }

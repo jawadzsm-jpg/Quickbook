@@ -1,6 +1,6 @@
-export function normalizeCustomerName(value: string) {
-  return value.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
-}
+import { normalizeComparableText } from "./text-normalization";
+
+export const normalizeCustomerName = normalizeComparableText;
 
 export function normalizeCustomerPhone(value: string) {
   return value.replace(/[\s().-]/g, "");

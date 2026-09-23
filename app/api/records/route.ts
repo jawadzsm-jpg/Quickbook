@@ -10,6 +10,7 @@ import {
 import { verifyAdminPin } from "../../../lib/admin-pin";
 import { customerConflict, validInternationalPhone } from "../../../lib/customer-identity";
 import { canAccessCompany, isAdministrator, hasPermission, requireApiUser, type Permission, type SessionUser } from "@/lib/auth";
+import { normalizeComparableText, uppercaseText } from "@/lib/text-normalization";
 
 type RecordKind = "transactions" | "contacts" | "items" | "accounts";
 type InputLine = { comments?: string; serialNumber?: string; freightCharge?: number | string; isFreightCharge?: boolean; orderLineId?: number; sourceLineId?: number; itemId?: number | string | null; description?: string; quantity?: number | string; unitPrice?: number | string; unitCost?: number | string; vatCode?: string; vatRate?: number | string };
@@ -376,8 +377,8 @@ export async function GET(request: Request) {
 
 async function handlePOST(request: Request) {
   const payload = await request.clone().json();
-  if (payload.kind === "contacts") return withWriteTransaction(async () => {
-    if (payload.type === "customer" && process.env.COMNET_LOCAL_DB !== "1" && Number.isInteger(Number(payload.companyId))) {
+  if (["contacts", "accounts", "items"].includes(payload.kind)) return withWriteTransaction(async () => {
+    if (process.env.COMNET_LOCAL_DB !== "1" && Number.isInteger(Number(payload.companyId))) {
       await getDb().execute(sql`select pg_advisory_xact_lock(731459, ${Number(payload.companyId)})`);
     }
     return saveNewRecord(request);
@@ -424,6 +425,13 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       if (payload.type === "vendor") {
         const required = [payload.company, payload.phone, payload.country, payload.currency];
         if (required.some((value) => !String(value ?? "").trim())) return Response.json({ error: "Complete all required vendor fields." }, { status: 400 });
+      }
+      if (contactType !== "customer") {
+        const contactsOfType = await db.select({ id: contacts.id, name: contacts.name, company: contacts.company }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, contactType)));
+        const companyName = String(payload.company ?? "").trim();
+        const duplicate = contactsOfType.find((contact) => normalizeComparableText(contact.name) === normalizeComparableText(name)
+          || contactType === "vendor" && Boolean(companyName) && normalizeComparableText(contact.company) === normalizeComparableText(companyName));
+        if (duplicate) return Response.json({ error: "Another record already uses this name or company." }, { status: 409 });
       }
       let ledgerAccountId: number | null = null;
       let generatedAccount: { id: number; code: string; name: string; currency: string } | null = null;
@@ -472,12 +480,14 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       }
       const specifications = Array.from({ length: 30 }, (_, index) => ({
         label: String(payload[`specLabel${index}`] ?? "").trim(),
-        value: String(payload[`specValue${index}`] ?? "").trim(),
+        value: uppercaseText(payload[`specValue${index}`]),
       })).filter((specification) => specification.label && specification.value);
       const specificationValue = (label: string) => specifications.find((specification) => specification.label.toLowerCase() === label.toLowerCase())?.value ?? "";
-      const category = String(payload.category ?? "General").trim() || "General";
+      const category = uppercaseText(payload.category) || "GENERAL";
       const sku = await createUniqueItemSku();
-      const name = String(payload.name ?? "").trim() || [specificationValue("Brand"), specificationValue("Model") || specificationValue("Part Number")].filter(Boolean).join(" ") || `${category} Item`;
+      const name = uppercaseText(payload.name) || uppercaseText([specificationValue("Brand"), specificationValue("Model") || specificationValue("Part Number")].filter(Boolean).join(" ")) || `${category} ITEM`;
+      const existingItems = await db.select({ id: items.id, name: items.name }).from(items).where(eq(items.companyId, companyId));
+      if (existingItems.some((item) => normalizeComparableText(item.name) === normalizeComparableText(name))) return Response.json({ error: "An item with this name already exists." }, { status: 409 });
       // Keep labels in structured specifications for editing/filtering; the customer-facing description contains values only.
       const description = specifications.map((specification) => specification.value).filter((value) => value.trim().toLowerCase() !== "no").join(" | ");
       const parsedWeight = Number.parseFloat(specificationValue("Weight"));
@@ -537,8 +547,11 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
 
     if (kind === "accounts") {
       const name = String(payload.name ?? "").trim();
-      const code = String(payload.code ?? "").trim();
+      const code = uppercaseText(payload.code);
       if (!name || !code) return Response.json({ error: "Account code and name are required." }, { status: 400 });
+      const companyAccounts = await db.select({ name: accounts.name, code: accounts.code }).from(accounts).where(eq(accounts.companyId, companyId));
+      if (companyAccounts.some((account) => normalizeComparableText(account.name) === normalizeComparableText(name))) return Response.json({ error: "Another account already uses this name." }, { status: 409 });
+      if (companyAccounts.some((account) => normalizeComparableText(account.code) === normalizeComparableText(code))) return Response.json({ error: "Account code already exists." }, { status: 409 });
       const parentAccountId = Number(payload.parentAccountId);
       const requestedRole = String(payload.systemRole ?? "").trim().toUpperCase();
       const systemRole = accountRoles.includes(requestedRole) ? requestedRole : null;
@@ -1227,23 +1240,24 @@ async function handlePATCH(request: Request) {
         const conflict = customerConflict(candidate, customers, id);
         if (conflict) return Response.json({ error: conflict }, { status: 409 });
       }
-      const sameName = accountEdit ? await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.name, name))) : await db.select({ id: contacts.id }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.name, name)));
-      if (sameName.some((entry) => entry.id !== id)) return Response.json({ error: "Another record already uses this name." }, { status: 409 });
+      const contactType = accountEdit ? null : (existing as typeof contacts.$inferSelect).type;
+      const sameName = accountEdit ? await db.select({ id: accounts.id, name: accounts.name }).from(accounts).where(eq(accounts.companyId, companyId)) : await db.select({ id: contacts.id, name: contacts.name }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, contactType!)));
+      if (sameName.some((entry) => entry.id !== id && normalizeComparableText(entry.name) === normalizeComparableText(name))) return Response.json({ error: "Another record already uses this name." }, { status: 409 });
       if (name !== existing.name) {
         const oldNames = accountEdit ? await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.name, existing.name))) : await db.select({ id: contacts.id }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.name, existing.name)));
         if (oldNames.length > 1) return Response.json({ error: "Duplicate existing names must be resolved before renaming linked records." }, { status: 409 });
       }
       if (accountEdit) {
         const account = existing as typeof accounts.$inferSelect;
-        const code = String(payload.code ?? "").trim();
+        const code = uppercaseText(payload.code);
         const type = String(payload.type ?? account.type).trim();
         if (!code) return Response.json({ error: "Account code is required." }, { status: 400 });
         if (!accountTypeValues.has(type)) return Response.json({ error: "Select a valid account type." }, { status: 400 });
         const role = String(account.systemRole ?? "");
         const compatible = compatibleAccountTypes[role];
         if (compatible && !compatible.has(type)) return Response.json({ error: `The linked system use ${role} requires account type: ${[...compatible].join(" or ")}.` }, { status: 409 });
-        const codes = await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.code, code)));
-        if (codes.some((entry) => entry.id !== id)) return Response.json({ error: "Account code already exists." }, { status: 409 });
+        const codes = await db.select({ id: accounts.id, code: accounts.code }).from(accounts).where(eq(accounts.companyId, companyId));
+        if (codes.some((entry) => entry.id !== id && normalizeComparableText(entry.code) === normalizeComparableText(code))) return Response.json({ error: "Account code already exists." }, { status: 409 });
         const [record] = await db.update(accounts).set({ code, name, type }).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId))).returning();
         if (name !== existing.name) {
           await db.update(transactions).set({ account: name }).where(and(eq(transactions.companyId, companyId), eq(transactions.account, existing.name)));
@@ -1268,11 +1282,13 @@ async function handlePATCH(request: Request) {
     if (!existing) return Response.json({ error: "Item not found." }, { status: 404 });
     const specifications = Array.from({ length: 30 }, (_, index) => ({
       label: String(payload[`specLabel${index}`] ?? "").trim(),
-      value: String(payload[`specValue${index}`] ?? "").trim(),
+      value: uppercaseText(payload[`specValue${index}`]),
     })).filter((specification) => specification.label && specification.value);
     const specificationValue = (label: string) => specifications.find((specification) => specification.label.toLowerCase() === label.toLowerCase())?.value ?? "";
-    const category = String(payload.category ?? existing.category).trim() || existing.category;
-    const generatedName = [specificationValue("Brand"), specificationValue("Model") || specificationValue("Part Number")].filter(Boolean).join(" ");
+    const category = uppercaseText(payload.category ?? existing.category) || uppercaseText(existing.category);
+    const generatedName = uppercaseText([specificationValue("Brand"), specificationValue("Model") || specificationValue("Part Number")].filter(Boolean).join(" ")) || uppercaseText(existing.name);
+    const existingItems = await db.select({ id: items.id, name: items.name }).from(items).where(eq(items.companyId, companyId));
+    if (existingItems.some((item) => item.id !== id && normalizeComparableText(item.name) === normalizeComparableText(generatedName))) return Response.json({ error: "An item with this name already exists." }, { status: 409 });
     const itemType = normalizedItemType(payload.itemType ?? existing.itemType);
     if (existing.itemType === "stock-part" && itemType !== "stock-part" && Math.abs(existing.quantity) > 0.000001) return Response.json({ error: "Reduce on-hand quantity to zero before changing a Stock Part to a non-stock item type." }, { status: 409 });
     const purchaseVatCode = String(payload.purchaseVatCode ?? existing.purchaseVatCode).trim().toUpperCase();
@@ -1297,7 +1313,7 @@ async function handlePATCH(request: Request) {
     const [record] = await db.update(items).set({
       category,
       sku: existing.sku,
-      name: generatedName || existing.name,
+      name: generatedName,
       itemType, reorderPoint, salesPrice, cost, purchaseVatCode, cogsAccountId, preferredSupplierId, salesVatCode, incomeAccountId, assetAccountId,
       amountsIncludeVat: payload.amountsIncludeVat === true || String(payload.amountsIncludeVat) === "true",
       status: String(payload.status ?? existing.status) === "inactive" ? "inactive" : "active",

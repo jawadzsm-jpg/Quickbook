@@ -1,2403 +1,2317 @@
-"use client";
-import { FinancialReport } from "./financial-report";
-import type { FinancialReportData } from "@/lib/financial-reports";
-import { SharedItemCatalogue } from "@/app/shared-item-catalogue";
-import { SharedOutOfStock } from "@/app/shared-out-of-stock";
-import { ReportDateFilter } from "./report-date-filter";
-import { reportPeriod, type ReportPeriod } from "@/lib/report-period";
-import { CompanyClearButton } from "./company-clear-button";
-import { CompanyTemplateDesigner } from "./company-template-designer";
-
-import { ActiveCustomersReport } from "./active-customers-report";
-import { CustomerOpenBalance } from "./customer-open-balance";
-import type { OpenBalanceData } from "@/lib/customer-open-balance";
-import { DocumentExtraFields } from "./document-extra-fields";
-import { AccountHistory } from "./account-history";
-import { useSkuLock, SkuLockNotice } from "./use-sku-lock";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import Image from "next/image";
-import { PaymentSalesRep } from "./payment-sales-rep";
-import { PaidInvoiceStamp } from "./paid-invoice-stamp";
-import { StatementFilters, StatementHeading, type StatementData } from "./statement-layout";
-import { SalesSourceInvoicing } from "./sales-source-invoicing";
-import { OpenSalesDocuments } from "./open-sales-documents";
-import { OpenPurchaseOrders } from "./open-purchase-orders";
-import { PurchaseOrderReceiving } from "./purchase-order-receiving";
-import { UnpaidInvoices } from "./unpaid-invoices";
-import { UnpaidBills } from "./unpaid-bills";
-import { ProfitLossReport } from "./profit-loss-report";
-import type { PnlMeta, PnlReport } from "@/lib/profit-loss";
-import { LiveProfitLossSummary } from "./live-profit-loss-summary";
-import { dashboardMetrics } from "@/lib/dashboard-metrics";
-import { filterZeroQohRows, hasInventoryQohFilter } from "@/lib/inventory-report-filter";
-import { filterRecordListByDate, recordListReport } from "@/lib/record-list-export";
-import { reportCsv, reportFilename, reportPdf, reportWorkbook } from "@/lib/report-export";
-import { convertInvoiceLines, invoiceCurrencyAmount, validDocumentRate, type PricedInvoiceLine } from "@/lib/invoice-pricing";
-import { applyContactCurrency } from "@/lib/contact-currency";
-import { SalesDocumentTemplate, salesDocumentModeForTransaction } from "./sales-document-template";
-import {
-  AlertTriangle, ArrowRightLeft, BadgeDollarSign, Bell, BookOpen, BookOpenCheck, BookmarkPlus, Boxes, Building2, CheckCircle2, Copy,
-  Check, ChevronDown, ChevronRight, CircleDollarSign, Clock3, Download, FileBarChart2, FileSpreadsheet, FileText, Landmark,
-  Eye, ImageUp, KeyRound, LayoutDashboard, LogOut, PackageCheck, PackageSearch, PackageX, Palette, Pencil, Plus, ReceiptText, RefreshCw,
-  Search, Settings, ShieldCheck, ShoppingCart, Stamp, Sun, Moon, Table2, Trash2, Users, WalletCards, Percent,
-} from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Textarea } from "@/components/ui/textarea";
-import { specificationFields } from "@/lib/specification-presets";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
-import {
-  Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent,
-  SidebarGroupLabel, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuButton,
-  SidebarMenuItem, SidebarProvider, SidebarRail, SidebarTrigger,
-} from "@/components/ui/sidebar";
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from "@/components/ui/table";
-import { Toaster, toast } from "sonner";
-import { MultiLineTransferCenter } from "@/app/transfer-center";
-import { StockPricing } from "@/app/stock-pricing";
-import { InventoryOverview } from "@/app/inventory-overview";
-import { InventoryCheckReports } from "@/app/inventory-check-reports";
-import { ItemLogisticsCenter } from "@/app/item-logistics-center";
-import { UserRoleCenter } from "@/app/user-role-center";
-import { VatCodeCenter, type VatCodeRecord } from "@/app/vat-code-center";
-import { CurrencyRateCenter, type ExchangeRateRecord } from "@/app/currency-rate-center";
-import { JournalEntryCenter } from "@/app/journal-entry-center";
-import { VatManagementCenter } from "@/app/vat-management-center";
-
-import { SerialNumberSearch } from "./serial-number-search";
-
-type View = "serial-search" | "stock-pricing" | "dashboard" | "inventory-overview" | "sales" | "receive-payment" | "purchases" | "write-cheque" | "customers" | "vendors" | "inventory" | "item-logistics" | "inventory-check-reports" | "transfers" | "banking" | "journal-entries" | "accounts" | "vat-management" | "employees" | "reports" | "companies" | "company-setup" | "inventories" | "invoice-series" | "currencies" | "vat-codes" | "admin-controls";
-type AppRole = "admin" | "accountant" | "sales" | "purchasing" | "inventory" | "viewer";
-type UserTheme = "emerald" | "ocean" | "indigo" | "violet" | "rose" | "amber";
-type AppearanceMode = "light" | "dark";
-type CurrentUser = { isAllAdmin?: boolean; id: number; fullName: string; email: string; avatarData: string; themeColor: string; appearanceMode: AppearanceMode; role: AppRole; mustChangePassword: boolean };
-type Kind = "transactions" | "contacts" | "items" | "accounts";
-type DataRecord = Record<string, string | number | boolean> & { id: number };
-type LineForm = PricedInvoiceLine & { id?: number; comments?: string; serialNumber?: string; freightCharge?: string; itemId: string; description: string; quantity: string; unitPrice: string; unitCost: string; vatCode: string; vatRate: string };
-type InventoryLocation = { id: number; companyId: number; name: string; code: string; invoicePrefix: string; nextInvoiceNumber: number; receivable?: number; payable?: number };
-type CompanyWorkspace = { id: number; name: string; baseCurrency: string; locations: InventoryLocation[] };
-type CompanySetup = { id: number; name: string; baseCurrency: string; logoData: string; rightLogoData: string; documentDesign: string; stampData: string; addressLine1: string; addressLine2: string; city: string; country: string; phone: string; email: string; trn: string; bankName: string; bankAccountName: string; bankAccountNumber: string; bankIban: string; bankSwift: string; bankCurrency: string; documentTemplate: "classic" | "modern" | "minimal"; documentColor: string };
-type ReportData = { financial?: FinancialReportData["financial"]; period?: ReportPeriod; pnl?: PnlMeta; summary?: PnlReport["summary"]; activeCustomers?: { canViewAccounts: boolean; asOf: string; count: number }; openBalance?: OpenBalanceData; statement?: StatementData; key?: string; companyId?: number; canEditPrices?: boolean; canViewAccounts?: boolean; accountLinkIssues?: string[]; vatCodes?: Array<{ code: string; name: string; rate: number }>; title: string; description?: string; generatedAt: string; currency: string; columns: Array<{ key: string; label: string; type?: "money" }>; rows: Array<Record<string, string | number>>; chart?: { labelKey: string; incomeKey: string; expenseKey: string; incomeLabel?: string; expenseLabel?: string } };
-type MemorisedReportRecord = { customer?: string; statementDate?: string; memo?: string; id: number; companyId: number; locationId: number | null; name: string; reportKey: string; category: ReportCategory; currency: string; periodStart: string; periodEnd: string; updatedAt: string };
-type ReportContext = { key: string; locationId: number; currency: string; periodStart: string; periodEnd: string };
-type TransactionDetail = { record: DataRecord; lines: DataRecord[]; journal: DataRecord[]; partyContact?: DataRecord | null };
-
-const userThemes: Array<{ value: UserTheme; label: string; color: string }> = [
-  { value: "emerald", label: "Emerald", color: "#10b981" },
-  { value: "ocean", label: "Ocean", color: "#0ea5e9" },
-  { value: "indigo", label: "Indigo", color: "#6366f1" },
-  { value: "violet", label: "Violet", color: "#8b5cf6" },
-  { value: "rose", label: "Rose", color: "#f43f5e" },
-  { value: "amber", label: "Amber", color: "#f59e0b" },
-];
-const isUserTheme = (value: string): value is UserTheme => userThemes.some((theme) => theme.value === value);
-
-const invoiceNumberPreview = (companyId: number, location: InventoryLocation) =>
-  `C${String(companyId).padStart(3, "0")}-${location.invoicePrefix}-INV-${String(location.nextInvoiceNumber).padStart(4, "0")}`;
-
-const navGroups = [
-  { label: "OVERVIEW", items: [
-    { id: "dashboard", label: "Company Home", icon: LayoutDashboard },
-    { id: "inventory-overview", label: "Inventory Overview", icon: Boxes },
-  ] },
-  { label: "CUSTOMERS", items: [
-    { id: "sales", label: "Sales & Invoicing", icon: ReceiptText },
-    { id: "receive-payment", label: "Receive Payment", icon: CircleDollarSign },
-    { id: "customers", label: "Customer Center", icon: Users },
-  ] },
-  { label: "VENDORS", items: [
-    { id: "purchases", label: "Purchases & Bills", icon: ShoppingCart },
-    { id: "write-cheque", label: "Write Cheque", icon: WalletCards },
-    { id: "vendors", label: "Vendor Center", icon: Building2 },
-  ] },
-  { label: "COMPANY", items: [
-    { id: "inventory", label: "Inventory", icon: PackageSearch },
-    { id: "serial-search", label: "Serial Number Search", icon: Search },
-    { id: "stock-pricing", label: "Stock Pricing", icon: CircleDollarSign },
-    { id: "item-logistics", label: "HS Code & Dimensions", icon: PackageCheck },
-    { id: "inventory-check-reports", label: "Inventory Check Reports", icon: PackageCheck },
-    { id: "transfers", label: "Stock Transfers", icon: ArrowRightLeft },
-    { id: "banking", label: "Banking", icon: Landmark },
-    { id: "journal-entries", label: "General Journal", icon: BookOpenCheck },
-    { id: "accounts", label: "Chart of Accounts", icon: BookOpen },
-    { id: "vat-management", label: "VAT Management", icon: Percent },
-    { id: "employees", label: "Employees & HR", icon: WalletCards },
-    { id: "reports", label: "Reports", icon: FileBarChart2 },
-  ] },
-  { label: "MANAGEMENT", items: [
-    { id: "companies", label: "Companies", icon: Building2 },
-    { id: "company-setup", label: "Company Setup", icon: Settings },
-    { id: "inventories", label: "Inventories", icon: PackageSearch },
-    { id: "invoice-series", label: "Invoice Series", icon: ReceiptText },
-    { id: "currencies", label: "Currencies", icon: CircleDollarSign },
-    { id: "vat-codes", label: "VAT Codes", icon: Percent },
-    { id: "admin-controls", label: "Admin Controls", icon: ShieldCheck },
-  ] },
-] as const;
-
-const roleLabels: Record<AppRole, string> = {
-  admin: "Administrator",
-  accountant: "Accountant",
-  sales: "Sales",
-  purchasing: "Purchasing",
-  inventory: "Inventory Manager",
-  viewer: "Viewer",
-};
-
-const roleViews: Record<AppRole, readonly View[]> = {
-  admin: navGroups.flatMap((group) => group.items.map((item) => item.id)),
-  accountant: ["serial-search", "dashboard", "inventory-overview", "inventory-check-reports", "sales", "receive-payment", "customers", "purchases", "write-cheque", "vendors", "banking", "journal-entries", "accounts", "vat-management", "reports"],
-  sales: ["serial-search", "dashboard", "inventory-overview", "inventory-check-reports", "sales", "receive-payment", "customers"],
-  purchasing: ["serial-search", "dashboard", "inventory-overview", "inventory-check-reports", "purchases", "write-cheque", "vendors"],
-  inventory: ["serial-search", "dashboard", "inventory-overview", "inventory", "item-logistics", "inventory-check-reports", "transfers"],
-  viewer: ["serial-search", "dashboard", "inventory-overview", "inventory-check-reports", "reports"],
-};
-
-const roleWriteViews: Record<AppRole, readonly View[]> = {
-  admin: ["sales", "receive-payment", "customers", "purchases", "write-cheque", "vendors", "inventory", "item-logistics", "inventory-check-reports", "transfers", "banking", "journal-entries", "accounts", "employees", "companies", "inventories", "invoice-series", "currencies", "vat-codes", "admin-controls"],
-  accountant: ["sales", "receive-payment", "customers", "purchases", "write-cheque", "vendors", "banking", "journal-entries", "accounts", "vat-management"],
-  sales: ["sales", "receive-payment", "customers"],
-  purchasing: ["purchases", "write-cheque", "vendors"],
-  inventory: ["inventory", "item-logistics", "transfers"],
-  viewer: [],
-};
-
-const viewTitles: Record<View, { title: string; sub: string }> = {
-  dashboard: { title: "Company Home", sub: "Your financial position at a glance" },
-  "serial-search": { title: "Serial Number Search", sub: "Purchase and sales history by serial number" },
-  "stock-pricing": { title: "Stock Pricing", sub: "Company GRN and selling prices by inventory" },
-  "inventory-overview": { title: "Inventory Overview", sub: "All company stock, specifications, quantities and prices" },
-  sales: { title: "Sales & Invoicing", sub: "Estimates, proforma invoices, sales orders, invoices, receipts and credits" },
-  "receive-payment": { title: "Receive Payment", sub: "Record customer payments for the selected inventory" },
-  purchases: { title: "Purchases & Bills", sub: "Purchase orders, bills, expenses and vendor payments" },
-  "write-cheque": { title: "Write Cheque", sub: "Pay vendors and reduce payables for the selected inventory" },
-  customers: { title: "Customer Center", sub: "Customer balances, contacts and activity" },
-  vendors: { title: "Vendor Center", sub: "Suppliers, payables and purchasing history" },
-  inventory: { title: "Inventory Center", sub: "Stock levels, pricing, costs and reorder controls" },
-  "item-logistics": { title: "HS Code, COO & Dimensions", sub: "Maintain customs classifications, country of origin, dimensions and weight" },
-  "inventory-check-reports": { title: "Inventory Check Reports", sub: "Select in-stock items and compare quantities across your companies" },
-  transfers: { title: "Stock Transfers", sub: "Move stock between companies and inventory locations" },
-  banking: { title: "Banking", sub: "Deposits, cheques, transfers and account activity" },
-  "journal-entries": { title: "General Journal Entries", sub: "Post balanced debits and credits directly to the ledger" },
-  accounts: { title: "Chart of Accounts", sub: "Assets, liabilities, equity, income and expenses" },
-  "vat-management": { title: "VAT Management", sub: "Review, adjust, report and file VAT" },
-  employees: { title: "Employees & HR", sub: "Employee records and balances" },
-  reports: { title: "Report Center", sub: "Financial, sales, purchasing and inventory analysis" },
-  companies: { title: "Companies", sub: "Create and switch between separate company files" },
-  "company-setup": { title: "Company Setup", sub: "Logo, address, bank details and document design" },
-  inventories: { title: "Inventories", sub: "Manage warehouses, showrooms and stock locations" },
-  "invoice-series": { title: "Invoice Series", sub: "Customize invoice numbering for every company inventory" },
-  currencies: { title: "Currencies", sub: "Set company currency and transaction currencies" },
-  "vat-codes": { title: "VAT Codes", sub: "Manage tax rates and usage details for transaction dropdowns" },
-  "admin-controls": { title: "Admin Controls", sub: "Protect restricted inventory operations for this company" },
-};
-
-const transactionTypes: Record<string, string[]> = {
-  sales: ["invoice", "quotation", "estimate", "proforma invoice", "sales order", "sales receipt", "statement charge", "finance charge", "credit memo", "customer payment"],
-  "receive-payment": ["customer payment"],
-  purchases: ["bill", "purchase order", "item receipt", "received item bill", "expense", "vendor credit", "bill payment"],
-  "write-cheque": ["cheque"],
-  banking: ["deposit", "cheque", "credit card charge", "transfer", "cheque order", "opening balance"],
-  dashboard: ["invoice", "bill", "expense", "deposit", "cheque", "journal entry"],
-};
-
-const itemTypeValues = ["service", "stock-part", "non-stock-part", "other-charge", "subtotal", "group", "discount", "payment", "vat-item", "vat-group"] as const;
-type InventoryItemType = (typeof itemTypeValues)[number];
-const itemTypeDetails: Record<InventoryItemType, { label: string; description: string; linkedArea: string }> = {
-  service: { label: "Service", description: "Use for services you charge for or purchase, such as labour, consulting hours, or professional fees.", linkedArea: "Sales and purchase document lines" },
-  "stock-part": { label: "Stock Part", description: "Use for products you buy, keep in stock, and sell. Stock documents update quantity and inventory value.", linkedArea: "Sales, purchases, inventory and stock reports" },
-  "non-stock-part": { label: "Non-stock Part", description: "Use for products you buy or sell without tracking on-hand inventory.", linkedArea: "Sales and purchase document lines" },
-  "other-charge": { label: "Other Charge", description: "Use for freight, handling, setup fees, or other non-stock charges.", linkedArea: "Sales and purchase document lines" },
-  subtotal: { label: "Subtotal", description: "Use to identify subtotal behaviour for sales documents.", linkedArea: "Sales & Invoicing totals" },
-  group: { label: "Group", description: "Use to identify grouped or bundled products and services.", linkedArea: "Sales & Invoicing bundles" },
-  discount: { label: "Discount", description: "Use to identify a sales discount item.", linkedArea: "Sales & Invoicing discount controls" },
-  payment: { label: "Payment", description: "Use to identify customer payment handling.", linkedArea: "Receive Payment" },
-  "vat-item": { label: "VAT Item", description: "Use to identify a single VAT/tax item.", linkedArea: "VAT selectors and VAT Codes" },
-  "vat-group": { label: "VAT Group", description: "Use to identify grouped VAT/tax handling.", linkedArea: "VAT selectors and VAT Codes" },
-};
-const documentLineItemTypes = new Set<InventoryItemType>(["service", "stock-part", "non-stock-part", "other-charge"]);
-function itemTypeOf(value: unknown): InventoryItemType {
-  const candidate = String(value || "stock-part");
-  return (itemTypeValues as readonly string[]).includes(candidate) ? candidate as InventoryItemType : "stock-part";
-}
-function itemCanBeDocumentLine(item: DataRecord) {
-  return String(item.status || "active") !== "inactive" && documentLineItemTypes.has(itemTypeOf(item.itemType));
-}
-
-const allReports = [
-  ["Profit & Loss Standard", "Income and expenses by period", "Profit & Loss", "profit-loss"],
-  ["Profit & Loss by Item", "Sales, purchase cost, cost of sales and profit by item", "Profit & Loss", "profit-loss-item"],
-  ["Profit & Loss by Sales Rep", "Sales, purchase cost, cost of sales and profit by sales rep", "Profit & Loss", "profit-loss-rep"],
-  ["Profit & Loss Detail", "Every income and expense ledger posting", "Profit & Loss", "profit-loss-detail"],
-  ["Profit & Loss YTD Comparison", "Current year-to-date against the same prior-year period", "Profit & Loss", "profit-loss-ytd"],
-  ["Profit & Loss Prev Year Comparison", "This year against the previous calendar year", "Profit & Loss", "profit-loss-prev-year"],
-  ["Profit & Loss by Job", "Net income grouped by inventory or business location", "Profit & Loss", "profit-loss-job"],
-  ["Profit & Loss by Class", "Income and expense grouped by transaction type", "Profit & Loss", "profit-loss-class"],
-  ["Profit & Loss Unclassified", "Income and expense postings without a Chart of Accounts match", "Profit & Loss", "profit-loss-unclassified"],
-  ["Income by Customer Summary", "Sales income total for each customer", "Financial", "income-customer-summary"],
-  ["Income by Customer Detail", "Invoice and receipt income by customer and document", "Financial", "income-customer-detail"],
-  ["Expenses by Supplier Summary", "Purchase and expense totals for each supplier", "Financial", "expenses-supplier-summary"],
-  ["Expenses by Supplier Detail", "Bills, expenses, cheques, and card charges by supplier", "Financial", "expenses-supplier-detail"],
-  ["Income & Expense Graph", "Monthly income and expenses shown visually", "Financial", "income-expense-graph"],
-  ["Realised Gains & Losses", "Exchange differences on settled foreign-currency transactions", "Financial", "realised-gains-losses"],
-  ["Unrealised Gains & Losses", "Current exchange revaluation of open foreign balances", "Financial", "unrealised-gains-losses"],
-  ["Balance Sheet Standard", "Assets, liabilities and equity", "Financial", "balance-sheet"],
-  ["Balance Sheet Detail", "Detailed account balances with debits and credits", "Financial", "balance-sheet-detail"],
-  ["Balance Sheet Summary", "Totals by Assets, Liabilities, and Equity", "Financial", "balance-sheet-summary"],
-  ["Balance Sheet Prev Year Comparison", "Current balances compared with the previous year", "Financial", "balance-sheet-prev-year"],
-  ["Net Worth Graph", "Assets less liabilities with a visual summary", "Financial", "net-worth-graph"],
-  ["Statement of Cash Flows", "Operating cash movement", "Financial", "cash-flow"],
-  ["Cash Flow Forecast", "Projected cash from open receivables and payables", "Financial", "cash-flow-forecast"],
-  ["Budget Overview", "Income and expense budgets with current performance", "Budgets", "budget-overview"],
-  ["Budget vs. Actual", "Account-level budget comparison and variance", "Budgets", "budget-actual"],
-  ["Profit & Loss Budget Performance", "Budget performance for income and expenses", "Profit & Loss", "budget-profit-loss"],
-  ["Budget vs. Actual Graph", "Monthly budget and actual performance", "Budgets", "budget-actual-graph"],
-  ["Trial Balance", "Debit and credit balances by account", "Accountant", "trial-balance"],
-  ["General Ledger", "Complete account transaction detail", "Accountant", "general-ledger"],
-  ["Transaction Detail by Account", "Account activity with a running balance", "Accountant", "transaction-detail-account"],
-  ["Journal", "Posted debits and credits", "Accountant", "journal"],
-  ["Audit Trail", "Recorded changes across accounting and inventory", "Accountant", "audit-trail"],
-  ["Customer Credit Card Audit Trail", "Customer credit-card activity and status", "Accountant", "customer-credit-card-audit"],
-  ["Voided/Deleted Transactions Summary", "Deleted transaction totals grouped by action", "Accountant", "deleted-transactions-summary"],
-  ["Voided/Deleted Transactions Detail", "Detailed history of voided and deleted transactions", "Accountant", "deleted-transactions-detail"],
-  ["Transaction List by Date", "All activity in chronological order", "Accountant", "transactions"],
-  ["Transaction History", "Chronological document and audit activity", "Accountant", "transaction-history"],
-  ["Transaction Journal", "Debit and credit postings generated by transactions", "Accountant", "transaction-journal"],
-  ["Account Listing", "Chart of Accounts with type, currency, and hierarchy", "Lists", "account-listing"],
-  ["Item Price List", "Current selling prices by item", "Lists", "item-price-list"],
-  ["Item Price List for Price Level", "Selling prices, costs, and margins by price level", "Lists", "item-price-level-list"],
-  ["Item Listing", "Complete inventory item directory", "Lists", "item-listing"],
-  ["Fixed Asset Listing", "Fixed-asset accounts and their current balances", "Lists", "fixed-asset-listing"],
-  ["Customer Phone List", "Customer telephone and WhatsApp directory", "Lists", "customer-phone-list"],
-  ["Customer Contact List", "Complete customer contact directory", "Lists", "customer-contact-list"],
-  ["Supplier Phone List", "Supplier telephone and WhatsApp directory", "Lists", "supplier-phone-list"],
-  ["Supplier Contact List", "Complete supplier contact directory", "Lists", "supplier-contact-list"],
-  ["Employee Contact List", "Employee telephone and email directory", "Lists", "employee-contact-list"],
-  ["Other Names Phone List", "Telephone directory for transaction names not saved as contacts", "Lists", "other-names-phone-list"],
-  ["Other Names Contact List", "Transaction names not saved as customers, suppliers, or employees", "Lists", "other-names-contact-list"],
-  ["Terms Listing", "Payment terms found across sales and purchase documents", "Lists", "terms-listing"],
-  ["To Do Notes", "Open transaction notes and due dates", "Lists", "to-do-notes"],
-  ["Memorised Transaction Listing", "Transactions marked as memorised, recurring, or templates", "Lists", "memorised-transactions"],
-  ["Bank Register", "Bank account debits, credits and running balances", "Banking", "bank-register"],
-  ["Bank Reconciliation", "Cleared and uncleared banking activity", "Banking", "bank-reconciliation"],
-  ["VAT Summary Report", "VAT collected, recoverable, and net VAT due", "VAT", "vat-summary"],
-  ["VAT Detail Report", "Transaction-level VAT amounts by code", "VAT", "vat-detail"],
-  ["Unassigned VAT Amounts Detail Report", "Taxable postings without a VAT code", "VAT", "vat-unassigned"],
-  ["VAT Exception Report", "Transactions that need VAT review", "VAT", "vat-exceptions"],
-  ["VAT Item Summary", "VAT totals grouped by item", "VAT", "vat-item-summary"],
-  ["EC Sales List", "Cross-border customer sales", "VAT", "ec-sales"],
-  ["Reverse Charge List", "Purchases subject to reverse charge", "VAT", "reverse-charge"],
-  ["VAT Code List", "Available VAT codes, rates, and descriptions", "VAT", "vat-code-list"],
-  ["A/R Aging Summary", "Outstanding customer balances by age", "Customers", "ar-aging-summary"],
-  ["A/R Aging Detail", "Open invoices and credit detail", "Customers", "ar-aging-detail"],
-  ["Customer Balance Summary", "Balance totals by customer", "Customers", "customer-balances"],
-  ["Customers with Overdue Invoices", "Past-due unpaid invoices linked to customer receivable accounts", "Customers", "customers-overdue-invoices"],
-  ["Active Customers", "Active customer contacts, balances and linked receivable accounts", "Customers", "active-customers"],
-  ["Customer Open Balance", "Unpaid invoices, unused payments and credits linked to receivable accounts", "Customers", "customer-open-balance"],
-  ["Customer Balance Detail", "Customer charges, payments, credits, and running balances", "Customers", "customer-balance-detail"],
-  ["Open Invoices", "Unpaid and partially paid invoices", "Customers", "open-invoices"],
-  ["Collections Report", "Customer balances, overdue documents, and contact details", "Customers", "collections-report"],
-  ["Average Days to Pay Summary", "Average customer payment time", "Customers", "average-days-to-pay-summary"],
-  ["Average Days to Pay", "Invoice settlement timing by customer", "Customers", "average-days-to-pay-detail"],
-  ["Accounts Receivable Graph", "Monthly receivable charges and collections", "Customers", "accounts-receivable-graph"],
-  ["Unbilled Costs by Job", "Open purchase commitments grouped by inventory or job", "Customers", "unbilled-costs-job"],
-  ["Transaction List by Customer", "Customer activity in chronological order", "Customers", "customer-transactions"],
-  ["Online Received Payments", "Customer payments received and posted", "Customers", "online-received-payments"],
-  ["Customer Statements", "Charges, payments, credits and running balances", "Customers", "customer-statements"],
-  ["Daily Sales Summary", "Daily document count, quantity, and sales totals", "Sales", "daily-sales-summary"],
-  ["Daily Sales Detail", "Every invoice and sales receipt by date", "Sales", "daily-sales-detail"],
-  ["Sales by Customer Summary", "Revenue grouped by customer", "Sales", "sales-by-customer"],
-  ["Sales by Customer Detail", "Customer sales by document and date", "Sales", "sales-by-customer-detail"],
-  ["Sales by Item Summary", "Quantity and revenue grouped by product", "Sales", "sales-by-item"],
-  ["Sales by Item Detail", "Every sold item line with customer and document", "Sales", "sales-by-item-detail"],
-  ["Sales by Rep Summary", "Revenue grouped by salesman", "Sales", "sales-by-rep-summary"],
-  ["Sales by Rep Detail", "Sales documents for every salesman", "Sales", "sales-by-rep-detail"],
-  ["Sales by Ship To Address", "Customer sales grouped by delivery country or address", "Sales", "sales-by-ship-to"],
-  ["Sales Graph", "Monthly sales and refunds shown visually", "Sales", "sales-graph"],
-  ["Pending Sales", "Open estimates, proforma invoices, sales orders, and invoices", "Sales", "pending-sales"],
-  ["Sales Order Fulfilment", "Open and fulfilled orders", "Sales", "sales-orders"],
-  ["Vendor Statements", "Vendor bills, payments, credits and running balances", "Vendors", "vendor-statements"],
-  ["A/P Aging Summary", "Outstanding vendor balances by age", "Vendors", "ap-aging-summary"],
-  ["A/P Aging Detail", "Open bills and credits", "Vendors", "ap-aging-detail"],
-  ["Supplier Balance Summary", "Accounts Payable totals by supplier", "Vendors", "vendor-balances"],
-  ["Supplier Balance Detail", "Supplier bills, payments, credits, and running balances", "Vendors", "supplier-balance-detail"],
-  ["Unpaid Bills Detail", "Open and overdue supplier bills", "Vendors", "unpaid-bills-detail"],
-  ["Accounts Payable Graph", "Monthly payable charges and supplier payments", "Vendors", "accounts-payable-graph"],
-  ["Transaction List by Supplier", "Supplier activity in chronological order", "Vendors", "supplier-transactions"],
-  ["Purchases by Supplier Summary", "Purchase totals grouped by supplier", "Purchases", "purchases-by-vendor"],
-  ["Purchases by Supplier Detail", "Supplier purchase documents by date", "Purchases", "purchases-by-supplier-detail"],
-  ["Purchases by Item Summary", "Purchased quantity and cost grouped by item", "Purchases", "purchases-by-item"],
-  ["Purchases by Item Detail", "Every purchased item line with supplier and document", "Purchases", "purchases-by-item-detail"],
-  ["Open Purchase Orders", "Committed purchases not yet closed", "Purchases", "open-purchase-orders"],
-  ["Open Purchase Orders Detail", "Open purchase-order line items", "Purchases", "open-purchase-orders-detail"],
-  ["Open Purchase Orders by Job", "Open purchase commitments by inventory or job", "Purchases", "open-purchase-orders-job"],
-  ["Stock Pricing & Profit/Loss", "Purchase, freight, GRN and selling prices with estimated margins", "Profit & Loss", "stock-pricing-profit"],
-  ["Stock Valuation Summary", "Stock quantity and value grouped by category", "Inventory", "inventory-valuation"],
-  ["Stock Valuation Detail", "Quantity, average cost, and value for every item", "Inventory", "inventory-valuation-detail"],
-  ["Stock Status by Item", "Available quantity and reorder position by item", "Inventory", "inventory-status"],
-  ["Stock Status by Supplier", "Stock quantity and value grouped by latest supplier", "Inventory", "inventory-status-supplier"],
-  ["Physical Stock Worksheet", "Printable count sheet for stock verification", "Inventory", "physical-inventory"],
-  ["Pending Builds", "Items below their reorder or build level", "Inventory", "pending-builds"],
-  ["Item Profitability", "Gross profit by inventory item", "Profit & Loss", "item-profitability"],
-] as const;
-
-const reportCategoryOrder = ["Profit & Loss", "Financial", "Budgets", "Sales", "Customers", "Vendors", "Purchases", "Inventory", "Banking", "VAT", "Accountant", "Lists", "Company"] as const;
-type ReportCategory = (typeof reportCategoryOrder)[number];
-
-const currencies = ["AED", "USD", "EUR", "GBP", "SAR", "OMR", "QAR", "BHD", "KWD", "INR", "CNY", "HKD", "JPY", "CAD", "AUD", "CHF", "SGD", "NZD", "PKR", "BDT", "LKR", "MYR", "THB", "IDR", "KRW", "TRY", "ZAR"];
-const formatMoney = (value: unknown, currency = "AED") => new Intl.NumberFormat("en-AE", { style: "currency", currency, maximumFractionDigits: 2 }).format(Number(value ?? 0));
-const today = () => new Date().toISOString().slice(0, 10);
-const emptyCompanySetup = (id = 0, name = "Company", baseCurrency = "AED"): CompanySetup => ({ id, name, baseCurrency, logoData: "", rightLogoData: "", documentDesign: "", stampData: "", addressLine1: "", addressLine2: "", city: "", country: "United Arab Emirates", phone: "", email: "", trn: "", bankName: "", bankAccountName: "", bankAccountNumber: "", bankIban: "", bankSwift: "", bankCurrency: baseCurrency, documentTemplate: "modern", documentColor: "#10b981" });
-type VatCodeOption = VatCodeRecord & { label: string };
-const defaultVatCodeOptions: VatCodeOption[] = [
-  { id: -1, companyId: 0, code: "STANDARD", name: "Standard rated", label: "STANDARD Â· Standard rated Â· 5%", rate: 5, description: "Standard UAE VAT rate", active: true, system: true },
-  { id: -2, companyId: 0, code: "ZERO", name: "Zero rated", label: "ZERO Â· Zero rated Â· 0%", rate: 0, description: "Taxable supply charged at 0%", active: true, system: true },
-  { id: -3, companyId: 0, code: "EXEMPT", name: "Exempt", label: "EXEMPT Â· Exempt Â· 0%", rate: 0, description: "Supply exempt from VAT", active: true, system: true },
-  { id: -4, companyId: 0, code: "OUT_OF_SCOPE", name: "Out of scope", label: "OUT OF SCOPE Â· Out of scope Â· 0%", rate: 0, description: "Transaction outside the scope of VAT", active: true, system: true },
-];
-const vatRateForCode = (code: string, options: VatCodeOption[]) => String(options.find((option) => option.code === code)?.rate ?? 0);
-const accountTypeValues = ["Income", "Expense", "Cost of Goods Sold", "Other Income", "Other Expense", "Fixed Asset", "Bank", "Loan", "Credit Card", "Equity", "Accounts Receivable", "Other Current Asset", "Other Asset", "Accounts Payable", "Other Current Liability", "Long Term Liability"];
-const accountTypesForRole = (role: string) => {
-  const allowed: Record<string, string[]> = {
-    BANK: ["Bank"], AR: ["Accounts Receivable"], AP: ["Accounts Payable"],
-    INVENTORY: ["Other Current Asset", "Other Asset"], INPUT_VAT: ["Other Current Asset"],
-    OUTPUT_VAT: ["Other Current Liability"], EQUITY: ["Equity"], SALES: ["Income"],
-    OTHER_INCOME: ["Other Income", "Income"], COGS: ["Cost of Goods Sold"],
-    PURCHASES: ["Expense", "Cost of Goods Sold"], EXPENSE: ["Expense", "Other Expense"],
-    PAYROLL: ["Expense"], SUSPENSE: ["Other Current Asset", "Other Asset", "Expense"],
-  };
-  return allowed[role] ?? accountTypeValues;
-};
-const accountRoleOptions = [
-  ["BANK", "Bank / cash"], ["AR", "Accounts Receivable (A/R)"], ["AP", "Accounts Payable (A/P)"],
-  ["INVENTORY", "Inventory asset"], ["INPUT_VAT", "Recoverable VAT"], ["OUTPUT_VAT", "VAT payable"],
-  ["EQUITY", "Opening balance equity"], ["SALES", "Sales income"], ["OTHER_INCOME", "Other income"],
-  ["COGS", "Cost of Goods Sold"], ["PURCHASES", "Purchases"], ["EXPENSE", "Operating expense"],
-  ["PAYROLL", "Payroll expense"], ["SUSPENSE", "Suspense"],
-] as const;
-const controlAccountFor = (accounts: DataRecord[], role: "AR" | "AP", currency: string) => accounts.find((account) => account.active && account.systemRole === role && String(account.currency) === currency);
-const linkedAccountName = (accounts: DataRecord[], role: string, fallback: string, currency?: string) => String(accounts.find((account) => account.active && account.systemRole === role && (!currency || String(account.currency) === currency))?.name ?? accounts.find((account) => account.active && account.systemRole === role)?.name ?? fallback);
-const defaultBillPurchaseAccount = (accounts: DataRecord[]) => {
-  const eligible = accounts.filter((account) => account.active && (
-    ["PURCHASES", "EXPENSE", "COGS"].includes(String(account.systemRole))
-    || ["Expense", "Other Expense", "Cost of Goods Sold"].includes(String(account.type))
-  ));
-  return String(
-    eligible.find((account) => String(account.code) === "4000" && (account.systemRole === "COGS" || account.type === "Cost of Goods Sold" || /cost of goods/i.test(String(account.name))))?.name
-    ?? eligible.find((account) => account.systemRole === "COGS")?.name
-    ?? eligible.find((account) => account.type === "Cost of Goods Sold")?.name
-    ?? eligible.find((account) => account.systemRole === "PURCHASES")?.name
-    ?? eligible.find((account) => account.type === "Expense")?.name
-    ?? eligible[0]?.name
-    ?? "Cost of Goods Sold"
-  );
-};
-const defaultPostingAccount = (type: string, accounts: DataRecord[]) => {
-  if (type === "bill") return defaultBillPurchaseAccount(accounts);
-  if (type === "bill payment") return linkedAccountName(accounts, "BANK", "Business Bank");
-  if (["item receipt", "received item bill"].includes(type)) return linkedAccountName(accounts, "SUSPENSE", "Suspense");
-  if (type === "cheque") return linkedAccountName(accounts, "AP", "Accounts Payable");
-  if (type === "customer payment") return String(accounts.find((account) => account.active && (account.type === "Bank" || account.systemRole === "BANK"))?.name ?? "");
-  if (["invoice", "quotation", "estimate", "proforma invoice", "sales order", "sales receipt", "statement charge", "credit memo"].includes(type)) return linkedAccountName(accounts, "SALES", "Sales Revenue");
-  if (type === "finance charge") return linkedAccountName(accounts, "OTHER_INCOME", "Other Income");
-  if (type === "expense") return linkedAccountName(accounts, "EXPENSE", "Operating Expenses");
-  if (type === "deposit") return linkedAccountName(accounts, "OTHER_INCOME", "Other Income");
-  if (type === "transfer") return String(accounts.find((account) => account.active && account.type === "Bank")?.name ?? linkedAccountName(accounts, "BANK", "Business Bank"));
-  if (type === "credit card charge") return linkedAccountName(accounts, "EXPENSE", "Operating Expenses");
-  if (type === "cheque order") return linkedAccountName(accounts, "BANK", "Business Bank");
-  return linkedAccountName(accounts, "SUSPENSE", "Suspense");
-};
-const itemDisplayDescription = (item: DataRecord) => {
-  try {
-    const specifications = JSON.parse(String(item.specifications ?? "[]")) as Array<{ value?: string }>;
-    const values = specifications.map((specification) => specification.value?.trim()).filter((value) => value && value.toLowerCase() !== "no").join(" | ");
-    if (specifications.length) return values;
-  } catch { /* Fall back to the saved description for older records. */ }
-  return String(item.description ?? "").split(" | ").filter((value) => value.trim().toLowerCase() !== "no").join(" | ");
-};
-
-export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUser }) {
-  const [view, setView] = useState<View>("dashboard");
-  const [records, setRecords] = useState<Record<Kind, DataRecord[]>>({ transactions: [], contacts: [], items: [], accounts: [] });
-  const [loading, setLoading] = useState(true);
-  const [documentInventory, setDocumentInventory] = useState<{ key: string; items: DataRecord[]; error?: string }>({ key: "", items: [] });
-  const [search, setSearch] = useState("");
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editorKind, setEditorKind] = useState<Kind | null>(null);
-  const [editingRecordId, setEditingRecordId] = useState<number | null>(null);
-  const [editingItemId, setEditingItemId] = useState<number | null>(null);
-  const [form, setForm] = useState<Record<string, string>>({});
-  const [lines, setLines] = useState<LineForm[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [detail, setDetail] = useState<TransactionDetail | null>(null);
-  const [report, setReport] = useState<ReportData | null>(null);
-  const [reportLoading, setReportLoading] = useState(false);
-  const [reportContext, setReportContext] = useState<ReportContext | null>(null);
-  const [memorisedReports, setMemorisedReports] = useState<MemorisedReportRecord[]>([]);
-  const [memoriseSaving, setMemoriseSaving] = useState(false);
-  const [companies, setCompanies] = useState<CompanyWorkspace[]>([]);
-  const [companySetup, setCompanySetup] = useState<CompanySetup>(emptyCompanySetup());
-  const [activeCompanyId, setActiveCompanyId] = useState(0);
-  const [activeLocationId, setActiveLocationId] = useState(0);
-  const [workspaceOpen, setWorkspaceOpen] = useState(false);
-  const [invoiceInventoryOpen, setInvoiceInventoryOpen] = useState(false);
-  const [vatCodeOptions, setVatCodeOptions] = useState<VatCodeOption[]>(defaultVatCodeOptions);
-  const [exchangeRates, setExchangeRates] = useState<ExchangeRateRecord[]>([]);
-  const [themeColor, setThemeColor] = useState<UserTheme>(isUserTheme(currentUser.themeColor) ? currentUser.themeColor : "emerald");
-  const [themeSaving, setThemeSaving] = useState(false);
-  const [appearanceMode, setAppearanceMode] = useState<AppearanceMode>(currentUser.appearanceMode === "dark" ? "dark" : "light");
-  const [appearanceSaving, setAppearanceSaving] = useState(false);
-
-  useEffect(() => {
-    document.documentElement.dataset.appearance = appearanceMode;
-    return () => { delete document.documentElement.dataset.appearance; };
-  }, [appearanceMode]);
-
-  useEffect(() => {
-    document.documentElement.dataset.userTheme = themeColor;
-    return () => { delete document.documentElement.dataset.userTheme; };
-  }, [themeColor]);
-
-  useEffect(() => {
-    if (view !== "inventory-overview") return;
-    const onEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
-      const openLayer = document.querySelector(
-        '[data-slot="dialog-content"][data-state="open"], [data-slot="sheet-content"][data-state="open"], [data-slot="drawer-content"][data-state="open"], [data-slot="alert-dialog-content"][data-state="open"], [role="dialog"][aria-modal="true"]'
-      );
-      if (openLayer) return;
-      event.preventDefault();
-      setView("dashboard");
-      setSearch("");
-    };
-    document.addEventListener("keydown", onEscape);
-    return () => document.removeEventListener("keydown", onEscape);
-  }, [view]);
-
-  const activeCompany = companies.find((company) => company.id === activeCompanyId);
-  const activeLocations = useMemo(() => activeCompany?.locations ?? [], [activeCompany]);
-  const baseCurrency = activeCompany?.baseCurrency ?? "AED";
-
-  async function signOut() {
-    await fetch("/api/auth/session", { method: "DELETE" });
-    window.location.reload();
-  }
-
-  async function changeTheme(nextTheme: UserTheme) {
-    if (nextTheme === themeColor || themeSaving) return;
-    const previousTheme = themeColor;
-    setThemeColor(nextTheme);
-    setThemeSaving(true);
-    try {
-      const response = await fetch("/api/user-preferences", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ themeColor: nextTheme }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not save interface color");
-      toast.success(`${userThemes.find((theme) => theme.value === nextTheme)?.label} theme saved`);
-    } catch (error) {
-      setThemeColor(previousTheme);
-      toast.error(error instanceof Error ? error.message : "Could not save interface color");
-    } finally { setThemeSaving(false); }
-  }
-
-  async function changeAppearance(nextMode: AppearanceMode) {
-    if (nextMode === appearanceMode || appearanceSaving) return;
-    const previousMode = appearanceMode;
-    setAppearanceMode(nextMode);
-    setAppearanceSaving(true);
-    try {
-      const response = await fetch("/api/user-preferences", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ appearanceMode: nextMode }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not save appearance mode");
-      toast.success(`${nextMode === "dark" ? "Dark" : "Light"} mode saved`);
-    } catch (error) {
-      setAppearanceMode(previousMode);
-      toast.error(error instanceof Error ? error.message : "Could not save appearance mode");
-    } finally { setAppearanceSaving(false); }
-  }
-
-  const loadWorkspaces = useCallback(async () => {
-    try {
-      const response = await fetch("/api/workspaces");
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not load companies");
-      const nextCompanies = data.companies as CompanyWorkspace[];
-      setCompanies(nextCompanies);
-      setActiveCompanyId((current) => current && nextCompanies.some((company) => company.id === current) ? current : nextCompanies[0]?.id ?? 0);
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not load companies"); }
-  }, []);
-
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const kinds: Kind[] = ["transactions", "contacts", "items", "accounts"];
-      const results = await Promise.all(kinds.map(async (kind) => {
-        const response = await fetch(`/api/records?kind=${kind}&companyId=${activeCompanyId}&locationId=${activeLocationId}`);
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "Could not load records");
-        return [kind, data.records] as const;
-      }));
-      setRecords(Object.fromEntries(results) as Record<Kind, DataRecord[]>);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not load company data");
-    } finally { setLoading(false); }
-  }, [activeCompanyId, activeLocationId]);
-
-  const loadVatCodes = useCallback(async () => {
-    if (!activeCompanyId) return;
-    try {
-      const response = await fetch(`/api/vat-codes?companyId=${activeCompanyId}`, { cache: "no-store" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not load VAT codes");
-      const activeCodes = (data.codes as VatCodeRecord[]).filter((code) => code.active).map((code) => ({ ...code, label: `${code.code} Â· ${code.name} Â· ${Number(code.rate).toLocaleString()}%` }));
-      setVatCodeOptions(activeCodes.length ? activeCodes : defaultVatCodeOptions);
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not load VAT codes"); }
-  }, [activeCompanyId]);
-
-  const loadExchangeRates = useCallback(async () => {
-    if (!activeCompanyId) return;
-    try {
-      const response = await fetch(`/api/exchange-rates?companyId=${activeCompanyId}`, { cache: "no-store" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not load exchange rates");
-      setExchangeRates((data.rates as ExchangeRateRecord[]).filter((rate) => rate.active));
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not load exchange rates"); }
-  }, [activeCompanyId]);
-
-  const loadCompanySetup = useCallback(async () => {
-    if (!activeCompanyId) return;
-    try {
-      const response = await fetch(`/api/company-setup?companyId=${activeCompanyId}`, { cache: "no-store" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not load company setup");
-      const record = data.record as CompanySetup;
-      setCompanySetup({ ...record, stampData: record.stampData || "", bankCurrency: record.bankCurrency || record.baseCurrency });
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not load company setup"); }
-  }, [activeCompanyId]);
-
-  const loadMemorisedReports = useCallback(async () => {
-    if (!activeCompanyId || !roleViews[currentUser.role].includes("reports")) return;
-    try {
-      const response = await fetch(`/api/memorised-reports?companyId=${activeCompanyId}`, { cache: "no-store" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not load memorised reports");
-      setMemorisedReports(data.records as MemorisedReportRecord[]);
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not load memorised reports"); }
-  }, [activeCompanyId, currentUser.role]);
-
-  // Initial load synchronizes the client workspace with the persisted company file.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { loadWorkspaces(); }, [loadWorkspaces]);
-  useEffect(() => {
-    if (!activeCompany) return;
-    // Keep the selected warehouse valid after changing or adding companies.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (!activeLocations.some((location) => location.id === activeLocationId)) setActiveLocationId(activeLocations[0]?.id ?? 0);
-  }, [activeCompany, activeLocationId, activeLocations]);
-  // Refresh the selected company file whenever its company or warehouse changes.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (activeCompanyId && activeLocationId) loadData(); }, [activeCompanyId, activeLocationId, loadData]);
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (activeCompanyId) loadVatCodes(); }, [activeCompanyId, loadVatCodes]);
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (activeCompanyId) loadExchangeRates(); }, [activeCompanyId, loadExchangeRates]);
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (activeCompanyId) loadCompanySetup(); }, [activeCompanyId, loadCompanySetup]);
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (activeCompanyId) loadMemorisedReports(); }, [activeCompanyId, loadMemorisedReports]);
-
-  const metrics = useMemo(() => {
-    return dashboardMetrics(records.accounts);
-  }, [records.accounts]);
-
-  const currentKind: Kind = view === "customers" || view === "vendors" || view === "employees" ? "contacts" : view === "inventory" ? "items" : view === "accounts" ? "accounts" : "transactions";
-  const managementView = view === "serial-search" || view === "inventory-overview" || view === "item-logistics" || view === "inventory-check-reports" || view === "transfers" || view === "journal-entries" || view === "vat-management" || view === "companies" || view === "company-setup" || view === "inventories" || view === "invoice-series" || view === "currencies" || view === "vat-codes" || view === "admin-controls";
-  const visibleNavGroups = navGroups.map((group) => ({ ...group, items: group.items.filter((item) => roleViews[currentUser.role].includes(item.id)) })).filter((group) => group.items.length > 0);
-  const canWriteCurrentView = roleWriteViews[currentUser.role].includes(view);
-  const activeEditorKind = editorKind ?? currentKind;
-  const salesDetailsOnly = activeEditorKind === "transactions" && editingRecordId !== null && ["invoice", "customer payment"].includes(form.type);
-  const linkedInventoryDocument = activeEditorKind === "transactions" && ["bill", "invoice", "estimate", "proforma invoice", "sales order", "quotation"].includes(form.type);
-  const documentLocationId = Number((form.type === "bill" ? form.billLocationId : form.transactionLocationId) || activeLocationId);
-  const skuLock = useSkuLock(dialogOpen && !(form.type === "bill" && form.purchaseOrderId) && !(editingRecordId === null && form.type === "invoice" && form.salesSourceId) && ["items", "transactions"].includes(activeEditorKind) ? { resource: "records", kind: activeEditorKind, companyId: activeCompanyId, locationId: activeEditorKind === "items" ? activeLocationId : documentLocationId, id: activeEditorKind === "items" ? editingItemId : editingRecordId, ...(activeEditorKind === "items" ? { sku: form.sku || "" } : { lines: lines.map((line) => ({ itemId: line.itemId })) }) } : null);
-  const documentInventoryKey = `${activeCompanyId}:${documentLocationId}`;
-  const documentInventoryReady = documentInventory.key === documentInventoryKey && !documentInventory.error;
-  const documentItems = linkedInventoryDocument ? documentInventoryReady ? documentInventory.items : [] : records.items;
-  useEffect(() => {
-    if (!dialogOpen || !linkedInventoryDocument || !activeCompanyId || !documentLocationId) return;
-    const controller = new AbortController();
-    fetch(`/api/records?kind=items&companyId=${activeCompanyId}&locationId=${documentLocationId}`, { cache: "no-store", signal: controller.signal })
-      .then(async (response) => {
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "Could not load inventory items");
-        if (!controller.signal.aborted) setDocumentInventory({ key: documentInventoryKey, items: data.records });
-      }).catch((error) => {
-        if (!controller.signal.aborted) setDocumentInventory({ key: documentInventoryKey, items: [], error: error instanceof Error ? error.message : "Could not load inventory items" });
-      });
-    return () => controller.abort();
-  }, [dialogOpen, linkedInventoryDocument, activeCompanyId, documentLocationId, documentInventoryKey]);
-  function updateDocumentForm(next: Record<string, string>) {
-    if (["bill payment", "customer payment", "cheque"].includes(next.type) && ["party", "currency", "transactionLocationId"].some((key) => next[key] !== form[key])) {
-      next = { ...next, billId: "", billIds: "[]", billReferences: "", billRemaining: "", invoiceId: "", invoiceIds: "[]", invoiceRemaining: "" };
-      setLines(lines.map((line) => ({ ...line, unitPrice: "0", unitCost: "0" })));
-    }
-    const nextLocation = Number((next.type === "bill" ? next.billLocationId : next.transactionLocationId) || activeLocationId);
-    if (linkedInventoryDocument && nextLocation !== documentLocationId) {
-      setDocumentInventory({ key: "", items: [] });
-      if (lines.some((line) => line.itemId)) {
-        setLines(lines.map((line) => line.itemId ? { ...line, itemId: "", description: "", unitPrice: "0", unitCost: "0", homeUnitPrice: undefined, homeUnitCost: undefined } : line));
-        toast.info("Inventory changed. Select items from the new inventory for your stock lines.");
-      }
-    }
-    setForm(next);
-  }
-
-
-  const filteredRecords = useMemo(() => {
-    let list = records[currentKind];
-    if (currentKind === "contacts") {
-      const type = view === "customers" ? "customer" : view === "vendors" ? "vendor" : "employee";
-      list = list.filter((r) => r.type === type);
-    }
-    if (currentKind === "transactions" && view !== "dashboard") list = list.filter((r) => transactionTypes[view]?.includes(String(r.type)));
-    const term = search.toLowerCase().trim();
-    return term ? list.filter((r) => Object.values(r).some((v) => String(v).toLowerCase().includes(term))) : list;
-  }, [currentKind, records, search, view]);
-
-  function openTransaction(type: string) {
-    setEditingItemId(null);
-    setEditingRecordId(null);
-    setEditorKind("transactions");
-    if (type === "invoice") {
-      setInvoiceInventoryOpen(true);
-      return;
-    }
-    const prefix = type === "customer payment" ? "PAY" : type === "bill payment" ? "BPY" : type === "cheque" ? "CHQ" : type === "credit card charge" ? "CCC" : type === "cheque order" ? "CKO" : type === "transfer" ? "TRF" : type === "deposit" ? "DEP" : type === "statement charge" ? "STC" : type === "finance charge" ? "FIN" : type === "item receipt" ? "REC" : type === "received item bill" ? "RIB" : type === "proforma invoice" ? "PRO" : type === "sales order" ? "SO" : type === "quotation" ? "QUO" : type.slice(0, 3).toUpperCase();
-    const taxFree = ["bill", "customer payment", "bill payment", "finance charge", "item receipt", "deposit", "transfer", "cheque order"].includes(type);
-    const descriptions: Record<string, string> = { "customer payment": "Payment received", "bill payment": "Bill payment", cheque: "Cheque payment", "credit card charge": "Credit card charge", "cheque order": "Cheque books and envelopes", transfer: "Bank transfer", deposit: "Bank deposit", "statement charge": "Statement charge", "finance charge": "Finance charge", "credit memo": "Credit note / refund", "item receipt": "Items received", "received item bill": "Bill for received items" };
-    setForm({ type, number: `${prefix}-${String(records.transactions.length + 1).padStart(4, "0")}`, transactionDate: today(), dueDate: today(), status: "open", account: defaultPostingAccount(type, records.accounts), vatRate: taxFree ? "0" : "5", currency: baseCurrency, exchangeRate: "1", billLocationId: String(activeLocationId), transactionLocationId: String(activeLocationId), salesman: "", isImport: "false", freightCharges: "0" });
-    setLines([{ itemId: "", description: descriptions[type] ?? "", quantity: "1", unitPrice: "0", unitCost: "0", vatCode: taxFree ? "ZERO" : "STANDARD", vatRate: taxFree ? "0" : "5" }]);
-    setDialogOpen(true);
-  }
-
-  function openListEdit(record: DataRecord) {
-    setEditingItemId(null); setEditingRecordId(record.id); setEditorKind(currentKind);
-    setForm(Object.fromEntries(Object.entries(record).map(([key, value]) => [key, value == null ? "" : String(value)])));
-    setDialogOpen(true);
-  }
-
-  function openCreate() {
-    setEditingRecordId(null);
-    setEditingItemId(null);
-    setEditorKind(currentKind);
-    if (currentKind === "transactions") {
-      const type = transactionTypes[view]?.[0] ?? "invoice";
-      openTransaction(type);
-      return;
-    } else if (currentKind === "contacts") {
-      const type = view === "customers" ? "customer" : view === "vendors" ? "vendor" : "employee";
-      const controlAccount = type === "customer" ? controlAccountFor(records.accounts, "AR", baseCurrency) : type === "vendor" ? controlAccountFor(records.accounts, "AP", baseCurrency) : undefined;
-      setForm(type === "customer" ? { type, currency: baseCurrency, ledgerAccountId: controlAccount ? String(controlAccount.id) : "", reseller: "Reseller", planet: "No", balance: "0" } : { type, currency: baseCurrency, ledgerAccountId: controlAccount ? String(controlAccount.id) : "", balance: "0" });
-    }
-    else if (currentKind === "items") {
-      const initialFields = specificationFields.filter((label) => label !== "Product Category").slice(0, 8);
-      const defaultCogs = records.accounts.find((account) => account.active && (account.systemRole === "COGS" || account.type === "Cost of Goods Sold" || /cost of goods/i.test(String(account.name || ""))));
-      const defaultIncome = records.accounts.find((account) => account.active && (account.systemRole === "SALES" || account.type === "Income" || /^income$/i.test(String(account.name || ""))));
-      const defaultAsset = records.accounts.find((account) => account.active && account.systemRole === "INVENTORY")
-        ?? records.accounts.find((account) => account.active && /inventory asset/i.test(String(account.name || "")));
-      const defaultVat = vatCodeOptions.find((code) => code.code === "STANDARD")?.code ?? vatCodeOptions[0]?.code ?? "ZERO";
-      const itemForm: Record<string, string> = {
-        itemType: "stock-part", category: "Laptop", quantity: "0", reorderPoint: "0", salesPrice: "0", cost: "0",
-        purchaseVatCode: defaultVat, salesVatCode: defaultVat, cogsAccountId: defaultCogs ? String(defaultCogs.id) : "",
-        incomeAccountId: defaultIncome ? String(defaultIncome.id) : "", assetAccountId: defaultAsset ? String(defaultAsset.id) : "",
-        preferredSupplierId: "", status: "active", amountsIncludeVat: "false", specCount: String(initialFields.length),
-      };
-      initialFields.forEach((label, index) => { itemForm[`specLabel${index}`] = label; itemForm[`specValue${index}`] = ""; });
-      setForm(itemForm);
-    }
-    else setForm({ type: "Expense", balance: "0", parentAccountId: "", currency: baseCurrency });
-    setDialogOpen(true);
-  }
-
-  function startInvoice(location: InventoryLocation) {
-    setEditingRecordId(null);
-    setEditorKind("transactions");
-    setActiveLocationId(location.id);
-    setRecords((current) => ({ ...current, items: [] }));
-    setForm({ type: "invoice", number: invoiceNumberPreview(activeCompanyId, location), transactionDate: today(), dueDate: today(), status: "open", account: linkedAccountName(records.accounts, "SALES", "Sales Revenue"), vatRate: "5", currency: baseCurrency, exchangeRate: "1", allowNegativeStock: "false", adminOverridePin: "" });
-    setLines([{ itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatCode: "STANDARD", vatRate: "5" }]);
-    setInvoiceInventoryOpen(false);
-    setDialogOpen(true);
-  }
-
-  function openItemEdit(item: DataRecord) {
-    const defaultCogs = records.accounts.find((account) => account.active && (account.systemRole === "COGS" || account.type === "Cost of Goods Sold" || /cost of goods/i.test(String(account.name || ""))));
-    const defaultIncome = records.accounts.find((account) => account.active && (account.systemRole === "SALES" || account.type === "Income" || /^income$/i.test(String(account.name || ""))));
-    const defaultAsset = records.accounts.find((account) => account.active && account.systemRole === "INVENTORY")
-        ?? records.accounts.find((account) => account.active && /inventory asset/i.test(String(account.name || "")));
-    let specifications: Array<{ label: string; value: string }> = [];
-    try { specifications = JSON.parse(String(item.specifications ?? "[]")); } catch { specifications = []; }
-    if (!specifications.length) specifications = specificationFields.filter((label) => label !== "Product Category").slice(0, 8).map((label) => ({ label, value: "" }));
-    const itemForm: Record<string, string> = {
-      itemType: itemTypeOf(item.itemType), category: String(item.category ?? "Laptop"),
-      itemNumber: String(item.itemNumber ?? ""), sku: String(item.sku ?? ""), quantity: String(item.quantity ?? 0),
-      reorderPoint: String(item.reorderPoint ?? 0), salesPrice: String(item.salesPrice ?? 0), cost: String(item.averageCost ?? item.cost ?? 0),
-      lastPurchasePrice: String(item.lastPurchasePrice ?? item.cost ?? 0), onPo: String(item.onPo ?? 0),
-      purchaseVatCode: String(item.purchaseVatCode ?? "STANDARD"), salesVatCode: String(item.salesVatCode ?? "STANDARD"),
-      cogsAccountId: item.cogsAccountId ? String(item.cogsAccountId) : (defaultCogs ? String(defaultCogs.id) : ""), incomeAccountId: item.incomeAccountId ? String(item.incomeAccountId) : (defaultIncome ? String(defaultIncome.id) : ""),
-      assetAccountId: item.assetAccountId ? String(item.assetAccountId) : (defaultAsset ? String(defaultAsset.id) : ""), preferredSupplierId: item.preferredSupplierId ? String(item.preferredSupplierId) : "",
-      status: String(item.status ?? "active"), amountsIncludeVat: item.amountsIncludeVat === true || String(item.amountsIncludeVat) === "true" ? "true" : "false",
-      specCount: String(Math.min(30, specifications.length)),
-    };
-    specifications.slice(0, 30).forEach((specification, index) => {
-      itemForm[`specLabel${index}`] = specification.label;
-      itemForm[`specValue${index}`] = specification.value;
-    });
-    setEditingItemId(item.id);
-    setEditorKind("items");
-    setForm(itemForm);
-    setDialogOpen(true);
-  }
-
-  async function saveRecord(event: FormEvent) {
-    event.preventDefault();
-    if (!skuLock.ready) return;
-    const saveKind = activeEditorKind;
-    if (saveKind === "items" && !activeLocations.some(location => location.id === activeLocationId)) return toast.error("Select a company with an active inventory before saving the item.");
-    if (!salesDetailsOnly && linkedInventoryDocument && !documentInventoryReady) return toast.error("Wait for the selected inventory to load before saving.");
-    if (saveKind === "contacts" && form.type === "customer") {
-      const required = [form.company, form.name, form.phone, form.whatsapp, form.country, form.reseller, form.planet, form.currency];
-      if (required.some((value) => !value?.trim())) return toast.error("Complete all required customer fields.");
-    }
-    if (saveKind === "contacts" && form.type === "vendor" && editingRecordId === null) {
-      const required = [form.company, form.name, form.phone, form.country, form.currency];
-      if (required.some((value) => !value?.trim())) return toast.error("Complete all required vendor fields.");
-    }
-    if (saveKind === "transactions" && form.type === "bill") {
-      const required = [form.party, form.number, form.transactionDate, form.currency, form.exchangeRate, form.billLocationId];
-      if (required.some((value) => !value?.trim()) || Number(form.exchangeRate) <= 0) return toast.error("Complete the vendor, reference, date, inventory, currency and exchange rate.");
-      if (lines.some(line => !Number.isFinite(Number(line.freightCharge || 0)) || Number(line.freightCharge || 0) < 0)) return toast.error("Freight charges must be valid non-negative amounts.");
-      if (lines.some((line) => !line.description.trim() || Number(line.quantity) <= 0 || Number(line.unitPrice) < 0)) return toast.error("Complete every bill line with a description, positive quantity and valid rate.");
-    }
-    if (saveKind === "transactions" && form.type === "bill payment" && !records.accounts.some((bank) => bank.active && (bank.type === "Bank" || bank.systemRole === "BANK") && bank.name === form.account && bank.currency === form.currency)) return toast.error("Select an active Pay From bank matching the payment currency.");
-    if (saveKind === "transactions" && form.type === "cheque" && !records.accounts.some((bank) => bank.active && (bank.type === "Bank" || bank.systemRole === "BANK") && String(bank.id) === form.bankAccountId && String(bank.currency) === form.currency)) return toast.error("Select an active bank in the cheque currency for Pay From.");
-    if (!salesDetailsOnly && saveKind === "transactions" && form.type === "customer payment" && !records.accounts.some((account) => account.active && (account.type === "Bank" || account.systemRole === "BANK") && account.name === form.account && account.currency === form.currency)) return toast.error("Select an active bank matching the payment currency for Deposit To.");
-    if (!salesDetailsOnly && saveKind === "transactions" && ["customer payment", "bill payment", "cheque"].includes(form.type)) {
-      const chequePartyOptional = form.type === "cheque" && ["expense", "salary"].includes(form.chequeType);
-      const required = [chequePartyOptional ? "General expense" : form.party, form.number, form.transactionDate, form.currency, form.exchangeRate, form.transactionLocationId];
-      if (required.some((value) => !value?.trim()) || Number(form.exchangeRate) <= 0) return toast.error("Complete the party, reference, date, inventory, currency and exchange rate.");
-      if (Number(lines[0]?.unitPrice ?? 0) <= 0) return toast.error("Enter an amount greater than zero.");
-    }
-    if (saveKind === "transactions" && ["deposit", "transfer", "credit card charge", "cheque order"].includes(form.type)) {
-      const required = [form.party, form.number, form.transactionDate, form.currency, form.exchangeRate, form.transactionLocationId, form.account];
-      if (required.some((value) => !value?.trim()) || Number(form.exchangeRate) <= 0) return toast.error("Complete all required banking details and the exchange rate.");
-      if (form.type !== "cheque order" && Number(lines[0]?.unitPrice ?? 0) <= 0) return toast.error("Enter an amount greater than zero.");
-      if (form.type === "transfer" && form.party === form.account) return toast.error("Choose different source and destination bank accounts.");
-    }
-    setSaving(true);
-    try {
-      const editingItem = saveKind === "items" && editingItemId !== null;
-      const editing = editingItem || (["contacts", "accounts", "transactions"].includes(saveKind) && editingRecordId !== null);
-      let submittedLines = lines;
-      const zeroVatPayment = saveKind === "transactions" && (["customer payment", "bill payment"].includes(form.type) || (form.type === "cheque" && (form.account || linkedAccountName(records.accounts, "AP", "Accounts Payable", form.currency)) === linkedAccountName(records.accounts, "AP", "Accounts Payable", form.currency)));
-      if (zeroVatPayment) {
-        submittedLines = submittedLines.map((line) => ({ ...line, vatCode: "ZERO", vatRate: "0" }));
-      }
-      const selectedLocationId = saveKind === "transactions" && form.type === "bill" ? Number(form.billLocationId || activeLocationId) : saveKind === "transactions" ? Number(form.transactionLocationId || activeLocationId) : activeLocationId;
-      const response = await fetch("/api/records", { method: editing ? "PATCH" : "POST", headers: { "Content-Type": "application/json", ...skuLock.headers }, body: JSON.stringify(salesDetailsOnly ? { kind: "transactions", id: editingRecordId, companyId: activeCompanyId, editMode: "details", revision: form.revision, number: form.number, transactionDate: form.transactionDate, dueDate: form.dueDate, salesman: form.salesman, memo: form.memo, ...(form.type === "invoice" ? { comments: form.comments, serialNumber: form.serialNumber, lineDetails: lines.filter(line => line.id).map(line => ({ id: line.id, comments: line.comments || "", serialNumber: line.serialNumber || "" })), appendLines: lines.filter(line => !line.id).map(line => ({ itemId: line.itemId, description: line.description, quantity: line.quantity, unitPrice: line.unitPrice, unitCost: line.unitCost, vatCode: line.vatCode, vatRate: line.vatRate, comments: line.comments || "", serialNumber: line.serialNumber || "" })) } : {}) } : { kind: saveKind, companyId: activeCompanyId, locationId: selectedLocationId, ...(editing ? { id: editingItem ? editingItemId : editingRecordId } : {}), ...form, ...(zeroVatPayment ? { vatRate: "0" } : {}), ...(saveKind === "transactions" ? { lines: submittedLines } : {}) }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not save record");
-      setRecords((old) => ({ ...old, [saveKind]: editing ? old[saveKind].map((record) => record.id === data.record.id ? data.record : record) : [data.record, ...old[saveKind]] }));
-      setDialogOpen(false); setEditorKind(null); setEditingItemId(null); setEditingRecordId(null); toast.success(data.generatedAccount ? `${data.generatedAccount.name} created and linked automatically` : editing ? "Changes saved" : "Record saved and posted");
-      if (saveKind === "transactions" && selectedLocationId !== activeLocationId) setActiveLocationId(selectedLocationId);
-      else await loadData();
-      if (saveKind === "transactions" && form.type === "invoice") await loadWorkspaces();
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save record"); }
-    finally { setSaving(false); }
-  }
-
-  async function removeRecord(id: number) {
-    try {
-      const response = await fetch("/api/records", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: currentKind, id, companyId: activeCompanyId }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Delete failed");
-      setRecords((old) => ({ ...old, [currentKind]: old[currentKind].filter((r) => r.id !== id) }));
-      if (currentKind === "transactions" && view === "purchases") await loadData();
-      toast.success("Record deleted");
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not delete record"); }
-  }
-
-  async function duplicateItem(id: number) {
-    try {
-      const response = await fetch("/api/records", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "items", companyId: activeCompanyId, locationId: activeLocationId, duplicateItemId: id }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not duplicate item");
-      await loadData();
-      openItemEdit(data.record as DataRecord);
-      toast.success(`Duplicate ${data.record.sku} is ready to edit and save`);
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not duplicate item"); }
-  }
-
-  async function openDetail(id: number) {
-    try {
-      const response = await fetch(`/api/records?kind=transactions&id=${id}&companyId=${activeCompanyId}&locationId=${activeLocationId}`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not open document");
-      setDetail(data);
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not open document"); }
-  }
-
-  async function openPurchaseEdit(record: DataRecord) {
-    if (currentUser.role !== "admin") return;
-    try {
-      const response = await fetch(`/api/records?kind=transactions&id=${record.id}&companyId=${activeCompanyId}`, { cache: "no-store" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not load purchase");
-      const purchase = data.record as DataRecord;
-      if (!["invoice", "customer payment"].includes(String(purchase.type)) && (purchase.convertedInvoiceId || !["open", "draft", "pending", "overdue"].includes(String(purchase.status)))) throw new Error("Only open, overdue, draft or pending purchases can be edited. Converted or settled documents are locked.");
-      const locationId = Number(purchase.locationId);
-      if (!activeLocations.some((location) => location.id === locationId)) throw new Error("The purchase inventory is not available.");
-      setEditingRecordId(purchase.id);
-      setEditingItemId(null);
-      setEditorKind("transactions");
-      setActiveLocationId(locationId);
-      setForm({ ...Object.fromEntries(Object.entries(purchase).map(([key, value]) => [key, String(value ?? "")])), revision: data.revision, billLocationId: String(locationId), transactionLocationId: String(locationId), freightCharges: "0" });
-      setLines(data.lines.filter((line: DataRecord) => !line.isFreightCharge).map((line: DataRecord) => ({ id: line.id, comments: String(line.comments ?? ""), serialNumber: String(line.serialNumber ?? ""), freightCharge: String(line.freightCharge || 0), itemId: line.itemId ? String(line.itemId) : "", description: String(line.description ?? ""), quantity: String(line.quantity), unitPrice: String(line.unitPrice), unitCost: String(Math.round((Number(line.unitPrice || 0) + Number(line.freightCharge || 0) / Math.max(Number(line.quantity || 0), Number.EPSILON)) * 100) / 100), vatCode: String(line.vatCode), vatRate: String(line.vatRate) })));
-      setDetail(null);
-      setDialogOpen(true);
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not load purchase"); }
-  }
-
-  function convertSourceDocument(source: TransactionDetail) {
-    const record = source.record;
-    const purchaseOrder = record.type === "purchase order";
-    if ((!purchaseOrder && !["quotation", "estimate", "proforma invoice", "sales order"].includes(String(record.type))) || record.convertedInvoiceId || record.status === "converted") return toast.error("This document cannot be converted again.");
-    const locationId = Number(record.locationId);
-    const location = activeLocations.find((candidate) => candidate.id === locationId);
-    if (!location) return toast.error("The source inventory is not available.");
-    setEditingRecordId(null);
-    setEditorKind("transactions");
-    setActiveLocationId(locationId);
-    setForm(purchaseOrder ? {
-      type: "bill", purchaseOrderId: String(record.id), sourceDocumentLabel: `${String(record.type)} ${String(record.number)}`,
-      number: `BILL-${String(records.transactions.length + 1).padStart(4, "0")}`, party: String(record.party), salesman: String(record.salesman ?? ""),
-      transactionDate: today(), dueDate: String(record.dueDate || today()), status: "open", account: defaultPostingAccount("bill", records.accounts),
-      vatRate: String(record.vatRate ?? "5"), currency: String(record.currency || baseCurrency), exchangeRate: String(record.exchangeRate || "1"),
-      billLocationId: String(locationId), transactionLocationId: String(locationId), isImport: Number(record.vatAmount) > 0 || record.isImport ? "true" : "false", freightCharges: "0", memo: String(record.memo ?? ""),
-    } : {
-      type: "invoice", sourceTransactionId: String(record.id), sourceDocumentLabel: `${String(record.type)} ${String(record.number)}`,
-      number: invoiceNumberPreview(activeCompanyId, location), party: String(record.party), salesman: String(record.salesman ?? ""),
-      transactionDate: today(), dueDate: String(record.dueDate || today()), status: "open", account: String(record.account),
-      vatRate: String(record.vatRate ?? "5"), currency: String(record.currency || baseCurrency), exchangeRate: String(record.exchangeRate || "1"),
-      transactionLocationId: String(locationId), allowNegativeStock: "false", adminOverridePin: "", memo: String(record.memo ?? ""),
-    });
-    setLines(source.lines.map((line) => ({ itemId: line.itemId ? String(line.itemId) : "", description: String(line.description ?? ""), quantity: String(line.quantity ?? "1"), unitPrice: String(line.unitPrice ?? "0"), unitCost: String(line.unitCost ?? "0"), vatCode: String(line.vatCode ?? "STANDARD"), vatRate: String(line.vatRate ?? "5") })));
-    setDetail(null);
-    setDialogOpen(true);
-  }
-
-  async function openReport(key: string, period?: { start: string; end: string }, saved?: { locationId: number | null; currency: string; customer?: string; statementDate?: string; memo?: string }) {
-    setReportLoading(true);
-    try {
-      const periodQuery = (period ? `&periodStart=${period.start}&periodEnd=${period.end}` : "") + `&customer=${encodeURIComponent(saved?.customer || "")}&statementDate=${encodeURIComponent(saved?.statementDate || "")}&memo=${encodeURIComponent(saved?.memo || "")}`;
-      const reportLocationId = saved?.locationId ?? activeLocationId;
-      const reportCurrency = saved?.currency || baseCurrency;
-      const response = await fetch(`/api/reports?type=${key}&companyId=${activeCompanyId}&locationId=${reportLocationId}&currency=${reportCurrency}${periodQuery}`, { signal: AbortSignal.timeout(30000), cache: "no-store" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not generate report");
-      setReport(data.report);
-      setReportContext({ key, locationId: reportLocationId, currency: reportCurrency, periodStart: period?.start ?? "", periodEnd: period?.end ?? "" });
-    } catch (error) { toast.error(error instanceof Error && error.name === "TimeoutError" ? "The report took too long to load. Please try again." : error instanceof Error ? error.message : "Could not generate report"); }
-    finally { setReportLoading(false); }
-  }
-
-  async function saveMemorisedReport() {
-    if (!report || !reportContext) return;
-    const definition = allReports.find((candidate) => candidate[3] === reportContext.key);
-    if (!definition) return toast.error("This report cannot be memorised.");
-    setMemoriseSaving(true);
-    try {
-      const response = await fetch("/api/memorised-reports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId: activeCompanyId, locationId: reportContext.locationId, name: definition[0], reportKey: reportContext.key, category: definition[2], currency: reportContext.currency, periodStart: reportContext.periodStart, periodEnd: report?.statement?.to || reportContext.periodEnd, customer: report.openBalance?.customer || report.statement?.customer || "", memo: report.statement?.memo || "", statementDate: report.openBalance?.asOf || report.statement?.statementDate || "" }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not memorise report");
-      await loadMemorisedReports();
-      toast.success(`${definition[0]} saved to Memorised Report List`);
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not memorise report"); }
-    finally { setMemoriseSaving(false); }
-  }
-
-  async function removeMemorisedReport(record: MemorisedReportRecord) {
-    try {
-      const response = await fetch("/api/memorised-reports", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: record.id, companyId: activeCompanyId }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not remove memorised report");
-      setMemorisedReports((current) => current.filter((savedReport) => savedReport.id !== record.id));
-      toast.success("Memorised report removed");
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not remove memorised report"); }
-  }
-
-  function openMemorisedReport(record: MemorisedReportRecord) {
-    const period = record.periodStart || record.periodEnd ? { start: record.periodStart, end: record.periodEnd } : undefined;
-    void openReport(record.reportKey, period, { locationId: record.locationId, currency: record.currency, customer: record.customer, statementDate: record.statementDate, memo: record.memo });
-  }
-
-  const heading = viewTitles[view];
-  const createLabel = currentKind === "contacts" ? `New ${view === "employees" ? "Employee" : view === "vendors" ? "Vendor" : "Customer"}` : currentKind === "items" ? "New Item" : currentKind === "accounts" ? "New Account" : view === "purchases" ? "Enter Bill" : view === "receive-payment" ? "Receive Payment" : view === "write-cheque" ? "Write Cheque" : `New ${transactionTypes[view]?.[0] ?? "Transaction"}`;
-  const editorLabel = activeEditorKind === "transactions" && editorKind === "transactions" ? form.type?.split(" ").map((word) => word[0]?.toUpperCase() + word.slice(1)).join(" ") : createLabel;
-
-  return (
-    <SidebarProvider data-user-theme={themeColor} data-appearance={appearanceMode}>
-      <Sidebar collapsible="icon" className="brand-sidebar border-r border-slate-800 bg-[#0d1726] text-slate-100">
-        <SidebarHeader className="border-b border-white/10 p-4">
-          <div className="flex items-center gap-3 overflow-hidden">
-            <div className="brand-logo grid size-9 shrink-0 place-items-center rounded-xl text-sm font-black">CN</div>
-            <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-              <p className="truncate text-sm font-bold tracking-wide text-white">COMNET ENTERPRISE</p>
-              <p className="truncate text-xs text-slate-400">Accounting Suite</p>
-            </div>
-          </div>
-          <div className="mt-3 group-data-[collapsible=icon]:hidden"><Select value={String(activeCompanyId || "")} onValueChange={(value) => { const company = companies.find((entry) => entry.id === Number(value)); setActiveCompanyId(Number(value)); setActiveLocationId(company?.locations[0]?.id ?? 0); setSearch(""); }}><SelectTrigger className="w-full border-white/10 bg-white/5 text-white"><SelectValue placeholder="Select company" /></SelectTrigger><SelectContent>{companies.map((company) => <SelectItem key={company.id} value={String(company.id)}>{company.name}</SelectItem>)}</SelectContent></Select></div>
-        </SidebarHeader>
-        <SidebarContent className="px-2 py-3">
-          {visibleNavGroups.map((group) => (
-            <SidebarGroup key={group.label}>
-              <SidebarGroupLabel className="text-[11px] tracking-[.16em] text-slate-500">{group.label}</SidebarGroupLabel>
-              <SidebarGroupContent><SidebarMenu>
-                {group.items.map((item) => <SidebarMenuItem key={item.id}>
-                  <SidebarMenuButton tooltip={item.label} isActive={view === item.id} onClick={() => { setView(item.id as View); setSearch(""); }} className="brand-nav-item h-10 text-slate-300 hover:bg-white/8 hover:text-white">
-                    <item.icon /><span>{item.label}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>)}
-              </SidebarMenu></SidebarGroupContent>
-            </SidebarGroup>
-          ))}
-        </SidebarContent>
-        <SidebarFooter className="border-t border-white/10 p-3">
-          {currentUser.role === "admin" && <SidebarMenu><SidebarMenuItem><SidebarMenuButton tooltip="Companies & inventory" onClick={() => setWorkspaceOpen(true)} className="text-slate-400"><Settings /><span>Companies & inventory</span></SidebarMenuButton></SidebarMenuItem></SidebarMenu>}
-          <div className="mt-1 flex items-center gap-3 rounded-lg bg-white/5 p-2 group-data-[collapsible=icon]:hidden">
-            {currentUser.avatarData ? <Image src={currentUser.avatarData} alt={`${currentUser.fullName || currentUser.email} profile`} width={32} height={32} unoptimized className="size-8 rounded-full border border-white/15 object-cover" /> : <div className="grid size-8 place-items-center rounded-full bg-slate-700 text-xs font-bold">{(currentUser.fullName || currentUser.email).slice(0, 2).toUpperCase()}</div>}
-            <div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold text-white">{currentUser.fullName || roleLabels[currentUser.role]}</p><p className="truncate text-[11px] text-slate-500">{roleLabels[currentUser.role]} Â· {currentUser.email}</p></div>
-            <Button type="button" variant="ghost" size="icon" aria-label="Sign out" title="Sign out" onClick={signOut} className="size-8 shrink-0 text-slate-400 hover:bg-white/10 hover:text-white"><LogOut className="size-4" /></Button>
-          </div>
-        </SidebarFooter>
-        <SidebarRail />
-      </Sidebar>
-
-      <SidebarInset className="brand-workspace min-w-0">
-        <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3 border-b border-slate-200 bg-white/95 px-4 backdrop-blur lg:px-7">
-          <div className="flex min-w-0 items-center gap-3"><SidebarTrigger className="text-slate-600" /><div className="hidden h-5 w-px bg-slate-200 sm:block" /><div className="min-w-0"><h1 className="truncate text-lg font-bold text-slate-900">{heading.title}</h1><p className="hidden truncate text-xs text-slate-500 sm:block">{heading.sub}</p></div></div>
-          <div className="flex items-center gap-2">
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button type="button" variant="ghost" size="icon" aria-label="Appearance" title="Appearance"><Palette className="size-4" /></Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-80 max-w-[calc(100vw-2rem)] space-y-4">
-                <div><p className="font-semibold">Appearance</p><p className="text-sm text-muted-foreground">Saved to your account across the app.</p></div>
-                <div className="grid grid-cols-2 gap-2" role="group" aria-label="Display mode">
-                  {(["light", "dark"] as const).map((mode) => <Button key={mode} type="button" variant={appearanceMode === mode ? "default" : "outline"} disabled={appearanceSaving} aria-pressed={appearanceMode === mode} onClick={() => changeAppearance(mode)}>{mode === "light" ? <Sun className="size-4" /> : <Moon className="size-4" />}{mode === "light" ? "Light" : "Dark"}</Button>)}
-                </div>
-                <div className="space-y-2"><p className="text-sm font-medium">Interface color</p><div className="grid grid-cols-2 gap-2" role="group" aria-label="Interface color">
-                  {userThemes.map((theme) => <Button key={theme.value} type="button" variant="outline" disabled={themeSaving} aria-pressed={themeColor === theme.value} onClick={() => changeTheme(theme.value)} className="justify-start"><span className="size-4 shrink-0 rounded-full border border-black/10" style={{ backgroundColor: theme.color }} />{theme.label}{themeColor === theme.value ? <Check className="ml-auto size-4" /> : null}</Button>)}
-                </div></div>
-              </PopoverContent>
-            </Popover>
-            <Button type="button" variant="ghost" size="icon" disabled={appearanceSaving} onClick={() => changeAppearance(appearanceMode === "light" ? "dark" : "light")} aria-label={`Switch to ${appearanceMode === "light" ? "dark" : "light"} mode`} title={`Switch to ${appearanceMode === "light" ? "dark" : "light"} mode`}>
-              {appearanceMode === "light" ? <Moon className="size-4" /> : <Sun className="size-4" />}
-            </Button>
-            <Badge variant="outline" className="hidden sm:inline-flex">{baseCurrency}</Badge>
-            <Select value={String(activeLocationId || "")} onValueChange={(value) => { setActiveLocationId(Number(value)); setSearch(""); }}><SelectTrigger className="w-[165px]"><SelectValue placeholder="Inventory" /></SelectTrigger><SelectContent>{activeLocations.map((location) => <SelectItem key={location.id} value={String(location.id)}>{location.name}</SelectItem>)}</SelectContent></Select>
-            <Button variant="ghost" size="icon" aria-label="Notifications"><Bell className="size-4" /></Button>
-            {!managementView && view !== "purchases" && view !== "sales" && canWriteCurrentView && <Button onClick={openCreate} className="brand-primary-button font-semibold"><Plus className="size-4" /><span className="hidden sm:inline">{createLabel}</span></Button>}
-          </div>
-          <div data-export-slot="page" className="flex w-full justify-end empty:hidden" />
-        </header>
-
-        <div className="mx-auto w-full max-w-[1500px] p-4 lg:p-7">
-          {view === "serial-search" ? <SerialNumberSearch key={activeCompanyId} companyId={activeCompanyId} onOpen={openDetail} /> : view === "stock-pricing" ? <StockPricing key={activeCompanyId} companyId={activeCompanyId} onSaved={loadData} /> : view === "company-setup" ? <CompanySetupCenter canClearCompany={currentUser.role === "admin"} key={activeCompanyId} setup={companySetup} onSaved={async (saved) => { setCompanySetup(saved); await loadWorkspaces(); }} /> : view === "inventory-overview" ? <InventoryOverview /> : view === "item-logistics" ? <ItemLogisticsCenter key={`${activeCompanyId}-${activeLocationId}`} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} locationId={activeLocationId} locationName={activeLocations.find((location) => location.id === activeLocationId)?.name ?? "Inventory"} canEdit={canWriteCurrentView} /> : view === "inventory-check-reports" ? <InventoryCheckReports key={`${activeCompanyId}-${activeLocationId}`} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} locationId={activeLocationId} locationName={activeLocations.find((location) => location.id === activeLocationId)?.name ?? "Inventory"} canManage={currentUser.role === "admin"} currentUserName={currentUser.fullName || currentUser.email} /> : view === "transfers" ? <MultiLineTransferCenter key={`${activeCompanyId}-${activeLocationId}`} companies={companies} activeLocationId={activeLocationId} onTransferred={loadData} /> : view === "journal-entries" ? <JournalEntryCenter exchangeRates={exchangeRates} onOpenSource={openDetail} key={`${activeCompanyId}-${activeLocationId}`} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} locationId={activeLocationId} locationName={activeLocations.find((location) => location.id === activeLocationId)?.name ?? "Inventory"} currency={baseCurrency} accounts={records.accounts.map((account) => ({ id: account.id, code: String(account.code), name: String(account.name), type: String(account.type), active: Boolean(account.active), currency: String(account.currency || baseCurrency) }))} onPosted={loadData} /> : view === "vat-management" ? <VatManagementCenter key={`${activeCompanyId}-${activeLocationId}`} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} locationId={activeLocationId} locationName={activeLocations.find((location) => location.id === activeLocationId)?.name ?? "Inventory"} currency={baseCurrency} canWrite={canWriteCurrentView} canManageCodes={currentUser.role === "admin"} onOpenReport={openReport} onManageCodes={() => setView("vat-codes")} /> : view === "currencies" ? <CurrencyRateCenter key={activeCompanyId} company={activeCompany} currencies={currencies} onCompanyChanged={loadWorkspaces} onRatesChanged={loadExchangeRates} /> : view === "vat-codes" ? <VatCodeCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} onChanged={loadVatCodes} /> : view === "admin-controls" ? <AdminSettingsCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} currentUserEmail={currentUser.email} /> : managementView ? <WorkspaceCenter mode={view as "companies" | "inventories" | "invoice-series" | "currencies"} companies={companies} activeCompanyId={activeCompanyId} canDeleteCompanies={Boolean(currentUser.isAllAdmin)} onChanged={loadWorkspaces} /> : view === "dashboard" ? <Dashboard metrics={metrics} records={records} companyName={activeCompany?.name ?? "Company"} currency={baseCurrency} themeColor={themeColor} themeSaving={themeSaving} onThemeChange={changeTheme} onNavigate={(next) => { if (roleViews[currentUser.role].includes(next)) setView(next); else toast.error("Your role does not allow this action."); }} onWorkflow={(type, target) => { if (!roleViews[currentUser.role].includes(target) || !roleWriteViews[currentUser.role].includes(target)) return toast.error("Your role does not allow this action."); setView(target); openTransaction(type); }} onCreate={openCreate} onOpenDetail={openDetail} canCreate={roleWriteViews[currentUser.role].includes("sales")} canViewReports={roleViews[currentUser.role].includes("reports")} /> : view === "reports" ? <ReportCenter companyId={activeCompanyId} locationId={activeLocationId} memorisedReports={memorisedReports} onOpen={openReport} onOpenMemorised={openMemorisedReport} onDeleteMemorised={removeMemorisedReport} loading={reportLoading} /> : view === "sales" ? <SalesCenter onEdit={currentUser.role === "admin" ? openPurchaseEdit : undefined} records={filteredRecords} accounts={records.accounts} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onTransaction={openTransaction} onOpenDetail={openDetail} canWrite={canWriteCurrentView} canDelete={currentUser.role === "admin"} /> : view === "purchases" ? <PurchaseCenter companies={companies} companyId={activeCompanyId} locationId={activeLocationId} onWorkspaceChange={(companyId, locationId) => { setRecords({ transactions: [], contacts: [], items: [], accounts: [] }); setLoading(true); setSearch(""); setActiveCompanyId(companyId); setActiveLocationId(locationId); }} onEdit={currentUser.role === "admin" ? openPurchaseEdit : undefined} records={filteredRecords} accounts={records.accounts} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onTransaction={openTransaction} onOpenDetail={openDetail} canWrite={canWriteCurrentView} canDelete={currentUser.role === "admin"} /> : view === "customers" ? <CustomerCenter onEdit={openListEdit} records={filteredRecords} accounts={records.accounts} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreateCustomer={openCreate} onDelete={removeRecord} onTransaction={openTransaction} onReport={openReport} canViewReports={roleViews[currentUser.role].includes("reports")} onOpenDetail={openDetail} canWrite={canWriteCurrentView} canDelete={currentUser.role === "admin"} reportLoading={reportLoading} /> : view === "vendors" ? <VendorCenter companyId={activeCompanyId} key={activeCompanyId} onEdit={currentUser.role === "admin" ? openListEdit : undefined} records={filteredRecords} accounts={records.accounts} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreateVendor={openCreate} onDelete={removeRecord} onTransaction={openTransaction} onOpenDetail={openDetail} canWrite={canWriteCurrentView} canDelete={currentUser.role === "admin"} /> : view === "banking" ? <BankingCenter records={filteredRecords} accounts={records.accounts} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onTransaction={openTransaction} onReport={openReport} onOpenDetail={openDetail} canWrite={canWriteCurrentView} canDelete={currentUser.role === "admin"} reportLoading={reportLoading} /> : (
-            <RecordView companyId={activeCompanyId} locationId={activeLocationId} onEdit={openListEdit} view={view} kind={currentKind} records={filteredRecords} accounts={records.accounts} currency={baseCurrency} loading={loading} search={search} setSearch={setSearch} onRefresh={loadData} onCreate={openCreate} onDelete={removeRecord} onEditItem={openItemEdit} onDuplicateItem={duplicateItem} onOpenDetail={openDetail} canWrite={canWriteCurrentView} canDelete={currentUser.role === "admin"} />
-          )}
-        </div>
-      </SidebarInset>
-
-      <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open && saving) { toast.info("Please wait until saving finishes."); return; } setDialogOpen(open); if (!open) { setEditingItemId(null); setEditorKind(null); } }}>
-        <DialogContent showCloseButton={true} onInteractOutside={(event) => { if (["items", "transactions"].includes(activeEditorKind) || saving) event.preventDefault(); }} onEscapeKeyDown={(event) => { if (["items", "transactions"].includes(activeEditorKind) || saving) event.preventDefault(); }} data-record-kind={activeEditorKind} className={`max-h-[92dvh] ${activeEditorKind === "transactions" ? "overflow-hidden sm:max-w-6xl" : "overflow-y-auto"} ${activeEditorKind === "items" || (activeEditorKind === "contacts" && view === "customers") ? "sm:max-w-5xl" : activeEditorKind === "transactions" ? "" : "sm:max-w-xl"}`}>
-          <DialogHeader><DialogTitle>{editingItemId !== null && activeEditorKind === "items" ? "Edit Item" : editingRecordId !== null ? `Edit ${activeEditorKind === "transactions" ? form.type : activeEditorKind === "accounts" ? "Account" : form.type === "vendor" ? "Vendor" : "Customer"}` : editorLabel}</DialogTitle><DialogDescription>{editingItemId !== null && activeEditorKind === "items" ? "Update the category and item description details." : activeEditorKind === "transactions" && form.type === "bill" ? "Select the vendor and enter the bill items below." : "Enter the record details below. Required fields are marked."}</DialogDescription></DialogHeader>
-          {dialogOpen && activeEditorKind === "transactions" && form.type === "item receipt" && editingRecordId === null && form.party && <OpenPurchaseOrders key={`${activeCompanyId}:${form.party}`} companyId={activeCompanyId} party={form.party} onComplete={() => { setDialogOpen(false); void loadData(); }} onSaved={() => { void loadData(); }} />}
-          {dialogOpen && activeEditorKind === "transactions" && form.type === "bill" && editingRecordId === null && !form.sourceTransactionId && !form.purchaseOrderId && form.party && <OpenPurchaseOrders key={`bill:${activeCompanyId}:${form.party}`} companyId={activeCompanyId} party={form.party} onSaved={() => { void loadData(); }} onComplete={() => {}} onSelectBill={async (id) => {
-            const response = await fetch(`/api/records?kind=transactions&companyId=${activeCompanyId}&id=${id}`, { cache: "no-store" });
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || "Could not load purchase order.");
-            if (data.record.party !== form.party || data.record.type !== "purchase order" || data.record.convertedInvoiceId || ["received", "converted"].includes(data.record.status)) throw new Error("This PO is no longer available for full-PO billing. Refresh the supplier selection.");
-            convertSourceDocument(data as TransactionDetail);
-          }} />}
-          {dialogOpen && activeEditorKind === "transactions" && form.type === "invoice" && editingRecordId === null && !form.sourceTransactionId && !form.salesSourceId && form.party && <OpenSalesDocuments key={`${activeCompanyId}:${form.party}`} companyId={activeCompanyId} party={form.party} onSelect={(id) => setForm({ ...form, salesSourceId: String(id) })} />}
-          {activeEditorKind === "transactions" && editingRecordId === null && form.type === "invoice" && form.salesSourceId ? <SalesSourceInvoicing key={form.salesSourceId} sourceId={Number(form.salesSourceId)} companyId={activeCompanyId} onSaved={() => { setDialogOpen(false); setEditorKind(null); void loadData(); }} onViewInvoice={(id) => { setDialogOpen(false); void openDetail(id); }} /> : activeEditorKind === "transactions" && form.type === "bill" && form.purchaseOrderId ? <PurchaseOrderReceiving key={`bill:${form.purchaseOrderId}`} orderId={Number(form.purchaseOrderId)} companyId={activeCompanyId} documentType="bill" account={defaultPostingAccount("bill", records.accounts)} onSaved={() => { setDialogOpen(false); setEditorKind(null); void loadData(); }} /> : <form onSubmit={saveRecord} className={activeEditorKind === "transactions" ? "flex min-h-0 flex-col gap-4 overflow-hidden" : "space-y-5"}>
-            <SkuLockNotice message={skuLock.message} /><fieldset disabled={!skuLock.ready} className={activeEditorKind === "transactions" ? "min-h-0 flex-1 space-y-5 overflow-y-auto pr-1" : "space-y-5"}>
-            {linkedInventoryDocument && !salesDetailsOnly && <p role="status" className="text-sm text-slate-500">{documentInventory.key === documentInventoryKey && documentInventory.error ? documentInventory.error : !documentInventoryReady ? "Loading inventory itemsâ€¦" : `${documentItems.length} items available in the selected inventory.`}</p>}
-            {activeEditorKind === "transactions" && !salesDetailsOnly && <TransactionFields form={form} setForm={updateDocumentForm} types={["sales", "customers", "vendors", "banking"].includes(view) ? [form.type] : transactionTypes[view] ?? transactionTypes.dashboard} items={documentItems} contacts={records.contacts} accounts={records.accounts} locations={activeLocations} lines={lines} setLines={setLines} vatCodeOptions={vatCodeOptions} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />}
-            {salesDetailsOnly && <div className="space-y-4">
-              <p className="rounded-md border p-3 text-sm">{form.party} Â· {formatMoney(Number(form.total), form.currency)} Â· {form.status}<br /><span className="text-muted-foreground">Edit document details. Existing posted items, currency, inventory and payment links are protected. New invoice lines can be added below.</span></p>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="grid gap-2 text-sm">Reference number<Input required maxLength={100} value={form.number} onChange={(event) => setForm({ ...form, number: event.target.value })} /></label>
-                <label className="grid gap-2 text-sm">Transaction date<Input required type="date" value={form.transactionDate} onChange={(event) => setForm({ ...form, transactionDate: event.target.value })} /></label>
-                <label className="grid gap-2 text-sm">Due date<Input type="date" value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })} /></label>
-                <PaymentSalesRep companyId={activeCompanyId} currency={form.currency} employees={records.contacts.filter((contact) => contact.type === "employee" && contact.status === "active").map((contact) => ({ id: contact.id, name: String(contact.name) }))} value={form.salesman} onChange={(salesman) => setForm({ ...form, salesman })} />
-              </div>
-              <label className="grid gap-2 text-sm">Memo<Textarea maxLength={5000} value={form.memo} onChange={(event) => setForm({ ...form, memo: event.target.value })} /></label>
-            </div>}
-            {salesDetailsOnly && form.type === "invoice" && <div className="space-y-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-semibold">Items and services</h3><p className="text-xs text-muted-foreground">Existing posted lines are locked. Use Add Line to append another item to this invoice.</p></div><Button type="button" variant="outline" disabled={!documentInventoryReady} onClick={() => setLines((current) => [...current, { itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatCode: "STANDARD", vatRate: "5", comments: "", serialNumber: "" }])}><Plus className="size-4" />Add Line</Button></div>{!documentInventoryReady && <p className="text-xs text-slate-500">Loading inventory itemsâ€¦</p>}{lines.map((line, index) => line.id ? <div key={line.id} className="space-y-2 rounded-xl border p-3"><p className="text-sm font-medium">{index + 1}. {line.description}</p><DocumentExtraFields value={{ comments: line.comments || "", serialNumber: line.serialNumber || "" }} onChange={value => setLines(lines.map((entry, position) => position === index ? { ...entry, ...value } : entry))} /></div> : <div key={`new-invoice-line-${index}`} className="space-y-3 rounded-xl border border-emerald-300 bg-emerald-50/40 p-3 dark:bg-emerald-950/20"><div className="flex items-center justify-between"><strong className="text-sm">New line {index + 1}</strong><Button type="button" size="sm" variant="outline" className="border-rose-300 text-rose-600" onClick={() => setLines((current) => current.filter((_, position) => position !== index))}><Trash2 className="size-4" />Remove</Button></div><div className="grid gap-3 md:grid-cols-[minmax(260px,2fr)_110px_130px_150px]"><label className="grid gap-1 text-sm">Item<Select value={line.itemId || ""} onValueChange={(value) => { const item = documentItems.find((entry) => String(entry.id) === value); if (!item) return; const vatCode = String(item.salesVatCode || "STANDARD"); const vatRate = vatCodeOptions.find((code) => code.code === vatCode)?.rate ?? 5; setLines((current) => current.map((entry, position) => position === index ? { ...entry, itemId: value, description: String(item.description || item.name || ""), unitPrice: invoiceCurrencyAmount(Number(item.salesPrice ?? 0), Number(form.exchangeRate || 1)), unitCost: invoiceCurrencyAmount(Number(item.averageCost ?? item.cost ?? 0), Number(form.exchangeRate || 1)), vatCode, vatRate: String(vatRate) } : entry)); }}><SelectTrigger><SelectValue placeholder="Select item" /></SelectTrigger><SelectContent>{documentItems.filter((item) => item.status !== "inactive").map((item) => <SelectItem key={item.id} value={String(item.id)}>{String(item.sku || "")} Â· {String(item.name || item.description || "Item")}</SelectItem>)}</SelectContent></Select></label><label className="grid gap-1 text-sm">Qty<Input type="number" min="0.01" step="0.01" value={line.quantity} onChange={(event) => setLines((current) => current.map((entry, position) => position === index ? { ...entry, quantity: event.target.value } : entry))} /></label><label className="grid gap-1 text-sm">Rate<Input type="number" min="0" step="0.01" value={line.unitPrice} onChange={(event) => setLines((current) => current.map((entry, position) => position === index ? { ...entry, unitPrice: event.target.value } : entry))} /></label><label className="grid gap-1 text-sm">VAT<Select value={line.vatCode} onValueChange={(value) => { const rate = vatCodeOptions.find((code) => code.code === value)?.rate ?? 0; setLines((current) => current.map((entry, position) => position === index ? { ...entry, vatCode: value, vatRate: String(rate) } : entry)); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{vatCodeOptions.map((code) => <SelectItem key={code.code} value={code.code}>{code.label}</SelectItem>)}</SelectContent></Select></label></div><label className="grid gap-1 text-sm">Description<Textarea value={line.description} onChange={(event) => setLines((current) => current.map((entry, position) => position === index ? { ...entry, description: event.target.value } : entry))} /></label><DocumentExtraFields value={{ comments: line.comments || "", serialNumber: line.serialNumber || "" }} onChange={value => setLines(lines.map((entry, position) => position === index ? { ...entry, ...value } : entry))} /></div>)}</div>}
-            {activeEditorKind === "transactions" && ["invoice", "bill"].includes(form.type) && <DocumentExtraFields value={{ comments: form.comments || "", serialNumber: form.serialNumber || "" }} onChange={value => setForm({ ...form, ...value })} />}
-            {activeEditorKind === "contacts" && editingRecordId === null && <ContactFields form={form} setForm={setForm} accounts={records.accounts} />}
-            {editingRecordId !== null && ["contacts", "accounts"].includes(activeEditorKind) && <div className="grid gap-4 sm:grid-cols-2">{(activeEditorKind === "accounts" ? [["Account code", "code"], ["Account name", "name"]] : [["Name", "name"], ["Company", "company"], ["Billing name", "billingName"], ["Email", "email"], ["Phone", "phone"], ["WhatsApp", "whatsapp"], ["Country", "country"], ["TRN", "trn"], ["Reseller", "reseller"], ["Planet", "planet"], ["Passport", "passport"], ["Description", "description"]]).map(([label, name]) => <Field key={name} label={label} name={name} form={form} setForm={setForm} required={name === "name" || name === "code"} />)}{activeEditorKind === "accounts" && <Choice label="Account type" name="type" values={accountTypesForRole(form.systemRole || "")} form={form} setForm={setForm} />}<p className="text-xs text-slate-500 sm:col-span-2">{activeEditorKind === "accounts" ? "Account type can be changed. Currency, opening balance and system link are preserved." : "Currency, balances and ledger links are preserved when editing these details."}</p></div>}
-            {activeEditorKind === "items" && <>
-              {editingItemId === null && <section className="grid gap-4 rounded-xl border bg-slate-50 p-4 sm:grid-cols-2">
-                <label className="grid gap-2 text-sm font-medium">Company *<select required className="h-10 w-full rounded-md border bg-background px-3" value={activeCompanyId || ""} onChange={event => { const company = companies.find(entry => entry.id === Number(event.target.value)); if (!company) return; setRecords({ transactions: [], contacts: [], items: [], accounts: [] }); setActiveCompanyId(company.id); setActiveLocationId(company.locations[0]?.id ?? 0); }}><option value="" disabled>Select company</option>{companies.map(company => <option key={company.id} value={company.id}>{company.name}</option>)}</select></label>
-                <label className="grid gap-2 text-sm font-medium">Inventory *<select required className="h-10 w-full rounded-md border bg-background px-3" value={activeLocations.some(location => location.id === activeLocationId) ? activeLocationId : ""} disabled={!activeLocations.length} onChange={event => { setRecords(current => ({ ...current, items: [] })); setActiveLocationId(Number(event.target.value)); }}><option value="" disabled>Select inventory</option>{activeLocations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
-                <p className="text-sm text-slate-500 sm:col-span-2">{activeLocations.length ? `The new item will be saved in ${activeCompany?.name || "the selected company"} Â· ${activeLocations.find(location => location.id === activeLocationId)?.name || "select an inventory"}.` : "This company has no active inventory. Add an inventory or select another company."}</p>
-              </section>}
-              <ItemFields form={form} setForm={setForm} items={records.items} accounts={records.accounts} contacts={records.contacts} vatCodeOptions={vatCodeOptions} currency={baseCurrency} editing={editingItemId !== null} />
-            </>}
-            {activeEditorKind === "accounts" && editingRecordId === null && <AccountFields form={form} setForm={setForm} accounts={records.accounts} />}
-            </fieldset><DialogFooter className={activeEditorKind === "transactions" ? "shrink-0 border-t bg-background pt-4" : ""}><Button type="button" variant="outline" disabled={saving} onClick={() => { setDialogOpen(false); setEditingItemId(null); setEditingRecordId(null); setEditorKind(null); }}>Cancel</Button><Button type="submit" disabled={saving || !skuLock.ready} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400">{saving ? "Savingâ€¦" : (editingRecordId !== null || editingItemId !== null && activeEditorKind === "items") ? "Save changes" : "Save record"}</Button></DialogFooter>
-          </form>}
-        </DialogContent>
-      </Dialog>
-      <Dialog open={invoiceInventoryOpen} onOpenChange={setInvoiceInventoryOpen}>
-        <DialogContent className="sm:max-w-3xl"><DialogHeader><DialogTitle>Select Inventory</DialogTitle><DialogDescription>Choose which company inventory will issue this invoice. Every company and inventory combination has its own invoice-number series.</DialogDescription></DialogHeader><div className="grid gap-3 py-3 sm:grid-cols-2 lg:grid-cols-3">{activeLocations.map((location) => <button type="button" key={location.id} onClick={() => startInvoice(location)} className="rounded-xl border-2 border-slate-200 bg-white p-5 text-left transition hover:border-emerald-400 hover:bg-emerald-50"><p className="font-semibold text-slate-900">{location.name}</p><p className="mt-2 font-mono text-xs text-slate-500">Next: {invoiceNumberPreview(activeCompanyId, location)}</p></button>)}</div>{activeLocations.length === 0 && <p className="rounded-lg bg-amber-50 p-4 text-sm text-amber-800">Add an inventory location before creating an invoice.</p>}</DialogContent>
-      </Dialog>
-      <DocumentDialog onOpenInvoice={openDetail} onReceiptSaved={() => { setDetail(null); void loadData(); }} key={detail ? String(detail.record.id) : "closed-document"} detail={detail} companyName={activeCompany?.name ?? "Company"} baseCurrency={baseCurrency} setup={companySetup} canConvert={detail?.record.type === "purchase order" ? roleWriteViews[currentUser.role].includes("purchases") : roleWriteViews[currentUser.role].includes("sales")} onConvert={convertSourceDocument} onClose={() => setDetail(null)} />
-      <ReportDialog onCustomer={(name, currency, overdue) => { void openReport(overdue ? "customers-overdue-invoices" : "customer-open-balance", undefined, { locationId: reportContext?.locationId ?? activeLocationId, currency, customer: name }); }} onOpenSource={(id) => { setReport(null); void openDetail(id); }} setup={companySetup} loading={reportLoading} onStatementApply={(filters) => openReport(report?.key || "customer-statements", { start: filters.from, end: filters.to }, { locationId: reportContext?.locationId ?? activeLocationId, currency: filters.currency, customer: filters.customer, statementDate: filters.statementDate, memo: filters.memo })} onPricesSaved={async () => { await openReport("stock-pricing-profit", undefined, reportContext ? { locationId: reportContext.locationId, currency: reportContext.currency } : undefined); await loadData(); }} report={report} companyName={activeCompany?.name ?? "Company"} inventoryName={activeLocations.find((location) => location.id === (reportContext?.locationId ?? activeLocationId))?.name ?? "All inventories"} memorised={Boolean(reportContext && memorisedReports.some((savedReport) => savedReport.reportKey === reportContext.key))} saving={memoriseSaving} onMemorise={saveMemorisedReport} onClose={() => setReport(null)} />
-      <WorkspaceDialog open={workspaceOpen} companies={companies} activeCompanyId={activeCompanyId} onClose={() => setWorkspaceOpen(false)} onChanged={loadWorkspaces} />
-      <Toaster richColors position="bottom-right" />
-    </SidebarProvider>
-  );
-}
-
-function Dashboard({ metrics, records, companyName, currency, themeColor, themeSaving, onThemeChange, onNavigate, onWorkflow, onCreate, onOpenDetail, canCreate, canViewReports }: { metrics: Record<string, number>; records: Record<Kind, DataRecord[]>; companyName: string; currency: string; themeColor: UserTheme; themeSaving: boolean; onThemeChange: (theme: UserTheme) => void; onNavigate: (v: View) => void; onWorkflow: (type: string, target: View) => void; onCreate: () => void; onOpenDetail: (id: number) => void; canCreate: boolean; canViewReports: boolean }) {
-  const [dashboardTab, setDashboardTab] = useState<"home" | "insights">("home");
-
-  useEffect(() => {
-    if (dashboardTab !== "insights") return;
-    const onEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
-      const openLayer = document.querySelector(
-        '[data-slot="dialog-content"][data-state="open"], [data-slot="sheet-content"][data-state="open"], [data-slot="drawer-content"][data-state="open"], [data-slot="alert-dialog-content"][data-state="open"], [role="dialog"][aria-modal="true"]'
-      );
-      if (openLayer) return;
-      event.preventDefault();
-      setDashboardTab("home");
-    };
-    document.addEventListener("keydown", onEscape);
-    return () => document.removeEventListener("keydown", onEscape);
-  }, [dashboardTab]);
-
-  const recent = records.transactions.slice(0, 6);
-  const cards = [
-    ["Cash position", metrics.cash, CircleDollarSign, "Linked Bank accounts", "emerald"],
-    ["Accounts receivable", metrics.receivable, Clock3, "Linked AR control accounts", "blue"],
-    ["Accounts payable", metrics.payable, BadgeDollarSign, "Linked AP control accounts", "amber"],
-    ["Inventory value", metrics.inventory, PackageSearch, "Linked Inventory Asset account", "violet"],
-  ] as const;
-  const max = Math.max(metrics.sales, metrics.expenses, 1);
-  return <div className="space-y-6">
-    <div className="flex w-fit rounded-xl border border-slate-200 bg-white p-1 shadow-sm" role="tablist" aria-label="Overview sections"><button type="button" role="tab" aria-selected={dashboardTab === "home"} onClick={() => setDashboardTab("home")} className={`rounded-lg px-5 py-2 text-sm font-bold transition ${dashboardTab === "home" ? "brand-primary-button shadow-sm" : "text-slate-500 hover:bg-slate-100"}`}>Home Page</button><button type="button" role="tab" aria-selected={dashboardTab === "insights"} onClick={() => setDashboardTab("insights")} className={`rounded-lg px-5 py-2 text-sm font-bold transition ${dashboardTab === "insights" ? "brand-primary-button shadow-sm" : "text-slate-500 hover:bg-slate-100"}`}>Insights</button></div>
-    {dashboardTab === "home" ? <WorkflowHome onNavigate={onNavigate} onWorkflow={onWorkflow} /> : <>
-    <section className="brand-hero rounded-2xl p-6 text-white shadow-sm lg:flex lg:items-center lg:justify-between">
-      <div><div className="brand-hero-signal mb-3 flex items-center gap-2 text-xs font-semibold tracking-[.15em]"><span className="brand-hero-dot size-2 rounded-full" /> COMPANY FILE ACTIVE</div><h2 className="text-2xl font-bold">{companyName}</h2><p className="mt-1 text-sm text-slate-300">Post transactions, control stock and close your books from one workspace.</p></div>
-      <div className="mt-5 flex flex-wrap gap-2 lg:mt-0">{canViewReports && <Button variant="outline" onClick={() => onNavigate("reports")} className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white"><FileBarChart2 />View reports</Button>}{canCreate && <Button onClick={onCreate} className="brand-primary-button"><Plus />Record transaction</Button>}</div>
-    </section>
-    <section className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex items-center gap-3"><div className="brand-soft-icon grid size-10 shrink-0 place-items-center rounded-xl"><Palette className="size-5" /></div><div><h3 className="text-sm font-bold text-slate-900">Your interface color</h3><p className="text-xs text-slate-500">Saved privately to your user account.</p></div></div>
-      <div className="flex flex-wrap gap-2" role="group" aria-label="Choose interface color">{userThemes.map((theme) => <button type="button" key={theme.value} disabled={themeSaving} aria-pressed={themeColor === theme.value} onClick={() => onThemeChange(theme.value)} className={`flex min-h-10 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition disabled:opacity-60 ${themeColor === theme.value ? "border-slate-900 bg-slate-900 text-white shadow-sm" : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"}`}><span className="size-4 rounded-full border border-black/10" style={{ backgroundColor: theme.color }} />{theme.label}{themeColor === theme.value ? <Check className="size-3.5" /> : null}</button>)}</div>
-    </section>
-    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{cards.map(([label, value, Icon, detail, color]) => <article key={label} className="rounded-xl border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,.04)]"><div className="flex items-start justify-between"><div><p className="text-sm font-medium text-slate-500">{label}</p><p className="mt-2 text-2xl font-bold tracking-tight text-slate-900">{formatMoney(value, currency)}</p></div><div className={`metric-icon metric-${color}`}><Icon className="size-5" /></div></div><p className="mt-4 text-xs text-slate-500">{detail}</p></article>)}</section>
-    <section className="grid gap-5 xl:grid-cols-[1.35fr_.65fr]">
-      <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><div><h3 className="font-bold text-slate-900">Income vs expenses</h3><p className="text-xs text-slate-500">Posted income and expense accounts</p></div><Badge variant="outline">{currency}</Badge></div><div className="mt-8 grid grid-cols-[80px_1fr] gap-x-4 gap-y-5 text-sm"><span className="text-slate-500">Income</span><div className="flex items-center gap-3"><div className="brand-chart-bar h-8 rounded-r-md" style={{ width: `${Math.max((metrics.sales / max) * 100, metrics.sales ? 6 : 1)}%` }} /><strong className="whitespace-nowrap text-slate-800">{formatMoney(metrics.sales, currency)}</strong></div><span className="text-slate-500">Expenses</span><div className="flex items-center gap-3"><div className="h-8 rounded-r-md bg-sky-400" style={{ width: `${Math.max((metrics.expenses / max) * 100, metrics.expenses ? 6 : 1)}%` }} /><strong className="whitespace-nowrap text-slate-800">{formatMoney(metrics.expenses, currency)}</strong></div></div><div className="mt-7 flex items-center justify-between border-t pt-4"><span className="text-sm text-slate-500">Net result</span><strong className={metrics.sales - metrics.expenses >= 0 ? "brand-accent-text" : "text-rose-600"}>{formatMoney(metrics.sales - metrics.expenses, currency)}</strong></div></article>
-      <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><h3 className="font-bold text-slate-900">Business status</h3><div className="mt-5 space-y-4"><StatusLine label="Customers" value={records.contacts.filter((r) => r.type === "customer").length} action={() => onNavigate("customers")} /><StatusLine label="Vendors" value={records.contacts.filter((r) => r.type === "vendor").length} action={() => onNavigate("vendors")} /><StatusLine label="Inventory items" value={records.items.length} action={() => onNavigate("inventory")} /><StatusLine label="Transactions" value={records.transactions.length} action={() => onNavigate("sales")} /></div></article>
-    </section>
-    <article className="rounded-xl border border-slate-200 bg-white shadow-sm"><div className="flex items-center justify-between border-b px-5 py-4"><div><h3 className="font-bold text-slate-900">Recent activity</h3><p className="text-xs text-slate-500">Latest entries across the company file</p></div><Button variant="ghost" size="sm" onClick={() => onNavigate("sales")}>View all <ChevronRight /></Button></div><TransactionTable records={recent} empty="No transactions yet. Use Record transaction to add your first entry." onOpen={onOpenDetail} /></article>
-    </>}
-  </div>;
-}
-
-type OverviewWorkflowAction = { label: string; detail: string; icon: typeof ReceiptText; view: View; transaction?: string };
-
-function WorkflowHome({ onNavigate, onWorkflow }: { onNavigate: (view: View) => void; onWorkflow: (type: string, target: View) => void }) {
-  const supplierActions: OverviewWorkflowAction[] = [
-    { label: "Purchase Orders", detail: "Order supplier stock", icon: FileBarChart2, view: "purchases", transaction: "purchase order" },
-    { label: "Receive Stock", detail: "Receive before billing", icon: PackageCheck, view: "purchases", transaction: "item receipt" },
-    { label: "Enter Supplier Bill", detail: "Record a supplier bill", icon: ReceiptText, view: "purchases", transaction: "bill" },
-    { label: "Pay Bills", detail: "Settle supplier balances", icon: WalletCards, view: "purchases", transaction: "bill payment" },
-  ];
-  const customerActions: OverviewWorkflowAction[] = [
-    { label: "Estimates", detail: "Estimate customer work", icon: FileBarChart2, view: "sales", transaction: "estimate" },
-    { label: "Sales Orders", detail: "Confirm an accepted order", icon: ShoppingCart, view: "sales", transaction: "sales order" },
-    { label: "Create Invoices", detail: "Post customer sales", icon: ReceiptText, view: "sales", transaction: "invoice" },
-    { label: "Receive Payments", detail: "Reduce receivables", icon: CircleDollarSign, view: "receive-payment", transaction: "customer payment" },
-    { label: "Record Deposits", detail: "Post bank deposits", icon: Landmark, view: "banking", transaction: "deposit" },
-    { label: "Sales Receipts", detail: "Immediate paid sales", icon: BadgeDollarSign, view: "sales", transaction: "sales receipt" },
-    { label: "Statement Charges", detail: "Charge customer account", icon: Plus, view: "sales", transaction: "statement charge" },
-    { label: "Refunds & Credits", detail: "Issue customer credits", icon: RefreshCw, view: "sales", transaction: "credit memo" },
-  ];
-  const companyActions: OverviewWorkflowAction[] = [
-    { label: "Company Setup", detail: "Logo, address, bank, and templates", icon: Settings, view: "company-setup" },
-    { label: "Manage VAT", detail: "VAT codes and returns", icon: Percent, view: "vat-management" },
-    { label: "Chart of Accounts", detail: "Manage ledger accounts", icon: BookOpen, view: "accounts" },
-    { label: "Inventory Center", detail: "Products and stock", icon: Boxes, view: "inventory" },
-    { label: "Add Item", detail: "Add and manage inventory items", icon: PackageSearch, view: "inventory" },
-  ];
-  const bankingActions: OverviewWorkflowAction[] = [
-    { label: "Write Cheques", detail: "Pay by cheque", icon: WalletCards, view: "write-cheque", transaction: "cheque" },
-    { label: "Transfer Funds", detail: "Move bank balances", icon: ArrowRightLeft, view: "banking", transaction: "transfer" },
-    { label: "Bank Register", detail: "Review bank activity", icon: Landmark, view: "banking" },
-    { label: "Reconcile", detail: "Match cleared entries", icon: CheckCircle2, view: "banking" },
-  ];
-
-  return <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-    <div className="space-y-5">
-      <WorkflowSection title="SUPPLIERS" tone="blue" actions={supplierActions} onNavigate={onNavigate} onWorkflow={onWorkflow} />
-      <WorkflowSection title="CUSTOMERS" tone="emerald" actions={customerActions} onNavigate={onNavigate} onWorkflow={onWorkflow} />
-      <WorkflowSection title="BANKING" tone="sky" actions={bankingActions} onNavigate={onNavigate} onWorkflow={onWorkflow} />
-    </div>
-    <div className="space-y-5">
-      <WorkflowSection title="COMPANY" tone="amber" actions={companyActions} onNavigate={onNavigate} onWorkflow={onWorkflow} compact />
-    </div>
-  </div>;
-}
-
-function WorkflowSection({ title, tone, actions, onNavigate, onWorkflow, compact = false }: { title: string; tone: "blue" | "emerald" | "violet" | "amber" | "sky"; actions: OverviewWorkflowAction[]; onNavigate: (view: View) => void; onWorkflow: (type: string, target: View) => void; compact?: boolean }) {
-  const toneClasses = { blue: "bg-blue-100 text-blue-700", emerald: "bg-emerald-100 text-emerald-700", violet: "bg-violet-100 text-violet-700", amber: "bg-amber-100 text-amber-800", sky: "bg-sky-100 text-sky-700" } as const;
-  return <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="flex items-center gap-3 border-b bg-slate-50 px-5 py-3"><span className={`rounded-md px-3 py-1 text-xs font-black tracking-[.12em] ${toneClasses[tone]}`}>{title}</span><div className="h-px flex-1 bg-slate-200" /></div><div className={`grid gap-px bg-slate-200 ${compact ? "sm:grid-cols-2 xl:grid-cols-1" : "sm:grid-cols-2 lg:grid-cols-4"}`}>{actions.map((action, index) => <button key={action.label} type="button" onClick={() => action.transaction ? onWorkflow(action.transaction, action.view) : onNavigate(action.view)} className="group relative min-h-32 bg-white p-5 text-left transition hover:z-10 hover:bg-emerald-50 focus-visible:z-10"><div className="flex items-start justify-between gap-3"><span className={`grid size-11 place-items-center rounded-xl ${toneClasses[tone]}`}><action.icon className="size-5" /></span>{index < actions.length - 1 ? <ChevronRight className="mt-3 size-4 text-slate-300 group-hover:text-emerald-500" /> : null}</div><p className="mt-4 text-sm font-bold text-slate-900">{action.label}</p><p className="mt-1 text-xs leading-5 text-slate-500">{action.detail}</p></button>)}</div></section>;
-}
-
-function StatusLine({ label, value, action }: { label: string; value: number; action: () => void }) { return <button onClick={action} className="brand-status-line flex w-full items-center justify-between rounded-lg border border-slate-100 p-3 text-left"><span className="text-sm text-slate-600">{label}</span><span className="flex items-center gap-2 font-bold text-slate-900">{value}<ChevronRight className="size-4 text-slate-400" /></span></button>; }
-
-function SalesCenter({ onEdit, records, accounts, currency, loading, search, setSearch, onRefresh, onCreate, onDelete, onTransaction, onOpenDetail, canWrite, canDelete }: { onEdit?: (record: DataRecord) => void; records: DataRecord[]; accounts: DataRecord[]; currency: string; loading: boolean; search: string; setSearch: (v: string) => void; onRefresh: () => void; onCreate: () => void; onDelete: (id: number) => void; onTransaction: (type: string) => void; onOpenDetail: (id: number) => void; canWrite: boolean; canDelete: boolean }) {
-  const [listType, setListType] = useState("all");
-  const listedRecords = records.filter((record) => listType === "all" || record.type === listType);
-  const actions = [
-    { label: "Create Estimate", detail: "Estimate products, services, VAT, and terms", type: "estimate", icon: BadgeDollarSign },
-    { label: "Create Proforma Invoice", detail: "Prepare a proforma before posting the sale", type: "proforma invoice", icon: FileBarChart2 },
-    { label: "Create Sales Order", detail: "Confirm an accepted order before invoicing", type: "sales order", icon: ShoppingCart },
-    { label: "Create Invoice", detail: "Post sales, stock, VAT, and Accounts Receivable", type: "invoice", icon: ReceiptText },
-  ];
-  return <div className="space-y-6">
-    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"><div className="flex flex-col gap-3 border-b bg-slate-50/80 p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-slate-900">Sales document workflow</h2><p className="mt-1 text-sm text-slate-500">View an Estimate, Proforma Invoice or Sales Order, select an inventory, and save an invoice for the available quantities.</p></div><Badge variant="outline" className="w-fit">QuickBooks-style conversion</Badge></div><div className="grid gap-px bg-slate-200 sm:grid-cols-2 xl:grid-cols-4">{actions.map((action) => <button key={action.type} type="button" disabled={!canWrite} onClick={() => onTransaction(action.type)} className="group min-h-32 bg-white p-5 text-left transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"><div className="flex items-start justify-between"><span className="grid size-10 place-items-center rounded-lg bg-slate-100 text-slate-600 group-hover:bg-emerald-100 group-hover:text-emerald-700"><action.icon className="size-5" /></span><ChevronRight className="size-4 text-slate-300 group-hover:text-emerald-500" /></div><p className="mt-4 text-sm font-bold text-slate-900">{action.label}</p><p className="mt-1 text-xs leading-5 text-slate-500">{action.detail}</p></button>)}</div></section>
-    <div className="flex flex-wrap gap-2" aria-label="Sales lists">{[["all", "All sales"], ["estimate", "Estimates"], ["proforma invoice", "Proforma Invoices"], ["sales order", "Sales Orders"], ["invoice", "Invoices"]].map(([value, label]) => <Button key={value} type="button" variant={listType === value ? "default" : "outline"} aria-pressed={listType === value} onClick={() => setListType(value)}>{label}</Button>)}</div>
-    <RecordView onEdit={onEdit} view="sales" kind="transactions" records={listedRecords} accounts={accounts} currency={currency} loading={loading} search={search} setSearch={setSearch} onRefresh={onRefresh} onCreate={onCreate} onDelete={onDelete} onEditItem={() => {}} onDuplicateItem={() => {}} onOpenDetail={onOpenDetail} canWrite={canWrite} canDelete={canDelete} />
-  </div>;
-}
-
-function PurchaseCenter({ companies, companyId, locationId, onWorkspaceChange, onEdit, records, accounts, currency, loading, search, setSearch, onRefresh, onCreate, onDelete, onTransaction, onOpenDetail, canWrite, canDelete }: { companies: CompanyWorkspace[]; companyId: number; locationId: number; onWorkspaceChange: (companyId: number, locationId: number) => void; onEdit?: (record: DataRecord) => void; records: DataRecord[]; accounts: DataRecord[]; currency: string; loading: boolean; search: string; setSearch: (v: string) => void; onRefresh: () => void; onCreate: () => void; onDelete: (id: number) => void; onTransaction: (type: string) => void; onOpenDetail: (id: number) => void; canWrite: boolean; canDelete: boolean }) {
-  const [listType, setListType] = useState("purchase order");
-  const [orderStatus, setOrderStatus] = useState("all");
-  const selectedCompany = companies.find((company) => company.id === companyId);
-  const locations = selectedCompany?.locations ?? [];
-  const workspaceReady = !loading && locations.some((location) => location.id === locationId);
-  const scopedRecords: DataRecord[] = records.filter((record) => Number(record.companyId) === companyId && Number(record.locationId) === locationId).map((record) => ({ ...record, companyName: selectedCompany?.name ?? "", inventoryName: locations.find((location) => location.id === Number(record.locationId))?.name ?? "" }));
-  const listedRecords = scopedRecords.filter((record) => (listType === "all" || record.type === listType) && (listType !== "purchase order" || orderStatus === "all" || (orderStatus === "open" ? ["open", "draft", "pending", "overdue", "partially received"].includes(String(record.status)) : orderStatus === "converted" ? ["received", "converted"].includes(String(record.status)) : record.status === orderStatus)));
-  const actions = [
-    { label: "Create Purchase Order", detail: "Order products or services from a supplier", type: "purchase order", icon: FileBarChart2 },
-    { label: "Enter Bill", detail: "Post the supplier invoice and Accounts Payable", type: "bill", icon: ReceiptText },
-    { label: "Receive Items", detail: "Receive ordered stock before the bill arrives", type: "item receipt", icon: PackageCheck },
-    { label: "Pay Bills", detail: "Settle supplier balances from the linked bank", type: "bill payment", icon: WalletCards },
-  ];
-  return <div className="space-y-6">
-    <section className="rounded-xl border bg-background p-4" aria-label="Purchase company and inventory">
-      <div className="grid gap-4 sm:grid-cols-2">
-        <label className="grid min-w-0 gap-2 text-sm font-medium">Company<select className="h-10 w-full min-w-0 rounded-md border bg-background px-3" value={companyId || ""} disabled={!companies.length} onChange={(event) => { const company = companies.find((entry) => entry.id === Number(event.target.value)); if (company) onWorkspaceChange(company.id, company.locations[0]?.id ?? 0); }}><option value="" disabled>Select company</option>{companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}</select></label>
-        <label className="grid min-w-0 gap-2 text-sm font-medium">Inventory<select className="h-10 w-full min-w-0 rounded-md border bg-background px-3" value={locationId || ""} disabled={!locations.length} onChange={(event) => { const location = locations.find((entry) => entry.id === Number(event.target.value)); if (location) onWorkspaceChange(companyId, location.id); }}><option value="" disabled>Select inventory</option>{locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
-      </div>
-      <p className="mt-3 text-sm text-muted-foreground">{!locations.length ? "Add an inventory to this company to create purchases." : "Purchases and new documents use the selected company and inventory."}</p>
-    </section>
-    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"><div className="flex flex-col gap-3 border-b bg-slate-50/80 p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-slate-900">Purchase order workflow</h2><p className="mt-1 text-sm text-slate-500">View saved purchase orders, edit open orders, or receive remaining items.</p></div><Badge variant="outline" className="w-fit">QuickBooks-style conversion</Badge></div><div className="grid gap-px bg-slate-200 sm:grid-cols-2 xl:grid-cols-4">{actions.map((action) => <button key={action.type} type="button" disabled={!canWrite || !workspaceReady} onClick={() => onTransaction(action.type)} className="group min-h-32 bg-white p-5 text-left transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"><div className="flex items-start justify-between"><span className="grid size-10 place-items-center rounded-lg bg-slate-100 text-slate-600 group-hover:bg-emerald-100 group-hover:text-emerald-700"><action.icon className="size-5" /></span><ChevronRight className="size-4 text-slate-300 group-hover:text-emerald-500" /></div><p className="mt-4 text-sm font-bold text-slate-900">{action.label}</p><p className="mt-1 text-xs leading-5 text-slate-500">{action.detail}</p></button>)}</div></section>
-    <section className="space-y-3 rounded-xl border bg-slate-50 p-4" aria-label="Purchase lists">
-      <div className="flex flex-wrap gap-2">{[["all", "All purchases"], ["purchase order", "Purchase Orders"], ["item receipt", "Item Receipts"]].map(([value, label]) => <Button key={value} type="button" variant={listType === value ? "default" : "outline"} aria-pressed={listType === value} onClick={() => setListType(value)}>{label}</Button>)}</div>
-      {listType === "purchase order" && <label className="flex flex-wrap items-center gap-3 text-sm font-medium">PO status<select className="h-9 rounded-md border bg-background px-3" value={orderStatus} onChange={(event) => setOrderStatus(event.target.value)}><option value="all">All statuses</option><option value="open">Open / Remaining to receive</option><option value="partially received">Partially received</option><option value="converted">Converted / Fully received</option></select></label>}
-      <p className="text-sm text-slate-500">{listType === "purchase order" ? "View a saved PO to check quantities and receive items. Admin and All-Admin can edit or delete orders without receipts." : listType === "item receipt" ? "View saved item receipts and their source purchase orders." : "Choose a list above to find your purchase orders or receipts."}</p>
-    </section>
-    <RecordView onEdit={onEdit} view="purchases" kind="transactions" records={listedRecords} accounts={accounts} currency={currency} loading={loading} search={search} setSearch={setSearch} onRefresh={onRefresh} onCreate={onCreate} onDelete={onDelete} onEditItem={() => {}} onDuplicateItem={() => {}} onOpenDetail={onOpenDetail} canWrite={canWrite && workspaceReady} canDelete={canDelete && workspaceReady} />
-  </div>;
-}
-
-function CustomerCenter({ onEdit, records, accounts, currency, loading, search, setSearch, onRefresh, onCreateCustomer, onDelete, onTransaction, onReport, canViewReports, onOpenDetail, canWrite, canDelete, reportLoading }: { onEdit?: (record: DataRecord) => void; records: DataRecord[]; accounts: DataRecord[]; currency: string; loading: boolean; search: string; setSearch: (v: string) => void; onRefresh: () => void; onCreateCustomer: () => void; onDelete: (id: number) => void; onTransaction: (type: string) => void; onReport: (key: string) => void; canViewReports: boolean; onOpenDetail: (id: number) => void; canWrite: boolean; canDelete: boolean; reportLoading: boolean }) {
-  const balances = records.reduce((totals, customer) => {
-    const code = String(customer.currency || currency);
-    totals.set(code, (totals.get(code) || 0) + Number(customer.balance || 0));
-    return totals;
-  }, new Map<string, number>());
-  const actions = [
-    { label: "Create Estimates", detail: "Estimate customer products and services", type: "estimate", icon: BadgeDollarSign },
-    { label: "Create Sales Orders", detail: "Confirm an order before invoicing", type: "sales order", icon: ShoppingCart },
-    { label: "Create Invoices", detail: "Post sales and accounts receivable", type: "invoice", shortcut: "Ctrl+I", icon: ReceiptText },
-    { label: "Enter Sales Receipts", detail: "Record an immediate customer sale", type: "sales receipt", icon: CircleDollarSign },
-    { label: "Enter Statement Charges", detail: "Add a charge directly to a statement", type: "statement charge", icon: Plus },
-    { label: "Create Statements", detail: "Review and print customer activity", report: "customer-statements", icon: FileBarChart2 },
-    { label: "Assess Finance Charges", detail: "Post a finance charge to receivables", type: "finance charge", icon: BadgeDollarSign },
-    { label: "Receive Payments", detail: "Reduce the customer's open balance", type: "customer payment", icon: WalletCards },
-    { label: "Active Customers", detail: "Active contacts, balances and receivable accounts", report: "active-customers", icon: Users },
-    { label: "Customers with Overdue Invoices", detail: "Past-due invoices and remaining amounts to collect", report: "customers-overdue-invoices", icon: Clock3 },
-    { label: "Customer Open Balance", detail: "Unpaid invoices, unused payments and receivable accounts", report: "customer-open-balance", icon: FileBarChart2 },
-    { label: "Accounts Receivable", detail: "Review outstanding customer balances and aging", report: "ar-aging-summary", icon: BookOpenCheck },
-    { label: "Create Credit Notes / Refunds", detail: "Reduce receivables with a customer credit", type: "credit memo", icon: RefreshCw },
-  ];
-  return <div className="space-y-6">
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm" aria-label="Customer balance summary">
-      <h2 className="font-bold text-slate-900">Customer list and balance summary</h2>
-      <p className="mt-1 text-sm text-slate-500">{records.length} customers in this company{search ? " matching your search" : ""}</p>
-      <div className="mt-3 flex flex-wrap gap-3">{[...balances].map(([code, balance]) => <div key={code} className="rounded-lg border bg-slate-50 px-4 py-2"><span className="text-xs text-slate-500">{code} balance</span><p className="font-semibold">{formatMoney(balance, code)}</p></div>)}{!balances.size && <p className="text-sm text-slate-500">No customers found.</p>}</div>
-    </section>
-    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-col gap-3 border-b bg-slate-50/80 p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-slate-900">Customer workflows</h2><p className="mt-1 text-sm text-slate-500">Create and post every customer document from one place.</p></div><Badge variant="outline" className="w-fit">Customer Centre Â· Ctrl+J</Badge></div>
-      <div className="grid gap-px bg-slate-200 sm:grid-cols-2 xl:grid-cols-4">{actions.map((action) => <button key={action.label} type="button" disabled={(action.report ? reportLoading || !canViewReports : false) || (!action.report && !canWrite)} onClick={() => action.report ? onReport(action.report) : action.type && onTransaction(action.type)} className="group min-h-32 bg-white p-5 text-left transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"><div className="flex items-start justify-between gap-3"><span className="grid size-10 place-items-center rounded-lg bg-slate-100 text-slate-600 group-hover:bg-emerald-100 group-hover:text-emerald-700"><action.icon className="size-5" /></span>{action.shortcut && <span className="text-xs font-medium text-slate-400">{action.shortcut}</span>}</div><p className="mt-4 text-sm font-bold text-slate-900">{action.label}</p><p className="mt-1 text-xs leading-5 text-slate-500">{action.detail}</p></button>)}</div>
-    </section>
-    <RecordView onEdit={onEdit} view="customers" kind="contacts" records={records} accounts={accounts} currency={currency} loading={loading} search={search} setSearch={setSearch} onRefresh={onRefresh} onCreate={onCreateCustomer} onDelete={onDelete} onEditItem={() => {}} onDuplicateItem={() => {}} onOpenDetail={onOpenDetail} canWrite={canWrite} canDelete={canDelete} />
-  </div>;
-}
-
-function VendorCenter({ companyId, onEdit, records, accounts, currency, loading, search, setSearch, onRefresh, onCreateVendor, onDelete, onTransaction, onOpenDetail, canWrite, canDelete }: { companyId: number; onEdit?: (record: DataRecord) => void; records: DataRecord[]; accounts: DataRecord[]; currency: string; loading: boolean; search: string; setSearch: (v: string) => void; onRefresh: () => void; onCreateVendor: () => void; onDelete: (id: number) => void; onTransaction: (type: string) => void; onOpenDetail: (id: number) => void; canWrite: boolean; canDelete: boolean }) {
-  const [deletingVendor, setDeletingVendor] = useState<DataRecord | null>(null);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [history, setHistory] = useState<Array<{ id: number; action: string; createdAt: string; details: string }>>([]);
-  async function openHistory() {
-    setHistoryOpen(true); setHistoryLoading(true); setHistory([]);
-    try {
-      const response = await fetch(`/api/records?kind=vendor-history&companyId=${companyId}`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not load vendor history.");
-      setHistory(data.history);
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not load vendor history."); }
-    finally { setHistoryLoading(false); }
-  }
-  const actions = [
-    { label: "Enter Bills", detail: "Record a vendor bill and receive its items", type: "bill", icon: ReceiptText },
-    { label: "Pay Bills", detail: "Reduce the vendor balance and bank account", type: "bill payment", icon: WalletCards },
-    { label: "Create Purchase Orders", detail: "Send a non-posting order to a supplier", type: "purchase order", icon: FileBarChart2 },
-    { label: "Receive Items and Enter Bill", detail: "Receive stock and post Accounts Payable together", type: "bill", icon: PackageCheck },
-    { label: "Receive Items", detail: "Increase stock before the supplier bill arrives", type: "item receipt", icon: Boxes },
-    { label: "Enter Bill for Received Items", detail: "Move received-item clearing into Accounts Payable", type: "received item bill", icon: BadgeDollarSign },
-  ];
-  return <div className="space-y-6">
-    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-col gap-3 border-b bg-slate-50/80 p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-slate-900">Supplier workflows</h2><p className="mt-1 text-sm text-slate-500">Order, receive, bill, and pay vendors from one place.</p></div><Badge variant="outline" className="w-fit">Supplier Centre</Badge></div>
-      <div className="grid gap-px bg-slate-200 sm:grid-cols-2 xl:grid-cols-3">{actions.map((action) => <button key={action.label} type="button" disabled={!canWrite} onClick={() => onTransaction(action.type)} className="group min-h-32 bg-white p-5 text-left transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"><div className="flex items-start justify-between"><span className="grid size-10 place-items-center rounded-lg bg-slate-100 text-slate-600 group-hover:bg-emerald-100 group-hover:text-emerald-700"><action.icon className="size-5" /></span><ChevronRight className="size-4 text-slate-300 group-hover:text-emerald-500" /></div><p className="mt-4 text-sm font-bold text-slate-900">{action.label}</p><p className="mt-1 text-xs leading-5 text-slate-500">{action.detail}</p></button>)}</div>
-    </section>
-    {canDelete && <div className="flex justify-end"><Button type="button" variant="outline" onClick={openHistory}><Clock3 className="size-4" />Vendor history</Button></div>}
-    <Dialog open={historyOpen} onOpenChange={setHistoryOpen}><DialogContent className="sm:max-w-3xl"><DialogHeader><DialogTitle>Vendor history</DialogTitle><DialogDescription>Recent edits and deletions, including who made each change. Recording starts with this update.</DialogDescription></DialogHeader>
-      {historyLoading ? <p>Loading historyâ€¦</p> : !history.length ? <p className="text-sm text-muted-foreground">No recorded vendor changes yet.</p> : <div className="space-y-3">{history.map((entry) => {
-        let detail: { actorName?: string; actorEmail?: string; vendorName?: string; changes?: Array<{ field: string; before: unknown; after: unknown }> } = {};
-        try { detail = JSON.parse(entry.details); } catch { /* Legacy entries do not record an actor. */ }
-        return <div key={entry.id} className="rounded-lg border p-3 text-sm"><p className="font-semibold">{detail.vendorName || "Vendor"} Â· {entry.action}</p><p className="text-muted-foreground">{detail.actorName || detail.actorEmail || "User not recorded"} Â· {new Date(entry.createdAt).toLocaleString()}</p>{detail.changes?.map((change) => <p key={change.field} className="mt-1 break-words"><span className="font-medium">{change.field}:</span> {String(change.before || "â€”")} â†’ {String(change.after || "â€”")}</p>)}</div>;
-      })}</div>}
-    </DialogContent></Dialog>
-    <Dialog open={Boolean(deletingVendor)} onOpenChange={(open) => { if (!open) setDeletingVendor(null); }}><DialogContent><DialogHeader><DialogTitle>Delete vendor?</DialogTitle><DialogDescription>Delete {String(deletingVendor?.name || "this vendor")}? This cannot be undone. Your name and the deletion time will remain in Vendor history. Vendors with balances or transactions cannot be deleted.</DialogDescription></DialogHeader><DialogFooter><Button type="button" variant="outline" onClick={() => setDeletingVendor(null)}>Cancel</Button><Button type="button" variant="destructive" onClick={() => { if (deletingVendor) { onDelete(deletingVendor.id); setDeletingVendor(null); } }}>Delete vendor</Button></DialogFooter></DialogContent></Dialog>
-    <RecordView onEdit={onEdit} view="vendors" kind="contacts" records={records} accounts={accounts} currency={currency} loading={loading} search={search} setSearch={setSearch} onRefresh={onRefresh} onCreate={onCreateVendor} onDelete={(id) => setDeletingVendor(records.find((record) => record.id === id) ?? null)} onEditItem={() => {}} onDuplicateItem={() => {}} onOpenDetail={onOpenDetail} canWrite={canWrite} canDelete={canDelete} />
-  </div>;
-}
-
-function BankingCenter({ records, accounts, currency, loading, search, setSearch, onRefresh, onCreate, onDelete, onTransaction, onReport, onOpenDetail, canWrite, canDelete, reportLoading }: { records: DataRecord[]; accounts: DataRecord[]; currency: string; loading: boolean; search: string; setSearch: (v: string) => void; onRefresh: () => void; onCreate: () => void; onDelete: (id: number) => void; onTransaction: (type: string) => void; onReport: (key: string) => void; onOpenDetail: (id: number) => void; canWrite: boolean; canDelete: boolean; reportLoading: boolean }) {
-  const actions = [
-    { label: "Write Cheques", detail: "Pay a vendor or record an expense", type: "cheque", shortcut: "Ctrl+W", icon: WalletCards },
-    { label: "Order Cheques & Envelopes", detail: "Record a non-posting cheque-supply order", type: "cheque order", icon: ReceiptText },
-    { label: "Enter Credit Card Charges", detail: "Post a purchase to the linked credit-card account", type: "credit card charge", icon: BadgeDollarSign },
-    { label: "Use Register", detail: "Review bank debits, credits, and balances", report: "bank-register", shortcut: "Ctrl+R", icon: BookOpen },
-    { label: "Make Deposits", detail: "Post money received to the linked bank account", type: "deposit", icon: CircleDollarSign },
-    { label: "Transfer Funds", detail: "Move money between two bank accounts", type: "transfer", icon: ArrowRightLeft },
-    { label: "Reconcile", detail: "Review cleared and uncleared bank activity", report: "bank-reconciliation", icon: CheckCircle2 },
-  ];
-  return <div className="space-y-6">
-    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-col gap-3 border-b bg-slate-50/80 p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-slate-900">Banking workflows</h2><p className="mt-1 text-sm text-slate-500">Payments, deposits, transfers, registers, and reconciliation in one place.</p></div><Badge variant="outline" className="w-fit">Banking Centre</Badge></div>
-      <div className="grid gap-px bg-slate-200 sm:grid-cols-2 xl:grid-cols-4">{actions.map((action) => <button key={action.label} type="button" disabled={action.report ? reportLoading : !canWrite} onClick={() => action.report ? onReport(action.report) : action.type && onTransaction(action.type)} className="group min-h-32 bg-white p-5 text-left transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"><div className="flex items-start justify-between gap-3"><span className="grid size-10 place-items-center rounded-lg bg-slate-100 text-slate-600 group-hover:bg-emerald-100 group-hover:text-emerald-700"><action.icon className="size-5" /></span>{action.shortcut ? <span className="text-xs font-medium text-slate-400">{action.shortcut}</span> : <ChevronRight className="size-4 text-slate-300 group-hover:text-emerald-500" />}</div><p className="mt-4 text-sm font-bold text-slate-900">{action.label}</p><p className="mt-1 text-xs leading-5 text-slate-500">{action.detail}</p></button>)}</div>
-    </section>
-    <RecordView view="banking" kind="transactions" records={records} accounts={accounts} currency={currency} loading={loading} search={search} setSearch={setSearch} onRefresh={onRefresh} onCreate={onCreate} onDelete={onDelete} onEditItem={() => {}} onDuplicateItem={() => {}} onOpenDetail={onOpenDetail} canWrite={canWrite} canDelete={canDelete} />
-  </div>;
-}
-
-const accountCategories = ["Assets", "Liabilities", "Equity", "Income", "Cost of Goods Sold", "Expenses", "Other / Unclassified"] as const;
-type AccountCategory = (typeof accountCategories)[number];
-function accountCategory(type: unknown): AccountCategory {
-  if (["Bank", "Accounts Receivable", "Other Current Asset", "Fixed Asset", "Other Asset"].includes(String(type))) return "Assets";
-  if (["Accounts Payable", "Other Current Liability", "Long Term Liability", "Loan", "Credit Card"].includes(String(type))) return "Liabilities";
-  if (type === "Equity") return "Equity";
-  if (["Income", "Other Income"].includes(String(type))) return "Income";
-  if (type === "Cost of Goods Sold") return "Cost of Goods Sold";
-  if (["Expense", "Other Expense"].includes(String(type))) return "Expenses";
-  return "Other / Unclassified";
-}
-
-function RecordView({ companyId, locationId, onEdit, view, kind, records, accounts, currency, loading, search, setSearch, onRefresh, onCreate, onDelete, onEditItem, onDuplicateItem, onOpenDetail, canWrite, canDelete }: { companyId?: number; locationId?: number; onEdit?: (record: DataRecord) => void; view: View; kind: Kind; records: DataRecord[]; accounts: DataRecord[]; currency: string; loading: boolean; search: string; setSearch: (v: string) => void; onRefresh: () => void; onCreate: () => void; onDelete: (id: number) => void; onEditItem: (item: DataRecord) => void; onDuplicateItem: (id: number) => void; onOpenDetail: (id: number) => void; canWrite: boolean; canDelete: boolean }) {
-  const [sharedRefresh,setSharedRefresh] = useState(0);
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [exportingList, setExportingList] = useState<"xlsx" | "pdf" | "csv" | null>(null);
-  const [accountCurrency, setAccountCurrency] = useState("all");
-  const [selectedCategory, setSelectedCategory] = useState<"All" | AccountCategory>("All");
-  const accountCurrencies = [...new Set(accounts.map((account) => String(account.currency || currency)))].sort();
-  const selectedAccountCurrency = accountCurrencies.includes(accountCurrency) ? accountCurrency : "all";
-  const [stockFilter, setStockFilter] = useState<"all" | "in" | "low" | "out" | "shared">("all");
-  const stockCounts = kind === "items" ? {
-    all: records.length,
-    in: records.filter((record) => Number(record.quantity) > 0).length,
-    low: records.filter((record) => Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint)).length,
-    out: records.filter((record) => Number(record.quantity) <= 0).length,
-  } : { all: 0, in: 0, low: 0, out: 0 };
-  const currencyAccounts = records.filter((record) => selectedAccountCurrency === "all" || String(record.currency || currency) === selectedAccountCurrency);
-  const unfilteredRecords = kind === "accounts" ? currencyAccounts.filter((record) => selectedCategory === "All" || accountCategory(record.type) === selectedCategory) : kind !== "items" || stockFilter === "all" ? records : records.filter((record) => stockFilter === "in" ? Number(record.quantity) > 0 : stockFilter === "low" ? Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint) : Number(record.quantity) <= 0);
-  const visibleRecords = filterRecordListByDate(unfilteredRecords, kind, dateFrom, dateTo);
-  async function exportList(format: "xlsx" | "pdf" | "csv") {
-    if (!visibleRecords.length) return toast.error("There are no records to export.");
-    setExportingList(format);
-    try {
-      const report = recordListReport(view, kind, visibleRecords, currency, dateFrom, dateTo);
-      const content = format === "csv" ? reportCsv(report, "COMNET Enterprise Accounting", "Current selection") : format === "xlsx" ? await reportWorkbook(report, "COMNET Enterprise Accounting", "Current selection") : await reportPdf(report, "COMNET Enterprise Accounting", "Current selection");
-      const blob = new Blob([content as BlobPart], { type: format === "csv" ? "text/csv;charset=utf-8" : format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = reportFilename(report, format);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      toast.success(`${format === "xlsx" ? "Excel" : format.toUpperCase()} export downloaded.`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not create this export.");
-    } finally {
-      setExportingList(null);
-    }
-  }
-  return <section className="rounded-xl border border-slate-200 bg-white shadow-sm"><div className="flex flex-col gap-3 border-b p-4 lg:flex-row lg:items-center lg:justify-between"><div className="flex min-w-0 flex-1 flex-wrap items-center gap-2"><div className="relative w-full sm:max-w-sm"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={`Search ${view}â€¦`} className="pl-9" /></div>{kind === "transactions" && <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/20 p-1" role="group" aria-label="Filter transactions by date"><span className="px-2 text-xs font-medium text-muted-foreground">Date</span><Input type="date" value={dateFrom} max={dateTo || undefined} onChange={(event) => setDateFrom(event.target.value)} aria-label="Transaction date from" title="From date" className="w-[150px] border-0 bg-background shadow-none" /><span className="text-xs text-muted-foreground">to</span><Input type="date" value={dateTo} min={dateFrom || undefined} onChange={(event) => setDateTo(event.target.value)} aria-label="Transaction date to" title="To date" className="w-[150px] border-0 bg-background shadow-none" />{(dateFrom || dateTo) && <Button type="button" variant="ghost" size="sm" onClick={() => { setDateFrom(""); setDateTo(""); }}>Clear</Button>}</div>}</div><div className="flex flex-wrap gap-2">{kind === "accounts" && <Select value={selectedAccountCurrency} onValueChange={setAccountCurrency}><SelectTrigger className="w-40" aria-label="Filter accounts by currency"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All currencies</SelectItem>{accountCurrencies.map((code) => <SelectItem key={code} value={code}>{code}</SelectItem>)}</SelectContent></Select>}<Button variant="outline" size="icon" onClick={() => { if(kind === "items" && ["out","shared"].includes(stockFilter)) setSharedRefresh(value => value + 1); else onRefresh(); }} aria-label="Refresh"><RefreshCw className="size-4" /></Button>{!(kind === "items" && ["out","shared"].includes(stockFilter)) && <DropdownMenu modal={false}><DropdownMenuTrigger asChild><Button type="button" variant="outline" disabled={Boolean(exportingList) || !visibleRecords.length}><Download className="size-4" />{exportingList ? "Preparingâ€¦" : "Export"}<ChevronDown className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => void exportList("pdf")}><FileText className="size-4" />PDF Â· A4</DropdownMenuItem><DropdownMenuItem onSelect={() => void exportList("xlsx")}><FileSpreadsheet className="size-4" />Excel (.xlsx)</DropdownMenuItem><DropdownMenuItem onSelect={() => void exportList("csv")}><Table2 className="size-4" />CSV</DropdownMenuItem></DropdownMenuContent></DropdownMenu>}{canWrite && <Button onClick={onCreate} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400"><Plus className="size-4" />Add new</Button>}</div></div>
-    {kind === "accounts" && <div className="flex flex-wrap gap-2 border-b bg-slate-50 p-3" aria-label="Account categories"><Button type="button" size="sm" variant={selectedCategory === "All" ? "default" : "outline"} aria-pressed={selectedCategory === "All"} onClick={() => setSelectedCategory("All")}>All accounts <Badge variant="secondary">{currencyAccounts.length}</Badge></Button>{accountCategories.filter(category => category !== "Other / Unclassified" || currencyAccounts.some(record => accountCategory(record.type) === category)).map(category => <Button key={category} type="button" size="sm" variant={selectedCategory === category ? "default" : "outline"} aria-pressed={selectedCategory === category} onClick={() => setSelectedCategory(category)}>{category}<Badge variant="secondary">{currencyAccounts.filter(record => accountCategory(record.type) === category).length}</Badge></Button>)}</div>}
-    {kind === "items" ? <div className="flex flex-wrap gap-2 border-b bg-slate-50 p-3"><Button type="button" size="sm" variant={stockFilter === "all" ? "default" : "outline"} onClick={() => setStockFilter("all")}><Boxes className="size-4" />All items <Badge variant="secondary">{stockCounts.all}</Badge></Button><Button type="button" size="sm" variant={stockFilter === "in" ? "default" : "outline"} onClick={() => setStockFilter("in")}><PackageCheck className="size-4" />In stock <Badge variant="secondary">{stockCounts.in}</Badge></Button><Button type="button" size="sm" variant={stockFilter === "low" ? "default" : "outline"} onClick={() => setStockFilter("low")}><AlertTriangle className="size-4" />Low stock <Badge variant="secondary">{stockCounts.low}</Badge></Button><Button type="button" size="sm" variant={stockFilter === "out" ? "destructive" : "outline"} onClick={() => setStockFilter("out")}><PackageX className="size-4" />Out of stock Â· All companies</Button></div> : null}
-    {kind === "items" && stockFilter === "shared" ? <SharedItemCatalogue key={sharedRefresh} search={search} refresh={sharedRefresh} companyId={companyId} locationId={locationId} canUse={canWrite} onUsed={onRefresh} /> : kind === "items" && stockFilter === "out" ? <SharedOutOfStock key={sharedRefresh} search={search} refresh={sharedRefresh} companyId={companyId} locationId={locationId} canUse={canWrite} onUsed={onRefresh} /> : kind === "transactions" ? <TransactionTable onEdit={onEdit} records={visibleRecords} empty={loading ? "Loading recordsâ€¦" : "No transactions found."} onDelete={canDelete ? onDelete : undefined} onOpen={onOpenDetail} /> : kind === "contacts" ? <ContactTable onEdit={canWrite ? onEdit : undefined} records={visibleRecords} accounts={accounts} empty={loading ? "Loading recordsâ€¦" : "No contacts found."} onDelete={canDelete ? onDelete : undefined} /> : kind === "items" ? <ItemTable records={visibleRecords} currency={currency} empty={loading ? "Loading recordsâ€¦" : stockFilter === "out" ? "No out-of-stock items found." : "No inventory items found."} onDelete={canDelete ? onDelete : undefined} onEdit={canWrite ? onEditItem : undefined} onDuplicate={canWrite ? onDuplicateItem : undefined} /> : <AccountTable onOpenTransaction={onOpenDetail} accounts={accounts} onEdit={canWrite ? onEdit : undefined} records={visibleRecords} currency={currency} empty={loading ? "Loading recordsâ€¦" : "No accounts found."} onDelete={canDelete ? onDelete : undefined} />}
-  </section>;
-}
-
-function EmptyRow({ text, columns }: { text: string; columns: number }) { return <TableRow><TableCell colSpan={columns} className="h-40 text-center text-sm text-slate-500">{text}</TableCell></TableRow>; }
-function DeleteButton({ id, onDelete }: { id: number; onDelete?: (id: number) => void }) { return onDelete ? <Button variant="ghost" size="icon" onClick={() => onDelete(id)} aria-label="Delete record" className="text-slate-400 hover:text-rose-600" title="Delete"><Trash2 className="size-4" /></Button> : null; }
-function TransactionTable({ records, empty, onDelete, onOpen, onEdit }: { onEdit?: (record: DataRecord) => void; records: DataRecord[]; empty: string; onDelete?: (id: number) => void; onOpen?: (id: number) => void }) { return <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead>No.</TableHead><TableHead>Name</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Amount</TableHead><TableHead className="w-44">Actions</TableHead></TableRow></TableHeader><TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={7} /> : records.map((r) => <TableRow key={r.id} className="cursor-pointer" onDoubleClick={() => onOpen?.(r.id)}><TableCell className="text-slate-500">{String(r.transactionDate)}</TableCell><TableCell className="font-medium capitalize">{String(r.type)}</TableCell><TableCell className="font-mono text-xs text-slate-500">{String(r.number)}{r.companyName && <div className="mt-1 flex flex-wrap gap-1 font-sans"><Badge variant="outline">{String(r.companyName)}</Badge><Badge variant="secondary">{String(r.inventoryName)}</Badge></div>}</TableCell><TableCell>{String(r.party)}</TableCell><TableCell><StatusBadge value={(r.type === "purchase order" && r.status === "received") || (["estimate", "sales order", "proforma invoice"].includes(String(r.type)) && r.status === "invoiced") ? "converted" : String(r.status)} /></TableCell><TableCell className="text-right font-semibold">{formatMoney(r.total, String(r.currency || "AED"))}</TableCell><TableCell><div className="flex flex-wrap gap-1"><Button variant="ghost" size="icon" onClick={() => onOpen?.(r.id)} aria-label={`View ${String(r.number)}`} className="text-slate-400 hover:text-emerald-600" title="View"><Eye className="size-4" /></Button>{onEdit && ["invoice", "customer payment", "estimate", "proforma invoice", "sales order", "bill", "purchase order", "item receipt", "received item bill", "expense", "bill payment", "vendor payment", "vendor credit"].includes(String(r.type)) && <Button variant="ghost" size="icon" title="Edit" onClick={() => onEdit(r)} aria-label={`Edit ${String(r.number)}`}><Pencil className="size-4" /></Button>}{onDelete && ["purchase order", "item receipt", "estimate", "proforma invoice", "sales order", "invoice"].includes(String(r.type)) ? <Button type="button" variant="ghost" size="icon" aria-label={`Delete ${String(r.number)}`} className="text-rose-600" onClick={() => { if (window.confirm(`Delete ${String(r.type)} ${String(r.number)}? This cannot be undone.${r.type === "item receipt" ? " Received stock will be reversed and any linked PO balance will be restored." : ""}`)) onDelete(r.id); }} title="Delete"><Trash2 className="size-4" /></Button> : <DeleteButton id={r.id} onDelete={onDelete} />}</div></TableCell></TableRow>)}</TableBody></Table>; }
-function ContactTable({ onEdit, records, accounts, empty, onDelete }: { onEdit?: (record: DataRecord) => void; records: DataRecord[]; accounts: DataRecord[]; empty: string; onDelete?: (id: number) => void }) {
-  return <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Company</TableHead><TableHead>Currency</TableHead><TableHead>Linked account</TableHead><TableHead>Email</TableHead><TableHead>Phone</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Balance</TableHead><TableHead className="w-12" /></TableRow></TableHeader><TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={9} /> : records.map((record) => { const ledgerAccount = accounts.find((account) => account.id === Number(record.ledgerAccountId)); return <TableRow key={record.id}><TableCell className="font-semibold"><div className="flex items-center gap-3"><span>{String(record.name)}</span>{record.type === "vendor" && <div className="flex gap-2">{onEdit && <Button type="button" variant="outline" size="sm" aria-label={`Edit vendor ${String(record.name)}`} onClick={() => onEdit(record)}><Pencil className="size-4" />Edit</Button>}{onDelete && <Button type="button" variant="outline" size="icon" aria-label={`Delete vendor ${String(record.name)}`} onClick={() => onDelete(record.id)} className="text-rose-600" title="Delete"><Trash2 className="size-4" /></Button>}</div>}</div></TableCell><TableCell>{String(record.company || "â€”")}</TableCell><TableCell><Badge variant="outline">{String(record.currency || "AED")}</Badge></TableCell><TableCell className="text-slate-500">{ledgerAccount ? String(ledgerAccount.name) : record.type === "employee" ? "â€”" : "Not linked"}</TableCell><TableCell>{String(record.email || "â€”")}</TableCell><TableCell>{String(record.phone || "â€”")}</TableCell><TableCell><StatusBadge value={String(record.status)} /></TableCell><TableCell className="text-right font-semibold">{formatMoney(record.balance, String(record.currency || "AED"))}</TableCell><TableCell><div className="flex">{record.type !== "vendor" && onEdit && <Button type="button" variant="ghost" size="icon" aria-label={`Edit ${String(record.name)}`} onClick={() => onEdit(record)}><Pencil className="size-4" /></Button>}{record.type !== "vendor" && <DeleteButton id={record.id} onDelete={onDelete} />}</div></TableCell></TableRow>; })}</TableBody></Table>;
-}
-function ItemTable({ records, currency, empty, onDelete, onEdit, onDuplicate }: { records: DataRecord[]; currency: string; empty: string; onDelete?: (id: number) => void; onEdit?: (item: DataRecord) => void; onDuplicate?: (id: number) => void }) { return <Table><TableHeader><TableRow><TableHead>Item No.</TableHead><TableHead>SKU</TableHead><TableHead>Item & description</TableHead><TableHead>Category</TableHead><TableHead className="text-right">On hand</TableHead><TableHead className="text-right">Reorder</TableHead><TableHead className="text-right">Sales price</TableHead><TableHead className="text-right">Avg. cost</TableHead><TableHead className="w-32" /></TableRow></TableHeader><TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={9} /> : records.map((r) => { const description = itemDisplayDescription(r); const out = Number(r.quantity) <= 0; return <TableRow key={r.id}><TableCell className="font-mono text-xs">{String(r.itemNumber || 13000 + r.id)}</TableCell><TableCell className="font-mono text-xs">{String(r.sku)}</TableCell><TableCell><div className="flex flex-wrap items-center gap-2"><p className="font-semibold">{String(r.name)}</p>{out ? <Badge className="bg-rose-100 text-rose-700 hover:bg-rose-100">Out of stock</Badge> : null}</div>{description ? <p className="mt-1 min-w-64 max-w-xl whitespace-normal break-words [overflow-wrap:anywhere] text-xs leading-5 text-slate-500" title={description}>{description}</p> : null}</TableCell><TableCell>{String(r.category)}</TableCell><TableCell className={`text-right font-semibold ${out ? "text-rose-600" : ""}`}>{String(r.quantity)}</TableCell><TableCell className="text-right">{String(r.reorderPoint)}</TableCell><TableCell className="text-right">{formatMoney(r.salesPrice, currency)}</TableCell><TableCell className="text-right">{formatMoney(r.cost, currency)}</TableCell><TableCell><div className="flex">{onDuplicate && <Button type="button" variant="ghost" size="icon" onClick={() => onDuplicate(r.id)} aria-label={`Duplicate ${String(r.name)}`} title="Duplicate item" className="text-slate-400 hover:text-violet-600"><Copy className="size-4" /></Button>}{onEdit && <Button type="button" variant="ghost" size="icon" onClick={() => onEdit(r)} aria-label={`Edit ${String(r.name)}`} className="text-slate-400 hover:text-sky-600"><Pencil className="size-4" /></Button>}<DeleteButton id={r.id} onDelete={onDelete} /></div></TableCell></TableRow>; })}</TableBody></Table>; }
-function AccountTable({ onOpenTransaction, accounts, onEdit, records, currency, empty, onDelete }: { onOpenTransaction: (id: number) => void; accounts: DataRecord[]; onEdit?: (record: DataRecord) => void; records: DataRecord[]; currency: string; empty: string; onDelete?: (id: number) => void }) {
-  const [viewId, setViewId] = useState<number | null>(null);
-  const viewed = records.find((record) => record.id === viewId);
-  const viewedParent = accounts.find((account) => account.id === Number(viewed?.parentAccountId));
-  const viewedRole = accountRoleOptions.find(([value]) => value === viewed?.systemRole);
-  return <><Table><TableHeader><TableRow><TableHead>Code</TableHead><TableHead>Account name</TableHead><TableHead>Linked use</TableHead><TableHead>Currency</TableHead><TableHead>Sub-account of</TableHead><TableHead>Type</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Balance</TableHead><TableHead className="w-32">Actions</TableHead></TableRow></TableHeader><TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={9} /> : accountCategories.flatMap((category) => { const group = records.filter(record => accountCategory(record.type) === category).sort((a, b) => String(a.code).localeCompare(String(b.code), undefined, { numeric: true })); return group.length ? [<TableRow key={`category-${category}`} className="bg-slate-100"><TableCell colSpan={9} className="font-bold text-slate-800">{category} <span className="ml-2 text-xs font-normal text-slate-500">{group.length} {group.length === 1 ? "account" : "accounts"}</span></TableCell></TableRow>, ...group.map((r) => { const parent = accounts.find((candidate) => candidate.id === Number(r.parentAccountId)); const role = accountRoleOptions.find(([value]) => value === r.systemRole); return <TableRow key={r.id}><TableCell className="font-mono text-xs">{String(r.code)}</TableCell><TableCell className="font-semibold">{String(r.name)}</TableCell><TableCell>{role ? <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">{role[1]}</Badge> : <span className="text-slate-400">Unlinked</span>}</TableCell><TableCell><Badge variant="outline">{String(r.currency || currency)}</Badge></TableCell><TableCell className="text-slate-500">{parent ? String(parent.name) : "â€”"}</TableCell><TableCell>{String(r.type)}</TableCell><TableCell><Badge variant="outline">{r.active ? "Active" : "Inactive"}</Badge></TableCell><TableCell className="text-right font-semibold">{formatMoney(r.balance, String(r.currency || currency))}</TableCell><TableCell><div className="flex"><Button type="button" variant="ghost" size="icon" title="View account" aria-label={`View ${String(r.name)}`} onClick={() => setViewId(r.id)}><Eye className="size-4" /></Button>{onEdit && <Button type="button" variant="ghost" size="icon" aria-label={`Edit ${String(r.name)}`} onClick={() => onEdit(r)}><Pencil className="size-4" /></Button>}{r.parentAccountId ? <DeleteButton id={r.id} onDelete={onDelete} /> : null}</div></TableCell></TableRow>; })] : []; })}</TableBody></Table>
-    <Dialog open={Boolean(viewed)} onOpenChange={(open) => { if (!open) setViewId(null); }}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
-        <DialogHeader><DialogTitle>{viewed ? String(viewed.name) : "Account details"}</DialogTitle><DialogDescription>Account details and current balance.</DialogDescription></DialogHeader>
-        {viewed && <dl className="grid gap-4 sm:grid-cols-2">
-          {[
-            ["Account code", String(viewed.code)],
-            ["Account name", String(viewed.name)],
-            ["Type", String(viewed.type)],
-            ["Linked use", viewedRole?.[1] ?? "Unlinked"],
-            ["Account currency", String(viewed.currency || currency)],
-            ["Sub-account of", viewedParent ? String(viewedParent.name) : "â€”"],
-            ["Status", viewed.active ? "Active" : "Inactive"],
-            [`Balance (${String(viewed.currency || currency)})`, formatMoney(viewed.balance, String(viewed.currency || currency))],
-          ].map(([label, value]) => <div key={label} className="rounded-md border p-3"><dt className="text-sm text-muted-foreground">{label}</dt><dd className="mt-1 break-words font-medium">{value}</dd></div>)}
-        </dl>}
-        {viewed && <AccountHistory key={viewed.id} accountId={viewed.id} companyId={Number(viewed.companyId)} onOpen={(id) => { setViewId(null); onOpenTransaction(id); }} />}
-        <DialogFooter><Button type="button" variant="outline" onClick={() => setViewId(null)}>Close</Button></DialogFooter>
-      </DialogContent>
-    </Dialog>
-  </>;
-}
-function StatusBadge({ value }: { value: string }) { const good = value === "paid" || value === "active" || value === "cleared" || value === "converted"; return <Badge variant="outline" className={good ? "border-emerald-200 bg-emerald-50 text-emerald-700" : value === "overdue" ? "border-rose-200 bg-rose-50 text-rose-700" : "border-amber-200 bg-amber-50 text-amber-700"}>{value}</Badge>; }
-
-function ReportCenter({ companyId, locationId, memorisedReports, onOpen, onOpenMemorised, onDeleteMemorised, loading }: { companyId: number; locationId: number; memorisedReports: MemorisedReportRecord[]; onOpen: (key: string) => void; onOpenMemorised: (record: MemorisedReportRecord) => void; onDeleteMemorised: (record: MemorisedReportRecord) => void; loading: boolean }) {
-  const [reportSearch, setReportSearch] = useState("");
-  const [activeCategory, setActiveCategory] = useState<"All" | ReportCategory>("All");
-  const normalizedSearch = reportSearch.trim().toLowerCase();
-  const reports = allReports.filter(([name, description, category]) =>
-    (activeCategory === "All" || category === activeCategory)
-    && (!normalizedSearch || [name, description, category].some((value) => value.toLowerCase().includes(normalizedSearch))),
-  );
-  const groupedReports = reportCategoryOrder
-    .map((category) => ({ category, reports: reports.filter((report) => report[2] === category) }))
-    .filter((group) => group.reports.length > 0);
-  const groupedMemorised = reportCategoryOrder
-    .map((category) => ({ category, reports: memorisedReports.filter((report) => (allReports.find((definition) => definition[3] === report.reportKey)?.[2] ?? report.category) === category) }))
-    .filter((group) => group.reports.length > 0);
-  const resetFilters = () => { setReportSearch(""); setActiveCategory("All"); };
-  const selectedLabel = activeCategory === "All" ? "All Reports" : activeCategory;
-
-  return <div className="space-y-6">
-    <section className="report-center-shell overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-emerald-950 px-6 py-6 text-white">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-          <div><div className="flex items-center gap-3"><span className="grid size-11 place-items-center rounded-xl bg-emerald-400 text-slate-950"><FileBarChart2 className="size-5" /></span><div><h2 className="text-xl font-bold">Professional Report Center</h2><p className="mt-1 text-sm text-slate-300">Find, open and export every business report from one place.</p></div></div></div>
-          <div className="relative w-full lg:max-w-md"><Search className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-slate-400" /><Input value={reportSearch} onChange={(event) => { setReportSearch(event.target.value); if (event.target.value) setActiveCategory("All"); }} placeholder="Search report name, category or purpose..." aria-label="Search all reports" className="report-center-search h-12 border-white/15 bg-white text-slate-950 pl-12 shadow-lg placeholder:text-slate-400" />{reportSearch && <button type="button" onClick={resetFilters} className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-semibold text-emerald-700">Clear</button>}</div>
-        </div>
-        <div className="mt-5 flex flex-wrap items-center gap-2 text-xs text-slate-300"><Badge className="bg-white/10 text-white hover:bg-white/10">{allReports.length} reports</Badge><span>â€¢</span><span>{reportCategoryOrder.length} categories</span><span>â€¢</span><span>{memorisedReports.length} memorised</span></div>
-      </div>
-      <div className="grid min-h-[620px] lg:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className="border-b bg-slate-950 p-3 lg:border-b-0 lg:border-r lg:border-slate-800">
-          <p className="px-4 pb-3 pt-2 text-[11px] font-bold uppercase tracking-[.18em] text-slate-500">Report categories</p>
-          <nav className="space-y-1" aria-label="Report categories">
-            {(["All", ...reportCategoryOrder] as const).map((category) => { const active = activeCategory === category; const count = category === "All" ? allReports.length : allReports.filter((report) => report[2] === category).length; return <button key={category} type="button" onClick={() => { setActiveCategory(category); setReportSearch(""); }} className={`group flex w-full items-center gap-3 rounded-xl px-4 py-3.5 text-left transition ${active ? "report-category-active bg-emerald-400 text-slate-950 shadow-lg shadow-emerald-950/30" : "text-slate-300 hover:bg-white/8 hover:text-white"}`} aria-current={active ? "page" : undefined}><span className={`min-w-0 flex-1 text-sm font-bold ${active ? "" : "group-hover:translate-x-0.5"}`}>{category === "All" ? "All Reports" : category}</span><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${active ? "bg-slate-950/10" : "bg-white/8 text-slate-400"}`}>{count}</span><ChevronRight className={`size-4 shrink-0 transition ${active ? "translate-x-0.5" : "text-slate-600 group-hover:translate-x-0.5 group-hover:text-slate-300"}`} /></button>; })}
-          </nav>
-        </aside>
-        <div className="report-library-panel min-w-0 bg-slate-50/70 p-5 sm:p-6">
-          <div className="mb-5 flex flex-col gap-2 border-b border-slate-200 pb-5 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-bold uppercase tracking-[.16em] text-emerald-600">Report library</p><h3 className="mt-1 text-xl font-bold text-slate-950">{normalizedSearch ? `Search results for â€œ${reportSearch.trim()}â€` : selectedLabel}</h3><p className="mt-1 text-sm text-slate-500">{reports.length} {reports.length === 1 ? "report" : "reports"} available</p></div>{loading && <Badge variant="outline" className="w-fit bg-white">Opening reportâ€¦</Badge>}</div>
-          {groupedReports.length ? <div className="space-y-6">{groupedReports.map(({ category, reports: categoryReports }) => <section key={category}><div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2"><span className="h-5 w-1 rounded-full bg-emerald-500" /><h4 className="font-bold text-slate-900">{category}</h4></div><span className="text-xs font-medium text-slate-400">{categoryReports.length} reports</span></div><div className="grid gap-3 xl:grid-cols-2">{categoryReports.map(([name, description, , key]) => <button key={name} type="button" disabled={loading} onClick={() => onOpen(key)} className="report-center-card group flex min-h-24 items-center gap-4 rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 disabled:opacity-60"><span className="grid size-11 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-500 transition group-hover:bg-emerald-100 group-hover:text-emerald-700"><FileText className="size-5" /></span><span className="min-w-0 flex-1"><span className="block text-sm font-bold text-slate-900">{name}</span><span className="mt-1 block text-xs leading-5 text-slate-500">{description}</span></span><ChevronRight className="size-5 shrink-0 text-slate-300 transition group-hover:translate-x-1 group-hover:text-emerald-500" /></button>)}</div></section>)}</div> : <div className="report-center-empty rounded-xl border border-dashed border-slate-300 bg-white p-12 text-center"><Search className="mx-auto size-7 text-slate-300" /><p className="mt-3 font-bold text-slate-800">No reports found</p><p className="mt-1 text-sm text-slate-500">Try a different report name or category.</p><Button variant="outline" size="sm" className="mt-4" onClick={resetFilters}>Show all reports</Button></div>}
-        </div>
-      </div>
-    </section>
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
-      <section className="report-memorised-panel overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"><div className="report-memorised-header flex items-center justify-between border-b bg-slate-50 px-5 py-4"><div><h3 className="font-bold text-slate-900">Memorised Reports</h3><p className="text-xs text-slate-500">Saved report settings for this company</p></div><Badge variant="outline" className="bg-white">{memorisedReports.length}</Badge></div>{groupedMemorised.length ? <div className="divide-y">{groupedMemorised.map(({ category, reports: savedReports }) => <div key={category} className="p-4"><div className="mb-2 flex items-center gap-2"><ChevronRight className="size-4 text-emerald-600" /><h4 className="text-sm font-bold text-slate-900">{category}</h4></div><div className="grid gap-2 sm:grid-cols-2">{savedReports.map((savedReport) => <div key={savedReport.id} className="report-memorised-card group flex items-center gap-2 rounded-lg border bg-slate-50 p-2 hover:border-emerald-300 hover:bg-emerald-50"><button type="button" disabled={loading} onClick={() => onOpenMemorised(savedReport)} className="min-w-0 flex-1 px-2 py-1 text-left disabled:opacity-60"><p className="truncate text-sm font-semibold text-slate-800">{savedReport.name}</p><p className="mt-0.5 text-xs text-slate-500">{savedReport.currency}{savedReport.periodStart ? ` Â· ${savedReport.periodStart} to ${savedReport.periodEnd}` : " Â· Current period"}</p></button><Button type="button" variant="ghost" size="icon" onClick={() => onDeleteMemorised(savedReport)} aria-label={`Remove ${savedReport.name}`} className="shrink-0 text-slate-400 hover:text-rose-600" title="Delete"><Trash2 className="size-4" /></Button></div>)}</div></div>)}</div> : <div className="p-8 text-center"><BookmarkPlus className="mx-auto size-6 text-slate-300" /><p className="mt-2 text-sm font-semibold text-slate-700">No memorised reports yet</p><p className="mt-1 text-xs text-slate-500">Open a report and choose Memorise Report to save its current setup.</p></div>}</section>
-      <aside className="space-y-4"><LiveProfitLossSummary key={`${companyId}-${locationId}`} companyId={companyId} locationId={locationId} /><article className="report-live-card rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><CheckCircle2 className="size-5 text-emerald-500" /><h3 className="mt-3 font-bold">Live reporting</h3><p className="mt-2 text-sm leading-6 text-slate-500">Every report reads the selected company and inventory, with date filters and professional PDF, Excel and CSV exports.</p></article></aside>
-    </div>
-  </div>;
-}
-
-type DocumentMode = "proforma-invoice" | "tax-invoice" | "commercial-invoice" | "delivery-note" | "packing-list" | "hs-code-summary";
-const documentModeLabels: Record<DocumentMode, string> = { "proforma-invoice": "Proforma Invoice", "tax-invoice": "Tax Invoice", "commercial-invoice": "Commercial Invoice", "delivery-note": "Delivery Note", "packing-list": "Packing List", "hs-code-summary": "HS Code Summary" };
-function documentLineSpecification(line: DataRecord, names: string[]) {
-  const normalized = names.map((name) => name.toLowerCase());
-  if (normalized.some((name) => name === "hs code" || name === "hsn code") && line.hsCode) return String(line.hsCode);
-  if (normalized.some((name) => name === "country of origin" || name === "coo") && line.countryOfOrigin) return String(line.countryOfOrigin);
-  if (normalized.some((name) => name.includes("dimensions")) && line.dimensionText) return String(line.dimensionText);
-  if (normalized.some((name) => name.includes("weight")) && Number(line.weightKg) > 0) return `${line.weightKg} kg`;
-  try {
-    const specifications = JSON.parse(String(line.specifications || "[]")) as Array<{ label?: string; value?: string }>;
-    return specifications.find((specification) => names.some((name) => String(specification.label || "").toLowerCase() === name.toLowerCase()))?.value || "â€”";
-  } catch { return "â€”"; }
-}
-
-function DocumentDialog({ onOpenInvoice, onReceiptSaved, detail, companyName, baseCurrency, setup, canConvert, onConvert, onClose }: { onOpenInvoice: (id: number) => void; onReceiptSaved: () => void; detail: TransactionDetail | null; companyName: string; baseCurrency: string; setup: CompanySetup; canConvert: boolean; onConvert: (detail: TransactionDetail) => void; onClose: () => void }) {
-  const startingMode: DocumentMode = detail?.record.type === "proforma invoice" ? "proforma-invoice" : detail?.record.type === "invoice" ? "tax-invoice" : detail?.record.type === "sales order" ? "delivery-note" : "commercial-invoice";
-  const [documentMode] = useState<DocumentMode>(startingMode);
-  const [showStamp] = useState(Boolean(setup.stampData));
-  const [showBillingName] = useState(true);
-  const [showShipping] = useState(true);
-  const [showHsCode] = useState(false);
-  const [showDimensions] = useState(false);
-  const [creditPresentation, setCreditPresentation] = useState<"credit-note" | "refund">("credit-note");
-  const [selectedBank] = useState(detail?.record.type === "invoice" ? "" : setup.bankName || "Emirates NBD Bank");
-  if (!detail) return null;
-  const record = detail.record;
-  const brandedName = setup.name || companyName;
-  const contact = detail.partyContact;
-  const purchaseOrder = record.type === "purchase order";
-  const savedTemplateMode = record.type === "credit memo" ? creditPresentation : salesDocumentModeForTransaction(String(record.type));
-  const usesSavedTemplate = savedTemplateMode !== null && ["invoice", "estimate", "proforma invoice", "sales order", "purchase order", "credit memo", "sales receipt"].includes(String(record.type));
-  const convertible = ((purchaseOrder && record.status !== "received") || record.type === "quotation") && record.status !== "converted" && !record.convertedInvoiceId;
-  const showsPrices = documentMode === "tax-invoice" || documentMode === "commercial-invoice";
-  return <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}><DialogContent className="max-h-[94vh] overflow-y-auto sm:max-w-[1400px]">
-    <div className="grid grid-cols-1 gap-5"><div className="document-print-surface min-w-0 space-y-4" data-document-id={record.id}>
-    {usesSavedTemplate && savedTemplateMode ? <>
-    <DialogTitle className="sr-only">{String(record.type)} {String(record.number)}</DialogTitle><DialogDescription className="sr-only">Document preview for {String(record.party)}</DialogDescription>
-    {record.type === "credit memo" ? <div className="document-internal-only flex flex-wrap items-center gap-2 rounded-lg border bg-slate-50 p-3 text-sm"><span className="mr-1 font-semibold text-slate-700">Document layout</span><Button type="button" size="sm" variant={creditPresentation === "credit-note" ? "default" : "outline"} onClick={() => setCreditPresentation("credit-note")}>Credit Note</Button><Button type="button" size="sm" variant={creditPresentation === "refund" ? "default" : "outline"} onClick={() => setCreditPresentation("refund")}>Refund</Button></div> : null}
-    <SalesDocumentTemplate mode={savedTemplateMode} record={record} lines={detail.lines} contact={contact} setup={{ ...setup, name: brandedName }} showBillingName={showBillingName} showShipping={showShipping} showHsCode={showHsCode} showDimensions={showDimensions} />
-    {["estimate", "sales order", "proforma invoice"].includes(String(record.type)) && ["invoiced", "converted"].includes(String(record.status)) && <div className="document-internal-only my-4 w-fit rounded-lg border-4 border-emerald-600 px-5 py-2 text-xl font-extrabold uppercase tracking-wider text-emerald-700">Fully Invoiced</div>}
-    {purchaseOrder && record.status === "received" && <div className="document-internal-only my-4 w-fit rounded-lg border-4 border-emerald-600 px-5 py-2 text-xl font-extrabold uppercase tracking-wider text-emerald-700">Fully Received</div>}
-    {purchaseOrder && canConvert && !record.convertedInvoiceId && record.status !== "converted" && <div className="document-internal-only"><PurchaseOrderReceiving orderId={Number(record.id)} companyId={Number(record.companyId)} onSaved={onReceiptSaved} /></div>}
-    {["estimate", "proforma invoice", "sales order"].includes(String(record.type)) && canConvert && !record.convertedInvoiceId && record.status !== "converted" && <div className="document-internal-only"><SalesSourceInvoicing sourceId={Number(record.id)} companyId={Number(record.companyId)} onSaved={onReceiptSaved} onViewInvoice={onOpenInvoice} /></div>}
-    {record.convertedDocumentNumber && ["estimate", "proforma invoice", "sales order", "purchase order"].includes(String(record.type)) ? <div className="document-internal-only rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-800">Converted to {String(record.convertedDocumentType)} {String(record.convertedDocumentNumber)}</div> : null}
-    {record.sourceDocumentNumber && ["estimate", "proforma invoice", "sales order", "purchase order"].includes(String(record.type)) ? <div className="document-internal-only rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm font-medium text-sky-800">Created from {String(record.sourceDocumentType)} {String(record.sourceDocumentNumber)}</div> : null}
-    </> : <>
-    <DialogHeader><div className={`flex items-start justify-between gap-4 rounded-xl p-5 pr-8 ${setup.documentTemplate === "modern" ? "text-white" : setup.documentTemplate === "classic" ? "border-b-4 bg-slate-50" : "border-b"}`} style={setup.documentTemplate === "modern" ? { backgroundColor: setup.documentColor } : setup.documentTemplate === "classic" ? { borderColor: setup.documentColor } : undefined}><div className="flex min-w-0 gap-4">{setup.logoData ? <Image src={setup.logoData} alt={`${brandedName} logo`} width={88} height={56} unoptimized className="h-14 w-22 shrink-0 rounded-lg bg-white object-contain p-1" /> : null}<div><p className={`text-xs font-bold tracking-[.18em] ${setup.documentTemplate === "modern" ? "text-white/80" : "text-emerald-600"}`}>{brandedName.toUpperCase()}</p><DialogTitle className={`mt-2 ${setup.documentTemplate === "modern" ? "text-white" : ""}`}>{documentModeLabels[documentMode]} {String(record.number)}</DialogTitle><DialogDescription className={setup.documentTemplate === "modern" ? "text-white/75" : ""}>{String(record.party)} Â· {String(record.transactionDate)}</DialogDescription>{(setup.addressLine1 || setup.city || setup.phone || setup.trn) ? <p className={`mt-2 max-w-xl text-xs leading-5 ${setup.documentTemplate === "modern" ? "text-white/75" : "text-slate-500"}`}>{[setup.addressLine1, setup.addressLine2, setup.city, setup.country].filter(Boolean).join(", ")}{setup.phone ? ` Â· ${setup.phone}` : ""}{setup.trn ? ` Â· TRN ${setup.trn}` : ""}</p> : null}</div></div><div className="flex flex-wrap justify-end gap-2">{setup.rightLogoData && <Image src={setup.rightLogoData} alt={`${brandedName} right logo`} width={120} height={60} unoptimized className="h-14 w-28 object-contain" />}{convertible && canConvert ? <Button onClick={() => onConvert(detail)} className={setup.documentTemplate === "modern" ? "bg-white text-slate-900 hover:bg-white/90" : "brand-primary-button"}><ReceiptText className="size-4" />{purchaseOrder ? "Convert to Bill / Supplier Invoice" : "Convert to Invoice"}</Button> : null}</div></div></DialogHeader>
-    {record.type === "proforma invoice" && <p className="text-sm font-semibold">Proforma Invoice Â· Not a tax invoice</p>}
-    {["estimate", "sales order", "proforma invoice"].includes(String(record.type)) && ["invoiced", "converted"].includes(String(record.status)) && <div className="my-4 w-fit rounded-lg border-4 border-emerald-600 px-5 py-2 text-xl font-extrabold uppercase tracking-wider text-emerald-700">Fully Invoiced</div>}
-    {purchaseOrder && record.status === "received" && <div className="my-4 w-fit rounded-lg border-4 border-emerald-600 px-5 py-2 text-xl font-extrabold uppercase tracking-wider text-emerald-700">Fully Received</div>}
-    {purchaseOrder && canConvert && !record.convertedInvoiceId && record.status !== "converted" && <PurchaseOrderReceiving orderId={Number(record.id)} companyId={Number(record.companyId)} onSaved={onReceiptSaved} />}
-    {["estimate", "proforma invoice", "sales order"].includes(String(record.type)) && canConvert && !record.convertedInvoiceId && record.status !== "converted" && <SalesSourceInvoicing sourceId={Number(record.id)} companyId={Number(record.companyId)} onSaved={onReceiptSaved} onViewInvoice={onOpenInvoice} />}
-    {record.type === "customer payment" && <PaidInvoiceStamp payment status={String(record.status)} paidAt={record.paidAt ? String(record.paidAt) : null} />}
-    {record.type === "invoice" && documentMode === "commercial-invoice" && <PaidInvoiceStamp status={String(record.status)} paidAt={record.paidAt ? String(record.paidAt) : null} />}
-    {record.convertedDocumentNumber ? <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-800">Converted to {String(record.convertedDocumentType)} {String(record.convertedDocumentNumber)}</div> : null}
-    {record.sourceDocumentNumber ? <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm font-medium text-sky-800">Created from {String(record.sourceDocumentType)} {String(record.sourceDocumentNumber)}</div> : null}
-    {(showBillingName || showShipping) ? <div className="grid gap-4 rounded-xl border p-4 text-sm sm:grid-cols-2">{showBillingName ? <div><p className="font-bold text-slate-900">Billing Name</p><p className="mt-1">{String(contact?.billingName || contact?.company || record.party)}</p>{contact?.trn ? <p className="mt-1 text-slate-500">TRN: {String(contact.trn)}</p> : null}</div> : null}{showShipping ? <div><p className="font-bold text-slate-900">Shipping Details</p><p className="mt-1">{String(contact?.company || record.party)}</p><p className="mt-1 text-slate-500">{[contact?.country, contact?.phone, contact?.email].filter(Boolean).map(String).join(" Â· ") || "No shipping details saved"}</p></div> : null}</div> : null}
-    <div className="grid gap-4 rounded-xl bg-slate-50 p-4 text-sm sm:grid-cols-4"><div><p className="text-slate-500">Status</p><StatusBadge value={["estimate", "sales order", "proforma invoice"].includes(String(record.type)) && record.status === "invoiced" ? "converted" : String(record.status)} /></div><div><p className="text-slate-500">Due date</p><strong>{String(record.dueDate || "â€”")}</strong></div><div><p className="text-slate-500">Account</p><strong>{String(record.account)}</strong></div><div><p className="text-slate-500">Currency</p><strong>{String(record.currency)}</strong></div></div>
-    <div className="overflow-x-auto rounded-xl border"><Table><TableHeader><TableRow><TableHead>Item / Description</TableHead><TableHead className="text-right">Qty</TableHead>{showHsCode ? <><TableHead>HS Code</TableHead><TableHead>COO</TableHead></> : null}{showDimensions ? <><TableHead>Dimensions</TableHead><TableHead>Weight</TableHead></> : null}{showsPrices ? <><TableHead className="text-right">Rate</TableHead>{documentMode === "tax-invoice" ? <TableHead>VAT</TableHead> : null}<TableHead className="text-right">Total</TableHead></> : null}</TableRow></TableHeader><TableBody>{detail.lines.map((line, index) => <TableRow key={index}><TableCell className="font-medium">{line.itemNumber || line.sku ? <p className="mb-1 text-xs font-mono text-slate-500">{String(line.itemNumber || line.sku)}</p> : null}{String(line.description)}{["invoice", "bill"].includes(String(record.type)) && (line.comments || line.serialNumber) && <div className="mt-2 space-y-1 whitespace-pre-wrap break-words text-xs font-normal">{line.comments && <p><strong>Comments: </strong>{String(line.comments)}</p>}{line.serialNumber && <p><strong>Serial Number: </strong>{String(line.serialNumber)}</p>}</div>}</TableCell><TableCell className="text-right">{String(line.quantity)}</TableCell>{showHsCode ? <><TableCell>{documentLineSpecification(line, ["HS Code", "HSN Code"])}</TableCell><TableCell>{documentLineSpecification(line, ["Country of Origin", "COO"])}</TableCell></> : null}{showDimensions ? <><TableCell>{documentLineSpecification(line, ["Dimensions", "Product Dimensions", "Package Dimensions"])}</TableCell><TableCell>{documentLineSpecification(line, ["Weight", "Product Weight", "Package Weight"])}</TableCell></> : null}{showsPrices ? <><TableCell className="text-right">{formatMoney(line.unitPrice, String(record.currency))}</TableCell>{documentMode === "tax-invoice" ? <TableCell>{String(line.vatCode || `${Number(line.vatRate)}%`)}</TableCell> : null}<TableCell className="text-right font-semibold">{formatMoney(line.total, String(record.currency))}</TableCell></> : null}</TableRow>)}</TableBody></Table></div>
-    {showsPrices ? <div className="ml-auto grid w-full max-w-sm gap-2 text-sm"><div className="flex justify-between"><span className="text-slate-500">Subtotal</span><span>{formatMoney(record.subtotal, String(record.currency))}</span></div>{documentMode === "tax-invoice" ? <div className="flex justify-between"><span className="text-slate-500">VAT</span><span>{formatMoney(record.vatAmount, String(record.currency))}</span></div> : null}<div className="flex justify-between border-t pt-3 text-lg font-bold"><span>Total</span><span>{formatMoney(record.total, String(record.currency))}</span></div></div> : null}
-    </>}
-    {selectedBank ? <div className="rounded-xl border p-4 text-sm"><div className="mb-3 flex items-center gap-2 font-bold" style={{ color: setup.documentColor }}><Landmark className="size-4" />{selectedBank}</div>{setup.bankName && !setup.bankName.toLowerCase().includes(selectedBank.toLowerCase().replace(" bank", "")) ? <p className="text-slate-500">Configure this bank account in Company Setup to show its payment details.</p> : <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2"><p><span className="text-slate-500">Account name:</span> {setup.bankAccountName || brandedName}</p><p><span className="text-slate-500">Account number:</span> {setup.bankAccountNumber || "â€”"}</p><p><span className="text-slate-500">Currency:</span> {setup.bankCurrency || setup.baseCurrency}</p><p><span className="text-slate-500">IBAN:</span> {setup.bankIban || "â€”"}</p>{setup.bankSwift ? <p><span className="text-slate-500">SWIFT:</span> {setup.bankSwift}</p> : null}</div>}</div> : null}
-    {showStamp && setup.stampData ? <div className="flex justify-end"><Image src={setup.stampData} alt={`${brandedName} company stamp`} width={160} height={120} unoptimized className="max-h-30 w-auto max-w-40 object-contain" /></div> : null}
-    {detail.journal.length > 0 && <div className="document-internal-only"><h3 className="mb-2 text-sm font-bold">Accounting entry ({baseCurrency})</h3><div className="overflow-hidden rounded-xl border"><Table><TableHeader><TableRow><TableHead>Account</TableHead><TableHead className="text-right">Debit</TableHead><TableHead className="text-right">Credit</TableHead></TableRow></TableHeader><TableBody>{detail.journal.map((line, index) => <TableRow key={index}><TableCell>{String(line.accountName)}</TableCell><TableCell className="text-right">{Number(line.debit) ? formatMoney(line.debit, baseCurrency) : "â€”"}</TableCell><TableCell className="text-right">{Number(line.credit) ? formatMoney(line.credit, baseCurrency) : "â€”"}</TableCell></TableRow>)}</TableBody></Table></div></div>}
-    {["invoice", "bill"].includes(String(record.type)) && (record.comments || record.serialNumber) && <div className="grid gap-4 rounded-lg border p-4 text-sm sm:grid-cols-2">{record.comments && <div><h3 className="font-bold">Comments</h3><p className="mt-1 whitespace-pre-wrap break-words">{String(record.comments)}</p></div>}{record.serialNumber && <div><h3 className="font-bold">Serial Number</h3><p className="mt-1 whitespace-pre-wrap break-words">{String(record.serialNumber)}</p></div>}</div>}
-    {record.memo && !(documentMode === "tax-invoice" && record.type === "invoice") && <p className="rounded-lg border p-3 text-sm text-slate-600"><strong>Memo:</strong> {String(record.memo)}</p>}
-    </div></div>
-  </DialogContent></Dialog>;
-}
-
-function StockPriceEditor({ report, onSaved }: { report: ReportData; onSaved: () => Promise<void> }) {
-  const [itemId, setItemId] = useState("");
-  const [sellingPrice, setSellingPrice] = useState("");
-  const [grnPrice, setGrnPrice] = useState("");
-  const [saving, setSaving] = useState(false);
-  const skuLock = useSkuLock(itemId ? { resource: "stock-pricing", itemId: Number(itemId) } : null);
-  const row = report.rows.find((candidate) => String(candidate.itemId) === itemId);
-  const selectItem = (value: string) => {
-    setItemId(value);
-    const selected = report.rows.find((candidate) => String(candidate.itemId) === value);
-    setSellingPrice(String(selected?.savedSellingPrice ?? ""));
-    setGrnPrice(String(selected?.savedGrnPrice ?? ""));
-  };
-  const save = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!skuLock.ready) return;
-    if (!row || !sellingPrice.trim()) return;
-    setSaving(true);
-    try {
-      const response = await fetch("/api/stock-pricing", { method: "PATCH", headers: { "Content-Type": "application/json", ...skuLock.headers }, body: JSON.stringify({ companyId: report.companyId, itemId: Number(itemId), salesPrice: Number(sellingPrice), grnPrice: grnPrice.trim() === "" ? null : Number(grnPrice), expectedPrice: row.savedSellingPrice, expectedGrnPrice: row.savedGrnPrice === "" ? null : row.savedGrnPrice }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not save prices.");
-      toast.success("Prices saved to this company's item.");
-      setItemId("");
-      await onSaved();
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save prices."); }
-    finally { setSaving(false); }
-  };
-  return <form onSubmit={save} className="rounded-xl border bg-slate-50 p-4 print:hidden">
-    <SkuLockNotice message={skuLock.message} /><div className="grid items-end gap-4 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_auto]">
-      <label className="grid gap-2 text-sm font-medium">Item<select className="h-10 min-w-0 rounded-md border bg-background px-3" value={itemId} onChange={(event) => selectItem(event.target.value)} disabled={saving} required><option value="">Select item</option>{report.rows.map((item) => <option key={String(item.itemId)} value={String(item.itemId)}>{item.inventory} Â· {item.sku} Â· {item.name}</option>)}</select></label>
-      <label className="grid gap-2 text-sm font-medium">Selling price / unit ({report.currency})<Input type="number" min="0" max="1000000000000" step="any" required disabled={!skuLock.ready || !row || saving} value={sellingPrice} onChange={(event) => setSellingPrice(event.target.value)} /></label>
-      <label className="grid gap-2 text-sm font-medium">GRN price / unit ({report.currency})<Input type="number" min="0" max="1000000000000" step="any" placeholder="Use receipt cost" disabled={!skuLock.ready || !row || saving} value={grnPrice} onChange={(event) => setGrnPrice(event.target.value)} /></label>
-      <Button type="submit" disabled={!skuLock.ready || !row || saving}>{saving ? "Savingâ€¦" : "Save prices"}</Button>
-    </div>
-    <p className="mt-3 text-xs text-slate-500">Prices are saved for the selected item and inventory in this company. Selling price is used for new sales. Leave GRN price blank to use receipt cost. These prices update the estimate without changing posted stock value.</p>
-  </form>;
-}
-
-function ReportDialog({ onCustomer, onOpenSource, setup, loading, onStatementApply, onPricesSaved, report, companyName, inventoryName, memorised, saving, onMemorise, onClose }: { onCustomer: (name: string, currency: string, overdue: boolean) => void; onOpenSource: (id: number) => void; setup: CompanySetup; loading: boolean; onStatementApply: (filters: { memo: string; customer: string; currency: string; statementDate: string; from: string; to: string }) => Promise<void>; onPricesSaved: () => Promise<void>; report: ReportData | null; companyName: string; inventoryName: string; memorised: boolean; saving: boolean; onMemorise: () => void; onClose: () => void }) {
-  const [hideZeroQoh, setHideZeroQoh] = useState(false);
-  const [vatCodeFilter, setVatCodeFilter] = useState("all");
-  const [exporting, setExporting] = useState<"xlsx" | "csv" | "pdf" | null>(null);
-  const [linkedAccount, setLinkedAccount] = useState<{ id: number; name: string } | null>(null);
-  if (!report) return null;
-  const showsQohFilter = hasInventoryQohFilter(report.key);
-  const qohRows = filterZeroQohRows(report.key, report.rows, hideZeroQoh);
-  const visibleRows = report.key === "vat-detail" && vatCodeFilter !== "all" ? qohRows.filter((row) => String(row.code) === vatCodeFilter) : qohRows;
-  const hiddenZeroQoh = report.rows.length - visibleRows.length;
-  const vatCodeOptions = [...new Map([...(report.vatCodes ?? []), ...report.rows.map((row) => String(row.code || "")).filter(Boolean).map((code) => ({ code, name: code, rate: Number.NaN }))].map((option) => [option.code, option])).values()];
-  const columnWeights = report.columns.map((column) => /^(name|item|description|account|customer|supplier|vendor|party)$/.test(column.key) ? 3 : 1);
-  const totalWeight = columnWeights.reduce((sum, weight) => sum + weight, 0);
-  const chartMax = report.chart ? Math.max(1, ...report.rows.flatMap((row) => [Math.abs(Number(row[report.chart!.incomeKey] ?? 0)), Math.abs(Number(row[report.chart!.expenseKey] ?? 0))])) : 1;
-  const reportCell = (row: Record<string, string | number>, column: ReportData["columns"][number]) => {
-    if (column.type === "money" && typeof row[column.key] === "number") return formatMoney(row[column.key], report.currency);
-    const accountId = Number(row[`${column.key}AccountId`] ?? 0);
-    if (report.canViewAccounts && accountId > 0) return <button type="button" className="text-left underline underline-offset-2 hover:text-emerald-600" onClick={() => setLinkedAccount({ id: accountId, name: String(row[column.key] ?? "Account") })}>{String(row[column.key] ?? "â€”")}</button>;
-    return String(row[column.key] ?? "â€”");
-  };
-  const downloadReport = async (kind: "xlsx" | "csv" | "pdf") => {
-    setExporting(kind);
-    try {
-      const { reportCsv, reportFilename, reportPdf, reportWorkbook } = await import("@/lib/report-export");
-      const data = kind === "csv" ? reportCsv(report, companyName, inventoryName, visibleRows) : kind === "xlsx" ? await reportWorkbook(report, companyName, inventoryName, visibleRows) : await reportPdf(report, companyName, inventoryName, visibleRows);
-      const blob = new Blob([data as BlobPart], { type: kind === "csv" ? "text/csv;charset=utf-8" : kind === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = reportFilename(report, kind);
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      toast.success(`${kind === "xlsx" ? "Excel" : kind.toUpperCase()} report downloaded.`);
-    } catch {
-      toast.error("Export could not be generated. Please try again.");
-    } finally {
-      setExporting(null);
-    }
-  };
-  return <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}><DialogContent className={`report-dialog ${report.pnl ? "pnl-dialog" : ""} ${report.statement ? "customer-statement" : ""} max-h-[92dvh] min-w-0 overflow-y-auto sm:max-w-[calc(100%-2rem)]`}>
-    <DialogHeader><div className="flex flex-col gap-4 pr-8 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold tracking-[.18em] text-emerald-600">{companyName.toUpperCase()}</p><DialogTitle className="mt-2">{report.title}</DialogTitle><DialogDescription>Generated {new Date(report.generatedAt).toLocaleString("en-AE")} Â· {report.activeCustomers ? "Balances in each customer currency" : `${report.currency} accrual basis`} Â· {inventoryName}</DialogDescription></div><div className="flex flex-wrap gap-2 print:hidden"><Button variant={memorised ? "secondary" : "outline"} onClick={onMemorise} disabled={saving}><BookmarkPlus className="size-4" />{saving ? "Savingâ€¦" : memorised ? "Update Memorised" : "Memorise Report"}</Button>{!report.pnl && <>{(["xlsx", "csv", "pdf"] as const).map((kind) => <Button key={kind} type="button" variant="outline" disabled={Boolean(exporting) || loading} onClick={() => void downloadReport(kind)}><Download className="size-4" />{exporting === kind ? "Preparingâ€¦" : kind === "xlsx" ? "Excel (.xlsx)" : kind === "pdf" ? "PDF Â· A4" : "CSV"}</Button>)}</>}</div></div></DialogHeader>
-    <ReportDateFilter key={`${report.key}-${report.generatedAt}`} period={report.period || reportPeriod(report.key || "", report.pnl?.from || report.statement?.from || "", report.pnl?.to || report.statement?.to || report.openBalance?.asOf || "")} loading={loading} onApply={(from, to) => onStatementApply({ from, to, currency: report.currency, customer: report.statement?.customer || report.openBalance?.customer || "", statementDate: to || report.statement?.statementDate || report.openBalance?.asOf || "", memo: report.statement?.memo || "" })}>
-      {report.key === "vat-detail" ? <label className="grid gap-1 text-sm">VAT Code<select value={vatCodeFilter} disabled={loading} className="h-9 min-w-44 rounded-md border bg-background px-3" onChange={(event) => setVatCodeFilter(event.target.value)}><option value="all">All VAT Codes</option>{vatCodeOptions.map((option) => <option key={option.code} value={option.code}>{option.code}{Number.isFinite(option.rate) ? ` Â· ${option.rate}%` : ""}</option>)}</select></label> : null}
-    </ReportDateFilter>
-    {showsQohFilter && <label className="flex w-fit cursor-pointer items-center gap-3 rounded-lg border bg-background px-4 py-3 text-sm font-medium text-foreground shadow-sm print:hidden" htmlFor="hide-zero-qoh"><Checkbox id="hide-zero-qoh" checked={hideZeroQoh} onCheckedChange={(checked) => setHideZeroQoh(checked === true)} /><span>Hide zero QOH</span>{hideZeroQoh && <Badge variant="secondary">{hiddenZeroQoh} hidden</Badge>}</label>}
-    {report.accountLinkIssues && report.accountLinkIssues.length > 0 && <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"><p className="font-semibold">Some duplicate accounts need review</p><ul className="mt-2 list-disc space-y-1 pl-5">{report.accountLinkIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul></div>}
-    {report.statement && <><StatementFilters key={report.generatedAt} statement={report.statement} currency={report.currency} currencies={currencies} loading={loading} onApply={onStatementApply} /><StatementHeading statement={report.statement} currency={report.currency} company={setup} /></>}
-    {report.key === "stock-pricing-profit" && report.canEditPrices && <StockPriceEditor key={`${report.companyId}-${report.generatedAt}`} report={report} onSaved={onPricesSaved} />}
-    {report.chart && report.rows.length > 0 && <div className="rounded-xl border bg-slate-50 p-5"><div className="mb-4 flex gap-5 text-xs font-semibold"><span className="flex items-center gap-2"><span className="size-3 rounded-sm bg-emerald-500" />{report.chart.incomeLabel ?? "Income / Assets"}</span><span className="flex items-center gap-2"><span className="size-3 rounded-sm bg-amber-500" />{report.chart.expenseLabel ?? "Expenses / Liabilities"}</span></div><div className="grid min-h-56 grid-cols-6 items-end gap-3 md:grid-cols-12">{report.rows.slice(-12).map((row, index) => <div key={index} className="flex min-w-0 flex-col items-center gap-2"><div className="flex h-44 w-full items-end justify-center gap-1"><div className="w-1/2 rounded-t bg-emerald-500" style={{ height: `${Math.max(2, Math.abs(Number(row[report.chart!.incomeKey] ?? 0)) / chartMax * 100)}%` }} title={formatMoney(row[report.chart!.incomeKey], report.currency)} /><div className="w-1/2 rounded-t bg-amber-500" style={{ height: `${Math.max(2, Math.abs(Number(row[report.chart!.expenseKey] ?? 0)) / chartMax * 100)}%` }} title={formatMoney(row[report.chart!.expenseKey], report.currency)} /></div><span className="max-w-full truncate text-[11px] text-slate-500">{String(row[report.chart!.labelKey] ?? "")}</span></div>)}</div></div>}
-    {report.financial ? <FinancialReport key={report.generatedAt} report={report as FinancialReportData} onOpen={onOpenSource} /> : report.pnl ? <ProfitLossReport key={report.generatedAt} report={report as PnlReport} company={companyName} loading={loading} onOpen={onOpenSource} onApply={(from, to) => onStatementApply({ from, to, currency: report.currency, customer: "", statementDate: "", memo: "" })} /> : report.activeCustomers ? <ActiveCustomersReport key={report.generatedAt} rows={report.rows} companyId={report.companyId!} canViewAccounts={report.activeCustomers.canViewAccounts} count={report.activeCustomers.count} onCustomer={onCustomer} onOpenSource={onOpenSource} /> : report.openBalance ? <CustomerOpenBalance key={report.generatedAt} data={report.openBalance} rows={report.rows} currency={report.currency} companyId={report.companyId!} loading={loading} onApply={onStatementApply} onOpen={onOpenSource} /> : <div className="report-table min-w-0 rounded-xl border"><Table className="table-fixed"><colgroup>{report.columns.map((column, index) => <col key={column.key} style={{ width: `${columnWeights[index] / totalWeight * 100}%` }} />)}</colgroup><TableHeader><TableRow>{report.columns.map((column) => <TableHead key={column.key} className={column.type === "money" ? "text-right" : ""}>{column.label}</TableHead>)}</TableRow></TableHeader><TableBody>{visibleRows.length ? visibleRows.map((row, index) => <TableRow key={index}>{report.columns.map((column) => <TableCell key={column.key} className={column.type === "money" ? "text-right font-medium" : ""}>{reportCell(row, column)}</TableCell>)}</TableRow>) : <EmptyRow text={hideZeroQoh && report.rows.length ? "All zero-QOH rows are hidden." : "No posted data is available for this report."} columns={report.columns.length} />}</TableBody></Table></div>}
-    {linkedAccount && report.companyId && !report.financial && !report.pnl && <div className="rounded-xl border p-4 print:hidden"><div className="mb-3 flex items-center justify-between gap-3"><h3 className="font-bold">{linkedAccount.name} Â· full account history</h3><Button variant="outline" onClick={() => setLinkedAccount(null)}>Close account</Button></div><AccountHistory accountId={linkedAccount.id} companyId={report.companyId} onOpen={onOpenSource} /></div>}
-  </DialogContent></Dialog>;
-}
-
-function CompanySetupCenter({ setup, onSaved, canClearCompany }: { canClearCompany: boolean; setup: CompanySetup; onSaved: (setup: CompanySetup) => void | Promise<void> }) {
-  const [form, setForm] = useState<CompanySetup>(setup);
-  const [saving, setSaving] = useState(false);
-  const update = (field: keyof CompanySetup, value: string) => setForm((current) => ({ ...current, [field]: value }));
-  const uploadLogo = (file?: File, side: "logoData" | "rightLogoData" = "logoData") => {
-    if (!file) return;
-    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 500_000) return toast.error("Upload a PNG, JPG, or WebP logo smaller than 500 KB.");
-    const reader = new FileReader();
-    reader.onload = () => update(side, String(reader.result ?? ""));
-    reader.onerror = () => toast.error("Could not read the selected logo.");
-    reader.readAsDataURL(file);
-  };
-  const uploadStamp = (file?: File) => {
-    if (!file) return;
-    if (!file.type.startsWith("image/") || file.size > 500_000) return toast.error("Upload an image stamp smaller than 500 KB.");
-    const reader = new FileReader();
-    reader.onload = () => update("stampData", String(reader.result ?? ""));
-    reader.onerror = () => toast.error("Could not read the selected stamp.");
-    reader.readAsDataURL(file);
-  };
-  const save = async (event: FormEvent) => {
-    event.preventDefault();
-    setSaving(true);
-    try {
-      const response = await fetch("/api/company-setup", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, companyId: form.id }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not save company setup");
-      const saved = data.record as CompanySetup;
-      setForm(saved);
-      await onSaved(saved);
-      toast.success("Company setup saved");
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save company setup"); }
-    finally { setSaving(false); }
-  };
-  return <form onSubmit={save} className="space-y-5">
-    <div className="space-y-5">
-      <section className="rounded-xl border bg-white p-5 shadow-sm"><div className="mb-5 flex items-center gap-3"><div className="brand-soft-icon grid size-10 place-items-center rounded-xl"><Building2 className="size-5" /></div><div><h2 className="font-bold">Company identity</h2><p className="text-sm text-slate-500">Used on invoices, bills, statements, and reports.</p></div></div><div className="grid gap-4 md:grid-cols-2"><div className="space-y-2 md:col-span-2"><Label>Company Name *</Label><Input value={form.name} onChange={(event) => update("name", event.target.value)} required maxLength={120} /></div><div className="space-y-2 md:col-span-2"><Label>Left Logo</Label><div className="flex flex-wrap items-center gap-4 rounded-xl border border-dashed p-4">{form.logoData ? <Image src={form.logoData} alt="Company logo preview" width={96} height={64} unoptimized className="h-16 w-24 rounded-lg border bg-white object-contain p-1" /> : <div className="grid h-16 w-24 place-items-center rounded-lg bg-slate-100 text-slate-400"><ImageUp className="size-6" /></div>}<div className="flex flex-wrap gap-2"><Label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border bg-white px-3 text-sm font-medium hover:bg-slate-50"><ImageUp className="size-4" />Choose logo<input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(event) => uploadLogo(event.target.files?.[0])} /></Label>{form.logoData ? <Button type="button" variant="outline" onClick={() => update("logoData", "")}>Remove</Button> : null}</div></div><p className="text-xs text-slate-500">PNG, JPG, or WebP Â· maximum 500 KB</p></div><div className="space-y-2 md:col-span-2"><Label>Right Logo</Label><div className="flex flex-wrap items-center gap-4 rounded-xl border border-dashed p-4">{form.rightLogoData ? <Image src={form.rightLogoData} alt="Company logo preview" width={96} height={64} unoptimized className="h-16 w-24 rounded-lg border bg-white object-contain p-1" /> : <div className="grid h-16 w-24 place-items-center rounded-lg bg-slate-100 text-slate-400"><ImageUp className="size-6" /></div>}<div className="flex flex-wrap gap-2"><Label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border bg-white px-3 text-sm font-medium hover:bg-slate-50"><ImageUp className="size-4" />Choose logo<input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(event) => uploadLogo(event.target.files?.[0], "rightLogoData")} /></Label>{form.rightLogoData ? <Button type="button" variant="outline" onClick={() => update("rightLogoData", "")}>Remove</Button> : null}</div></div><p className="text-xs text-slate-500">PNG, JPG, or WebP Â· maximum 500 KB</p></div></div></section>
-      <section className="rounded-xl border bg-white p-5 shadow-sm"><div className="mb-5 flex items-center gap-3"><div className="grid size-10 place-items-center rounded-xl bg-violet-100 text-violet-700"><Stamp className="size-5" /></div><div><h2 className="font-bold">Company stamp</h2><p className="text-sm text-slate-500">Displayed at the bottom of invoices and other documents.</p></div></div><div className="flex flex-wrap items-center gap-5 rounded-xl border border-dashed p-4">{form.stampData ? <Image src={form.stampData} alt="Company stamp preview" width={144} height={104} unoptimized className="h-26 w-36 rounded-lg bg-white object-contain p-1" /> : <div className="grid h-26 w-36 place-items-center rounded-lg bg-slate-100 text-slate-400"><Stamp className="size-8" /></div>}<div><div className="flex flex-wrap gap-2"><Label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border bg-white px-3 text-sm font-medium hover:bg-slate-50"><ImageUp className="size-4" />Choose stamp<input type="file" accept="image/*" className="sr-only" onChange={(event) => uploadStamp(event.target.files?.[0])} /></Label>{form.stampData ? <Button type="button" variant="outline" onClick={() => update("stampData", "")}>Remove</Button> : null}</div><p className="mt-2 text-xs text-slate-500">Any image format Â· maximum 500 KB</p></div></div></section>
-      <section className="rounded-xl border bg-white p-5 shadow-sm"><div className="mb-5 flex items-center gap-3"><div className="grid size-10 place-items-center rounded-xl bg-sky-100 text-sky-700"><Landmark className="size-5" /></div><div><h2 className="font-bold">Bank account</h2><p className="text-sm text-slate-500">Displayed on customer documents for payment.</p></div></div><div className="grid gap-4 md:grid-cols-2"><div className="space-y-2"><Label>Bank Name</Label><Input value={form.bankName} onChange={(event) => update("bankName", event.target.value)} maxLength={120} /></div><div className="space-y-2"><Label>Account Name</Label><Input value={form.bankAccountName} onChange={(event) => update("bankAccountName", event.target.value)} maxLength={120} /></div><div className="space-y-2"><Label>Account Number</Label><Input value={form.bankAccountNumber} onChange={(event) => update("bankAccountNumber", event.target.value)} maxLength={80} /></div><div className="space-y-2"><Label>Account Currency</Label><Select value={form.bankCurrency || form.baseCurrency} onValueChange={(value) => update("bankCurrency", value)}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{currencies.map((currency) => <SelectItem key={currency} value={currency}>{currency}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>IBAN</Label><Input value={form.bankIban} onChange={(event) => update("bankIban", event.target.value.toUpperCase())} maxLength={80} /></div><div className="space-y-2"><Label>SWIFT / BIC</Label><Input value={form.bankSwift} onChange={(event) => update("bankSwift", event.target.value.toUpperCase())} maxLength={30} /></div></div></section>
-    </div>
-    <CompanyTemplateDesigner value={form.documentDesign} onChange={value => update("documentDesign", value)} setup={form} disabled={saving} />
-    {canClearCompany && <CompanyClearButton companyId={setup.id} companyName={setup.name} disabled={saving} />}
-  </form>;
-}
-
-function AdminSettingsCenter({ companyId, companyName, currentUserEmail }: { companyId: number; companyName: string; currentUserEmail: string }) {
-  const [configured, setConfigured] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [currentPin, setCurrentPin] = useState("");
-  const [newPin, setNewPin] = useState("");
-  const [confirmPin, setConfirmPin] = useState("");
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [passwordSaving, setPasswordSaving] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    async function loadSettings() {
-      setLoading(true);
-      try {
-        const response = await fetch(`/api/admin-settings?companyId=${companyId}`);
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "Could not load admin controls");
-        if (active) setConfigured(Boolean(data.configured));
-      } catch (error) {
-        if (active) toast.error(error instanceof Error ? error.message : "Could not load admin controls");
-      } finally {
-        if (active) setLoading(false);
-      }
-    }
-    if (companyId) loadSettings();
-    return () => { active = false; };
-  }, [companyId]);
-
-  async function savePin(event: FormEvent) {
-    event.preventDefault();
-    if (!/^\d{4,12}$/.test(newPin)) return toast.error("The new PIN must contain 4 to 12 numbers.");
-    if (newPin !== confirmPin) return toast.error("The new PIN and confirmation do not match.");
-    setSaving(true);
-    try {
-      const response = await fetch("/api/admin-settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, currentPin, newPin }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not save the admin PIN");
-      setConfigured(true);
-      setCurrentPin(""); setNewPin(""); setConfirmPin("");
-      toast.success("Admin PIN saved");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not save the admin PIN");
-    } finally { setSaving(false); }
-  }
-
-  async function savePassword(event: FormEvent) {
-    event.preventDefault();
-    if (newPassword.length < 12) return toast.error("The new password must contain at least 12 characters.");
-    if (newPassword !== confirmPassword) return toast.error("The new password and confirmation do not match.");
-    setPasswordSaving(true);
-    try {
-      const response = await fetch("/api/auth/session", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ currentPassword, newPassword }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not change the password");
-      toast.success("Password changed. Sign in again.");
-      window.setTimeout(() => window.location.reload(), 700);
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not change the password"); setPasswordSaving(false); }
-  }
-
-  return <div className="space-y-5"><div className="grid gap-5 xl:grid-cols-[1fr_420px]">
-    <section className="rounded-xl border bg-white shadow-sm">
-      <div className="flex items-start justify-between gap-4 border-b p-5"><div><h2 className="font-bold">Restricted stock operations</h2><p className="mt-1 text-sm text-slate-500">Security controls apply separately to {companyName}.</p></div><Badge className={configured ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100" : "bg-amber-100 text-amber-900 hover:bg-amber-100"}>{loading ? "Checkingâ€¦" : configured ? "PIN configured" : "Setup required"}</Badge></div>
-      <div className="p-5"><div className="flex gap-4 rounded-xl border border-amber-200 bg-amber-50 p-4"><div className="grid size-11 shrink-0 place-items-center rounded-lg bg-amber-100 text-amber-800"><ShieldCheck className="size-6" /></div><div><h3 className="font-semibold text-amber-950">Negative-stock invoice override</h3><p className="mt-1 text-sm leading-6 text-amber-900">Invoices and sales receipts are blocked when stock is insufficient. A company admin can enter this PIN on the document to approve an exception.</p><p className="mt-2 text-sm font-medium text-amber-950">Every override is recorded in the audit log.</p></div></div></div>
-    </section>
-    <div className="space-y-5"><form onSubmit={savePin} className="space-y-4 rounded-xl border bg-white p-5 shadow-sm">
-      <div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-lg bg-slate-100 text-slate-700"><KeyRound className="size-5" /></div><div><h2 className="font-bold">{configured ? "Change admin PIN" : "Set admin PIN"}</h2><p className="text-sm text-slate-500">Use 4 to 12 numbers.</p></div></div>
-      {configured && <div className="space-y-2"><Label htmlFor="currentAdminPin">Current PIN</Label><Input id="currentAdminPin" type="password" inputMode="numeric" autoComplete="current-password" pattern="[0-9]{4,12}" value={currentPin} onChange={(event) => setCurrentPin(event.target.value.replace(/\D/g, "").slice(0, 12))} required placeholder="Enter current PIN" /></div>}
-      <div className="space-y-2"><Label htmlFor="newAdminPin">New PIN</Label><Input id="newAdminPin" type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,12}" value={newPin} onChange={(event) => setNewPin(event.target.value.replace(/\D/g, "").slice(0, 12))} required placeholder="Enter new PIN" /></div>
-      <div className="space-y-2"><Label htmlFor="confirmAdminPin">Confirm new PIN</Label><Input id="confirmAdminPin" type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,12}" value={confirmPin} onChange={(event) => setConfirmPin(event.target.value.replace(/\D/g, "").slice(0, 12))} required placeholder="Re-enter new PIN" /></div>
-      <Button type="submit" disabled={loading || saving || !companyId} className="w-full bg-emerald-500 font-semibold text-slate-950 hover:bg-emerald-400">{saving ? "Savingâ€¦" : configured ? "Change admin PIN" : "Set admin PIN"}</Button>
-      <p className="text-sm leading-5 text-slate-500">The PIN is securely hashed before storage and is never displayed. Only authorized company administrators should change it.</p>
-    </form>
-    <form onSubmit={savePassword} className="space-y-4 rounded-xl border bg-white p-5 shadow-sm">
-      <div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-lg bg-emerald-100 text-emerald-700"><ShieldCheck className="size-5" /></div><div><h2 className="font-bold">Change login password</h2><p className="text-sm text-slate-500">{currentUserEmail}</p></div></div>
-      <div className="space-y-2"><Label htmlFor="currentLoginPassword">Current password</Label><Input id="currentLoginPassword" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></div>
-      <div className="space-y-2"><Label htmlFor="newLoginPassword">New password</Label><Input id="newLoginPassword" type="password" autoComplete="new-password" minLength={12} maxLength={128} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required /></div>
-      <div className="space-y-2"><Label htmlFor="confirmLoginPassword">Confirm new password</Label><Input id="confirmLoginPassword" type="password" autoComplete="new-password" minLength={12} maxLength={128} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required /></div>
-      <Button type="submit" disabled={passwordSaving} className="w-full">{passwordSaving ? "Changingâ€¦" : "Change login password"}</Button>
-      <p className="text-sm leading-5 text-slate-500">Changing the password signs out every active session.</p>
-    </form></div>
-  </div><UserRoleCenter /></div>;
-}
-
-function WorkspaceCenter({ mode, companies, activeCompanyId, canDeleteCompanies, onChanged }: { mode: "companies" | "inventories" | "invoice-series" | "currencies"; companies: CompanyWorkspace[]; activeCompanyId: number; canDeleteCompanies: boolean; onChanged: () => Promise<void> }) {
-  const activeCompany = companies.find((company) => company.id === activeCompanyId);
-  const [name, setName] = useState("");
-  const [code, setCode] = useState("");
-  const [currency, setCurrency] = useState(activeCompany?.baseCurrency ?? "AED");
-  const [editingSeries, setEditingSeries] = useState<InventoryLocation | null>(null);
-  const [seriesPrefix, setSeriesPrefix] = useState("");
-  const [seriesNextNumber, setSeriesNextNumber] = useState("1");
-  const [saving, setSaving] = useState(false);
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { setCurrency(activeCompany?.baseCurrency ?? "AED"); }, [activeCompany]);
-  const save = async (method: "POST" | "PATCH", payload: Record<string, string | number>) => {
-    setSaving(true);
-    try {
-      const response = await fetch("/api/workspaces", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not save");
-      await onChanged(); setName(""); setCode("");
-      if (payload.type === "invoiceSeries") setEditingSeries(null);
-      toast.success(payload.type === "invoiceSeries" ? "Invoice series updated" : mode === "companies" ? "Company added" : mode === "inventories" ? "Inventory added" : "Base currency updated");
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save"); }
-    finally { setSaving(false); }
-  };
-  const removeInventory = async (location: InventoryLocation) => {
-    if (saving || !window.confirm(`Remove inventory "${location.name}"? Only unused inventories can be removed.`)) return;
-    setSaving(true);
-    try {
-      const response = await fetch("/api/workspaces", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "location", companyId: activeCompanyId, locationId: location.id }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not remove inventory.");
-      await onChanged();
-      toast.success("Inventory removed");
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not remove inventory."); }
-    finally { setSaving(false); }
-  };
-  const removeCompany = async (company: CompanyWorkspace) => {
-    if (saving) return;
-    const confirmName = window.prompt(`Delete company "${company.name}" and all of its data? This cannot be undone.\n\nType the exact company name to continue:`);
-    if (confirmName === null) return;
-    if (confirmName.trim() !== company.name) return toast.error("The company name does not match.");
-    setSaving(true);
-    try {
-      const response = await fetch("/api/workspaces", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "company", companyId: company.id, confirmName: confirmName.trim() }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not delete company.");
-      await onChanged();
-      toast.success("Company deleted");
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not delete company."); }
-    finally { setSaving(false); }
-  };
-  const openSeriesEditor = (location: InventoryLocation) => {
-    setEditingSeries(location);
-    setSeriesPrefix(location.invoicePrefix);
-    setSeriesNextNumber(String(location.nextInvoiceNumber));
-  };
-  const seriesEditor = <Dialog open={Boolean(editingSeries)} onOpenChange={(open) => { if (!open) setEditingSeries(null); }}><DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>Customize invoice series</DialogTitle><DialogDescription>Set the prefix and next invoice number for {editingSeries?.name}. This affects only this company inventory.</DialogDescription></DialogHeader><form className="space-y-4" onSubmit={(event) => { event.preventDefault(); if (!editingSeries) return; save("PATCH", { type: "invoiceSeries", companyId: activeCompanyId, locationId: editingSeries.id, invoicePrefix: seriesPrefix, nextInvoiceNumber: Number(seriesNextNumber) }); }}><div className="space-y-2"><Label>Invoice series prefix</Label><Input value={seriesPrefix} onChange={(event) => setSeriesPrefix(event.target.value.toUpperCase())} required maxLength={20} placeholder="JAFZA" /><p className="text-xs text-slate-500">Letters, numbers, hyphens and slashes are allowed.</p></div><div className="space-y-2"><Label>Next invoice number</Label><Input type="number" min="1" max="999999999" step="1" value={seriesNextNumber} onChange={(event) => setSeriesNextNumber(event.target.value)} required /></div><div className="rounded-lg border bg-slate-50 p-3"><p className="text-xs font-medium text-slate-500">Preview</p><p className="mt-1 font-mono text-sm font-semibold text-emerald-700">C{String(activeCompanyId).padStart(3, "0")}-{seriesPrefix || "PREFIX"}-INV-{String(Math.max(1, Number(seriesNextNumber) || 1)).padStart(4, "0")}</p></div><DialogFooter><Button type="button" variant="outline" onClick={() => setEditingSeries(null)}>Cancel</Button><Button type="submit" disabled={saving}>Save series</Button></DialogFooter></form></DialogContent></Dialog>;
-  if (mode === "companies") return <div className="grid gap-5 xl:grid-cols-[1fr_360px]"><section className="rounded-xl border bg-white shadow-sm"><div className="border-b p-5"><h2 className="font-bold">Company files</h2><p className="text-sm text-slate-500">Each company has separate customers, accounts, transactions and inventory.</p></div><div className="grid gap-3 p-5 md:grid-cols-2">{companies.map((company) => <article key={company.id} className={`rounded-xl border p-4 ${company.id === activeCompanyId ? "border-emerald-300 bg-emerald-50/50" : ""}`}><div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold">{company.name}</h3><p className="mt-1 text-sm text-slate-500">{company.locations.length} {company.locations.length === 1 ? "inventory" : "inventories"}</p></div><div className="flex items-center gap-1"><Badge variant="outline">{company.baseCurrency}</Badge>{canDeleteCompanies && <Button type="button" variant="ghost" size="icon" disabled={saving || companies.length <= 1} title="Delete company" aria-label={`Delete ${company.name}`} onClick={() => void removeCompany(company)} className="text-rose-600 hover:text-rose-700"><Trash2 className="size-4" /></Button>}</div></div>{company.id === activeCompanyId && <p className="mt-3 text-xs font-semibold text-emerald-700">Currently selected</p>}</article>)}</div></section><form className="space-y-4 rounded-xl border bg-white p-5 shadow-sm" onSubmit={(event) => { event.preventDefault(); save("POST", { type: "company", name, baseCurrency: currency, sourceCompanyId: activeCompanyId }); }}><div><h2 className="font-bold">Add company</h2><p className="text-sm text-slate-500">Includes a Main Inventory and the selected companyâ€™s main Chart of Accounts at zero balance. Sub-accounts and history are not copied.</p></div><div className="space-y-2"><Label>Company name</Label><Input value={name} onChange={(event) => setName(event.target.value)} required placeholder="Company name" /></div><div className="space-y-2"><Label>Base currency</Label><Select value={currency} onValueChange={setCurrency}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{currencies.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div><Button disabled={saving} className="w-full"><Plus className="size-4" />Add company</Button></form></div>;
-  if (mode === "inventories") return <>
-    <div className="grid gap-5 xl:grid-cols-[1fr_360px]"><section className="rounded-xl border bg-white shadow-sm"><div className="border-b p-5"><h2 className="font-bold">{activeCompany?.name} inventories</h2><p className="text-sm text-slate-500">Manage stock locations and their invoice series.</p></div><div className="grid gap-3 p-5 md:grid-cols-2">{activeCompany?.locations.map((location) => <article key={location.id} className="rounded-xl border p-4"><div className="flex items-start justify-between gap-3"><PackageSearch className="size-5 text-emerald-600" /><div className="flex gap-2"><Button type="button" variant="outline" size="sm" onClick={() => openSeriesEditor(location)}><Pencil className="size-3" />Edit series</Button><Button type="button" variant="ghost" size="icon" disabled={saving} title="Remove inventory" aria-label={`Remove ${location.name}`} onClick={() => void removeInventory(location)} className="text-rose-600"><Trash2 className="size-4" /></Button></div></div><h3 className="mt-3 font-semibold">{location.name}</h3><p className="mt-1 font-mono text-xs text-slate-500">{location.code}</p><p className="mt-3 text-xs font-medium text-slate-500">Next invoice</p><p className="mt-1 font-mono text-sm text-emerald-700">{invoiceNumberPreview(activeCompanyId, location)}</p></article>)}</div></section><form className="space-y-4 rounded-xl border bg-white p-5 shadow-sm" onSubmit={(event) => { event.preventDefault(); save("POST", { type: "location", companyId: activeCompanyId, name, code }); }}><div><h2 className="font-bold">Add inventory</h2><p className="text-sm text-slate-500">Warehouse, showroom or store. Its code becomes part of the invoice series.</p></div><div className="space-y-2"><Label>Inventory name</Label><Input value={name} onChange={(event) => setName(event.target.value)} required placeholder="Jebel Ali Warehouse" /></div><div className="space-y-2"><Label>Code / invoice prefix</Label><Input value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} required placeholder="JAFZA" /></div><Button disabled={saving || !activeCompanyId} className="w-full"><Plus className="size-4" />Add inventory</Button></form></div>
-    {seriesEditor}
-  </>;
-  if (mode === "invoice-series") return <><section className="rounded-xl border bg-white shadow-sm"><div className="border-b p-5"><h2 className="font-bold">{activeCompany?.name} invoice series</h2><p className="text-sm text-slate-500">Every inventory has an independent prefix and next invoice number.</p></div><div className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-3">{activeCompany?.locations.map((location) => <article key={location.id} className="rounded-xl border p-5"><div className="flex items-start justify-between gap-3"><div className="rounded-lg bg-emerald-50 p-2 text-emerald-700"><ReceiptText className="size-5" /></div><Badge variant="outline">{location.code}</Badge></div><h3 className="mt-4 font-semibold">{location.name}</h3><p className="mt-1 text-sm text-slate-500">Next invoice</p><p className="mt-2 break-all font-mono text-base font-semibold text-emerald-700">{invoiceNumberPreview(activeCompanyId, location)}</p><Button type="button" className="mt-5 w-full" variant="outline" onClick={() => openSeriesEditor(location)}><Pencil className="size-4" />Customize series</Button></article>)}</div></section>{seriesEditor}</>;
-  return <div className="grid gap-5 xl:grid-cols-[1fr_360px]"><section className="rounded-xl border bg-white shadow-sm"><div className="border-b p-5"><h2 className="font-bold">Available transaction currencies</h2><p className="text-sm text-slate-500">Use any supported currency on invoices, bills and other transactions.</p></div><div className="flex flex-wrap gap-2 p-5">{currencies.map((value) => <Badge key={value} variant={value === activeCompany?.baseCurrency ? "default" : "outline"} className="px-3 py-1.5">{value}{value === activeCompany?.baseCurrency ? " Â· Base" : ""}</Badge>)}</div></section><form className="space-y-4 rounded-xl border bg-white p-5 shadow-sm" onSubmit={(event) => { event.preventDefault(); save("PATCH", { companyId: activeCompanyId, baseCurrency: currency }); }}><div><h2 className="font-bold">Company base currency</h2><p className="text-sm text-slate-500">Reports and accounting entries use this currency.</p></div><div className="space-y-2"><Label>{activeCompany?.name}</Label><Select value={currency} onValueChange={setCurrency}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{currencies.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div><Button disabled={saving || !activeCompanyId} className="w-full">Save currency</Button></form></div>;
-}
-
-function WorkspaceDialog({ open, companies, activeCompanyId, onClose, onChanged }: { open: boolean; companies: CompanyWorkspace[]; activeCompanyId: number; onClose: () => void; onChanged: () => Promise<void> }) {
-  const [companyName, setCompanyName] = useState("");
-  const [companyCurrency, setCompanyCurrency] = useState("AED");
-  const [locationName, setLocationName] = useState("");
-  const [locationCode, setLocationCode] = useState("");
-  const [saving, setSaving] = useState(false);
-  const submit = async (payload: Record<string, string | number>) => {
-    setSaving(true);
-    try {
-      const response = await fetch("/api/workspaces", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not save");
-      await onChanged();
-      setCompanyName(""); setLocationName(""); setLocationCode("");
-      toast.success(payload.type === "company" ? "Company added" : "Inventory location added");
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save"); }
-    finally { setSaving(false); }
-  };
-  return <Dialog open={open} onOpenChange={(next) => { if (!next) onClose(); }}><DialogContent className="sm:max-w-3xl"><DialogHeader><DialogTitle>Companies & inventory</DialogTitle><DialogDescription>Add separate company files and stock locations. Each company keeps its own records and base currency.</DialogDescription></DialogHeader>
-    <div className="grid gap-5 md:grid-cols-2">
-      <form className="space-y-4 rounded-xl border p-4" onSubmit={(event) => { event.preventDefault(); submit({ type: "company", name: companyName, baseCurrency: companyCurrency, sourceCompanyId: activeCompanyId }); }}><div><h3 className="font-semibold">Add company</h3><p className="text-xs text-slate-500">Copies only the selected companyâ€™s main Chart of Accounts at zero balance. Sub-accounts, transactions and history stay empty.</p></div><div className="space-y-2"><Label>Company name</Label><Input value={companyName} onChange={(event) => setCompanyName(event.target.value)} required placeholder="Company name" /></div><div className="space-y-2"><Label>Base currency</Label><Select value={companyCurrency} onValueChange={setCompanyCurrency}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{currencies.map((currency) => <SelectItem key={currency} value={currency}>{currency}</SelectItem>)}</SelectContent></Select></div><Button type="submit" disabled={saving} className="w-full"><Plus className="size-4" />Add company</Button></form>
-      <form className="space-y-4 rounded-xl border p-4" onSubmit={(event) => { event.preventDefault(); submit({ type: "location", companyId: activeCompanyId, name: locationName, code: locationCode }); }}><div><h3 className="font-semibold">Add inventory location</h3><p className="text-xs text-slate-500">Add a warehouse, showroom or store to the selected company.</p></div><div className="space-y-2"><Label>Location name</Label><Input value={locationName} onChange={(event) => setLocationName(event.target.value)} required placeholder="Jebel Ali Warehouse" /></div><div className="space-y-2"><Label>Location code</Label><Input value={locationCode} onChange={(event) => setLocationCode(event.target.value.toUpperCase())} required placeholder="JAFZA" /></div><Button type="submit" disabled={saving || !activeCompanyId} variant="outline" className="w-full"><Plus className="size-4" />Add inventory</Button></form>
-    </div>
-    <div className="max-h-48 space-y-2 overflow-y-auto rounded-xl bg-slate-50 p-3">{companies.map((company) => <div key={company.id} className="flex items-center justify-between rounded-lg bg-white px-3 py-2 text-sm"><div><strong>{company.name}</strong><p className="text-xs text-slate-500">{company.locations.map((location) => `${location.name} (${location.code})`).join(" Â· ")}</p></div><Badge variant="outline">{company.baseCurrency}</Badge></div>)}</div>
-    <DialogFooter><Button type="button" variant="outline" onClick={onClose}>Done</Button></DialogFooter>
-  </DialogContent></Dialog>;
-}
-
-function Field({ label, name, form, setForm, type = "text", required = false, placeholder }: { label: string; name: string; form: Record<string, string>; setForm: (f: Record<string, string>) => void; type?: string; required?: boolean; placeholder?: string }) { return <div className="space-y-2"><Label htmlFor={name}>{label}{required ? " *" : ""}</Label><Input id={name} name={name} type={type} required={required} placeholder={placeholder} value={form[name] ?? ""} onChange={(e) => setForm({ ...form, [name]: e.target.value })} /></div>; }
-function Choice({ label, name, values, form, setForm, placeholder }: { label: string; name: string; values: string[]; form: Record<string, string>; setForm: (f: Record<string, string>) => void; placeholder?: string }) { return <div className="space-y-2"><Label>{label}</Label><Select value={form[name]} onValueChange={(value) => setForm({ ...form, [name]: value })}><SelectTrigger className="w-full"><SelectValue placeholder={placeholder} /></SelectTrigger><SelectContent>{values.map((value) => <SelectItem key={value} value={value}><span className="capitalize">{value}</span></SelectItem>)}</SelectContent></Select></div>; }
-function CurrencyExchangeChoice({ form, setForm, exchangeRates, baseCurrency }: { form: Record<string, string>; setForm: (form: Record<string, string>) => void; exchangeRates: ExchangeRateRecord[]; baseCurrency: string }) {
-  const selectedRate = exchangeRates.find((rate) => rate.currencyCode === form.currency)?.rate;
-  return <div className="space-y-2"><Label>Currency *</Label><Select value={form.currency} onValueChange={(currency) => { const savedRate = exchangeRates.find((entry) => entry.currencyCode === currency)?.rate; setForm({ ...form, currency, exchangeRate: currency === baseCurrency ? "1" : savedRate ? String(savedRate) : "" }); }}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{currencies.map((currency) => <SelectItem key={currency} value={currency}><span className="flex w-full items-center justify-between gap-3"><span>{currency}</span><span className="text-xs text-slate-500">{currency === baseCurrency ? "Base Â· 1.000000" : exchangeRates.find((entry) => entry.currencyCode === currency)?.rate ? `Rate ${exchangeRates.find((entry) => entry.currencyCode === currency)?.rate}` : "Rate not set"}</span></span></SelectItem>)}</SelectContent></Select>{form.currency !== baseCurrency && selectedRate ? <p className="text-xs text-emerald-700">Saved rate applied: 1 {form.currency} = {selectedRate} {baseCurrency}</p> : form.currency !== baseCurrency ? <p className="text-xs text-amber-700">No saved rate. Enter the document rate manually.</p> : null}</div>;
-}
-function BillFields({ form, setForm, items, vendors, salesmen, accounts, locations, lines, setLines, vatCodeOptions, exchangeRates, baseCurrency }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; items: DataRecord[]; vendors: DataRecord[]; salesmen: DataRecord[]; accounts: DataRecord[]; locations: InventoryLocation[]; lines: LineForm[]; setLines: (lines: LineForm[]) => void; vatCodeOptions: VatCodeOption[]; exchangeRates: ExchangeRateRecord[]; baseCurrency: string }) {
-  const update = (index: number, changes: Partial<LineForm>) => setLines(lines.map((line, position) => position === index ? { ...line, ...changes } : line));
-  const addLine = () => setLines([...lines, { itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", freightCharge: "0", vatCode: form.isImport === "true" ? "STANDARD" : "ZERO", vatRate: form.isImport === "true" ? "5" : "0" }]);
-  const documentRate = Math.max(Number(form.exchangeRate) || 1, Number.EPSILON);
-  const subtotal = lines.reduce((sum, line) => sum + Math.round(Number(line.quantity || 0) * Number(line.unitPrice || 0) * 100) / 100, 0);
-  const vat = lines.reduce((sum, line) => sum + Math.round(Math.round(Number(line.quantity || 0) * Number(line.unitPrice || 0) * 100) / 100 * Number(line.vatRate || 0)) / 100, 0);
-  const lineFreight = (line: LineForm) => Math.round(Number(line.freightCharge || 0) * 100) / 100;
-  const freightCharges = lines.reduce((sum, line) => sum + lineFreight(line), 0);
-  const totalQuantity = lines.reduce((sum, line) => sum + Number(line.quantity || 0), 0);
-  const freightByTax = new Map<string, { amount: number; rate: number }>();
-  lines.forEach(line => { const old = freightByTax.get(line.vatCode); freightByTax.set(line.vatCode, { amount: (old?.amount || 0) + lineFreight(line), rate: Number(line.vatRate || 0) }); });
-  const freightVat = [...freightByTax.values()].reduce((sum, group) => sum + Math.round(group.amount * group.rate) / 100, 0);
-  const totalVat = vat + freightVat;
-  const total = subtotal + freightCharges + totalVat;
-  const purchaseAccounts = accounts.filter((account) => account.active && (
-    ["PURCHASES", "EXPENSE", "COGS"].includes(String(account.systemRole))
-    || ["Expense", "Other Expense", "Cost of Goods Sold"].includes(String(account.type))
-  ));
-  const defaultPurchaseAccount = String(
-    defaultBillPurchaseAccount(purchaseAccounts)
-  );
-  useEffect(() => {
-    if (!form.account && defaultPurchaseAccount) setForm({ ...form, account: defaultPurchaseAccount });
-  }, [defaultPurchaseAccount, form, setForm]);
-  const purchaseItems = items.filter(itemCanBeDocumentLine);
-  return <div className="space-y-5">
-    <div className="grid gap-4 rounded-xl border bg-slate-50 p-4 md:grid-cols-2 xl:grid-cols-6">
-      <div className="space-y-2"><Label>Sales Rep</Label><Select value={form.salesman || undefined} onValueChange={(value) => setForm({ ...form, salesman: value })}><SelectTrigger className="w-full"><SelectValue placeholder="Select sales rep" /></SelectTrigger><SelectContent>{salesmen.length ? salesmen.map((salesman) => <SelectItem key={salesman.id} value={String(salesman.name)}>{String(salesman.name)}</SelectItem>) : <SelectItem value="no-salesmen" disabled>No sales reps available</SelectItem>}</SelectContent></Select></div>
-      <Field label="Reference No." name="number" form={form} setForm={setForm} required placeholder="Enter reference no." />
-      <div className="space-y-2"><Label>Inventory *</Label><Select disabled={Boolean(form.revision)} value={form.billLocationId || String(locations[0]?.id ?? "")} onValueChange={(value) => setForm({ ...form, billLocationId: value })}><SelectTrigger className="w-full"><SelectValue placeholder="Select inventory" /></SelectTrigger><SelectContent>{locations.map((location) => <SelectItem key={location.id} value={String(location.id)}>{location.name}</SelectItem>)}</SelectContent></Select></div>
-      <div className="space-y-2"><Label>Import</Label><Select value={form.isImport ?? "false"} onValueChange={(value) => { const vatRate = value === "true" ? "5" : "0"; const vatCode = value === "true" ? "STANDARD" : "ZERO"; setForm({ ...form, isImport: value, vatRate }); setLines(lines.map((line) => ({ ...line, vatCode, vatRate }))); }}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="true">Yes â€” 5% VAT</SelectItem><SelectItem value="false">No â€” 0% VAT</SelectItem></SelectContent></Select></div>
-      <CurrencyExchangeChoice form={form} setForm={setForm} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />
-      <Field label={`Exchange Rate to ${baseCurrency}`} name="exchangeRate" type="number" form={form} setForm={setForm} required placeholder="1.000000" />
-    </div>
-    <div className="grid gap-4 md:grid-cols-3">
-      <div className="space-y-2"><Label>Vendor *</Label><Select value={form.party} onValueChange={(value) => setForm(applyContactCurrency(form, vendors, value, "vendor", exchangeRates, baseCurrency))}><SelectTrigger className="w-full"><SelectValue placeholder="Select vendor" /></SelectTrigger><SelectContent>{vendors.length ? vendors.map((vendor) => <SelectItem key={vendor.id} value={String(vendor.name)}>{String(vendor.company || vendor.name)} Â· {String(vendor.currency)}</SelectItem>) : <SelectItem value="no-vendors" disabled>No vendors available</SelectItem>}</SelectContent></Select></div>
-      <Field label="Date" name="transactionDate" type="date" form={form} setForm={setForm} required />
-      <div className="space-y-2"><Label>Purchase account *</Label><Select value={form.account || defaultPurchaseAccount} onValueChange={(account) => setForm({ ...form, account })}><SelectTrigger className="w-full"><SelectValue placeholder="Select purchase / expense account" /></SelectTrigger><SelectContent>{purchaseAccounts.length ? purchaseAccounts.map((account) => <SelectItem key={account.id} value={String(account.name)}>{String(account.code || "")} Â· {String(account.name)} Â· {String(account.type)}</SelectItem>) : <SelectItem value="no-purchase-accounts" disabled>No purchase / expense accounts available</SelectItem>}</SelectContent></Select><p className="text-xs text-slate-500">Used for non-stock purchases and fallback posting. Stock items use their linked Inventory Asset account.</p></div>
-    </div>
-    <div className="bill-item-table overflow-hidden rounded-lg border bg-white">
-      <div className="flex items-center justify-between border-b p-3 bill-mobile-heading"><strong>Bill items</strong><Button type="button" className="bg-green-600 text-white hover:bg-green-700" size="icon" aria-label="Add bill item" onClick={addLine}><Plus className="size-4" /></Button></div>
-      <div className="bill-item-heading bg-slate-50 text-sm font-bold"><div>#</div><div>Desc</div><div>QTY (pcs)</div><div>Rate</div><div>Subtotal</div><div>VAT</div><div><Button type="button" className="bg-green-600 text-white hover:bg-green-700" size="icon" aria-label="Add bill item" onClick={addLine}><Plus className="size-4" /></Button></div></div>
-      {lines.map((line, index) => {
-        const lineSubtotal = Math.round(Number(line.quantity || 0) * Number(line.unitPrice || 0) * 100) / 100;
-        const selectedItem = purchaseItems.find((entry) => String(entry.id) === line.itemId);
-        return <div key={index} className="bill-item-row">
-          <div className="bill-item-number text-sm text-slate-500">{index + 1}</div>
-          <div className="bill-item-product space-y-2 min-w-0"><Select value={line.itemId || "custom"} onValueChange={(value) => { const item = purchaseItems.find((entry) => String(entry.id) === value); const purchaseVatCode = form.isImport === "true" ? String(item?.purchaseVatCode || "STANDARD") : "ZERO"; const purchaseVatRate = Number(vatRateForCode(purchaseVatCode, vatCodeOptions)); const storedHomePrice = Number(item?.lastPurchasePrice ?? item?.cost ?? 0); const lastHomePrice = item?.amountsIncludeVat === true && purchaseVatRate > 0 ? storedHomePrice / (1 + purchaseVatRate / 100) : storedHomePrice; const documentPrice = Number((lastHomePrice / documentRate).toFixed(2)); update(index, value === "custom" ? { itemId: "", description: "" } : { itemId: value, description: item ? itemDisplayDescription(item) || String(item.name) : "", unitPrice: String(documentPrice), unitCost: String(documentPrice), freightCharge: "0", vatCode: purchaseVatCode, vatRate: String(purchaseVatRate) }); }}><SelectTrigger className="w-full"><SelectValue placeholder="Select Product" /></SelectTrigger><SelectContent><SelectItem value="custom">Custom description</SelectItem>{purchaseItems.map((item) => <SelectItem key={item.id} value={String(item.id)}>{String(item.sku)} Â· {String(item.name)} Â· {itemTypeDetails[itemTypeOf(item.itemType)].label} Â· Last {baseCurrency} {Number(item.lastPurchasePrice ?? item.cost ?? 0).toFixed(2)}</SelectItem>)}</SelectContent></Select>{selectedItem && <p className="text-xs font-medium text-sky-700">Last purchase price at bill entry: {formatMoney(selectedItem.lastPurchasePrice ?? selectedItem.cost, baseCurrency)}</p>}{!line.itemId && <Input placeholder="Enter description" required value={line.description} onChange={(event) => update(index, { description: event.target.value })} />}<DocumentExtraFields value={{ comments: line.comments || "", serialNumber: line.serialNumber || "" }} onChange={value => update(index, value)} /></div>
-          <div><Label className="bill-mobile-label">QTY (pcs)</Label><Input aria-label={`Quantity for line ${index + 1}`} type="number" min="0.01" step="0.01" value={line.quantity} onChange={event => update(index, { quantity: event.target.value })} /></div>
-          <div><Label className="bill-mobile-label">Rate</Label><Input aria-label={`Rate for line ${index + 1}`} type="number" min="0" step="0.01" value={line.unitPrice} onChange={event => update(index, { unitPrice: event.target.value, unitCost: event.target.value })} /></div>
-          <div><Label className="bill-mobile-label">Subtotal</Label><Input aria-label={`Subtotal for line ${index + 1}`} readOnly value={lineSubtotal.toFixed(2)} className="bg-slate-100" /></div>
-          <div className="space-y-2"><Label className="bill-mobile-label">VAT</Label><Input aria-label={`VAT amount for line ${index + 1}`} readOnly value={(Math.round((lineSubtotal + lineFreight(line)) * Number(line.vatRate || 0)) / 100).toFixed(2)} className="bg-slate-100" /><Select value={line.vatCode} onValueChange={(vatCode) => update(index, { vatCode, vatRate: vatRateForCode(vatCode, vatCodeOptions) })}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{vatCodeOptions.map((option) => <SelectItem key={option.code} value={option.code}><span className="flex flex-col"><span>{option.label}</span>{option.description ? <span className="text-xs text-slate-500">{option.description}</span> : null}</span></SelectItem>)}</SelectContent></Select></div>
-          <div className="bill-item-delete"><Button type="button" size="icon" disabled={lines.length === 1} onClick={() => setLines(lines.filter((_, position) => position !== index))} className="bg-red-600 text-white hover:bg-red-700" aria-label={`Delete bill item ${index + 1}`}><Trash2 className="size-4" /></Button></div>
-        </div>;
-      })}
-    </div>
-    <div className="grid gap-5 lg:grid-cols-[1fr_420px]">
-      <div />
-      <div className="space-y-4 rounded-xl border bg-slate-50 p-4">
-        <div className="space-y-3 text-sm"><div className="flex justify-between"><span className="text-slate-500">Total quantity</span><strong>{totalQuantity.toLocaleString()}</strong></div><div className="flex justify-between"><span className="text-slate-500">Subtotal</span><strong>{formatMoney(subtotal + freightCharges, form.currency)}</strong></div><div className="flex justify-between"><span className="text-slate-500">VAT</span><strong>{formatMoney(totalVat, form.currency)}</strong></div><div className="flex justify-between border-t pt-3 text-lg"><span className="font-bold">Total</span><strong>{formatMoney(total, form.currency)}</strong></div></div>
-      </div>
-    </div>
-  </div>;
-}
-function CashTransactionFields({ form, setForm, contacts, accounts, locations, lines, setLines, vatCodeOptions, exchangeRates, baseCurrency }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; contacts: DataRecord[]; accounts: DataRecord[]; locations: InventoryLocation[]; lines: LineForm[]; setLines: (lines: LineForm[]) => void; vatCodeOptions: VatCodeOption[]; exchangeRates: ExchangeRateRecord[]; baseCurrency: string }) {
-  const receivePayment = form.type === "customer payment";
-  const payBill = form.type === "bill payment";
-  const line = lines[0] ?? { itemId: "", description: receivePayment ? "Payment received" : "Cheque payment", quantity: "1", unitPrice: "0", unitCost: "0", vatCode: "ZERO", vatRate: "0" };
-  const updateLine = (changes: Partial<LineForm>) => setLines([{ ...line, ...changes }]);
-  const amount = Number(line.unitPrice || 0);
-
-  const bankAccounts = accounts.filter((account) => account.active && (account.type === "Bank" || account.systemRole === "BANK"));
-  const apName = linkedAccountName(accounts, "AP", "Accounts Payable", form.currency);
-  const chequeAccounts = accounts.filter((account) => account.active && (
-    ["EXPENSE", "PURCHASES", "COGS", "PAYROLL"].includes(String(account.systemRole))
-    || ["Expense", "Other Expense", "Cost of Goods Sold"].includes(String(account.type))
-    || (account.systemRole === "AP" && String(account.currency) === form.currency)
-  ));
-  const isAccountsPayable = (form.account || apName) === apName;
-  const inferredChequeType = contacts.some((contact) => contact.type === "employee" && contact.name === form.party) ? "salary" : isAccountsPayable ? "supplier" : "expense";
-  const chequeType = form.chequeType || inferredChequeType;
-  const chequePartyOptional = form.type === "cheque" && chequeType !== "supplier";
-  const parties = contacts.filter((contact) => contact.type === (receivePayment ? "customer" : chequeType === "salary" ? "employee" : "vendor") && contact.status !== "inactive");
-  const expenseAccounts = chequeAccounts.filter((account) => account.systemRole !== "AP");
-  const salaryAccount = expenseAccounts.find((account) => account.systemRole === "PAYROLL") ?? expenseAccounts.find((account) => /salary|payroll/i.test(String(account.name))) ?? expenseAccounts[0];
-  const directExpenseAccount = expenseAccounts.find((account) => account.systemRole !== "PAYROLL") ?? expenseAccounts[0];
-  const zeroVatOnly = receivePayment || payBill;
-  const effectiveVatCode = zeroVatOnly ? "ZERO" : line.vatCode;
-  const vat = zeroVatOnly ? 0 : amount * Number(vatRateForCode(effectiveVatCode, vatCodeOptions)) / 100;
-  const bankLabel = (bank: DataRecord) => {
-    const parent = accounts.find((account) => account.id === Number(bank.parentAccountId));
-    return `${parent ? `${String(parent.name)} / ` : ""}${String(bank.name)} Â· ${String(bank.currency)}`;
-  };
-  const selectedSupplier = !receivePayment ? parties.find((party) => party.name === form.party) : undefined;
-  const selectedBank = bankAccounts.find((bank) => String(bank.id) === form.bankAccountId && String(bank.currency) === form.currency);
-  const selectParty = (value: string) => {
-    const contactType = receivePayment ? "customer" : chequeType === "salary" ? "employee" : "vendor";
-    const next = applyContactCurrency(form, parties, value, contactType, exchangeRates, baseCurrency);
-    const currency = next.currency;
-    const account = receivePayment || payBill
-      ? bankAccounts.some((bank) => bank.name === form.account && bank.currency === currency) ? form.account : ""
-      : chequeType === "supplier" ? linkedAccountName(accounts, "AP", "Accounts Payable", currency) : form.account;
-    setForm({ ...next, account });
-  };
-  const selectChequeType = (value: string) => {
-    const supplier = value === "supplier";
-    const salary = value === "salary";
-    const account = supplier ? apName : String((salary ? salaryAccount : directExpenseAccount)?.name ?? "");
-    const vatCode = salary || supplier ? "ZERO" : vatCodeOptions.find((option) => option.code === "STANDARD")?.code ?? vatCodeOptions[0]?.code ?? "ZERO";
-    const vatRate = vatRateForCode(vatCode, vatCodeOptions);
-    setForm({ ...form, chequeType: value, party: "", account, billId: "", billIds: "[]", billReferences: "", billRemaining: "", vatRate });
-    updateLine({ description: salary ? "Salary payment" : supplier ? "Cheque payment" : "Expense payment", vatCode, vatRate });
-  };
-  return <div className="space-y-4">
-    <section className="grid gap-x-4 gap-y-3 md:grid-cols-2 xl:grid-cols-3" aria-label="Payment setup">
-      {form.type === "cheque" ? <div className="space-y-2"><Label>Cheque type *</Label><Select value={chequeType} onValueChange={selectChequeType}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="supplier">Supplier payment</SelectItem><SelectItem value="expense">Direct expense</SelectItem><SelectItem value="salary">Salary</SelectItem></SelectContent></Select></div> : <div className="space-y-2"><Label>{receivePayment ? "Customer" : "Vendor / Payee"} *</Label><Select value={form.party || undefined} onValueChange={selectParty}><SelectTrigger className="w-full"><SelectValue placeholder={receivePayment ? "Select customer" : "Select vendor"} /></SelectTrigger><SelectContent>{parties.length ? parties.map((party) => <SelectItem key={party.id} value={String(party.name)}>{String(party.company || party.name)} Â· {String(party.currency)}</SelectItem>) : <SelectItem value="no-parties" disabled>No {receivePayment ? "customers" : "vendors"} available</SelectItem>}</SelectContent></Select></div>}
-      <Field label={receivePayment ? "Payment Reference" : payBill ? "Bill Payment Reference" : "Cheque Number"} name="number" form={form} setForm={setForm} required placeholder={receivePayment ? "Enter payment reference" : payBill ? "Enter bill payment reference" : "Enter cheque number"} />
-      <Field label={payBill ? "Payment Date" : receivePayment ? "Payment Date" : "Cheque Date"} name="transactionDate" type="date" form={form} setForm={setForm} required />
-      {payBill && <PaymentSalesRep companyId={locations[0]?.companyId ?? 0} currency={baseCurrency} employees={contacts.filter((contact) => contact.type === "employee" && contact.status !== "inactive").map((contact) => ({ id: contact.id, name: String(contact.name) }))} value={form.salesman || ""} onChange={(salesman) => setForm({ ...form, salesman })} />}
-      <div className="space-y-2"><Label>Inventory *</Label><Select disabled={Boolean(form.revision)} value={form.transactionLocationId || String(locations[0]?.id ?? "")} onValueChange={(value) => setForm({ ...form, transactionLocationId: value })}><SelectTrigger className="w-full"><SelectValue placeholder="Select inventory" /></SelectTrigger><SelectContent>{locations.map((location) => <SelectItem key={location.id} value={String(location.id)}>{location.name}</SelectItem>)}</SelectContent></Select></div>
-      <CurrencyExchangeChoice form={form} setForm={setForm} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />
-      <Field label={`Exchange rate to ${baseCurrency}`} name="exchangeRate" type="number" form={form} setForm={setForm} required />
-      {form.type === "cheque" && <div className="space-y-2"><Label htmlFor="cheque-bank">Pay From *</Label><Select value={bankAccounts.some((bank) => String(bank.id) === form.bankAccountId && String(bank.currency) === form.currency) ? form.bankAccountId : ""} onValueChange={(bankAccountId) => {
-        const bank = bankAccounts.find((entry) => String(entry.id) === bankAccountId);
-        if (!bank) return;
-        const currency = String(bank.currency);
-        const rate = currency === baseCurrency ? "1" : String(exchangeRates.find((entry) => entry.currencyCode === currency)?.rate ?? "");
-        setForm({ ...form, bankAccountId, currency, exchangeRate: rate, ...(isAccountsPayable ? { account: linkedAccountName(accounts, "AP", "Accounts Payable", currency) } : {}) });
-      }}><SelectTrigger id="cheque-bank" className="w-full"><SelectValue placeholder="Select bank account" /></SelectTrigger><SelectContent>{bankAccounts.length ? bankAccounts.map((bank) => <SelectItem key={bank.id} value={String(bank.id)}>{bankLabel(bank)} Â· Balance {formatMoney(Number(bank.balance || 0), baseCurrency)}</SelectItem>) : <SelectItem value="no-banks" disabled>No active bank accounts</SelectItem>}</SelectContent></Select><p className="text-sm font-medium">{selectedBank ? `${bankLabel(selectedBank)} â€” Balance ${formatMoney(Number(selectedBank.balance || 0), baseCurrency)} (${baseCurrency} ledger balance)` : "Select a bank to see its balance."}</p><p className="text-xs text-slate-500">The cheque uses the selected bankâ€™s currency. Amounts post to the ledger in {baseCurrency}.</p></div>}
-      {receivePayment ? <div className="space-y-2"><Label htmlFor="payment-deposit-bank">Deposit To *</Label><Select value={bankAccounts.some((account) => account.name === form.account && account.currency === form.currency) ? form.account : ""} onValueChange={(account) => setForm({ ...form, account })}><SelectTrigger id="payment-deposit-bank" className="w-full"><SelectValue placeholder="Select bank account" /></SelectTrigger><SelectContent>{bankAccounts.some((bank) => bank.currency === form.currency) ? bankAccounts.filter((bank) => bank.currency === form.currency).map((account) => <SelectItem key={account.id} value={String(account.name)}>{bankLabel(account)} Â· Balance {formatMoney(Number(account.balance || 0), baseCurrency)}</SelectItem>) : <SelectItem value="no-bank-accounts" disabled>No active bank in {form.currency}</SelectItem>}</SelectContent></Select>{!bankAccounts.some((bank) => bank.currency === form.currency) && <p className="text-xs text-slate-500">Add a bank in this currency in Chart of Accounts first.</p>}</div> : payBill ? <div className="space-y-2"><Label htmlFor="bill-payment-bank">Pay From *</Label><Select value={bankAccounts.some((bank) => bank.name === form.account && bank.currency === form.currency) ? form.account : ""} onValueChange={(account) => setForm({ ...form, account })}><SelectTrigger id="bill-payment-bank" className="w-full"><SelectValue placeholder="Select bank account" /></SelectTrigger><SelectContent>{bankAccounts.filter((bank) => bank.currency === form.currency).map((bank) => <SelectItem key={bank.id} value={String(bank.name)}>{bankLabel(bank)} Â· Balance {formatMoney(Number(bank.balance || 0), baseCurrency)}</SelectItem>)}{!bankAccounts.some((bank) => bank.currency === form.currency) && <SelectItem value="no-banks" disabled>No active bank in {form.currency}</SelectItem>}</SelectContent></Select><p className="text-xs text-slate-500">Balances shown in {baseCurrency}. Add banks in Chart of Accounts.</p></div> : <div className="space-y-2"><Label>Posting account</Label><Select value={form.account || apName} onValueChange={(value) => { const isPayable = value === apName; setForm({ ...form, account: value, ...(!isPayable ? { billId: "", billIds: "[]", billReferences: "", billRemaining: "" } : {}), ...(isPayable ? { vatRate: "0" } : {}) }); if (isPayable) updateLine({ vatCode: "ZERO", vatRate: "0" }); }}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{chequeAccounts.map((account) => <SelectItem key={account.id} value={String(account.name)}>{String(account.code)} Â· {String(account.name)}</SelectItem>)}</SelectContent></Select><p className="text-xs text-slate-500">Select Accounts Payable for bill settlement, or any active expense account for direct cheque expenses.</p></div>}
-    </section>
-    {form.type === "cheque" && chequeType === "supplier" && selectedSupplier && <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/50 px-4 py-3"><p className="text-sm text-muted-foreground">Supplier balance Â· All inventories Â· {String(selectedSupplier.currency)}</p><strong className="text-base">{formatMoney(Number(selectedSupplier.balance || 0), String(selectedSupplier.currency))}</strong></div>}
-    {(payBill || (form.type === "cheque" && isAccountsPayable)) && <UnpaidBills key={`${locations[0]?.companyId}:${form.transactionLocationId}:${form.party}:${form.currency}`} companyId={locations[0]?.companyId ?? 0} locationId={Number(form.transactionLocationId || locations[0]?.id || 0)} party={form.party || ""} currency={form.currency || baseCurrency} paymentId={form.revision ? form.id : undefined} selectedBillId={form.billId || ""} selectedBillIds={form.type === "cheque" ? JSON.parse(form.billIds || (form.billId ? `[${form.billId}]` : "[]")) : undefined} onSelectMany={form.type === "cheque" ? (bills) => { const amount = String(Math.round(bills.reduce((sum,bill) => sum + bill.remaining,0)*100)/100); const references = bills.map((bill) => bill.number).join(", "); setForm({...form, billId: "", billIds: JSON.stringify(bills.map((bill) => bill.id)), billReferences: references, billRemaining: amount}); updateLine({unitPrice:amount,unitCost:amount,description:references ? `Payment for bills ${references}` : "Cheque payment",quantity:"1",vatCode:"ZERO",vatRate:"0"}); } : undefined} onSelect={(bill) => { setForm({ ...form, billId: bill ? String(bill.id) : "", billRemaining: bill ? String(bill.remaining) : "" }); updateLine({ unitPrice: bill ? String(bill.remaining) : "0", unitCost: bill ? String(bill.remaining) : "0", description: bill ? `Payment for bill ${bill.number}` : "Bill payment", quantity: "1", vatCode: "ZERO", vatRate: "0" }); }} />}
-    {receivePayment && <UnpaidInvoices key={`${locations[0]?.companyId}:${form.transactionLocationId}:${form.party}:${form.currency}`} companyId={locations[0]?.companyId ?? 0} locationId={Number(form.transactionLocationId || locations[0]?.id || 0)} party={form.party || ""} currency={form.currency || baseCurrency} paymentId={form.revision ? form.id : undefined} selectedInvoiceIds={JSON.parse(form.invoiceIds || "[]")} onSelect={(invoices) => { const amount = String(Math.round(invoices.reduce((sum, invoice) => sum + invoice.remaining, 0) * 100) / 100); setForm({ ...form, invoiceId: "", invoiceIds: JSON.stringify(invoices.map((invoice) => invoice.id)), invoiceRemaining: amount }); updateLine({ unitPrice: amount, unitCost: amount, description: invoices.length ? `Payment for invoices ${invoices.map((invoice) => invoice.number).join(", ")}` : "Invoice payment", quantity: "1", vatCode: "ZERO", vatRate: "0" }); }} />}
-    <section className="space-y-3 border-t pt-4" aria-labelledby="payment-details-heading">
-      <h3 id="payment-details-heading" className="text-sm font-semibold">Payment details</h3>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-      {form.type === "cheque" && <><div className="space-y-2"><Label>{chequeType === "salary" ? "Employee name" : "Payee name"}{chequePartyOptional ? " (optional)" : " *"}</Label><Select value={form.party || undefined} onValueChange={selectParty}><SelectTrigger className="w-full"><SelectValue placeholder={chequeType === "salary" ? "Select employee or leave blank" : chequePartyOptional ? "Select payee or leave blank" : "Select vendor / payee"} /></SelectTrigger><SelectContent>{chequePartyOptional && <SelectItem value="General expense">{chequeType === "salary" ? "No employee Â· General expense" : "No payee Â· General expense"}</SelectItem>}{parties.map((party) => <SelectItem key={party.id} value={String(party.name)}>{String(party.company || party.name)}{party.currency ? ` Â· ${String(party.currency)}` : ""}</SelectItem>)}{!parties.length && !chequePartyOptional && <SelectItem value="no-payees" disabled>No vendors available</SelectItem>}</SelectContent></Select>{chequePartyOptional && <p className="text-xs text-slate-500">Optional. Leave blank or choose General expense to save without a name.</p>}</div><div className="space-y-2 md:col-span-1 xl:col-span-3"><Label>Details *</Label><Input value={line.description} onChange={(event) => updateLine({ description: event.target.value })} placeholder={chequeType === "salary" ? "Example: September 2026 salary" : chequeType === "expense" ? "Describe the expense" : "Cheque payment details"} required /></div></>}
-      <div className="space-y-2"><Label>Amount *</Label><Input type="number" min="0.01" step="0.01" value={line.unitPrice} onChange={(event) => updateLine({ unitPrice: event.target.value, unitCost: event.target.value })} required /></div>
-      <div className="space-y-2"><Label htmlFor="cash-vat-code">VAT code</Label><Select value={effectiveVatCode} onValueChange={(vatCode) => { const vatRate = vatRateForCode(vatCode, vatCodeOptions); const taxableSupplierCheque = form.type === "cheque" && isAccountsPayable && Number(vatRate) > 0 && directExpenseAccount; updateLine({ vatCode, vatRate }); setForm({ ...form, vatRate, ...(taxableSupplierCheque ? { chequeType: "expense", account: String(directExpenseAccount.name), billId: "", billIds: "[]", billReferences: "", billRemaining: "" } : {}) }); }}><SelectTrigger id="cash-vat-code" className="w-full"><SelectValue /></SelectTrigger><SelectContent>{zeroVatOnly && !vatCodeOptions.some((option) => option.code === "ZERO") && <SelectItem value="ZERO">ZERO Â· 0%</SelectItem>}{vatCodeOptions.map((option) => <SelectItem key={option.code} value={option.code} disabled={(zeroVatOnly && option.code !== "ZERO") || (form.type === "cheque" && isAccountsPayable && Number(option.rate) > 0 && !directExpenseAccount)}>{option.label}</SelectItem>)}</SelectContent></Select>{form.type === "cheque" && isAccountsPayable && <p className="text-xs text-slate-500">Choose any active VAT code. Selecting taxable VAT changes this cheque to Direct expense and clears selected bills.</p>}</div>
-      <div className="space-y-2"><Label>VAT Amount</Label><Input readOnly value={formatMoney(vat, form.currency)} className="bg-slate-100" /></div>
-      <div className="space-y-2"><Label>Total</Label><Input readOnly value={formatMoney(amount + vat, form.currency)} className="bg-slate-100 font-bold" /></div>
-      <div className="md:col-span-2 xl:col-span-4"><Field label="Memo" name="memo" form={form} setForm={setForm} placeholder="Optional note" /></div>
-      {form.type === "cheque" && form.billReferences && <label className="grid gap-2 text-sm md:col-span-2 xl:col-span-4">Cheque memo<textarea readOnly className="min-h-20 rounded-md border bg-background p-3" value={[form.memo, `Bill references: ${form.billReferences}`].filter(Boolean).join(" Â· ")} /><span className="text-muted-foreground">Selected bill references are added automatically when saved.</span></label>}
-      </div>
-    </section>
-    <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">This {receivePayment ? "payment reduces Accounts Receivable" : payBill ? "payment reduces Accounts Payable and the linked bank account" : isAccountsPayable ? "cheque reduces Accounts Payable" : "cheque posts to the selected expense account"} for the selected inventory.</div>
-  </div>;
-}
-
-function BankTransactionFields({ form, setForm, contacts, accounts, locations, lines, setLines, vatCodeOptions, exchangeRates, baseCurrency }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; contacts: DataRecord[]; accounts: DataRecord[]; locations: InventoryLocation[]; lines: LineForm[]; setLines: (lines: LineForm[]) => void; vatCodeOptions: VatCodeOption[]; exchangeRates: ExchangeRateRecord[]; baseCurrency: string }) {
-  const line = lines[0] ?? { itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatCode: "ZERO", vatRate: "0" };
-  const updateLine = (changes: Partial<LineForm>) => setLines([{ ...line, ...changes }]);
-  const banks = accounts.filter((account) => account.active && (account.type === "Bank" || account.systemRole === "BANK"));
-  const expenseAccounts = accounts.filter((account) => account.active && ["Expense", "Cost of Goods Sold", "Other Expense", "Purchases"].includes(String(account.type)));
-  const incomeAccounts = accounts.filter((account) => account.active && ["Income", "Other Income", "Equity"].includes(String(account.type)));
-  const vendors = contacts.filter((contact) => contact.type === "vendor");
-  const selectVendor = (party: string) => setForm(applyContactCurrency(form, vendors, party, "vendor", exchangeRates, baseCurrency));
-  const isTransfer = form.type === "transfer";
-  const fromBank = banks.find(bank => bank.name === form.account);
-  const toBank = banks.find(bank => bank.name === form.party && bank.name !== form.account);
-  const transferBankLabel = (bank: DataRecord) => `${bank.code} Â· ${bank.name} Â· ${bank.currency || baseCurrency} Â· Balance ${formatMoney(Number(bank.balance || 0), baseCurrency)}`;
-  const transferBalance = (bank: DataRecord | undefined) => bank ? `Current balance: ${formatMoney(Number(bank.balance || 0), baseCurrency)} (${baseCurrency} ledger balance)` : "Select a bank to see its balance.";
-  const isCard = form.type === "credit card charge";
-  const isOrder = form.type === "cheque order";
-  const hasCreditCard = accounts.some((account) => account.active && account.type === "Credit Card");
-  const selectableAccounts = isTransfer || isOrder ? banks : isCard ? expenseAccounts : incomeAccounts;
-  const amount = Number(line.unitPrice || 0);
-  const vat = amount * Number(line.vatRate || 0) / 100;
-  return <div className="space-y-5">
-    <div className="grid gap-4 rounded-xl border bg-slate-50 p-4 md:grid-cols-2 xl:grid-cols-3">
-      <Field label={isOrder ? "Order Reference" : "Reference Number"} name="number" form={form} setForm={setForm} required />
-      <Field label={isOrder ? "Order Date" : "Transaction Date"} name="transactionDate" type="date" form={form} setForm={setForm} required />
-      <div className="space-y-2"><Label>Inventory *</Label><Select disabled={Boolean(form.revision)} value={form.transactionLocationId || String(locations[0]?.id ?? "")} onValueChange={(transactionLocationId) => setForm({ ...form, transactionLocationId })}><SelectTrigger className="w-full"><SelectValue placeholder="Select inventory" /></SelectTrigger><SelectContent>{locations.map((location) => <SelectItem key={location.id} value={String(location.id)}>{location.name}</SelectItem>)}</SelectContent></Select></div>
-      <CurrencyExchangeChoice form={form} setForm={setForm} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />
-      <Field label={`Exchange rate to ${baseCurrency}`} name="exchangeRate" type="number" form={form} setForm={setForm} required />
-      <div className="space-y-2"><Label>{isTransfer ? "Transfer From" : isCard ? "Expense Account" : isOrder ? "Bank Account" : "Deposit Source"} *</Label><Select value={form.account || undefined} onValueChange={(account) => setForm({ ...form, account, ...(isTransfer && form.party === account ? { party: "" } : {}) })}><SelectTrigger className="w-full"><SelectValue placeholder="Select account" /></SelectTrigger><SelectContent>{selectableAccounts.map((account) => <SelectItem key={account.id} value={String(account.name)}>{isTransfer ? transferBankLabel(account) : `${account.code} Â· ${account.name}`}</SelectItem>)}</SelectContent></Select>{isTransfer && <p className="rounded-md border bg-white p-3 text-sm font-semibold" aria-live="polite">{transferBalance(fromBank)}</p>}</div>
-      {isTransfer ? <div className="space-y-2"><Label>Transfer To *</Label><Select value={form.party || undefined} onValueChange={(party) => setForm({ ...form, party })}><SelectTrigger className="w-full"><SelectValue placeholder="Select destination bank" /></SelectTrigger><SelectContent>{banks.filter((account) => String(account.name) !== form.account).map((account) => <SelectItem key={account.id} value={String(account.name)}>{transferBankLabel(account)}</SelectItem>)}</SelectContent></Select><p className="rounded-md border bg-white p-3 text-sm font-semibold" aria-live="polite">{transferBalance(toBank)}</p></div> : isCard || isOrder ? <div className="space-y-2"><Label>{isOrder ? "Supplier" : "Vendor / Payee"} *</Label><Select value={form.party || undefined} onValueChange={selectVendor}><SelectTrigger className="w-full"><SelectValue placeholder="Select vendor" /></SelectTrigger><SelectContent>{vendors.map((vendor) => <SelectItem key={vendor.id} value={String(vendor.name)}>{String(vendor.company || vendor.name)} Â· {String(vendor.currency)}</SelectItem>)}</SelectContent></Select></div> : <Field label="Received From" name="party" form={form} setForm={setForm} required placeholder="Customer, owner, or other source" />}
-    </div>
-    <div className="grid gap-4 rounded-xl border bg-white p-4 md:grid-cols-2 xl:grid-cols-4">
-      <div className="space-y-2 xl:col-span-2"><Label>{isOrder ? "Order Details" : "Description"} *</Label><Input required value={line.description} onChange={(event) => updateLine({ description: event.target.value })} /></div>
-      <div className="space-y-2"><Label>{isOrder ? "Estimated Cost" : "Amount"} {isOrder ? "" : "*"}</Label><Input type="number" min={isOrder ? "0" : "0.01"} step="0.01" value={line.unitPrice} onChange={(event) => updateLine({ unitPrice: event.target.value, unitCost: event.target.value })} required /></div>
-      {isCard ? <div className="space-y-2"><Label>VAT Code</Label><Select value={line.vatCode} onValueChange={(vatCode) => updateLine({ vatCode, vatRate: vatRateForCode(vatCode, vatCodeOptions) })}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{vatCodeOptions.map((option) => <SelectItem key={option.code} value={option.code}>{option.label}</SelectItem>)}</SelectContent></Select></div> : <div className="space-y-2"><Label>VAT Code</Label><Input readOnly value="ZERO Â· 0%" className="bg-slate-100" /></div>}
-      <div className="md:col-span-2 xl:col-span-3"><Field label="Memo" name="memo" form={form} setForm={setForm} placeholder="Optional note" /></div>
-      <div className="rounded-lg bg-slate-900 p-3 text-right text-white"><p className="text-xs text-slate-400">Total</p><p className="font-bold">{formatMoney(amount + vat, form.currency)}</p></div>
-    </div>
-    <div className={`rounded-lg border p-4 text-sm ${isCard && !hasCreditCard ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>{isOrder ? "This order is saved for tracking and does not post to the ledger." : isTransfer ? "The amount is credited from the source bank and debited to the destination bank." : isCard && !hasCreditCard ? "Add an active Credit Card account in Chart of Accounts before saving this charge." : isCard ? "The expense and recoverable VAT are posted against the linked credit-card account." : "The linked bank account is debited and the selected source account is credited."}</div>
-  </div>;
-}
-function TransactionFields({ form, setForm, types, items, contacts, accounts, locations, lines, setLines, vatCodeOptions, exchangeRates, baseCurrency }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; types: string[]; items: DataRecord[]; contacts: DataRecord[]; accounts: DataRecord[]; locations: InventoryLocation[]; lines: LineForm[]; setLines: (lines: LineForm[]) => void; vatCodeOptions: VatCodeOption[]; exchangeRates: ExchangeRateRecord[]; baseCurrency: string }) {
-  if (form.type === "bill") return <BillFields form={form} setForm={setForm} items={items} vendors={contacts.filter((contact) => contact.type === "vendor")} salesmen={contacts.filter((contact) => contact.type === "employee")} accounts={accounts} locations={locations} lines={lines} setLines={setLines} vatCodeOptions={vatCodeOptions} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />;
-  if (["customer payment", "bill payment", "cheque"].includes(form.type)) return <CashTransactionFields form={form} setForm={setForm} contacts={contacts} accounts={accounts} locations={locations} lines={lines} setLines={setLines} vatCodeOptions={vatCodeOptions} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />;
-  if (["deposit", "transfer", "credit card charge", "cheque order"].includes(form.type)) return <BankTransactionFields form={form} setForm={setForm} contacts={contacts} accounts={accounts} locations={locations} lines={lines} setLines={setLines} vatCodeOptions={vatCodeOptions} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />;
-  const update = (index: number, changes: Partial<LineForm>) => setLines(lines.map((line, position) => position === index ? { ...line, ...(changes.unitPrice !== undefined ? { homeUnitPrice: undefined } : {}), ...changes } : line));
-  const customerDocument = ["invoice", "sales receipt", "quotation", "estimate", "proforma invoice", "sales order", "credit memo", "statement charge", "finance charge"].includes(form.type);
-  const purchaseDocument = ["bill", "purchase order", "item receipt", "received item bill"].includes(form.type);
-  const selectableItems = items.filter(itemCanBeDocumentLine);
-  const documentRate = Math.max(Number(form.exchangeRate) || 1, Number.EPSILON);
-  const changeInvoiceForm = (next: Record<string, string>) => {
-    if (!customerDocument || (next.currency === form.currency && next.exchangeRate === form.exchangeRate)) { setForm(next); return; }
-    try {
-      const oldRate = form.currency === baseCurrency ? 1 : validDocumentRate(form.exchangeRate);
-      const newRate = next.currency === baseCurrency ? 1 : validDocumentRate(next.exchangeRate);
-      setLines(convertInvoiceLines(lines, oldRate, newRate));
-      setForm({ ...next, exchangeRate: String(newRate) });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Set the currency exchange rate first.");
-    }
-  };
-  const subtotal = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0), 0);
-  const vat = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0) * Number(line.vatRate || 0) / 100, 0);
-  return <div className="grid gap-4 sm:grid-cols-2">
-    {form.sourceDocumentLabel ? <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm font-medium text-sky-800 sm:col-span-2">Creating {form.type === "bill" ? "supplier bill" : "invoice"} from {form.sourceDocumentLabel}. The original document will be linked and marked converted after saving.</div> : null}
-    {form.revision || types.length === 1 || customerDocument ? <div className="space-y-2"><Label htmlFor="transaction-type">Transaction type</Label><Input id="transaction-type" value={form.type} readOnly className="capitalize bg-slate-100" /></div> : <Choice label="Transaction type" name="type" values={types} form={form} setForm={setForm} />}<Field label="Document number" name="number" form={form} setForm={setForm} required />
-    <div className="space-y-2 sm:col-span-2"><Label>{customerDocument ? "Customer" : "Vendor / payee"} *</Label><Select value={form.party || undefined} onValueChange={(value) => changeInvoiceForm(applyContactCurrency(form, contacts, value, customerDocument ? "customer" : "vendor", exchangeRates, baseCurrency))}><SelectTrigger className="w-full"><SelectValue placeholder={customerDocument ? "Select customer" : "Select vendor or payee"} /></SelectTrigger><SelectContent>{contacts.filter((contact) => contact.type === (customerDocument ? "customer" : "vendor")).map((contact) => <SelectItem key={contact.id} value={String(contact.name)}>{String(contact.company || contact.name)} Â· {String(contact.currency)}</SelectItem>)}</SelectContent></Select></div>
-    <Field label="Transaction date" name="transactionDate" type="date" form={form} setForm={setForm} required /><Field label="Due date" name="dueDate" type="date" form={form} setForm={setForm} />
-    {["invoice", "estimate", "proforma invoice", "sales order", "quotation"].includes(form.type) && <div className="space-y-2"><Label>Inventory *</Label><Select disabled={Boolean(form.sourceDocumentLabel)} value={form.transactionLocationId || String(locations[0]?.id ?? "")} onValueChange={(transactionLocationId) => setForm({ ...form, transactionLocationId })}><SelectTrigger className="w-full"><SelectValue placeholder="Select inventory" /></SelectTrigger><SelectContent>{locations.map((location) => <SelectItem key={location.id} value={String(location.id)}>{location.name}</SelectItem>)}</SelectContent></Select></div>}
-    {["invoice", "estimate", "proforma invoice", "sales order", "quotation"].includes(form.type) && <div className="space-y-2"><Label htmlFor="document-sales-rep">Sales Rep</Label><Select value={form.salesman || undefined} onValueChange={(salesman) => setForm({ ...form, salesman })}><SelectTrigger id="document-sales-rep" className="w-full"><SelectValue placeholder="Select sales rep" /></SelectTrigger><SelectContent>{contacts.filter((contact) => contact.type === "employee").map((salesman) => <SelectItem key={salesman.id} value={String(salesman.name)}>{String(salesman.name)}</SelectItem>)}{!contacts.some((contact) => contact.type === "employee") && <SelectItem value="no-sales-reps" disabled>No sales reps available</SelectItem>}</SelectContent></Select></div>}
-    <CurrencyExchangeChoice form={form} setForm={changeInvoiceForm} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />{customerDocument ? <div className="space-y-2"><Label htmlFor="invoice-exchange-rate">Exchange rate to {baseCurrency}</Label><Input key={`${form.currency}-${form.exchangeRate}`} id="invoice-exchange-rate" type="number" min="0.000001" step="any" required readOnly={form.currency === baseCurrency} defaultValue={form.exchangeRate} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} onBlur={(event) => { const value = event.currentTarget.value; changeInvoiceForm({ ...form, exchangeRate: value }); if (!Number.isFinite(Number(value)) || Number(value) <= 0) event.currentTarget.value = form.exchangeRate; }} /><p className="text-xs text-slate-500">1 {form.currency} = {form.exchangeRate} {baseCurrency}. Item prices convert automatically.</p></div> : <Field label={`Exchange rate to ${baseCurrency}`} name="exchangeRate" type="number" form={form} setForm={setForm} required />}
-    <div className="min-w-0 space-y-3 rounded-xl border bg-slate-50 p-3 sm:col-span-2">
-      <div className="flex items-center justify-between"><div><Label>Items and services</Label><p className="text-xs text-slate-500">Stock updates when invoices, bills, and item receipts post.</p></div><Button type="button" variant="outline" size="sm" className="brand-primary-button border-transparent font-semibold" onClick={() => setLines([...lines, { itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatCode: form.vatRate === "0" ? "ZERO" : "STANDARD", vatRate: form.vatRate ?? "5" }])}><Plus className="size-3" />Line</Button></div>
-      <div className="transaction-lines">{lines.map((line, index) => <div key={index} className="transaction-line rounded-lg border bg-white p-3">
-        <div className="transaction-line-description space-y-2"><Label htmlFor={`line-description-${index}`}>Item Description</Label>
-          <Select value={line.itemId || "custom"} onValueChange={(value) => { const item = selectableItems.find((entry) => String(entry.id) === value); const selectedVatCode = String(purchaseDocument ? item?.purchaseVatCode || line.vatCode : item?.salesVatCode || line.vatCode); const selectedVatRate = Number(vatRateForCode(selectedVatCode, vatCodeOptions)); const purchaseCostVatRate = Number(vatRateForCode(String(item?.purchaseVatCode || "ZERO"), vatCodeOptions)); const storedPurchasePrice = Number(item?.lastPurchasePrice ?? item?.cost ?? 0); const netPurchasePrice = item?.amountsIncludeVat === true && purchaseCostVatRate > 0 ? storedPurchasePrice / (1 + purchaseCostVatRate / 100) : storedPurchasePrice; const storedSalesPrice = Number(item?.salesPrice ?? 0); const netSalesPrice = item?.amountsIncludeVat === true && selectedVatRate > 0 ? storedSalesPrice / (1 + selectedVatRate / 100) : storedSalesPrice; const storedCost = Number(item?.cost ?? 0); const netCost = item?.amountsIncludeVat === true && purchaseCostVatRate > 0 ? storedCost / (1 + purchaseCostVatRate / 100) : storedCost; const otherQuantity = lines.reduce((sum, entry, position) => position !== index && entry.itemId === value ? sum + Math.max(0, Number(entry.quantity) || 0) : sum, 0); const invoiceQuantity = form.type === "invoice" && !form.revision && item && itemTypeOf(item.itemType) === "stock-part" ? { quantity: String(Math.max(0, Number(item.quantity || 0) - otherQuantity)) } : {}; update(index, value === "custom" ? { itemId: "" } : { ...invoiceQuantity, itemId: value, description: item ? itemDisplayDescription(item) || String(item.name) : "", unitPrice: purchaseDocument ? String(Number((netPurchasePrice / documentRate).toFixed(2))) : invoiceCurrencyAmount(netSalesPrice, documentRate), unitCost: customerDocument ? invoiceCurrencyAmount(netCost, documentRate) : String(netCost), homeUnitPrice: customerDocument ? netSalesPrice : undefined, homeUnitCost: customerDocument ? netCost : undefined, vatCode: selectedVatCode, vatRate: String(selectedVatRate) }); }}><SelectTrigger aria-label={`Item ${index + 1}`} className="w-full min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate"><SelectValue placeholder="Item" /></SelectTrigger><SelectContent position="popper" className="max-w-[calc(100vw-3rem)] [&_[data-slot=select-item]]:whitespace-normal [&_[data-slot=select-item]]:break-words"><SelectItem value="custom">Service / custom</SelectItem>{selectableItems.map((item) => <SelectItem key={item.id} value={String(item.id)}>{String(item.sku)} Â· {String(item.name)} Â· {itemTypeDetails[itemTypeOf(item.itemType)].label}</SelectItem>)}</SelectContent></Select>
-          <Textarea id={`line-description-${index}`} aria-label={`Item description ${index + 1}`} placeholder="Description" required rows={2} className="min-h-16 w-full min-w-0 resize-y break-words" value={line.description} onChange={(e) => update(index, { description: e.target.value })} />
-          {form.type === "invoice" && <DocumentExtraFields value={{ comments: line.comments || "", serialNumber: line.serialNumber || "" }} onChange={value => update(index, value)} />}
-        </div>
-        <div className="min-w-0 space-y-2"><Label htmlFor={`line-quantity-${index}`}>Qty</Label><Input id={`line-quantity-${index}`} aria-label="Quantity" title="Quantity" className="w-full min-w-0 px-2" type="number" min="0.01" step="0.01" value={line.quantity} onChange={(e) => update(index, { quantity: e.target.value })} /></div>
-        <div className="min-w-0 space-y-2"><Label htmlFor={`line-rate-${index}`}>Rate</Label><Input id={`line-rate-${index}`} aria-label="Unit price" title="Unit rate before VAT" className="w-full min-w-0 px-2" type="number" min="0" step="0.01" value={line.unitPrice} onChange={(e) => update(index, { unitPrice: e.target.value })} /></div>
-        <div className="min-w-0 space-y-2"><Label htmlFor={`line-inclusive-${index}`}>Inc VAT</Label><Input id={`line-inclusive-${index}`} aria-label="Unit rate including VAT" title="Unit rate including selected VAT" className="w-full min-w-0 bg-slate-50 px-2" readOnly value={(Number(line.unitPrice || 0) * (1 + Number(line.vatRate || 0) / 100)).toFixed(2)} /></div>
-        <div className="min-w-0 space-y-2"><Label htmlFor={`line-vat-${index}`}>VAT</Label>{form.type === "item receipt" ? <Input id={`line-vat-${index}`} readOnly value="0%" className="w-full min-w-0 bg-slate-100 px-2" /> : <Select value={line.vatCode} onValueChange={(vatCode) => update(index, { vatCode, vatRate: vatRateForCode(vatCode, vatCodeOptions) })}><SelectTrigger id={`line-vat-${index}`} aria-label={`VAT rate for line ${index + 1}`} title={vatCodeOptions.find((option) => option.code === line.vatCode)?.label} className="w-full min-w-0 px-2"><SelectValue>{line.vatRate}%</SelectValue></SelectTrigger><SelectContent position="popper" align="end" className="max-w-[min(20rem,calc(100vw-3rem))]">{vatCodeOptions.map((option) => <SelectItem key={option.code} value={option.code} className="whitespace-normal break-words">{option.label}</SelectItem>)}</SelectContent></Select>}</div>
-        <Button type="button" variant="ghost" size="icon" aria-label={`Remove line ${index + 1}`} disabled={lines.length === 1} onClick={() => setLines(lines.filter((_, position) => position !== index))} className="transaction-line-remove text-slate-400 hover:text-rose-600" title="Delete"><Trash2 className="size-4" /></Button>
-      </div>)}</div>
-      <div className="ml-auto grid max-w-xs gap-2 pt-2 text-sm"><div className="flex justify-between text-slate-500"><span>Subtotal</span><span>{formatMoney(subtotal, form.currency)}</span></div><div className="flex justify-between text-slate-500"><span>VAT</span><span>{formatMoney(vat, form.currency)}</span></div><div className="flex justify-between border-t pt-2 text-base font-bold"><span>Total</span><span>{formatMoney(subtotal + vat, form.currency)}</span></div></div>
-    </div>
-    {["invoice", "sales receipt"].includes(form.type) && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 sm:col-span-2">
-      <label className="flex cursor-pointer items-start gap-3"><Checkbox checked={form.allowNegativeStock === "true"} onCheckedChange={(checked) => setForm({ ...form, allowNegativeStock: checked === true ? "true" : "false", adminOverridePin: checked === true ? form.adminOverridePin ?? "" : "" })} /><span><span className="block text-sm font-semibold text-amber-950">Admin override: allow negative stock</span><span className="mt-1 block text-xs text-amber-800">Normally blocked when stock is insufficient. Configure or change the PIN in Management &gt; Admin Controls.</span></span></label>
-      {form.allowNegativeStock === "true" && <div className="mt-3 max-w-sm space-y-2"><Label htmlFor="adminOverridePin">Admin PIN</Label><Input id="adminOverridePin" name="adminOverridePin" type="password" inputMode="numeric" autoComplete="off" required value={form.adminOverridePin ?? ""} onChange={(event) => setForm({ ...form, adminOverridePin: event.target.value })} placeholder="Enter admin PIN" /></div>}
-    </div>}
-    {form.revision ? <div className="space-y-2"><Label>Status</Label><Input readOnly value={form.status} /></div> : <Choice label="Status" name="status" values={["open", "paid", "overdue", "cleared"]} form={form} setForm={setForm} />}<div className="space-y-2"><Label>Posting account</Label><Select value={form.account} onValueChange={(account) => setForm({ ...form, account })}><SelectTrigger className="w-full"><SelectValue placeholder="Select linked account" /></SelectTrigger><SelectContent>{accounts.filter((account) => account.active && account.systemRole).map((account) => <SelectItem key={account.id} value={String(account.name)}>{String(account.name)}</SelectItem>)}</SelectContent></Select></div>
-    <div className="sm:col-span-2"><Field label="Memo" name="memo" form={form} setForm={setForm} /></div>
-  </div>;
-}
-function ContactFields({ form, setForm, accounts }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; accounts: DataRecord[] }) {
-  const countries = ["United Arab Emirates", "Saudi Arabia", "Oman", "Qatar", "Bahrain", "Kuwait", "India", "Pakistan", "China", "Hong Kong", "United Kingdom", "United States", "Other"];
-  const ledgerRole = form.type === "customer" ? "AR" : form.type === "vendor" ? "AP" : null;
-  const matchingAccounts = ledgerRole ? accounts.filter((account) => account.active && account.systemRole === ledgerRole && String(account.currency) === form.currency) : [];
-  const currencyAndAccount = ledgerRole ? <>
-    <div className="space-y-2"><Label>Currency *</Label><Select value={form.currency} onValueChange={(currency) => { const match = controlAccountFor(accounts, ledgerRole, currency); setForm({ ...form, currency, ledgerAccountId: match ? String(match.id) : "" }); }}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{currencies.map((currency) => <SelectItem key={currency} value={currency}>{currency}</SelectItem>)}</SelectContent></Select></div>
-    <div className="space-y-2"><Label>{ledgerRole === "AR" ? "Accounts Receivable" : "Accounts Payable"} account</Label>{matchingAccounts.length ? <Select value={form.ledgerAccountId || String(matchingAccounts[0].id)} onValueChange={(ledgerAccountId) => setForm({ ...form, ledgerAccountId })}><SelectTrigger className="w-full"><SelectValue placeholder={`Select ${form.currency} account`} /></SelectTrigger><SelectContent>{matchingAccounts.map((account) => <SelectItem key={account.id} value={String(account.id)}>{String(account.code)} Â· {String(account.name)}</SelectItem>)}</SelectContent></Select> : <div className="rounded-lg border border-dashed border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{ledgerRole}-{form.currency} will be created automatically.</div>}<p className="text-xs text-slate-500">Transactions for this contact post to the matching currency control account.</p></div>
-  </> : null;
-  if (form.type === "vendor") return <div className="space-y-5">
-    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-      <p className="text-sm font-bold text-slate-900">Vendor details</p>
-      <p className="mt-1 text-xs text-slate-500">Add company, contact, currency and tax information for this vendor.</p>
-    </div>
-    <div className="space-y-4">
-      <Field label="Company Name" name="company" form={form} setForm={(next) => setForm({ ...next, name: next.company })} required placeholder="Enter company name" />
-      <Field label="Telephone" name="phone" form={form} setForm={setForm} required placeholder="Format +9713456789" />
-      <Field label="Mobile Number" name="whatsapp" form={form} setForm={setForm} placeholder="Format +971501234567" />
-      <Field label="Email Address" name="email" type="email" form={form} setForm={setForm} placeholder="Enter email address" />
-      {currencyAndAccount}
-      <Choice label="Country *" name="country" values={countries} form={form} setForm={setForm} placeholder="Select country" />
-      <Field label="TRN" name="trn" form={form} setForm={setForm} placeholder="Enter TRN" />
-    </div>
-  </div>;
-  if (form.type !== "customer") return <div className="grid gap-4 sm:grid-cols-2"><div className="sm:col-span-2"><Field label="Name" name="name" form={form} setForm={setForm} required /></div><Field label="Company" name="company" form={form} setForm={setForm} /><Field label="Email" name="email" type="email" form={form} setForm={setForm} /><Field label="Phone" name="phone" form={form} setForm={setForm} /></div>;
-
-  return <div className="space-y-5">
-    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-      <p className="text-sm font-bold text-slate-900">Customer details</p>
-      <p className="mt-1 text-xs text-slate-500">Add billing, contact and tax information for this customer.</p>
-    </div>
-    <div className="grid gap-x-5 gap-y-4 md:grid-cols-2">
-      <Field label="Company Name" name="company" form={form} setForm={setForm} required placeholder="Enter company name" />
-      <Choice label="Country *" name="country" values={countries} form={form} setForm={setForm} placeholder="Select country" />
-      <Field label="Billing Name" name="name" form={form} setForm={(next) => setForm({ ...next, billingName: next.name })} required placeholder="Enter billing name" />
-      <Field label="TRN (15 digits)" name="trn" form={form} setForm={setForm} placeholder="15 digits, if registered" />
-      <Field label="Contact Number" name="phone" form={form} setForm={setForm} required placeholder="Format +9713456789" />
-      <Choice label="Reseller *" name="reseller" values={["Reseller", "End User"]} form={form} setForm={setForm} />
-      <Field label="Mobile / WhatsApp (+ country code)" name="whatsapp" form={form} setForm={setForm} required placeholder="Format +971501234567" />
-      <Choice label="Planet *" name="planet" values={["No", "Yes"]} form={form} setForm={setForm} />
-      <Field label="Email Address" name="email" type="email" form={form} setForm={setForm} placeholder="Enter email address" />
-      <Field label="Passport #" name="passport" form={form} setForm={setForm} placeholder="Enter passport #" />
-      {currencyAndAccount}
-      
-      <div className="space-y-2 md:col-span-2"><Label htmlFor="description">Description</Label><Textarea id="description" name="description" rows={4} placeholder="Add customer notes" value={form.description ?? ""} onChange={(event) => setForm({ ...form, description: event.target.value })} /></div>
-    </div>
-  </div>;
-}
-function ItemFields({ form, setForm, items, accounts, contacts, vatCodeOptions, currency, editing }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; items: DataRecord[]; accounts: DataRecord[]; contacts: DataRecord[]; vatCodeOptions: VatCodeOption[]; currency: string; editing: boolean }) {
-  const count = Math.min(30, Math.max(1, Number(form.specCount ?? 8)));
-  const [optionData, setOptionData] = useState<{ options: Record<string, string[]>; disabled: Record<string, string[]>; labels: string[]; disabledLabels: string[]; categories: string[]; disabledCategories: string[] }>({ options: {}, disabled: {}, labels: [...specificationFields], disabledLabels: [], categories: ["Laptop"], disabledCategories: [] });
-  const loadOptions = useCallback(async () => {
-    try {
-      const response = await fetch("/api/spec-options");
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not load choices");
-      setOptionData(data);
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not load choices"); }
-  }, []);
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { loadOptions(); }, [loadOptions]);
-
-  const changeOption = async (method: "POST" | "PATCH" | "DELETE", payload: Record<string, string>) => {
-    const response = await fetch("/api/spec-options", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Could not update the choice");
-    await loadOptions();
-  };
-  const savedLabels = items.flatMap((item) => {
-    try {
-      const parsed = JSON.parse(String(item.specifications ?? "[]")) as Array<{ label?: string }>;
-      return parsed.map((specification) => specification.label?.trim()).filter((label): label is string => Boolean(label));
-    } catch { return []; }
-  });
-  const disabledLabels = new Set(optionData.disabledLabels);
-  const labelOptions = [...new Set([...optionData.labels, ...savedLabels, ...Object.keys(optionData.options)])].filter((label) => !disabledLabels.has(label));
-  const disabledCategories = new Set(optionData.disabledCategories);
-  const savedCategories = items.map((item) => String(item.category ?? "").trim()).filter(Boolean);
-  const categoryOptions = [...new Set([...optionData.categories, ...savedCategories])].filter((category) => !disabledCategories.has(category));
-  const description = Array.from({ length: count }, (_, index) => form[`specValue${index}`]?.trim() ?? "").filter((value) => value && value.toLowerCase() !== "no").join(" | ");
-  const itemType = itemTypeOf(form.itemType);
-  const typeInfo = itemTypeDetails[itemType];
-  const standardLineItem = documentLineItemTypes.has(itemType);
-  const stockPart = itemType === "stock-part";
-  const activeAccounts = accounts.filter((account) => account.active !== false && String(account.active) !== "false");
-  const normalizedAccountValue = (value: unknown) => String(value ?? "").trim().toLowerCase();
-  const stockCogsAccounts = activeAccounts.filter((account) => {
-    const role = normalizedAccountValue(account.systemRole);
-    const type = normalizedAccountValue(account.type);
-    const name = normalizedAccountValue(account.name);
-    return role === "cogs" || type === "cost of goods sold" || name.includes("cost of goods");
-  });
-  const purchaseAccounts = activeAccounts.filter((account) => {
-    const role = normalizedAccountValue(account.systemRole);
-    const type = normalizedAccountValue(account.type);
-    const name = normalizedAccountValue(account.name);
-    return ["cogs", "purchases", "expense"].includes(role)
-      || ["cost of goods sold", "expense", "other expense"].includes(type)
-      || name.includes("cost of goods")
-      || name.includes("purchases");
-  });
-  const incomeAccounts = activeAccounts.filter((account) => {
-    const role = normalizedAccountValue(account.systemRole);
-    const type = normalizedAccountValue(account.type);
-    return ["sales", "other_income"].includes(role) || ["income", "other income"].includes(type);
-  });
-  const assetAccounts = activeAccounts.filter((account) => {
-    const role = normalizedAccountValue(account.systemRole);
-    const name = normalizedAccountValue(account.name);
-    return role === "inventory" || name.includes("inventory asset");
-  });
-  const vendors = contacts.filter((contact) => contact.type === "vendor" && String(contact.status || "active") !== "inactive");
-  const selectedPurchaseVat = form.purchaseVatCode || vatCodeOptions.find((code) => code.code === "STANDARD")?.code || vatCodeOptions[0]?.code || "ZERO";
-  const selectedSalesVat = form.salesVatCode || vatCodeOptions.find((code) => code.code === "STANDARD")?.code || vatCodeOptions[0]?.code || "ZERO";
-  const addSpecification = () => {
-    if (count >= 30) return;
-    setForm({ ...form, specCount: String(count + 1), [`specLabel${count}`]: specificationFields[count], [`specValue${count}`]: "" });
-  };
-  const removeSpecification = (index: number) => {
-    if (count <= 1) return;
-    const nextForm = { ...form };
-    for (let position = index; position < count - 1; position += 1) {
-      nextForm[`specLabel${position}`] = nextForm[`specLabel${position + 1}`] ?? specificationFields[position];
-      nextForm[`specValue${position}`] = nextForm[`specValue${position + 1}`] ?? "";
-    }
-    delete nextForm[`specLabel${count - 1}`];
-    delete nextForm[`specValue${count - 1}`];
-    nextForm.specCount = String(count - 1);
-    setForm(nextForm);
-  };
-  const valuesFor = (label: string) => {
-    const saved = items.flatMap((item) => {
-      try {
-        const parsed = JSON.parse(String(item.specifications ?? "[]")) as Array<{ label?: string; value?: string }>;
-        return parsed.filter((specification) => specification.label === label && specification.value).map((specification) => specification.value!);
-      } catch { return []; }
-    });
-    const disabled = new Set(optionData.disabled[label] ?? []);
-    return [...new Set([...(optionData.options[label] ?? []), ...saved])].filter((value) => !disabled.has(value));
-  };
-  const accountPicker = (label: string, name: "cogsAccountId" | "incomeAccountId" | "assetAccountId", choices: DataRecord[]) => <div className="space-y-2"><Label>{label}</Label><Select value={form[name] || "none"} onValueChange={(value) => setForm({ ...form, [name]: value === "none" ? "" : value })}><SelectTrigger className="w-full"><SelectValue placeholder="Select account" /></SelectTrigger><SelectContent><SelectItem value="none">Not linked</SelectItem>{choices.map((account) => <SelectItem key={account.id} value={String(account.id)}>{String(account.code || "")} Â· {String(account.name)}</SelectItem>)}</SelectContent></Select><p className="text-xs text-slate-500">Linked to Chart of Accounts.</p></div>;
-  const vatPicker = (label: string, name: "purchaseVatCode" | "salesVatCode", value: string) => <div className="space-y-2"><Label>{label}</Label><Select value={value} onValueChange={(next) => setForm({ ...form, [name]: next })}><SelectTrigger className="w-full"><SelectValue placeholder="Select VAT code" /></SelectTrigger><SelectContent>{vatCodeOptions.map((option) => <SelectItem key={option.code} value={option.code}>{option.label}</SelectItem>)}</SelectContent></Select><p className="text-xs text-slate-500">Linked to Management &gt; VAT Codes.</p></div>;
-  return <div data-attachments-excluded="true" className="grid gap-4 sm:grid-cols-2">
-    <section className="space-y-4 rounded-xl border bg-white p-4 sm:col-span-2">
-      <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
-        <div className="space-y-2"><Label>Type *</Label><Select value={itemType} onValueChange={(value) => { const nextType = itemTypeOf(value); setForm({ ...form, itemType: nextType, ...(nextType === "stock-part" ? {} : { quantity: "0", reorderPoint: "0", assetAccountId: "" }) }); }}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{itemTypeValues.map((value) => <SelectItem key={value} value={value}>{itemTypeDetails[value].label}</SelectItem>)}</SelectContent></Select></div>
-        <div className="rounded-lg border bg-slate-50 p-3"><p className="font-semibold text-slate-900">{typeInfo.label}</p><p className="mt-1 text-sm leading-6 text-slate-600">{typeInfo.description}</p><p className="mt-2 text-xs font-semibold text-emerald-700">Linked area: {typeInfo.linkedArea}</p></div>
-      </div>
-    </section>
-
-    {standardLineItem && <><section className="space-y-4 rounded-xl border bg-slate-50 p-4">
-      <div><h3 className="font-bold text-slate-900">Purchase information</h3><p className="mt-1 text-xs text-slate-500">Defaults used when this item is selected on purchase documents.</p></div>
-      <Field label={stockPart ? `Cost (${currency})` : `Purchase Cost / Rate (${currency})`} name="cost" type="number" form={form} setForm={setForm} />
-      {vatPicker("Purch VAT Code", "purchaseVatCode", selectedPurchaseVat)}
-      {accountPicker(stockPart ? "COGS Account" : "Expense / COGS Account", "cogsAccountId", stockPart ? stockCogsAccounts : purchaseAccounts)}
-      <div className="space-y-2"><Label>Preferred Supplier</Label><Select value={form.preferredSupplierId || "none"} onValueChange={(value) => setForm({ ...form, preferredSupplierId: value === "none" ? "" : value })}><SelectTrigger className="w-full"><SelectValue placeholder="Select supplier" /></SelectTrigger><SelectContent><SelectItem value="none">No preferred supplier</SelectItem>{vendors.map((vendor) => <SelectItem key={vendor.id} value={String(vendor.id)}>{String(vendor.company || vendor.name)}</SelectItem>)}</SelectContent></Select><p className="text-xs text-slate-500">Linked to Vendor Center.</p></div>
-    </section>
-    <section className="space-y-4 rounded-xl border bg-slate-50 p-4">
-      <div><h3 className="font-bold text-slate-900">Sales information</h3><p className="mt-1 text-xs text-slate-500">Defaults used when this item is selected on sales documents.</p></div>
-      <Field label={itemType === "service" ? `Rate (${currency})` : `Sales Price (${currency})`} name="salesPrice" type="number" form={form} setForm={setForm} />
-      {vatPicker("Sales VAT Code", "salesVatCode", selectedSalesVat)}
-      {accountPicker("Income Account", "incomeAccountId", incomeAccounts)}
-    </section></>}
-
-    {stockPart && <section className="space-y-4 rounded-xl border bg-white p-4 sm:col-span-2">
-      <div><h3 className="font-bold text-slate-900">Stock information</h3><p className="mt-1 text-xs text-slate-500">On-hand stock changes only from stock documents after the opening quantity is saved.</p></div>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <div className="xl:col-span-1">{accountPicker("Asset Account", "assetAccountId", assetAccounts)}</div>
-        <Field label="Reorder Point (Min)" name="reorderPoint" type="number" form={form} setForm={setForm} />
-        <div className="space-y-2"><Label>On Hand</Label><Input type="number" min="0" step="0.01" readOnly={editing} value={form.quantity || "0"} onChange={(event) => setForm({ ...form, quantity: event.target.value })} className={editing ? "bg-slate-100" : ""} /><p className="text-xs text-slate-500">{editing ? "Updated by posted stock documents." : "Opening quantity for this inventory."}</p></div>
-        <div className="space-y-2"><Label>Average Cost</Label><Input readOnly value={Number(form.cost || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })} className="bg-slate-100" /><p className="text-xs text-slate-500">Calculated from posted stock purchases in home currency.</p></div>
-        <div className="space-y-2"><Label>On P.O.</Label><Input readOnly value={Number(form.onPo || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })} className="bg-slate-100" /><p className="text-xs text-slate-500">Open purchase order quantity.</p></div>
-      </div>
-    </section>}
-
-    {!standardLineItem && <section className="rounded-xl border border-sky-200 bg-sky-50 p-4 sm:col-span-2"><h3 className="font-bold text-sky-950">Document control item</h3><p className="mt-1 text-sm leading-6 text-sky-900">{typeInfo.label} is linked to <strong>{typeInfo.linkedArea}</strong> rather than the normal stock/service item selector, so it will not change inventory quantity.</p></section>}
-
-    <section className="grid gap-4 rounded-xl border bg-white p-4 sm:col-span-2 md:grid-cols-2">
-      <label className="flex items-center gap-3 text-sm font-medium"><Checkbox checked={form.status === "inactive"} onCheckedChange={(checked) => setForm({ ...form, status: checked === true ? "inactive" : "active" })} />Item is inactive</label>
-      <label className="flex items-center gap-3 text-sm font-medium"><Checkbox checked={form.amountsIncludeVat === "true"} onCheckedChange={(checked) => setForm({ ...form, amountsIncludeVat: checked === true ? "true" : "false" })} />Amounts Inc VAT</label>
-      {form.amountsIncludeVat === "true" && <p className="text-xs text-slate-500 md:col-span-2">Saved Cost and Sales Price/Rate are treated as VAT-inclusive. Document lines convert them to net values using the linked VAT code.</p>}
-    </section>
-
-    <div className="space-y-2 sm:col-span-2"><div><Label>Category</Label><p className="mt-1 text-xs text-slate-500">SKU and Item No. are generated automatically for every new item.</p></div><SpecificationValuePicker
-      label="Item category"
-      placeholder="Select or type category"
-      value={form.category ?? ""}
-      options={categoryOptions}
-      onChange={(value) => setForm({ ...form, category: value })}
-      onAdd={(value) => changeOption("POST", { type: "category", value })}
-      onRename={(oldValue, newValue) => changeOption("PATCH", { type: "category", oldValue, newValue })}
-      onDelete={(value) => changeOption("DELETE", { type: "category", value })}
-    /></div>
-    <section className="space-y-3 rounded-xl border bg-slate-50 p-4 sm:col-span-2">
-      <div className="flex flex-wrap items-center justify-between gap-3"><div><Label>Item description specifications</Label><p className="mt-1 text-xs text-slate-500">Select or type any detail, then enter its value. Add or remove up to 30 fields.</p></div><Button type="button" variant="outline" size="sm" disabled={count >= 30} onClick={addSpecification}><Plus className="size-3" />Add detail ({count}/30)</Button></div>
-      <div className="grid gap-2 md:grid-cols-2">{Array.from({ length: count }, (_, index) => <div key={index} className="grid grid-cols-[minmax(130px,.8fr)_minmax(0,1.2fr)_auto] gap-2 rounded-lg border bg-white p-2">
-        <SpecificationValuePicker
-          label="Specification detail"
-          placeholder="Select or type detail"
-          value={form[`specLabel${index}`] ?? specificationFields[index]}
-          options={labelOptions}
-          onChange={(value) => setForm({ ...form, [`specLabel${index}`]: value })}
-          onAdd={(value) => changeOption("POST", { type: "label", value })}
-          onRename={(oldValue, newValue) => changeOption("PATCH", { type: "label", oldValue, newValue })}
-          onDelete={(value) => changeOption("DELETE", { type: "label", value })}
-        />
-        <SpecificationValuePicker
-          label={form[`specLabel${index}`] ?? specificationFields[index]}
-          value={form[`specValue${index}`] ?? ""}
-          options={valuesFor(form[`specLabel${index}`] ?? specificationFields[index])}
-          onChange={(value) => setForm({ ...form, [`specValue${index}`]: value })}
-          onAdd={(value) => changeOption("POST", { label: form[`specLabel${index}`] ?? specificationFields[index], value })}
-          onRename={(oldValue, newValue) => changeOption("PATCH", { label: form[`specLabel${index}`] ?? specificationFields[index], oldValue, newValue })}
-          onDelete={(value) => changeOption("DELETE", { label: form[`specLabel${index}`] ?? specificationFields[index], value })}
-        />
-        <Button type="button" variant="ghost" size="icon" disabled={count <= 1} aria-label={`Remove ${form[`specLabel${index}`] ?? "specification"}`} title="Remove detail" onClick={() => removeSpecification(index)} className="text-slate-400 hover:text-rose-600"><Trash2 className="size-4" /></Button>
-      </div>)}</div>
-      <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-3"><p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Generated description</p><p className="mt-2 min-h-6 text-sm leading-6 text-slate-700">{description || "Enter specification values to build the item description."}</p></div>
-    </section>
-  </div>;
-}
-function SpecificationValuePicker({ label, value, options, onChange, onAdd, onRename, onDelete, placeholder = "Select or enter value" }: { label: string; value: string; options: string[]; onChange: (value: string) => void; onAdd: (value: string) => Promise<void>; onRename: (oldValue: string, newValue: string) => Promise<void>; onDelete: (value: string) => Promise<void>; placeholder?: string }) {
-  const [open, setOpen] = useState(false);
-  const [choiceSearch, setChoiceSearch] = useState("");
-  const filteredOptions = options.filter((option) => option.toLowerCase().includes(choiceSearch.trim().toLowerCase()));
-  const [newValue, setNewValue] = useState("");
-  const [editing, setEditing] = useState<string | null>(null);
-  const [editedValue, setEditedValue] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  const run = async (action: () => Promise<void>, success: string) => {
-    setBusy(true);
-    try { await action(); toast.success(success); }
-    catch (error) { toast.error(error instanceof Error ? error.message : "Could not update the choice"); }
-    finally { setBusy(false); }
-  };
-
-  const add = () => {
-    const next = newValue.trim();
-    if (!next) return;
-    run(async () => { await onAdd(next); setNewValue(""); }, "Choice added");
-  };
-  const rename = (oldValue: string) => {
-    const next = editedValue.trim();
-    if (!next) return;
-    run(async () => {
-      await onRename(oldValue, next);
-      if (value === oldValue) onChange(next);
-      setEditing(null);
-    }, "Choice renamed");
-  };
-  const remove = (option: string) => run(async () => {
-    await onDelete(option);
-    if (value === option) onChange("");
-  }, "Choice removed");
-
-  return <Popover modal open={open} onOpenChange={(nextOpen) => { setOpen(nextOpen); if (nextOpen) setChoiceSearch(""); }}>
-    <div className="flex min-w-0">
-      <Textarea rows={1} ref={(element) => { if (element) { element.style.height = "auto"; element.style.height = `${element.scrollHeight}px`; } }} aria-label={`${label || "Specification"} value`} placeholder={placeholder} value={value} onChange={(event) => onChange(event.target.value)} className="min-h-9 min-w-0 resize-none overflow-hidden rounded-r-none break-words" />
-      <PopoverTrigger asChild><Button type="button" variant="outline" size="icon" title={`Manage ${label || "detail"} choices`} aria-label={`Manage ${label || "detail"} choices`} className="h-auto min-h-9 shrink-0 self-stretch rounded-l-none border-l-0"><ChevronDown className="size-4" /></Button></PopoverTrigger>
-    </div>
-    <PopoverContent data-attachments-excluded="true" align="start" className="flex max-h-[var(--radix-popover-content-available-height)] w-[min(36rem,calc(100vw-2rem))] flex-col gap-3 overflow-y-auto p-3">
-      <div><p className="text-sm font-bold text-slate-900">{label || "Detail"} choices</p><p className="text-xs text-slate-500">Select, add, rename or remove a choice.</p></div>
-      <Input aria-label={`Search ${label || "detail"} choices`} placeholder="Search choicesâ€¦" value={choiceSearch} onChange={(event) => setChoiceSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") event.preventDefault(); }} className="shrink-0" />
-      <div className="min-h-0 max-h-64 space-y-1 overflow-y-auto overscroll-contain pr-1" tabIndex={0} role="region" aria-label={`${label || "Detail"} choices`}>
-        {filteredOptions.length === 0 ? <p className="rounded-md bg-slate-50 p-3 text-xs text-slate-500">{options.length ? "No matching choices." : "No saved choices yet."}</p> : filteredOptions.map((option) => editing === option ? <div key={option} className="flex gap-1">
-          <Input autoFocus value={editedValue} onChange={(event) => setEditedValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); rename(option); } }} className="h-8" />
-          <Button type="button" size="icon" variant="ghost" disabled={busy} onClick={() => rename(option)} aria-label="Save renamed choice" className="size-8 text-emerald-600"><Check className="size-4" /></Button>
-        </div> : <div key={option} className="group flex items-center gap-1 rounded-md hover:bg-slate-50">
-          <button type="button" onClick={() => { onChange(option); setOpen(false); }} className="min-w-0 flex-1 whitespace-normal break-words [overflow-wrap:anywhere] px-2 py-2 text-left text-sm">{option}</button>
-          <Button type="button" size="icon" variant="ghost" disabled={busy} onClick={() => { setEditing(option); setEditedValue(option); }} aria-label={`Rename ${option}`} className="size-8 shrink-0 text-slate-400 hover:text-sky-600"><Pencil className="size-3.5" /></Button>
-          <Button type="button" size="icon" variant="ghost" disabled={busy} onClick={() => remove(option)} aria-label={`Remove ${option}`} className="size-8 shrink-0 text-slate-400 hover:text-rose-600" title="Delete"><Trash2 className="size-3.5" /></Button>
-        </div>)}
-      </div>
-      <div className="flex shrink-0 gap-2 border-t pt-3"><Input value={newValue} onChange={(event) => setNewValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); add(); } }} placeholder="Add new choice" className="h-9" /><Button type="button" size="sm" disabled={busy || !newValue.trim()} onClick={add}><Plus className="size-4" />Add</Button></div>
-    </PopoverContent>
-  </Popover>;
-}
-function AccountFields({ form, setForm, accounts }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; accounts: DataRecord[] }) {
-  const multiCurrencyRole = form.systemRole === "AR" || form.systemRole === "AP";
-  const availableRoles = accountRoleOptions.filter(([role]) => role === "AR" || role === "AP" || !accounts.some((account) => account.systemRole === role));
-  const changeSystemRole = (value: string) => {
-    const systemRole = value === "none" ? "" : value;
-    const type = systemRole === "AR" ? "Accounts Receivable" : systemRole === "AP" ? "Accounts Payable" : form.type;
-    setForm({ ...form, systemRole, type });
-  };
-  return <div className="grid gap-4 sm:grid-cols-2">
-    <Field label="Account code" name="code" form={form} setForm={setForm} required />
-    <Field label="Account name" name="name" form={form} setForm={setForm} required />
-    <Choice label="Account type" name="type" values={accountTypesForRole(form.systemRole || "")} form={form} setForm={setForm} />
-    <div className="space-y-2"><Label>Linked system use</Label><Select value={form.systemRole || "none"} onValueChange={changeSystemRole}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">No system link</SelectItem>{availableRoles.map(([role, label]) => <SelectItem key={role} value={role}>{label}</SelectItem>)}</SelectContent></Select><p className="text-xs text-slate-500">{multiCurrencyRole ? "Add one control account for each currency used by customers or vendors." : "Linked accounts appear in invoices, bills, banking, VAT and inventory postings."}</p></div>
-    <Choice label={multiCurrencyRole ? "Control account currency *" : "Account currency *"} name="currency" values={currencies} form={form} setForm={setForm} />
-    <div className="space-y-2"><Label>Sub-account of</Label><Select value={form.parentAccountId || "none"} onValueChange={(value) => setForm({ ...form, parentAccountId: value === "none" ? "" : value })}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Not a sub-account</SelectItem>{accounts.map((account) => <SelectItem key={account.id} value={String(account.id)}>{String(account.code)} Â· {String(account.name)}</SelectItem>)}</SelectContent></Select></div>
-    
-  </div>;
-}
+YªçŠx-®éÜj×¢ëiºÚ+Š§j[h‘éÜ¢éí×^8ëTèµ©hºÚn¶X§zÍH\ÙHÛY[ŽÂš[\ÜÈš[˜[˜ÚX[™\ÜHœ›ÛH‹‹Ùš[˜[˜ÚX[\™\ÜŽÂš[\Ü\HÈš[˜[˜ÚX[™\Ü]HHœ›ÛHÛX‹Ùš[˜[˜ÚX[\™\ÜÈŽÂš[\ÜÈÚ\™Y][PØ][ÙÝYHHœ›ÛHØ\ÜÚ\™YZ][KXØ][ÙÝYHŽÂš[\ÜÈÚ\™YÝ]Ù”ÝØÚÈHœ›ÛHØ\ÜÚ\™Y[Ý][Ù‹\ÝØÚÈŽÂš[\ÜÈ™\Ü]Qš[\ˆHœ›ÛH‹‹Ü™\ÜY]KYš[\ˆŽÂš[\ÜÈ™\Ü\š[Ù\H™\Ü\š[ÙHœ›ÛHÛX‹Ü™\Ü\\š[ÙŽÂš[\ÜÈÛÛ\[žPÛX\]ÛˆHœ›ÛH‹‹ØÛÛ\[žKXÛX\‹X]ÛˆŽÂš[\ÜÈÛÛ\[žU[\]Q\ÚYÛ™\ˆHœ›ÛH‹‹ØÛÛ\[žK][\]KY\ÚYÛ™\ˆŽÂ‚š[\ÜÈXÝ]™PÝ\ÝÛY\œÔ™\ÜHœ›ÛH‹‹ØXÝ]™KXÝ\ÝÛY\œË\™\ÜŽÂš[\ÜÈÝ\ÝÛY\“Ü[˜[[˜ÙHHœ›ÛH‹‹ØÝ\ÝÛY\‹[Ü[‹X˜[[˜ÙHŽÂš[\Ü\HÈÜ[˜[[˜ÙQ]HHœ›ÛHÛX‹ØÝ\ÝÛY\‹[Ü[‹X˜[[˜ÙHŽÂš[\ÜÈØÝ[Y[^˜QšY[ÈHœ›ÛH‹‹ÙØÝ[Y[Y^˜KYšY[ÈŽÂš[\ÜÈXØÛÝ[\ÝÜžHHœ›ÛH‹‹ØXØÛÝ[Z\ÝÜžHŽÂš[\ÜÈ\ÙTÚÝSØÚËÚÝSØÚÓ›ÝXÙHHœ›ÛH‹‹Ý\ÙK\ÚÝK[ØÚÈŽÂš[\ÜÈ›Ü›Q]™[\ÙPØ[˜XÚË\ÙQY™™XÝ\ÙSY[[Ë\ÙTÝ]HHœ›ÛHœ™XXÝŽÂš[\Ü[XYÙHœ›ÛH›™^Ú[XYÙHŽÂš[\ÜÈ^[Y[Ø[\Ô™\Hœ›ÛH‹‹Ü^[Y[\Ø[\Ë\™\ŽÂš[\ÜÈZY[›ÚXÙTÝ[\Hœ›ÛH‹‹ÜZYZ[›ÚXÙK\Ý[\ŽÂš[\ÜÈÝ][Y[š[\œËÝ][Y[XY[™Ë\HÝ][Y[]HHœ›ÛH‹‹ÜÝ][Y[[^[Ý]ŽÂš[\ÜÈØ[\ÔÛÝ\˜ÙR[›ÚXÚ[™ÈHœ›ÛH‹‹ÜØ[\Ë\ÛÝ\˜ÙKZ[›ÚXÚ[™ÈŽÂš[\ÜÈÜ[”Ø[\ÑØÝ[Y[ÈHœ›ÛH‹‹ÛÜ[‹\Ø[\ËYØÝ[Y[ÈŽÂš[\ÜÈÜ[”\˜Ú\ÙSÜ™\œÈHœ›ÛH‹‹ÛÜ[‹\\˜Ú\ÙK[Ü™\œÈŽÂš[\ÜÈ\˜Ú\ÙSÜ™\”™XÙZ]š[™ÈHœ›ÛH‹‹Ü\˜Ú\ÙK[Ü™\‹\™XÙZ]š[™ÈŽÂš[\ÜÈ[œZY[›ÚXÙ\ÈHœ›ÛH‹‹Ý[œZYZ[›ÚXÙ\ÈŽÂš[\ÜÈ[œZYš[ÈHœ›ÛH‹‹Ý[œZYXš[ÈŽÂš[\ÜÈ›Ùš]ÜÜÔ™\ÜHœ›ÛH‹‹Ü›Ùš][ÜÜË\™\ÜŽÂš[\Ü\HÈ›Y]K›™\ÜHœ›ÛHÛX‹Ü›Ùš][ÜÜÈŽÂš[\ÜÈ]™T›Ùš]ÜÜÔÝ[[X\žHHœ›ÛH‹‹Û]™K\›Ùš][ÜÜË\Ý[[X\žHŽÂš[\ÜÈ\Ú›Ø\™Y]šXÜÈHœ›ÛHÛX‹Ù\Ú›Ø\™[Y]šXÜÈŽÂš[\ÜÈš[\–™\›Ô[Ú›ÝÜË\Ò[™[ÜžT[Úš[\ˆHœ›ÛHÛX‹Ú[™[ÜžK\™\ÜYš[\ˆŽÂš[\ÜÈš[\”™XÛÜ™\ÝžQ]K™XÛÜ™\Ý™\ÜHœ›ÛHÛX‹Ü™XÛÜ™[\ÝY^ÜŽÂš[\ÜÈ™\ÜÜÝ‹™\Üš[[˜[YK™\Ü‹™\ÜÛÜšØ›ÛÚÈHœ›ÛHÛX‹Ü™\ÜY^ÜŽÂš[\ÜÈÛÛ™\[›ÚXÙS[™\Ë[›ÚXÙPÝ\œ™[˜ÞP[[Ý[˜[YØÝ[Y[˜]K\HšXÙY[›ÚXÙS[™HHœ›ÛHÛX‹Ú[›ÚXÙK\šXÚ[™ÈŽÂš[\ÜÈ\PÛÛXÝÝ\œ™[˜ÞHHœ›ÛHÛX‹ØÛÛXÝXÝ\œ™[˜ÞHŽÂš[\ÜÈØ[\ÑØÝ[Y[[\]KØ[\ÑØÝ[Y[[ÙQ›Ü•˜[œØXÝ[ÛˆHœ›ÛH‹‹ÜØ[\ËYØÝ[Y[][\]HŽÂš[\ÜÂˆ[\šX[™ÛK\œ›ÝÔšYÚY˜YÙQÛ\”ÚYÛ‹™[›ÛÚÓÜ[‹›ÛÚÓÜ[ÚXÚË›ÛÚÛX\šÔ\Ë›Þ\ËZ[[™Ì‹ÚXÚÐÚ\˜ÛL‹ÛÜKˆÚXÚËÚ]œ›Û‘ÝÛ‹Ú]œ›Û”šYÚÚ\˜ÛQÛ\”ÚYÛ‹ÛØÚÌËÝÛ›ØYš[P˜\Ú\‹š[TÜ™XYÚY]š[U^[™X\šËˆ^YK[XYÙU\Ù^T›Ý[™^[Ý]\Ú›Ø\™ÙÓÝ]XÚØYÙPÚXÚËXÚØYÙTÙX\˜ÚXÚØYÙV[]K[˜Ú[\Ë™XÙZ\^™Yœ™\ÚÝËˆÙX\˜ÚÙ][™ÜËÚY[ÚXÚËÚÜ[™ÐØ\Ý[\Ý[‹[ÛÛ‹X›L‹˜\Ú‹\Ù\œËØ[]Ø\™Ë\˜Ù[ŸHœ›ÛH›XÚYK\™XXÝŽÂš[\ÜÈ˜YÙHHœ›ÛHØÛÛ\Û™[ËÝZKØ˜YÙHŽÂš[\ÜÈ]ÛˆHœ›ÛHØÛÛ\Û™[ËÝZKØ]ÛˆŽÂš[\ÜÈÚXÚØ›ÞHœ›ÛHØÛÛ\Û™[ËÝZKØÚXÚØ›ÞŽÂš[\ÜÂˆX[ÙËX[ÙÐÛÛ[X[ÙÑ\ØÜš\[Û‹X[ÙÑ›ÛÝ\‹X[ÙÒXY\‹ˆX[ÙÕ]KŸHœ›ÛHØÛÛ\Û™[ËÝZKÙX[ÙÈŽÂš[\ÜÈ[œ]Hœ›ÛHØÛÛ\Û™[ËÝZKÚ[œ]ŽÂš[\ÜÈX™[Hœ›ÛHØÛÛ\Û™[ËÝZKÛX™[ŽÂš[\ÜÈ›ÜÝÛ“Y[K›ÜÝÛ“Y[PÛÛ[›ÜÝÛ“Y[R][K›ÜÝÛ“Y[UšYÙÙ\ˆHœ›ÛHØÛÛ\Û™[ËÝZKÙ›ÜÝÛ‹[Y[HŽÂš[\ÜÈÜÝ™\‹ÜÝ™\ÛÛ[ÜÝ™\•šYÙÙ\ˆHœ›ÛHØÛÛ\Û™[ËÝZKÜÜÝ™\ˆŽÂš[\ÜÈ^\™XHHœ›ÛHØÛÛ\Û™[ËÝZKÝ^\™XHŽÂš[\ÜÈÜXÚYšXØ][Û‘šY[ÈHœ›ÛHÛX‹ÜÜXÚYšXØ][Û‹\™\Ù]ÈŽÂš[\ÜÂˆÙ[XÝÙ[XÝÛÛ[Ù[XÝ][KÙ[XÝšYÙÙ\‹Ù[XÝ˜[YKŸHœ›ÛHØÛÛ\Û™[ËÝZKÜÙ[XÝŽÂš[\ÜÂˆÚYX˜\‹ÚYX˜\ÛÛ[ÚYX˜\‘›ÛÝ\‹ÚYX˜\‘Ü›Ý\ÚYX˜\‘Ü›Ý\ÛÛ[ˆÚYX˜\‘Ü›Ý\X™[ÚYX˜\’XY\‹ÚYX˜\’[œÙ]ÚYX˜\“Y[KÚYX˜\“Y[P]Û‹ˆÚYX˜\“Y[R][KÚYX˜\”›ÝšY\‹ÚYX˜\”˜Z[ÚYX˜\•šYÙÙ\‹ŸHœ›ÛHØÛÛ\Û™[ËÝZKÜÚYX˜\ˆŽÂš[\ÜÂˆX›KX›P›ÙKX›PÙ[X›RXYX›RXY\‹X›T›ÝËŸHœ›ÛHØÛÛ\Û™[ËÝZKÝX›HŽÂš[\ÜÈØ\Ý\‹Ø\ÝHœ›ÛHœÛÛ›™\ˆŽÂš[\ÜÈ][S[™U˜[œÙ™\Ù[\ˆHœ›ÛHØ\Ý˜[œÙ™\‹XÙ[\ˆŽÂš[\ÜÈÝØÚÔšXÚ[™ÈHœ›ÛHØ\ÜÝØÚË\šXÚ[™ÈŽÂš[\ÜÈ[™[ÜžSÝ™\šY]ÈHœ›ÛHØ\Ú[™[ÜžK[Ý™\šY]ÈŽÂš[\ÜÈ[™[ÜžPÚXÚÔ™\ÜÈHœ›ÛHØ\Ú[™[ÜžKXÚXÚË\™\ÜÈŽÂš[\ÜÈ][SÙÚ\ÝXÜÐÙ[\ˆHœ›ÛHØ\Ú][K[ÙÚ\ÝXÜËXÙ[\ˆŽÂš[\ÜÈ\Ù\”›ÛPÙ[\ˆHœ›ÛHØ\Ý\Ù\‹\›ÛKXÙ[\ˆŽÂš[\ÜÈ˜]ÛÙPÙ[\‹\H˜]ÛÙT™XÛÜ™Hœ›ÛHØ\Ý˜]XÛÙKXÙ[\ˆŽÂš[\ÜÈÝ\œ™[˜ÞT˜]PÙ[\‹\H^Ú[™ÙT˜]T™XÛÜ™Hœ›ÛHØ\ØÝ\œ™[˜ÞK\˜]KXÙ[\ˆŽÂš[\ÜÈ›Ý\›˜[[žPÙ[\ˆHœ›ÛHØ\Ú›Ý\›˜[Y[žKXÙ[\ˆŽÂš[\ÜÈ˜]X[˜YÙ[Y[Ù[\ˆHœ›ÛHØ\Ý˜][X[˜YÙ[Y[XÙ[\ˆŽÂ‚š[\ÜÈÙ\šX[[X™\”ÙX\˜ÚHœ›ÛH‹‹ÜÙ\šX[[[X™\‹\ÙX\˜ÚŽÂ‚\HšY]ÈHœÙ\šX[\ÙX\˜ÚˆœÝØÚË\šXÚ[™Èˆ™\Ú›Ø\™ˆš[™[ÜžK[Ý™\šY]ÈˆœØ[\Èˆœ™XÙZ]™K\^[Y[ˆœ\˜Ú\Ù\ÈˆÜš]KXÚ\]YHˆ˜Ý\ÝÛY\œÈˆ™[™ÜœÈˆš[™[ÜžHˆš][K[ÙÚ\ÝXÜÈˆš[™[ÜžKXÚXÚË\™\ÜÈˆ˜[œÙ™\œÈˆ˜˜[šÚ[™Èˆš›Ý\›˜[Y[šY\Èˆ˜XØÛÝ[Èˆ˜][X[˜YÙ[Y[ˆ™[\ÞYY\Èˆœ™\ÜÈˆ˜ÛÛ\[šY\Èˆ˜ÛÛ\[žK\Ù]\ˆš[™[ÜšY\Èˆš[›ÚXÙK\Ù\šY\Èˆ˜Ý\œ™[˜ÚY\Èˆ˜]XÛÙ\Èˆ˜YZ[‹XÛÛ›ÛÈŽÂ\H\›ÛHH˜YZ[ˆˆ˜XØÛÝ[[ˆœØ[\Èˆœ\˜Ú\Ú[™Èˆš[™[ÜžHˆšY]Ù\ˆŽÂ\H\Ù\•[YHH™[Y\˜[ˆ›ØÙX[ˆˆš[™YÛÈˆš[Û]ˆœ›ÜÙHˆ˜[X™\ˆŽÂ\H\X\˜[˜ÙS[ÙHH›YÚˆ™\šÈŽÂ\HÝ\œ™[\Ù\ˆHÈ\Ð[YZ[Îˆ›ÛÛX[ŽÈYˆ[X™\ŽÈ[˜[YNˆÝš[™ÎÈ[XZ[ˆÝš[™ÎÈ]˜]\‘]NˆÝš[™ÎÈ[YPÛÛÜŽˆÝš[™ÎÈ\X\˜[˜ÙS[ÙNˆ\X\˜[˜ÙS[ÙNÈ›ÛNˆ\›ÛNÈ]\ÝÚ[™ÙT\ÜÝÛÜ™ˆ›ÛÛX[ˆNÂ\HÚ[™H˜[œØXÝ[ÛœÈˆ˜ÛÛXÝÈˆš][\Èˆ˜XØÛÝ[ÈŽÂ\H]T™XÛÜ™H™XÛÜ™Ýš[™ËÝš[™È[X™\ˆ›ÛÛX[ˆ	ˆÈYˆ[X™\ˆNÂ\H[™Q›Ü›HHšXÙY[›ÚXÙS[™H	ˆÈYÎˆ[X™\ŽÈÛÛ[Y[ÏÎˆÝš[™ÎÈÙ\šX[[X™\ÎˆÝš[™ÎÈœ™ZYÚÚ\™ÙOÎˆÝš[™ÎÈ][RYˆÝš[™ÎÈ\ØÜš\[ÛŽˆÝš[™ÎÈ]X[]NˆÝš[™ÎÈ[š]šXÙNˆÝš[™ÎÈ[š]ÛÜÝˆÝš[™ÎÈ˜]ÛÙNˆÝš[™ÎÈ˜]˜]NˆÝš[™ÈNÂ\H[™[ÜžSØØ][ÛˆHÈYˆ[X™\ŽÈÛÛ\[žRYˆ[X™\ŽÈ˜[YNˆÝš[™ÎÈÛÙNˆÝš[™ÎÈ[›ÚXÙT™Yš^ˆÝš[™ÎÈ™^[›ÚXÙS[X™\Žˆ[X™\ŽÈ™XÙZ]˜X›OÎˆ[X™\ŽÈ^XX›OÎˆ[X™\ˆNÂ\HÛÛ\[žUÛÜšÜÜXÙHHÈYˆ[X™\ŽÈ˜[YNˆÝš[™ÎÈ˜\ÙPÝ\œ™[˜ÞNˆÝš[™ÎÈØØ][ÛœÎˆ[™[ÜžSØØ][Û–×HNÂ\HÛÛ\[žTÙ]\HÈYˆ[X™\ŽÈ˜[YNˆÝš[™ÎÈ˜\ÙPÝ\œ™[˜ÞNˆÝš[™ÎÈÙÛÑ]NˆÝš[™ÎÈšYÚÙÛÑ]NˆÝš[™ÎÈØÝ[Y[\ÚYÛŽˆÝš[™ÎÈÝ[\]NˆÝš[™ÎÈY™\ÜÓ[™LNˆÝš[™ÎÈY™\ÜÓ[™LŽˆÝš[™ÎÈÚ]NˆÝš[™ÎÈÛÝ[žNˆÝš[™ÎÈÛ™NˆÝš[™ÎÈ[XZ[ˆÝš[™ÎÈ›ŽˆÝš[™ÎÈ˜[šÓ˜[YNˆÝš[™ÎÈ˜[šÐXØÛÝ[˜[YNˆÝš[™ÎÈ˜[šÐXØÛÝ[[X™\ŽˆÝš[™ÎÈ˜[šÒX˜[ŽˆÝš[™ÎÈ˜[šÔÝÚYˆÝš[™ÎÈ˜[šÐÝ\œ™[˜ÞNˆÝš[™ÎÈØÝ[Y[[\]Nˆ˜Û\ÜÚXÈˆ›[Ù\›ˆˆ›Z[š[X[ŽÈØÝ[Y[ÛÛÜŽˆÝš[™ÈNÂ\H™\Ü]HHÈš[˜[˜ÚX[Îˆš[˜[˜ÚX[™\Ü]VÈ™š[˜[˜ÚX[—NÈ\š[ÙÎˆ™\Ü\š[ÙÈ›Îˆ›Y]NÈÝ[[X\žOÎˆ›™\ÜÈœÝ[[X\žH—NÈXÝ]™PÝ\ÝÛY\œÏÎˆÈØ[•šY]ÐXØÛÝ[Îˆ›ÛÛX[ŽÈ\ÓÙŽˆÝš[™ÎÈÛÝ[ˆ[X™\ˆNÈÜ[˜[[˜ÙOÎˆÜ[˜[[˜ÙQ]NÈÝ][Y[ÎˆÝ][Y[]NÈÙ^OÎˆÝš[™ÎÈÛÛ\[žRYÎˆ[X™\ŽÈØ[‘Y]šXÙ\ÏÎˆ›ÛÛX[ŽÈØ[•šY]ÐXØÛÝ[ÏÎˆ›ÛÛX[ŽÈXØÛÝ[[šÒ\ÜÝY\ÏÎˆÝš[™Ö×NÈ˜]ÛÙ\ÏÎˆ\œ˜^OÈÛÙNˆÝš[™ÎÈ˜[YNˆÝš[™ÎÈ˜]Nˆ[X™\ˆOŽÈ]NˆÝš[™ÎÈ\ØÜš\[ÛÎˆÝš[™ÎÈÙ[™\˜]Y]ˆÝš[™ÎÈÝ\œ™[˜ÞNˆÝš[™ÎÈÛÛ[[œÎˆ\œ˜^OÈÙ^NˆÝš[™ÎÈX™[ˆÝš[™ÎÈ\OÎˆ›[Û™^HˆOŽÈ›ÝÜÎˆ\œ˜^O™XÛÜ™Ýš[™ËÝš[™È[X™\ŽÈÚ\ÎˆÈX™[Ù^NˆÝš[™ÎÈ[˜ÛÛYRÙ^NˆÝš[™ÎÈ^[œÙRÙ^NˆÝš[™ÎÈ[˜ÛÛYSX™[ÎˆÝš[™ÎÈ^[œÙSX™[ÎˆÝš[™ÈHNÂ\HY[[Üš\ÙY™\Ü™XÛÜ™HÈÝ\ÝÛY\ÎˆÝš[™ÎÈÝ][Y[]OÎˆÝš[™ÎÈY[[ÏÎˆÝš[™ÎÈYˆ[X™\ŽÈÛÛ\[žRYˆ[X™\ŽÈØØ][Û’Yˆ[X™\ˆ[È˜[YNˆÝš[™ÎÈ™\ÜÙ^NˆÝš[™ÎÈØ]YÛÜžNˆ™\ÜØ]YÛÜžNÈÝ\œ™[˜ÞNˆÝš[™ÎÈ\š[ÙÝ\ˆÝš[™ÎÈ\š[Ù[™ˆÝš[™ÎÈ\]Y]ˆÝš[™ÈNÂ\H™\ÜÛÛ^HÈÙ^NˆÝš[™ÎÈØØ][Û’Yˆ[X™\ŽÈÝ\œ™[˜ÞNˆÝš[™ÎÈ\š[ÙÝ\ˆÝš[™ÎÈ\š[Ù[™ˆÝš[™ÈNÂ\H˜[œØXÝ[Û‘]Z[HÈ™XÛÜ™ˆ]T™XÛÜ™È[™\Îˆ]T™XÛÜ™×NÈ›Ý\›˜[ˆ]T™XÛÜ™×NÈ\PÛÛXÝÎˆ]T™XÛÜ™[NÂ‚˜ÛÛœÝ\Ù\•[Y\Îˆ\œ˜^OÈ˜[YNˆ\Ù\•[YNÈX™[ˆÝš[™ÎÈÛÛÜŽˆÝš[™ÈOˆHÂˆÈ˜[YNˆ™[Y\˜[‹X™[ˆ‘[Y\˜[‹ÛÛÜŽˆˆÌLŽNHˆKˆÈ˜[YNˆ›ØÙX[ˆ‹X™[ˆ“ØÙX[ˆ‹ÛÛÜŽˆˆÌXMYNHˆKˆÈ˜[YNˆš[™YÛÈ‹X™[ˆ’[™YÛÈ‹ÛÛÜŽˆˆÍŒÍ™ŒHˆKˆÈ˜[YNˆš[Û]‹X™[ˆ•š[Û]‹ÛÛÜŽˆˆÎXÙˆˆKˆÈ˜[YNˆœ›ÜÙH‹X™[ˆ”›ÜÙH‹ÛÛÜŽˆˆÙÙYHˆKˆÈ˜[YNˆ˜[X™\ˆ‹X™[ˆ[X™\ˆ‹ÛÛÜŽˆˆÙNYLˆˆK—NÂ˜ÛÛœÝ\Õ\Ù\•[YHH
+˜[YNˆÝš[™ÊNˆ˜[YH\È\Ù\•[YHOˆ\Ù\•[Y\ËœÛÛYJ
+[YJHOˆ[YK˜[YHOOH˜[YJNÂ‚˜ÛÛœÝ[›ÚXÙS[X™\”™]šY]ÈH
+ÛÛ\[žRYˆ[X™\‹ØØ][ÛŽˆ[™[ÜžSØØ][ÛŠHO‚ˆÉÔÝš[™ÊÛÛ\[žRY
+KœYÝ\
+ËŒŠ_KIÛØØ][Û‹š[›ÚXÙT™Yš^KRS•‹IÔÝš[™ÊØØ][Û‹›™^[›ÚXÙS[X™\ŠKœYÝ\
+ŒŠ_XÂ‚˜ÛÛœÝ˜]‘Ü›Ý\ÈHÂˆÈX™[ˆ“Õ‘T•’QUÈ‹][\ÎˆÂˆÈYˆ™\Ú›Ø\™‹X™[ˆÛÛ\[žHÛYH‹XÛÛŽˆ^[Ý]\Ú›Ø\™KˆÈYˆš[™[ÜžK[Ý™\šY]È‹X™[ˆ’[™[ÜžHÝ™\šY]È‹XÛÛŽˆ›Þ\ÈKˆHKˆÈX™[ˆÕTÕÓQT”È‹][\ÎˆÂˆÈYˆœØ[\È‹X™[ˆ”Ø[\È	ˆ[›ÚXÚ[™È‹XÛÛŽˆ™XÙZ\^KˆÈYˆœ™XÙZ]™K\^[Y[‹X™[ˆ”™XÙZ]™H^[Y[‹XÛÛŽˆÚ\˜ÛQÛ\”ÚYÛˆKˆÈYˆ˜Ý\ÝÛY\œÈ‹X™[ˆÝ\ÝÛY\ˆÙ[\ˆ‹XÛÛŽˆ\Ù\œÈKˆHKˆÈX™[ˆ•‘S‘Ô”È‹][\ÎˆÂˆÈYˆœ\˜Ú\Ù\È‹X™[ˆ”\˜Ú\Ù\È	ˆš[È‹XÛÛŽˆÚÜ[™ÐØ\KˆÈYˆÜš]KXÚ\]YH‹X™[ˆ•Üš]HÚ\]YH‹XÛÛŽˆØ[]Ø\™ÈKˆÈYˆ™[™ÜœÈ‹X™[ˆ•™[™ÜˆÙ[\ˆ‹XÛÛŽˆZ[[™ÌˆKˆHKˆÈX™[ˆÓÓTS–H‹][\ÎˆÂˆÈYˆš[™[ÜžH‹X™[ˆ’[™[ÜžH‹XÛÛŽˆXÚØYÙTÙX\˜ÚKˆÈYˆœÙ\šX[\ÙX\˜Ú‹X™[ˆ”Ù\šX[[X™\ˆÙX\˜Ú‹XÛÛŽˆÙX\˜ÚKˆÈYˆœÝØÚË\šXÚ[™È‹X™[ˆ”ÝØÚÈšXÚ[™È‹XÛÛŽˆÚ\˜ÛQÛ\”ÚYÛˆKˆÈYˆš][K[ÙÚ\ÝXÜÈ‹X™[ˆ’ÈÛÙH	ˆ[Y[œÚ[ÛœÈ‹XÛÛŽˆXÚØYÙPÚXÚÈKˆÈYˆš[™[ÜžKXÚXÚË\™\ÜÈ‹X™[ˆ’[™[ÜžHÚXÚÈ™\ÜÈ‹XÛÛŽˆXÚØYÙPÚXÚÈKˆÈYˆ˜[œÙ™\œÈ‹X™[ˆ”ÝØÚÈ˜[œÙ™\œÈ‹XÛÛŽˆ\œ›ÝÔšYÚYKˆÈYˆ˜˜[šÚ[™È‹X™[ˆ˜[šÚ[™È‹XÛÛŽˆ[™X\šÈKˆÈYˆš›Ý\›˜[Y[šY\È‹X™[ˆ‘Ù[™\˜[›Ý\›˜[‹XÛÛŽˆ›ÛÚÓÜ[ÚXÚÈKˆÈYˆ˜XØÛÝ[È‹X™[ˆÚ\ÙˆXØÛÝ[È‹XÛÛŽˆ›ÛÚÓÜ[ˆKˆÈYˆ˜][X[˜YÙ[Y[‹X™[ˆ•UX[˜YÙ[Y[‹XÛÛŽˆ\˜Ù[KˆÈYˆ™[\ÞYY\È‹X™[ˆ‘[\ÞYY\È	ˆˆ‹XÛÛŽˆØ[]Ø\™ÈKˆÈYˆœ™\ÜÈ‹X™[ˆ”™\ÜÈ‹XÛÛŽˆš[P˜\Ú\ˆKˆHKˆÈX™[ˆ“PSQÑSQS•‹][\ÎˆÂˆÈYˆ˜ÛÛ\[šY\È‹X™[ˆÛÛ\[šY\È‹XÛÛŽˆZ[[™ÌˆKˆÈYˆ˜ÛÛ\[žK\Ù]\‹X™[ˆÛÛ\[žHÙ]\‹XÛÛŽˆÙ][™ÜÈKˆÈYˆš[™[ÜšY\È‹X™[ˆ’[™[ÜšY\È‹XÛÛŽˆXÚØYÙTÙX\˜ÚKˆÈYˆš[›ÚXÙK\Ù\šY\È‹X™[ˆ’[›ÚXÙHÙ\šY\È‹XÛÛŽˆ™XÙZ\^KˆÈYˆ˜Ý\œ™[˜ÚY\È‹X™[ˆÝ\œ™[˜ÚY\È‹XÛÛŽˆÚ\˜ÛQÛ\”ÚYÛˆKˆÈYˆ˜]XÛÙ\È‹X™[ˆ•UÛÙ\È‹XÛÛŽˆ\˜Ù[KˆÈYˆ˜YZ[‹XÛÛ›ÛÈ‹X™[ˆYZ[ˆÛÛ›ÛÈ‹XÛÛŽˆÚY[ÚXÚÈKˆHK—H\ÈÛÛœÝÂ‚˜ÛÛœÝ›ÛSX™[Îˆ™XÛÜ™\›ÛKÝš[™ÏˆHÂˆYZ[ŽˆYZ[š\Ý˜]Üˆ‹ˆXØÛÝ[[ˆXØÛÝ[[‹ˆØ[\Îˆ”Ø[\È‹ˆ\˜Ú\Ú[™Îˆ”\˜Ú\Ú[™È‹ˆ[™[ÜžNˆ’[™[ÜžHX[˜YÙ\ˆ‹ˆšY]Ù\Žˆ•šY]Ù\ˆ‹ŸNÂ‚˜ÛÛœÝ›ÛUšY]ÜÎˆ™XÛÜ™\›ÛK™XYÛ›HšY]Ö×OˆHÂˆYZ[Žˆ˜]‘Ü›Ý\Ë™›]X\
+
+Ü›Ý\
+HOˆÜ›Ý\š][\Ë›X\
+
+][JHOˆ][KšY
+JKˆXØÛÝ[[ˆÈœÙ\šX[\ÙX\˜Ú‹™\Ú›Ø\™‹š[™[ÜžK[Ý™\šY]È‹š[™[ÜžKXÚXÚË\™\ÜÈ‹œØ[\È‹œ™XÙZ]™K\^[Y[‹˜Ý\ÝÛY\œÈ‹œ\˜Ú\Ù\È‹Üš]KXÚ\]YH‹™[™ÜœÈ‹˜˜[šÚ[™È‹š›Ý\›˜[Y[šY\È‹˜XØÛÝ[È‹˜][X[˜YÙ[Y[‹œ™\ÜÈ—KˆØ[\ÎˆÈœÙ\šX[\ÙX\˜Ú‹™\Ú›Ø\™‹š[™[ÜžK[Ý™\šY]È‹š[™[ÜžKXÚXÚË\™\ÜÈ‹œØ[\È‹œ™XÙZ]™K\^[Y[‹˜Ý\ÝÛY\œÈ—Kˆ\˜Ú\Ú[™ÎˆÈœÙ\šX[\ÙX\˜Ú‹™\Ú›Ø\™‹š[™[ÜžK[Ý™\šY]È‹š[™[ÜžKXÚXÚË\™\ÜÈ‹œ\˜Ú\Ù\È‹Üš]KXÚ\]YH‹™[™ÜœÈ—Kˆ[™[ÜžNˆÈœÙ\šX[\ÙX\˜Ú‹™\Ú›Ø\™‹š[™[ÜžK[Ý™\šY]È‹š[™[ÜžH‹š][K[ÙÚ\ÝXÜÈ‹š[™[ÜžKXÚXÚË\™\ÜÈ‹˜[œÙ™\œÈ—KˆšY]Ù\ŽˆÈœÙ\šX[\ÙX\˜Ú‹™\Ú›Ø\™‹š[™[ÜžK[Ý™\šY]È‹š[™[ÜžKXÚXÚË\™\ÜÈ‹œ™\ÜÈ—KŸNÂ‚˜ÛÛœÝ›ÛUÜš]UšY]ÜÎˆ™XÛÜ™\›ÛK™XYÛ›HšY]Ö×OˆHÂˆYZ[ŽˆÈœØ[\È‹œ™XÙZ]™K\^[Y[‹˜Ý\ÝÛY\œÈ‹œ\˜Ú\Ù\È‹Üš]KXÚ\]YH‹™[™ÜœÈ‹š[™[ÜžH‹š][K[ÙÚ\ÝXÜÈ‹š[™[ÜžKXÚXÚË\™\ÜÈ‹˜[œÙ™\œÈ‹˜˜[šÚ[™È‹š›Ý\›˜[Y[šY\È‹˜XØÛÝ[È‹™[\ÞYY\È‹˜ÛÛ\[šY\È‹š[™[ÜšY\È‹š[›ÚXÙK\Ù\šY\È‹˜Ý\œ™[˜ÚY\È‹˜]XÛÙ\È‹˜YZ[‹XÛÛ›ÛÈ—KˆXØÛÝ[[ˆÈœØ[\È‹œ™XÙZ]™K\^[Y[‹˜Ý\ÝÛY\œÈ‹œ\˜Ú\Ù\È‹Üš]KXÚ\]YH‹™[™ÜœÈ‹˜˜[šÚ[™È‹š›Ý\›˜[Y[šY\È‹˜XØÛÝ[È‹˜][X[˜YÙ[Y[—KˆØ[\ÎˆÈœØ[\È‹œ™XÙZ]™K\^[Y[‹˜Ý\ÝÛY\œÈ—Kˆ\˜Ú\Ú[™ÎˆÈœ\˜Ú\Ù\È‹Üš]KXÚ\]YH‹™[™ÜœÈ—Kˆ[™[ÜžNˆÈš[™[ÜžH‹š][K[ÙÚ\ÝXÜÈ‹˜[œÙ™\œÈ—KˆšY]Ù\Žˆ×KŸNÂ‚˜ÛÛœÝšY]Õ]\Îˆ™XÛÜ™šY]ËÈ]NˆÝš[™ÎÈÝXŽˆÝš[™ÈOˆHÂˆ\Ú›Ø\™ˆÈ]NˆÛÛ\[žHÛYH‹ÝXŽˆ–[Ý\ˆš[˜[˜ÚX[ÜÚ][Ûˆ]HÛ[˜ÙHˆKˆœÙ\šX[\ÙX\˜ÚŽˆÈ]Nˆ”Ù\šX[[X™\ˆÙX\˜Ú‹ÝXŽˆ”\˜Ú\ÙH[™Ø[\È\ÝÜžHžHÙ\šX[[X™\ˆˆKˆœÝØÚË\šXÚ[™ÈŽˆÈ]Nˆ”ÝØÚÈšXÚ[™È‹ÝXŽˆÛÛ\[žHÔ“ˆ[™Ù[[™ÈšXÙ\ÈžH[™[ÜžHˆKˆš[™[ÜžK[Ý™\šY]ÈŽˆÈ]Nˆ’[™[ÜžHÝ™\šY]È‹ÝXŽˆ[ÛÛ\[žHÝØÚËÜXÚYšXØ][ÛœË]X[]Y\È[™šXÙ\ÈˆKˆØ[\ÎˆÈ]Nˆ”Ø[\È	ˆ[›ÚXÚ[™È‹ÝXŽˆ‘\Ý[X]\Ë›Ù›Ü›XH[›ÚXÙ\ËØ[\ÈÜ™\œË[›ÚXÙ\Ë™XÙZ\È[™Ü™Y]ÈˆKˆœ™XÙZ]™K\^[Y[ŽˆÈ]Nˆ”™XÙZ]™H^[Y[‹ÝXŽˆ”™XÛÜ™Ý\ÝÛY\ˆ^[Y[È›ÜˆHÙ[XÝY[™[ÜžHˆKˆ\˜Ú\Ù\ÎˆÈ]Nˆ”\˜Ú\Ù\È	ˆš[È‹ÝXŽˆ”\˜Ú\ÙHÜ™\œËš[Ë^[œÙ\È[™™[™Üˆ^[Y[ÈˆKˆÜš]KXÚ\]YHŽˆÈ]Nˆ•Üš]HÚ\]YH‹ÝXŽˆ”^H™[™ÜœÈ[™™YXÙH^XX›\È›ÜˆHÙ[XÝY[™[ÜžHˆKˆÝ\ÝÛY\œÎˆÈ]NˆÝ\ÝÛY\ˆÙ[\ˆ‹ÝXŽˆÝ\ÝÛY\ˆ˜[[˜Ù\ËÛÛXÝÈ[™XÝ]š]HˆKˆ™[™ÜœÎˆÈ]Nˆ•™[™ÜˆÙ[\ˆ‹ÝXŽˆ”Ý\Y\œË^XX›\È[™\˜Ú\Ú[™È\ÝÜžHˆKˆ[™[ÜžNˆÈ]Nˆ’[™[ÜžHÙ[\ˆ‹ÝXŽˆ”ÝØÚÈ]™[ËšXÚ[™ËÛÜÝÈ[™™[Ü™\ˆÛÛ›ÛÈˆKˆš][K[ÙÚ\ÝXÜÈŽˆÈ]Nˆ’ÈÛÙKÓÓÈ	ˆ[Y[œÚ[ÛœÈ‹ÝXŽˆ“XZ[Z[ˆÝ\ÝÛ\ÈÛ\ÜÚYšXØ][ÛœËÛÝ[žHÙˆÜšYÚ[‹[Y[œÚ[ÛœÈ[™ÙZYÚˆKˆš[™[ÜžKXÚXÚË\™\ÜÈŽˆÈ]Nˆ’[™[ÜžHÚXÚÈ™\ÜÈ‹ÝXŽˆ”Ù[XÝ[‹\ÝØÚÈ][\È[™ÛÛ\\™H]X[]Y\ÈXÜ›ÜÜÈ[Ý\ˆÛÛ\[šY\ÈˆKˆ˜[œÙ™\œÎˆÈ]Nˆ”ÝØÚÈ˜[œÙ™\œÈ‹ÝXŽˆ“[Ý™HÝØÚÈ™]ÙY[ˆÛÛ\[šY\È[™[™[ÜžHØØ][ÛœÈˆKˆ˜[šÚ[™ÎˆÈ]Nˆ˜[šÚ[™È‹ÝXŽˆ‘\ÜÚ]ËÚ\]Y\Ë˜[œÙ™\œÈ[™XØÛÝ[XÝ]š]HˆKˆš›Ý\›˜[Y[šY\ÈŽˆÈ]Nˆ‘Ù[™\˜[›Ý\›˜[[šY\È‹ÝXŽˆ”ÜÝ˜[[˜ÙYXš]È[™Ü™Y]È\™XÝHÈHYÙ\ˆˆKˆXØÛÝ[ÎˆÈ]NˆÚ\ÙˆXØÛÝ[È‹ÝXŽˆ\ÜÙ]ËXXš[]Y\Ë\]Z]K[˜ÛÛYH[™^[œÙ\ÈˆKˆ˜][X[˜YÙ[Y[ŽˆÈ]Nˆ•UX[˜YÙ[Y[‹ÝXŽˆ”™]šY]ËY\Ý™\Ü[™š[HUˆKˆ[\ÞYY\ÎˆÈ]Nˆ‘[\ÞYY\È	ˆˆ‹ÝXŽˆ‘[\ÞYYH™XÛÜ™È[™˜[[˜Ù\ÈˆKˆ™\ÜÎˆÈ]Nˆ”™\ÜÙ[\ˆ‹ÝXŽˆ‘š[˜[˜ÚX[Ø[\Ë\˜Ú\Ú[™È[™[™[ÜžH[˜[\Ú\ÈˆKˆÛÛ\[šY\ÎˆÈ]NˆÛÛ\[šY\È‹ÝXŽˆÜ™X]H[™ÝÚ]Ú™]ÙY[ˆÙ\\˜]HÛÛ\[žHš[\ÈˆKˆ˜ÛÛ\[žK\Ù]\ŽˆÈ]NˆÛÛ\[žHÙ]\‹ÝXŽˆ“ÙÛËY™\ÜË˜[šÈ]Z[È[™ØÝ[Y[\ÚYÛˆˆKˆ[™[ÜšY\ÎˆÈ]Nˆ’[™[ÜšY\È‹ÝXŽˆ“X[˜YÙHØ\™ZÝ\Ù\ËÚÝÜ›ÛÛ\È[™ÝØÚÈØØ][ÛœÈˆKˆš[›ÚXÙK\Ù\šY\ÈŽˆÈ]Nˆ’[›ÚXÙHÙ\šY\È‹ÝXŽˆÝ\ÝÛZ^™H[›ÚXÙH[X™\š[™È›Üˆ]™\žHÛÛ\[žH[™[ÜžHˆKˆÝ\œ™[˜ÚY\ÎˆÈ]NˆÝ\œ™[˜ÚY\È‹ÝXŽˆ”Ù]ÛÛ\[žHÝ\œ™[˜ÞH[™˜[œØXÝ[ÛˆÝ\œ™[˜ÚY\ÈˆKˆ˜]XÛÙ\ÈŽˆÈ]Nˆ•UÛÙ\È‹ÝXŽˆ“X[˜YÙH^˜]\È[™\ØYÙH]Z[È›Üˆ˜[œØXÝ[Ûˆ›ÜÝÛœÈˆKˆ˜YZ[‹XÛÛ›ÛÈŽˆÈ]NˆYZ[ˆÛÛ›ÛÈ‹ÝXŽˆ”›ÝXÝ™\ÝšXÝY[™[ÜžHÜ\˜][ÛœÈ›Üˆ\ÈÛÛ\[žHˆKŸNÂ‚˜ÛÛœÝ˜[œØXÝ[Û•\\Îˆ™XÛÜ™Ýš[™ËÝš[™Ö×OˆHÂˆØ[\ÎˆÈš[›ÚXÙH‹œ][Ý][Ûˆ‹™\Ý[X]H‹œ›Ù›Ü›XH[›ÚXÙH‹œØ[\ÈÜ™\ˆ‹œØ[\È™XÙZ\‹œÝ][Y[Ú\™ÙH‹™š[˜[˜ÙHÚ\™ÙH‹˜Ü™Y]Y[[È‹˜Ý\ÝÛY\ˆ^[Y[—Kˆœ™XÙZ]™K\^[Y[ŽˆÈ˜Ý\ÝÛY\ˆ^[Y[—Kˆ\˜Ú\Ù\ÎˆÈ˜š[‹œ\˜Ú\ÙHÜ™\ˆ‹š][H™XÙZ\‹œ™XÙZ]™Y][Hš[‹™^[œÙH‹™[™ÜˆÜ™Y]‹˜š[^[Y[—KˆÜš]KXÚ\]YHŽˆÈ˜Ú\]YH—Kˆ˜[šÚ[™ÎˆÈ™\ÜÚ]‹˜Ú\]YH‹˜Ü™Y]Ø\™Ú\™ÙH‹˜[œÙ™\ˆ‹˜Ú\]YHÜ™\ˆ‹›Ü[š[™È˜[[˜ÙH—Kˆ\Ú›Ø\™ˆÈš[›ÚXÙH‹˜š[‹™^[œÙH‹™\ÜÚ]‹˜Ú\]YH‹š›Ý\›˜[[žH—KŸNÂ‚˜ÛÛœÝ][U\U˜[Y\ÈHÈœÙ\šXÙH‹œÝØÚË\\‹››Û‹\ÝØÚË\\‹›Ý\‹XÚ\™ÙH‹œÝXÝ[‹™Ü›Ý\‹™\ØÛÝ[‹œ^[Y[‹˜]Z][H‹˜]YÜ›Ý\—H\ÈÛÛœÝÂ\H[™[ÜžR][U\HH
+\[Ùˆ][U\U˜[Y\ÊVÛ[X™\—NÂ˜ÛÛœÝ][U\Q]Z[Îˆ™XÛÜ™[™[ÜžR][U\KÈX™[ˆÝš[™ÎÈ\ØÜš\[ÛŽˆÝš[™ÎÈ[šÙY\™XNˆÝš[™ÈOˆHÂˆÙ\šXÙNˆÈX™[ˆ”Ù\šXÙH‹\ØÜš\[ÛŽˆ•\ÙH›ÜˆÙ\šXÙ\È[ÝHÚ\™ÙH›ÜˆÜˆ\˜Ú\ÙKÝXÚ\ÈX›Ý\‹ÛÛœÝ[[™ÈÝ\œËÜˆ›Ù™\ÜÚ[Û˜[™Y\Ëˆ‹[šÙY\™XNˆ”Ø[\È[™\˜Ú\ÙHØÝ[Y[[™\ÈˆKˆœÝØÚË\\ŽˆÈX™[ˆ”ÝØÚÈ\‹\ØÜš\[ÛŽˆ•\ÙH›Üˆ›ÙXÝÈ[ÝH^KÙY\[ˆÝØÚË[™Ù[ˆÝØÚÈØÝ[Y[È\]H]X[]H[™[™[ÜžH˜[YKˆ‹[šÙY\™XNˆ”Ø[\Ë\˜Ú\Ù\Ë[™[ÜžH[™ÝØÚÈ™\ÜÈˆKˆ››Û‹\ÝØÚË\\ŽˆÈX™[ˆ“›Û‹\ÝØÚÈ\‹\ØÜš\[ÛŽˆ•\ÙH›Üˆ›ÙXÝÈ[ÝH^HÜˆÙ[Ú]Ý]˜XÚÚ[™ÈÛ‹Z[™[™[ÜžKˆ‹[šÙY\™XNˆ”Ø[\È[™\˜Ú\ÙHØÝ[Y[[™\ÈˆKˆ›Ý\‹XÚ\™ÙHŽˆÈX™[ˆ“Ý\ˆÚ\™ÙH‹\ØÜš\[ÛŽˆ•\ÙH›Üˆœ™ZYÚ[™[™ËÙ]\™Y\ËÜˆÝ\ˆ›Û‹\ÝØÚÈÚ\™Ù\Ëˆ‹[šÙY\™XNˆ”Ø[\È[™\˜Ú\ÙHØÝ[Y[[™\ÈˆKˆÝXÝ[ˆÈX™[ˆ”ÝXÝ[‹\ØÜš\[ÛŽˆ•\ÙHÈY[YžHÝXÝ[™Z]š[Ý\ˆ›ÜˆØ[\ÈØÝ[Y[Ëˆ‹[šÙY\™XNˆ”Ø[\È	ˆ[›ÚXÚ[™ÈÝ[ÈˆKˆÜ›Ý\ˆÈX™[ˆ‘Ü›Ý\‹\ØÜš\[ÛŽˆ•\ÙHÈY[YžHÜ›Ý\YÜˆ[™Y›ÙXÝÈ[™Ù\šXÙ\Ëˆ‹[šÙY\™XNˆ”Ø[\È	ˆ[›ÚXÚ[™È[™\ÈˆKˆ\ØÛÝ[ˆÈX™[ˆ‘\ØÛÝ[‹\ØÜš\[ÛŽˆ•\ÙHÈY[YžHHØ[\È\ØÛÝ[][Kˆ‹[šÙY\™XNˆ”Ø[\È	ˆ[›ÚXÚ[™È\ØÛÝ[ÛÛ›ÛÈˆKˆ^[Y[ˆÈX™[ˆ”^[Y[‹\ØÜš\[ÛŽˆ•\ÙHÈY[YžHÝ\ÝÛY\ˆ^[Y[[™[™Ëˆ‹[šÙY\™XNˆ”™XÙZ]™H^[Y[ˆKˆ˜]Z][HŽˆÈX™[ˆ•U][H‹\ØÜš\[ÛŽˆ•\ÙHÈY[YžHHÚ[™ÛHUÝ^][Kˆ‹[šÙY\™XNˆ•UÙ[XÝÜœÈ[™UÛÙ\ÈˆKˆ˜]YÜ›Ý\ŽˆÈX™[ˆ•UÜ›Ý\‹\ØÜš\[ÛŽˆ•\ÙHÈY[YžHÜ›Ý\YUÝ^[™[™Ëˆ‹[šÙY\™XNˆ•UÙ[XÝÜœÈ[™UÛÙ\ÈˆKŸNÂ˜ÛÛœÝØÝ[Y[[™R][U\\ÈH™]ÈÙ][™[ÜžR][U\OŠÈœÙ\šXÙH‹œÝØÚË\\‹››Û‹\ÝØÚË\\‹›Ý\‹XÚ\™ÙH—JNÂ™[˜Ý[Ûˆ][U\SÙŠ˜[YNˆ[šÛ›ÝÛŠNˆ[™[ÜžR][U\HÂˆÛÛœÝØ[™Y]HHÝš[™Ê˜[YHœÝØÚË\\ŠNÂˆ™]\›ˆ
+][U\U˜[Y\È\È™XYÛ›HÝš[™Ö×JKš[˜ÛY\ÊØ[™Y]JHÈØ[™Y]H\È[™[ÜžR][U\HˆœÝØÚË\\ŽÂŸB™[˜Ý[Ûˆ][PØ[™QØÝ[Y[[™J][Nˆ]T™XÛÜ™
+HÂˆ™]\›ˆÝš[™Ê][KœÝ]\È˜XÝ]™HŠHOOHš[˜XÝ]™Hˆ	‰ˆØÝ[Y[[™R][U\\Ëš\Ê][U\SÙŠ][Kš][U\JJNÂŸB‚˜ÛÛœÝ[™\ÜÈHÂˆÈ”›Ùš]	ˆÜÜÈÝ[™\™‹’[˜ÛÛYH[™^[œÙ\ÈžH\š[Ù‹”›Ùš]	ˆÜÜÈ‹œ›Ùš][ÜÜÈ—KˆÈ”›Ùš]	ˆÜÜÈžH][H‹”Ø[\Ë\˜Ú\ÙHÛÜÝÛÜÝÙˆØ[\È[™›Ùš]žH][H‹”›Ùš]	ˆÜÜÈ‹œ›Ùš][ÜÜËZ][H—KˆÈ”›Ùš]	ˆÜÜÈžHØ[\È™\‹”Ø[\Ë\˜Ú\ÙHÛÜÝÛÜÝÙˆØ[\È[™›Ùš]žHØ[\È™\‹”›Ùš]	ˆÜÜÈ‹œ›Ùš][ÜÜË\™\—KˆÈ”›Ùš]	ˆÜÜÈ]Z[‹‘]™\žH[˜ÛÛYH[™^[œÙHYÙ\ˆÜÝ[™È‹”›Ùš]	ˆÜÜÈ‹œ›Ùš][ÜÜËY]Z[—KˆÈ”›Ùš]	ˆÜÜÈUÛÛ\\š\ÛÛˆ‹Ý\œ™[YX\‹]ËY]HYØZ[œÝHØ[YHš[Ü‹^YX\ˆ\š[Ù‹”›Ùš]	ˆÜÜÈ‹œ›Ùš][ÜÜË^]—KˆÈ”›Ùš]	ˆÜÜÈ™]ˆYX\ˆÛÛ\\š\ÛÛˆ‹•\ÈYX\ˆYØZ[œÝH™]š[Ý\ÈØ[[™\ˆYX\ˆ‹”›Ùš]	ˆÜÜÈ‹œ›Ùš][ÜÜË\™]‹^YX\ˆ—KˆÈ”›Ùš]	ˆÜÜÈžH›Øˆ‹“™][˜ÛÛYHÜ›Ý\YžH[™[ÜžHÜˆ\Ú[™\ÜÈØØ][Ûˆ‹”›Ùš]	ˆÜÜÈ‹œ›Ùš][ÜÜËZ›Øˆ—KˆÈ”›Ùš]	ˆÜÜÈžHÛ\ÜÈ‹’[˜ÛÛYH[™^[œÙHÜ›Ý\YžH˜[œØXÝ[Ûˆ\H‹”›Ùš]	ˆÜÜÈ‹œ›Ùš][ÜÜËXÛ\ÜÈ—KˆÈ”›Ùš]	ˆÜÜÈ[˜Û\ÜÚYšYY‹’[˜ÛÛYH[™^[œÙHÜÝ[™ÜÈÚ]Ý]HÚ\ÙˆXØÛÝ[ÈX]Ú‹”›Ùš]	ˆÜÜÈ‹œ›Ùš][ÜÜË][˜Û\ÜÚYšYY—KˆÈ’[˜ÛÛYHžHÝ\ÝÛY\ˆÝ[[X\žH‹”Ø[\È[˜ÛÛYHÝ[›ÜˆXXÚÝ\ÝÛY\ˆ‹‘š[˜[˜ÚX[‹š[˜ÛÛYKXÝ\ÝÛY\‹\Ý[[X\žH—KˆÈ’[˜ÛÛYHžHÝ\ÝÛY\ˆ]Z[‹’[›ÚXÙH[™™XÙZ\[˜ÛÛYHžHÝ\ÝÛY\ˆ[™ØÝ[Y[‹‘š[˜[˜ÚX[‹š[˜ÛÛYKXÝ\ÝÛY\‹Y]Z[—KˆÈ‘^[œÙ\ÈžHÝ\Y\ˆÝ[[X\žH‹”\˜Ú\ÙH[™^[œÙHÝ[È›ÜˆXXÚÝ\Y\ˆ‹‘š[˜[˜ÚX[‹™^[œÙ\Ë\Ý\Y\‹\Ý[[X\žH—KˆÈ‘^[œÙ\ÈžHÝ\Y\ˆ]Z[‹š[Ë^[œÙ\ËÚ\]Y\Ë[™Ø\™Ú\™Ù\ÈžHÝ\Y\ˆ‹‘š[˜[˜ÚX[‹™^[œÙ\Ë\Ý\Y\‹Y]Z[—KˆÈ’[˜ÛÛYH	ˆ^[œÙHÜ˜\‹“[ÛH[˜ÛÛYH[™^[œÙ\ÈÚÝÛˆš\ÝX[H‹‘š[˜[˜ÚX[‹š[˜ÛÛYKY^[œÙKYÜ˜\—KˆÈ”™X[\ÙYØZ[œÈ	ˆÜÜÙ\È‹‘^Ú[™ÙHY™™\™[˜Ù\ÈÛˆÙ]Y›Ü™ZYÛ‹XÝ\œ™[˜ÞH˜[œØXÝ[ÛœÈ‹‘š[˜[˜ÚX[‹œ™X[\ÙYYØZ[œË[ÜÜÙ\È—KˆÈ•[œ™X[\ÙYØZ[œÈ	ˆÜÜÙ\È‹Ý\œ™[^Ú[™ÙH™]˜[X][ÛˆÙˆÜ[ˆ›Ü™ZYÛˆ˜[[˜Ù\È‹‘š[˜[˜ÚX[‹[œ™X[\ÙYYØZ[œË[ÜÜÙ\È—KˆÈ˜[[˜ÙHÚY]Ý[™\™‹\ÜÙ]ËXXš[]Y\È[™\]Z]H‹‘š[˜[˜ÚX[‹˜˜[[˜ÙK\ÚY]—KˆÈ˜[[˜ÙHÚY]]Z[‹‘]Z[YXØÛÝ[˜[[˜Ù\ÈÚ]Xš]È[™Ü™Y]È‹‘š[˜[˜ÚX[‹˜˜[[˜ÙK\ÚY]Y]Z[—KˆÈ˜[[˜ÙHÚY]Ý[[X\žH‹•Ý[ÈžH\ÜÙ]ËXXš[]Y\Ë[™\]Z]H‹‘š[˜[˜ÚX[‹˜˜[[˜ÙK\ÚY]\Ý[[X\žH—KˆÈ˜[[˜ÙHÚY]™]ˆYX\ˆÛÛ\\š\ÛÛˆ‹Ý\œ™[˜[[˜Ù\ÈÛÛ\\™YÚ]H™]š[Ý\ÈYX\ˆ‹‘š[˜[˜ÚX[‹˜˜[[˜ÙK\ÚY]\™]‹^YX\ˆ—KˆÈ“™]ÛÜÜ˜\‹\ÜÙ]È\ÜÈXXš[]Y\ÈÚ]Hš\ÝX[Ý[[X\žH‹‘š[˜[˜ÚX[‹›™]]ÛÜYÜ˜\—KˆÈ”Ý][Y[ÙˆØ\Ú›ÝÜÈ‹“Ü\˜][™ÈØ\Ú[Ý™[Y[‹‘š[˜[˜ÚX[‹˜Ø\ÚY›ÝÈ—KˆÈØ\Ú›ÝÈ›Ü™XØ\Ý‹”›Ú™XÝYØ\Úœ›ÛHÜ[ˆ™XÙZ]˜X›\È[™^XX›\È‹‘š[˜[˜ÚX[‹˜Ø\ÚY›ÝËY›Ü™XØ\Ý—KˆÈYÙ]Ý™\šY]È‹’[˜ÛÛYH[™^[œÙHYÙ]ÈÚ]Ý\œ™[\™›Ü›X[˜ÙH‹YÙ]È‹˜YÙ][Ý™\šY]È—KˆÈYÙ]œËˆXÝX[‹XØÛÝ[[]™[YÙ]ÛÛ\\š\ÛÛˆ[™˜\šX[˜ÙH‹YÙ]È‹˜YÙ]XXÝX[—KˆÈ”›Ùš]	ˆÜÜÈYÙ]\™›Ü›X[˜ÙH‹YÙ]\™›Ü›X[˜ÙH›Üˆ[˜ÛÛYH[™^[œÙ\È‹”›Ùš]	ˆÜÜÈ‹˜YÙ]\›Ùš][ÜÜÈ—KˆÈYÙ]œËˆXÝX[Ü˜\‹“[ÛHYÙ][™XÝX[\™›Ü›X[˜ÙH‹YÙ]È‹˜YÙ]XXÝX[YÜ˜\—KˆÈ•šX[˜[[˜ÙH‹‘Xš][™Ü™Y]˜[[˜Ù\ÈžHXØÛÝ[‹XØÛÝ[[‹šX[X˜[[˜ÙH—KˆÈ‘Ù[™\˜[YÙ\ˆ‹ÛÛ\]HXØÛÝ[˜[œØXÝ[Ûˆ]Z[‹XØÛÝ[[‹™Ù[™\˜[[YÙ\ˆ—KˆÈ•˜[œØXÝ[Ûˆ]Z[žHXØÛÝ[‹XØÛÝ[XÝ]š]HÚ]H[›š[™È˜[[˜ÙH‹XØÛÝ[[‹˜[œØXÝ[Û‹Y]Z[XXØÛÝ[—KˆÈ’›Ý\›˜[‹”ÜÝYXš]È[™Ü™Y]È‹XØÛÝ[[‹š›Ý\›˜[—KˆÈ]Y]˜Z[‹”™XÛÜ™YÚ[™Ù\ÈXÜ›ÜÜÈXØÛÝ[[™È[™[™[ÜžH‹XØÛÝ[[‹˜]Y]]˜Z[—KˆÈÝ\ÝÛY\ˆÜ™Y]Ø\™]Y]˜Z[‹Ý\ÝÛY\ˆÜ™Y]XØ\™XÝ]š]H[™Ý]\È‹XØÛÝ[[‹˜Ý\ÝÛY\‹XÜ™Y]XØ\™X]Y]—KˆÈ•›ÚYYÑ[]Y˜[œØXÝ[ÛœÈÝ[[X\žH‹‘[]Y˜[œØXÝ[ÛˆÝ[ÈÜ›Ý\YžHXÝ[Ûˆ‹XØÛÝ[[‹™[]Y]˜[œØXÝ[ÛœË\Ý[[X\žH—KˆÈ•›ÚYYÑ[]Y˜[œØXÝ[ÛœÈ]Z[‹‘]Z[Y\ÝÜžHÙˆ›ÚYY[™[]Y˜[œØXÝ[ÛœÈ‹XØÛÝ[[‹™[]Y]˜[œØXÝ[ÛœËY]Z[—KˆÈ•˜[œØXÝ[Ûˆ\ÝžH]H‹[XÝ]š]H[ˆÚ›Û›ÛÙÚXØ[Ü™\ˆ‹XØÛÝ[[‹˜[œØXÝ[ÛœÈ—KˆÈ•˜[œØXÝ[Ûˆ\ÝÜžH‹Ú›Û›ÛÙÚXØ[ØÝ[Y[[™]Y]XÝ]š]H‹XØÛÝ[[‹˜[œØXÝ[Û‹Z\ÝÜžH—KˆÈ•˜[œØXÝ[Ûˆ›Ý\›˜[‹‘Xš][™Ü™Y]ÜÝ[™ÜÈÙ[™\˜]YžH˜[œØXÝ[ÛœÈ‹XØÛÝ[[‹˜[œØXÝ[Û‹Z›Ý\›˜[—KˆÈXØÛÝ[\Ý[™È‹Ú\ÙˆXØÛÝ[ÈÚ]\KÝ\œ™[˜ÞK[™Y\˜\˜ÚH‹“\ÝÈ‹˜XØÛÝ[[\Ý[™È—KˆÈ’][HšXÙH\Ý‹Ý\œ™[Ù[[™ÈšXÙ\ÈžH][H‹“\ÝÈ‹š][K\šXÙK[\Ý—KˆÈ’][HšXÙH\Ý›ÜˆšXÙH]™[‹”Ù[[™ÈšXÙ\ËÛÜÝË[™X\™Ú[œÈžHšXÙH]™[‹“\ÝÈ‹š][K\šXÙK[]™[[\Ý—KˆÈ’][H\Ý[™È‹ÛÛ\]H[™[ÜžH][H\™XÝÜžH‹“\ÝÈ‹š][K[\Ý[™È—KˆÈ‘š^Y\ÜÙ]\Ý[™È‹‘š^YX\ÜÙ]XØÛÝ[È[™Z\ˆÝ\œ™[˜[[˜Ù\È‹“\ÝÈ‹™š^YX\ÜÙ][\Ý[™È—KˆÈÝ\ÝÛY\ˆÛ™H\Ý‹Ý\ÝÛY\ˆ[\Û™H[™Ú]Ð\\™XÝÜžH‹“\ÝÈ‹˜Ý\ÝÛY\‹\Û™K[\Ý—KˆÈÝ\ÝÛY\ˆÛÛXÝ\Ý‹ÛÛ\]HÝ\ÝÛY\ˆÛÛXÝ\™XÝÜžH‹“\ÝÈ‹˜Ý\ÝÛY\‹XÛÛXÝ[\Ý—KˆÈ”Ý\Y\ˆÛ™H\Ý‹”Ý\Y\ˆ[\Û™H[™Ú]Ð\\™XÝÜžH‹“\ÝÈ‹œÝ\Y\‹\Û™K[\Ý—KˆÈ”Ý\Y\ˆÛÛXÝ\Ý‹ÛÛ\]HÝ\Y\ˆÛÛXÝ\™XÝÜžH‹“\ÝÈ‹œÝ\Y\‹XÛÛXÝ[\Ý—KˆÈ‘[\ÞYYHÛÛXÝ\Ý‹‘[\ÞYYH[\Û™H[™[XZ[\™XÝÜžH‹“\ÝÈ‹™[\ÞYYKXÛÛXÝ[\Ý—KˆÈ“Ý\ˆ˜[Y\ÈÛ™H\Ý‹•[\Û™H\™XÝÜžH›Üˆ˜[œØXÝ[Ûˆ˜[Y\È›ÝØ]™Y\ÈÛÛXÝÈ‹“\ÝÈ‹›Ý\‹[˜[Y\Ë\Û™K[\Ý—KˆÈ“Ý\ˆ˜[Y\ÈÛÛXÝ\Ý‹•˜[œØXÝ[Ûˆ˜[Y\È›ÝØ]™Y\ÈÝ\ÝÛY\œËÝ\Y\œËÜˆ[\ÞYY\È‹“\ÝÈ‹›Ý\‹[˜[Y\ËXÛÛXÝ[\Ý—KˆÈ•\›\È\Ý[™È‹”^[Y[\›\È›Ý[™XÜ›ÜÜÈØ[\È[™\˜Ú\ÙHØÝ[Y[È‹“\ÝÈ‹\›\Ë[\Ý[™È—KˆÈ•ÈÈ›Ý\È‹“Ü[ˆ˜[œØXÝ[Ûˆ›Ý\È[™YH]\È‹“\ÝÈ‹ËYË[›Ý\È—KˆÈ“Y[[Üš\ÙY˜[œØXÝ[Ûˆ\Ý[™È‹•˜[œØXÝ[ÛœÈX\šÙY\ÈY[[Üš\ÙY™XÝ\œš[™ËÜˆ[\]\È‹“\ÝÈ‹›Y[[Üš\ÙY]˜[œØXÝ[ÛœÈ—KˆÈ˜[šÈ™YÚ\Ý\ˆ‹˜[šÈXØÛÝ[Xš]ËÜ™Y]È[™[›š[™È˜[[˜Ù\È‹˜[šÚ[™È‹˜˜[šË\™YÚ\Ý\ˆ—KˆÈ˜[šÈ™XÛÛ˜Ú[X][Ûˆ‹ÛX\™Y[™[˜ÛX\™Y˜[šÚ[™ÈXÝ]š]H‹˜[šÚ[™È‹˜˜[šË\™XÛÛ˜Ú[X][Ûˆ—KˆÈ•UÝ[[X\žH™\Ü‹•UÛÛXÝY™XÛÝ™\˜X›K[™™]UYH‹•U‹˜]\Ý[[X\žH—KˆÈ•U]Z[™\Ü‹•˜[œØXÝ[Û‹[]™[U[[Ý[ÈžHÛÙH‹•U‹˜]Y]Z[—KˆÈ•[˜\ÜÚYÛ™YU[[Ý[È]Z[™\Ü‹•^X›HÜÝ[™ÜÈÚ]Ý]HUÛÙH‹•U‹˜]][˜\ÜÚYÛ™Y—KˆÈ•U^Ù\[Ûˆ™\Ü‹•˜[œØXÝ[ÛœÈ]™YYU™]šY]È‹•U‹˜]Y^Ù\[ÛœÈ—KˆÈ•U][HÝ[[X\žH‹•UÝ[ÈÜ›Ý\YžH][H‹•U‹˜]Z][K\Ý[[X\žH—KˆÈ‘PÈØ[\È\Ý‹Ü›ÜÜËX›Ü™\ˆÝ\ÝÛY\ˆØ[\È‹•U‹™XË\Ø[\È—KˆÈ”™]™\œÙHÚ\™ÙH\Ý‹”\˜Ú\Ù\ÈÝXš™XÝÈ™]™\œÙHÚ\™ÙH‹•U‹œ™]™\œÙKXÚ\™ÙH—KˆÈ•UÛÙH\Ý‹]˜Z[X›HUÛÙ\Ë˜]\Ë[™\ØÜš\[ÛœÈ‹•U‹˜]XÛÙK[\Ý—KˆÈKÔˆYÚ[™ÈÝ[[X\žH‹“Ý]Ý[™[™ÈÝ\ÝÛY\ˆ˜[[˜Ù\ÈžHYÙH‹Ý\ÝÛY\œÈ‹˜\‹XYÚ[™Ë\Ý[[X\žH—KˆÈKÔˆYÚ[™È]Z[‹“Ü[ˆ[›ÚXÙ\È[™Ü™Y]]Z[‹Ý\ÝÛY\œÈ‹˜\‹XYÚ[™ËY]Z[—KˆÈÝ\ÝÛY\ˆ˜[[˜ÙHÝ[[X\žH‹˜[[˜ÙHÝ[ÈžHÝ\ÝÛY\ˆ‹Ý\ÝÛY\œÈ‹˜Ý\ÝÛY\‹X˜[[˜Ù\È—KˆÈÝ\ÝÛY\œÈÚ]Ý™\™YH[›ÚXÙ\È‹”\ÝYYH[œZY[›ÚXÙ\È[šÙYÈÝ\ÝÛY\ˆ™XÙZ]˜X›HXØÛÝ[È‹Ý\ÝÛY\œÈ‹˜Ý\ÝÛY\œË[Ý™\™YKZ[›ÚXÙ\È—KˆÈXÝ]™HÝ\ÝÛY\œÈ‹XÝ]™HÝ\ÝÛY\ˆÛÛXÝË˜[[˜Ù\È[™[šÙY™XÙZ]˜X›HXØÛÝ[È‹Ý\ÝÛY\œÈ‹˜XÝ]™KXÝ\ÝÛY\œÈ—KˆÈÝ\ÝÛY\ˆÜ[ˆ˜[[˜ÙH‹•[œZY[›ÚXÙ\Ë[\ÙY^[Y[È[™Ü™Y]È[šÙYÈ™XÙZ]˜X›HXØÛÝ[È‹Ý\ÝÛY\œÈ‹˜Ý\ÝÛY\‹[Ü[‹X˜[[˜ÙH—KˆÈÝ\ÝÛY\ˆ˜[[˜ÙH]Z[‹Ý\ÝÛY\ˆÚ\™Ù\Ë^[Y[ËÜ™Y]Ë[™[›š[™È˜[[˜Ù\È‹Ý\ÝÛY\œÈ‹˜Ý\ÝÛY\‹X˜[[˜ÙKY]Z[—KˆÈ“Ü[ˆ[›ÚXÙ\È‹•[œZY[™\X[HZY[›ÚXÙ\È‹Ý\ÝÛY\œÈ‹›Ü[‹Z[›ÚXÙ\È—KˆÈÛÛXÝ[ÛœÈ™\Ü‹Ý\ÝÛY\ˆ˜[[˜Ù\ËÝ™\™YHØÝ[Y[Ë[™ÛÛXÝ]Z[È‹Ý\ÝÛY\œÈ‹˜ÛÛXÝ[ÛœË\™\Ü—KˆÈ]™\˜YÙH^\ÈÈ^HÝ[[X\žH‹]™\˜YÙHÝ\ÝÛY\ˆ^[Y[[YH‹Ý\ÝÛY\œÈ‹˜]™\˜YÙKY^\Ë]Ë\^K\Ý[[X\žH—KˆÈ]™\˜YÙH^\ÈÈ^H‹’[›ÚXÙHÙ][Y[[Z[™ÈžHÝ\ÝÛY\ˆ‹Ý\ÝÛY\œÈ‹˜]™\˜YÙKY^\Ë]Ë\^KY]Z[—KˆÈXØÛÝ[È™XÙZ]˜X›HÜ˜\‹“[ÛH™XÙZ]˜X›HÚ\™Ù\È[™ÛÛXÝ[ÛœÈ‹Ý\ÝÛY\œÈ‹˜XØÛÝ[Ë\™XÙZ]˜X›KYÜ˜\—KˆÈ•[˜š[YÛÜÝÈžH›Øˆ‹“Ü[ˆ\˜Ú\ÙHÛÛ[Z]Y[ÈÜ›Ý\YžH[™[ÜžHÜˆ›Øˆ‹Ý\ÝÛY\œÈ‹[˜š[YXÛÜÝËZ›Øˆ—KˆÈ•˜[œØXÝ[Ûˆ\ÝžHÝ\ÝÛY\ˆ‹Ý\ÝÛY\ˆXÝ]š]H[ˆÚ›Û›ÛÙÚXØ[Ü™\ˆ‹Ý\ÝÛY\œÈ‹˜Ý\ÝÛY\‹]˜[œØXÝ[ÛœÈ—KˆÈ“Û›[™H™XÙZ]™Y^[Y[È‹Ý\ÝÛY\ˆ^[Y[È™XÙZ]™Y[™ÜÝY‹Ý\ÝÛY\œÈ‹›Û›[™K\™XÙZ]™Y\^[Y[È—KˆÈÝ\ÝÛY\ˆÝ][Y[È‹Ú\™Ù\Ë^[Y[ËÜ™Y]È[™[›š[™È˜[[˜Ù\È‹Ý\ÝÛY\œÈ‹˜Ý\ÝÛY\‹\Ý][Y[È—KˆÈ‘Z[HØ[\ÈÝ[[X\žH‹‘Z[HØÝ[Y[ÛÝ[]X[]K[™Ø[\ÈÝ[È‹”Ø[\È‹™Z[K\Ø[\Ë\Ý[[X\žH—KˆÈ‘Z[HØ[\È]Z[‹‘]™\žH[›ÚXÙH[™Ø[\È™XÙZ\žH]H‹”Ø[\È‹™Z[K\Ø[\ËY]Z[—KˆÈ”Ø[\ÈžHÝ\ÝÛY\ˆÝ[[X\žH‹”™]™[YHÜ›Ý\YžHÝ\ÝÛY\ˆ‹”Ø[\È‹œØ[\ËXžKXÝ\ÝÛY\ˆ—KˆÈ”Ø[\ÈžHÝ\ÝÛY\ˆ]Z[‹Ý\ÝÛY\ˆØ[\ÈžHØÝ[Y[[™]H‹”Ø[\È‹œØ[\ËXžKXÝ\ÝÛY\‹Y]Z[—KˆÈ”Ø[\ÈžH][HÝ[[X\žH‹”]X[]H[™™]™[YHÜ›Ý\YžH›ÙXÝ‹”Ø[\È‹œØ[\ËXžKZ][H—KˆÈ”Ø[\ÈžH][H]Z[‹‘]™\žHÛÛ][H[™HÚ]Ý\ÝÛY\ˆ[™ØÝ[Y[‹”Ø[\È‹œØ[\ËXžKZ][KY]Z[—KˆÈ”Ø[\ÈžH™\Ý[[X\žH‹”™]™[YHÜ›Ý\YžHØ[\ÛX[ˆ‹”Ø[\È‹œØ[\ËXžK\™\\Ý[[X\žH—KˆÈ”Ø[\ÈžH™\]Z[‹”Ø[\ÈØÝ[Y[È›Üˆ]™\žHØ[\ÛX[ˆ‹”Ø[\È‹œØ[\ËXžK\™\Y]Z[—KˆÈ”Ø[\ÈžHÚ\ÈY™\ÜÈ‹Ý\ÝÛY\ˆØ[\ÈÜ›Ý\YžH[]™\žHÛÝ[žHÜˆY™\ÜÈ‹”Ø[\È‹œØ[\ËXžK\Ú\]È—KˆÈ”Ø[\ÈÜ˜\‹“[ÛHØ[\È[™™Y[™ÈÚÝÛˆš\ÝX[H‹”Ø[\È‹œØ[\ËYÜ˜\—KˆÈ”[™[™ÈØ[\È‹“Ü[ˆ\Ý[X]\Ë›Ù›Ü›XH[›ÚXÙ\ËØ[\ÈÜ™\œË[™[›ÚXÙ\È‹”Ø[\È‹œ[™[™Ë\Ø[\È—KˆÈ”Ø[\ÈÜ™\ˆ[š[Y[‹“Ü[ˆ[™[š[YÜ™\œÈ‹”Ø[\È‹œØ[\Ë[Ü™\œÈ—KˆÈ•™[™ÜˆÝ][Y[È‹•™[™Üˆš[Ë^[Y[ËÜ™Y]È[™[›š[™È˜[[˜Ù\È‹•™[™ÜœÈ‹™[™Ü‹\Ý][Y[È—KˆÈKÔYÚ[™ÈÝ[[X\žH‹“Ý]Ý[™[™È™[™Üˆ˜[[˜Ù\ÈžHYÙH‹•™[™ÜœÈ‹˜\XYÚ[™Ë\Ý[[X\žH—KˆÈKÔYÚ[™È]Z[‹“Ü[ˆš[È[™Ü™Y]È‹•™[™ÜœÈ‹˜\XYÚ[™ËY]Z[—KˆÈ”Ý\Y\ˆ˜[[˜ÙHÝ[[X\žH‹XØÛÝ[È^XX›HÝ[ÈžHÝ\Y\ˆ‹•™[™ÜœÈ‹™[™Ü‹X˜[[˜Ù\È—KˆÈ”Ý\Y\ˆ˜[[˜ÙH]Z[‹”Ý\Y\ˆš[Ë^[Y[ËÜ™Y]Ë[™[›š[™È˜[[˜Ù\È‹•™[™ÜœÈ‹œÝ\Y\‹X˜[[˜ÙKY]Z[—KˆÈ•[œZYš[È]Z[‹“Ü[ˆ[™Ý™\™YHÝ\Y\ˆš[È‹•™[™ÜœÈ‹[œZYXš[ËY]Z[—KˆÈXØÛÝ[È^XX›HÜ˜\‹“[ÛH^XX›HÚ\™Ù\È[™Ý\Y\ˆ^[Y[È‹•™[™ÜœÈ‹˜XØÛÝ[Ë\^XX›KYÜ˜\—KˆÈ•˜[œØXÝ[Ûˆ\ÝžHÝ\Y\ˆ‹”Ý\Y\ˆXÝ]š]H[ˆÚ›Û›ÛÙÚXØ[Ü™\ˆ‹•™[™ÜœÈ‹œÝ\Y\‹]˜[œØXÝ[ÛœÈ—KˆÈ”\˜Ú\Ù\ÈžHÝ\Y\ˆÝ[[X\žH‹”\˜Ú\ÙHÝ[ÈÜ›Ý\YžHÝ\Y\ˆ‹”\˜Ú\Ù\È‹œ\˜Ú\Ù\ËXžK]™[™Üˆ—KˆÈ”\˜Ú\Ù\ÈžHÝ\Y\ˆ]Z[‹”Ý\Y\ˆ\˜Ú\ÙHØÝ[Y[ÈžH]H‹”\˜Ú\Ù\È‹œ\˜Ú\Ù\ËXžK\Ý\Y\‹Y]Z[—KˆÈ”\˜Ú\Ù\ÈžH][HÝ[[X\žH‹”\˜Ú\ÙY]X[]H[™ÛÜÝÜ›Ý\YžH][H‹”\˜Ú\Ù\È‹œ\˜Ú\Ù\ËXžKZ][H—KˆÈ”\˜Ú\Ù\ÈžH][H]Z[‹‘]™\žH\˜Ú\ÙY][H[™HÚ]Ý\Y\ˆ[™ØÝ[Y[‹”\˜Ú\Ù\È‹œ\˜Ú\Ù\ËXžKZ][KY]Z[—KˆÈ“Ü[ˆ\˜Ú\ÙHÜ™\œÈ‹ÛÛ[Z]Y\˜Ú\Ù\È›ÝY]ÛÜÙY‹”\˜Ú\Ù\È‹›Ü[‹\\˜Ú\ÙK[Ü™\œÈ—KˆÈ“Ü[ˆ\˜Ú\ÙHÜ™\œÈ]Z[‹“Ü[ˆ\˜Ú\ÙK[Ü™\ˆ[™H][\È‹”\˜Ú\Ù\È‹›Ü[‹\\˜Ú\ÙK[Ü™\œËY]Z[—KˆÈ“Ü[ˆ\˜Ú\ÙHÜ™\œÈžH›Øˆ‹“Ü[ˆ\˜Ú\ÙHÛÛ[Z]Y[ÈžH[™[ÜžHÜˆ›Øˆ‹”\˜Ú\Ù\È‹›Ü[‹\\˜Ú\ÙK[Ü™\œËZ›Øˆ—KˆÈ”ÝØÚÈšXÚ[™È	ˆ›Ùš]ÓÜÜÈ‹”\˜Ú\ÙKœ™ZYÚÔ“ˆ[™Ù[[™ÈšXÙ\ÈÚ]\Ý[X]YX\™Ú[œÈ‹”›Ùš]	ˆÜÜÈ‹œÝØÚË\šXÚ[™Ë\›Ùš]—KˆÈ”ÝØÚÈ˜[X][ÛˆÝ[[X\žH‹”ÝØÚÈ]X[]H[™˜[YHÜ›Ý\YžHØ]YÛÜžH‹’[™[ÜžH‹š[™[ÜžK]˜[X][Ûˆ—KˆÈ”ÝØÚÈ˜[X][Ûˆ]Z[‹”]X[]K]™\˜YÙHÛÜÝ[™˜[YH›Üˆ]™\žH][H‹’[™[ÜžH‹š[™[ÜžK]˜[X][Û‹Y]Z[—KˆÈ”ÝØÚÈÝ]\ÈžH][H‹]˜Z[X›H]X[]H[™™[Ü™\ˆÜÚ][ÛˆžH][H‹’[™[ÜžH‹š[™[ÜžK\Ý]\È—KˆÈ”ÝØÚÈÝ]\ÈžHÝ\Y\ˆ‹”ÝØÚÈ]X[]H[™˜[YHÜ›Ý\YžH]\ÝÝ\Y\ˆ‹’[™[ÜžH‹š[™[ÜžK\Ý]\Ë\Ý\Y\ˆ—KˆÈ”\ÚXØ[ÝØÚÈÛÜšÜÚY]‹”š[X›HÛÝ[ÚY]›ÜˆÝØÚÈ™\šYšXØ][Ûˆ‹’[™[ÜžH‹œ\ÚXØ[Z[™[ÜžH—KˆÈ”[™[™ÈZ[È‹’][\È™[ÝÈZ\ˆ™[Ü™\ˆÜˆZ[]™[‹’[™[ÜžH‹œ[™[™ËXZ[È—KˆÈ’][H›Ùš]Xš[]H‹‘Ü›ÜÜÈ›Ùš]žH[™[ÜžH][H‹”›Ùš]	ˆÜÜÈ‹š][K\›Ùš]Xš[]H—K—H\ÈÛÛœÝÂ‚˜ÛÛœÝ™\ÜØ]YÛÜžSÜ™\ˆHÈ”›Ùš]	ˆÜÜÈ‹‘š[˜[˜ÚX[‹YÙ]È‹”Ø[\È‹Ý\ÝÛY\œÈ‹•™[™ÜœÈ‹”\˜Ú\Ù\È‹’[™[ÜžH‹˜[šÚ[™È‹•U‹XØÛÝ[[‹“\ÝÈ‹ÛÛ\[žH—H\ÈÛÛœÝÂ\H™\ÜØ]YÛÜžHH
+\[Ùˆ™\ÜØ]YÛÜžSÜ™\ŠVÛ[X™\—NÂ‚˜ÛÛœÝÝ\œ™[˜ÚY\ÈHÈQQ‹•TÑ‹‘UTˆ‹‘Ð”‹”ÐTˆ‹“ÓTˆ‹”PTˆ‹’‹’ÕÑ‹’S”ˆ‹Ó–H‹’Ñ‹’”H‹ÐQ‹UQ‹Òˆ‹”ÑÑ‹“–‘‹”Ôˆ‹‘‹“Ôˆ‹“VTˆ‹•ˆ‹’Qˆ‹’Ô•È‹•–H‹–Tˆ—NÂ˜ÛÛœÝ›Ü›X][Û™^HH
+˜[YNˆ[šÛ›ÝÛ‹Ý\œ™[˜ÞHHQQŠHOˆ™]È[“[X™\‘›Ü›X]
+™[‹PQH‹ÈÝ[Nˆ˜Ý\œ™[˜ÞH‹Ý\œ™[˜ÞKX^[][Qœ˜XÝ[Û‘YÚ]ÎˆˆJK™›Ü›X]
+[X™\Š˜[YHÏÈ
+JNÂ˜ÛÛœÝÙ^HH
+
+HOˆ™]È]J
+KÒTÓÔÝš[™Ê
+KœÛXÙJL
+NÂ˜ÛÛœÝ[\PÛÛ\[žTÙ]\H
+YH˜[YHHÛÛ\[žH‹˜\ÙPÝ\œ™[˜ÞHHQQŠNˆÛÛ\[žTÙ]\Oˆ
+ÈY˜[YK˜\ÙPÝ\œ™[˜ÞKÙÛÑ]Nˆˆ‹šYÚÙÛÑ]Nˆˆ‹ØÝ[Y[\ÚYÛŽˆˆ‹Ý[\]Nˆˆ‹Y™\ÜÓ[™LNˆˆ‹Y™\ÜÓ[™LŽˆˆ‹Ú]Nˆˆ‹ÛÝ[žNˆ•[š]Y\˜Xˆ[Z\˜]\È‹Û™Nˆˆ‹[XZ[ˆˆ‹›Žˆˆ‹˜[šÓ˜[YNˆˆ‹˜[šÐXØÛÝ[˜[YNˆˆ‹˜[šÐXØÛÝ[[X™\Žˆˆ‹˜[šÒX˜[Žˆˆ‹˜[šÔÝÚYˆˆ‹˜[šÐÝ\œ™[˜ÞNˆ˜\ÙPÝ\œ™[˜ÞKØÝ[Y[[\]Nˆ›[Ù\›ˆ‹ØÝ[Y[ÛÛÜŽˆˆÌLŽNHˆJNÂ\H˜]ÛÙSÜ[ÛˆH˜]ÛÙT™XÛÜ™	ˆÈX™[ˆÝš[™ÈNÂ˜ÛÛœÝY˜][˜]ÛÙSÜ[ÛœÎˆ˜]ÛÙSÜ[Û–×HHÂˆÈYˆLKÛÛ\[žRYˆÛÙNˆ”ÕS‘T‘‹˜[YNˆ”Ý[™\™˜]Y‹X™[ˆ”ÕS‘T‘0­ÈÝ[™\™˜]Y0­ÈIH‹˜]NˆK\ØÜš\[ÛŽˆ”Ý[™\™PQHU˜]H‹XÝ]™NˆYKÞ\Ý[NˆYHKˆÈYˆL‹ÛÛ\[žRYˆÛÙNˆ–‘T“È‹˜[YNˆ–™\›È˜]Y‹X™[ˆ–‘T“È0­È™\›È˜]Y0­È	H‹˜]Nˆ\ØÜš\[ÛŽˆ•^X›HÝ\HÚ\™ÙY]	H‹XÝ]™NˆYKÞ\Ý[NˆYHKˆÈYˆLËÛÛ\[žRYˆÛÙNˆ‘VST‹˜[YNˆ‘^[\‹X™[ˆ‘VST0­È^[\0­È	H‹˜]Nˆ\ØÜš\[ÛŽˆ”Ý\H^[\œ›ÛHU‹XÝ]™NˆYKÞ\Ý[NˆYHKˆÈYˆMÛÛ\[žRYˆÛÙNˆ“ÕUÓÑ—ÔÐÓÔH‹˜[YNˆ“Ý]ÙˆØÛÜH‹X™[ˆ“ÕUÑˆÐÓÔH0­ÈÝ]ÙˆØÛÜH0­È	H‹˜]Nˆ\ØÜš\[ÛŽˆ•˜[œØXÝ[ÛˆÝ]ÚYHHØÛÜHÙˆU‹XÝ]™NˆYKÞ\Ý[NˆYHK—NÂ˜ÛÛœÝ˜]˜]Q›ÜÛÙHH
+ÛÙNˆÝš[™ËÜ[ÛœÎˆ˜]ÛÙSÜ[Û–×JHOˆÝš[™ÊÜ[ÛœË™š[™
+
+Ü[ÛŠHOˆÜ[Û‹˜ÛÙHOOHÛÙJOËœ˜]HÏÈ
+NÂ˜ÛÛœÝXØÛÝ[\U˜[Y\ÈHÈ’[˜ÛÛYH‹‘^[œÙH‹ÛÜÝÙˆÛÛÙÈÛÛ‹“Ý\ˆ[˜ÛÛYH‹“Ý\ˆ^[œÙH‹‘š^Y\ÜÙ]‹˜[šÈ‹“Ø[ˆ‹Ü™Y]Ø\™‹‘\]Z]H‹XØÛÝ[È™XÙZ]˜X›H‹“Ý\ˆÝ\œ™[\ÜÙ]‹“Ý\ˆ\ÜÙ]‹XØÛÝ[È^XX›H‹“Ý\ˆÝ\œ™[XXš[]H‹“Û™È\›HXXš[]H—NÂ˜ÛÛœÝXØÛÝ[\\Ñ›Ü”›ÛHH
+›ÛNˆÝš[™ÊHOˆÂˆÛÛœÝ[ÝÙYˆ™XÛÜ™Ýš[™ËÝš[™Ö×OˆHÂˆS’ÎˆÈ˜[šÈ—KTŽˆÈXØÛÝ[È™XÙZ]˜X›H—KTˆÈXØÛÝ[È^XX›H—KˆS•‘S•Ô–NˆÈ“Ý\ˆÝ\œ™[\ÜÙ]‹“Ý\ˆ\ÜÙ]—KS”UÕUˆÈ“Ý\ˆÝ\œ™[\ÜÙ]—KˆÕUUÕUˆÈ“Ý\ˆÝ\œ™[XXš[]H—KTURUNˆÈ‘\]Z]H—KÐSTÎˆÈ’[˜ÛÛYH—KˆÕT—ÒSÓÓQNˆÈ“Ý\ˆ[˜ÛÛYH‹’[˜ÛÛYH—KÓÑÔÎˆÈÛÜÝÙˆÛÛÙÈÛÛ—KˆTÒTÑTÎˆÈ‘^[œÙH‹ÛÜÝÙˆÛÛÙÈÛÛ—KVS”ÑNˆÈ‘^[œÙH‹“Ý\ˆ^[œÙH—KˆVT“ÓˆÈ‘^[œÙH—KÕTÔS”ÑNˆÈ“Ý\ˆÝ\œ™[\ÜÙ]‹“Ý\ˆ\ÜÙ]‹‘^[œÙH—KˆNÂˆ™]\›ˆ[ÝÙYÜ›ÛWHÏÈXØÛÝ[\U˜[Y\ÎÂŸNÂ˜ÛÛœÝXØÛÝ[›ÛSÜ[ÛœÈHÂˆÈS’È‹˜[šÈÈØ\Ú—KÈTˆ‹XØÛÝ[È™XÙZ]˜X›H
+KÔŠH—KÈT‹XØÛÝ[È^XX›H
+KÔ
+H—KˆÈ’S•‘S•Ô–H‹’[™[ÜžH\ÜÙ]—KÈ’S”UÕU‹”™XÛÝ™\˜X›HU—KÈ“ÕUUÕU‹•U^XX›H—KˆÈ‘TURUH‹“Ü[š[™È˜[[˜ÙH\]Z]H—KÈ”ÐSTÈ‹”Ø[\È[˜ÛÛYH—KÈ“ÕT—ÒSÓÓQH‹“Ý\ˆ[˜ÛÛYH—KˆÈÓÑÔÈ‹ÛÜÝÙˆÛÛÙÈÛÛ—KÈ”TÒTÑTÈ‹”\˜Ú\Ù\È—KÈ‘VS”ÑH‹“Ü\˜][™È^[œÙH—KˆÈ”VT“Ó‹”^\›Û^[œÙH—KÈ”ÕTÔS”ÑH‹”Ý\Ü[œÙH—K—H\ÈÛÛœÝÂ˜ÛÛœÝÛÛ›ÛXØÛÝ[›ÜˆH
+XØÛÝ[Îˆ]T™XÛÜ™×K›ÛNˆTˆˆT‹Ý\œ™[˜ÞNˆÝš[™ÊHOˆXØÛÝ[Ë™š[™
+
+XØÛÝ[
+HOˆXØÛÝ[˜XÝ]™H	‰ˆXØÛÝ[œÞ\Ý[T›ÛHOOH›ÛH	‰ˆÝš[™ÊXØÛÝ[˜Ý\œ™[˜ÞJHOOHÝ\œ™[˜ÞJNÂ˜ÛÛœÝ[šÙYXØÛÝ[˜[YHH
+XØÛÝ[Îˆ]T™XÛÜ™×K›ÛNˆÝš[™Ë˜[˜XÚÎˆÝš[™ËÝ\œ™[˜ÞOÎˆÝš[™ÊHOˆÝš[™ÊXØÛÝ[Ë™š[™
+
+XØÛÝ[
+HOˆXØÛÝ[˜XÝ]™H	‰ˆXØÛÝ[œÞ\Ý[T›ÛHOOH›ÛH	‰ˆ
+XÝ\œ™[˜ÞHÝš[™ÊXØÛÝ[˜Ý\œ™[˜ÞJHOOHÝ\œ™[˜ÞJJOË›˜[YHÏÈXØÛÝ[Ë™š[™
+
+XØÛÝ[
+HOˆXØÛÝ[˜XÝ]™H	‰ˆXØÛÝ[œÞ\Ý[T›ÛHOOH›ÛJOË›˜[YHÏÈ˜[˜XÚÊNÂ˜ÛÛœÝY˜][š[\˜Ú\ÙPXØÛÝ[H
+XØÛÝ[Îˆ]T™XÛÜ™×JHOˆÂˆÛÛœÝ[YÚX›HHXØÛÝ[Ë™š[\Š
+XØÛÝ[
+HOˆXØÛÝ[˜XÝ]™H	‰ˆ
+ˆÈ”TÒTÑTÈ‹‘VS”ÑH‹ÓÑÔÈ—Kš[˜ÛY\ÊÝš[™ÊXØÛÝ[œÞ\Ý[T›ÛJJBˆÈ‘^[œÙH‹“Ý\ˆ^[œÙH‹ÛÜÝÙˆÛÛÙÈÛÛ—Kš[˜ÛY\ÊÝš[™ÊXØÛÝ[\JJBˆ
+JNÂˆ™]\›ˆÝš[™Êˆ[YÚX›K™š[™
+
+XØÛÝ[
+HOˆÝš[™ÊXØÛÝ[˜ÛÙJHOOHˆ	‰ˆ
+XØÛÝ[œÞ\Ý[T›ÛHOOHÓÑÔÈˆXØÛÝ[\HOOHÛÜÝÙˆÛÛÙÈÛÛˆØÛÜÝÙˆÛÛÙËÚK\Ý
+Ýš[™ÊXØÛÝ[›˜[YJJJJOË›˜[YBˆÏÈ[YÚX›K™š[™
+
+XØÛÝ[
+HOˆXØÛÝ[œÞ\Ý[T›ÛHOOHÓÑÔÈŠOË›˜[YBˆÏÈ[YÚX›K™š[™
+
+XØÛÝ[
+HOˆXØÛÝ[\HOOHÛÜÝÙˆÛÛÙÈÛÛŠOË›˜[YBˆÏÈ[YÚX›K™š[™
+
+XØÛÝ[
+HOˆXØÛÝ[œÞ\Ý[T›ÛHOOH”TÒTÑTÈŠOË›˜[YBˆÏÈ[YÚX›K™š[™
+
+XØÛÝ[
+HOˆXØÛÝ[\HOOH‘^[œÙHŠOË›˜[YBˆÏÈ[YÚX›VÌOË›˜[YBˆÏÈÛÜÝÙˆÛÛÙÈÛÛ‚ˆ
+NÂŸNÂ˜ÛÛœÝY˜][ÜÝ[™ÐXØÛÝ[H
+\NˆÝš[™ËXØÛÝ[Îˆ]T™XÛÜ™×JHOˆÂˆYˆ
+\HOOH˜š[ŠH™]\›ˆY˜][š[\˜Ú\ÙPXØÛÝ[
+XØÛÝ[ÊNÂˆYˆ
+\HOOH˜š[^[Y[ŠH™]\›ˆ[šÙYXØÛÝ[˜[YJXØÛÝ[ËS’È‹\Ú[™\ÜÈ˜[šÈŠNÂˆYˆ
+Èš][H™XÙZ\‹œ™XÙZ]™Y][Hš[—Kš[˜ÛY\Ê\JJH™]\›ˆ[šÙYXØÛÝ[˜[YJXØÛÝ[Ë”ÕTÔS”ÑH‹”Ý\Ü[œÙHŠNÂˆYˆ
+\HOOH˜Ú\]YHŠH™]\›ˆ[šÙYXØÛÝ[˜[YJXØÛÝ[ËT‹XØÛÝ[È^XX›HŠNÂˆYˆ
+\HOOH˜Ý\ÝÛY\ˆ^[Y[ŠH™]\›ˆÝš[™ÊXØÛÝ[Ë™š[™
+
+XØÛÝ[
+HOˆXØÛÝ[˜XÝ]™H	‰ˆ
+XØÛÝ[\HOOH˜[šÈˆXØÛÝ[œÞ\Ý[T›ÛHOOHS’ÈŠJOË›˜[YHÏÈˆŠNÂˆYˆ
+Èš[›ÚXÙH‹œ][Ý][Ûˆ‹™\Ý[X]H‹œ›Ù›Ü›XH[›ÚXÙH‹œØ[\ÈÜ™\ˆ‹œØ[\È™XÙZ\‹œÝ][Y[Ú\™ÙH‹˜Ü™Y]Y[[È—Kš[˜ÛY\Ê\JJH™]\›ˆ[šÙYXØÛÝ[˜[YJXØÛÝ[Ë”ÐSTÈ‹”Ø[\È™]™[YHŠNÂˆYˆ
+\HOOH™š[˜[˜ÙHÚ\™ÙHŠH™]\›ˆ[šÙYXØÛÝ[˜[YJXØÛÝ[Ë“ÕT—ÒSÓÓQH‹“Ý\ˆ[˜ÛÛYHŠNÂˆYˆ
+\HOOH™^[œÙHŠH™]\›ˆ[šÙYXØÛÝ[˜[YJXØÛÝ[Ë‘VS”ÑH‹“Ü\˜][™È^[œÙ\ÈŠNÂˆYˆ
+\HOOH™\ÜÚ]ŠH™]\›ˆ[šÙYXØÛÝ[˜[YJXØÛÝ[Ë“ÕT—ÒSÓÓQH‹“Ý\ˆ[˜ÛÛYHŠNÂˆYˆ
+\HOOH˜[œÙ™\ˆŠH™]\›ˆÝš[™ÊXØÛÝ[Ë™š[™
+
+XØÛÝ[
+HOˆXØÛÝ[˜XÝ]™H	‰ˆXØÛÝ[\HOOH˜[šÈŠOË›˜[YHÏÈ[šÙYXØÛÝ[˜[YJXØÛÝ[ËS’È‹\Ú[™\ÜÈ˜[šÈŠJNÂˆYˆ
+\HOOH˜Ü™Y]Ø\™Ú\™ÙHŠH™]\›ˆ[šÙYXØÛÝ[˜[YJXØÛÝ[Ë‘VS”ÑH‹“Ü\˜][™È^[œÙ\ÈŠNÂˆYˆ
+\HOOH˜Ú\]YHÜ™\ˆŠH™]\›ˆ[šÙYXØÛÝ[˜[YJXØÛÝ[ËS’È‹\Ú[™\ÜÈ˜[šÈŠNÂˆ™]\›ˆ[šÙYXØÛÝ[˜[YJXØÛÝ[Ë”ÕTÔS”ÑH‹”Ý\Ü[œÙHŠNÂŸNÂ˜ÛÛœÝ][Q\Ü^Q\ØÜš\[ÛˆH
+][Nˆ]T™XÛÜ™
+HOˆÂˆžHÂˆÛÛœÝÜXÚYšXØ][ÛœÈH”ÓÓ‹œ\œÙJÝš[™Ê][KœÜXÚYšXØ][ÛœÈÏÈ–×HŠJH\È\œ˜^OÈ˜[YOÎˆÝš[™ÈOŽÂˆÛÛœÝ˜[Y\ÈHÜXÚYšXØ][ÛœË›X\
+
+ÜXÚYšXØ][ÛŠHOˆÜXÚYšXØ][Û‹˜[YOËš[J
+JK™š[\Š
+˜[YJHOˆ˜[YH	‰ˆ˜[YKÓÝÙ\Ø\ÙJ
+HOOH››ÈŠKš›Ú[ŠˆŠNÂˆYˆ
+ÜXÚYšXØ][ÛœË›[™Ý
+H™]\›ˆ˜[Y\ÎÂˆHØ]ÚÈÊˆ˜[˜XÚÈÈHØ]™Y\ØÜš\[Ûˆ›ÜˆÛ\ˆ™XÛÜ™Ëˆ
+‹ÈBˆ™]\›ˆÝš[™Ê][K™\ØÜš\[ÛˆÏÈˆŠKœÜ]
+ˆŠK™š[\Š
+˜[YJHOˆ˜[YKš[J
+KÓÝÙ\Ø\ÙJ
+HOOH››ÈŠKš›Ú[ŠˆŠNÂŸNÂ‚™^ÜY˜][[˜Ý[Ûˆ[\œš\ÙP\
+ÈÝ\œ™[\Ù\ˆNˆÈÝ\œ™[\Ù\ŽˆÝ\œ™[\Ù\ˆJHÂˆÛÛœÝÝšY]ËÙ]šY]×HH\ÙTÝ]OšY]ÏŠ™\Ú›Ø\™ŠNÂˆÛÛœÝÜ™XÛÜ™ËÙ]™XÛÜ™×HH\ÙTÝ]O™XÛÜ™Ú[™]T™XÛÜ™×OŠÈ˜[œØXÝ[ÛœÎˆ×KÛÛXÝÎˆ×K][\Îˆ×KXØÛÝ[Îˆ×HJNÂˆÛÛœÝÛØY[™ËÙ]ØY[™×HH\ÙTÝ]JYJNÂˆÛÛœÝÙØÝ[Y[[™[ÜžKÙ]ØÝ[Y[[™[ÜžWHH\ÙTÝ]OÈÙ^NˆÝš[™ÎÈ][\Îˆ]T™XÛÜ™×NÈ\œ›ÜÎˆÝš[™ÈOŠÈÙ^Nˆˆ‹][\Îˆ×HJNÂˆÛÛœÝÜÙX\˜ÚÙ]ÙX\˜ÚHH\ÙTÝ]JˆŠNÂˆÛÛœÝÙX[ÙÓÜ[‹Ù]X[ÙÓÜ[—HH\ÙTÝ]J˜[ÙJNÂˆÛÛœÝÙY]Ü’Ú[™Ù]Y]Ü’Ú[™HH\ÙTÝ]OÚ[™[Š[
+NÂˆÛÛœÝÙY][™Ô™XÛÜ™YÙ]Y][™Ô™XÛÜ™YHH\ÙTÝ]O[X™\ˆ[Š[
+NÂˆÛÛœÝÙY][™Ò][RYÙ]Y][™Ò][RYHH\ÙTÝ]O[X™\ˆ[Š[
+NÂˆÛÛœÝÙ›Ü›KÙ]›Ü›WHH\ÙTÝ]O™XÛÜ™Ýš[™ËÝš[™ÏŠßJNÂˆÛÛœÝÛ[™\ËÙ][™\×HH\ÙTÝ]O[™Q›Ü›V×OŠ×JNÂˆÛÛœÝÜØ]š[™ËÙ]Ø]š[™×HH\ÙTÝ]J˜[ÙJNÂˆÛÛœÝÙ]Z[Ù]]Z[HH\ÙTÝ]O˜[œØXÝ[Û‘]Z[[Š[
+NÂˆÛÛœÝÜ™\ÜÙ]™\ÜHH\ÙTÝ]O™\Ü]H[Š[
+NÂˆÛÛœÝÜ™\ÜØY[™ËÙ]™\ÜØY[™×HH\ÙTÝ]J˜[ÙJNÂˆÛÛœÝÜ™\ÜÛÛ^Ù]™\ÜÛÛ^HH\ÙTÝ]O™\ÜÛÛ^[Š[
+NÂˆÛÛœÝÛY[[Üš\ÙY™\ÜËÙ]Y[[Üš\ÙY™\Ü×HH\ÙTÝ]OY[[Üš\ÙY™\Ü™XÛÜ™×OŠ×JNÂˆÛÛœÝÛY[[Üš\ÙTØ]š[™ËÙ]Y[[Üš\ÙTØ]š[™×HH\ÙTÝ]J˜[ÙJNÂˆÛÛœÝØÛÛ\[šY\ËÙ]ÛÛ\[šY\×HH\ÙTÝ]OÛÛ\[žUÛÜšÜÜXÙV×OŠ×JNÂˆÛÛœÝØÛÛ\[žTÙ]\Ù]ÛÛ\[žTÙ]\HH\ÙTÝ]OÛÛ\[žTÙ]\Š[\PÛÛ\[žTÙ]\
+
+JNÂˆÛÛœÝØXÝ]™PÛÛ\[žRYÙ]XÝ]™PÛÛ\[žRYHH\ÙTÝ]J
+NÂˆÛÛœÝØXÝ]™SØØ][Û’YÙ]XÝ]™SØØ][Û’YHH\ÙTÝ]J
+NÂˆÛÛœÝÝÛÜšÜÜXÙSÜ[‹Ù]ÛÜšÜÜXÙSÜ[—HH\ÙTÝ]J˜[ÙJNÂˆÛÛœÝÚ[›ÚXÙR[™[ÜžSÜ[‹Ù][›ÚXÙR[™[ÜžSÜ[—HH\ÙTÝ]J˜[ÙJNÂˆÛÛœÝÝ˜]ÛÙSÜ[ÛœËÙ]˜]ÛÙSÜ[Ûœ×HH\ÙTÝ]O˜]ÛÙSÜ[Û–×OŠY˜][˜]ÛÙSÜ[ÛœÊNÂˆÛÛœÝÙ^Ú[™ÙT˜]\ËÙ]^Ú[™ÙT˜]\×HH\ÙTÝ]O^Ú[™ÙT˜]T™XÛÜ™×OŠ×JNÂˆÛÛœÝÝ[YPÛÛÜ‹Ù][YPÛÛÜ—HH\ÙTÝ]O\Ù\•[YOŠ\Õ\Ù\•[YJÝ\œ™[\Ù\‹[YPÛÛÜŠHÈÝ\œ™[\Ù\‹[YPÛÛÜˆˆ™[Y\˜[ŠNÂˆÛÛœÝÝ[YTØ]š[™ËÙ][YTØ]š[™×HH\ÙTÝ]J˜[ÙJNÂˆÛÛœÝØ\X\˜[˜ÙS[ÙKÙ]\X\˜[˜ÙS[ÙWHH\ÙTÝ]O\X\˜[˜ÙS[ÙOŠÝ\œ™[\Ù\‹˜\X\˜[˜ÙS[ÙHOOH™\šÈˆÈ™\šÈˆˆ›YÚŠNÂˆÛÛœÝØ\X\˜[˜ÙTØ]š[™ËÙ]\X\˜[˜ÙTØ]š[™×HH\ÙTÝ]J˜[ÙJNÂ‚ˆ\ÙQY™™XÝ
+
+
+HOˆÂˆØÝ[Y[™ØÝ[Y[[[Y[™]\Ù]˜\X\˜[˜ÙHH\X\˜[˜ÙS[ÙNÂˆ™]\›ˆ
+
+HOˆÈ[]HØÝ[Y[™ØÝ[Y[[[Y[™]\Ù]˜\X\˜[˜ÙNÈNÂˆKØ\X\˜[˜ÙS[ÙWJNÂ‚ˆ\ÙQY™™XÝ
+
+
+HOˆÂˆØÝ[Y[™ØÝ[Y[[[Y[™]\Ù]\Ù\•[YHH[YPÛÛÜŽÂˆ™]\›ˆ
+
+HOˆÈ[]HØÝ[Y[™ØÝ[Y[[[Y[™]\Ù]\Ù\•[YNÈNÂˆKÝ[YPÛÛÜ—JNÂ‚ˆ\ÙQY™™XÝ
+
+
+HOˆÂˆYˆ
+šY]ÈOOHš[™[ÜžK[Ý™\šY]ÈŠH™]\›ŽÂˆÛÛœÝÛ‘\ØØ\HH
+]™[ˆÙ^X›Ø\™]™[
+HOˆÂˆYˆ
+]™[šÙ^HOOH‘\ØØ\Hˆ]™[™Y˜][™]™[Y]™[š\ÐÛÛ\ÜÚ[™ÊH™]\›ŽÂˆÛÛœÝÜ[“^Y\ˆHØÝ[Y[œ]Y\žTÙ[XÝÜŠˆ	ÖÙ]K\ÛÝH™X[ÙËXÛÛ[—VÙ]K\Ý]OH›Ü[ˆ—KÙ]K\ÛÝHœÚY]XÛÛ[—VÙ]K\Ý]OH›Ü[ˆ—KÙ]K\ÛÝH™˜]Ù\‹XÛÛ[—VÙ]K\Ý]OH›Ü[ˆ—KÙ]K\ÛÝH˜[\YX[ÙËXÛÛ[—VÙ]K\Ý]OH›Ü[ˆ—KÜ›ÛOH™X[ÙÈ—VØ\šXK[[Ù[HYH—IÂˆ
+NÂˆYˆ
+Ü[“^Y\ŠH™]\›ŽÂˆ]™[œ™]™[Y˜][
+
+NÂˆÙ]šY]Ê™\Ú›Ø\™ŠNÂˆÙ]ÙX\˜Ú
+ˆŠNÂˆNÂˆØÝ[Y[˜Y]™[\Ý[™\ŠšÙ^YÝÛˆ‹Û‘\ØØ\JNÂˆ™]\›ˆ
+
+HOˆØÝ[Y[œ™[[Ý™Q]™[\Ý[™\ŠšÙ^YÝÛˆ‹Û‘\ØØ\JNÂˆKÝšY]×JNÂ‚ˆÛÛœÝXÝ]™PÛÛ\[žHHÛÛ\[šY\Ë™š[™
+
+ÛÛ\[žJHOˆÛÛ\[žKšYOOHXÝ]™PÛÛ\[žRY
+NÂˆÛÛœÝXÝ]™SØØ][ÛœÈH\ÙSY[[Ê
+
+HOˆXÝ]™PÛÛ\[žOË›ØØ][ÛœÈÏÈ×KØXÝ]™PÛÛ\[žWJNÂˆÛÛœÝ˜\ÙPÝ\œ™[˜ÞHHXÝ]™PÛÛ\[žOË˜˜\ÙPÝ\œ™[˜ÞHÏÈQQŽÂ‚ˆ\Þ[˜È[˜Ý[ÛˆÚYÛ“Ý]
+
+HÂˆ]ØZ]™]Ú
+‹Ø\KØ]]ÜÙ\ÜÚ[Ûˆ‹ÈY]Ùˆ‘SUHˆJNÂˆÚ[™ÝË›ØØ][Û‹œ™[ØY
+
+NÂˆB‚ˆ\Þ[˜È[˜Ý[ÛˆÚ[™ÙU[YJ™^[YNˆ\Ù\•[YJHÂˆYˆ
+™^[YHOOH[YPÛÛÜˆ[YTØ]š[™ÊH™]\›ŽÂˆÛÛœÝ™]š[Ý\Õ[YHH[YPÛÛÜŽÂˆÙ][YPÛÛÜŠ™^[YJNÂˆÙ][YTØ]š[™ÊYJNÂˆžHÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+‹Ø\KÝ\Ù\‹\™Y™\™[˜Ù\È‹ÈY]Ùˆ”UÒ‹XY\œÎˆÈÛÛ[U\HŽˆ˜\XØ][Û‹ÚœÛÛˆˆK›ÙNˆ”ÓÓ‹œÝš[™ÚYžJÈ[YPÛÛÜŽˆ™^[YHJHJNÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›ÝØ]™H[\™˜XÙHÛÛÜˆŠNÂˆØ\ÝœÝXØÙ\ÜÊ	Ý\Ù\•[Y\Ë™š[™
+
+[YJHOˆ[YK˜[YHOOH™^[YJOË›X™[H[YHØ]™Y
+NÂˆHØ]Ú
+\œ›ÜŠHÂˆÙ][YPÛÛÜŠ™]š[Ý\Õ[YJNÂˆØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›ÝØ]™H[\™˜XÙHÛÛÜˆŠNÂˆHš[˜[HÈÙ][YTØ]š[™Ê˜[ÙJNÈBˆB‚ˆ\Þ[˜È[˜Ý[ÛˆÚ[™ÙP\X\˜[˜ÙJ™^[ÙNˆ\X\˜[˜ÙS[ÙJHÂˆYˆ
+™^[ÙHOOH\X\˜[˜ÙS[ÙH\X\˜[˜ÙTØ]š[™ÊH™]\›ŽÂˆÛÛœÝ™]š[Ý\Ó[ÙHH\X\˜[˜ÙS[ÙNÂˆÙ]\X\˜[˜ÙS[ÙJ™^[ÙJNÂˆÙ]\X\˜[˜ÙTØ]š[™ÊYJNÂˆžHÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+‹Ø\KÝ\Ù\‹\™Y™\™[˜Ù\È‹ÈY]Ùˆ”UÒ‹XY\œÎˆÈÛÛ[U\HŽˆ˜\XØ][Û‹ÚœÛÛˆˆK›ÙNˆ”ÓÓ‹œÝš[™ÚYžJÈ\X\˜[˜ÙS[ÙNˆ™^[ÙHJHJNÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›ÝØ]™H\X\˜[˜ÙH[ÙHŠNÂˆØ\ÝœÝXØÙ\ÜÊ	Û™^[ÙHOOH™\šÈˆÈ‘\šÈˆˆ“YÚŸH[ÙHØ]™Y
+NÂˆHØ]Ú
+\œ›ÜŠHÂˆÙ]\X\˜[˜ÙS[ÙJ™]š[Ý\Ó[ÙJNÂˆØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›ÝØ]™H\X\˜[˜ÙH[ÙHŠNÂˆHš[˜[HÈÙ]\X\˜[˜ÙTØ]š[™Ê˜[ÙJNÈBˆB‚ˆÛÛœÝØYÛÜšÜÜXÙ\ÈH\ÙPØ[˜XÚÊ\Þ[˜È
+
+HOˆÂˆžHÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+‹Ø\KÝÛÜšÜÜXÙ\ÈŠNÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›ÝØYÛÛ\[šY\ÈŠNÂˆÛÛœÝ™^ÛÛ\[šY\ÈH]K˜ÛÛ\[šY\È\ÈÛÛ\[žUÛÜšÜÜXÙV×NÂˆÙ]ÛÛ\[šY\Ê™^ÛÛ\[šY\ÊNÂˆÙ]XÝ]™PÛÛ\[žRY
+
+Ý\œ™[
+HOˆÝ\œ™[	‰ˆ™^ÛÛ\[šY\ËœÛÛYJ
+ÛÛ\[žJHOˆÛÛ\[žKšYOOHÝ\œ™[
+HÈÝ\œ™[ˆ™^ÛÛ\[šY\ÖÌOËšYÏÈ
+NÂˆHØ]Ú
+\œ›ÜŠHÈØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›ÝØYÛÛ\[šY\ÈŠNÈBˆK×JNÂ‚ˆÛÛœÝØY]HH\ÙPØ[˜XÚÊ\Þ[˜È
+
+HOˆÂˆÙ]ØY[™ÊYJNÂˆžHÂˆÛÛœÝÚ[™ÎˆÚ[™×HHÈ˜[œØXÝ[ÛœÈ‹˜ÛÛXÝÈ‹š][\È‹˜XØÛÝ[È—NÂˆÛÛœÝ™\Ý[ÈH]ØZ]›ÛZ\ÙK˜[
+Ú[™Ë›X\
+\Þ[˜È
+Ú[™
+HOˆÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+Ø\KÜ™XÛÜ™ÏÚÚ[™IÚÚ[™I˜ÛÛ\[žRYIØXÝ]™PÛÛ\[žRYI›ØØ][Û’YIØXÝ]™SØØ][Û’YX
+NÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›ÝØY™XÛÜ™ÈŠNÂˆ™]\›ˆÚÚ[™]Kœ™XÛÜ™×H\ÈÛÛœÝÂˆJJNÂˆÙ]™XÛÜ™ÊØš™XÝ™œ›ÛQ[šY\Ê™\Ý[ÊH\È™XÛÜ™Ú[™]T™XÛÜ™×OŠNÂˆHØ]Ú
+\œ›ÜŠHÂˆØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›ÝØYÛÛ\[žH]HŠNÂˆHš[˜[HÈÙ]ØY[™Ê˜[ÙJNÈBˆKØXÝ]™PÛÛ\[žRYXÝ]™SØØ][Û’YJNÂ‚ˆÛÛœÝØY˜]ÛÙ\ÈH\ÙPØ[˜XÚÊ\Þ[˜È
+
+HOˆÂˆYˆ
+XXÝ]™PÛÛ\[žRY
+H™]\›ŽÂˆžHÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+Ø\KÝ˜]XÛÙ\ÏØÛÛ\[žRYIØXÝ]™PÛÛ\[žRYXÈØXÚNˆ››Ë\ÝÜ™HˆJNÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›ÝØYUÛÙ\ÈŠNÂˆÛÛœÝXÝ]™PÛÙ\ÈH
+]K˜ÛÙ\È\È˜]ÛÙT™XÛÜ™×JK™š[\Š
+ÛÙJHOˆÛÙK˜XÝ]™JK›X\
+
+ÛÙJHOˆ
+È‹‹˜ÛÙKX™[ˆ	ØÛÙK˜ÛÙ_H0­È	ØÛÙK›˜[Y_H0­È	Ó[X™\ŠÛÙKœ˜]JKÓØØ[TÝš[™Ê
+_IXJJNÂˆÙ]˜]ÛÙSÜ[ÛœÊXÝ]™PÛÙ\Ë›[™ÝÈXÝ]™PÛÙ\ÈˆY˜][˜]ÛÙSÜ[ÛœÊNÂˆHØ]Ú
+\œ›ÜŠHÈØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›ÝØYUÛÙ\ÈŠNÈBˆKØXÝ]™PÛÛ\[žRYJNÂ‚ˆÛÛœÝØY^Ú[™ÙT˜]\ÈH\ÙPØ[˜XÚÊ\Þ[˜È
+
+HOˆÂˆYˆ
+XXÝ]™PÛÛ\[žRY
+H™]\›ŽÂˆžHÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+Ø\KÙ^Ú[™ÙK\˜]\ÏØÛÛ\[žRYIØXÝ]™PÛÛ\[žRYXÈØXÚNˆ››Ë\ÝÜ™HˆJNÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›ÝØY^Ú[™ÙH˜]\ÈŠNÂˆÙ]^Ú[™ÙT˜]\Ê
+]Kœ˜]\È\È^Ú[™ÙT˜]T™XÛÜ™×JK™š[\Š
+˜]JHOˆ˜]K˜XÝ]™JJNÂˆHØ]Ú
+\œ›ÜŠHÈØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›ÝØY^Ú[™ÙH˜]\ÈŠNÈBˆKØXÝ]™PÛÛ\[žRYJNÂ‚ˆÛÛœÝØYÛÛ\[žTÙ]\H\ÙPØ[˜XÚÊ\Þ[˜È
+
+HOˆÂˆYˆ
+XXÝ]™PÛÛ\[žRY
+H™]\›ŽÂˆžHÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+Ø\KØÛÛ\[žK\Ù]\ØÛÛ\[žRYIØXÝ]™PÛÛ\[žRYXÈØXÚNˆ››Ë\ÝÜ™HˆJNÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›ÝØYÛÛ\[žHÙ]\ŠNÂˆÛÛœÝ™XÛÜ™H]Kœ™XÛÜ™\ÈÛÛ\[žTÙ]\ÂˆÙ]ÛÛ\[žTÙ]\
+È‹‹œ™XÛÜ™Ý[\]Nˆ™XÛÜ™œÝ[\]Hˆ‹˜[šÐÝ\œ™[˜ÞNˆ™XÛÜ™˜˜[šÐÝ\œ™[˜ÞH™XÛÜ™˜˜\ÙPÝ\œ™[˜ÞHJNÂˆHØ]Ú
+\œ›ÜŠHÈØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›ÝØYÛÛ\[žHÙ]\ŠNÈBˆKØXÝ]™PÛÛ\[žRYJNÂ‚ˆÛÛœÝØYY[[Üš\ÙY™\ÜÈH\ÙPØ[˜XÚÊ\Þ[˜È
+
+HOˆÂˆYˆ
+XXÝ]™PÛÛ\[žRY\›ÛUšY]ÜÖØÝ\œ™[\Ù\‹œ›ÛWKš[˜ÛY\Êœ™\ÜÈŠJH™]\›ŽÂˆžHÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+Ø\KÛY[[Üš\ÙY\™\ÜÏØÛÛ\[žRYIØXÝ]™PÛÛ\[žRYXÈØXÚNˆ››Ë\ÝÜ™HˆJNÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›ÝØYY[[Üš\ÙY™\ÜÈŠNÂˆÙ]Y[[Üš\ÙY™\ÜÊ]Kœ™XÛÜ™È\ÈY[[Üš\ÙY™\Ü™XÛÜ™×JNÂˆHØ]Ú
+\œ›ÜŠHÈØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›ÝØYY[[Üš\ÙY™\ÜÈŠNÈBˆKØXÝ]™PÛÛ\[žRYÝ\œ™[\Ù\‹œ›ÛWJNÂ‚ˆËÈ[š]X[ØYÞ[˜Ú›Ûš^™\ÈHÛY[ÛÜšÜÜXÙHÚ]H\œÚ\ÝYÛÛ\[žHš[K‚ˆËÈ\Û[Y\ØX›K[™^[[™H™XXÝZÛÚÜËÜÙ]\Ý]KZ[‹YY™™XÝˆ\ÙQY™™XÝ
+
+
+HOˆÈØYÛÜšÜÜXÙ\Ê
+NÈKÛØYÛÜšÜÜXÙ\×JNÂˆ\ÙQY™™XÝ
+
+
+HOˆÂˆYˆ
+XXÝ]™PÛÛ\[žJH™]\›ŽÂˆËÈÙY\HÙ[XÝYØ\™ZÝ\ÙH˜[YY\ˆÚ[™Ú[™ÈÜˆY[™ÈÛÛ\[šY\Ë‚ˆËÈ\Û[Y\ØX›K[™^[[™H™XXÝZÛÚÜËÜÙ]\Ý]KZ[‹YY™™XÝˆYˆ
+XXÝ]™SØØ][ÛœËœÛÛYJ
+ØØ][ÛŠHOˆØØ][Û‹šYOOHXÝ]™SØØ][Û’Y
+JHÙ]XÝ]™SØØ][Û’Y
+XÝ]™SØØ][ÛœÖÌOËšYÏÈ
+NÂˆKØXÝ]™PÛÛ\[žKXÝ]™SØØ][Û’YXÝ]™SØØ][Ûœ×JNÂˆËÈ™Yœ™\ÚHÙ[XÝYÛÛ\[žHš[HÚ[™]™\ˆ]ÈÛÛ\[žHÜˆØ\™ZÝ\ÙHÚ[™Ù\Ë‚ˆËÈ\Û[Y\ØX›K[™^[[™H™XXÝZÛÚÜËÜÙ]\Ý]KZ[‹YY™™XÝˆ\ÙQY™™XÝ
+
+
+HOˆÈYˆ
+XÝ]™PÛÛ\[žRY	‰ˆXÝ]™SØØ][Û’Y
+HØY]J
+NÈKØXÝ]™PÛÛ\[žRYXÝ]™SØØ][Û’YØY]WJNÂˆËÈ\Û[Y\ØX›K[™^[[™H™XXÝZÛÚÜËÜÙ]\Ý]KZ[‹YY™™XÝˆ\ÙQY™™XÝ
+
+
+HOˆÈYˆ
+XÝ]™PÛÛ\[žRY
+HØY˜]ÛÙ\Ê
+NÈKØXÝ]™PÛÛ\[žRYØY˜]ÛÙ\×JNÂˆËÈ\Û[Y\ØX›K[™^[[™H™XXÝZÛÚÜËÜÙ]\Ý]KZ[‹YY™™XÝˆ\ÙQY™™XÝ
+
+
+HOˆÈYˆ
+XÝ]™PÛÛ\[žRY
+HØY^Ú[™ÙT˜]\Ê
+NÈKØXÝ]™PÛÛ\[žRYØY^Ú[™ÙT˜]\×JNÂˆËÈ\Û[Y\ØX›K[™^[[™H™XXÝZÛÚÜËÜÙ]\Ý]KZ[‹YY™™XÝˆ\ÙQY™™XÝ
+
+
+HOˆÈYˆ
+XÝ]™PÛÛ\[žRY
+HØYÛÛ\[žTÙ]\
+
+NÈKØXÝ]™PÛÛ\[žRYØYÛÛ\[žTÙ]\JNÂˆËÈ\Û[Y\ØX›K[™^[[™H™XXÝZÛÚÜËÜÙ]\Ý]KZ[‹YY™™XÝˆ\ÙQY™™XÝ
+
+
+HOˆÈYˆ
+XÝ]™PÛÛ\[žRY
+HØYY[[Üš\ÙY™\ÜÊ
+NÈKØXÝ]™PÛÛ\[žRYØYY[[Üš\ÙY™\Ü×JNÂ‚ˆÛÛœÝY]šXÜÈH\ÙSY[[Ê
+
+HOˆÂˆ™]\›ˆ\Ú›Ø\™Y]šXÜÊ™XÛÜ™Ë˜XØÛÝ[ÊNÂˆKÜ™XÛÜ™Ë˜XØÛÝ[×JNÂ‚ˆÛÛœÝÝ\œ™[Ú[™ˆÚ[™HšY]ÈOOH˜Ý\ÝÛY\œÈˆšY]ÈOOH™[™ÜœÈˆšY]ÈOOH™[\ÞYY\ÈˆÈ˜ÛÛXÝÈˆˆšY]ÈOOHš[™[ÜžHˆÈš][\ÈˆˆšY]ÈOOH˜XØÛÝ[ÈˆÈ˜XØÛÝ[Èˆˆ˜[œØXÝ[ÛœÈŽÂˆÛÛœÝX[˜YÙ[Y[šY]ÈHšY]ÈOOHœÙ\šX[\ÙX\˜ÚˆšY]ÈOOHš[™[ÜžK[Ý™\šY]ÈˆšY]ÈOOHš][K[ÙÚ\ÝXÜÈˆšY]ÈOOHš[™[ÜžKXÚXÚË\™\ÜÈˆšY]ÈOOH˜[œÙ™\œÈˆšY]ÈOOHš›Ý\›˜[Y[šY\ÈˆšY]ÈOOH˜][X[˜YÙ[Y[ˆšY]ÈOOH˜ÛÛ\[šY\ÈˆšY]ÈOOH˜ÛÛ\[žK\Ù]\ˆšY]ÈOOHš[™[ÜšY\ÈˆšY]ÈOOHš[›ÚXÙK\Ù\šY\ÈˆšY]ÈOOH˜Ý\œ™[˜ÚY\ÈˆšY]ÈOOH˜]XÛÙ\ÈˆšY]ÈOOH˜YZ[‹XÛÛ›ÛÈŽÂˆÛÛœÝš\ÚX›S˜]‘Ü›Ý\ÈH˜]‘Ü›Ý\Ë›X\
+
+Ü›Ý\
+HOˆ
+È‹‹™Ü›Ý\][\ÎˆÜ›Ý\š][\Ë™š[\Š
+][JHOˆ›ÛUšY]ÜÖØÝ\œ™[\Ù\‹œ›ÛWKš[˜ÛY\Ê][KšY
+JHJJK™š[\Š
+Ü›Ý\
+HOˆÜ›Ý\š][\Ë›[™Ýˆ
+NÂˆÛÛœÝØ[•Üš]PÝ\œ™[šY]ÈH›ÛUÜš]UšY]ÜÖØÝ\œ™[\Ù\‹œ›ÛWKš[˜ÛY\ÊšY]ÊNÂˆÛÛœÝXÝ]™QY]Ü’Ú[™HY]Ü’Ú[™ÏÈÝ\œ™[Ú[™ÂˆÛÛœÝØ[\Ñ]Z[ÓÛ›HHXÝ]™QY]Ü’Ú[™OOH˜[œØXÝ[ÛœÈˆ	‰ˆY][™Ô™XÛÜ™YOOH[	‰ˆÈš[›ÚXÙH‹˜Ý\ÝÛY\ˆ^[Y[—Kš[˜ÛY\Ê›Ü›K\JNÂˆÛÛœÝ[šÙY[™[ÜžQØÝ[Y[HXÝ]™QY]Ü’Ú[™OOH˜[œØXÝ[ÛœÈˆ	‰ˆÈ˜š[‹š[›ÚXÙH‹™\Ý[X]H‹œ›Ù›Ü›XH[›ÚXÙH‹œØ[\ÈÜ™\ˆ‹œ][Ý][Ûˆ—Kš[˜ÛY\Ê›Ü›K\JNÂˆÛÛœÝØÝ[Y[ØØ][Û’YH[X™\Š
+›Ü›K\HOOH˜š[ˆÈ›Ü›K˜š[ØØ][Û’Yˆ›Ü›K˜[œØXÝ[Û“ØØ][Û’Y
+HXÝ]™SØØ][Û’Y
+NÂˆÛÛœÝÚÝSØÚÈH\ÙTÚÝSØÚÊX[ÙÓÜ[ˆ	‰ˆJ›Ü›K\HOOH˜š[ˆ	‰ˆ›Ü›Kœ\˜Ú\ÙSÜ™\’Y
+H	‰ˆJY][™Ô™XÛÜ™YOOH[	‰ˆ›Ü›K\HOOHš[›ÚXÙHˆ	‰ˆ›Ü›KœØ[\ÔÛÝ\˜ÙRY
+H	‰ˆÈš][\È‹˜[œØXÝ[ÛœÈ—Kš[˜ÛY\ÊXÝ]™QY]Ü’Ú[™
+HÈÈ™\ÛÝ\˜ÙNˆœ™XÛÜ™È‹Ú[™ˆXÝ]™QY]Ü’Ú[™ÛÛ\[žRYˆXÝ]™PÛÛ\[žRYØØ][Û’YˆXÝ]™QY]Ü’Ú[™OOHš][\ÈˆÈXÝ]™SØØ][Û’YˆØÝ[Y[ØØ][Û’YYˆXÝ]™QY]Ü’Ú[™OOHš][\ÈˆÈY][™Ò][RYˆY][™Ô™XÛÜ™Y‹‹ŠXÝ]™QY]Ü’Ú[™OOHš][\ÈˆÈÈÚÝNˆ›Ü›KœÚÝHˆˆHˆÈ[™\Îˆ[™\Ë›X\
+
+[™JHOˆ
+È][RYˆ[™Kš][RYJJHJHHˆ[
+NÂˆÛÛœÝØÝ[Y[[™[ÜžRÙ^HH	ØXÝ]™PÛÛ\[žRYN‰ÙØÝ[Y[ØØ][Û’YXÂˆÛÛœÝØÝ[Y[[™[ÜžT™XYHHØÝ[Y[[™[ÜžKšÙ^HOOHØÝ[Y[[™[ÜžRÙ^H	‰ˆYØÝ[Y[[™[ÜžK™\œ›ÜŽÂˆÛÛœÝØÝ[Y[][\ÈH[šÙY[™[ÜžQØÝ[Y[ÈØÝ[Y[[™[ÜžT™XYHÈØÝ[Y[[™[ÜžKš][\Èˆ×Hˆ™XÛÜ™Ëš][\ÎÂˆ\ÙQY™™XÝ
+
+
+HOˆÂˆYˆ
+YX[ÙÓÜ[ˆ[[šÙY[™[ÜžQØÝ[Y[XXÝ]™PÛÛ\[žRYYØÝ[Y[ØØ][Û’Y
+H™]\›ŽÂˆÛÛœÝÛÛ›Û\ˆH™]ÈX›ÜÛÛ›Û\Š
+NÂˆ™]Ú
+Ø\KÜ™XÛÜ™ÏÚÚ[™Z][\É˜ÛÛ\[žRYIØXÝ]™PÛÛ\[žRYI›ØØ][Û’YIÙØÝ[Y[ØØ][Û’YXÈØXÚNˆ››Ë\ÝÜ™H‹ÚYÛ˜[ˆÛÛ›Û\‹œÚYÛ˜[JBˆ[Š\Þ[˜È
+™\ÜÛœÙJHOˆÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›ÝØY[™[ÜžH][\ÈŠNÂˆYˆ
+XÛÛ›Û\‹œÚYÛ˜[˜X›ÜY
+HÙ]ØÝ[Y[[™[ÜžJÈÙ^NˆØÝ[Y[[™[ÜžRÙ^K][\Îˆ]Kœ™XÛÜ™ÈJNÂˆJK˜Ø]Ú
+
+\œ›ÜŠHOˆÂˆYˆ
+XÛÛ›Û\‹œÚYÛ˜[˜X›ÜY
+HÙ]ØÝ[Y[[™[ÜžJÈÙ^NˆØÝ[Y[[™[ÜžRÙ^K][\Îˆ×K\œ›ÜŽˆ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›ÝØY[™[ÜžH][\ÈˆJNÂˆJNÂˆ™]\›ˆ
+
+HOˆÛÛ›Û\‹˜X›Ü
+
+NÂˆKÙX[ÙÓÜ[‹[šÙY[™[ÜžQØÝ[Y[XÝ]™PÛÛ\[žRYØÝ[Y[ØØ][Û’YØÝ[Y[[™[ÜžRÙ^WJNÂˆ[˜Ý[Ûˆ\]QØÝ[Y[›Ü›J™^ˆ™XÛÜ™Ýš[™ËÝš[™ÏŠHÂˆYˆ
+È˜š[^[Y[‹˜Ý\ÝÛY\ˆ^[Y[‹˜Ú\]YH—Kš[˜ÛY\Ê™^\JH	‰ˆÈœ\H‹˜Ý\œ™[˜ÞH‹˜[œØXÝ[Û“ØØ][Û’Y—KœÛÛYJ
+Ù^JHOˆ™^ÚÙ^WHOOH›Ü›VÚÙ^WJJHÂˆ™^HÈ‹‹›™^š[Yˆˆ‹š[YÎˆ–×H‹š[™Y™\™[˜Ù\Îˆˆ‹š[™[XZ[š[™Îˆˆ‹[›ÚXÙRYˆˆ‹[›ÚXÙRYÎˆ–×H‹[›ÚXÙT™[XZ[š[™ÎˆˆˆNÂˆÙ][™\Ê[™\Ë›X\
+
+[™JHOˆ
+È‹‹›[™K[š]šXÙNˆŒ‹[š]ÛÜÝˆŒˆJJJNÂˆBˆÛÛœÝ™^ØØ][ÛˆH[X™\Š
+™^\HOOH˜š[ˆÈ™^˜š[ØØ][Û’Yˆ™^˜[œØXÝ[Û“ØØ][Û’Y
+HXÝ]™SØØ][Û’Y
+NÂˆYˆ
+[šÙY[™[ÜžQØÝ[Y[	‰ˆ™^ØØ][ÛˆOOHØÝ[Y[ØØ][Û’Y
+HÂˆÙ]ØÝ[Y[[™[ÜžJÈÙ^Nˆˆ‹][\Îˆ×HJNÂˆYˆ
+[™\ËœÛÛYJ
+[™JHOˆ[™Kš][RY
+JHÂˆÙ][™\Ê[™\Ë›X\
+
+[™JHOˆ[™Kš][RYÈÈ‹‹›[™K][RYˆˆ‹\ØÜš\[ÛŽˆˆ‹[š]šXÙNˆŒ‹[š]ÛÜÝˆŒ‹ÛYU[š]šXÙNˆ[™Yš[™YÛYU[š]ÛÜÝˆ[™Yš[™YHˆ[™JJNÂˆØ\Ýš[™›Ê’[™[ÜžHÚ[™ÙYˆÙ[XÝ][\Èœ›ÛHH™]È[™[ÜžH›Üˆ[Ý\ˆÝØÚÈ[™\ËˆŠNÂˆBˆBˆÙ]›Ü›J™^
+NÂˆB‚‚ˆÛÛœÝš[\™Y™XÛÜ™ÈH\ÙSY[[Ê
+
+HOˆÂˆ]\ÝH™XÛÜ™ÖØÝ\œ™[Ú[™NÂˆYˆ
+Ý\œ™[Ú[™OOH˜ÛÛXÝÈŠHÂˆÛÛœÝ\HHšY]ÈOOH˜Ý\ÝÛY\œÈˆÈ˜Ý\ÝÛY\ˆˆˆšY]ÈOOH™[™ÜœÈˆÈ™[™Üˆˆˆ™[\ÞYYHŽÂˆ\ÝH\Ý™š[\Š
+ŠHOˆ‹\HOOH\JNÂˆBˆYˆ
+Ý\œ™[Ú[™OOH˜[œØXÝ[ÛœÈˆ	‰ˆšY]ÈOOH™\Ú›Ø\™ŠH\ÝH\Ý™š[\Š
+ŠHOˆ˜[œØXÝ[Û•\\ÖÝšY]×OËš[˜ÛY\ÊÝš[™Ê‹\JJJNÂˆÛÛœÝ\›HHÙX\˜ÚÓÝÙ\Ø\ÙJ
+Kš[J
+NÂˆ™]\›ˆ\›HÈ\Ý™š[\Š
+ŠHOˆØš™XÝ˜[Y\ÊŠKœÛÛYJ
+ŠHOˆÝš[™ÊŠKÓÝÙ\Ø\ÙJ
+Kš[˜ÛY\Ê\›JJJHˆ\ÝÂˆKØÝ\œ™[Ú[™™XÛÜ™ËÙX\˜ÚšY]×JNÂ‚ˆ[˜Ý[ÛˆÜ[•˜[œØXÝ[ÛŠ\NˆÝš[™ÊHÂˆÙ]Y][™Ò][RY
+[
+NÂˆÙ]Y][™Ô™XÛÜ™Y
+[
+NÂˆÙ]Y]Ü’Ú[™
+˜[œØXÝ[ÛœÈŠNÂˆYˆ
+\HOOHš[›ÚXÙHŠHÂˆÙ][›ÚXÙR[™[ÜžSÜ[ŠYJNÂˆ™]\›ŽÂˆBˆÛÛœÝ™Yš^H\HOOH˜Ý\ÝÛY\ˆ^[Y[ˆÈ”VHˆˆ\HOOH˜š[^[Y[ˆÈ”Hˆˆ\HOOH˜Ú\]YHˆÈÒHˆˆ\HOOH˜Ü™Y]Ø\™Ú\™ÙHˆÈÐÐÈˆˆ\HOOH˜Ú\]YHÜ™\ˆˆÈÒÓÈˆˆ\HOOH˜[œÙ™\ˆˆÈ•‘ˆˆˆ\HOOH™\ÜÚ]ˆÈ‘Tˆˆ\HOOHœÝ][Y[Ú\™ÙHˆÈ”ÕÈˆˆ\HOOH™š[˜[˜ÙHÚ\™ÙHˆÈ‘’Sˆˆˆ\HOOHš][H™XÙZ\ˆÈ”‘PÈˆˆ\HOOHœ™XÙZ]™Y][Hš[ˆÈ”’Pˆˆˆ\HOOHœ›Ù›Ü›XH[›ÚXÙHˆÈ”“Èˆˆ\HOOHœØ[\ÈÜ™\ˆˆÈ”ÓÈˆˆ\HOOHœ][Ý][ÛˆˆÈ”USÈˆˆ\KœÛXÙJÊKÕ\\Ø\ÙJ
+NÂˆÛÛœÝ^œ™YHHÈ˜š[‹˜Ý\ÝÛY\ˆ^[Y[‹˜š[^[Y[‹™š[˜[˜ÙHÚ\™ÙH‹š][H™XÙZ\‹™\ÜÚ]‹˜[œÙ™\ˆ‹˜Ú\]YHÜ™\ˆ—Kš[˜ÛY\Ê\JNÂˆÛÛœÝ\ØÜš\[ÛœÎˆ™XÛÜ™Ýš[™ËÝš[™ÏˆHÈ˜Ý\ÝÛY\ˆ^[Y[Žˆ”^[Y[™XÙZ]™Y‹˜š[^[Y[Žˆš[^[Y[‹Ú\]YNˆÚ\]YH^[Y[‹˜Ü™Y]Ø\™Ú\™ÙHŽˆÜ™Y]Ø\™Ú\™ÙH‹˜Ú\]YHÜ™\ˆŽˆÚ\]YH›ÛÚÜÈ[™[™[Ü\È‹˜[œÙ™\Žˆ˜[šÈ˜[œÙ™\ˆ‹\ÜÚ]ˆ˜[šÈ\ÜÚ]‹œÝ][Y[Ú\™ÙHŽˆ”Ý][Y[Ú\™ÙH‹™š[˜[˜ÙHÚ\™ÙHŽˆ‘š[˜[˜ÙHÚ\™ÙH‹˜Ü™Y]Y[[ÈŽˆÜ™Y]›ÝHÈ™Y[™‹š][H™XÙZ\Žˆ’][\È™XÙZ]™Y‹œ™XÙZ]™Y][Hš[Žˆš[›Üˆ™XÙZ]™Y][\ÈˆNÂˆÙ]›Ü›JÈ\K[X™\Žˆ	Ü™Yš^KIÔÝš[™Ê™XÛÜ™Ë˜[œØXÝ[ÛœË›[™Ý
+ÈJKœYÝ\
+ŒŠ_X˜[œØXÝ[Û‘]NˆÙ^J
+KYQ]NˆÙ^J
+KÝ]\Îˆ›Ü[ˆ‹XØÛÝ[ˆY˜][ÜÝ[™ÐXØÛÝ[
+\K™XÛÜ™Ë˜XØÛÝ[ÊK˜]˜]Nˆ^œ™YHÈŒˆˆH‹Ý\œ™[˜ÞNˆ˜\ÙPÝ\œ™[˜ÞK^Ú[™ÙT˜]NˆŒH‹š[ØØ][Û’YˆÝš[™ÊXÝ]™SØØ][Û’Y
+K˜[œØXÝ[Û“ØØ][Û’YˆÝš[™ÊXÝ]™SØØ][Û’Y
+KØ[\ÛX[Žˆˆ‹\Ò[\Üˆ™˜[ÙH‹œ™ZYÚÚ\™Ù\ÎˆŒˆJNÂˆÙ][™\ÊÞÈ][RYˆˆ‹\ØÜš\[ÛŽˆ\ØÜš\[ÛœÖÝ\WHÏÈˆ‹]X[]NˆŒH‹[š]šXÙNˆŒ‹[š]ÛÜÝˆŒ‹˜]ÛÙNˆ^œ™YHÈ–‘T“Èˆˆ”ÕS‘T‘‹˜]˜]Nˆ^œ™YHÈŒˆˆHˆWJNÂˆÙ]X[ÙÓÜ[ŠYJNÂˆB‚ˆ[˜Ý[ÛˆÜ[“\ÝY]
+™XÛÜ™ˆ]T™XÛÜ™
+HÂˆÙ]Y][™Ò][RY
+[
+NÈÙ]Y][™Ô™XÛÜ™Y
+™XÛÜ™šY
+NÈÙ]Y]Ü’Ú[™
+Ý\œ™[Ú[™
+NÂˆÙ]›Ü›JØš™XÝ™œ›ÛQ[šY\ÊØš™XÝ™[šY\Ê™XÛÜ™
+K›X\
+
+ÚÙ^K˜[YWJHOˆÚÙ^K˜[YHOH[ÈˆˆˆÝš[™Ê˜[YJWJJJNÂˆÙ]X[ÙÓÜ[ŠYJNÂˆB‚ˆ[˜Ý[ÛˆÜ[Ü™X]J
+HÂˆÙ]Y][™Ô™XÛÜ™Y
+[
+NÂˆÙ]Y][™Ò][RY
+[
+NÂˆÙ]Y]Ü’Ú[™
+Ý\œ™[Ú[™
+NÂˆYˆ
+Ý\œ™[Ú[™OOH˜[œØXÝ[ÛœÈŠHÂˆÛÛœÝ\HH˜[œØXÝ[Û•\\ÖÝšY]×OË–ÌHÏÈš[›ÚXÙHŽÂˆÜ[•˜[œØXÝ[ÛŠ\JNÂˆ™]\›ŽÂˆH[ÙHYˆ
+Ý\œ™[Ú[™OOH˜ÛÛXÝÈŠHÂˆÛÛœÝ\HHšY]ÈOOH˜Ý\ÝÛY\œÈˆÈ˜Ý\ÝÛY\ˆˆˆšY]ÈOOH™[™ÜœÈˆÈ™[™Üˆˆˆ™[\ÞYYHŽÂˆÛÛœÝÛÛ›ÛXØÛÝ[H\HOOH˜Ý\ÝÛY\ˆˆÈÛÛ›ÛXØÛÝ[›ÜŠ™XÛÜ™Ë˜XØÛÝ[ËTˆ‹˜\ÙPÝ\œ™[˜ÞJHˆ\HOOH™[™ÜˆˆÈÛÛ›ÛXØÛÝ[›ÜŠ™XÛÜ™Ë˜XØÛÝ[ËT‹˜\ÙPÝ\œ™[˜ÞJHˆ[™Yš[™YÂˆÙ]›Ü›J\HOOH˜Ý\ÝÛY\ˆˆÈÈ\KÝ\œ™[˜ÞNˆ˜\ÙPÝ\œ™[˜ÞKYÙ\XØÛÝ[YˆÛÛ›ÛXØÛÝ[ÈÝš[™ÊÛÛ›ÛXØÛÝ[šY
+Hˆˆ‹™\Ù[\Žˆ”™\Ù[\ˆ‹[™]ˆ“›È‹˜[[˜ÙNˆŒˆHˆÈ\KÝ\œ™[˜ÞNˆ˜\ÙPÝ\œ™[˜ÞKYÙ\XØÛÝ[YˆÛÛ›ÛXØÛÝ[ÈÝš[™ÊÛÛ›ÛXØÛÝ[šY
+Hˆˆ‹˜[[˜ÙNˆŒˆJNÂˆBˆ[ÙHYˆ
+Ý\œ™[Ú[™OOHš][\ÈŠHÂˆÛÛœÝ[š]X[šY[ÈHÜXÚYšXØ][Û‘šY[Ë™š[\Š
+X™[
+HOˆX™[OOH”›ÙXÝØ]YÛÜžHŠKœÛXÙJ
+NÂˆÛÛœÝY˜][ÛÙÜÈH™XÛÜ™Ë˜XØÛÝ[Ë™š[™
+
+XØÛÝ[
+HOˆXØÛÝ[˜XÝ]™H	‰ˆ
+XØÛÝ[œÞ\Ý[T›ÛHOOHÓÑÔÈˆXØÛÝ[\HOOHÛÜÝÙˆÛÛÙÈÛÛˆØÛÜÝÙˆÛÛÙËÚK\Ý
+Ýš[™ÊXØÛÝ[›˜[YHˆŠJJJNÂˆÛÛœÝY˜][[˜ÛÛYHH™XÛÜ™Ë˜XØÛÝ[Ë™š[™
+
+XØÛÝ[
+HOˆXØÛÝ[˜XÝ]™H	‰ˆ
+XØÛÝ[œÞ\Ý[T›ÛHOOH”ÐSTÈˆXØÛÝ[\HOOH’[˜ÛÛYHˆ×š[˜ÛÛYIÚK\Ý
+Ýš[™ÊXØÛÝ[›˜[YHˆŠJJJNÂˆÛÛœÝY˜][\ÜÙ]H™XÛÜ™Ë˜XØÛÝ[Ë™š[™
+
+XØÛÝ[
+HOˆXØÛÝ[˜XÝ]™H	‰ˆXØÛÝ[œÞ\Ý[T›ÛHOOH’S•‘S•Ô–HŠBˆÏÈ™XÛÜ™Ë˜XØÛÝ[Ë™š[™
+
+XØÛÝ[
+HOˆXØÛÝ[˜XÝ]™H	‰ˆÚ[™[ÜžH\ÜÙ]ÚK\Ý
+Ýš[™ÊXØÛÝ[›˜[YHˆŠJJNÂˆÛÛœÝY˜][˜]H˜]ÛÙSÜ[ÛœË™š[™
+
+ÛÙJHOˆÛÙK˜ÛÙHOOH”ÕS‘T‘ŠOË˜ÛÙHÏÈ˜]ÛÙSÜ[ÛœÖÌOË˜ÛÙHÏÈ–‘T“ÈŽÂˆÛÛœÝ][Q›Ü›Nˆ™XÛÜ™Ýš[™ËÝš[™ÏˆHÂˆ][U\NˆœÝØÚË\\‹Ø]YÛÜžNˆ“TÔ‹]X[]NˆŒ‹™[Ü™\”Ú[ˆŒ‹Ø[\ÔšXÙNˆŒ‹ÛÜÝˆŒ‹ˆ\˜Ú\ÙU˜]ÛÙNˆY˜][˜]Ø[\Õ˜]ÛÙNˆY˜][˜]ÛÙÜÐXØÛÝ[YˆY˜][ÛÙÜÈÈÝš[™ÊY˜][ÛÙÜËšY
+Hˆˆ‹ˆ[˜ÛÛYPXØÛÝ[YˆY˜][[˜ÛÛYHÈÝš[™ÊY˜][[˜ÛÛYKšY
+Hˆˆ‹\ÜÙ]XØÛÝ[YˆY˜][\ÜÙ]ÈÝš[™ÊY˜][\ÜÙ]šY
+Hˆˆ‹ˆ™Y™\œ™YÝ\Y\’Yˆˆ‹Ý]\Îˆ˜XÝ]™H‹[[Ý[Ò[˜ÛYU˜]ˆ™˜[ÙH‹ÜXÐÛÝ[ˆÝš[™Ê[š]X[šY[Ë›[™Ý
+KˆNÂˆ[š]X[šY[Ë™›Ü‘XXÚ
+
+X™[[™^
+HOˆÈ][Q›Ü›VØÜXÓX™[	Ú[™^XHHX™[È][Q›Ü›VØÜXÕ˜[YIÚ[™^XHHˆŽÈJNÂˆÙ]›Ü›J][Q›Ü›JNÂˆBˆ[ÙHÙ]›Ü›JÈ\Nˆ‘^[œÙH‹˜[[˜ÙNˆŒ‹\™[XØÛÝ[Yˆˆ‹Ý\œ™[˜ÞNˆ˜\ÙPÝ\œ™[˜ÞHJNÂˆÙ]X[ÙÓÜ[ŠYJNÂˆB‚ˆ[˜Ý[ÛˆÝ\[›ÚXÙJØØ][ÛŽˆ[™[ÜžSØØ][ÛŠHÂˆÙ]Y][™Ô™XÛÜ™Y
+[
+NÂˆÙ]Y]Ü’Ú[™
+˜[œØXÝ[ÛœÈŠNÂˆÙ]XÝ]™SØØ][Û’Y
+ØØ][Û‹šY
+NÂˆÙ]™XÛÜ™Ê
+Ý\œ™[
+HOˆ
+È‹‹˜Ý\œ™[][\Îˆ×HJJNÂˆÙ]›Ü›JÈ\Nˆš[›ÚXÙH‹[X™\Žˆ[›ÚXÙS[X™\”™]šY]ÊXÝ]™PÛÛ\[žRYØØ][ÛŠK˜[œØXÝ[Û‘]NˆÙ^J
+KYQ]NˆÙ^J
+KÝ]\Îˆ›Ü[ˆ‹XØÛÝ[ˆ[šÙYXØÛÝ[˜[YJ™XÛÜ™Ë˜XØÛÝ[Ë”ÐSTÈ‹”Ø[\È™]™[YHŠK˜]˜]NˆH‹Ý\œ™[˜ÞNˆ˜\ÙPÝ\œ™[˜ÞK^Ú[™ÙT˜]NˆŒH‹[ÝÓ™YØ]]™TÝØÚÎˆ™˜[ÙH‹YZ[“Ý™\œšYT[ŽˆˆˆJNÂˆÙ][™\ÊÞÈ][RYˆˆ‹\ØÜš\[ÛŽˆˆ‹]X[]NˆŒH‹[š]šXÙNˆŒ‹[š]ÛÜÝˆŒ‹˜]ÛÙNˆ”ÕS‘T‘‹˜]˜]NˆHˆWJNÂˆÙ][›ÚXÙR[™[ÜžSÜ[Š˜[ÙJNÂˆÙ]X[ÙÓÜ[ŠYJNÂˆB‚ˆ[˜Ý[ÛˆÜ[’][QY]
+][Nˆ]T™XÛÜ™
+HÂˆÛÛœÝY˜][ÛÙÜÈH™XÛÜ™Ë˜XØÛÝ[Ë™š[™
+
+XØÛÝ[
+HOˆXØÛÝ[˜XÝ]™H	‰ˆ
+XØÛÝ[œÞ\Ý[T›ÛHOOHÓÑÔÈˆXØÛÝ[\HOOHÛÜÝÙˆÛÛÙÈÛÛˆØÛÜÝÙˆÛÛÙËÚK\Ý
+Ýš[™ÊXØÛÝ[›˜[YHˆŠJJJNÂˆÛÛœÝY˜][[˜ÛÛYHH™XÛÜ™Ë˜XØÛÝ[Ë™š[™
+
+XØÛÝ[
+HOˆXØÛÝ[˜XÝ]™H	‰ˆ
+XØÛÝ[œÞ\Ý[T›ÛHOOH”ÐSTÈˆXØÛÝ[\HOOH’[˜ÛÛYHˆ×š[˜ÛÛYIÚK\Ý
+Ýš[™ÊXØÛÝ[›˜[YHˆŠJJJNÂˆÛÛœÝY˜][\ÜÙ]H™XÛÜ™Ë˜XØÛÝ[Ë™š[™
+
+XØÛÝ[
+HOˆXØÛÝ[˜XÝ]™H	‰ˆXØÛÝ[œÞ\Ý[T›ÛHOOH’S•‘S•Ô–HŠBˆÏÈ™XÛÜ™Ë˜XØÛÝ[Ë™š[™
+
+XØÛÝ[
+HOˆXØÛÝ[˜XÝ]™H	‰ˆÚ[™[ÜžH\ÜÙ]ÚK\Ý
+Ýš[™ÊXØÛÝ[›˜[YHˆŠJJNÂˆ]ÜXÚYšXØ][ÛœÎˆ\œ˜^OÈX™[ˆÝš[™ÎÈ˜[YNˆÝš[™ÈOˆH×NÂˆžHÈÜXÚYšXØ][ÛœÈH”ÓÓ‹œ\œÙJÝš[™Ê][KœÜXÚYšXØ][ÛœÈÏÈ–×HŠJNÈHØ]ÚÈÜXÚYšXØ][ÛœÈH×NÈBˆYˆ
+\ÜXÚYšXØ][ÛœË›[™Ý
+HÜXÚYšXØ][ÛœÈHÜXÚYšXØ][Û‘šY[Ë™š[\Š
+X™[
+HOˆX™[OOH”›ÙXÝØ]YÛÜžHŠKœÛXÙJ
+K›X\
+
+X™[
+HOˆ
+ÈX™[˜[YNˆˆˆJJNÂˆÛÛœÝ][Q›Ü›Nˆ™XÛÜ™Ýš[™ËÝš[™ÏˆHÂˆ][U\Nˆ][U\SÙŠ][Kš][U\JKØ]YÛÜžNˆÝš[™Ê][K˜Ø]YÛÜžHÏÈ“TÔŠKÓØØ[U\\Ø\ÙJ™[ˆŠKˆ][S[X™\ŽˆÝš[™Ê][Kš][S[X™\ˆÏÈˆŠKÚÝNˆÝš[™Ê][KœÚÝHÏÈˆŠK]X[]NˆÝš[™Ê][Kœ]X[]HÏÈ
+Kˆ™[Ü™\”Ú[ˆÝš[™Ê][Kœ™[Ü™\”Ú[ÏÈ
+KØ[\ÔšXÙNˆÝš[™Ê][KœØ[\ÔšXÙHÏÈ
+KÛÜÝˆÝš[™Ê][K˜]™\˜YÙPÛÜÝÏÈ][K˜ÛÜÝÏÈ
+Kˆ\Ý\˜Ú\ÙTšXÙNˆÝš[™Ê][K›\Ý\˜Ú\ÙTšXÙHÏÈ][K˜ÛÜÝÏÈ
+KÛ”ÎˆÝš[™Ê][K›Û”ÈÏÈ
+Kˆ\˜Ú\ÙU˜]ÛÙNˆÝš[™Ê][Kœ\˜Ú\ÙU˜]ÛÙHÏÈ”ÕS‘T‘ŠKØ[\Õ˜]ÛÙNˆÝš[™Ê][KœØ[\Õ˜]ÛÙHÏÈ”ÕS‘T‘ŠKˆÛÙÜÐXØÛÝ[Yˆ][K˜ÛÙÜÐXØÛÝ[YÈÝš[™Ê][K˜ÛÙÜÐXØÛÝ[Y
+Hˆ
+Y˜][ÛÙÜÈÈÝš[™ÊY˜][ÛÙÜËšY
+HˆˆŠK[˜ÛÛYPXØÛÝ[Yˆ][Kš[˜ÛÛYPXØÛÝ[YÈÝš[™Ê][Kš[˜ÛÛYPXØÛÝ[Y
+Hˆ
+Y˜][[˜ÛÛYHÈÝš[™ÊY˜][[˜ÛÛYKšY
+HˆˆŠKˆ\ÜÙ]XØÛÝ[Yˆ][K˜\ÜÙ]XØÛÝ[YÈÝš[™Ê][K˜\ÜÙ]XØÛÝ[Y
+Hˆ
+Y˜][\ÜÙ]ÈÝš[™ÊY˜][\ÜÙ]šY
+HˆˆŠK™Y™\œ™YÝ\Y\’Yˆ][Kœ™Y™\œ™YÝ\Y\’YÈÝš[™Ê][Kœ™Y™\œ™YÝ\Y\’Y
+Hˆˆ‹ˆÝ]\ÎˆÝš[™Ê][KœÝ]\ÈÏÈ˜XÝ]™HŠK[[Ý[Ò[˜ÛYU˜]ˆ][K˜[[Ý[Ò[˜ÛYU˜]OOHYHÝš[™Ê][K˜[[Ý[Ò[˜ÛYU˜]
+HOOHYHˆÈYHˆˆ™˜[ÙH‹ˆÜXÐÛÝ[ˆÝš[™ÊX]›Z[ŠÌÜXÚYšXØ][ÛœË›[™Ý
+JKˆNÂˆÜXÚYšXØ][ÛœËœÛXÙJÌ
+K™›Ü‘XXÚ
+
+ÜXÚYšXØ][Û‹[™^
+HOˆÂˆ][Q›Ü›VØÜXÓX™[	Ú[™^XHHÜXÚYšXØ][Û‹›X™[Âˆ][Q›Ü›VØÜXÕ˜[YIÚ[™^XHHÝš[™ÊÜXÚYšXØ][Û‹˜[YHÏÈˆŠKÓØØ[U\\Ø\ÙJ™[ˆŠNÂˆJNÂˆÙ]Y][™Ò][RY
+][KšY
+NÂˆÙ]Y]Ü’Ú[™
+š][\ÈŠNÂˆÙ]›Ü›J][Q›Ü›JNÂˆÙ]X[ÙÓÜ[ŠYJNÂˆB‚ˆ\Þ[˜È[˜Ý[ÛˆØ]™T™XÛÜ™
+]™[ˆ›Ü›Q]™[
+HÂˆ]™[œ™]™[Y˜][
+
+NÂˆYˆ
+\ÚÝSØÚËœ™XYJH™]\›ŽÂˆÛÛœÝØ]™RÚ[™HXÝ]™QY]Ü’Ú[™ÂˆYˆ
+Ø]™RÚ[™OOHš][\Èˆ	‰ˆXXÝ]™SØØ][ÛœËœÛÛYJØØ][ÛˆOˆØØ][Û‹šYOOHXÝ]™SØØ][Û’Y
+JH™]\›ˆØ\Ý™\œ›ÜŠ”Ù[XÝHÛÛ\[žHÚ][ˆXÝ]™H[™[ÜžH™Y›Ü™HØ]š[™ÈH][KˆŠNÂˆYˆ
+\Ø[\Ñ]Z[ÓÛ›H	‰ˆ[šÙY[™[ÜžQØÝ[Y[	‰ˆYØÝ[Y[[™[ÜžT™XYJH™]\›ˆØ\Ý™\œ›ÜŠ•ØZ]›ÜˆHÙ[XÝY[™[ÜžHÈØY™Y›Ü™HØ]š[™ËˆŠNÂˆYˆ
+Ø]™RÚ[™OOH˜ÛÛXÝÈˆ	‰ˆ›Ü›K\HOOH˜Ý\ÝÛY\ˆŠHÂˆÛÛœÝ™\]Z\™YHÙ›Ü›K˜ÛÛ\[žK›Ü›K›˜[YK›Ü›KœÛ™K›Ü›KÚ]Ø\›Ü›K˜ÛÝ[žK›Ü›Kœ™\Ù[\‹›Ü›Kœ[™]›Ü›K˜Ý\œ™[˜ÞWNÂˆYˆ
+™\]Z\™YœÛÛYJ
+˜[YJHOˆ]˜[YOËš[J
+JJH™]\›ˆØ\Ý™\œ›ÜŠÛÛ\]H[™\]Z\™YÝ\ÝÛY\ˆšY[ËˆŠNÂˆBˆYˆ
+Ø]™RÚ[™OOH˜ÛÛXÝÈˆ	‰ˆ›Ü›K\HOOH™[™Üˆˆ	‰ˆY][™Ô™XÛÜ™YOOH[
+HÂˆÛÛœÝ™\]Z\™YHÙ›Ü›K˜ÛÛ\[žK›Ü›K›˜[YK›Ü›KœÛ™K›Ü›K˜ÛÝ[žK›Ü›K˜Ý\œ™[˜ÞWNÂˆYˆ
+™\]Z\™YœÛÛYJ
+˜[YJHOˆ]˜[YOËš[J
+JJH™]\›ˆØ\Ý™\œ›ÜŠÛÛ\]H[™\]Z\™Y™[™ÜˆšY[ËˆŠNÂˆBˆYˆ
+Ø]™RÚ[™OOH˜[œØXÝ[ÛœÈˆ	‰ˆ›Ü›K\HOOH˜š[ŠHÂˆÛÛœÝ™\]Z\™YHÙ›Ü›Kœ\K›Ü›K›[X™\‹›Ü›K˜[œØXÝ[Û‘]K›Ü›K˜Ý\œ™[˜ÞK›Ü›K™^Ú[™ÙT˜]K›Ü›K˜š[ØØ][Û’YNÂˆYˆ
+™\]Z\™YœÛÛYJ
+˜[YJHOˆ]˜[YOËš[J
+JH[X™\Š›Ü›K™^Ú[™ÙT˜]JHH
+H™]\›ˆØ\Ý™\œ›ÜŠÛÛ\]HH™[™Ü‹™Y™\™[˜ÙK]K[™[ÜžKÝ\œ™[˜ÞH[™^Ú[™ÙH˜]KˆŠNÂˆYˆ
+[™\ËœÛÛYJ[™HOˆS[X™\‹š\Ñš[š]J[X™\Š[™K™œ™ZYÚÚ\™ÙH
+JH[X™\Š[™K™œ™ZYÚÚ\™ÙH
+H
+JH™]\›ˆØ\Ý™\œ›ÜŠ‘œ™ZYÚÚ\™Ù\È]\Ý™H˜[Y›Û‹[™YØ]]™H[[Ý[ËˆŠNÂˆYˆ
+[™\ËœÛÛYJ
+[™JHOˆ[[™K™\ØÜš\[Û‹š[J
+H[X™\Š[™Kœ]X[]JHH[X™\Š[™K[š]šXÙJH
+JH™]\›ˆØ\Ý™\œ›ÜŠÛÛ\]H]™\žHš[[™HÚ]H\ØÜš\[Û‹ÜÚ]]™H]X[]H[™˜[Y˜]KˆŠNÂˆBˆYˆ
+Ø]™RÚ[™OOH˜[œØXÝ[ÛœÈˆ	‰ˆ›Ü›K\HOOH˜š[^[Y[ˆ	‰ˆ\™XÛÜ™Ë˜XØÛÝ[ËœÛÛYJ
+˜[šÊHOˆ˜[šË˜XÝ]™H	‰ˆ
+˜[šË\HOOH˜[šÈˆ˜[šËœÞ\Ý[T›ÛHOOHS’ÈŠH	‰ˆ˜[šË›˜[YHOOH›Ü›K˜XØÛÝ[	‰ˆ˜[šË˜Ý\œ™[˜ÞHOOH›Ü›K˜Ý\œ™[˜ÞJJH™]\›ˆØ\Ý™\œ›ÜŠ”Ù[XÝ[ˆXÝ]™H^Hœ›ÛH˜[šÈX]Ú[™ÈH^[Y[Ý\œ™[˜ÞKˆŠNÂˆYˆ
+Ø]™RÚ[™OOH˜[œØXÝ[ÛœÈˆ	‰ˆ›Ü›K\HOOH˜Ú\]YHˆ	‰ˆ\™XÛÜ™Ë˜XØÛÝ[ËœÛÛYJ
+˜[šÊHOˆ˜[šË˜XÝ]™H	‰ˆ
+˜[šË\HOOH˜[šÈˆ˜[šËœÞ\Ý[T›ÛHOOHS’ÈŠH	‰ˆÝš[™Ê˜[šËšY
+HOOH›Ü›K˜˜[šÐXØÛÝ[Y	‰ˆÝš[™Ê˜[šË˜Ý\œ™[˜ÞJHOOH›Ü›K˜Ý\œ™[˜ÞJJH™]\›ˆØ\Ý™\œ›ÜŠ”Ù[XÝ[ˆXÝ]™H˜[šÈ[ˆHÚ\]YHÝ\œ™[˜ÞH›Üˆ^Hœ›ÛKˆŠNÂˆYˆ
+\Ø[\Ñ]Z[ÓÛ›H	‰ˆØ]™RÚ[™OOH˜[œØXÝ[ÛœÈˆ	‰ˆ›Ü›K\HOOH˜Ý\ÝÛY\ˆ^[Y[ˆ	‰ˆ\™XÛÜ™Ë˜XØÛÝ[ËœÛÛYJ
+XØÛÝ[
+HOˆXØÛÝ[˜XÝ]™H	‰ˆ
+XØÛÝ[\HOOH˜[šÈˆXØÛÝ[œÞ\Ý[T›ÛHOOHS’ÈŠH	‰ˆXØÛÝ[›˜[YHOOH›Ü›K˜XØÛÝ[	‰ˆXØÛÝ[˜Ý\œ™[˜ÞHOOH›Ü›K˜Ý\œ™[˜ÞJJH™]\›ˆØ\Ý™\œ›ÜŠ”Ù[XÝ[ˆXÝ]™H˜[šÈX]Ú[™ÈH^[Y[Ý\œ™[˜ÞH›Üˆ\ÜÚ]ËˆŠNÂˆYˆ
+\Ø[\Ñ]Z[ÓÛ›H	‰ˆØ]™RÚ[™OOH˜[œØXÝ[ÛœÈˆ	‰ˆÈ˜Ý\ÝÛY\ˆ^[Y[‹˜š[^[Y[‹˜Ú\]YH—Kš[˜ÛY\Ê›Ü›K\JJHÂˆÛÛœÝÚ\]YT\SÜ[Û˜[H›Ü›K\HOOH˜Ú\]YHˆ	‰ˆÈ™^[œÙH‹œØ[\žH—Kš[˜ÛY\Ê›Ü›K˜Ú\]YU\JNÂˆÛÛœÝ™\]Z\™YHØÚ\]YT\SÜ[Û˜[È‘Ù[™\˜[^[œÙHˆˆ›Ü›Kœ\K›Ü›K›[X™\‹›Ü›K˜[œØXÝ[Û‘]K›Ü›K˜Ý\œ™[˜ÞK›Ü›K™^Ú[™ÙT˜]K›Ü›K˜[œØXÝ[Û“ØØ][Û’YNÂˆYˆ
+™\]Z\™YœÛÛYJ
+˜[YJHOˆ]˜[YOËš[J
+JH[X™\Š›Ü›K™^Ú[™ÙT˜]JHH
+H™]\›ˆØ\Ý™\œ›ÜŠÛÛ\]HH\K™Y™\™[˜ÙK]K[™[ÜžKÝ\œ™[˜ÞH[™^Ú[™ÙH˜]KˆŠNÂˆYˆ
+[X™\Š[™\ÖÌOË[š]šXÙHÏÈ
+HH
+H™]\›ˆØ\Ý™\œ›ÜŠ‘[\ˆ[ˆ[[Ý[Ü™X]\ˆ[ˆ™\›ËˆŠNÂˆBˆYˆ
+Ø]™RÚ[™OOH˜[œØXÝ[ÛœÈˆ	‰ˆÈ™\ÜÚ]‹˜[œÙ™\ˆ‹˜Ü™Y]Ø\™Ú\™ÙH‹˜Ú\]YHÜ™\ˆ—Kš[˜ÛY\Ê›Ü›K\JJHÂˆÛÛœÝ™\]Z\™YHÙ›Ü›Kœ\K›Ü›K›[X™\‹›Ü›K˜[œØXÝ[Û‘]K›Ü›K˜Ý\œ™[˜ÞK›Ü›K™^Ú[™ÙT˜]K›Ü›K˜[œØXÝ[Û“ØØ][Û’Y›Ü›K˜XØÛÝ[NÂˆYˆ
+™\]Z\™YœÛÛYJ
+˜[YJHOˆ]˜[YOËš[J
+JH[X™\Š›Ü›K™^Ú[™ÙT˜]JHH
+H™]\›ˆØ\Ý™\œ›ÜŠÛÛ\]H[™\]Z\™Y˜[šÚ[™È]Z[È[™H^Ú[™ÙH˜]KˆŠNÂˆYˆ
+›Ü›K\HOOH˜Ú\]YHÜ™\ˆˆ	‰ˆ[X™\Š[™\ÖÌOË[š]šXÙHÏÈ
+HH
+H™]\›ˆØ\Ý™\œ›ÜŠ‘[\ˆ[ˆ[[Ý[Ü™X]\ˆ[ˆ™\›ËˆŠNÂˆYˆ
+›Ü›K\HOOH˜[œÙ™\ˆˆ	‰ˆ›Ü›Kœ\HOOH›Ü›K˜XØÛÝ[
+H™]\›ˆØ\Ý™\œ›ÜŠÚÛÜÙHY™™\™[ÛÝ\˜ÙH[™\Ý[˜][Ûˆ˜[šÈXØÛÝ[ËˆŠNÂˆBˆÙ]Ø]š[™ÊYJNÂˆžHÂˆÛÛœÝY][™Ò][HHØ]™RÚ[™OOHš][\Èˆ	‰ˆY][™Ò][RYOOH[ÂˆÛÛœÝY][™ÈHY][™Ò][H
+È˜ÛÛXÝÈ‹˜XØÛÝ[È‹˜[œØXÝ[ÛœÈ—Kš[˜ÛY\ÊØ]™RÚ[™
+H	‰ˆY][™Ô™XÛÜ™YOOH[
+NÂˆ]ÝX›Z]Y[™\ÈH[™\ÎÂˆÛÛœÝ™\›Õ˜]^[Y[HØ]™RÚ[™OOH˜[œØXÝ[ÛœÈˆ	‰ˆ
+È˜Ý\ÝÛY\ˆ^[Y[‹˜š[^[Y[—Kš[˜ÛY\Ê›Ü›K\JH
+›Ü›K\HOOH˜Ú\]YHˆ	‰ˆ
+›Ü›K˜XØÛÝ[[šÙYXØÛÝ[˜[YJ™XÛÜ™Ë˜XØÛÝ[ËT‹XØÛÝ[È^XX›H‹›Ü›K˜Ý\œ™[˜ÞJJHOOH[šÙYXØÛÝ[˜[YJ™XÛÜ™Ë˜XØÛÝ[ËT‹XØÛÝ[È^XX›H‹›Ü›K˜Ý\œ™[˜ÞJJJNÂˆYˆ
+™\›Õ˜]^[Y[
+HÂˆÝX›Z]Y[™\ÈHÝX›Z]Y[™\Ë›X\
+
+[™JHOˆ
+È‹‹›[™K˜]ÛÙNˆ–‘T“È‹˜]˜]NˆŒˆJJNÂˆBˆÛÛœÝÙ[XÝYØØ][Û’YHØ]™RÚ[™OOH˜[œØXÝ[ÛœÈˆ	‰ˆ›Ü›K\HOOH˜š[ˆÈ[X™\Š›Ü›K˜š[ØØ][Û’YXÝ]™SØØ][Û’Y
+HˆØ]™RÚ[™OOH˜[œØXÝ[ÛœÈˆÈ[X™\Š›Ü›K˜[œØXÝ[Û“ØØ][Û’YXÝ]™SØØ][Û’Y
+HˆXÝ]™SØØ][Û’YÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+‹Ø\KÜ™XÛÜ™È‹ÈY]ÙˆY][™ÈÈ”UÒˆˆ”ÔÕ‹XY\œÎˆÈÛÛ[U\HŽˆ˜\XØ][Û‹ÚœÛÛˆ‹‹‹œÚÝSØÚËšXY\œÈK›ÙNˆ”ÓÓ‹œÝš[™ÚYžJØ[\Ñ]Z[ÓÛ›HÈÈÚ[™ˆ˜[œØXÝ[ÛœÈ‹YˆY][™Ô™XÛÜ™YÛÛ\[žRYˆXÝ]™PÛÛ\[žRYY][ÙNˆ™]Z[È‹™]š\Ú[ÛŽˆ›Ü›Kœ™]š\Ú[Û‹[X™\Žˆ›Ü›K›[X™\‹˜[œØXÝ[Û‘]Nˆ›Ü›K˜[œØXÝ[Û‘]KYQ]Nˆ›Ü›K™YQ]KØ[\ÛX[Žˆ›Ü›KœØ[\ÛX[‹Y[[Îˆ›Ü›K›Y[[Ë‹‹Š›Ü›K\HOOHš[›ÚXÙHˆÈÈÛÛ[Y[Îˆ›Ü›K˜ÛÛ[Y[ËÙ\šX[[X™\Žˆ›Ü›KœÙ\šX[[X™\‹[™Q]Z[Îˆ[™\Ë™š[\Š[™HOˆ[™KšY
+K›X\
+[™HOˆ
+ÈYˆ[™KšYÛÛ[Y[Îˆ[™K˜ÛÛ[Y[Èˆ‹Ù\šX[[X™\Žˆ[™KœÙ\šX[[X™\ˆˆˆJJK\[™[™\Îˆ[™\Ë™š[\Š[™HOˆ[[™KšY
+K›X\
+[™HOˆ
+È][RYˆ[™Kš][RY\ØÜš\[ÛŽˆ[™K™\ØÜš\[Û‹]X[]Nˆ[™Kœ]X[]K[š]šXÙNˆ[™K[š]šXÙK[š]ÛÜÝˆ[™K[š]ÛÜÝ˜]ÛÙNˆ[™K˜]ÛÙK˜]˜]Nˆ[™K˜]˜]KÛÛ[Y[Îˆ[™K˜ÛÛ[Y[Èˆ‹Ù\šX[[X™\Žˆ[™KœÙ\šX[[X™\ˆˆˆJJHHˆßJHHˆÈÚ[™ˆØ]™RÚ[™ÛÛ\[žRYˆXÝ]™PÛÛ\[žRYØØ][Û’YˆÙ[XÝYØØ][Û’Y‹‹ŠY][™ÈÈÈYˆY][™Ò][HÈY][™Ò][RYˆY][™Ô™XÛÜ™YHˆßJK‹‹™›Ü›K‹‹Š™\›Õ˜]^[Y[ÈÈ˜]˜]NˆŒˆHˆßJK‹‹ŠØ]™RÚ[™OOH˜[œØXÝ[ÛœÈˆÈÈ[™\ÎˆÝX›Z]Y[™\ÈHˆßJHJHJNÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›ÝØ]™H™XÛÜ™ŠNÂˆÙ]™XÛÜ™Ê
+Û
+HOˆ
+È‹‹›ÛÜØ]™RÚ[™NˆY][™ÈÈÛÜØ]™RÚ[™K›X\
+
+™XÛÜ™
+HOˆ™XÛÜ™šYOOH]Kœ™XÛÜ™šYÈ]Kœ™XÛÜ™ˆ™XÛÜ™
+HˆÙ]Kœ™XÛÜ™‹‹›ÛÜØ]™RÚ[™WHJJNÂˆÙ]X[ÙÓÜ[Š˜[ÙJNÈÙ]Y]Ü’Ú[™
+[
+NÈÙ]Y][™Ò][RY
+[
+NÈÙ]Y][™Ô™XÛÜ™Y
+[
+NÈØ\ÝœÝXØÙ\ÜÊ]K™Ù[™\˜]YXØÛÝ[È	Ù]K™Ù[™\˜]YXØÛÝ[›˜[Y_HÜ™X]Y[™[šÙY]]ÛX]XØ[XˆY][™ÈÈÚ[™Ù\ÈØ]™Yˆˆ”™XÛÜ™Ø]™Y[™ÜÝYŠNÂˆYˆ
+Ø]™RÚ[™OOH˜[œØXÝ[ÛœÈˆ	‰ˆÙ[XÝYØØ][Û’YOOHXÝ]™SØØ][Û’Y
+HÙ]XÝ]™SØØ][Û’Y
+Ù[XÝYØØ][Û’Y
+NÂˆ[ÙH]ØZ]ØY]J
+NÂˆYˆ
+Ø]™RÚ[™OOH˜[œØXÝ[ÛœÈˆ	‰ˆ›Ü›K\HOOHš[›ÚXÙHŠH]ØZ]ØYÛÜšÜÜXÙ\Ê
+NÂˆHØ]Ú
+\œ›ÜŠHÈØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›ÝØ]™H™XÛÜ™ŠNÈBˆš[˜[HÈÙ]Ø]š[™Ê˜[ÙJNÈBˆB‚ˆ\Þ[˜È[˜Ý[Ûˆ™[[Ý™T™XÛÜ™
+Yˆ[X™\ŠHÂˆžHÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+‹Ø\KÜ™XÛÜ™È‹ÈY]Ùˆ‘SUH‹XY\œÎˆÈÛÛ[U\HŽˆ˜\XØ][Û‹ÚœÛÛˆˆK›ÙNˆ”ÓÓ‹œÝš[™ÚYžJÈÚ[™ˆÝ\œ™[Ú[™YÛÛ\[žRYˆXÝ]™PÛÛ\[žRYJHJNÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›Üˆ‘[]H˜Z[YŠNÂˆÙ]™XÛÜ™Ê
+Û
+HOˆ
+È‹‹›ÛØÝ\œ™[Ú[™NˆÛØÝ\œ™[Ú[™K™š[\Š
+ŠHOˆ‹šYOOHY
+HJJNÂˆYˆ
+Ý\œ™[Ú[™OOH˜[œØXÝ[ÛœÈˆ	‰ˆšY]ÈOOHœ\˜Ú\Ù\ÈŠH]ØZ]ØY]J
+NÂˆØ\ÝœÝXØÙ\ÜÊ”™XÛÜ™[]YŠNÂˆHØ]Ú
+\œ›ÜŠHÈØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›Ý[]H™XÛÜ™ŠNÈBˆB‚ˆ\Þ[˜È[˜Ý[Ûˆ\XØ]R][JYˆ[X™\ŠHÂˆžHÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+‹Ø\KÜ™XÛÜ™È‹ÈY]Ùˆ”ÔÕ‹XY\œÎˆÈÛÛ[U\HŽˆ˜\XØ][Û‹ÚœÛÛˆˆK›ÙNˆ”ÓÓ‹œÝš[™ÚYžJÈÚ[™ˆš][\È‹ÛÛ\[žRYˆXÝ]™PÛÛ\[žRYØØ][Û’YˆXÝ]™SØØ][Û’Y\XØ]R][RYˆYJHJNÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›Ý\XØ]H][HŠNÂˆ]ØZ]ØY]J
+NÂˆÜ[’][QY]
+]Kœ™XÛÜ™\È]T™XÛÜ™
+NÂˆØ\ÝœÝXØÙ\ÜÊ\XØ]H	Ù]Kœ™XÛÜ™œÚÝ_H\È™XYHÈY][™Ø]™X
+NÂˆHØ]Ú
+\œ›ÜŠHÈØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›Ý\XØ]H][HŠNÈBˆB‚ˆ\Þ[˜È[˜Ý[ÛˆÜ[‘]Z[
+Yˆ[X™\ŠHÂˆžHÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+Ø\KÜ™XÛÜ™ÏÚÚ[™]˜[œØXÝ[ÛœÉšYIÚYI˜ÛÛ\[žRYIØXÝ]™PÛÛ\[žRYI›ØØ][Û’YIØXÝ]™SØØ][Û’YX
+NÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›ÝÜ[ˆØÝ[Y[ŠNÂˆÙ]]Z[
+]JNÂˆHØ]Ú
+\œ›ÜŠHÈØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›ÝÜ[ˆØÝ[Y[ŠNÈBˆB‚ˆ\Þ[˜È[˜Ý[ÛˆÜ[”\˜Ú\ÙQY]
+™XÛÜ™ˆ]T™XÛÜ™
+HÂˆYˆ
+Ý\œ™[\Ù\‹œ›ÛHOOH˜YZ[ˆŠH™]\›ŽÂˆžHÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+Ø\KÜ™XÛÜ™ÏÚÚ[™]˜[œØXÝ[ÛœÉšYIÜ™XÛÜ™šYI˜ÛÛ\[žRYIØXÝ]™PÛÛ\[žRYXÈØXÚNˆ››Ë\ÝÜ™HˆJNÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›ÝØY\˜Ú\ÙHŠNÂˆÛÛœÝ\˜Ú\ÙHH]Kœ™XÛÜ™\È]T™XÛÜ™ÂˆYˆ
+VÈš[›ÚXÙH‹˜Ý\ÝÛY\ˆ^[Y[—Kš[˜ÛY\ÊÝš[™Ê\˜Ú\ÙK\JJH	‰ˆ
+\˜Ú\ÙK˜ÛÛ™\Y[›ÚXÙRYVÈ›Ü[ˆ‹™˜Y‹œ[™[™È‹›Ý™\™YH—Kš[˜ÛY\ÊÝš[™Ê\˜Ú\ÙKœÝ]\ÊJJJH›ÝÈ™]È\œ›ÜŠ“Û›HÜ[‹Ý™\™YK˜YÜˆ[™[™È\˜Ú\Ù\ÈØ[ˆ™HY]YˆÛÛ™\YÜˆÙ]YØÝ[Y[È\™HØÚÙYˆŠNÂˆÛÛœÝØØ][Û’YH[X™\Š\˜Ú\ÙK›ØØ][Û’Y
+NÂˆYˆ
+XXÝ]™SØØ][ÛœËœÛÛYJ
+ØØ][ÛŠHOˆØØ][Û‹šYOOHØØ][Û’Y
+JH›ÝÈ™]È\œ›ÜŠ•H\˜Ú\ÙH[™[ÜžH\È›Ý]˜Z[X›KˆŠNÂˆÙ]Y][™Ô™XÛÜ™Y
+\˜Ú\ÙKšY
+NÂˆÙ]Y][™Ò][RY
+[
+NÂˆÙ]Y]Ü’Ú[™
+˜[œØXÝ[ÛœÈŠNÂˆÙ]XÝ]™SØØ][Û’Y
+ØØ][Û’Y
+NÂˆÙ]›Ü›JÈ‹‹“Øš™XÝ™œ›ÛQ[šY\ÊØš™XÝ™[šY\Ê\˜Ú\ÙJK›X\
+
+ÚÙ^K˜[YWJHOˆÚÙ^KÝš[™Ê˜[YHÏÈˆŠWJJK™]š\Ú[ÛŽˆ]Kœ™]š\Ú[Û‹š[ØØ][Û’YˆÝš[™ÊØØ][Û’Y
+K˜[œØXÝ[Û“ØØ][Û’YˆÝš[™ÊØØ][Û’Y
+Kœ™ZYÚÚ\™Ù\ÎˆŒˆJNÂˆÙ][™\Ê]K›[™\Ë™š[\Š
+[™Nˆ]T™XÛÜ™
+HOˆ[[™Kš\Ñœ™ZYÚÚ\™ÙJK›X\
+
+[™Nˆ]T™XÛÜ™
+HOˆ
+ÈYˆ[™KšYÛÛ[Y[ÎˆÝš[™Ê[™K˜ÛÛ[Y[ÈÏÈˆŠKÙ\šX[[X™\ŽˆÝš[™Ê[™KœÙ\šX[[X™\ˆÏÈˆŠKœ™ZYÚÚ\™ÙNˆÝš[™Ê[™K™œ™ZYÚÚ\™ÙH
+K][RYˆ[™Kš][RYÈÝš[™Ê[™Kš][RY
+Hˆˆ‹\ØÜš\[ÛŽˆÝš[™Ê[™K™\ØÜš\[ÛˆÏÈˆŠK]X[]NˆÝš[™Ê[™Kœ]X[]JK[š]šXÙNˆÝš[™Ê[™K[š]šXÙJK[š]ÛÜÝˆÝš[™ÊX]œ›Ý[™
+
+[X™\Š[™K[š]šXÙH
+H
+È[X™\Š[™K™œ™ZYÚÚ\™ÙH
+HÈX]›X^
+[X™\Š[™Kœ]X[]H
+K[X™\‹‘TÒSÓŠJH
+ˆL
+HÈL
+K˜]ÛÙNˆÝš[™Ê[™K˜]ÛÙJK˜]˜]NˆÝš[™Ê[™K˜]˜]JHJJJNÂˆÙ]]Z[
+[
+NÂˆÙ]X[ÙÓÜ[ŠYJNÂˆHØ]Ú
+\œ›ÜŠHÈØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›ÝØY\˜Ú\ÙHŠNÈBˆB‚ˆ[˜Ý[ÛˆÛÛ™\ÛÝ\˜ÙQØÝ[Y[
+ÛÝ\˜ÙNˆ˜[œØXÝ[Û‘]Z[
+HÂˆÛÛœÝ™XÛÜ™HÛÝ\˜ÙKœ™XÛÜ™ÂˆÛÛœÝ\˜Ú\ÙSÜ™\ˆH™XÛÜ™\HOOHœ\˜Ú\ÙHÜ™\ˆŽÂˆYˆ
+
+\\˜Ú\ÙSÜ™\ˆ	‰ˆVÈœ][Ý][Ûˆ‹™\Ý[X]H‹œ›Ù›Ü›XH[›ÚXÙH‹œØ[\ÈÜ™\ˆ—Kš[˜ÛY\ÊÝš[™Ê™XÛÜ™\JJJH™XÛÜ™˜ÛÛ™\Y[›ÚXÙRY™XÛÜ™œÝ]\ÈOOH˜ÛÛ™\YŠH™]\›ˆØ\Ý™\œ›ÜŠ•\ÈØÝ[Y[Ø[››Ý™HÛÛ™\YYØZ[‹ˆŠNÂˆÛÛœÝØØ][Û’YH[X™\Š™XÛÜ™›ØØ][Û’Y
+NÂˆÛÛœÝØØ][ÛˆHXÝ]™SØØ][ÛœË™š[™
+
+Ø[™Y]JHOˆØ[™Y]KšYOOHØØ][Û’Y
+NÂˆYˆ
+[ØØ][ÛŠH™]\›ˆØ\Ý™\œ›ÜŠ•HÛÝ\˜ÙH[™[ÜžH\È›Ý]˜Z[X›KˆŠNÂˆÙ]Y][™Ô™XÛÜ™Y
+[
+NÂˆÙ]Y]Ü’Ú[™
+˜[œØXÝ[ÛœÈŠNÂˆÙ]XÝ]™SØØ][Û’Y
+ØØ][Û’Y
+NÂˆÙ]›Ü›J\˜Ú\ÙSÜ™\ˆÈÂˆ\Nˆ˜š[‹\˜Ú\ÙSÜ™\’YˆÝš[™Ê™XÛÜ™šY
+KÛÝ\˜ÙQØÝ[Y[X™[ˆ	ÔÝš[™Ê™XÛÜ™\J_H	ÔÝš[™Ê™XÛÜ™›[X™\Š_Xˆ[X™\Žˆ’SIÔÝš[™Ê™XÛÜ™Ë˜[œØXÝ[ÛœË›[™Ý
+ÈJKœYÝ\
+ŒŠ_X\NˆÝš[™Ê™XÛÜ™œ\JKØ[\ÛX[ŽˆÝš[™Ê™XÛÜ™œØ[\ÛX[ˆÏÈˆŠKˆ˜[œØXÝ[Û‘]NˆÙ^J
+KYQ]NˆÝš[™Ê™XÛÜ™™YQ]HÙ^J
+JKÝ]\Îˆ›Ü[ˆ‹XØÛÝ[ˆY˜][ÜÝ[™ÐXØÛÝ[
+˜š[‹™XÛÜ™Ë˜XØÛÝ[ÊKˆ˜]˜]NˆÝš[™Ê™XÛÜ™˜]˜]HÏÈHŠKÝ\œ™[˜ÞNˆÝš[™Ê™XÛÜ™˜Ý\œ™[˜ÞH˜\ÙPÝ\œ™[˜ÞJK^Ú[™ÙT˜]NˆÝš[™Ê™XÛÜ™™^Ú[™ÙT˜]HŒHŠKˆš[ØØ][Û’YˆÝš[™ÊØØ][Û’Y
+K˜[œØXÝ[Û“ØØ][Û’YˆÝš[™ÊØØ][Û’Y
+K\Ò[\Üˆ[X™\Š™XÛÜ™˜][[Ý[
+Hˆ™XÛÜ™š\Ò[\ÜÈYHˆˆ™˜[ÙH‹œ™ZYÚÚ\™Ù\ÎˆŒ‹Y[[ÎˆÝš[™Ê™XÛÜ™›Y[[ÈÏÈˆŠKˆHˆÂˆ\Nˆš[›ÚXÙH‹ÛÝ\˜ÙU˜[œØXÝ[Û’YˆÝš[™Ê™XÛÜ™šY
+KÛÝ\˜ÙQØÝ[Y[X™[ˆ	ÔÝš[™Ê™XÛÜ™\J_H	ÔÝš[™Ê™XÛÜ™›[X™\Š_Xˆ[X™\Žˆ[›ÚXÙS[X™\”™]šY]ÊXÝ]™PÛÛ\[žRYØØ][ÛŠK\NˆÝš[™Ê™XÛÜ™œ\JKØ[\ÛX[ŽˆÝš[™Ê™XÛÜ™œØ[\ÛX[ˆÏÈˆŠKˆ˜[œØXÝ[Û‘]NˆÙ^J
+KYQ]NˆÝš[™Ê™XÛÜ™™YQ]HÙ^J
+JKÝ]\Îˆ›Ü[ˆ‹XØÛÝ[ˆÝš[™Ê™XÛÜ™˜XØÛÝ[
+Kˆ˜]˜]NˆÝš[™Ê™XÛÜ™˜]˜]HÏÈHŠKÝ\œ™[˜ÞNˆÝš[™Ê™XÛÜ™˜Ý\œ™[˜ÞH˜\ÙPÝ\œ™[˜ÞJK^Ú[™ÙT˜]NˆÝš[™Ê™XÛÜ™™^Ú[™ÙT˜]HŒHŠKˆ˜[œØXÝ[Û“ØØ][Û’YˆÝš[™ÊØØ][Û’Y
+K[ÝÓ™YØ]]™TÝØÚÎˆ™˜[ÙH‹YZ[“Ý™\œšYT[Žˆˆ‹Y[[ÎˆÝš[™Ê™XÛÜ™›Y[[ÈÏÈˆŠKˆJNÂˆÙ][™\ÊÛÝ\˜ÙK›[™\Ë›X\
+
+[™JHOˆ
+È][RYˆ[™Kš][RYÈÝš[™Ê[™Kš][RY
+Hˆˆ‹\ØÜš\[ÛŽˆÝš[™Ê[™K™\ØÜš\[ÛˆÏÈˆŠK]X[]NˆÝš[™Ê[™Kœ]X[]HÏÈŒHŠK[š]šXÙNˆÝš[™Ê[™K[š]šXÙHÏÈŒŠK[š]ÛÜÝˆÝš[™Ê[™K[š]ÛÜÝÏÈŒŠK˜]ÛÙNˆÝš[™Ê[™K˜]ÛÙHÏÈ”ÕS‘T‘ŠK˜]˜]NˆÝš[™Ê[™K˜]˜]HÏÈHŠHJJJNÂˆÙ]]Z[
+[
+NÂˆÙ]X[ÙÓÜ[ŠYJNÂˆB‚ˆ\Þ[˜È[˜Ý[ÛˆÜ[”™\Ü
+Ù^NˆÝš[™Ë\š[ÙÎˆÈÝ\ˆÝš[™ÎÈ[™ˆÝš[™ÈKØ]™YÎˆÈØØ][Û’Yˆ[X™\ˆ[ÈÝ\œ™[˜ÞNˆÝš[™ÎÈÝ\ÝÛY\ÎˆÝš[™ÎÈÝ][Y[]OÎˆÝš[™ÎÈY[[ÏÎˆÝš[™ÈJHÂˆÙ]™\ÜØY[™ÊYJNÂˆžHÂˆÛÛœÝ\š[Ù]Y\žHH
+\š[ÙÈ	œ\š[ÙÝ\IÜ\š[ÙœÝ\Iœ\š[Ù[™IÜ\š[Ù™[™XˆˆŠH
+È	˜Ý\ÝÛY\IÙ[˜ÛÙUT’PÛÛ\Û™[
+Ø]™YË˜Ý\ÝÛY\ˆˆŠ_IœÝ][Y[]OIÙ[˜ÛÙUT’PÛÛ\Û™[
+Ø]™YËœÝ][Y[]HˆŠ_I›Y[[ÏIÙ[˜ÛÙUT’PÛÛ\Û™[
+Ø]™YË›Y[[ÈˆŠ_XÂˆÛÛœÝ™\ÜØØ][Û’YHØ]™YË›ØØ][Û’YÏÈXÝ]™SØØ][Û’YÂˆÛÛœÝ™\ÜÝ\œ™[˜ÞHHØ]™YË˜Ý\œ™[˜ÞH˜\ÙPÝ\œ™[˜ÞNÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+Ø\KÜ™\ÜÏÝ\OIÚÙ^_I˜ÛÛ\[žRYIØXÝ]™PÛÛ\[žRYI›ØØ][Û’YIÜ™\ÜØØ][Û’YI˜Ý\œ™[˜ÞOIÜ™\ÜÝ\œ™[˜Þ_IÜ\š[Ù]Y\ž_XÈÚYÛ˜[ˆX›ÜÚYÛ˜[[Y[Ý]
+Ì
+KØXÚNˆ››Ë\ÝÜ™HˆJNÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›ÝÙ[™\˜]H™\ÜŠNÂˆÙ]™\Ü
+]Kœ™\Ü
+NÂˆÙ]™\ÜÛÛ^
+ÈÙ^KØØ][Û’Yˆ™\ÜØØ][Û’YÝ\œ™[˜ÞNˆ™\ÜÝ\œ™[˜ÞK\š[ÙÝ\ˆ\š[ÙËœÝ\ÏÈˆ‹\š[Ù[™ˆ\š[ÙË™[™ÏÈˆˆJNÂˆHØ]Ú
+\œ›ÜŠHÈØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›Üˆ	‰ˆ\œ›Ü‹›˜[YHOOH•[Y[Ý]\œ›ÜˆˆÈ•H™\ÜÛÚÈÛÈÛ™ÈÈØYˆX\ÙHžHYØZ[‹ˆˆˆ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›ÝÙ[™\˜]H™\ÜŠNÈBˆš[˜[HÈÙ]™\ÜØY[™Ê˜[ÙJNÈBˆB‚ˆ\Þ[˜È[˜Ý[ÛˆØ]™SY[[Üš\ÙY™\Ü
+
+HÂˆYˆ
+\™\Ü\™\ÜÛÛ^
+H™]\›ŽÂˆÛÛœÝYš[š][ÛˆH[™\ÜË™š[™
+
+Ø[™Y]JHOˆØ[™Y]VÌ×HOOH™\ÜÛÛ^šÙ^JNÂˆYˆ
+YYš[š][ÛŠH™]\›ˆØ\Ý™\œ›ÜŠ•\È™\ÜØ[››Ý™HY[[Üš\ÙYˆŠNÂˆÙ]Y[[Üš\ÙTØ]š[™ÊYJNÂˆžHÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+‹Ø\KÛY[[Üš\ÙY\™\ÜÈ‹ÈY]Ùˆ”ÔÕ‹XY\œÎˆÈÛÛ[U\HŽˆ˜\XØ][Û‹ÚœÛÛˆˆK›ÙNˆ”ÓÓ‹œÝš[™ÚYžJÈÛÛ\[žRYˆXÝ]™PÛÛ\[žRYØØ][Û’Yˆ™\ÜÛÛ^›ØØ][Û’Y˜[YNˆYš[š][Û–ÌK™\ÜÙ^Nˆ™\ÜÛÛ^šÙ^KØ]YÛÜžNˆYš[š][Û–Ì—KÝ\œ™[˜ÞNˆ™\ÜÛÛ^˜Ý\œ™[˜ÞK\š[ÙÝ\ˆ™\ÜÛÛ^œ\š[ÙÝ\\š[Ù[™ˆ™\ÜËœÝ][Y[ËÈ™\ÜÛÛ^œ\š[Ù[™Ý\ÝÛY\Žˆ™\Ü›Ü[˜[[˜ÙOË˜Ý\ÝÛY\ˆ™\ÜœÝ][Y[Ë˜Ý\ÝÛY\ˆˆ‹Y[[Îˆ™\ÜœÝ][Y[Ë›Y[[Èˆ‹Ý][Y[]Nˆ™\Ü›Ü[˜[[˜ÙOË˜\ÓÙˆ™\ÜœÝ][Y[ËœÝ][Y[]HˆˆJHJNÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›ÝY[[Üš\ÙH™\ÜŠNÂˆ]ØZ]ØYY[[Üš\ÙY™\ÜÊ
+NÂˆØ\ÝœÝXØÙ\ÜÊ	ÙYš[š][Û–Ì_HØ]™YÈY[[Üš\ÙY™\Ü\Ý
+NÂˆHØ]Ú
+\œ›ÜŠHÈØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›ÝY[[Üš\ÙH™\ÜŠNÈBˆš[˜[HÈÙ]Y[[Üš\ÙTØ]š[™Ê˜[ÙJNÈBˆB‚ˆ\Þ[˜È[˜Ý[Ûˆ™[[Ý™SY[[Üš\ÙY™\Ü
+™XÛÜ™ˆY[[Üš\ÙY™\Ü™XÛÜ™
+HÂˆžHÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+‹Ø\KÛY[[Üš\ÙY\™\ÜÈ‹ÈY]Ùˆ‘SUH‹XY\œÎˆÈÛÛ[U\HŽˆ˜\XØ][Û‹ÚœÛÛˆˆK›ÙNˆ”ÓÓ‹œÝš[™ÚYžJÈYˆ™XÛÜ™šYÛÛ\[žRYˆXÝ]™PÛÛ\[žRYJHJNÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›Ý™[[Ý™HY[[Üš\ÙY™\ÜŠNÂˆÙ]Y[[Üš\ÙY™\ÜÊ
+Ý\œ™[
+HOˆÝ\œ™[™š[\Š
+Ø]™Y™\Ü
+HOˆØ]™Y™\ÜšYOOH™XÛÜ™šY
+JNÂˆØ\ÝœÝXØÙ\ÜÊ“Y[[Üš\ÙY™\Ü™[[Ý™YŠNÂˆHØ]Ú
+\œ›ÜŠHÈØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›Ý™[[Ý™HY[[Üš\ÙY™\ÜŠNÈBˆB‚ˆ[˜Ý[ÛˆÜ[“Y[[Üš\ÙY™\Ü
+™XÛÜ™ˆY[[Üš\ÙY™\Ü™XÛÜ™
+HÂˆÛÛœÝ\š[ÙH™XÛÜ™œ\š[ÙÝ\™XÛÜ™œ\š[Ù[™ÈÈÝ\ˆ™XÛÜ™œ\š[ÙÝ\[™ˆ™XÛÜ™œ\š[Ù[™Hˆ[™Yš[™YÂˆ›ÚYÜ[”™\Ü
+™XÛÜ™œ™\ÜÙ^K\š[ÙÈØØ][Û’Yˆ™XÛÜ™›ØØ][Û’YÝ\œ™[˜ÞNˆ™XÛÜ™˜Ý\œ™[˜ÞKÝ\ÝÛY\Žˆ™XÛÜ™˜Ý\ÝÛY\‹Ý][Y[]Nˆ™XÛÜ™œÝ][Y[]KY[[Îˆ™XÛÜ™›Y[[ÈJNÂˆB‚ˆÛÛœÝXY[™ÈHšY]Õ]\ÖÝšY]×NÂˆÛÛœÝÜ™X]SX™[HÝ\œ™[Ú[™OOH˜ÛÛXÝÈˆÈ™]È	ÝšY]ÈOOH™[\ÞYY\ÈˆÈ‘[\ÞYYHˆˆšY]ÈOOH™[™ÜœÈˆÈ•™[™ÜˆˆˆÝ\ÝÛY\ˆŸXˆÝ\œ™[Ú[™OOHš][\ÈˆÈ“™]È][HˆˆÝ\œ™[Ú[™OOH˜XØÛÝ[ÈˆÈ“™]ÈXØÛÝ[ˆˆšY]ÈOOHœ\˜Ú\Ù\ÈˆÈ‘[\ˆš[ˆˆšY]ÈOOHœ™XÙZ]™K\^[Y[ˆÈ”™XÙZ]™H^[Y[ˆˆšY]ÈOOHÜš]KXÚ\]YHˆÈ•Üš]HÚ\]YHˆˆ™]È	Ý˜[œØXÝ[Û•\\ÖÝšY]×OË–ÌHÏÈ•˜[œØXÝ[ÛˆŸXÂˆÛÛœÝY]Ü“X™[HXÝ]™QY]Ü’Ú[™OOH˜[œØXÝ[ÛœÈˆ	‰ˆY]Ü’Ú[™OOH˜[œØXÝ[ÛœÈˆÈ›Ü›K\OËœÜ]
+ˆŠK›X\
+
+ÛÜ™
+HOˆÛÜ™ÌOËÕ\\Ø\ÙJ
+H
+ÈÛÜ™œÛXÙJJJKš›Ú[ŠˆŠHˆÜ™X]SX™[Â‚ˆ™]\›ˆ
+ˆÚYX˜\”›ÝšY\ˆ]K]\Ù\‹][YO^Ý[YPÛÛÜŸH]KX\X\˜[˜ÙO^Ø\X\˜[˜ÙS[Ù_O‚ˆÚYX˜\ˆÛÛ\ÚX›OHšXÛÛˆˆÛ\ÜÓ˜[YOH˜œ˜[™\ÚYX˜\ˆ›Ü™\‹\ˆ›Ü™\‹\Û]KN™ËVÈÌMÌ—H^\Û]KLL‚ˆÚYX˜\’XY\ˆÛ\ÜÓ˜[YOH˜›Ü™\‹Xˆ›Ü™\‹]Ú]KÌLM‚ˆ]ˆÛ\ÜÓ˜[YOH™›^][\ËXÙ[\ˆØ\LÈÝ™\™›ÝËZY[ˆ‚ˆ]ˆÛ\ÜÓ˜[YOH˜œ˜[™[ÙÛÈÜšYÚ^™KNHÚš[šËLXÙKZ][\ËXÙ[\ˆ›Ý[™Y^^\ÛH›ÛX›XÚÈÓÙ]‚ˆ]ˆÛ\ÜÓ˜[YOH›Z[‹]ËLÜ›Ý\Y]KVØÛÛ\ÚX›OZXÛÛ—NšY[ˆ‚ˆÛ\ÜÓ˜[YOH[˜Ø]H^\ÛH›ÛX›Û˜XÚÚ[™Ë]ÚYH^]Ú]HÓÓS‘US•T”’TÑOÜ‚ˆÛ\ÜÓ˜[YOH[˜Ø]H^^È^\Û]KMXØÛÝ[[™ÈÝZ]OÜ‚ˆÙ]‚ˆÙ]‚ˆ]ˆÛ\ÜÓ˜[YOH›]LÈÜ›Ý\Y]KVØÛÛ\ÚX›OZXÛÛ—NšY[ˆÙ[XÝ˜[YO^ÔÝš[™ÊXÝ]™PÛÛ\[žRYˆŠ_HÛ•˜[YPÚ[™ÙO^Ê˜[YJHOˆÈÛÛœÝÛÛ\[žHHÛÛ\[šY\Ë™š[™
+
+[žJHOˆ[žKšYOOH[X™\Š˜[YJJNÈÙ]XÝ]™PÛÛ\[žRY
+[X™\Š˜[YJJNÈÙ]XÝ]™SØØ][Û’Y
+ÛÛ\[žOË›ØØ][ÛœÖÌOËšYÏÈ
+NÈÙ]ÙX\˜Ú
+ˆŠNÈ_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[›Ü™\‹]Ú]KÌL™Ë]Ú]KÍH^]Ú]HÙ[XÝ˜[YHXÙZÛ\H”Ù[XÝÛÛ\[žHˆÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žØÛÛ\[šY\Ë›X\
+
+ÛÛ\[žJHOˆÙ[XÝ][HÙ^O^ØÛÛ\[žKšYH˜[YO^ÔÝš[™ÊÛÛ\[žKšY
+_OžØÛÛ\[žK›˜[Y_OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝÙ]‚ˆÔÚYX˜\’XY\‚ˆÚYX˜\ÛÛ[Û\ÜÓ˜[YOHœLˆKLÈ‚ˆÝš\ÚX›S˜]‘Ü›Ý\Ë›X\
+
+Ü›Ý\
+HOˆ
+ˆÚYX˜\‘Ü›Ý\Ù^O^ÙÜ›Ý\›X™[O‚ˆÚYX˜\‘Ü›Ý\X™[Û\ÜÓ˜[YOH^VÌL\H˜XÚÚ[™ËVËŒM™[WH^\Û]KMLžÙÜ›Ý\›X™[OÔÚYX˜\‘Ü›Ý\X™[‚ˆÚYX˜\‘Ü›Ý\ÛÛ[ÚYX˜\“Y[O‚ˆÙÜ›Ý\š][\Ë›X\
+
+][JHOˆÚYX˜\“Y[R][HÙ^O^Ú][KšYO‚ˆÚYX˜\“Y[P]ÛˆÛÛ\^Ú][K›X™[H\ÐXÝ]™O^ÝšY]ÈOOH][KšYHÛÛXÚÏ^Ê
+HOˆÈÙ]šY]Ê][KšY\ÈšY]ÊNÈÙ]ÙX\˜Ú
+ˆŠNÈ_HÛ\ÜÓ˜[YOH˜œ˜[™[˜]‹Z][HLL^\Û]KLÌÝ™\Ž˜™Ë]Ú]KÎÝ™\Ž^]Ú]H‚ˆ][KšXÛÛˆÏÜ[žÚ][K›X™[OÜÜ[‚ˆÔÚYX˜\“Y[P]Û‚ˆÔÚYX˜\“Y[R][OŠ_BˆÔÚYX˜\“Y[OÔÚYX˜\‘Ü›Ý\ÛÛ[‚ˆÔÚYX˜\‘Ü›Ý\‚ˆ
+J_BˆÔÚYX˜\ÛÛ[‚ˆÚYX˜\‘›ÛÝ\ˆÛ\ÜÓ˜[YOH˜›Ü™\‹]›Ü™\‹]Ú]KÌLLÈ‚ˆØÝ\œ™[\Ù\‹œ›ÛHOOH˜YZ[ˆˆ	‰ˆÚYX˜\“Y[OÚYX˜\“Y[R][OÚYX˜\“Y[P]ÛˆÛÛ\HÛÛ\[šY\È	ˆ[™[ÜžHˆÛÛXÚÏ^Ê
+HOˆÙ]ÛÜšÜÜXÙSÜ[ŠYJ_HÛ\ÜÓ˜[YOH^\Û]KMÙ][™ÜÈÏÜ[ÛÛ\[šY\È	ˆ[™[ÜžOÜÜ[ÔÚYX˜\“Y[P]ÛÔÚYX˜\“Y[R][OÔÚYX˜\“Y[OŸBˆ]ˆÛ\ÜÓ˜[YOH›]LH›^][\ËXÙ[\ˆØ\LÈ›Ý[™Y[È™Ë]Ú]KÍHLˆÜ›Ý\Y]KVØÛÛ\ÚX›OZXÛÛ—NšY[ˆ‚ˆØÝ\œ™[\Ù\‹˜]˜]\‘]HÈ[XYÙHÜ˜Ï^ØÝ\œ™[\Ù\‹˜]˜]\‘]_H[^Ø	ØÝ\œ™[\Ù\‹™[˜[YHÝ\œ™[\Ù\‹™[XZ[H›Ùš[XHÚY^ÌÌŸHZYÚ^ÌÌŸH[›Ü[Z^™YÛ\ÜÓ˜[YOHœÚ^™KN›Ý[™YY[›Ü™\ˆ›Ü™\‹]Ú]KÌMHØš™XÝXÛÝ™\ˆˆÏˆˆ]ˆÛ\ÜÓ˜[YOH™ÜšYÚ^™KNXÙKZ][\ËXÙ[\ˆ›Ý[™YY[™Ë\Û]KMÌ^^È›ÛX›ÛžÊÝ\œ™[\Ù\‹™[˜[YHÝ\œ™[\Ù\‹™[XZ[
+KœÛXÙJŠKÕ\\Ø\ÙJ
+_OÙ]ŸBˆ]ˆÛ\ÜÓ˜[YOH›Z[‹]ËL›^LHÛ\ÜÓ˜[YOH[˜Ø]H^^È›Û\Ù[ZX›Û^]Ú]HžØÝ\œ™[\Ù\‹™[˜[YH›ÛSX™[ÖØÝ\œ™[\Ù\‹œ›ÛW_OÜÛ\ÜÓ˜[YOH[˜Ø]H^VÌL\H^\Û]KMLžÜ›ÛSX™[ÖØÝ\œ™[\Ù\‹œ›ÛW_H0­ÈØÝ\œ™[\Ù\‹™[XZ[OÜÙ]‚ˆ]Ûˆ\OH˜]Ûˆˆ˜\šX[H™ÚÜÝˆÚ^™OHšXÛÛˆˆ\šXK[X™[H”ÚYÛˆÝ]ˆ]OH”ÚYÛˆÝ]ˆÛÛXÚÏ^ÜÚYÛ“Ý]HÛ\ÜÓ˜[YOHœÚ^™KNÚš[šËL^\Û]KMÝ™\Ž˜™Ë]Ú]KÌLÝ™\Ž^]Ú]HÙÓÝ]Û\ÜÓ˜[YOHœÚ^™KMˆÏÐ]Û‚ˆÙ]‚ˆÔÚYX˜\‘›ÛÝ\‚ˆÚYX˜\”˜Z[Ï‚ˆÔÚYX˜\‚‚ˆÚYX˜\’[œÙ]Û\ÜÓ˜[YOH˜œ˜[™]ÛÜšÜÜXÙHZ[‹]ËL‚ˆXY\ˆÛ\ÜÓ˜[YOHœÝXÚÞHÜL‹LŒ›^Z[‹ZLMˆ›^]Ü˜\][\ËXÙ[\ˆ\ÝYžKX™]ÙY[ˆØ\^MØ\^KLˆKLÈ›Ü™\‹Xˆ›Ü™\‹\Û]KLŒ™Ë]Ú]KÎMHM˜XÚÙ›ÜX›\ˆÎœMÈ‚ˆ]ˆÛ\ÜÓ˜[YOH™›^Z[‹]ËL][\ËXÙ[\ˆØ\LÈÚYX˜\•šYÙÙ\ˆÛ\ÜÓ˜[YOH^\Û]KMŒˆÏ]ˆÛ\ÜÓ˜[YOHšY[ˆMHË\™Ë\Û]KLŒÛN˜›ØÚÈˆÏ]ˆÛ\ÜÓ˜[YOH›Z[‹]ËLHÛ\ÜÓ˜[YOH[˜Ø]H^[È›ÛX›Û^\Û]KNLžÚXY[™Ë]_OÚOÛ\ÜÓ˜[YOHšY[ˆ[˜Ø]H^^È^\Û]KMLÛN˜›ØÚÈžÚXY[™ËœÝXŸOÜÙ]Ù]‚ˆ]ˆÛ\ÜÓ˜[YOH™›^][\ËXÙ[\ˆØ\Lˆ‚ˆÜÝ™\‚ˆÜÝ™\•šYÙÙ\ˆ\ÐÚ[‚ˆ]Ûˆ\OH˜]Ûˆˆ˜\šX[H™ÚÜÝˆÚ^™OHšXÛÛˆˆ\šXK[X™[H\X\˜[˜ÙHˆ]OH\X\˜[˜ÙH[]HÛ\ÜÓ˜[YOHœÚ^™KMˆÏÐ]Û‚ˆÔÜÝ™\•šYÙÙ\‚ˆÜÝ™\ÛÛ[[YÛH™[™ˆÛ\ÜÓ˜[YOHËNX^]ËVØØ[ÊLËLœ™[JWHÜXÙK^KM‚ˆ]Û\ÜÓ˜[YOH™›Û\Ù[ZX›Û\X\˜[˜ÙOÜÛ\ÜÓ˜[YOH^\ÛH^[]]YY›Ü™YÜ›Ý[™”Ø]™YÈ[Ý\ˆXØÛÝ[XÜ›ÜÜÈH\ÜÙ]‚ˆ]ˆÛ\ÜÓ˜[YOH™ÜšYÜšYXÛÛËLˆØ\Lˆˆ›ÛOH™Ü›Ý\ˆ\šXK[X™[H‘\Ü^H[ÙH‚ˆÊÈ›YÚ‹™\šÈ—H\ÈÛÛœÝ
+K›X\
+
+[ÙJHOˆ]ÛˆÙ^O^Û[Ù_H\OH˜]Ûˆˆ˜\šX[^Ø\X\˜[˜ÙS[ÙHOOH[ÙHÈ™Y˜][ˆˆ›Ý][™HŸH\ØX›Y^Ø\X\˜[˜ÙTØ]š[™ßH\šXK\™\ÜÙY^Ø\X\˜[˜ÙS[ÙHOOH[Ù_HÛÛXÚÏ^Ê
+HOˆÚ[™ÙP\X\˜[˜ÙJ[ÙJ_OžÛ[ÙHOOH›YÚˆÈÝ[ˆÛ\ÜÓ˜[YOHœÚ^™KMˆÏˆˆ[ÛÛˆÛ\ÜÓ˜[YOHœÚ^™KMˆÏŸ^Û[ÙHOOH›YÚˆÈ“YÚˆˆ‘\šÈŸOÐ]ÛŠ_BˆÙ]‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆÛ\ÜÓ˜[YOH^\ÛH›Û[YY][H’[\™˜XÙHÛÛÜÜ]ˆÛ\ÜÓ˜[YOH™ÜšYÜšYXÛÛËLˆØ\Lˆˆ›ÛOH™Ü›Ý\ˆ\šXK[X™[H’[\™˜XÙHÛÛÜˆ‚ˆÝ\Ù\•[Y\Ë›X\
+
+[YJHOˆ]ÛˆÙ^O^Ý[YK˜[Y_H\OH˜]Ûˆˆ˜\šX[H›Ý][™Hˆ\ØX›Y^Ý[YTØ]š[™ßH\šXK\™\ÜÙY^Ý[YPÛÛÜˆOOH[YK˜[Y_HÛÛXÚÏ^Ê
+HOˆÚ[™ÙU[YJ[YK˜[YJ_HÛ\ÜÓ˜[YOHš\ÝYžK\Ý\Ü[ˆÛ\ÜÓ˜[YOHœÚ^™KMÚš[šËL›Ý[™YY[›Ü™\ˆ›Ü™\‹X›XÚËÌLˆÝ[O^ÞÈ˜XÚÙÜ›Ý[™ÛÛÜŽˆ[YK˜ÛÛÜˆ_HÏžÝ[YK›X™[^Ý[YPÛÛÜˆOOH[YK˜[YHÈÚXÚÈÛ\ÜÓ˜[YOH›[X]]ÈÚ^™KMˆÏˆˆ[OÐ]ÛŠ_BˆÙ]Ù]‚ˆÔÜÝ™\ÛÛ[‚ˆÔÜÝ™\‚ˆ]Ûˆ\OH˜]Ûˆˆ˜\šX[H™ÚÜÝˆÚ^™OHšXÛÛˆˆ\ØX›Y^Ø\X\˜[˜ÙTØ]š[™ßHÛÛXÚÏ^Ê
+HOˆÚ[™ÙP\X\˜[˜ÙJ\X\˜[˜ÙS[ÙHOOH›YÚˆÈ™\šÈˆˆ›YÚŠ_H\šXK[X™[^ØÝÚ]ÚÈ	Ø\X\˜[˜ÙS[ÙHOOH›YÚˆÈ™\šÈˆˆ›YÚŸH[ÙXH]O^ØÝÚ]ÚÈ	Ø\X\˜[˜ÙS[ÙHOOH›YÚˆÈ™\šÈˆˆ›YÚŸH[ÙXO‚ˆØ\X\˜[˜ÙS[ÙHOOH›YÚˆÈ[ÛÛˆÛ\ÜÓ˜[YOHœÚ^™KMˆÏˆˆÝ[ˆÛ\ÜÓ˜[YOHœÚ^™KMˆÏŸBˆÐ]Û‚ˆ˜YÙH˜\šX[H›Ý][™HˆÛ\ÜÓ˜[YOHšY[ˆÛNš[›[™KY›^žØ˜\ÙPÝ\œ™[˜Þ_OÐ˜YÙO‚ˆÙ[XÝ˜[YO^ÔÝš[™ÊXÝ]™SØØ][Û’YˆŠ_HÛ•˜[YPÚ[™ÙO^Ê˜[YJHOˆÈÙ]XÝ]™SØØ][Û’Y
+[X™\Š˜[YJJNÈÙ]ÙX\˜Ú
+ˆŠNÈ_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËVÌM\HÙ[XÝ˜[YHXÙZÛ\H’[™[ÜžHˆÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žØXÝ]™SØØ][ÛœË›X\
+
+ØØ][ÛŠHOˆÙ[XÝ][HÙ^O^ÛØØ][Û‹šYH˜[YO^ÔÝš[™ÊØØ][Û‹šY
+_OžÛØØ][Û‹›˜[Y_OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝ‚ˆ]Ûˆ˜\šX[H™ÚÜÝˆÚ^™OHšXÛÛˆˆ\šXK[X™[H“›ÝYšXØ][ÛœÈ™[Û\ÜÓ˜[YOHœÚ^™KMˆÏÐ]Û‚ˆÈ[X[˜YÙ[Y[šY]È	‰ˆšY]ÈOOHœ\˜Ú\Ù\Èˆ	‰ˆšY]ÈOOHœØ[\Èˆ	‰ˆØ[•Üš]PÝ\œ™[šY]È	‰ˆ]ÛˆÛÛXÚÏ^ÛÜ[Ü™X]_HÛ\ÜÓ˜[YOH˜œ˜[™\š[X\žKX]Ûˆ›Û\Ù[ZX›Û\ÈÛ\ÜÓ˜[YOHœÚ^™KMˆÏÜ[ˆÛ\ÜÓ˜[YOHšY[ˆÛNš[›[™HžØÜ™X]SX™[OÜÜ[Ð]ÛŸBˆÙ]‚ˆ]ˆ]KY^Ü\ÛÝHœYÙHˆÛ\ÜÓ˜[YOH™›^ËY[\ÝYžKY[™[\NšY[ˆˆÏ‚ˆÚXY\‚‚ˆ]ˆÛ\ÜÓ˜[YOH›^X]]ÈËY[X^]ËVÌMLHMÎœMÈ‚ˆÝšY]ÈOOHœÙ\šX[\ÙX\˜ÚˆÈÙ\šX[[X™\”ÙX\˜ÚÙ^O^ØXÝ]™PÛÛ\[žRYHÛÛ\[žRY^ØXÝ]™PÛÛ\[žRYHÛ“Ü[^ÛÜ[‘]Z[HÏˆˆšY]ÈOOHœÝØÚË\šXÚ[™ÈˆÈÝØÚÔšXÚ[™ÈÙ^O^ØXÝ]™PÛÛ\[žRYHÛÛ\[žRY^ØXÝ]™PÛÛ\[žRYHÛ”Ø]™Y^ÛØY]_HÏˆˆšY]ÈOOH˜ÛÛ\[žK\Ù]\ˆÈÛÛ\[žTÙ]\Ù[\ˆØ[ÛX\ÛÛ\[žO^ØÝ\œ™[\Ù\‹œ›ÛHOOH˜YZ[ˆŸHÙ^O^ØXÝ]™PÛÛ\[žRYHÙ]\^ØÛÛ\[žTÙ]\HÛ”Ø]™Y^Ø\Þ[˜È
+Ø]™Y
+HOˆÈÙ]ÛÛ\[žTÙ]\
+Ø]™Y
+NÈ]ØZ]ØYÛÜšÜÜXÙ\Ê
+NÈ_HÏˆˆšY]ÈOOHš[™[ÜžK[Ý™\šY]ÈˆÈ[™[ÜžSÝ™\šY]ÈÏˆˆšY]ÈOOHš][K[ÙÚ\ÝXÜÈˆÈ][SÙÚ\ÝXÜÐÙ[\ˆÙ^O^Ø	ØXÝ]™PÛÛ\[žRYKIØXÝ]™SØØ][Û’YXHÛÛ\[žRY^ØXÝ]™PÛÛ\[žRYHÛÛ\[žS˜[YO^ØXÝ]™PÛÛ\[žOË›˜[YHÏÈÛÛ\[žHŸHØØ][Û’Y^ØXÝ]™SØØ][Û’YHØØ][Û“˜[YO^ØXÝ]™SØØ][ÛœË™š[™
+
+ØØ][ÛŠHOˆØØ][Û‹šYOOHXÝ]™SØØ][Û’Y
+OË›˜[YHÏÈ’[™[ÜžHŸHØ[‘Y]^ØØ[•Üš]PÝ\œ™[šY]ßHÏˆˆšY]ÈOOHš[™[ÜžKXÚXÚË\™\ÜÈˆÈ[™[ÜžPÚXÚÔ™\ÜÈÙ^O^Ø	ØXÝ]™PÛÛ\[žRYKIØXÝ]™SØØ][Û’YXHÛÛ\[žRY^ØXÝ]™PÛÛ\[žRYHÛÛ\[žS˜[YO^ØXÝ]™PÛÛ\[žOË›˜[YHÏÈÛÛ\[žHŸHØØ][Û’Y^ØXÝ]™SØØ][Û’YHØØ][Û“˜[YO^ØXÝ]™SØØ][ÛœË™š[™
+
+ØØ][ÛŠHOˆØØ][Û‹šYOOHXÝ]™SØØ][Û’Y
+OË›˜[YHÏÈ’[™[ÜžHŸHØ[“X[˜YÙO^ØÝ\œ™[\Ù\‹œ›ÛHOOH˜YZ[ˆŸHÝ\œ™[\Ù\“˜[YO^ØÝ\œ™[\Ù\‹™[˜[YHÝ\œ™[\Ù\‹™[XZ[HÏˆˆšY]ÈOOH˜[œÙ™\œÈˆÈ][S[™U˜[œÙ™\Ù[\ˆÙ^O^Ø	ØXÝ]™PÛÛ\[žRYKIØXÝ]™SØØ][Û’YXHÛÛ\[šY\Ï^ØÛÛ\[šY\ßHXÝ]™SØØ][Û’Y^ØXÝ]™SØØ][Û’YHÛ•˜[œÙ™\œ™Y^ÛØY]_HÏˆˆšY]ÈOOHš›Ý\›˜[Y[šY\ÈˆÈ›Ý\›˜[[žPÙ[\ˆ^Ú[™ÙT˜]\Ï^Ù^Ú[™ÙT˜]\ßHÛ“Ü[”ÛÝ\˜ÙO^ÛÜ[‘]Z[HÙ^O^Ø	ØXÝ]™PÛÛ\[žRYKIØXÝ]™SØØ][Û’YXHÛÛ\[žRY^ØXÝ]™PÛÛ\[žRYHÛÛ\[žS˜[YO^ØXÝ]™PÛÛ\[žOË›˜[YHÏÈÛÛ\[žHŸHØØ][Û’Y^ØXÝ]™SØØ][Û’YHØØ][Û“˜[YO^ØXÝ]™SØØ][ÛœË™š[™
+
+ØØ][ÛŠHOˆØØ][Û‹šYOOHXÝ]™SØØ][Û’Y
+OË›˜[YHÏÈ’[™[ÜžHŸHÝ\œ™[˜ÞO^Ø˜\ÙPÝ\œ™[˜Þ_HXØÛÝ[Ï^Ü™XÛÜ™Ë˜XØÛÝ[Ë›X\
+
+XØÛÝ[
+HOˆ
+ÈYˆXØÛÝ[šYÛÙNˆÝš[™ÊXØÛÝ[˜ÛÙJK˜[YNˆÝš[™ÊXØÛÝ[›˜[YJK\NˆÝš[™ÊXØÛÝ[\JKXÝ]™Nˆ›ÛÛX[ŠXØÛÝ[˜XÝ]™JKÝ\œ™[˜ÞNˆÝš[™ÊXØÛÝ[˜Ý\œ™[˜ÞH˜\ÙPÝ\œ™[˜ÞJHJJ_HÛ”ÜÝY^ÛØY]_HÏˆˆšY]ÈOOH˜][X[˜YÙ[Y[ˆÈ˜]X[˜YÙ[Y[Ù[\ˆÙ^O^Ø	ØXÝ]™PÛÛ\[žRYKIØXÝ]™SØØ][Û’YXHÛÛ\[žRY^ØXÝ]™PÛÛ\[žRYHÛÛ\[žS˜[YO^ØXÝ]™PÛÛ\[žOË›˜[YHÏÈÛÛ\[žHŸHØØ][Û’Y^ØXÝ]™SØØ][Û’YHØØ][Û“˜[YO^ØXÝ]™SØØ][ÛœË™š[™
+
+ØØ][ÛŠHOˆØØ][Û‹šYOOHXÝ]™SØØ][Û’Y
+OË›˜[YHÏÈ’[™[ÜžHŸHÝ\œ™[˜ÞO^Ø˜\ÙPÝ\œ™[˜Þ_HØ[•Üš]O^ØØ[•Üš]PÝ\œ™[šY]ßHØ[“X[˜YÙPÛÙ\Ï^ØÝ\œ™[\Ù\‹œ›ÛHOOH˜YZ[ˆŸHÛ“Ü[”™\Ü^ÛÜ[”™\ÜHÛ“X[˜YÙPÛÙ\Ï^Ê
+HOˆÙ]šY]Ê˜]XÛÙ\ÈŠ_HÏˆˆšY]ÈOOH˜Ý\œ™[˜ÚY\ÈˆÈÝ\œ™[˜ÞT˜]PÙ[\ˆÙ^O^ØXÝ]™PÛÛ\[žRYHÛÛ\[žO^ØXÝ]™PÛÛ\[ž_HÝ\œ™[˜ÚY\Ï^ØÝ\œ™[˜ÚY\ßHÛÛÛ\[žPÚ[™ÙY^ÛØYÛÜšÜÜXÙ\ßHÛ”˜]\ÐÚ[™ÙY^ÛØY^Ú[™ÙT˜]\ßHÏˆˆšY]ÈOOH˜]XÛÙ\ÈˆÈ˜]ÛÙPÙ[\ˆÙ^O^ØXÝ]™PÛÛ\[žRYHÛÛ\[žRY^ØXÝ]™PÛÛ\[žRYHÛÛ\[žS˜[YO^ØXÝ]™PÛÛ\[žOË›˜[YHÏÈÛÛ\[žHŸHÛÚ[™ÙY^ÛØY˜]ÛÙ\ßHÏˆˆšY]ÈOOH˜YZ[‹XÛÛ›ÛÈˆÈYZ[”Ù][™ÜÐÙ[\ˆÙ^O^ØXÝ]™PÛÛ\[žRYHÛÛ\[žRY^ØXÝ]™PÛÛ\[žRYHÛÛ\[žS˜[YO^ØXÝ]™PÛÛ\[žOË›˜[YHÏÈÛÛ\[žHŸHÝ\œ™[\Ù\‘[XZ[^ØÝ\œ™[\Ù\‹™[XZ[HÏˆˆX[˜YÙ[Y[šY]ÈÈÛÜšÜÜXÙPÙ[\ˆ[ÙO^ÝšY]È\È˜ÛÛ\[šY\Èˆš[™[ÜšY\Èˆš[›ÚXÙK\Ù\šY\Èˆ˜Ý\œ™[˜ÚY\ÈŸHÛÛ\[šY\Ï^ØÛÛ\[šY\ßHXÝ]™PÛÛ\[žRY^ØXÝ]™PÛÛ\[žRYHØ[‘[]PÛÛ\[šY\Ï^Ð›ÛÛX[ŠÝ\œ™[\Ù\‹š\Ð[YZ[Š_HÛÚ[™ÙY^ÛØYÛÜšÜÜXÙ\ßHÏˆˆšY]ÈOOH™\Ú›Ø\™ˆÈ\Ú›Ø\™Y]šXÜÏ^ÛY]šXÜßH™XÛÜ™Ï^Ü™XÛÜ™ßHÛÛ\[žS˜[YO^ØXÝ]™PÛÛ\[žOË›˜[YHÏÈÛÛ\[žHŸHÝ\œ™[˜ÞO^Ø˜\ÙPÝ\œ™[˜Þ_H[YPÛÛÜ^Ý[YPÛÛÜŸH[YTØ]š[™Ï^Ý[YTØ]š[™ßHÛ•[YPÚ[™ÙO^ØÚ[™ÙU[Y_HÛ“˜]šYØ]O^Ê™^
+HOˆÈYˆ
+›ÛUšY]ÜÖØÝ\œ™[\Ù\‹œ›ÛWKš[˜ÛY\Ê™^
+JHÙ]šY]Ê™^
+NÈ[ÙHØ\Ý™\œ›ÜŠ–[Ý\ˆ›ÛHÙ\È›Ý[ÝÈ\ÈXÝ[Û‹ˆŠNÈ_HÛ•ÛÜšÙ›ÝÏ^Ê\K\™Ù]
+HOˆÈYˆ
+\›ÛUšY]ÜÖØÝ\œ™[\Ù\‹œ›ÛWKš[˜ÛY\Ê\™Ù]
+H\›ÛUÜš]UšY]ÜÖØÝ\œ™[\Ù\‹œ›ÛWKš[˜ÛY\Ê\™Ù]
+JH™]\›ˆØ\Ý™\œ›ÜŠ–[Ý\ˆ›ÛHÙ\È›Ý[ÝÈ\ÈXÝ[Û‹ˆŠNÈÙ]šY]Ê\™Ù]
+NÈÜ[•˜[œØXÝ[ÛŠ\JNÈ_HÛÜ™X]O^ÛÜ[Ü™X]_HÛ“Ü[‘]Z[^ÛÜ[‘]Z[HØ[Ü™X]O^Ü›ÛUÜš]UšY]ÜÖØÝ\œ™[\Ù\‹œ›ÛWKš[˜ÛY\ÊœØ[\ÈŠ_HØ[•šY]Ô™\ÜÏ^Ü›ÛUšY]ÜÖØÝ\œ™[\Ù\‹œ›ÛWKš[˜ÛY\Êœ™\ÜÈŠ_HÏˆˆšY]ÈOOHœ™\ÜÈˆÈ™\ÜÙ[\ˆÛÛ\[žRY^ØXÝ]™PÛÛ\[žRYHØØ][Û’Y^ØXÝ]™SØØ][Û’YHY[[Üš\ÙY™\ÜÏ^ÛY[[Üš\ÙY™\ÜßHÛ“Ü[^ÛÜ[”™\ÜHÛ“Ü[“Y[[Üš\ÙY^ÛÜ[“Y[[Üš\ÙY™\ÜHÛ‘[]SY[[Üš\ÙY^Ü™[[Ý™SY[[Üš\ÙY™\ÜHØY[™Ï^Ü™\ÜØY[™ßHÏˆˆšY]ÈOOHœØ[\ÈˆÈØ[\ÐÙ[\ˆÛ‘Y]^ØÝ\œ™[\Ù\‹œ›ÛHOOH˜YZ[ˆˆÈÜ[”\˜Ú\ÙQY]ˆ[™Yš[™YH™XÛÜ™Ï^Ùš[\™Y™XÛÜ™ßHXØÛÝ[Ï^Ü™XÛÜ™Ë˜XØÛÝ[ßHÝ\œ™[˜ÞO^Ø˜\ÙPÝ\œ™[˜Þ_HØY[™Ï^ÛØY[™ßHÙX\˜Ú^ÜÙX\˜ÚHÙ]ÙX\˜Ú^ÜÙ]ÙX\˜ÚHÛ”™Yœ™\Ú^ÛØY]_HÛÜ™X]O^ÛÜ[Ü™X]_HÛ‘[]O^Ü™[[Ý™T™XÛÜ™HÛ•˜[œØXÝ[Û^ÛÜ[•˜[œØXÝ[ÛŸHÛ“Ü[‘]Z[^ÛÜ[‘]Z[HØ[•Üš]O^ØØ[•Üš]PÝ\œ™[šY]ßHØ[‘[]O^ØÝ\œ™[\Ù\‹œ›ÛHOOH˜YZ[ˆŸHÏˆˆšY]ÈOOHœ\˜Ú\Ù\ÈˆÈ\˜Ú\ÙPÙ[\ˆÛÛ\[šY\Ï^ØÛÛ\[šY\ßHÛÛ\[žRY^ØXÝ]™PÛÛ\[žRYHØØ][Û’Y^ØXÝ]™SØØ][Û’YHÛ•ÛÜšÜÜXÙPÚ[™ÙO^ÊÛÛ\[žRYØØ][Û’Y
+HOˆÈÙ]™XÛÜ™ÊÈ˜[œØXÝ[ÛœÎˆ×KÛÛXÝÎˆ×K][\Îˆ×KXØÛÝ[Îˆ×HJNÈÙ]ØY[™ÊYJNÈÙ]ÙX\˜Ú
+ˆŠNÈÙ]XÝ]™PÛÛ\[žRY
+ÛÛ\[žRY
+NÈÙ]XÝ]™SØØ][Û’Y
+ØØ][Û’Y
+NÈ_HÛ‘Y]^ØÝ\œ™[\Ù\‹œ›ÛHOOH˜YZ[ˆˆÈÜ[”\˜Ú\ÙQY]ˆ[™Yš[™YH™XÛÜ™Ï^Ùš[\™Y™XÛÜ™ßHXØÛÝ[Ï^Ü™XÛÜ™Ë˜XØÛÝ[ßHÝ\œ™[˜ÞO^Ø˜\ÙPÝ\œ™[˜Þ_HØY[™Ï^ÛØY[™ßHÙX\˜Ú^ÜÙX\˜ÚHÙ]ÙX\˜Ú^ÜÙ]ÙX\˜ÚHÛ”™Yœ™\Ú^ÛØY]_HÛÜ™X]O^ÛÜ[Ü™X]_HÛ‘[]O^Ü™[[Ý™T™XÛÜ™HÛ•˜[œØXÝ[Û^ÛÜ[•˜[œØXÝ[ÛŸHÛ“Ü[‘]Z[^ÛÜ[‘]Z[HØ[•Üš]O^ØØ[•Üš]PÝ\œ™[šY]ßHØ[‘[]O^ØÝ\œ™[\Ù\‹œ›ÛHOOH˜YZ[ˆŸHÏˆˆšY]ÈOOH˜Ý\ÝÛY\œÈˆÈÝ\ÝÛY\Ù[\ˆÛ‘Y]^ÛÜ[“\ÝY]H™XÛÜ™Ï^Ùš[\™Y™XÛÜ™ßHXØÛÝ[Ï^Ü™XÛÜ™Ë˜XØÛÝ[ßHÝ\œ™[˜ÞO^Ø˜\ÙPÝ\œ™[˜Þ_HØY[™Ï^ÛØY[™ßHÙX\˜Ú^ÜÙX\˜ÚHÙ]ÙX\˜Ú^ÜÙ]ÙX\˜ÚHÛ”™Yœ™\Ú^ÛØY]_HÛÜ™X]PÝ\ÝÛY\^ÛÜ[Ü™X]_HÛ‘[]O^Ü™[[Ý™T™XÛÜ™HÛ•˜[œØXÝ[Û^ÛÜ[•˜[œØXÝ[ÛŸHÛ”™\Ü^ÛÜ[”™\ÜHØ[•šY]Ô™\ÜÏ^Ü›ÛUšY]ÜÖØÝ\œ™[\Ù\‹œ›ÛWKš[˜ÛY\Êœ™\ÜÈŠ_HÛ“Ü[‘]Z[^ÛÜ[‘]Z[HØ[•Üš]O^ØØ[•Üš]PÝ\œ™[šY]ßHØ[‘[]O^ØÝ\œ™[\Ù\‹œ›ÛHOOH˜YZ[ˆŸH™\ÜØY[™Ï^Ü™\ÜØY[™ßHÏˆˆšY]ÈOOH™[™ÜœÈˆÈ™[™ÜÙ[\ˆÛÛ\[žRY^ØXÝ]™PÛÛ\[žRYHÙ^O^ØXÝ]™PÛÛ\[žRYHÛ‘Y]^ØÝ\œ™[\Ù\‹œ›ÛHOOH˜YZ[ˆˆÈÜ[“\ÝY]ˆ[™Yš[™YH™XÛÜ™Ï^Ùš[\™Y™XÛÜ™ßHXØÛÝ[Ï^Ü™XÛÜ™Ë˜XØÛÝ[ßHÝ\œ™[˜ÞO^Ø˜\ÙPÝ\œ™[˜Þ_HØY[™Ï^ÛØY[™ßHÙX\˜Ú^ÜÙX\˜ÚHÙ]ÙX\˜Ú^ÜÙ]ÙX\˜ÚHÛ”™Yœ™\Ú^ÛØY]_HÛÜ™X]U™[™Ü^ÛÜ[Ü™X]_HÛ‘[]O^Ü™[[Ý™T™XÛÜ™HÛ•˜[œØXÝ[Û^ÛÜ[•˜[œØXÝ[ÛŸHÛ“Ü[‘]Z[^ÛÜ[‘]Z[HØ[•Üš]O^ØØ[•Üš]PÝ\œ™[šY]ßHØ[‘[]O^ØÝ\œ™[\Ù\‹œ›ÛHOOH˜YZ[ˆŸHÏˆˆšY]ÈOOH˜˜[šÚ[™ÈˆÈ˜[šÚ[™ÐÙ[\ˆ™XÛÜ™Ï^Ùš[\™Y™XÛÜ™ßHXØÛÝ[Ï^Ü™XÛÜ™Ë˜XØÛÝ[ßHÝ\œ™[˜ÞO^Ø˜\ÙPÝ\œ™[˜Þ_HØY[™Ï^ÛØY[™ßHÙX\˜Ú^ÜÙX\˜ÚHÙ]ÙX\˜Ú^ÜÙ]ÙX\˜ÚHÛ”™Yœ™\Ú^ÛØY]_HÛÜ™X]O^ÛÜ[Ü™X]_HÛ‘[]O^Ü™[[Ý™T™XÛÜ™HÛ•˜[œØXÝ[Û^ÛÜ[•˜[œØXÝ[ÛŸHÛ”™\Ü^ÛÜ[”™\ÜHÛ“Ü[‘]Z[^ÛÜ[‘]Z[HØ[•Üš]O^ØØ[•Üš]PÝ\œ™[šY]ßHØ[‘[]O^ØÝ\œ™[\Ù\‹œ›ÛHOOH˜YZ[ˆŸH™\ÜØY[™Ï^Ü™\ÜØY[™ßHÏˆˆ
+ˆ™XÛÜ™šY]ÈÛÛ\[žRY^ØXÝ]™PÛÛ\[žRYHØØ][Û’Y^ØXÝ]™SØØ][Û’YHÛ‘Y]^ÛÜ[“\ÝY]HšY]Ï^ÝšY]ßHÚ[™^ØÝ\œ™[Ú[™H™XÛÜ™Ï^Ùš[\™Y™XÛÜ™ßHXØÛÝ[Ï^Ü™XÛÜ™Ë˜XØÛÝ[ßHÝ\œ™[˜ÞO^Ø˜\ÙPÝ\œ™[˜Þ_HØY[™Ï^ÛØY[™ßHÙX\˜Ú^ÜÙX\˜ÚHÙ]ÙX\˜Ú^ÜÙ]ÙX\˜ÚHÛ”™Yœ™\Ú^ÛØY]_HÛÜ™X]O^ÛÜ[Ü™X]_HÛ‘[]O^Ü™[[Ý™T™XÛÜ™HÛ‘Y]][O^ÛÜ[’][QY]HÛ‘\XØ]R][O^Ù\XØ]R][_HÛ“Ü[‘]Z[^ÛÜ[‘]Z[HØ[•Üš]O^ØØ[•Üš]PÝ\œ™[šY]ßHØ[‘[]O^ØÝ\œ™[\Ù\‹œ›ÛHOOH˜YZ[ˆŸHÏ‚ˆ
+_BˆÙ]‚ˆÔÚYX˜\’[œÙ]‚‚ˆX[ÙÈÜ[^ÙX[ÙÓÜ[ŸHÛ“Ü[Ú[™ÙO^ÊÜ[ŠHOˆÈYˆ
+[Ü[ˆ	‰ˆØ]š[™ÊHÈØ\Ýš[™›Ê”X\ÙHØZ][[Ø]š[™Èš[š\Ú\ËˆŠNÈ™]\›ŽÈHÙ]X[ÙÓÜ[ŠÜ[ŠNÈYˆ
+[Ü[ŠHÈÙ]Y][™Ò][RY
+[
+NÈÙ]Y]Ü’Ú[™
+[
+NÈH_O‚ˆX[ÙÐÛÛ[ÚÝÐÛÜÙP]Û^ÝY_HÛ’[\˜XÝÝ]ÚYO^Ê]™[
+HOˆÈYˆ
+Èš][\È‹˜[œØXÝ[ÛœÈ—Kš[˜ÛY\ÊXÝ]™QY]Ü’Ú[™
+HØ]š[™ÊH]™[œ™]™[Y˜][
+
+NÈ_HÛ‘\ØØ\RÙ^QÝÛ^Ê]™[
+HOˆÈYˆ
+Èš][\È‹˜[œØXÝ[ÛœÈ—Kš[˜ÛY\ÊXÝ]™QY]Ü’Ú[™
+HØ]š[™ÊH]™[œ™]™[Y˜][
+
+NÈ_H]K\™XÛÜ™ZÚ[™^ØXÝ]™QY]Ü’Ú[™HÛ\ÜÓ˜[YO^ØX^ZVÎL™šH	ØXÝ]™QY]Ü’Ú[™OOH˜[œØXÝ[ÛœÈˆÈ›Ý™\™›ÝËZY[ˆÛN›X^]ËMžˆˆ›Ý™\™›ÝË^KX]]ÈŸH	ØXÝ]™QY]Ü’Ú[™OOHš][\Èˆ
+XÝ]™QY]Ü’Ú[™OOH˜ÛÛXÝÈˆ	‰ˆšY]ÈOOH˜Ý\ÝÛY\œÈŠHÈœÛN›X^]ËM^ˆˆXÝ]™QY]Ü’Ú[™OOH˜[œØXÝ[ÛœÈˆÈˆˆˆœÛN›X^]Ë^ŸXO‚ˆX[ÙÒXY\X[ÙÕ]OžÙY][™Ò][RYOOH[	‰ˆXÝ]™QY]Ü’Ú[™OOHš][\ÈˆÈ‘Y]][HˆˆY][™Ô™XÛÜ™YOOH[ÈY]	ØXÝ]™QY]Ü’Ú[™OOH˜[œØXÝ[ÛœÈˆÈ›Ü›K\HˆXÝ]™QY]Ü’Ú[™OOH˜XØÛÝ[ÈˆÈXØÛÝ[ˆˆ›Ü›K\HOOH™[™ÜˆˆÈ•™[™ÜˆˆˆÝ\ÝÛY\ˆŸXˆY]Ü“X™[OÑX[ÙÕ]OX[ÙÑ\ØÜš\[ÛžÙY][™Ò][RYOOH[	‰ˆXÝ]™QY]Ü’Ú[™OOHš][\ÈˆÈ•\]HHØ]YÛÜžH[™][H\ØÜš\[Ûˆ]Z[ËˆˆˆXÝ]™QY]Ü’Ú[™OOH˜[œØXÝ[ÛœÈˆ	‰ˆ›Ü›K\HOOH˜š[ˆÈ”Ù[XÝH™[™Üˆ[™[\ˆHš[][\È™[ÝËˆˆˆ‘[\ˆH™XÛÜ™]Z[È™[ÝËˆ™\]Z\™YšY[È\™HX\šÙYˆŸOÑX[ÙÑ\ØÜš\[ÛÑX[ÙÒXY\‚ˆÙX[ÙÓÜ[ˆ	‰ˆXÝ]™QY]Ü’Ú[™OOH˜[œØXÝ[ÛœÈˆ	‰ˆ›Ü›K\HOOHš][H™XÙZ\ˆ	‰ˆY][™Ô™XÛÜ™YOOH[	‰ˆ›Ü›Kœ\H	‰ˆÜ[”\˜Ú\ÙSÜ™\œÈÙ^O^Ø	ØXÝ]™PÛÛ\[žRYN‰Ù›Ü›Kœ\_XHÛÛ\[žRY^ØXÝ]™PÛÛ\[žRYH\O^Ù›Ü›Kœ\_HÛÛÛ\]O^Ê
+HOˆÈÙ]X[ÙÓÜ[Š˜[ÙJNÈ›ÚYØY]J
+NÈ_HÛ”Ø]™Y^Ê
+HOˆÈ›ÚYØY]J
+NÈ_HÏŸBˆÙX[ÙÓÜ[ˆ	‰ˆXÝ]™QY]Ü’Ú[™OOH˜[œØXÝ[ÛœÈˆ	‰ˆ›Ü›K\HOOH˜š[ˆ	‰ˆY][™Ô™XÛÜ™YOOH[	‰ˆY›Ü›KœÛÝ\˜ÙU˜[œØXÝ[Û’Y	‰ˆY›Ü›Kœ\˜Ú\ÙSÜ™\’Y	‰ˆ›Ü›Kœ\H	‰ˆÜ[”\˜Ú\ÙSÜ™\œÈÙ^O^Øš[‰ØXÝ]™PÛÛ\[žRYN‰Ù›Ü›Kœ\_XHÛÛ\[žRY^ØXÝ]™PÛÛ\[žRYH\O^Ù›Ü›Kœ\_HÛ”Ø]™Y^Ê
+HOˆÈ›ÚYØY]J
+NÈ_HÛÛÛ\]O^Ê
+HOˆß_HÛ”Ù[XÝš[^Ø\Þ[˜È
+Y
+HOˆÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+Ø\KÜ™XÛÜ™ÏÚÚ[™]˜[œØXÝ[ÛœÉ˜ÛÛ\[žRYIØXÝ]™PÛÛ\[žRYIšYIÚYXÈØXÚNˆ››Ë\ÝÜ™HˆJNÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›ÝØY\˜Ú\ÙHÜ™\‹ˆŠNÂˆYˆ
+]Kœ™XÛÜ™œ\HOOH›Ü›Kœ\H]Kœ™XÛÜ™\HOOHœ\˜Ú\ÙHÜ™\ˆˆ]Kœ™XÛÜ™˜ÛÛ™\Y[›ÚXÙRYÈœ™XÙZ]™Y‹˜ÛÛ™\Y—Kš[˜ÛY\Ê]Kœ™XÛÜ™œÝ]\ÊJH›ÝÈ™]È\œ›ÜŠ•\ÈÈ\È›ÈÛ™Ù\ˆ]˜Z[X›H›Üˆ[TÈš[[™Ëˆ™Yœ™\ÚHÝ\Y\ˆÙ[XÝ[Û‹ˆŠNÂˆÛÛ™\ÛÝ\˜ÙQØÝ[Y[
+]H\È˜[œØXÝ[Û‘]Z[
+NÂˆ_HÏŸBˆÙX[ÙÓÜ[ˆ	‰ˆXÝ]™QY]Ü’Ú[™OOH˜[œØXÝ[ÛœÈˆ	‰ˆ›Ü›K\HOOHš[›ÚXÙHˆ	‰ˆY][™Ô™XÛÜ™YOOH[	‰ˆY›Ü›KœÛÝ\˜ÙU˜[œØXÝ[Û’Y	‰ˆY›Ü›KœØ[\ÔÛÝ\˜ÙRY	‰ˆ›Ü›Kœ\H	‰ˆÜ[”Ø[\ÑØÝ[Y[ÈÙ^O^Ø	ØXÝ]™PÛÛ\[žRYN‰Ù›Ü›Kœ\_XHÛÛ\[žRY^ØXÝ]™PÛÛ\[žRYH\O^Ù›Ü›Kœ\_HÛ”Ù[XÝ^ÊY
+HOˆÙ]›Ü›JÈ‹‹™›Ü›KØ[\ÔÛÝ\˜ÙRYˆÝš[™ÊY
+HJ_HÏŸBˆØXÝ]™QY]Ü’Ú[™OOH˜[œØXÝ[ÛœÈˆ	‰ˆY][™Ô™XÛÜ™YOOH[	‰ˆ›Ü›K\HOOHš[›ÚXÙHˆ	‰ˆ›Ü›KœØ[\ÔÛÝ\˜ÙRYÈØ[\ÔÛÝ\˜ÙR[›ÚXÚ[™ÈÙ^O^Ù›Ü›KœØ[\ÔÛÝ\˜ÙRYHÛÝ\˜ÙRY^Ó[X™\Š›Ü›KœØ[\ÔÛÝ\˜ÙRY
+_HÛÛ\[žRY^ØXÝ]™PÛÛ\[žRYHÛ”Ø]™Y^Ê
+HOˆÈÙ]X[ÙÓÜ[Š˜[ÙJNÈÙ]Y]Ü’Ú[™
+[
+NÈ›ÚYØY]J
+NÈ_HÛ•šY]Ò[›ÚXÙO^ÊY
+HOˆÈÙ]X[ÙÓÜ[Š˜[ÙJNÈ›ÚYÜ[‘]Z[
+Y
+NÈ_HÏˆˆXÝ]™QY]Ü’Ú[™OOH˜[œØXÝ[ÛœÈˆ	‰ˆ›Ü›K\HOOH˜š[ˆ	‰ˆ›Ü›Kœ\˜Ú\ÙSÜ™\’YÈ\˜Ú\ÙSÜ™\”™XÙZ]š[™ÈÙ^O^Øš[‰Ù›Ü›Kœ\˜Ú\ÙSÜ™\’YXHÜ™\’Y^Ó[X™\Š›Ü›Kœ\˜Ú\ÙSÜ™\’Y
+_HÛÛ\[žRY^ØXÝ]™PÛÛ\[žRYHØÝ[Y[\OH˜š[ˆXØÛÝ[^ÙY˜][ÜÝ[™ÐXØÛÝ[
+˜š[‹™XÛÜ™Ë˜XØÛÝ[Ê_HÛ”Ø]™Y^Ê
+HOˆÈÙ]X[ÙÓÜ[Š˜[ÙJNÈÙ]Y]Ü’Ú[™
+[
+NÈ›ÚYØY]J
+NÈ_HÏˆˆ›Ü›HÛ”ÝX›Z]^ÜØ]™T™XÛÜ™HÛ\ÜÓ˜[YO^ØXÝ]™QY]Ü’Ú[™OOH˜[œØXÝ[ÛœÈˆÈ™›^Z[‹ZL›^XÛÛØ\MÝ™\™›ÝËZY[ˆˆˆœÜXÙK^KMHŸO‚ˆÚÝSØÚÓ›ÝXÙHY\ÜØYÙO^ÜÚÝSØÚË›Y\ÜØYÙ_HÏšY[Ù]\ØX›Y^È\ÚÝSØÚËœ™XY_HÛ\ÜÓ˜[YO^ØXÝ]™QY]Ü’Ú[™OOH˜[œØXÝ[ÛœÈˆÈ›Z[‹ZL›^LHÜXÙK^KMHÝ™\™›ÝË^KX]]È‹LHˆˆœÜXÙK^KMHŸO‚ˆÛ[šÙY[™[ÜžQØÝ[Y[	‰ˆ\Ø[\Ñ]Z[ÓÛ›H	‰ˆ›ÛOHœÝ]\ÈˆÛ\ÜÓ˜[YOH^\ÛH^\Û]KMLžÙØÝ[Y[[™[ÜžKšÙ^HOOHØÝ[Y[[™[ÜžRÙ^H	‰ˆØÝ[Y[[™[ÜžK™\œ›ÜˆÈØÝ[Y[[™[ÜžK™\œ›ÜˆˆYØÝ[Y[[™[ÜžT™XYHÈ“ØY[™È[™[ÜžH][\ø )ˆˆˆ	ÙØÝ[Y[][\Ë›[™ÝH][\È]˜Z[X›H[ˆHÙ[XÝY[™[ÜžK˜OÜŸBˆØXÝ]™QY]Ü’Ú[™OOH˜[œØXÝ[ÛœÈˆ	‰ˆ\Ø[\Ñ]Z[ÓÛ›H	‰ˆ˜[œØXÝ[Û‘šY[È›Ü›O^Ù›Ü›_HÙ]›Ü›O^Ý\]QØÝ[Y[›Ü›_H\\Ï^ÖÈœØ[\È‹˜Ý\ÝÛY\œÈ‹™[™ÜœÈ‹˜˜[šÚ[™È—Kš[˜ÛY\ÊšY]ÊHÈÙ›Ü›K\WHˆ˜[œØXÝ[Û•\\ÖÝšY]×HÏÈ˜[œØXÝ[Û•\\Ë™\Ú›Ø\™H][\Ï^ÙØÝ[Y[][\ßHÛÛXÝÏ^Ü™XÛÜ™Ë˜ÛÛXÝßHXØÛÝ[Ï^Ü™XÛÜ™Ë˜XØÛÝ[ßHØØ][ÛœÏ^ØXÝ]™SØØ][ÛœßH[™\Ï^Û[™\ßHÙ][™\Ï^ÜÙ][™\ßH˜]ÛÙSÜ[ÛœÏ^Ý˜]ÛÙSÜ[ÛœßH^Ú[™ÙT˜]\Ï^Ù^Ú[™ÙT˜]\ßH˜\ÙPÝ\œ™[˜ÞO^Ø˜\ÙPÝ\œ™[˜Þ_HÏŸBˆÜØ[\Ñ]Z[ÓÛ›H	‰ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KM‚ˆÛ\ÜÓ˜[YOHœ›Ý[™Y[Y›Ü™\ˆLÈ^\ÛHžÙ›Ü›Kœ\_H0­ÈÙ›Ü›X][Û™^J[X™\Š›Ü›KÝ[
+K›Ü›K˜Ý\œ™[˜ÞJ_H0­ÈÙ›Ü›KœÝ]\ßOœˆÏÜ[ˆÛ\ÜÓ˜[YOH^[]]YY›Ü™YÜ›Ý[™‘Y]ØÝ[Y[]Z[Ëˆ^\Ý[™ÈÜÝY][\ËÝ\œ™[˜ÞK[™[ÜžH[™^[Y[[šÜÈ\™H›ÝXÝYˆ™]È[›ÚXÙH[™\ÈØ[ˆ™HYY™[ÝËÜÜ[Ü‚ˆ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\MÛN™ÜšYXÛÛËLˆ‚ˆX™[Û\ÜÓ˜[YOH™ÜšYØ\Lˆ^\ÛH”™Y™\™[˜ÙH[X™\[œ]™\]Z\™YX^[™Ý^ÌLH˜[YO^Ù›Ü›K›[X™\ŸHÛÚ[™ÙO^Ê]™[
+HOˆÙ]›Ü›JÈ‹‹™›Ü›K[X™\Žˆ]™[\™Ù]˜[YHJ_HÏÛX™[‚ˆX™[Û\ÜÓ˜[YOH™ÜšYØ\Lˆ^\ÛH•˜[œØXÝ[Ûˆ]O[œ]™\]Z\™Y\OH™]Hˆ˜[YO^Ù›Ü›K˜[œØXÝ[Û‘]_HÛÚ[™ÙO^Ê]™[
+HOˆÙ]›Ü›JÈ‹‹™›Ü›K˜[œØXÝ[Û‘]Nˆ]™[\™Ù]˜[YHJ_HÏÛX™[‚ˆX™[Û\ÜÓ˜[YOH™ÜšYØ\Lˆ^\ÛH‘YH]O[œ]\OH™]Hˆ˜[YO^Ù›Ü›K™YQ]_HÛÚ[™ÙO^Ê]™[
+HOˆÙ]›Ü›JÈ‹‹™›Ü›KYQ]Nˆ]™[\™Ù]˜[YHJ_HÏÛX™[‚ˆ^[Y[Ø[\Ô™\ÛÛ\[žRY^ØXÝ]™PÛÛ\[žRYHÝ\œ™[˜ÞO^Ù›Ü›K˜Ý\œ™[˜Þ_H[\ÞYY\Ï^Ü™XÛÜ™Ë˜ÛÛXÝË™š[\Š
+ÛÛXÝ
+HOˆÛÛXÝ\HOOH™[\ÞYYHˆ	‰ˆÛÛXÝœÝ]\ÈOOH˜XÝ]™HŠK›X\
+
+ÛÛXÝ
+HOˆ
+ÈYˆÛÛXÝšY˜[YNˆÝš[™ÊÛÛXÝ›˜[YJHJJ_H˜[YO^Ù›Ü›KœØ[\ÛX[ŸHÛÚ[™ÙO^ÊØ[\ÛX[ŠHOˆÙ]›Ü›JÈ‹‹™›Ü›KØ[\ÛX[ˆJ_HÏ‚ˆÙ]‚ˆX™[Û\ÜÓ˜[YOH™ÜšYØ\Lˆ^\ÛH“Y[[Ï^\™XHX^[™Ý^ÍLH˜[YO^Ù›Ü›K›Y[[ßHÛÚ[™ÙO^Ê]™[
+HOˆÙ]›Ü›JÈ‹‹™›Ü›KY[[Îˆ]™[\™Ù]˜[YHJ_HÏÛX™[‚ˆÙ]ŸBˆÜØ[\Ñ]Z[ÓÛ›H	‰ˆ›Ü›K\HOOHš[›ÚXÙHˆ	‰ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLÈ]ˆÛ\ÜÓ˜[YOH™›^›^]Ü˜\][\ËXÙ[\ˆ\ÝYžKX™]ÙY[ˆØ\Lˆ]ÈÛ\ÜÓ˜[YOH™›Û\Ù[ZX›Û’][\È[™Ù\šXÙ\ÏÚÏÛ\ÜÓ˜[YOH^^È^[]]YY›Ü™YÜ›Ý[™‘^\Ý[™ÈÜÝY[™\È\™HØÚÙYˆ\ÙHY[™HÈ\[™[›Ý\ˆ][HÈ\È[›ÚXÙKÜÙ]]Ûˆ\OH˜]Ûˆˆ˜\šX[H›Ý][™Hˆ\ØX›Y^ÈYØÝ[Y[[™[ÜžT™XY_HÛÛXÚÏ^Ê
+HOˆÙ][™\Ê
+Ý\œ™[
+HOˆË‹‹˜Ý\œ™[È][RYˆˆ‹\ØÜš\[ÛŽˆˆ‹]X[]NˆŒH‹[š]šXÙNˆŒ‹[š]ÛÜÝˆŒ‹˜]ÛÙNˆ”ÕS‘T‘‹˜]˜]NˆH‹ÛÛ[Y[Îˆˆ‹Ù\šX[[X™\ŽˆˆˆWJ_O\ÈÛ\ÜÓ˜[YOHœÚ^™KMˆÏY[™OÐ]ÛÙ]žÈYØÝ[Y[[™[ÜžT™XYH	‰ˆÛ\ÜÓ˜[YOH^^È^\Û]KML“ØY[™È[™[ÜžH][\ø )ÜŸ^Û[™\Ë›X\
+
+[™K[™^
+HOˆ[™KšYÈ]ˆÙ^O^Û[™KšYHÛ\ÜÓ˜[YOHœÜXÙK^KLˆ›Ý[™Y^›Ü™\ˆLÈÛ\ÜÓ˜[YOH^\ÛH›Û[YY][HžÚ[™^
+È_KˆÛ[™K™\ØÜš\[ÛŸOÜØÝ[Y[^˜QšY[È˜[YO^ÞÈÛÛ[Y[Îˆ[™K˜ÛÛ[Y[Èˆ‹Ù\šX[[X™\Žˆ[™KœÙ\šX[[X™\ˆˆˆ_HÛÚ[™ÙO^Ý˜[YHOˆÙ][™\Ê[™\Ë›X\
+
+[žKÜÚ][ÛŠHOˆÜÚ][ÛˆOOH[™^ÈÈ‹‹™[žK‹‹˜[YHHˆ[žJJ_HÏÙ]ˆˆ]ˆÙ^O^Ø™]ËZ[›ÚXÙK[[™KIÚ[™^XHÛ\ÜÓ˜[YOHœÜXÙK^KLÈ›Ý[™Y^›Ü™\ˆ›Ü™\‹Y[Y\˜[LÌ™ËY[Y\˜[MLÍLÈ\šÎ˜™ËY[Y\˜[NMLÌŒ]ˆÛ\ÜÓ˜[YOH™›^][\ËXÙ[\ˆ\ÝYžKX™]ÙY[ˆÝ›Û™ÈÛ\ÜÓ˜[YOH^\ÛH“™]È[™HÚ[™^
+È_OÜÝ›Û™Ï]Ûˆ\OH˜]ÛˆˆÚ^™OHœÛHˆ˜\šX[H›Ý][™HˆÛ\ÜÓ˜[YOH˜›Ü™\‹\›ÜÙKLÌ^\›ÜÙKMŒˆÛÛXÚÏ^Ê
+HOˆÙ][™\Ê
+Ý\œ™[
+HOˆÝ\œ™[™š[\Š
+ËÜÚ][ÛŠHOˆÜÚ][ÛˆOOH[™^
+J_O˜\ÚˆÛ\ÜÓ˜[YOHœÚ^™KMˆÏ”™[[Ý™OÐ]ÛÙ]]ˆÛ\ÜÓ˜[YOH™ÜšYØ\LÈY™ÜšYXÛÛËVÛZ[›X^
+Œ™œŠWÌLLÌLÌÌMLHX™[Û\ÜÓ˜[YOH™ÜšYØ\LH^\ÛH’][OÙ[XÝ˜[YO^Û[™Kš][RYˆŸHÛ•˜[YPÚ[™ÙO^Ê˜[YJHOˆÈÛÛœÝ][HHØÝ[Y[][\Ë™š[™
+
+[žJHOˆÝš[™Ê[žKšY
+HOOH˜[YJNÈYˆ
+Z][JH™]\›ŽÈÛÛœÝ˜]ÛÙHHÝš[™Ê][KœØ[\Õ˜]ÛÙH”ÕS‘T‘ŠNÈÛÛœÝ˜]˜]HH˜]ÛÙSÜ[ÛœË™š[™
+
+ÛÙJHOˆÛÙK˜ÛÙHOOH˜]ÛÙJOËœ˜]HÏÈNÈÙ][™\Ê
+Ý\œ™[
+HOˆÝ\œ™[›X\
+
+[žKÜÚ][ÛŠHOˆÜÚ][ÛˆOOH[™^ÈÈ‹‹™[žK][RYˆ˜[YK\ØÜš\[ÛŽˆÝš[™Ê][K™\ØÜš\[Ûˆ][K›˜[YHˆŠK[š]šXÙNˆ[›ÚXÙPÝ\œ™[˜ÞP[[Ý[
+[X™\Š][KœØ[\ÔšXÙHÏÈ
+K[X™\Š›Ü›K™^Ú[™ÙT˜]HJJK[š]ÛÜÝˆ[›ÚXÙPÝ\œ™[˜ÞP[[Ý[
+[X™\Š][K˜]™\˜YÙPÛÜÝÏÈ][K˜ÛÜÝÏÈ
+K[X™\Š›Ü›K™^Ú[™ÙT˜]HJJK˜]ÛÙK˜]˜]NˆÝš[™Ê˜]˜]JHHˆ[žJJNÈ_OÙ[XÝšYÙÙ\Ù[XÝ˜[YHXÙZÛ\H”Ù[XÝ][HˆÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žÙØÝ[Y[][\Ë™š[\Š
+][JHOˆ][KœÝ]\ÈOOHš[˜XÝ]™HŠK›X\
+
+][JHOˆÙ[XÝ][HÙ^O^Ú][KšYH˜[YO^ÔÝš[™Ê][KšY
+_OžÔÝš[™Ê][KœÚÝHˆŠ_H0­ÈÔÝš[™Ê][K›˜[YH][K™\ØÜš\[Ûˆ’][HŠ_OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝÛX™[X™[Û\ÜÓ˜[YOH™ÜšYØ\LH^\ÛH”]O[œ]\OH›[X™\ˆˆZ[HŒŒHˆÝ\HŒŒHˆ˜[YO^Û[™Kœ]X[]_HÛÚ[™ÙO^Ê]™[
+HOˆÙ][™\Ê
+Ý\œ™[
+HOˆÝ\œ™[›X\
+
+[žKÜÚ][ÛŠHOˆÜÚ][ÛˆOOH[™^ÈÈ‹‹™[žK]X[]Nˆ]™[\™Ù]˜[YHHˆ[žJJ_HÏÛX™[X™[Û\ÜÓ˜[YOH™ÜšYØ\LH^\ÛH”˜]O[œ]\OH›[X™\ˆˆZ[HŒˆÝ\HŒŒHˆ˜[YO^Û[™K[š]šXÙ_HÛÚ[™ÙO^Ê]™[
+HOˆÙ][™\Ê
+Ý\œ™[
+HOˆÝ\œ™[›X\
+
+[žKÜÚ][ÛŠHOˆÜÚ][ÛˆOOH[™^ÈÈ‹‹™[žK[š]šXÙNˆ]™[\™Ù]˜[YHHˆ[žJJ_HÏÛX™[X™[Û\ÜÓ˜[YOH™ÜšYØ\LH^\ÛH•UÙ[XÝ˜[YO^Û[™K˜]ÛÙ_HÛ•˜[YPÚ[™ÙO^Ê˜[YJHOˆÈÛÛœÝ˜]HH˜]ÛÙSÜ[ÛœË™š[™
+
+ÛÙJHOˆÛÙK˜ÛÙHOOH˜[YJOËœ˜]HÏÈÈÙ][™\Ê
+Ý\œ™[
+HOˆÝ\œ™[›X\
+
+[žKÜÚ][ÛŠHOˆÜÚ][ÛˆOOH[™^ÈÈ‹‹™[žK˜]ÛÙNˆ˜[YK˜]˜]NˆÝš[™Ê˜]JHHˆ[žJJNÈ_OÙ[XÝšYÙÙ\Ù[XÝ˜[YHÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žÝ˜]ÛÙSÜ[ÛœË›X\
+
+ÛÙJHOˆÙ[XÝ][HÙ^O^ØÛÙK˜ÛÙ_H˜[YO^ØÛÙK˜ÛÙ_OžØÛÙK›X™[OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝÛX™[Ù]X™[Û\ÜÓ˜[YOH™ÜšYØ\LH^\ÛH‘\ØÜš\[Û^\™XH˜[YO^Û[™K™\ØÜš\[ÛŸHÛÚ[™ÙO^Ê]™[
+HOˆÙ][™\Ê
+Ý\œ™[
+HOˆÝ\œ™[›X\
+
+[žKÜÚ][ÛŠHOˆÜÚ][ÛˆOOH[™^ÈÈ‹‹™[žK\ØÜš\[ÛŽˆ]™[\™Ù]˜[YHHˆ[žJJ_HÏÛX™[ØÝ[Y[^˜QšY[È˜[YO^ÞÈÛÛ[Y[Îˆ[™K˜ÛÛ[Y[Èˆ‹Ù\šX[[X™\Žˆ[™KœÙ\šX[[X™\ˆˆˆ_HÛÚ[™ÙO^Ý˜[YHOˆÙ][™\Ê[™\Ë›X\
+
+[žKÜÚ][ÛŠHOˆÜÚ][ÛˆOOH[™^ÈÈ‹‹™[žK‹‹˜[YHHˆ[žJJ_HÏÙ]Š_OÙ]ŸBˆØXÝ]™QY]Ü’Ú[™OOH˜[œØXÝ[ÛœÈˆ	‰ˆÈš[›ÚXÙH‹˜š[—Kš[˜ÛY\Ê›Ü›K\JH	‰ˆØÝ[Y[^˜QšY[È˜[YO^ÞÈÛÛ[Y[Îˆ›Ü›K˜ÛÛ[Y[Èˆ‹Ù\šX[[X™\Žˆ›Ü›KœÙ\šX[[X™\ˆˆˆ_HÛÚ[™ÙO^Ý˜[YHOˆÙ]›Ü›JÈ‹‹™›Ü›K‹‹˜[YHJ_HÏŸBˆØXÝ]™QY]Ü’Ú[™OOH˜ÛÛXÝÈˆ	‰ˆY][™Ô™XÛÜ™YOOH[	‰ˆÛÛXÝšY[È›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HXØÛÝ[Ï^Ü™XÛÜ™Ë˜XØÛÝ[ßHÏŸBˆÙY][™Ô™XÛÜ™YOOH[	‰ˆÈ˜ÛÛXÝÈ‹˜XØÛÝ[È—Kš[˜ÛY\ÊXÝ]™QY]Ü’Ú[™
+H	‰ˆ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\MÛN™ÜšYXÛÛËLˆžÊXÝ]™QY]Ü’Ú[™OOH˜XØÛÝ[ÈˆÈÖÈXØÛÝ[ÛÙH‹˜ÛÙH—KÈXØÛÝ[˜[YH‹›˜[YH—WHˆÖÈ“˜[YH‹›˜[YH—KÈÛÛ\[žH‹˜ÛÛ\[žH—KÈš[[™È˜[YH‹˜š[[™Ó˜[YH—KÈ‘[XZ[‹™[XZ[—KÈ”Û™H‹œÛ™H—KÈ•Ú]Ð\‹Ú]Ø\—KÈÛÝ[žH‹˜ÛÝ[žH—KÈ•“ˆ‹›ˆ—KÈ”™\Ù[\ˆ‹œ™\Ù[\ˆ—KÈ”[™]‹œ[™]—KÈ”\ÜÜÜ‹œ\ÜÜÜ—KÈ‘\ØÜš\[Ûˆ‹™\ØÜš\[Ûˆ—WJK›X\
+
+ÛX™[˜[YWJHOˆšY[Ù^O^Û˜[Y_HX™[^ÛX™[H˜[YO^Û˜[Y_H›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_H™\]Z\™Y^Û˜[YHOOH›˜[YHˆ˜[YHOOH˜ÛÙHŸHÏŠ_^ØXÝ]™QY]Ü’Ú[™OOH˜XØÛÝ[Èˆ	‰ˆÚÚXÙHX™[HXØÛÝ[\Hˆ˜[YOH\Hˆ˜[Y\Ï^ØXØÛÝ[\\Ñ›Ü”›ÛJ›Ü›KœÞ\Ý[T›ÛHˆŠ_H›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HÏŸOÛ\ÜÓ˜[YOH^^È^\Û]KMLÛN˜ÛÛ\Ü[‹LˆžØXÝ]™QY]Ü’Ú[™OOH˜XØÛÝ[ÈˆÈXØÛÝ[\HØ[ˆ™HÚ[™ÙYˆÝ\œ™[˜ÞKÜ[š[™È˜[[˜ÙH[™Þ\Ý[H[šÈ\™H™\Ù\™YˆˆˆÝ\œ™[˜ÞK˜[[˜Ù\È[™YÙ\ˆ[šÜÈ\™H™\Ù\™YÚ[ˆY][™È\ÙH]Z[ËˆŸOÜÙ]ŸBˆØXÝ]™QY]Ü’Ú[™OOHš][\Èˆ	‰ˆ‚ˆÙY][™Ò][RYOOH[	‰ˆÙXÝ[ÛˆÛ\ÜÓ˜[YOH™ÜšYØ\M›Ý[™Y^›Ü™\ˆ™Ë\Û]KMLMÛN™ÜšYXÛÛËLˆ‚ˆX™[Û\ÜÓ˜[YOH™ÜšYØ\Lˆ^\ÛH›Û[YY][HÛÛ\[žH
+Ù[XÝ™\]Z\™YÛ\ÜÓ˜[YOHšLLËY[›Ý[™Y[Y›Ü™\ˆ™ËX˜XÚÙÜ›Ý[™LÈˆ˜[YO^ØXÝ]™PÛÛ\[žRYˆŸHÛÚ[™ÙO^Ù]™[OˆÈÛÛœÝÛÛ\[žHHÛÛ\[šY\Ë™š[™
+[žHOˆ[žKšYOOH[X™\Š]™[\™Ù]˜[YJJNÈYˆ
+XÛÛ\[žJH™]\›ŽÈÙ]™XÛÜ™ÊÈ˜[œØXÝ[ÛœÎˆ×KÛÛXÝÎˆ×K][\Îˆ×KXØÛÝ[Îˆ×HJNÈÙ]XÝ]™PÛÛ\[žRY
+ÛÛ\[žKšY
+NÈÙ]XÝ]™SØØ][Û’Y
+ÛÛ\[žK›ØØ][ÛœÖÌOËšYÏÈ
+NÈ_OÜ[Ûˆ˜[YOHˆˆ\ØX›Y”Ù[XÝÛÛ\[žOÛÜ[ÛžØÛÛ\[šY\Ë›X\
+ÛÛ\[žHOˆÜ[ÛˆÙ^O^ØÛÛ\[žKšYH˜[YO^ØÛÛ\[žKšYOžØÛÛ\[žK›˜[Y_OÛÜ[ÛŠ_OÜÙ[XÝÛX™[‚ˆX™[Û\ÜÓ˜[YOH™ÜšYØ\Lˆ^\ÛH›Û[YY][H’[™[ÜžH
+Ù[XÝ™\]Z\™YÛ\ÜÓ˜[YOHšLLËY[›Ý[™Y[Y›Ü™\ˆ™ËX˜XÚÙÜ›Ý[™LÈˆ˜[YO^ØXÝ]™SØØ][ÛœËœÛÛYJØØ][ÛˆOˆØØ][Û‹šYOOHXÝ]™SØØ][Û’Y
+HÈXÝ]™SØØ][Û’YˆˆŸH\ØX›Y^ÈXXÝ]™SØØ][ÛœË›[™ÝHÛÚ[™ÙO^Ù]™[OˆÈÙ]™XÛÜ™ÊÝ\œ™[Oˆ
+È‹‹˜Ý\œ™[][\Îˆ×HJJNÈÙ]XÝ]™SØØ][Û’Y
+[X™\Š]™[\™Ù]˜[YJJNÈ_OÜ[Ûˆ˜[YOHˆˆ\ØX›Y”Ù[XÝ[™[ÜžOÛÜ[ÛžØXÝ]™SØØ][ÛœË›X\
+ØØ][ÛˆOˆÜ[ÛˆÙ^O^ÛØØ][Û‹šYH˜[YO^ÛØØ][Û‹šYOžÛØØ][Û‹›˜[Y_OÛÜ[ÛŠ_OÜÙ[XÝÛX™[‚ˆÛ\ÜÓ˜[YOH^\ÛH^\Û]KMLÛN˜ÛÛ\Ü[‹LˆžØXÝ]™SØØ][ÛœË›[™ÝÈH™]È][HÚ[™HØ]™Y[ˆ	ØXÝ]™PÛÛ\[žOË›˜[YHHÙ[XÝYÛÛ\[žHŸH0­È	ØXÝ]™SØØ][ÛœË™š[™
+ØØ][ÛˆOˆØØ][Û‹šYOOHXÝ]™SØØ][Û’Y
+OË›˜[YHœÙ[XÝ[ˆ[™[ÜžHŸK˜ˆ•\ÈÛÛ\[žH\È›ÈXÝ]™H[™[ÜžKˆY[ˆ[™[ÜžHÜˆÙ[XÝ[›Ý\ˆÛÛ\[žKˆŸOÜ‚ˆÜÙXÝ[ÛŸBˆ][QšY[È›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_H][\Ï^Ü™XÛÜ™Ëš][\ßHXØÛÝ[Ï^Ü™XÛÜ™Ë˜XØÛÝ[ßHÛÛXÝÏ^Ü™XÛÜ™Ë˜ÛÛXÝßH˜]ÛÙSÜ[ÛœÏ^Ý˜]ÛÙSÜ[ÛœßHÝ\œ™[˜ÞO^Ø˜\ÙPÝ\œ™[˜Þ_HY][™Ï^ÙY][™Ò][RYOOH[HÏ‚ˆÏŸBˆØXÝ]™QY]Ü’Ú[™OOH˜XØÛÝ[Èˆ	‰ˆY][™Ô™XÛÜ™YOOH[	‰ˆXØÛÝ[šY[È›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HXØÛÝ[Ï^Ü™XÛÜ™Ë˜XØÛÝ[ßHÏŸBˆÙšY[Ù]X[ÙÑ›ÛÝ\ˆÛ\ÜÓ˜[YO^ØXÝ]™QY]Ü’Ú[™OOH˜[œØXÝ[ÛœÈˆÈœÚš[šËL›Ü™\‹]™ËX˜XÚÙÜ›Ý[™MˆˆˆŸO]Ûˆ\OH˜]Ûˆˆ˜\šX[H›Ý][™Hˆ\ØX›Y^ÜØ]š[™ßHÛÛXÚÏ^Ê
+HOˆÈÙ]X[ÙÓÜ[Š˜[ÙJNÈÙ]Y][™Ò][RY
+[
+NÈÙ]Y][™Ô™XÛÜ™Y
+[
+NÈÙ]Y]Ü’Ú[™
+[
+NÈ_OØ[˜Ù[Ð]Û]Ûˆ\OHœÝX›Z]ˆ\ØX›Y^ÜØ]š[™È\ÚÝSØÚËœ™XY_HÛ\ÜÓ˜[YOH˜™ËY[Y\˜[ML^\Û]KNMLÝ™\Ž˜™ËY[Y\˜[MžÜØ]š[™ÈÈ”Ø]š[™ø )ˆˆˆ
+Y][™Ô™XÛÜ™YOOH[Y][™Ò][RYOOH[	‰ˆXÝ]™QY]Ü’Ú[™OOHš][\ÈŠHÈ”Ø]™HÚ[™Ù\Èˆˆ”Ø]™H™XÛÜ™ŸOÐ]ÛÑX[ÙÑ›ÛÝ\‚ˆÙ›Ü›OŸBˆÑX[ÙÐÛÛ[‚ˆÑX[ÙÏ‚ˆX[ÙÈÜ[^Ú[›ÚXÙR[™[ÜžSÜ[ŸHÛ“Ü[Ú[™ÙO^ÜÙ][›ÚXÙR[™[ÜžSÜ[ŸO‚ˆX[ÙÐÛÛ[Û\ÜÓ˜[YOHœÛN›X^]ËLÞX[ÙÒXY\X[ÙÕ]O”Ù[XÝ[™[ÜžOÑX[ÙÕ]OX[ÙÑ\ØÜš\[ÛÚÛÜÙHÚXÚÛÛ\[žH[™[ÜžHÚ[\ÜÝYH\È[›ÚXÙKˆ]™\žHÛÛ\[žH[™[™[ÜžHÛÛXš[˜][Ûˆ\È]ÈÝÛˆ[›ÚXÙK[[X™\ˆÙ\šY\ËÑX[ÙÑ\ØÜš\[ÛÑX[ÙÒXY\]ˆÛ\ÜÓ˜[YOH™ÜšYØ\LÈKLÈÛN™ÜšYXÛÛËLˆÎ™ÜšYXÛÛËLÈžØXÝ]™SØØ][ÛœË›X\
+
+ØØ][ÛŠHOˆ]Ûˆ\OH˜]ÛˆˆÙ^O^ÛØØ][Û‹šYHÛÛXÚÏ^Ê
+HOˆÝ\[›ÚXÙJØØ][ÛŠ_HÛ\ÜÓ˜[YOHœ›Ý[™Y^›Ü™\‹Lˆ›Ü™\‹\Û]KLŒ™Ë]Ú]HMH^[Y˜[œÚ][ÛˆÝ™\Ž˜›Ü™\‹Y[Y\˜[MÝ™\Ž˜™ËY[Y\˜[MLÛ\ÜÓ˜[YOH™›Û\Ù[ZX›Û^\Û]KNLžÛØØ][Û‹›˜[Y_OÜÛ\ÜÓ˜[YOH›]Lˆ›Û[[Û›È^^È^\Û]KML“™^ˆÚ[›ÚXÙS[X™\”™]šY]ÊXÝ]™PÛÛ\[žRYØØ][ÛŠ_OÜØ]ÛŠ_OÙ]žØXÝ]™SØØ][ÛœË›[™ÝOOH	‰ˆÛ\ÜÓ˜[YOHœ›Ý[™Y[È™ËX[X™\‹MLM^\ÛH^X[X™\‹NY[ˆ[™[ÜžHØØ][Ûˆ™Y›Ü™HÜ™X][™È[ˆ[›ÚXÙKÜŸOÑX[ÙÐÛÛ[‚ˆÑX[ÙÏ‚ˆØÝ[Y[X[ÙÈÛ“Ü[’[›ÚXÙO^ÛÜ[‘]Z[HÛ”™XÙZ\Ø]™Y^Ê
+HOˆÈÙ]]Z[
+[
+NÈ›ÚYØY]J
+NÈ_HÙ^O^Ù]Z[ÈÝš[™Ê]Z[œ™XÛÜ™šY
+Hˆ˜ÛÜÙYYØÝ[Y[ŸH]Z[^Ù]Z[HÛÛ\[žS˜[YO^ØXÝ]™PÛÛ\[žOË›˜[YHÏÈÛÛ\[žHŸH˜\ÙPÝ\œ™[˜ÞO^Ø˜\ÙPÝ\œ™[˜Þ_HÙ]\^ØÛÛ\[žTÙ]\HØ[ÛÛ™\^Ù]Z[Ëœ™XÛÜ™\HOOHœ\˜Ú\ÙHÜ™\ˆˆÈ›ÛUÜš]UšY]ÜÖØÝ\œ™[\Ù\‹œ›ÛWKš[˜ÛY\Êœ\˜Ú\Ù\ÈŠHˆ›ÛUÜš]UšY]ÜÖØÝ\œ™[\Ù\‹œ›ÛWKš[˜ÛY\ÊœØ[\ÈŠ_HÛÛÛ™\^ØÛÛ™\ÛÝ\˜ÙQØÝ[Y[HÛÛÜÙO^Ê
+HOˆÙ]]Z[
+[
+_HÏ‚ˆ™\ÜX[ÙÈÛÝ\ÝÛY\^Ê˜[YKÝ\œ™[˜ÞKÝ™\™YJHOˆÈ›ÚYÜ[”™\Ü
+Ý™\™YHÈ˜Ý\ÝÛY\œË[Ý™\™YKZ[›ÚXÙ\Èˆˆ˜Ý\ÝÛY\‹[Ü[‹X˜[[˜ÙH‹[™Yš[™YÈØØ][Û’Yˆ™\ÜÛÛ^Ë›ØØ][Û’YÏÈXÝ]™SØØ][Û’YÝ\œ™[˜ÞKÝ\ÝÛY\Žˆ˜[YHJNÈ_HÛ“Ü[”ÛÝ\˜ÙO^ÊY
+HOˆÈÙ]™\Ü
+[
+NÈ›ÚYÜ[‘]Z[
+Y
+NÈ_HÙ]\^ØÛÛ\[žTÙ]\HØY[™Ï^Ü™\ÜØY[™ßHÛ”Ý][Y[\O^Êš[\œÊHOˆÜ[”™\Ü
+™\ÜËšÙ^H˜Ý\ÝÛY\‹\Ý][Y[È‹ÈÝ\ˆš[\œË™œ›ÛK[™ˆš[\œËÈKÈØØ][Û’Yˆ™\ÜÛÛ^Ë›ØØ][Û’YÏÈXÝ]™SØØ][Û’YÝ\œ™[˜ÞNˆš[\œË˜Ý\œ™[˜ÞKÝ\ÝÛY\Žˆš[\œË˜Ý\ÝÛY\‹Ý][Y[]Nˆš[\œËœÝ][Y[]KY[[Îˆš[\œË›Y[[ÈJ_HÛ”šXÙ\ÔØ]™Y^Ø\Þ[˜È
+
+HOˆÈ]ØZ]Ü[”™\Ü
+œÝØÚË\šXÚ[™Ë\›Ùš]‹[™Yš[™Y™\ÜÛÛ^ÈÈØØ][Û’Yˆ™\ÜÛÛ^›ØØ][Û’YÝ\œ™[˜ÞNˆ™\ÜÛÛ^˜Ý\œ™[˜ÞHHˆ[™Yš[™Y
+NÈ]ØZ]ØY]J
+NÈ_H™\Ü^Ü™\ÜHÛÛ\[žS˜[YO^ØXÝ]™PÛÛ\[žOË›˜[YHÏÈÛÛ\[žHŸH[™[ÜžS˜[YO^ØXÝ]™SØØ][ÛœË™š[™
+
+ØØ][ÛŠHOˆØØ][Û‹šYOOH
+™\ÜÛÛ^Ë›ØØ][Û’YÏÈXÝ]™SØØ][Û’Y
+JOË›˜[YHÏÈ[[™[ÜšY\ÈŸHY[[Üš\ÙY^Ð›ÛÛX[Š™\ÜÛÛ^	‰ˆY[[Üš\ÙY™\ÜËœÛÛYJ
+Ø]™Y™\Ü
+HOˆØ]™Y™\Üœ™\ÜÙ^HOOH™\ÜÛÛ^šÙ^JJ_HØ]š[™Ï^ÛY[[Üš\ÙTØ]š[™ßHÛ“Y[[Üš\ÙO^ÜØ]™SY[[Üš\ÙY™\ÜHÛÛÜÙO^Ê
+HOˆÙ]™\Ü
+[
+_HÏ‚ˆÛÜšÜÜXÙQX[ÙÈÜ[^ÝÛÜšÜÜXÙSÜ[ŸHÛÛ\[šY\Ï^ØÛÛ\[šY\ßHXÝ]™PÛÛ\[žRY^ØXÝ]™PÛÛ\[žRYHÛÛÜÙO^Ê
+HOˆÙ]ÛÜšÜÜXÙSÜ[Š˜[ÙJ_HÛÚ[™ÙY^ÛØYÛÜšÜÜXÙ\ßHÏ‚ˆØ\Ý\ˆšXÚÛÛÜœÈÜÚ][ÛH˜›ÝÛK\šYÚˆÏ‚ˆÔÚYX˜\”›ÝšY\‚ˆ
+NÂŸB‚™[˜Ý[Ûˆ\Ú›Ø\™
+ÈY]šXÜË™XÛÜ™ËÛÛ\[žS˜[YKÝ\œ™[˜ÞK[YPÛÛÜ‹[YTØ]š[™ËÛ•[YPÚ[™ÙKÛ“˜]šYØ]KÛ•ÛÜšÙ›ÝËÛÜ™X]KÛ“Ü[‘]Z[Ø[Ü™X]KØ[•šY]Ô™\ÜÈNˆÈY]šXÜÎˆ™XÛÜ™Ýš[™Ë[X™\ŽÈ™XÛÜ™Îˆ™XÛÜ™Ú[™]T™XÛÜ™×OŽÈÛÛ\[žS˜[YNˆÝš[™ÎÈÝ\œ™[˜ÞNˆÝš[™ÎÈ[YPÛÛÜŽˆ\Ù\•[YNÈ[YTØ]š[™Îˆ›ÛÛX[ŽÈÛ•[YPÚ[™ÙNˆ
+[YNˆ\Ù\•[YJHOˆ›ÚYÈÛ“˜]šYØ]Nˆ
+ŽˆšY]ÊHOˆ›ÚYÈÛ•ÛÜšÙ›ÝÎˆ
+\NˆÝš[™Ë\™Ù]ˆšY]ÊHOˆ›ÚYÈÛÜ™X]Nˆ
+
+HOˆ›ÚYÈÛ“Ü[‘]Z[ˆ
+Yˆ[X™\ŠHOˆ›ÚYÈØ[Ü™X]Nˆ›ÛÛX[ŽÈØ[•šY]Ô™\ÜÎˆ›ÛÛX[ˆJHÂˆÛÛœÝÙ\Ú›Ø\™X‹Ù]\Ú›Ø\™X—HH\ÙTÝ]OšÛYHˆš[œÚYÚÈŠšÛYHŠNÂ‚ˆ\ÙQY™™XÝ
+
+
+HOˆÂˆYˆ
+\Ú›Ø\™XˆOOHš[œÚYÚÈŠH™]\›ŽÂˆÛÛœÝÛ‘\ØØ\HH
+]™[ˆÙ^X›Ø\™]™[
+HOˆÂˆYˆ
+]™[šÙ^HOOH‘\ØØ\Hˆ]™[™Y˜][™]™[Y]™[š\ÐÛÛ\ÜÚ[™ÊH™]\›ŽÂˆÛÛœÝÜ[“^Y\ˆHØÝ[Y[œ]Y\žTÙ[XÝÜŠˆ	ÖÙ]K\ÛÝH™X[ÙËXÛÛ[—VÙ]K\Ý]OH›Ü[ˆ—KÙ]K\ÛÝHœÚY]XÛÛ[—VÙ]K\Ý]OH›Ü[ˆ—KÙ]K\ÛÝH™˜]Ù\‹XÛÛ[—VÙ]K\Ý]OH›Ü[ˆ—KÙ]K\ÛÝH˜[\YX[ÙËXÛÛ[—VÙ]K\Ý]OH›Ü[ˆ—KÜ›ÛOH™X[ÙÈ—VØ\šXK[[Ù[HYH—IÂˆ
+NÂˆYˆ
+Ü[“^Y\ŠH™]\›ŽÂˆ]™[œ™]™[Y˜][
+
+NÂˆÙ]\Ú›Ø\™XŠšÛYHŠNÂˆNÂˆØÝ[Y[˜Y]™[\Ý[™\ŠšÙ^YÝÛˆ‹Û‘\ØØ\JNÂˆ™]\›ˆ
+
+HOˆØÝ[Y[œ™[[Ý™Q]™[\Ý[™\ŠšÙ^YÝÛˆ‹Û‘\ØØ\JNÂˆKÙ\Ú›Ø\™X—JNÂ‚ˆÛÛœÝ™XÙ[H™XÛÜ™Ë˜[œØXÝ[ÛœËœÛXÙJŠNÂˆÛÛœÝØ\™ÈHÂˆÈØ\ÚÜÚ][Ûˆ‹Y]šXÜË˜Ø\ÚÚ\˜ÛQÛ\”ÚYÛ‹“[šÙY˜[šÈXØÛÝ[È‹™[Y\˜[—KˆÈXØÛÝ[È™XÙZ]˜X›H‹Y]šXÜËœ™XÙZ]˜X›KÛØÚÌË“[šÙYTˆÛÛ›ÛXØÛÝ[È‹˜›YH—KˆÈXØÛÝ[È^XX›H‹Y]šXÜËœ^XX›K˜YÙQÛ\”ÚYÛ‹“[šÙYTÛÛ›ÛXØÛÝ[È‹˜[X™\ˆ—KˆÈ’[™[ÜžH˜[YH‹Y]šXÜËš[™[ÜžKXÚØYÙTÙX\˜Ú“[šÙY[™[ÜžH\ÜÙ]XØÛÝ[‹š[Û]—KˆH\ÈÛÛœÝÂˆÛÛœÝX^HX]›X^
+Y]šXÜËœØ[\ËY]šXÜË™^[œÙ\ËJNÂˆ™]\›ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KMˆ‚ˆ]ˆÛ\ÜÓ˜[YOH™›^ËYš]›Ý[™Y^›Ü™\ˆ›Ü™\‹\Û]KLŒ™Ë]Ú]HLHÚYÝË\ÛHˆ›ÛOHX›\Ýˆ\šXK[X™[H“Ý™\šY]ÈÙXÝ[ÛœÈ]Ûˆ\OH˜]Ûˆˆ›ÛOHXˆˆ\šXK\Ù[XÝY^Ù\Ú›Ø\™XˆOOHšÛYHŸHÛÛXÚÏ^Ê
+HOˆÙ]\Ú›Ø\™XŠšÛYHŠ_HÛ\ÜÓ˜[YO^Ø›Ý[™Y[ÈMHKLˆ^\ÛH›ÛX›Û˜[œÚ][Ûˆ	Ù\Ú›Ø\™XˆOOHšÛYHˆÈ˜œ˜[™\š[X\žKX]ÛˆÚYÝË\ÛHˆˆ^\Û]KMLÝ™\Ž˜™Ë\Û]KLLŸXO’ÛYHYÙOØ]Û]Ûˆ\OH˜]Ûˆˆ›ÛOHXˆˆ\šXK\Ù[XÝY^Ù\Ú›Ø\™XˆOOHš[œÚYÚÈŸHÛÛXÚÏ^Ê
+HOˆÙ]\Ú›Ø\™XŠš[œÚYÚÈŠ_HÛ\ÜÓ˜[YO^Ø›Ý[™Y[ÈMHKLˆ^\ÛH›ÛX›Û˜[œÚ][Ûˆ	Ù\Ú›Ø\™XˆOOHš[œÚYÚÈˆÈ˜œ˜[™\š[X\žKX]ÛˆÚYÝË\ÛHˆˆ^\Û]KMLÝ™\Ž˜™Ë\Û]KLLŸXO’[œÚYÚÏØ]ÛÙ]‚ˆÙ\Ú›Ø\™XˆOOHšÛYHˆÈÛÜšÙ›ÝÒÛYHÛ“˜]šYØ]O^ÛÛ“˜]šYØ]_HÛ•ÛÜšÙ›ÝÏ^ÛÛ•ÛÜšÙ›ÝßHÏˆˆ‚ˆÙXÝ[ÛˆÛ\ÜÓ˜[YOH˜œ˜[™Z\›È›Ý[™YLžMˆ^]Ú]HÚYÝË\ÛHÎ™›^Îš][\ËXÙ[\ˆÎš\ÝYžKX™]ÙY[ˆ‚ˆ]]ˆÛ\ÜÓ˜[YOH˜œ˜[™Z\›Ë\ÚYÛ˜[X‹LÈ›^][\ËXÙ[\ˆØ\Lˆ^^È›Û\Ù[ZX›Û˜XÚÚ[™ËVËŒMY[WHÜ[ˆÛ\ÜÓ˜[YOH˜œ˜[™Z\›ËYÝÚ^™KLˆ›Ý[™YY[ˆÏˆÓÓTS–H’SHPÕU‘OÙ]ˆÛ\ÜÓ˜[YOH^Lž›ÛX›ÛžØÛÛ\[žS˜[Y_OÚÛ\ÜÓ˜[YOH›]LH^\ÛH^\Û]KLÌ”ÜÝ˜[œØXÝ[ÛœËÛÛ›ÛÝØÚÈ[™ÛÜÙH[Ý\ˆ›ÛÚÜÈœ›ÛHÛ™HÛÜšÜÜXÙKÜÙ]‚ˆ]ˆÛ\ÜÓ˜[YOH›]MH›^›^]Ü˜\Ø\LˆÎ›]LžØØ[•šY]Ô™\ÜÈ	‰ˆ]Ûˆ˜\šX[H›Ý][™HˆÛÛXÚÏ^Ê
+HOˆÛ“˜]šYØ]Jœ™\ÜÈŠ_HÛ\ÜÓ˜[YOH˜›Ü™\‹]Ú]KÌŒ™Ë]Ú]KÍH^]Ú]HÝ™\Ž˜™Ë]Ú]KÌLÝ™\Ž^]Ú]Hš[P˜\Ú\ˆÏ•šY]È™\ÜÏÐ]ÛŸ^ØØ[Ü™X]H	‰ˆ]ÛˆÛÛXÚÏ^ÛÛÜ™X]_HÛ\ÜÓ˜[YOH˜œ˜[™\š[X\žKX]Ûˆ\ÈÏ”™XÛÜ™˜[œØXÝ[ÛÐ]ÛŸOÙ]‚ˆÜÙXÝ[Û‚ˆÙXÝ[ÛˆÛ\ÜÓ˜[YOH™›^›^XÛÛØ\M›Ý[™Y^›Ü™\ˆ›Ü™\‹\Û]KLŒ™Ë]Ú]HMÚYÝË\ÛHÛN™›^\›ÝÈÛNš][\ËXÙ[\ˆÛNš\ÝYžKX™]ÙY[ˆ‚ˆ]ˆÛ\ÜÓ˜[YOH™›^][\ËXÙ[\ˆØ\LÈ]ˆÛ\ÜÓ˜[YOH˜œ˜[™\ÛÙZXÛÛˆÜšYÚ^™KLLÚš[šËLXÙKZ][\ËXÙ[\ˆ›Ý[™Y^[]HÛ\ÜÓ˜[YOHœÚ^™KMHˆÏÙ]]ÈÛ\ÜÓ˜[YOH^\ÛH›ÛX›Û^\Û]KNL–[Ý\ˆ[\™˜XÙHÛÛÜÚÏÛ\ÜÓ˜[YOH^^È^\Û]KML”Ø]™Yš]˜][HÈ[Ý\ˆ\Ù\ˆXØÛÝ[ÜÙ]Ù]‚ˆ]ˆÛ\ÜÓ˜[YOH™›^›^]Ü˜\Ø\Lˆˆ›ÛOH™Ü›Ý\ˆ\šXK[X™[HÚÛÜÙH[\™˜XÙHÛÛÜˆžÝ\Ù\•[Y\Ë›X\
+
+[YJHOˆ]Ûˆ\OH˜]ÛˆˆÙ^O^Ý[YK˜[Y_H\ØX›Y^Ý[YTØ]š[™ßH\šXK\™\ÜÙY^Ý[YPÛÛÜˆOOH[YK˜[Y_HÛÛXÚÏ^Ê
+HOˆÛ•[YPÚ[™ÙJ[YK˜[YJ_HÛ\ÜÓ˜[YO^Ø›^Z[‹ZLL][\ËXÙ[\ˆØ\Lˆ›Ý[™Y[È›Ü™\ˆLÈKLˆ^\ÛH›Û[YY][H˜[œÚ][Ûˆ\ØX›Y›ÜXÚ]KMŒ	Ý[YPÛÛÜˆOOH[YK˜[YHÈ˜›Ü™\‹\Û]KNL™Ë\Û]KNL^]Ú]HÚYÝË\ÛHˆˆ˜›Ü™\‹\Û]KLŒ™Ë]Ú]H^\Û]KMŒÝ™\Ž˜›Ü™\‹\Û]KMŸXOÜ[ˆÛ\ÜÓ˜[YOHœÚ^™KM›Ý[™YY[›Ü™\ˆ›Ü™\‹X›XÚËÌLˆÝ[O^ÞÈ˜XÚÙÜ›Ý[™ÛÛÜŽˆ[YK˜ÛÛÜˆ_HÏžÝ[YK›X™[^Ý[YPÛÛÜˆOOH[YK˜[YHÈÚXÚÈÛ\ÜÓ˜[YOHœÚ^™KLËHˆÏˆˆ[OØ]ÛŠ_OÙ]‚ˆÜÙXÝ[Û‚ˆÙXÝ[ÛˆÛ\ÜÓ˜[YOH™ÜšYØ\MÛN™ÜšYXÛÛËLˆ™ÜšYXÛÛËMžØØ\™Ë›X\
+
+ÛX™[˜[YKXÛÛ‹]Z[ÛÛÜ—JHOˆ\XÛHÙ^O^ÛX™[HÛ\ÜÓ˜[YOHœ›Ý[™Y^›Ü™\ˆ›Ü™\‹\Û]KLŒ™Ë]Ú]HMHÚYÝËVÌÌ\ÌœÜ™Ø˜JMKŒË‹Œ
+WH]ˆÛ\ÜÓ˜[YOH™›^][\Ë\Ý\\ÝYžKX™]ÙY[ˆ]Û\ÜÓ˜[YOH^\ÛH›Û[YY][H^\Û]KMLžÛX™[OÜÛ\ÜÓ˜[YOH›]Lˆ^Lž›ÛX›Û˜XÚÚ[™Ë]YÚ^\Û]KNLžÙ›Ü›X][Û™^J˜[YKÝ\œ™[˜ÞJ_OÜÙ]]ˆÛ\ÜÓ˜[YO^ØY]šXËZXÛÛˆY]šXËIØÛÛÜŸXOXÛÛˆÛ\ÜÓ˜[YOHœÚ^™KMHˆÏÙ]Ù]Û\ÜÓ˜[YOH›]M^^È^\Û]KMLžÙ]Z[OÜØ\XÛOŠ_OÜÙXÝ[Û‚ˆÙXÝ[ÛˆÛ\ÜÓ˜[YOH™ÜšYØ\MH™ÜšYXÛÛËVÌKŒÍYœ—ËYœ—H‚ˆ\XÛHÛ\ÜÓ˜[YOHœ›Ý[™Y^›Ü™\ˆ›Ü™\‹\Û]KLŒ™Ë]Ú]HMHÚYÝË\ÛH]ˆÛ\ÜÓ˜[YOH™›^][\ËXÙ[\ˆ\ÝYžKX™]ÙY[ˆ]ÈÛ\ÜÓ˜[YOH™›ÛX›Û^\Û]KNL’[˜ÛÛYHœÈ^[œÙ\ÏÚÏÛ\ÜÓ˜[YOH^^È^\Û]KML”ÜÝY[˜ÛÛYH[™^[œÙHXØÛÝ[ÏÜÙ]˜YÙH˜\šX[H›Ý][™HžØÝ\œ™[˜Þ_OÐ˜YÙOÙ]]ˆÛ\ÜÓ˜[YOH›]NÜšYÜšYXÛÛËVÎÌYœ—HØ\^MØ\^KMH^\ÛHÜ[ˆÛ\ÜÓ˜[YOH^\Û]KML’[˜ÛÛYOÜÜ[]ˆÛ\ÜÓ˜[YOH™›^][\ËXÙ[\ˆØ\LÈ]ˆÛ\ÜÓ˜[YOH˜œ˜[™XÚ\X˜\ˆN›Ý[™Y\‹[YˆÝ[O^ÞÈÚYˆ	ÓX]›X^
+
+Y]šXÜËœØ[\ÈÈX^
+H
+ˆLY]šXÜËœØ[\ÈÈˆˆJ_IX_HÏÝ›Û™ÈÛ\ÜÓ˜[YOHÚ]\ÜXÙK[›ÝÜ˜\^\Û]KNžÙ›Ü›X][Û™^JY]šXÜËœØ[\ËÝ\œ™[˜ÞJ_OÜÝ›Û™ÏÙ]Ü[ˆÛ\ÜÓ˜[YOH^\Û]KML‘^[œÙ\ÏÜÜ[]ˆÛ\ÜÓ˜[YOH™›^][\ËXÙ[\ˆØ\LÈ]ˆÛ\ÜÓ˜[YOHšN›Ý[™Y\‹[Y™Ë\ÚÞKMˆÝ[O^ÞÈÚYˆ	ÓX]›X^
+
+Y]šXÜË™^[œÙ\ÈÈX^
+H
+ˆLY]šXÜË™^[œÙ\ÈÈˆˆJ_IX_HÏÝ›Û™ÈÛ\ÜÓ˜[YOHÚ]\ÜXÙK[›ÝÜ˜\^\Û]KNžÙ›Ü›X][Û™^JY]šXÜË™^[œÙ\ËÝ\œ™[˜ÞJ_OÜÝ›Û™ÏÙ]Ù]]ˆÛ\ÜÓ˜[YOH›]MÈ›^][\ËXÙ[\ˆ\ÝYžKX™]ÙY[ˆ›Ü™\‹]MÜ[ˆÛ\ÜÓ˜[YOH^\ÛH^\Û]KML“™]™\Ý[ÜÜ[Ý›Û™ÈÛ\ÜÓ˜[YO^ÛY]šXÜËœØ[\ÈHY]šXÜË™^[œÙ\ÈHÈ˜œ˜[™XXØÙ[]^ˆˆ^\›ÜÙKMŒŸOžÙ›Ü›X][Û™^JY]šXÜËœØ[\ÈHY]šXÜË™^[œÙ\ËÝ\œ™[˜ÞJ_OÜÝ›Û™ÏÙ]Ø\XÛO‚ˆ\XÛHÛ\ÜÓ˜[YOHœ›Ý[™Y^›Ü™\ˆ›Ü™\‹\Û]KLŒ™Ë]Ú]HMHÚYÝË\ÛHÈÛ\ÜÓ˜[YOH™›ÛX›Û^\Û]KNL\Ú[™\ÜÈÝ]\ÏÚÏ]ˆÛ\ÜÓ˜[YOH›]MHÜXÙK^KMÝ]\Ó[™HX™[HÝ\ÝÛY\œÈˆ˜[YO^Ü™XÛÜ™Ë˜ÛÛXÝË™š[\Š
+ŠHOˆ‹\HOOH˜Ý\ÝÛY\ˆŠK›[™ÝHXÝ[Û^Ê
+HOˆÛ“˜]šYØ]J˜Ý\ÝÛY\œÈŠ_HÏÝ]\Ó[™HX™[H•™[™ÜœÈˆ˜[YO^Ü™XÛÜ™Ë˜ÛÛXÝË™š[\Š
+ŠHOˆ‹\HOOH™[™ÜˆŠK›[™ÝHXÝ[Û^Ê
+HOˆÛ“˜]šYØ]J™[™ÜœÈŠ_HÏÝ]\Ó[™HX™[H’[™[ÜžH][\Èˆ˜[YO^Ü™XÛÜ™Ëš][\Ë›[™ÝHXÝ[Û^Ê
+HOˆÛ“˜]šYØ]Jš[™[ÜžHŠ_HÏÝ]\Ó[™HX™[H•˜[œØXÝ[ÛœÈˆ˜[YO^Ü™XÛÜ™Ë˜[œØXÝ[ÛœË›[™ÝHXÝ[Û^Ê
+HOˆÛ“˜]šYØ]JœØ[\ÈŠ_HÏÙ]Ø\XÛO‚ˆÜÙXÝ[Û‚ˆ\XÛHÛ\ÜÓ˜[YOHœ›Ý[™Y^›Ü™\ˆ›Ü™\‹\Û]KLŒ™Ë]Ú]HÚYÝË\ÛH]ˆÛ\ÜÓ˜[YOH™›^][\ËXÙ[\ˆ\ÝYžKX™]ÙY[ˆ›Ü™\‹XˆMHKM]ÈÛ\ÜÓ˜[YOH™›ÛX›Û^\Û]KNL”™XÙ[XÝ]š]OÚÏÛ\ÜÓ˜[YOH^^È^\Û]KML“]\Ý[šY\ÈXÜ›ÜÜÈHÛÛ\[žHš[OÜÙ]]Ûˆ˜\šX[H™ÚÜÝˆÚ^™OHœÛHˆÛÛXÚÏ^Ê
+HOˆÛ“˜]šYØ]JœØ[\ÈŠ_O•šY]È[Ú]œ›Û”šYÚÏÐ]ÛÙ]˜[œØXÝ[Û•X›H™XÛÜ™Ï^Ü™XÙ[H[\OH“›È˜[œØXÝ[ÛœÈY]ˆ\ÙH™XÛÜ™˜[œØXÝ[ÛˆÈY[Ý\ˆš\œÝ[žKˆˆÛ“Ü[^ÛÛ“Ü[‘]Z[HÏØ\XÛO‚ˆÏŸBˆÙ]ŽÂŸB‚\HÝ™\šY]ÕÛÜšÙ›ÝÐXÝ[ÛˆHÈX™[ˆÝš[™ÎÈ]Z[ˆÝš[™ÎÈXÛÛŽˆ\[Ùˆ™XÙZ\^ÈšY]ÎˆšY]ÎÈ˜[œØXÝ[ÛÎˆÝš[™ÈNÂ‚™[˜Ý[ÛˆÛÜšÙ›ÝÒÛYJÈÛ“˜]šYØ]KÛ•ÛÜšÙ›ÝÈNˆÈÛ“˜]šYØ]Nˆ
+šY]ÎˆšY]ÊHOˆ›ÚYÈÛ•ÛÜšÙ›ÝÎˆ
+\NˆÝš[™Ë\™Ù]ˆšY]ÊHOˆ›ÚYJHÂˆÛÛœÝÝ\Y\XÝ[ÛœÎˆÝ™\šY]ÕÛÜšÙ›ÝÐXÝ[Û–×HHÂˆÈX™[ˆ”\˜Ú\ÙHÜ™\œÈ‹]Z[ˆ“Ü™\ˆÝ\Y\ˆÝØÚÈ‹XÛÛŽˆš[P˜\Ú\‹šY]Îˆœ\˜Ú\Ù\È‹˜[œØXÝ[ÛŽˆœ\˜Ú\ÙHÜ™\ˆˆKˆÈX™[ˆ”™XÙZ]™HÝØÚÈ‹]Z[ˆ”™XÙZ]™H™Y›Ü™Hš[[™È‹XÛÛŽˆXÚØYÙPÚXÚËšY]Îˆœ\˜Ú\Ù\È‹˜[œØXÝ[ÛŽˆš][H™XÙZ\ˆKˆÈX™[ˆ‘[\ˆÝ\Y\ˆš[‹]Z[ˆ”™XÛÜ™HÝ\Y\ˆš[‹XÛÛŽˆ™XÙZ\^šY]Îˆœ\˜Ú\Ù\È‹˜[œØXÝ[ÛŽˆ˜š[ˆKˆÈX™[ˆ”^Hš[È‹]Z[ˆ”Ù]HÝ\Y\ˆ˜[[˜Ù\È‹XÛÛŽˆØ[]Ø\™ËšY]Îˆœ\˜Ú\Ù\È‹˜[œØXÝ[ÛŽˆ˜š[^[Y[ˆKˆNÂˆÛÛœÝÝ\ÝÛY\XÝ[ÛœÎˆÝ™\šY]ÕÛÜšÙ›ÝÐXÝ[Û–×HHÂˆÈX™[ˆ‘\Ý[X]\È‹]Z[ˆ‘\Ý[X]HÝ\ÝÛY\ˆÛÜšÈ‹XÛÛŽˆš[P˜\Ú\‹šY]ÎˆœØ[\È‹˜[œØXÝ[ÛŽˆ™\Ý[X]HˆKˆÈX™[ˆ”Ø[\ÈÜ™\œÈ‹]Z[ˆÛÛ™š\›H[ˆXØÙ\YÜ™\ˆ‹XÛÛŽˆÚÜ[™ÐØ\šY]ÎˆœØ[\È‹˜[œØXÝ[ÛŽˆœØ[\ÈÜ™\ˆˆKˆÈX™[ˆÜ™X]H[›ÚXÙ\È‹]Z[ˆ”ÜÝÝ\ÝÛY\ˆØ[\È‹XÛÛŽˆ™XÙZ\^šY]ÎˆœØ[\È‹˜[œØXÝ[ÛŽˆš[›ÚXÙHˆKˆÈX™[ˆ”™XÙZ]™H^[Y[È‹]Z[ˆ”™YXÙH™XÙZ]˜X›\È‹XÛÛŽˆÚ\˜ÛQÛ\”ÚYÛ‹šY]Îˆœ™XÙZ]™K\^[Y[‹˜[œØXÝ[ÛŽˆ˜Ý\ÝÛY\ˆ^[Y[ˆKˆÈX™[ˆ”™XÛÜ™\ÜÚ]È‹]Z[ˆ”ÜÝ˜[šÈ\ÜÚ]È‹XÛÛŽˆ[™X\šËšY]Îˆ˜˜[šÚ[™È‹˜[œØXÝ[ÛŽˆ™\ÜÚ]ˆKˆÈX™[ˆ”Ø[\È™XÙZ\È‹]Z[ˆ’[[YYX]HZYØ[\È‹XÛÛŽˆ˜YÙQÛ\”ÚYÛ‹šY]ÎˆœØ[\È‹˜[œØXÝ[ÛŽˆœØ[\È™XÙZ\ˆKˆÈX™[ˆ”Ý][Y[Ú\™Ù\È‹]Z[ˆÚ\™ÙHÝ\ÝÛY\ˆXØÛÝ[‹XÛÛŽˆ\ËšY]ÎˆœØ[\È‹˜[œØXÝ[ÛŽˆœÝ][Y[Ú\™ÙHˆKˆÈX™[ˆ”™Y[™È	ˆÜ™Y]È‹]Z[ˆ’\ÜÝYHÝ\ÝÛY\ˆÜ™Y]È‹XÛÛŽˆ™Yœ™\ÚÝËšY]ÎˆœØ[\È‹˜[œØXÝ[ÛŽˆ˜Ü™Y]Y[[ÈˆKˆNÂˆÛÛœÝÛÛ\[žPXÝ[ÛœÎˆÝ™\šY]ÕÛÜšÙ›ÝÐXÝ[Û–×HHÂˆÈX™[ˆÛÛ\[žHÙ]\‹]Z[ˆ“ÙÛËY™\ÜË˜[šË[™[\]\È‹XÛÛŽˆÙ][™ÜËšY]Îˆ˜ÛÛ\[žK\Ù]\ˆKˆÈX™[ˆ“X[˜YÙHU‹]Z[ˆ•UÛÙ\È[™™]\›œÈ‹XÛÛŽˆ\˜Ù[šY]Îˆ˜][X[˜YÙ[Y[ˆKˆÈX™[ˆÚ\ÙˆXØÛÝ[È‹]Z[ˆ“X[˜YÙHYÙ\ˆXØÛÝ[È‹XÛÛŽˆ›ÛÚÓÜ[‹šY]Îˆ˜XØÛÝ[ÈˆKˆÈX™[ˆ’[™[ÜžHÙ[\ˆ‹]Z[ˆ”›ÙXÝÈ[™ÝØÚÈ‹XÛÛŽˆ›Þ\ËšY]Îˆš[™[ÜžHˆKˆÈX™[ˆY][H‹]Z[ˆY[™X[˜YÙH[™[ÜžH][\È‹XÛÛŽˆXÚØYÙTÙX\˜ÚšY]Îˆš[™[ÜžHˆKˆNÂˆÛÛœÝ˜[šÚ[™ÐXÝ[ÛœÎˆÝ™\šY]ÕÛÜšÙ›ÝÐXÝ[Û–×HHÂˆÈX™[ˆ•Üš]HÚ\]Y\È‹]Z[ˆ”^HžHÚ\]YH‹XÛÛŽˆØ[]Ø\™ËšY]ÎˆÜš]KXÚ\]YH‹˜[œØXÝ[ÛŽˆ˜Ú\]YHˆKˆÈX™[ˆ•˜[œÙ™\ˆ[™È‹]Z[ˆ“[Ý™H˜[šÈ˜[[˜Ù\È‹XÛÛŽˆ\œ›ÝÔšYÚYšY]Îˆ˜˜[šÚ[™È‹˜[œØXÝ[ÛŽˆ˜[œÙ™\ˆˆKˆÈX™[ˆ˜[šÈ™YÚ\Ý\ˆ‹]Z[ˆ”™]šY]È˜[šÈXÝ]š]H‹XÛÛŽˆ[™X\šËšY]Îˆ˜˜[šÚ[™ÈˆKˆÈX™[ˆ”™XÛÛ˜Ú[H‹]Z[ˆ“X]ÚÛX\™Y[šY\È‹XÛÛŽˆÚXÚÐÚ\˜ÛL‹šY]Îˆ˜˜[šÚ[™ÈˆKˆNÂ‚ˆ™]\›ˆ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\MH™ÜšYXÛÛËVÛZ[›X^
+YœŠWÌÍH‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KMH‚ˆÛÜšÙ›ÝÔÙXÝ[Ûˆ]OH”ÕTQT”ÈˆÛ™OH˜›YHˆXÝ[ÛœÏ^ÜÝ\Y\XÝ[ÛœßHÛ“˜]šYØ]O^ÛÛ“˜]šYØ]_HÛ•ÛÜšÙ›ÝÏ^ÛÛ•ÛÜšÙ›ÝßHÏ‚ˆÛÜšÙ›ÝÔÙXÝ[Ûˆ]OHÕTÕÓQT”ÈˆÛ™OH™[Y\˜[ˆXÝ[ÛœÏ^ØÝ\ÝÛY\XÝ[ÛœßHÛ“˜]šYØ]O^ÛÛ“˜]šYØ]_HÛ•ÛÜšÙ›ÝÏ^ÛÛ•ÛÜšÙ›ÝßHÏ‚ˆÛÜšÙ›ÝÔÙXÝ[Ûˆ]OHS’ÒS‘ÈˆÛ™OHœÚÞHˆXÝ[ÛœÏ^Ø˜[šÚ[™ÐXÝ[ÛœßHÛ“˜]šYØ]O^ÛÛ“˜]šYØ]_HÛ•ÛÜšÙ›ÝÏ^ÛÛ•ÛÜšÙ›ÝßHÏ‚ˆÙ]‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KMH‚ˆÛÜšÙ›ÝÔÙXÝ[Ûˆ]OHÓÓTS–HˆÛ™OH˜[X™\ˆˆXÝ[ÛœÏ^ØÛÛ\[žPXÝ[ÛœßHÛ“˜]šYØ]O^ÛÛ“˜]šYØ]_HÛ•ÛÜšÙ›ÝÏ^ÛÛ•ÛÜšÙ›ÝßHÛÛ\XÝÏ‚ˆÙ]‚ˆÙ]ŽÂŸB‚™[˜Ý[ÛˆÛÜšÙ›ÝÔÙXÝ[ÛŠÈ]KÛ™KXÝ[ÛœËÛ“˜]šYØ]KÛ•ÛÜšÙ›ÝËÛÛ\XÝH˜[ÙHNˆÈ]NˆÝš[™ÎÈÛ™Nˆ˜›YHˆ™[Y\˜[ˆš[Û]ˆ˜[X™\ˆˆœÚÞHŽÈXÝ[ÛœÎˆÝ™\šY]ÕÛÜšÙ›ÝÐXÝ[Û–×NÈÛ“˜]šYØ]Nˆ
+šY]ÎˆšY]ÊHOˆ›ÚYÈÛ•ÛÜšÙ›ÝÎˆ
+\NˆÝš[™Ë\™Ù]ˆšY]ÊHOˆ›ÚYÈÛÛ\XÝÎˆ›ÛÛX[ˆJHÂˆÛÛœÝÛ™PÛ\ÜÙ\ÈHÈ›YNˆ˜™ËX›YKLL^X›YKMÌ‹[Y\˜[ˆ˜™ËY[Y\˜[LL^Y[Y\˜[MÌ‹š[Û]ˆ˜™Ë]š[Û]LL^]š[Û]MÌ‹[X™\Žˆ˜™ËX[X™\‹LL^X[X™\‹N‹ÚÞNˆ˜™Ë\ÚÞKLL^\ÚÞKMÌˆH\ÈÛÛœÝÂˆ™]\›ˆÙXÝ[ÛˆÛ\ÜÓ˜[YOH›Ý™\™›ÝËZY[ˆ›Ý[™YLž›Ü™\ˆ›Ü™\‹\Û]KLŒ™Ë]Ú]HÚYÝË\ÛH]ˆÛ\ÜÓ˜[YOH™›^][\ËXÙ[\ˆØ\LÈ›Ü™\‹Xˆ™Ë\Û]KMLMHKLÈÜ[ˆÛ\ÜÓ˜[YO^Ø›Ý[™Y[YLÈKLH^^È›ÛX›XÚÈ˜XÚÚ[™ËVËŒL™[WH	ÝÛ™PÛ\ÜÙ\ÖÝÛ™W_XOžÝ]_OÜÜ[]ˆÛ\ÜÓ˜[YOHš\›^LH™Ë\Û]KLŒˆÏÙ]]ˆÛ\ÜÓ˜[YO^ØÜšYØ\\™Ë\Û]KLŒ	ØÛÛ\XÝÈœÛN™ÜšYXÛÛËLˆ™ÜšYXÛÛËLHˆˆœÛN™ÜšYXÛÛËLˆÎ™ÜšYXÛÛËMŸXOžØXÝ[ÛœË›X\
+
+XÝ[Û‹[™^
+HOˆ]ÛˆÙ^O^ØXÝ[Û‹›X™[H\OH˜]ÛˆˆÛÛXÚÏ^Ê
+HOˆXÝ[Û‹˜[œØXÝ[ÛˆÈÛ•ÛÜšÙ›ÝÊXÝ[Û‹˜[œØXÝ[Û‹XÝ[Û‹šY]ÊHˆÛ“˜]šYØ]JXÝ[Û‹šY]Ê_HÛ\ÜÓ˜[YOH™Ü›Ý\™[]]™HZ[‹ZLÌˆ™Ë]Ú]HMH^[Y˜[œÚ][ÛˆÝ™\Žž‹LLÝ™\Ž˜™ËY[Y\˜[ML›ØÝ\Ë]š\ÚX›Nž‹LL]ˆÛ\ÜÓ˜[YOH™›^][\Ë\Ý\\ÝYžKX™]ÙY[ˆØ\LÈÜ[ˆÛ\ÜÓ˜[YO^ØÜšYÚ^™KLLHXÙKZ][\ËXÙ[\ˆ›Ý[™Y^	ÝÛ™PÛ\ÜÙ\ÖÝÛ™W_XOXÝ[Û‹šXÛÛˆÛ\ÜÓ˜[YOHœÚ^™KMHˆÏÜÜ[žÚ[™^XÝ[ÛœË›[™ÝHHÈÚ]œ›Û”šYÚÛ\ÜÓ˜[YOH›]LÈÚ^™KM^\Û]KLÌÜ›Ý\ZÝ™\Ž^Y[Y\˜[MLˆÏˆˆ[OÙ]Û\ÜÓ˜[YOH›]M^\ÛH›ÛX›Û^\Û]KNLžØXÝ[Û‹›X™[OÜÛ\ÜÓ˜[YOH›]LH^^ÈXY[™ËMH^\Û]KMLžØXÝ[Û‹™]Z[OÜØ]ÛŠ_OÙ]ÜÙXÝ[ÛŽÂŸB‚™[˜Ý[ÛˆÝ]\Ó[™JÈX™[˜[YKXÝ[ÛˆNˆÈX™[ˆÝš[™ÎÈ˜[YNˆ[X™\ŽÈXÝ[ÛŽˆ
+
+HOˆ›ÚYJHÈ™]\›ˆ]ÛˆÛÛXÚÏ^ØXÝ[ÛŸHÛ\ÜÓ˜[YOH˜œ˜[™\Ý]\Ë[[™H›^ËY[][\ËXÙ[\ˆ\ÝYžKX™]ÙY[ˆ›Ý[™Y[È›Ü™\ˆ›Ü™\‹\Û]KLLLÈ^[YÜ[ˆÛ\ÜÓ˜[YOH^\ÛH^\Û]KMŒžÛX™[OÜÜ[Ü[ˆÛ\ÜÓ˜[YOH™›^][\ËXÙ[\ˆØ\Lˆ›ÛX›Û^\Û]KNLžÝ˜[Y_OÚ]œ›Û”šYÚÛ\ÜÓ˜[YOHœÚ^™KM^\Û]KMˆÏÜÜ[Ø]ÛŽÈB‚™[˜Ý[ÛˆØ[\ÐÙ[\ŠÈÛ‘Y]™XÛÜ™ËXØÛÝ[ËÝ\œ™[˜ÞKØY[™ËÙX\˜ÚÙ]ÙX\˜ÚÛ”™Yœ™\ÚÛÜ™X]KÛ‘[]KÛ•˜[œØXÝ[Û‹Û“Ü[‘]Z[Ø[•Üš]KØ[‘[]HNˆÈÛ‘Y]Îˆ
+™XÛÜ™ˆ]T™XÛÜ™
+HOˆ›ÚYÈ™XÛÜ™Îˆ]T™XÛÜ™×NÈXØÛÝ[Îˆ]T™XÛÜ™×NÈÝ\œ™[˜ÞNˆÝš[™ÎÈØY[™Îˆ›ÛÛX[ŽÈÙX\˜ÚˆÝš[™ÎÈÙ]ÙX\˜Úˆ
+ŽˆÝš[™ÊHOˆ›ÚYÈÛ”™Yœ™\Úˆ
+
+HOˆ›ÚYÈÛÜ™X]Nˆ
+
+HOˆ›ÚYÈÛ‘[]Nˆ
+Yˆ[X™\ŠHOˆ›ÚYÈÛ•˜[œØXÝ[ÛŽˆ
+\NˆÝš[™ÊHOˆ›ÚYÈÛ“Ü[‘]Z[ˆ
+Yˆ[X™\ŠHOˆ›ÚYÈØ[•Üš]Nˆ›ÛÛX[ŽÈØ[‘[]Nˆ›ÛÛX[ˆJHÂˆÛÛœÝÛ\Ý\KÙ]\Ý\WHH\ÙTÝ]J˜[ŠNÂˆÛÛœÝ\ÝY™XÛÜ™ÈH™XÛÜ™Ë™š[\Š
+™XÛÜ™
+HOˆ\Ý\HOOH˜[ˆ™XÛÜ™\HOOH\Ý\JNÂˆÛÛœÝXÝ[ÛœÈHÂˆÈX™[ˆÜ™X]H\Ý[X]H‹]Z[ˆ‘\Ý[X]H›ÙXÝËÙ\šXÙ\ËU[™\›\È‹\Nˆ™\Ý[X]H‹XÛÛŽˆ˜YÙQÛ\”ÚYÛˆKˆÈX™[ˆÜ™X]H›Ù›Ü›XH[›ÚXÙH‹]Z[ˆ”™\\™HH›Ù›Ü›XH™Y›Ü™HÜÝ[™ÈHØ[H‹\Nˆœ›Ù›Ü›XH[›ÚXÙH‹XÛÛŽˆš[P˜\Ú\ˆKˆÈX™[ˆÜ™X]HØ[\ÈÜ™\ˆ‹]Z[ˆÛÛ™š\›H[ˆXØÙ\YÜ™\ˆ™Y›Ü™H[›ÚXÚ[™È‹\NˆœØ[\ÈÜ™\ˆ‹XÛÛŽˆÚÜ[™ÐØ\KˆÈX™[ˆÜ™X]H[›ÚXÙH‹]Z[ˆ”ÜÝØ[\ËÝØÚËU[™XØÛÝ[È™XÙZ]˜X›H‹\Nˆš[›ÚXÙH‹XÛÛŽˆ™XÙZ\^KˆNÂˆ™]\›ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KMˆ‚ˆÙXÝ[ÛˆÛ\ÜÓ˜[YOH›Ý™\™›ÝËZY[ˆ›Ý[™Y^›Ü™\ˆ›Ü™\‹\Û]KLŒ™Ë]Ú]HÚYÝË\ÛH]ˆÛ\ÜÓ˜[YOH™›^›^XÛÛØ\LÈ›Ü™\‹Xˆ™Ë\Û]KMLÎMHÛN™›^\›ÝÈÛNš][\ËXÙ[\ˆÛNš\ÝYžKX™]ÙY[ˆ]ˆÛ\ÜÓ˜[YOH™›ÛX›Û^\Û]KNL”Ø[\ÈØÝ[Y[ÛÜšÙ›ÝÏÚÛ\ÜÓ˜[YOH›]LH^\ÛH^\Û]KML•šY]È[ˆ\Ý[X]K›Ù›Ü›XH[›ÚXÙHÜˆØ[\ÈÜ™\‹Ù[XÝ[ˆ[™[ÜžK[™Ø]™H[ˆ[›ÚXÙH›ÜˆH]˜Z[X›H]X[]Y\ËÜÙ]˜YÙH˜\šX[H›Ý][™HˆÛ\ÜÓ˜[YOHËYš]”]ZXÚÐ›ÛÚÜË\Ý[HÛÛ™\œÚ[ÛÐ˜YÙOÙ]]ˆÛ\ÜÓ˜[YOH™ÜšYØ\\™Ë\Û]KLŒÛN™ÜšYXÛÛËLˆ™ÜšYXÛÛËMžØXÝ[ÛœË›X\
+
+XÝ[ÛŠHOˆ]ÛˆÙ^O^ØXÝ[Û‹\_H\OH˜]Ûˆˆ\ØX›Y^ÈXØ[•Üš]_HÛÛXÚÏ^Ê
+HOˆÛ•˜[œØXÝ[ÛŠXÝ[Û‹\J_HÛ\ÜÓ˜[YOH™Ü›Ý\Z[‹ZLÌˆ™Ë]Ú]HMH^[Y˜[œÚ][ÛˆÝ™\Ž˜™ËY[Y\˜[ML\ØX›Y˜Ý\œÛÜ‹[›ÝX[ÝÙY\ØX›Y›ÜXÚ]KML]ˆÛ\ÜÓ˜[YOH™›^][\Ë\Ý\\ÝYžKX™]ÙY[ˆÜ[ˆÛ\ÜÓ˜[YOH™ÜšYÚ^™KLLXÙKZ][\ËXÙ[\ˆ›Ý[™Y[È™Ë\Û]KLL^\Û]KMŒÜ›Ý\ZÝ™\Ž˜™ËY[Y\˜[LLÜ›Ý\ZÝ™\Ž^Y[Y\˜[MÌXÝ[Û‹šXÛÛˆÛ\ÜÓ˜[YOHœÚ^™KMHˆÏÜÜ[Ú]œ›Û”šYÚÛ\ÜÓ˜[YOHœÚ^™KM^\Û]KLÌÜ›Ý\ZÝ™\Ž^Y[Y\˜[MLˆÏÙ]Û\ÜÓ˜[YOH›]M^\ÛH›ÛX›Û^\Û]KNLžØXÝ[Û‹›X™[OÜÛ\ÜÓ˜[YOH›]LH^^ÈXY[™ËMH^\Û]KMLžØXÝ[Û‹™]Z[OÜØ]ÛŠ_OÙ]ÜÙXÝ[Û‚ˆ]ˆÛ\ÜÓ˜[YOH™›^›^]Ü˜\Ø\Lˆˆ\šXK[X™[H”Ø[\È\ÝÈžÖÖÈ˜[‹[Ø[\È—KÈ™\Ý[X]H‹‘\Ý[X]\È—KÈœ›Ù›Ü›XH[›ÚXÙH‹”›Ù›Ü›XH[›ÚXÙ\È—KÈœØ[\ÈÜ™\ˆ‹”Ø[\ÈÜ™\œÈ—KÈš[›ÚXÙH‹’[›ÚXÙ\È—WK›X\
+
+Ý˜[YKX™[JHOˆ]ÛˆÙ^O^Ý˜[Y_H\OH˜]Ûˆˆ˜\šX[^Û\Ý\HOOH˜[YHÈ™Y˜][ˆˆ›Ý][™HŸH\šXK\™\ÜÙY^Û\Ý\HOOH˜[Y_HÛÛXÚÏ^Ê
+HOˆÙ]\Ý\J˜[YJ_OžÛX™[OÐ]ÛŠ_OÙ]‚ˆ™XÛÜ™šY]ÈÛ‘Y]^ÛÛ‘Y]HšY]ÏHœØ[\ÈˆÚ[™H˜[œØXÝ[ÛœÈˆ™XÛÜ™Ï^Û\ÝY™XÛÜ™ßHXØÛÝ[Ï^ØXØÛÝ[ßHÝ\œ™[˜ÞO^ØÝ\œ™[˜Þ_HØY[™Ï^ÛØY[™ßHÙX\˜Ú^ÜÙX\˜ÚHÙ]ÙX\˜Ú^ÜÙ]ÙX\˜ÚHÛ”™Yœ™\Ú^ÛÛ”™Yœ™\ÚHÛÜ™X]O^ÛÛÜ™X]_HÛ‘[]O^ÛÛ‘[]_HÛ‘Y]][O^Ê
+HOˆß_HÛ‘\XØ]R][O^Ê
+HOˆß_HÛ“Ü[‘]Z[^ÛÛ“Ü[‘]Z[HØ[•Üš]O^ØØ[•Üš]_HØ[‘[]O^ØØ[‘[]_HÏ‚ˆÙ]ŽÂŸB‚™[˜Ý[Ûˆ\˜Ú\ÙPÙ[\ŠÈÛÛ\[šY\ËÛÛ\[žRYØØ][Û’YÛ•ÛÜšÜÜXÙPÚ[™ÙKÛ‘Y]™XÛÜ™ËXØÛÝ[ËÝ\œ™[˜ÞKØY[™ËÙX\˜ÚÙ]ÙX\˜ÚÛ”™Yœ™\ÚÛÜ™X]KÛ‘[]KÛ•˜[œØXÝ[Û‹Û“Ü[‘]Z[Ø[•Üš]KØ[‘[]HNˆÈÛÛ\[šY\ÎˆÛÛ\[žUÛÜšÜÜXÙV×NÈÛÛ\[žRYˆ[X™\ŽÈØØ][Û’Yˆ[X™\ŽÈÛ•ÛÜšÜÜXÙPÚ[™ÙNˆ
+ÛÛ\[žRYˆ[X™\‹ØØ][Û’Yˆ[X™\ŠHOˆ›ÚYÈÛ‘Y]Îˆ
+™XÛÜ™ˆ]T™XÛÜ™
+HOˆ›ÚYÈ™XÛÜ™Îˆ]T™XÛÜ™×NÈXØÛÝ[Îˆ]T™XÛÜ™×NÈÝ\œ™[˜ÞNˆÝš[™ÎÈØY[™Îˆ›ÛÛX[ŽÈÙX\˜ÚˆÝš[™ÎÈÙ]ÙX\˜Úˆ
+ŽˆÝš[™ÊHOˆ›ÚYÈÛ”™Yœ™\Úˆ
+
+HOˆ›ÚYÈÛÜ™X]Nˆ
+
+HOˆ›ÚYÈÛ‘[]Nˆ
+Yˆ[X™\ŠHOˆ›ÚYÈÛ•˜[œØXÝ[ÛŽˆ
+\NˆÝš[™ÊHOˆ›ÚYÈÛ“Ü[‘]Z[ˆ
+Yˆ[X™\ŠHOˆ›ÚYÈØ[•Üš]Nˆ›ÛÛX[ŽÈØ[‘[]Nˆ›ÛÛX[ˆJHÂˆÛÛœÝÛ\Ý\KÙ]\Ý\WHH\ÙTÝ]Jœ\˜Ú\ÙHÜ™\ˆŠNÂˆÛÛœÝÛÜ™\”Ý]\ËÙ]Ü™\”Ý]\×HH\ÙTÝ]J˜[ŠNÂˆÛÛœÝÙ[XÝYÛÛ\[žHHÛÛ\[šY\Ë™š[™
+
+ÛÛ\[žJHOˆÛÛ\[žKšYOOHÛÛ\[žRY
+NÂˆÛÛœÝØØ][ÛœÈHÙ[XÝYÛÛ\[žOË›ØØ][ÛœÈÏÈ×NÂˆÛÛœÝÛÜšÜÜXÙT™XYHH[ØY[™È	‰ˆØØ][ÛœËœÛÛYJ
+ØØ][ÛŠHOˆØØ][Û‹šYOOHØØ][Û’Y
+NÂˆÛÛœÝØÛÜY™XÛÜ™Îˆ]T™XÛÜ™×HH™XÛÜ™Ë™š[\Š
+™XÛÜ™
+HOˆ[X™\Š™XÛÜ™˜ÛÛ\[žRY
+HOOHÛÛ\[žRY	‰ˆ[X™\Š™XÛÜ™›ØØ][Û’Y
+HOOHØØ][Û’Y
+K›X\
+
+™XÛÜ™
+HOˆ
+È‹‹œ™XÛÜ™ÛÛ\[žS˜[YNˆÙ[XÝYÛÛ\[žOË›˜[YHÏÈˆ‹[™[ÜžS˜[YNˆØØ][ÛœË™š[™
+
+ØØ][ÛŠHOˆØØ][Û‹šYOOH[X™\Š™XÛÜ™›ØØ][Û’Y
+JOË›˜[YHÏÈˆˆJJNÂˆÛÛœÝ\ÝY™XÛÜ™ÈHØÛÜY™XÛÜ™Ë™š[\Š
+™XÛÜ™
+HOˆ
+\Ý\HOOH˜[ˆ™XÛÜ™\HOOH\Ý\JH	‰ˆ
+\Ý\HOOHœ\˜Ú\ÙHÜ™\ˆˆÜ™\”Ý]\ÈOOH˜[ˆ
+Ü™\”Ý]\ÈOOH›Ü[ˆˆÈÈ›Ü[ˆ‹™˜Y‹œ[™[™È‹›Ý™\™YH‹œ\X[H™XÙZ]™Y—Kš[˜ÛY\ÊÝš[™Ê™XÛÜ™œÝ]\ÊJHˆÜ™\”Ý]\ÈOOH˜ÛÛ™\YˆÈÈœ™XÙZ]™Y‹˜ÛÛ™\Y—Kš[˜ÛY\ÊÝš[™Ê™XÛÜ™œÝ]\ÊJHˆ™XÛÜ™œÝ]\ÈOOHÜ™\”Ý]\ÊJJNÂˆÛÛœÝXÝ[ÛœÈHÂˆÈX™[ˆÜ™X]H\˜Ú\ÙHÜ™\ˆ‹]Z[ˆ“Ü™\ˆ›ÙXÝÈÜˆÙ\šXÙ\Èœ›ÛHHÝ\Y\ˆ‹\Nˆœ\˜Ú\ÙHÜ™\ˆ‹XÛÛŽˆš[P˜\Ú\ˆKˆÈX™[ˆ‘[\ˆš[‹]Z[ˆ”ÜÝHÝ\Y\ˆ[›ÚXÙH[™XØÛÝ[È^XX›H‹\Nˆ˜š[‹XÛÛŽˆ™XÙZ\^KˆÈX™[ˆ”™XÙZ]™H][\È‹]Z[ˆ”™XÙZ]™HÜ™\™YÝØÚÈ™Y›Ü™HHš[\œš]™\È‹\Nˆš][H™XÙZ\‹XÛÛŽˆXÚØYÙPÚXÚÈKˆÈX™[ˆ”^Hš[È‹]Z[ˆ”Ù]HÝ\Y\ˆ˜[[˜Ù\Èœ›ÛHH[šÙY˜[šÈ‹\Nˆ˜š[^[Y[‹XÛÛŽˆØ[]Ø\™ÈKˆNÂˆ™]\›ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KMˆ‚ˆÙXÝ[ÛˆÛ\ÜÓ˜[YOHœ›Ý[™Y^›Ü™\ˆ™ËX˜XÚÙÜ›Ý[™Mˆ\šXK[X™[H”\˜Ú\ÙHÛÛ\[žH[™[™[ÜžH‚ˆ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\MÛN™ÜšYXÛÛËLˆ‚ˆX™[Û\ÜÓ˜[YOH™ÜšYZ[‹]ËLØ\Lˆ^\ÛH›Û[YY][HÛÛ\[žOÙ[XÝÛ\ÜÓ˜[YOHšLLËY[Z[‹]ËL›Ý[™Y[Y›Ü™\ˆ™ËX˜XÚÙÜ›Ý[™LÈˆ˜[YO^ØÛÛ\[žRYˆŸH\ØX›Y^ÈXÛÛ\[šY\Ë›[™ÝHÛÚ[™ÙO^Ê]™[
+HOˆÈÛÛœÝÛÛ\[žHHÛÛ\[šY\Ë™š[™
+
+[žJHOˆ[žKšYOOH[X™\Š]™[\™Ù]˜[YJJNÈYˆ
+ÛÛ\[žJHÛ•ÛÜšÜÜXÙPÚ[™ÙJÛÛ\[žKšYÛÛ\[žK›ØØ][ÛœÖÌOËšYÏÈ
+NÈ_OÜ[Ûˆ˜[YOHˆˆ\ØX›Y”Ù[XÝÛÛ\[žOÛÜ[ÛžØÛÛ\[šY\Ë›X\
+
+ÛÛ\[žJHOˆÜ[ÛˆÙ^O^ØÛÛ\[žKšYH˜[YO^ØÛÛ\[žKšYOžØÛÛ\[žK›˜[Y_OÛÜ[ÛŠ_OÜÙ[XÝÛX™[‚ˆX™[Û\ÜÓ˜[YOH™ÜšYZ[‹]ËLØ\Lˆ^\ÛH›Û[YY][H’[™[ÜžOÙ[XÝÛ\ÜÓ˜[YOHšLLËY[Z[‹]ËL›Ý[™Y[Y›Ü™\ˆ™ËX˜XÚÙÜ›Ý[™LÈˆ˜[YO^ÛØØ][Û’YˆŸH\ØX›Y^È[ØØ][ÛœË›[™ÝHÛÚ[™ÙO^Ê]™[
+HOˆÈÛÛœÝØØ][ÛˆHØØ][ÛœË™š[™
+
+[žJHOˆ[žKšYOOH[X™\Š]™[\™Ù]˜[YJJNÈYˆ
+ØØ][ÛŠHÛ•ÛÜšÜÜXÙPÚ[™ÙJÛÛ\[žRYØØ][Û‹šY
+NÈ_OÜ[Ûˆ˜[YOHˆˆ\ØX›Y”Ù[XÝ[™[ÜžOÛÜ[ÛžÛØØ][ÛœË›X\
+
+ØØ][ÛŠHOˆÜ[ÛˆÙ^O^ÛØØ][Û‹šYH˜[YO^ÛØØ][Û‹šYOžÛØØ][Û‹›˜[Y_OÛÜ[ÛŠ_OÜÙ[XÝÛX™[‚ˆÙ]‚ˆÛ\ÜÓ˜[YOH›]LÈ^\ÛH^[]]YY›Ü™YÜ›Ý[™žÈ[ØØ][ÛœË›[™ÝÈY[ˆ[™[ÜžHÈ\ÈÛÛ\[žHÈÜ™X]H\˜Ú\Ù\Ëˆˆˆ”\˜Ú\Ù\È[™™]ÈØÝ[Y[È\ÙHHÙ[XÝYÛÛ\[žH[™[™[ÜžKˆŸOÜ‚ˆÜÙXÝ[Û‚ˆÙXÝ[ÛˆÛ\ÜÓ˜[YOH›Ý™\™›ÝËZY[ˆ›Ý[™Y^›Ü™\ˆ›Ü™\‹\Û]KLŒ™Ë]Ú]HÚYÝË\ÛH]ˆÛ\ÜÓ˜[YOH™›^›^XÛÛØ\LÈ›Ü™\‹Xˆ™Ë\Û]KMLÎMHÛN™›^\›ÝÈÛNš][\ËXÙ[\ˆÛNš\ÝYžKX™]ÙY[ˆ]ˆÛ\ÜÓ˜[YOH™›ÛX›Û^\Û]KNL”\˜Ú\ÙHÜ™\ˆÛÜšÙ›ÝÏÚÛ\ÜÓ˜[YOH›]LH^\ÛH^\Û]KML•šY]ÈØ]™Y\˜Ú\ÙHÜ™\œËY]Ü[ˆÜ™\œËÜˆ™XÙZ]™H™[XZ[š[™È][\ËÜÙ]˜YÙH˜\šX[H›Ý][™HˆÛ\ÜÓ˜[YOHËYš]”]ZXÚÐ›ÛÚÜË\Ý[HÛÛ™\œÚ[ÛÐ˜YÙOÙ]]ˆÛ\ÜÓ˜[YOH™ÜšYØ\\™Ë\Û]KLŒÛN™ÜšYXÛÛËLˆ™ÜšYXÛÛËMžØXÝ[ÛœË›X\
+
+XÝ[ÛŠHOˆ]ÛˆÙ^O^ØXÝ[Û‹\_H\OH˜]Ûˆˆ\ØX›Y^ÈXØ[•Üš]H]ÛÜšÜÜXÙT™XY_HÛÛXÚÏ^Ê
+HOˆÛ•˜[œØXÝ[ÛŠXÝ[Û‹\J_HÛ\ÜÓ˜[YOH™Ü›Ý\Z[‹ZLÌˆ™Ë]Ú]HMH^[Y˜[œÚ][ÛˆÝ™\Ž˜™ËY[Y\˜[ML\ØX›Y˜Ý\œÛÜ‹[›ÝX[ÝÙY\ØX›Y›ÜXÚ]KML]ˆÛ\ÜÓ˜[YOH™›^][\Ë\Ý\\ÝYžKX™]ÙY[ˆÜ[ˆÛ\ÜÓ˜[YOH™ÜšYÚ^™KLLXÙKZ][\ËXÙ[\ˆ›Ý[™Y[È™Ë\Û]KLL^\Û]KMŒÜ›Ý\ZÝ™\Ž˜™ËY[Y\˜[LLÜ›Ý\ZÝ™\Ž^Y[Y\˜[MÌXÝ[Û‹šXÛÛˆÛ\ÜÓ˜[YOHœÚ^™KMHˆÏÜÜ[Ú]œ›Û”šYÚÛ\ÜÓ˜[YOHœÚ^™KM^\Û]KLÌÜ›Ý\ZÝ™\Ž^Y[Y\˜[MLˆÏÙ]Û\ÜÓ˜[YOH›]M^\ÛH›ÛX›Û^\Û]KNLžØXÝ[Û‹›X™[OÜÛ\ÜÓ˜[YOH›]LH^^ÈXY[™ËMH^\Û]KMLžØXÝ[Û‹™]Z[OÜØ]ÛŠ_OÙ]ÜÙXÝ[Û‚ˆÙXÝ[ÛˆÛ\ÜÓ˜[YOHœÜXÙK^KLÈ›Ý[™Y^›Ü™\ˆ™Ë\Û]KMLMˆ\šXK[X™[H”\˜Ú\ÙH\ÝÈ‚ˆ]ˆÛ\ÜÓ˜[YOH™›^›^]Ü˜\Ø\LˆžÖÖÈ˜[‹[\˜Ú\Ù\È—KÈœ\˜Ú\ÙHÜ™\ˆ‹”\˜Ú\ÙHÜ™\œÈ—KÈš][H™XÙZ\‹’][H™XÙZ\È—WK›X\
+
+Ý˜[YKX™[JHOˆ]ÛˆÙ^O^Ý˜[Y_H\OH˜]Ûˆˆ˜\šX[^Û\Ý\HOOH˜[YHÈ™Y˜][ˆˆ›Ý][™HŸH\šXK\™\ÜÙY^Û\Ý\HOOH˜[Y_HÛÛXÚÏ^Ê
+HOˆÙ]\Ý\J˜[YJ_OžÛX™[OÐ]ÛŠ_OÙ]‚ˆÛ\Ý\HOOHœ\˜Ú\ÙHÜ™\ˆˆ	‰ˆX™[Û\ÜÓ˜[YOH™›^›^]Ü˜\][\ËXÙ[\ˆØ\LÈ^\ÛH›Û[YY][H”ÈÝ]\ÏÙ[XÝÛ\ÜÓ˜[YOHšNH›Ý[™Y[Y›Ü™\ˆ™ËX˜XÚÙÜ›Ý[™LÈˆ˜[YO^ÛÜ™\”Ý]\ßHÛÚ[™ÙO^Ê]™[
+HOˆÙ]Ü™\”Ý]\Ê]™[\™Ù]˜[YJ_OÜ[Ûˆ˜[YOH˜[[Ý]\Ù\ÏÛÜ[ÛÜ[Ûˆ˜[YOH›Ü[ˆ“Ü[ˆÈ™[XZ[š[™ÈÈ™XÙZ]™OÛÜ[ÛÜ[Ûˆ˜[YOHœ\X[H™XÙZ]™Y”\X[H™XÙZ]™YÛÜ[ÛÜ[Ûˆ˜[YOH˜ÛÛ™\YÛÛ™\YÈ[H™XÙZ]™YÛÜ[ÛÜÙ[XÝÛX™[ŸBˆÛ\ÜÓ˜[YOH^\ÛH^\Û]KMLžÛ\Ý\HOOHœ\˜Ú\ÙHÜ™\ˆˆÈ•šY]ÈHØ]™YÈÈÚXÚÈ]X[]Y\È[™™XÙZ]™H][\ËˆYZ[ˆ[™[PYZ[ˆØ[ˆY]Üˆ[]HÜ™\œÈÚ]Ý]™XÙZ\Ëˆˆˆ\Ý\HOOHš][H™XÙZ\ˆÈ•šY]ÈØ]™Y][H™XÙZ\È[™Z\ˆÛÝ\˜ÙH\˜Ú\ÙHÜ™\œËˆˆˆÚÛÜÙHH\ÝX›Ý™HÈš[™[Ý\ˆ\˜Ú\ÙHÜ™\œÈÜˆ™XÙZ\ËˆŸOÜ‚ˆÜÙXÝ[Û‚ˆ™XÛÜ™šY]ÈÛ‘Y]^ÛÛ‘Y]HšY]ÏHœ\˜Ú\Ù\ÈˆÚ[™H˜[œØXÝ[ÛœÈˆ™XÛÜ™Ï^Û\ÝY™XÛÜ™ßHXØÛÝ[Ï^ØXØÛÝ[ßHÝ\œ™[˜ÞO^ØÝ\œ™[˜Þ_HØY[™Ï^ÛØY[™ßHÙX\˜Ú^ÜÙX\˜ÚHÙ]ÙX\˜Ú^ÜÙ]ÙX\˜ÚHÛ”™Yœ™\Ú^ÛÛ”™Yœ™\ÚHÛÜ™X]O^ÛÛÜ™X]_HÛ‘[]O^ÛÛ‘[]_HÛ‘Y]][O^Ê
+HOˆß_HÛ‘\XØ]R][O^Ê
+HOˆß_HÛ“Ü[‘]Z[^ÛÛ“Ü[‘]Z[HØ[•Üš]O^ØØ[•Üš]H	‰ˆÛÜšÜÜXÙT™XY_HØ[‘[]O^ØØ[‘[]H	‰ˆÛÜšÜÜXÙT™XY_HÏ‚ˆÙ]ŽÂŸB‚™[˜Ý[ÛˆÝ\ÝÛY\Ù[\ŠÈÛ‘Y]™XÛÜ™ËXØÛÝ[ËÝ\œ™[˜ÞKØY[™ËÙX\˜ÚÙ]ÙX\˜ÚÛ”™Yœ™\ÚÛÜ™X]PÝ\ÝÛY\‹Û‘[]KÛ•˜[œØXÝ[Û‹Û”™\ÜØ[•šY]Ô™\ÜËÛ“Ü[‘]Z[Ø[•Üš]KØ[‘[]K™\ÜØY[™ÈNˆÈÛ‘Y]Îˆ
+™XÛÜ™ˆ]T™XÛÜ™
+HOˆ›ÚYÈ™XÛÜ™Îˆ]T™XÛÜ™×NÈXØÛÝ[Îˆ]T™XÛÜ™×NÈÝ\œ™[˜ÞNˆÝš[™ÎÈØY[™Îˆ›ÛÛX[ŽÈÙX\˜ÚˆÝš[™ÎÈÙ]ÙX\˜Úˆ
+ŽˆÝš[™ÊHOˆ›ÚYÈÛ”™Yœ™\Úˆ
+
+HOˆ›ÚYÈÛÜ™X]PÝ\ÝÛY\Žˆ
+
+HOˆ›ÚYÈÛ‘[]Nˆ
+Yˆ[X™\ŠHOˆ›ÚYÈÛ•˜[œØXÝ[ÛŽˆ
+\NˆÝš[™ÊHOˆ›ÚYÈÛ”™\Üˆ
+Ù^NˆÝš[™ÊHOˆ›ÚYÈØ[•šY]Ô™\ÜÎˆ›ÛÛX[ŽÈÛ“Ü[‘]Z[ˆ
+Yˆ[X™\ŠHOˆ›ÚYÈØ[•Üš]Nˆ›ÛÛX[ŽÈØ[‘[]Nˆ›ÛÛX[ŽÈ™\ÜØY[™Îˆ›ÛÛX[ˆJHÂˆÛÛœÝ˜[[˜Ù\ÈH™XÛÜ™Ëœ™YXÙJ
+Ý[ËÝ\ÝÛY\ŠHOˆÂˆÛÛœÝÛÙHHÝš[™ÊÝ\ÝÛY\‹˜Ý\œ™[˜ÞHÝ\œ™[˜ÞJNÂˆÝ[ËœÙ]
+ÛÙK
+Ý[Ë™Ù]
+ÛÙJH
+H
+È[X™\ŠÝ\ÝÛY\‹˜˜[[˜ÙH
+JNÂˆ™]\›ˆÝ[ÎÂˆK™]ÈX\Ýš[™Ë[X™\Š
+JNÂˆÛÛœÝXÝ[ÛœÈHÂˆÈX™[ˆÜ™X]H\Ý[X]\È‹]Z[ˆ‘\Ý[X]HÝ\ÝÛY\ˆ›ÙXÝÈ[™Ù\šXÙ\È‹\Nˆ™\Ý[X]H‹XÛÛŽˆ˜YÙQÛ\”ÚYÛˆKˆÈX™[ˆÜ™X]HØ[\ÈÜ™\œÈ‹]Z[ˆÛÛ™š\›H[ˆÜ™\ˆ™Y›Ü™H[›ÚXÚ[™È‹\NˆœØ[\ÈÜ™\ˆ‹XÛÛŽˆÚÜ[™ÐØ\KˆÈX™[ˆÜ™X]H[›ÚXÙ\È‹]Z[ˆ”ÜÝØ[\È[™XØÛÝ[È™XÙZ]˜X›H‹\Nˆš[›ÚXÙH‹ÚÜÝ]ˆÝ›
+ÒH‹XÛÛŽˆ™XÙZ\^KˆÈX™[ˆ‘[\ˆØ[\È™XÙZ\È‹]Z[ˆ”™XÛÜ™[ˆ[[YYX]HÝ\ÝÛY\ˆØ[H‹\NˆœØ[\È™XÙZ\‹XÛÛŽˆÚ\˜ÛQÛ\”ÚYÛˆKˆÈX™[ˆ‘[\ˆÝ][Y[Ú\™Ù\È‹]Z[ˆYHÚ\™ÙH\™XÝHÈHÝ][Y[‹\NˆœÝ][Y[Ú\™ÙH‹XÛÛŽˆ\ÈKˆÈX™[ˆÜ™X]HÝ][Y[È‹]Z[ˆ”™]šY]È[™š[Ý\ÝÛY\ˆXÝ]š]H‹™\Üˆ˜Ý\ÝÛY\‹\Ý][Y[È‹XÛÛŽˆš[P˜\Ú\ˆKˆÈX™[ˆ\ÜÙ\ÜÈš[˜[˜ÙHÚ\™Ù\È‹]Z[ˆ”ÜÝHš[˜[˜ÙHÚ\™ÙHÈ™XÙZ]˜X›\È‹\Nˆ™š[˜[˜ÙHÚ\™ÙH‹XÛÛŽˆ˜YÙQÛ\”ÚYÛˆKˆÈX™[ˆ”™XÙZ]™H^[Y[È‹]Z[ˆ”™YXÙHHÝ\ÝÛY\‰ÜÈÜ[ˆ˜[[˜ÙH‹\Nˆ˜Ý\ÝÛY\ˆ^[Y[‹XÛÛŽˆØ[]Ø\™ÈKˆÈX™[ˆXÝ]™HÝ\ÝÛY\œÈ‹]Z[ˆXÝ]™HÛÛXÝË˜[[˜Ù\È[™™XÙZ]˜X›HXØÛÝ[È‹™\Üˆ˜XÝ]™KXÝ\ÝÛY\œÈ‹XÛÛŽˆ\Ù\œÈKˆÈX™[ˆÝ\ÝÛY\œÈÚ]Ý™\™YH[›ÚXÙ\È‹]Z[ˆ”\ÝYYH[›ÚXÙ\È[™™[XZ[š[™È[[Ý[ÈÈÛÛXÝ‹™\Üˆ˜Ý\ÝÛY\œË[Ý™\™YKZ[›ÚXÙ\È‹XÛÛŽˆÛØÚÌÈKˆÈX™[ˆÝ\ÝÛY\ˆÜ[ˆ˜[[˜ÙH‹]Z[ˆ•[œZY[›ÚXÙ\Ë[\ÙY^[Y[È[™™XÙZ]˜X›HXØÛÝ[È‹™\Üˆ˜Ý\ÝÛY\‹[Ü[‹X˜[[˜ÙH‹XÛÛŽˆš[P˜\Ú\ˆKˆÈX™[ˆXØÛÝ[È™XÙZ]˜X›H‹]Z[ˆ”™]šY]ÈÝ]Ý[™[™ÈÝ\ÝÛY\ˆ˜[[˜Ù\È[™YÚ[™È‹™\Üˆ˜\‹XYÚ[™Ë\Ý[[X\žH‹XÛÛŽˆ›ÛÚÓÜ[ÚXÚÈKˆÈX™[ˆÜ™X]HÜ™Y]›Ý\ÈÈ™Y[™È‹]Z[ˆ”™YXÙH™XÙZ]˜X›\ÈÚ]HÝ\ÝÛY\ˆÜ™Y]‹\Nˆ˜Ü™Y]Y[[È‹XÛÛŽˆ™Yœ™\ÚÝÈKˆNÂˆ™]\›ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KMˆ‚ˆÙXÝ[ÛˆÛ\ÜÓ˜[YOHœ›Ý[™Y^›Ü™\ˆ›Ü™\‹\Û]KLŒ™Ë]Ú]HMHÚYÝË\ÛHˆ\šXK[X™[HÝ\ÝÛY\ˆ˜[[˜ÙHÝ[[X\žH‚ˆˆÛ\ÜÓ˜[YOH™›ÛX›Û^\Û]KNLÝ\ÝÛY\ˆ\Ý[™˜[[˜ÙHÝ[[X\žOÚ‚ˆÛ\ÜÓ˜[YOH›]LH^\ÛH^\Û]KMLžÜ™XÛÜ™Ë›[™ÝHÝ\ÝÛY\œÈ[ˆ\ÈÛÛ\[ž^ÜÙX\˜ÚÈˆX]Ú[™È[Ý\ˆÙX\˜ÚˆˆˆŸOÜ‚ˆ]ˆÛ\ÜÓ˜[YOH›]LÈ›^›^]Ü˜\Ø\LÈžÖË‹‹˜˜[[˜Ù\×K›X\
+
+ØÛÙK˜[[˜ÙWJHOˆ]ˆÙ^O^ØÛÙ_HÛ\ÜÓ˜[YOHœ›Ý[™Y[È›Ü™\ˆ™Ë\Û]KMLMKLˆÜ[ˆÛ\ÜÓ˜[YOH^^È^\Û]KMLžØÛÙ_H˜[[˜ÙOÜÜ[Û\ÜÓ˜[YOH™›Û\Ù[ZX›ÛžÙ›Ü›X][Û™^J˜[[˜ÙKÛÙJ_OÜÙ]Š_^ÈX˜[[˜Ù\ËœÚ^™H	‰ˆÛ\ÜÓ˜[YOH^\ÛH^\Û]KML“›ÈÝ\ÝÛY\œÈ›Ý[™ÜŸOÙ]‚ˆÜÙXÝ[Û‚ˆÙXÝ[ÛˆÛ\ÜÓ˜[YOH›Ý™\™›ÝËZY[ˆ›Ý[™Y^›Ü™\ˆ›Ü™\‹\Û]KLŒ™Ë]Ú]HÚYÝË\ÛH‚ˆ]ˆÛ\ÜÓ˜[YOH™›^›^XÛÛØ\LÈ›Ü™\‹Xˆ™Ë\Û]KMLÎMHÛN™›^\›ÝÈÛNš][\ËXÙ[\ˆÛNš\ÝYžKX™]ÙY[ˆ]ˆÛ\ÜÓ˜[YOH™›ÛX›Û^\Û]KNLÝ\ÝÛY\ˆÛÜšÙ›ÝÜÏÚÛ\ÜÓ˜[YOH›]LH^\ÛH^\Û]KMLÜ™X]H[™ÜÝ]™\žHÝ\ÝÛY\ˆØÝ[Y[œ›ÛHÛ™HXÙKÜÙ]˜YÙH˜\šX[H›Ý][™HˆÛ\ÜÓ˜[YOHËYš]Ý\ÝÛY\ˆÙ[™H0­ÈÝ›
+ÒÐ˜YÙOÙ]‚ˆ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\\™Ë\Û]KLŒÛN™ÜšYXÛÛËLˆ™ÜšYXÛÛËMžØXÝ[ÛœË›X\
+
+XÝ[ÛŠHOˆ]ÛˆÙ^O^ØXÝ[Û‹›X™[H\OH˜]Ûˆˆ\ØX›Y^ÊXÝ[Û‹œ™\ÜÈ™\ÜØY[™ÈXØ[•šY]Ô™\ÜÈˆ˜[ÙJH
+XXÝ[Û‹œ™\Ü	‰ˆXØ[•Üš]J_HÛÛXÚÏ^Ê
+HOˆXÝ[Û‹œ™\ÜÈÛ”™\Ü
+XÝ[Û‹œ™\Ü
+HˆXÝ[Û‹\H	‰ˆÛ•˜[œØXÝ[ÛŠXÝ[Û‹\J_HÛ\ÜÓ˜[YOH™Ü›Ý\Z[‹ZLÌˆ™Ë]Ú]HMH^[Y˜[œÚ][ÛˆÝ™\Ž˜™ËY[Y\˜[ML\ØX›Y˜Ý\œÛÜ‹[›ÝX[ÝÙY\ØX›Y›ÜXÚ]KML]ˆÛ\ÜÓ˜[YOH™›^][\Ë\Ý\\ÝYžKX™]ÙY[ˆØ\LÈÜ[ˆÛ\ÜÓ˜[YOH™ÜšYÚ^™KLLXÙKZ][\ËXÙ[\ˆ›Ý[™Y[È™Ë\Û]KLL^\Û]KMŒÜ›Ý\ZÝ™\Ž˜™ËY[Y\˜[LLÜ›Ý\ZÝ™\Ž^Y[Y\˜[MÌXÝ[Û‹šXÛÛˆÛ\ÜÓ˜[YOHœÚ^™KMHˆÏÜÜ[žØXÝ[Û‹œÚÜÝ]	‰ˆÜ[ˆÛ\ÜÓ˜[YOH^^È›Û[YY][H^\Û]KMžØXÝ[Û‹œÚÜÝ]OÜÜ[ŸOÙ]Û\ÜÓ˜[YOH›]M^\ÛH›ÛX›Û^\Û]KNLžØXÝ[Û‹›X™[OÜÛ\ÜÓ˜[YOH›]LH^^ÈXY[™ËMH^\Û]KMLžØXÝ[Û‹™]Z[OÜØ]ÛŠ_OÙ]‚ˆÜÙXÝ[Û‚ˆ™XÛÜ™šY]ÈÛ‘Y]^ÛÛ‘Y]HšY]ÏH˜Ý\ÝÛY\œÈˆÚ[™H˜ÛÛXÝÈˆ™XÛÜ™Ï^Ü™XÛÜ™ßHXØÛÝ[Ï^ØXØÛÝ[ßHÝ\œ™[˜ÞO^ØÝ\œ™[˜Þ_HØY[™Ï^ÛØY[™ßHÙX\˜Ú^ÜÙX\˜ÚHÙ]ÙX\˜Ú^ÜÙ]ÙX\˜ÚHÛ”™Yœ™\Ú^ÛÛ”™Yœ™\ÚHÛÜ™X]O^ÛÛÜ™X]PÝ\ÝÛY\ŸHÛ‘[]O^ÛÛ‘[]_HÛ‘Y]][O^Ê
+HOˆß_HÛ‘\XØ]R][O^Ê
+HOˆß_HÛ“Ü[‘]Z[^ÛÛ“Ü[‘]Z[HØ[•Üš]O^ØØ[•Üš]_HØ[‘[]O^ØØ[‘[]_HÏ‚ˆÙ]ŽÂŸB‚™[˜Ý[Ûˆ™[™ÜÙ[\ŠÈÛÛ\[žRYÛ‘Y]™XÛÜ™ËXØÛÝ[ËÝ\œ™[˜ÞKØY[™ËÙX\˜ÚÙ]ÙX\˜ÚÛ”™Yœ™\ÚÛÜ™X]U™[™Ü‹Û‘[]KÛ•˜[œØXÝ[Û‹Û“Ü[‘]Z[Ø[•Üš]KØ[‘[]HNˆÈÛÛ\[žRYˆ[X™\ŽÈÛ‘Y]Îˆ
+™XÛÜ™ˆ]T™XÛÜ™
+HOˆ›ÚYÈ™XÛÜ™Îˆ]T™XÛÜ™×NÈXØÛÝ[Îˆ]T™XÛÜ™×NÈÝ\œ™[˜ÞNˆÝš[™ÎÈØY[™Îˆ›ÛÛX[ŽÈÙX\˜ÚˆÝš[™ÎÈÙ]ÙX\˜Úˆ
+ŽˆÝš[™ÊHOˆ›ÚYÈÛ”™Yœ™\Úˆ
+
+HOˆ›ÚYÈÛÜ™X]U™[™ÜŽˆ
+
+HOˆ›ÚYÈÛ‘[]Nˆ
+Yˆ[X™\ŠHOˆ›ÚYÈÛ•˜[œØXÝ[ÛŽˆ
+\NˆÝš[™ÊHOˆ›ÚYÈÛ“Ü[‘]Z[ˆ
+Yˆ[X™\ŠHOˆ›ÚYÈØ[•Üš]Nˆ›ÛÛX[ŽÈØ[‘[]Nˆ›ÛÛX[ˆJHÂˆÛÛœÝÙ[][™Õ™[™Ü‹Ù][][™Õ™[™Ü—HH\ÙTÝ]O]T™XÛÜ™[Š[
+NÂˆÛÛœÝÚ\ÝÜžSÜ[‹Ù]\ÝÜžSÜ[—HH\ÙTÝ]J˜[ÙJNÂˆÛÛœÝÚ\ÝÜžSØY[™ËÙ]\ÝÜžSØY[™×HH\ÙTÝ]J˜[ÙJNÂˆÛÛœÝÚ\ÝÜžKÙ]\ÝÜžWHH\ÙTÝ]O\œ˜^OÈYˆ[X™\ŽÈXÝ[ÛŽˆÝš[™ÎÈÜ™X]Y]ˆÝš[™ÎÈ]Z[ÎˆÝš[™ÈOŠ×JNÂˆ\Þ[˜È[˜Ý[ÛˆÜ[’\ÝÜžJ
+HÂˆÙ]\ÝÜžSÜ[ŠYJNÈÙ]\ÝÜžSØY[™ÊYJNÈÙ]\ÝÜžJ×JNÂˆžHÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+Ø\KÜ™XÛÜ™ÏÚÚ[™]™[™Ü‹Z\ÝÜžI˜ÛÛ\[žRYIØÛÛ\[žRYX
+NÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›ÝØY™[™Üˆ\ÝÜžKˆŠNÂˆÙ]\ÝÜžJ]Kš\ÝÜžJNÂˆHØ]Ú
+\œ›ÜŠHÈØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›ÝØY™[™Üˆ\ÝÜžKˆŠNÈBˆš[˜[HÈÙ]\ÝÜžSØY[™Ê˜[ÙJNÈBˆBˆÛÛœÝXÝ[ÛœÈHÂˆÈX™[ˆ‘[\ˆš[È‹]Z[ˆ”™XÛÜ™H™[™Üˆš[[™™XÙZ]™H]È][\È‹\Nˆ˜š[‹XÛÛŽˆ™XÙZ\^KˆÈX™[ˆ”^Hš[È‹]Z[ˆ”™YXÙHH™[™Üˆ˜[[˜ÙH[™˜[šÈXØÛÝ[‹\Nˆ˜š[^[Y[‹XÛÛŽˆØ[]Ø\™ÈKˆÈX™[ˆÜ™X]H\˜Ú\ÙHÜ™\œÈ‹]Z[ˆ”Ù[™H›Û‹\ÜÝ[™ÈÜ™\ˆÈHÝ\Y\ˆ‹\Nˆœ\˜Ú\ÙHÜ™\ˆ‹XÛÛŽˆš[P˜\Ú\ˆKˆÈX™[ˆ”™XÙZ]™H][\È[™[\ˆš[‹]Z[ˆ”™XÙZ]™HÝØÚÈ[™ÜÝXØÛÝ[È^XX›HÙÙ]\ˆ‹\Nˆ˜š[‹XÛÛŽˆXÚØYÙPÚXÚÈKˆÈX™[ˆ”™XÙZ]™H][\È‹]Z[ˆ’[˜Ü™X\ÙHÝØÚÈ™Y›Ü™HHÝ\Y\ˆš[\œš]™\È‹\Nˆš][H™XÙZ\‹XÛÛŽˆ›Þ\ÈKˆÈX™[ˆ‘[\ˆš[›Üˆ™XÙZ]™Y][\È‹]Z[ˆ“[Ý™H™XÙZ]™YZ][HÛX\š[™È[ÈXØÛÝ[È^XX›H‹\Nˆœ™XÙZ]™Y][Hš[‹XÛÛŽˆ˜YÙQÛ\”ÚYÛˆKˆNÂˆ™]\›ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KMˆ‚ˆÙXÝ[ÛˆÛ\ÜÓ˜[YOH›Ý™\™›ÝËZY[ˆ›Ý[™Y^›Ü™\ˆ›Ü™\‹\Û]KLŒ™Ë]Ú]HÚYÝË\ÛH‚ˆ]ˆÛ\ÜÓ˜[YOH™›^›^XÛÛØ\LÈ›Ü™\‹Xˆ™Ë\Û]KMLÎMHÛN™›^\›ÝÈÛNš][\ËXÙ[\ˆÛNš\ÝYžKX™]ÙY[ˆ]ˆÛ\ÜÓ˜[YOH™›ÛX›Û^\Û]KNL”Ý\Y\ˆÛÜšÙ›ÝÜÏÚÛ\ÜÓ˜[YOH›]LH^\ÛH^\Û]KML“Ü™\‹™XÙZ]™Kš[[™^H™[™ÜœÈœ›ÛHÛ™HXÙKÜÙ]˜YÙH˜\šX[H›Ý][™HˆÛ\ÜÓ˜[YOHËYš]”Ý\Y\ˆÙ[™OÐ˜YÙOÙ]‚ˆ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\\™Ë\Û]KLŒÛN™ÜšYXÛÛËLˆ™ÜšYXÛÛËLÈžØXÝ[ÛœË›X\
+
+XÝ[ÛŠHOˆ]ÛˆÙ^O^ØXÝ[Û‹›X™[H\OH˜]Ûˆˆ\ØX›Y^ÈXØ[•Üš]_HÛÛXÚÏ^Ê
+HOˆÛ•˜[œØXÝ[ÛŠXÝ[Û‹\J_HÛ\ÜÓ˜[YOH™Ü›Ý\Z[‹ZLÌˆ™Ë]Ú]HMH^[Y˜[œÚ][ÛˆÝ™\Ž˜™ËY[Y\˜[ML\ØX›Y˜Ý\œÛÜ‹[›ÝX[ÝÙY\ØX›Y›ÜXÚ]KML]ˆÛ\ÜÓ˜[YOH™›^][\Ë\Ý\\ÝYžKX™]ÙY[ˆÜ[ˆÛ\ÜÓ˜[YOH™ÜšYÚ^™KLLXÙKZ][\ËXÙ[\ˆ›Ý[™Y[È™Ë\Û]KLL^\Û]KMŒÜ›Ý\ZÝ™\Ž˜™ËY[Y\˜[LLÜ›Ý\ZÝ™\Ž^Y[Y\˜[MÌXÝ[Û‹šXÛÛˆÛ\ÜÓ˜[YOHœÚ^™KMHˆÏÜÜ[Ú]œ›Û”šYÚÛ\ÜÓ˜[YOHœÚ^™KM^\Û]KLÌÜ›Ý\ZÝ™\Ž^Y[Y\˜[MLˆÏÙ]Û\ÜÓ˜[YOH›]M^\ÛH›ÛX›Û^\Û]KNLžØXÝ[Û‹›X™[OÜÛ\ÜÓ˜[YOH›]LH^^ÈXY[™ËMH^\Û]KMLžØXÝ[Û‹™]Z[OÜØ]ÛŠ_OÙ]‚ˆÜÙXÝ[Û‚ˆØØ[‘[]H	‰ˆ]ˆÛ\ÜÓ˜[YOH™›^\ÝYžKY[™]Ûˆ\OH˜]Ûˆˆ˜\šX[H›Ý][™HˆÛÛXÚÏ^ÛÜ[’\ÝÜž_OÛØÚÌÈÛ\ÜÓ˜[YOHœÚ^™KMˆÏ•™[™Üˆ\ÝÜžOÐ]ÛÙ]ŸBˆX[ÙÈÜ[^Ú\ÝÜžSÜ[ŸHÛ“Ü[Ú[™ÙO^ÜÙ]\ÝÜžSÜ[ŸOX[ÙÐÛÛ[Û\ÜÓ˜[YOHœÛN›X^]ËLÞX[ÙÒXY\X[ÙÕ]O•™[™Üˆ\ÝÜžOÑX[ÙÕ]OX[ÙÑ\ØÜš\[Û”™XÙ[Y]È[™[][ÛœË[˜ÛY[™ÈÚÈXYHXXÚÚ[™ÙKˆ™XÛÜ™[™ÈÝ\ÈÚ]\È\]KÑX[ÙÑ\ØÜš\[ÛÑX[ÙÒXY\‚ˆÚ\ÝÜžSØY[™ÈÈ“ØY[™È\ÝÜžx )ÜˆˆZ\ÝÜžK›[™ÝÈÛ\ÜÓ˜[YOH^\ÛH^[]]YY›Ü™YÜ›Ý[™“›È™XÛÜ™Y™[™ÜˆÚ[™Ù\ÈY]Üˆˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLÈžÚ\ÝÜžK›X\
+
+[žJHOˆÂˆ]]Z[ˆÈXÝÜ“˜[YOÎˆÝš[™ÎÈXÝÜ‘[XuãŽµ¶‰žËkºwµç[ØÝ[Y[ZY^Ü™XÛÜ™šYO‚ˆÝ\Ù\ÔØ]™Y[\]H	‰ˆØ]™Y[\]S[ÙHÈ‚ˆX[ÙÕ]HÛ\ÜÓ˜[YOHœÜ‹[Û›HžÔÝš[™Ê™XÛÜ™\J_HÔÝš[™Ê™XÛÜ™›[X™\Š_OÑX[ÙÕ]OX[ÙÑ\ØÜš\[ÛˆÛ\ÜÓ˜[YOHœÜ‹[Û›H‘ØÝ[Y[™]šY]È›ÜˆÔÝš[™Ê™XÛÜ™œ\J_OÑX[ÙÑ\ØÜš\[Û‚ˆÜ™XÛÜ™\HOOH˜Ü™Y]Y[[ÈˆÈ]ˆÛ\ÜÓ˜[YOH™ØÝ[Y[Z[\›˜[[Û›H›^›^]Ü˜\][\ËXÙ[\ˆØ\Lˆ›Ý[™Y[È›Ü™\ˆ™Ë\Û]KMLLÈ^\ÛHÜ[ˆÛ\ÜÓ˜[YOH›\‹LH›Û\Ù[ZX›Û^\Û]KMÌ‘ØÝ[Y[^[Ý]ÜÜ[]Ûˆ\OH˜]ÛˆˆÚ^™OHœÛHˆ˜\šX[^ØÜ™Y]™\Ù[][ÛˆOOH˜Ü™Y][›ÝHˆÈ™Y˜][ˆˆ›Ý][™HŸHÛÛXÚÏ^Ê
+HOˆÙ]Ü™Y]™\Ù[][ÛŠ˜Ü™Y][›ÝHŠ_OÜ™Y]›ÝOÐ]Û]Ûˆ\OH˜]ÛˆˆÚ^™OHœÛHˆ˜\šX[^ØÜ™Y]™\Ù[][ÛˆOOHœ™Y[™ˆÈ™Y˜][ˆˆ›Ý][™HŸHÛÛXÚÏ^Ê
+HOˆÙ]Ü™Y]™\Ù[][ÛŠœ™Y[™Š_O”™Y[™Ð]ÛÙ]ˆˆ[BˆØ[\ÑØÝ[Y[[\]H[ÙO^ÜØ]™Y[\]S[Ù_H™XÛÜ™^Ü™XÛÜ™H[™\Ï^Ù]Z[›[™\ßHÛÛXÝ^ØÛÛXÝHÙ]\^ÞÈ‹‹œÙ]\˜[YNˆœ˜[™Y˜[YH_HÚÝÐš[[™Ó˜[YO^ÜÚÝÐš[[™Ó˜[Y_HÚÝÔÚ\[™Ï^ÜÚÝÔÚ\[™ßHÚÝÒÐÛÙO^ÜÚÝÒÐÛÙ_HÚÝÑ[Y[œÚ[ÛœÏ^ÜÚÝÑ[Y[œÚ[ÛœßHÏ‚ˆÖÈ™\Ý[X]H‹œØ[\ÈÜ™\ˆ‹œ›Ù›Ü›XH[›ÚXÙH—Kš[˜ÛY\ÊÝš[™Ê™XÛÜ™\JJH	‰ˆÈš[›ÚXÙY‹˜ÛÛ™\Y—Kš[˜ÛY\ÊÝš[™Ê™XÛÜ™œÝ]\ÊJH	‰ˆ]ˆÛ\ÜÓ˜[YOH™ØÝ[Y[Z[\›˜[[Û›H^KMËYš]›Ý[™Y[È›Ü™\‹M›Ü™\‹Y[Y\˜[MŒMHKLˆ^^›ÛY^˜X›Û\\˜Ø\ÙH˜XÚÚ[™Ë]ÚY\ˆ^Y[Y\˜[MÌ‘[H[›ÚXÙYÙ]ŸBˆÜ\˜Ú\ÙSÜ™\ˆ	‰ˆ™XÛÜ™œÝ]\ÈOOHœ™XÙZ]™Yˆ	‰ˆ]ˆÛ\ÜÓ˜[YOH™ØÝ[Y[Z[\›˜[[Û›H^KMËYš]›Ý[™Y[È›Ü™\‹M›Ü™\‹Y[Y\˜[MŒMHKLˆ^^›ÛY^˜X›Û\\˜Ø\ÙH˜XÚÚ[™Ë]ÚY\ˆ^Y[Y\˜[MÌ‘[H™XÙZ]™YÙ]ŸBˆÜ\˜Ú\ÙSÜ™\ˆ	‰ˆØ[ÛÛ™\	‰ˆ\™XÛÜ™˜ÛÛ™\Y[›ÚXÙRY	‰ˆ™XÛÜ™œÝ]\ÈOOH˜ÛÛ™\Yˆ	‰ˆ]ˆÛ\ÜÓ˜[YOH™ØÝ[Y[Z[\›˜[[Û›H\˜Ú\ÙSÜ™\”™XÙZ]š[™ÈÜ™\’Y^Ó[X™\Š™XÛÜ™šY
+_HÛÛ\[žRY^Ó[X™\Š™XÛÜ™˜ÛÛ\[žRY
+_HÛ”Ø]™Y^ÛÛ”™XÙZ\Ø]™YHÏÙ]ŸBˆÖÈ™\Ý[X]H‹œ›Ù›Ü›XH[›ÚXÙH‹œØ[\ÈÜ™\ˆ—Kš[˜ÛY\ÊÝš[™Ê™XÛÜ™\JJH	‰ˆØ[ÛÛ™\	‰ˆ\™XÛÜ™˜ÛÛ™\Y[›ÚXÙRY	‰ˆ™XÛÜ™œÝ]\ÈOOH˜ÛÛ™\Yˆ	‰ˆ]ˆÛ\ÜÓ˜[YOH™ØÝ[Y[Z[\›˜[[Û›HØ[\ÔÛÝ\˜ÙR[›ÚXÚ[™ÈÛÝ\˜ÙRY^Ó[X™\Š™XÛÜ™šY
+_HÛÛ\[žRY^Ó[X™\Š™XÛÜ™˜ÛÛ\[žRY
+_HÛ”Ø]™Y^ÛÛ”™XÙZ\Ø]™YHÛ•šY]Ò[›ÚXÙO^ÛÛ“Ü[’[›ÚXÙ_HÏÙ]ŸBˆÜ™XÛÜ™˜ÛÛ™\YØÝ[Y[[X™\ˆ	‰ˆÈ™\Ý[X]H‹œ›Ù›Ü›XH[›ÚXÙH‹œØ[\ÈÜ™\ˆ‹œ\˜Ú\ÙHÜ™\ˆ—Kš[˜ÛY\ÊÝš[™Ê™XÛÜ™\JJHÈ]ˆÛ\ÜÓ˜[YOH™ØÝ[Y[Z[\›˜[[Û›H›Ý[™Y[È›Ü™\ˆ›Ü™\‹Y[Y\˜[LŒ™ËY[Y\˜[MLLÈ^\ÛH›Û[YY][H^Y[Y\˜[NÛÛ™\YÈÔÝš[™Ê™XÛÜ™˜ÛÛ™\YØÝ[Y[\J_HÔÝš[™Ê™XÛÜ™˜ÛÛ™\YØÝ[Y[[X™\Š_OÙ]ˆˆ[BˆÜ™XÛÜ™œÛÝ\˜ÙQØÝ[Y[[X™\ˆ	‰ˆÈ™\Ý[X]H‹œ›Ù›Ü›XH[›ÚXÙH‹œØ[\ÈÜ™\ˆ‹œ\˜Ú\ÙHÜ™\ˆ—Kš[˜ÛY\ÊÝš[™Ê™XÛÜ™\JJHÈ]ˆÛ\ÜÓ˜[YOH™ØÝ[Y[Z[\›˜[[Û›H›Ý[™Y[È›Ü™\ˆ›Ü™\‹\ÚÞKLŒ™Ë\ÚÞKMLLÈ^\ÛH›Û[YY][H^\ÚÞKNÜ™X]Yœ›ÛHÔÝš[™Ê™XÛÜ™œÛÝ\˜ÙQØÝ[Y[\J_HÔÝš[™Ê™XÛÜ™œÛÝ\˜ÙQØÝ[Y[[X™\Š_OÙ]ˆˆ[BˆÏˆˆ‚ˆX[ÙÒXY\]ˆÛ\ÜÓ˜[YO^Ø›^][\Ë\Ý\\ÝYžKX™]ÙY[ˆØ\M›Ý[™Y^MH‹N	ÜÙ]\™ØÝ[Y[[\]HOOH›[Ù\›ˆˆÈ^]Ú]HˆˆÙ]\™ØÝ[Y[[\]HOOH˜Û\ÜÚXÈˆÈ˜›Ü™\‹X‹M™Ë\Û]KMLˆˆ˜›Ü™\‹XˆŸXHÝ[O^ÜÙ]\™ØÝ[Y[[\]HOOH›[Ù\›ˆˆÈÈ˜XÚÙÜ›Ý[™ÛÛÜŽˆÙ]\™ØÝ[Y[ÛÛÜˆHˆÙ]\™ØÝ[Y[[\]HOOH˜Û\ÜÚXÈˆÈÈ›Ü™\ÛÛÜŽˆÙ]\™ØÝ[Y[ÛÛÜˆHˆ[™Yš[™YO]ˆÛ\ÜÓ˜[YOH™›^Z[‹]ËLØ\MžÜÙ]\›ÙÛÑ]HÈ[XYÙHÜ˜Ï^ÜÙ]\›ÙÛÑ]_H[^Ø	Øœ˜[™Y˜[Y_HÙÛØHÚY^ÎHZYÚ^ÍMŸH[›Ü[Z^™YÛ\ÜÓ˜[YOHšLMËLŒˆÚš[šËL›Ý[™Y[È™Ë]Ú]HØš™XÝXÛÛZ[ˆLHˆÏˆˆ[O]Û\ÜÓ˜[YO^Ø^^È›ÛX›Û˜XÚÚ[™ËVËŒN[WH	ÜÙ]\™ØÝ[Y[[\]HOOH›[Ù\›ˆˆÈ^]Ú]KÎˆˆ^Y[Y\˜[MŒŸXOžØœ˜[™Y˜[YKÕ\\Ø\ÙJ
+_OÜX[ÙÕ]HÛ\ÜÓ˜[YO^Ø]Lˆ	ÜÙ]\™ØÝ[Y[[\]HOOH›[Ù\›ˆˆÈ^]Ú]HˆˆˆŸXOžÙØÝ[Y[[ÙSX™[ÖÙØÝ[Y[[ÙW_HÔÝš[™Ê™XÛÜ™›[X™\Š_OÑX[ÙÕ]OX[ÙÑ\ØÜš\[ÛˆÛ\ÜÓ˜[YO^ÜÙ]\™ØÝ[Y[[\]HOOH›[Ù\›ˆˆÈ^]Ú]KÍÍHˆˆˆŸOžÔÝš[™Ê™XÛÜ™œ\J_H0­ÈÔÝš[™Ê™XÛÜ™˜[œØXÝ[Û‘]J_OÑX[ÙÑ\ØÜš\[ÛžÊÙ]\˜Y™\ÜÓ[™LHÙ]\˜Ú]HÙ]\œÛ™HÙ]\›ŠHÈÛ\ÜÓ˜[YO^Ø]LˆX^]Ë^^^ÈXY[™ËMH	ÜÙ]\™ØÝ[Y[[\]HOOH›[Ù\›ˆˆÈ^]Ú]KÍÍHˆˆ^\Û]KMLŸXOžÖÜÙ]\˜Y™\ÜÓ[™LKÙ]\˜Y™\ÜÓ[™L‹Ù]\˜Ú]KÙ]\˜ÛÝ[žWK™š[\Š›ÛÛX[ŠKš›Ú[Š‹Š_^ÜÙ]\œÛ™HÈ0­È	ÜÙ]\œÛ™_XˆˆŸ^ÜÙ]\›ˆÈ0­È“ˆ	ÜÙ]\›ŸXˆˆŸOÜˆˆ[OÙ]Ù]]ˆÛ\ÜÓ˜[YOH™›^›^]Ü˜\\ÝYžKY[™Ø\LˆžÜÙ]\œšYÚÙÛÑ]H	‰ˆ[XYÙHÜ˜Ï^ÜÙ]\œšYÚÙÛÑ]_H[^Ø	Øœ˜[™Y˜[Y_HšYÚÙÛØHÚY^ÌLŒHZYÚ^ÍŒH[›Ü[Z^™YÛ\ÜÓ˜[YOHšLMËLŽØš™XÝXÛÛZ[ˆˆÏŸ^ØÛÛ™\X›H	‰ˆØ[ÛÛ™\È]ÛˆÛÛXÚÏ^Ê
+HOˆÛÛÛ™\
+]Z[
+_HÛ\ÜÓ˜[YO^ÜÙ]\™ØÝ[Y[[\]HOOH›[Ù\›ˆˆÈ˜™Ë]Ú]H^\Û]KNLÝ™\Ž˜™Ë]Ú]KÎLˆˆ˜œ˜[™\š[X\žKX]ÛˆŸO™XÙZ\^Û\ÜÓ˜[YOHœÚ^™KMˆÏžÜ\˜Ú\ÙSÜ™\ˆÈÛÛ™\Èš[ÈÝ\Y\ˆ[›ÚXÙHˆˆÛÛ™\È[›ÚXÙHŸOÐ]Ûˆˆ[OÙ]Ù]ÑX[ÙÒXY\‚ˆÜ™XÛÜ™\HOOHœ›Ù›Ü›XH[›ÚXÙHˆ	‰ˆÛ\ÜÓ˜[YOH^\ÛH›Û\Ù[ZX›Û”›Ù›Ü›XH[›ÚXÙH0­È›ÝH^[›ÚXÙOÜŸBˆÖÈ™\Ý[X]H‹œØ[\ÈÜ™\ˆ‹œ›Ù›Ü›XH[›ÚXÙH—Kš[˜ÛY\ÊÝš[™Ê™XÛÜ™\JJH	‰ˆÈš[›ÚXÙY‹˜ÛÛ™\Y—Kš[˜ÛY\ÊÝš[™Ê™XÛÜ™œÝ]\ÊJH	‰ˆ]ˆÛ\ÜÓ˜[YOH›^KMËYš]›Ý[™Y[È›Ü™\‹M›Ü™\‹Y[Y\˜[MŒMHKLˆ^^›ÛY^˜X›Û\\˜Ø\ÙH˜XÚÚ[™Ë]ÚY\ˆ^Y[Y\˜[MÌ‘[H[›ÚXÙYÙ]ŸBˆÜ\˜Ú\ÙSÜ™\ˆ	‰ˆ™XÛÜ™œÝ]\ÈOOHœ™XÙZ]™Yˆ	‰ˆ]ˆÛ\ÜÓ˜[YOH›^KMËYš]›Ý[™Y[È›Ü™\‹M›Ü™\‹Y[Y\˜[MŒMHKLˆ^^›ÛY^˜X›Û\\˜Ø\ÙH˜XÚÚ[™Ë]ÚY\ˆ^Y[Y\˜[MÌ‘[H™XÙZ]™YÙ]ŸBˆÜ\˜Ú\ÙSÜ™\ˆ	‰ˆØ[ÛÛ™\	‰ˆ\™XÛÜ™˜ÛÛ™\Y[›ÚXÙRY	‰ˆ™XÛÜ™œÝ]\ÈOOH˜ÛÛ™\Yˆ	‰ˆ\˜Ú\ÙSÜ™\”™XÙZ]š[™ÈÜ™\’Y^Ó[X™\Š™XÛÜ™šY
+_HÛÛ\[žRY^Ó[X™\Š™XÛÜ™˜ÛÛ\[žRY
+_HÛ”Ø]™Y^ÛÛ”™XÙZ\Ø]™YHÏŸBˆÖÈ™\Ý[X]H‹œ›Ù›Ü›XH[›ÚXÙH‹œØ[\ÈÜ™\ˆ—Kš[˜ÛY\ÊÝš[™Ê™XÛÜ™\JJH	‰ˆØ[ÛÛ™\	‰ˆ\™XÛÜ™˜ÛÛ™\Y[›ÚXÙRY	‰ˆ™XÛÜ™œÝ]\ÈOOH˜ÛÛ™\Yˆ	‰ˆØ[\ÔÛÝ\˜ÙR[›ÚXÚ[™ÈÛÝ\˜ÙRY^Ó[X™\Š™XÛÜ™šY
+_HÛÛ\[žRY^Ó[X™\Š™XÛÜ™˜ÛÛ\[žRY
+_HÛ”Ø]™Y^ÛÛ”™XÙZ\Ø]™YHÛ•šY]Ò[›ÚXÙO^ÛÛ“Ü[’[›ÚXÙ_HÏŸBˆÜ™XÛÜ™\HOOH˜Ý\ÝÛY\ˆ^[Y[ˆ	‰ˆZY[›ÚXÙTÝ[\^[Y[Ý]\Ï^ÔÝš[™Ê™XÛÜ™œÝ]\Ê_HZY]^Ü™XÛÜ™œZY]ÈÝš[™Ê™XÛÜ™œZY]
+Hˆ[HÏŸBˆÜ™XÛÜ™\HOOHš[›ÚXÙHˆ	‰ˆØÝ[Y[[ÙHOOH˜ÛÛ[Y\˜ÚX[Z[›ÚXÙHˆ	‰ˆZY[›ÚXÙTÝ[\Ý]\Ï^ÔÝš[™Ê™XÛÜ™œÝ]\Ê_HZY]^Ü™XÛÜ™œZY]ÈÝš[™Ê™XÛÜ™œZY]
+Hˆ[HÏŸBˆÜ™XÛÜ™˜ÛÛ™\YØÝ[Y[[X™\ˆÈ]ˆÛ\ÜÓ˜[YOHœ›Ý[™Y[È›Ü™\ˆ›Ü™\‹Y[Y\˜[LŒ™ËY[Y\˜[MLLÈ^\ÛH›Û[YY][H^Y[Y\˜[NÛÛ™\YÈÔÝš[™Ê™XÛÜ™˜ÛÛ™\YØÝ[Y[\J_HÔÝš[™Ê™XÛÜ™˜ÛÛ™\YØÝ[Y[[X™\Š_OÙ]ˆˆ[BˆÜ™XÛÜ™œÛÝ\˜ÙQØÝ[Y[[X™\ˆÈ]ˆÛ\ÜÓ˜[YOHœ›Ý[™Y[È›Ü™\ˆ›Ü™\‹\ÚÞKLŒ™Ë\ÚÞKMLLÈ^\ÛH›Û[YY][H^\ÚÞKNÜ™X]Yœ›ÛHÔÝš[™Ê™XÛÜ™œÛÝ\˜ÙQØÝ[Y[\J_HÔÝš[™Ê™XÛÜ™œÛÝ\˜ÙQØÝ[Y[[X™\Š_OÙ]ˆˆ[BˆÊÚÝÐš[[™Ó˜[YHÚÝÔÚ\[™ÊHÈ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\M›Ý[™Y^›Ü™\ˆM^\ÛHÛN™ÜšYXÛÛËLˆžÜÚÝÐš[[™Ó˜[YHÈ]Û\ÜÓ˜[YOH™›ÛX›Û^\Û]KNLš[[™È˜[YOÜÛ\ÜÓ˜[YOH›]LHžÔÝš[™ÊÛÛXÝË˜š[[™Ó˜[YHÛÛXÝË˜ÛÛ\[žH™XÛÜ™œ\J_OÜžØÛÛXÝË›ˆÈÛ\ÜÓ˜[YOH›]LH^\Û]KML•“ŽˆÔÝš[™ÊÛÛXÝ›Š_OÜˆˆ[OÙ]ˆˆ[^ÜÚÝÔÚ\[™ÈÈ]Û\ÜÓ˜[YOH™›ÛX›Û^\Û]KNL”Ú\[™È]Z[ÏÜÛ\ÜÓ˜[YOH›]LHžÔÝš[™ÊÛÛXÝË˜ÛÛ\[žH™XÛÜ™œ\J_OÜÛ\ÜÓ˜[YOH›]LH^\Û]KMLžÖØÛÛXÝË˜ÛÝ[žKÛÛXÝËœÛ™KÛÛXÝË™[XZ[K™š[\Š›ÛÛX[ŠK›X\
+Ýš[™ÊKš›Ú[Šˆ0­ÈŠH“›ÈÚ\[™È]Z[ÈØ]™YŸOÜÙ]ˆˆ[OÙ]ˆˆ[Bˆ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\M›Ý[™Y^™Ë\Û]KMLM^\ÛHÛN™ÜšYXÛÛËM]Û\ÜÓ˜[YOH^\Û]KML”Ý]\ÏÜÝ]\Ð˜YÙH˜[YO^ÖÈ™\Ý[X]H‹œØ[\ÈÜ™\ˆ‹œ›Ù›Ü›XH[›ÚXÙH—Kš[˜ÛY\ÊÝš[™Ê™XÛÜ™\JJH	‰ˆ™XÛÜ™œÝ]\ÈOOHš[›ÚXÙYˆÈ˜ÛÛ™\YˆˆÝš[™Ê™XÛÜ™œÝ]\Ê_HÏÙ]]Û\ÜÓ˜[YOH^\Û]KML‘YH]OÜÝ›Û™ÏžÔÝš[™Ê™XÛÜ™™YQ]H¸ %Š_OÜÝ›Û™ÏÙ]]Û\ÜÓ˜[YOH^\Û]KMLXØÛÝ[ÜÝ›Û™ÏžÔÝš[™Ê™XÛÜ™˜XØÛÝ[
+_OÜÝ›Û™ÏÙ]]Û\ÜÓ˜[YOH^\Û]KMLÝ\œ™[˜ÞOÜÝ›Û™ÏžÔÝš[™Ê™XÛÜ™˜Ý\œ™[˜ÞJ_OÜÝ›Û™ÏÙ]Ù]‚ˆ]ˆÛ\ÜÓ˜[YOH›Ý™\™›ÝË^X]]È›Ý[™Y^›Ü™\ˆX›OX›RXY\X›T›ÝÏX›RXY’][HÈ\ØÜš\[ÛÕX›RXYX›RXYÛ\ÜÓ˜[YOH^\šYÚ”]OÕX›RXYžÜÚÝÒÐÛÙHÈX›RXY’ÈÛÙOÕX›RXYX›RXYÓÓÏÕX›RXYÏˆˆ[^ÜÚÝÑ[Y[œÚ[ÛœÈÈX›RXY‘[Y[œÚ[ÛœÏÕX›RXYX›RXY•ÙZYÚÕX›RXYÏˆˆ[^ÜÚÝÜÔšXÙ\ÈÈX›RXYÛ\ÜÓ˜[YOH^\šYÚ”˜]OÕX›RXYžÙØÝ[Y[[ÙHOOH^Z[›ÚXÙHˆÈX›RXY•UÕX›RXYˆˆ[OX›RXYÛ\ÜÓ˜[YOH^\šYÚ•Ý[ÕX›RXYÏˆˆ[OÕX›T›ÝÏÕX›RXY\X›P›ÙOžÙ]Z[›[™\Ë›X\
+
+[™K[™^
+HOˆX›T›ÝÈÙ^O^Ú[™^OX›PÙ[Û\ÜÓ˜[YOH™›Û[YY][HžÛ[™Kš][S[X™\ˆ[™KœÚÝHÈÛ\ÜÓ˜[YOH›X‹LH^^È›Û[[Û›È^\Û]KMLžÔÝš[™Ê[™Kš][S[X™\ˆ[™KœÚÝJ_OÜˆˆ[^ÔÝš[™Ê[™K™\ØÜš\[ÛŠ_^ÖÈš[›ÚXÙH‹˜š[—Kš[˜ÛY\ÊÝš[™Ê™XÛÜ™\JJH	‰ˆ
+[™K˜ÛÛ[Y[È[™KœÙ\šX[[X™\ŠH	‰ˆ]ˆÛ\ÜÓ˜[YOH›]LˆÜXÙK^KLHÚ]\ÜXÙK\™K]Ü˜\œ™XZË]ÛÜ™È^^È›Û[›Ü›X[žÛ[™K˜ÛÛ[Y[È	‰ˆÝ›Û™ÏÛÛ[Y[ÎˆÜÝ›Û™ÏžÔÝš[™Ê[™K˜ÛÛ[Y[Ê_OÜŸ^Û[™KœÙ\šX[[X™\ˆ	‰ˆÝ›Û™Ï”Ù\šX[[X™\ŽˆÜÝ›Û™ÏžÔÝš[™Ê[™KœÙ\šX[[X™\Š_OÜŸOÙ]ŸOÕX›PÙ[X›PÙ[Û\ÜÓ˜[YOH^\šYÚžÔÝš[™Ê[™Kœ]X[]J_OÕX›PÙ[žÜÚÝÒÐÛÙHÈX›PÙ[žÙØÝ[Y[[™TÜXÚYšXØ][ÛŠ[™KÈ’ÈÛÙH‹’ÓˆÛÙH—J_OÕX›PÙ[X›PÙ[žÙØÝ[Y[[™TÜXÚYšXØ][ÛŠ[™KÈÛÝ[žHÙˆÜšYÚ[ˆ‹ÓÓÈ—J_OÕX›PÙ[Ïˆˆ[^ÜÚÝÑ[Y[œÚ[ÛœÈÈX›PÙ[žÙØÝ[Y[[™TÜXÚYšXØ][ÛŠ[™KÈ‘[Y[œÚ[ÛœÈ‹”›ÙXÝ[Y[œÚ[ÛœÈ‹”XÚØYÙH[Y[œÚ[ÛœÈ—J_OÕX›PÙ[X›PÙ[žÙØÝ[Y[[™TÜXÚYšXØ][ÛŠ[™KÈ•ÙZYÚ‹”›ÙXÝÙZYÚ‹”XÚØYÙHÙZYÚ—J_OÕX›PÙ[Ïˆˆ[^ÜÚÝÜÔšXÙ\ÈÈX›PÙ[Û\ÜÓ˜[YOH^\šYÚžÙ›Ü›X][Û™^J[™K[š]šXÙKÝš[™Ê™XÛÜ™˜Ý\œ™[˜ÞJJ_OÕX›PÙ[žÙØÝ[Y[[ÙHOOH^Z[›ÚXÙHˆÈX›PÙ[žÔÝš[™Ê[™K˜]ÛÙH	Ó[X™\Š[™K˜]˜]J_IX
+_OÕX›PÙ[ˆˆ[OX›PÙ[Û\ÜÓ˜[YOH^\šYÚ›Û\Ù[ZX›ÛžÙ›Ü›X][Û™^J[™KÝ[Ýš[™Ê™XÛÜ™˜Ý\œ™[˜ÞJJ_OÕX›PÙ[Ïˆˆ[OÕX›T›ÝÏŠ_OÕX›P›ÙOÕX›OÙ]‚ˆÜÚÝÜÔšXÙ\ÈÈ]ˆÛ\ÜÓ˜[YOH›[X]]ÈÜšYËY[X^]Ë\ÛHØ\Lˆ^\ÛH]ˆÛ\ÜÓ˜[YOH™›^\ÝYžKX™]ÙY[ˆÜ[ˆÛ\ÜÓ˜[YOH^\Û]KML”ÝXÝ[ÜÜ[Ü[žÙ›Ü›X][Û™^J™XÛÜ™œÝXÝ[Ýš[™Ê™XÛÜ™˜Ý\œ™[˜ÞJJ_OÜÜ[Ù]žÙØÝ[Y[[ÙHOOH^Z[›ÚXÙHˆÈ]ˆÛ\ÜÓ˜[YOH™›^\ÝYžKX™]ÙY[ˆÜ[ˆÛ\ÜÓ˜[YOH^\Û]KML•UÜÜ[Ü[žÙ›Ü›X][Û™^J™XÛÜ™˜][[Ý[Ýš[™Ê™XÛÜ™˜Ý\œ™[˜ÞJJ_OÜÜ[Ù]ˆˆ[O]ˆÛ\ÜÓ˜[YOH™›^\ÝYžKX™]ÙY[ˆ›Ü™\‹]LÈ^[È›ÛX›ÛÜ[•Ý[ÜÜ[Ü[žÙ›Ü›X][Û™^J™XÛÜ™Ý[Ýš[™Ê™XÛÜ™˜Ý\œ™[˜ÞJJ_OÜÜ[Ù]Ù]ˆˆ[BˆÏŸBˆÜÙ[XÝY˜[šÈÈ]ˆÛ\ÜÓ˜[YOHœ›Ý[™Y^›Ü™\ˆM^\ÛH]ˆÛ\ÜÓ˜[YOH›X‹LÈ›^][\ËXÙ[\ˆØ\Lˆ›ÛX›ÛˆÝ[O^ÞÈÛÛÜŽˆÙ]\™ØÝ[Y[ÛÛÜˆ_O[™X\šÈÛ\ÜÓ˜[YOHœÚ^™KMˆÏžÜÙ[XÝY˜[šßOÙ]žÜÙ]\˜˜[šÓ˜[YH	‰ˆ\Ù]\˜˜[šÓ˜[YKÓÝÙ\Ø\ÙJ
+Kš[˜ÛY\ÊÙ[XÝY˜[šËÓÝÙ\Ø\ÙJ
+Kœ™\XÙJˆ˜[šÈ‹ˆŠJHÈÛ\ÜÓ˜[YOH^\Û]KMLÛÛ™šYÝ\™H\È˜[šÈXØÛÝ[[ˆÛÛ\[žHÙ]\ÈÚÝÈ]È^[Y[]Z[ËÜˆˆ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\^MˆØ\^KLˆÛN™ÜšYXÛÛËLˆÜ[ˆÛ\ÜÓ˜[YOH^\Û]KMLXØÛÝ[˜[YNÜÜ[ˆÜÙ]\˜˜[šÐXØÛÝ[˜[YHœ˜[™Y˜[Y_OÜÜ[ˆÛ\ÜÓ˜[YOH^\Û]KMLXØÛÝ[[X™\ŽÜÜ[ˆÜÙ]\˜˜[šÐXØÛÝ[[X™\ˆ¸ %ŸOÜÜ[ˆÛ\ÜÓ˜[YOH^\Û]KMLÝ\œ™[˜ÞNÜÜ[ˆÜÙ]\˜˜[šÐÝ\œ™[˜ÞHÙ]\˜˜\ÙPÝ\œ™[˜Þ_OÜÜ[ˆÛ\ÜÓ˜[YOH^\Û]KML’PSŽÜÜ[ˆÜÙ]\˜˜[šÒX˜[ˆ¸ %ŸOÜžÜÙ]\˜˜[šÔÝÚYÈÜ[ˆÛ\ÜÓ˜[YOH^\Û]KML”ÕÒQ•ÜÜ[ˆÜÙ]\˜˜[šÔÝÚYOÜˆˆ[OÙ]ŸOÙ]ˆˆ[BˆÜÚÝÔÝ[\	‰ˆÙ]\œÝ[\]HÈ]ˆÛ\ÜÓ˜[YOH™›^\ÝYžKY[™[XYÙHÜ˜Ï^ÜÙ]\œÝ[\]_H[^Ø	Øœ˜[™Y˜[Y_HÛÛ\[žHÝ[\HÚY^ÌMŒHZYÚ^ÌLŒH[›Ü[Z^™YÛ\ÜÓ˜[YOH›X^ZLÌËX]]ÈX^]ËMØš™XÝXÛÛZ[ˆˆÏÙ]ˆˆ[BˆÙ]Z[š›Ý\›˜[›[™Ýˆ	‰ˆ]ˆÛ\ÜÓ˜[YOH™ØÝ[Y[Z[\›˜[[Û›HÈÛ\ÜÓ˜[YOH›X‹Lˆ^\ÛH›ÛX›ÛXØÛÝ[[™È[žH
+Ø˜\ÙPÝ\œ™[˜Þ_JOÚÏ]ˆÛ\ÜÓ˜[YOH›Ý™\™›ÝËZY[ˆ›Ý[™Y^›Ü™\ˆX›OX›RXY\X›T›ÝÏX›RXYXØÛÝ[ÕX›RXYX›RXYÛ\ÜÓ˜[YOH^\šYÚ‘Xš]ÕX›RXYX›RXYÛ\ÜÓ˜[YOH^\šYÚÜ™Y]ÕX›RXYÕX›T›ÝÏÕX›RXY\X›P›ÙOžÙ]Z[š›Ý\›˜[›X\
+
+[™K[™^
+HOˆX›T›ÝÈÙ^O^Ú[™^OX›PÙ[žÔÝš[™Ê[™K˜XØÛÝ[˜[YJ_OÕX›PÙ[X›PÙ[Û\ÜÓ˜[YOH^\šYÚžÓ[X™\Š[™K™Xš]
+HÈ›Ü›X][Û™^J[™K™Xš]˜\ÙPÝ\œ™[˜ÞJHˆ¸ %ŸOÕX›PÙ[X›PÙ[Û\ÜÓ˜[YOH^\šYÚžÓ[X™\Š[™K˜Ü™Y]
+HÈ›Ü›X][Û™^J[™K˜Ü™Y]˜\ÙPÝ\œ™[˜ÞJHˆ¸ %ŸOÕX›PÙ[ÕX›T›ÝÏŠ_OÕX›P›ÙOÕX›OÙ]Ù]ŸBˆÖÈš[›ÚXÙH‹˜š[—Kš[˜ÛY\ÊÝš[™Ê™XÛÜ™\JJH	‰ˆ
+™XÛÜ™˜ÛÛ[Y[È™XÛÜ™œÙ\šX[[X™\ŠH	‰ˆ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\M›Ý[™Y[È›Ü™\ˆM^\ÛHÛN™ÜšYXÛÛËLˆžÜ™XÛÜ™˜ÛÛ[Y[È	‰ˆ]ÈÛ\ÜÓ˜[YOH™›ÛX›ÛÛÛ[Y[ÏÚÏÛ\ÜÓ˜[YOH›]LHÚ]\ÜXÙK\™K]Ü˜\œ™XZË]ÛÜ™ÈžÔÝš[™Ê™XÛÜ™˜ÛÛ[Y[Ê_OÜÙ]Ÿ^Ü™XÛÜ™œÙ\šX[[X™\ˆ	‰ˆ]ÈÛ\ÜÓ˜[YOH™›ÛX›Û”Ù\šX[[X™\ÚÏÛ\ÜÓ˜[YOH›]LHÚ]\ÜXÙK\™K]Ü˜\œ™XZË]ÛÜ™ÈžÔÝš[™Ê™XÛÜ™œÙ\šX[[X™\Š_OÜÙ]ŸOÙ]ŸBˆÜ™XÛÜ™›Y[[È	‰ˆJØÝ[Y[[ÙHOOH^Z[›ÚXÙHˆ	‰ˆ™XÛÜ™\HOOHš[›ÚXÙHŠH	‰ˆÛ\ÜÓ˜[YOHœ›Ý[™Y[È›Ü™\ˆLÈ^\ÛH^\Û]KMŒÝ›Û™Ï“Y[[ÎÜÝ›Û™ÏˆÔÝš[™Ê™XÛÜ™›Y[[Ê_OÜŸBˆÙ]Ù]‚ˆÑX[ÙÐÛÛ[ÑX[ÙÏŽÂŸB‚™[˜Ý[ÛˆÝØÚÔšXÙQY]ÜŠÈ™\ÜÛ”Ø]™YNˆÈ™\Üˆ™\Ü]NÈÛ”Ø]™Yˆ
+
+HOˆ›ÛZ\ÙO›ÚYˆJHÂˆÛÛœÝÚ][RYÙ]][RYHH\ÙTÝ]JˆŠNÂˆÛÛœÝÜÙ[[™ÔšXÙKÙ]Ù[[™ÔšXÙWHH\ÙTÝ]JˆŠNÂˆÛÛœÝÙÜ›”šXÙKÙ]Ü›”šXÙWHH\ÙTÝ]JˆŠNÂˆÛÛœÝÜØ]š[™ËÙ]Ø]š[™×HH\ÙTÝ]J˜[ÙJNÂˆÛÛœÝÚÝSØÚÈH\ÙTÚÝSØÚÊ][RYÈÈ™\ÛÝ\˜ÙNˆœÝØÚË\šXÚ[™È‹][RYˆ[X™\Š][RY
+HHˆ[
+NÂˆÛÛœÝ›ÝÈH™\Üœ›ÝÜË™š[™
+
+Ø[™Y]JHOˆÝš[™ÊØ[™Y]Kš][RY
+HOOH][RY
+NÂˆÛÛœÝÙ[XÝ][HH
+˜[YNˆÝš[™ÊHOˆÂˆÙ]][RY
+˜[YJNÂˆÛÛœÝÙ[XÝYH™\Üœ›ÝÜË™š[™
+
+Ø[™Y]JHOˆÝš[™ÊØ[™Y]Kš][RY
+HOOH˜[YJNÂˆÙ]Ù[[™ÔšXÙJÝš[™ÊÙ[XÝYËœØ]™YÙ[[™ÔšXÙHÏÈˆŠJNÂˆÙ]Ü›”šXÙJÝš[™ÊÙ[XÝYËœØ]™YÜ›”šXÙHÏÈˆŠJNÂˆNÂˆÛÛœÝØ]™HH\Þ[˜È
+]™[ˆ›Ü›Q]™[
+HOˆÂˆ]™[œ™]™[Y˜][
+
+NÂˆYˆ
+\ÚÝSØÚËœ™XYJH™]\›ŽÂˆYˆ
+\›ÝÈ\Ù[[™ÔšXÙKš[J
+JH™]\›ŽÂˆÙ]Ø]š[™ÊYJNÂˆžHÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+‹Ø\KÜÝØÚË\šXÚ[™È‹ÈY]Ùˆ”UÒ‹XY\œÎˆÈÛÛ[U\HŽˆ˜\XØ][Û‹ÚœÛÛˆ‹‹‹œÚÝSØÚËšXY\œÈK›ÙNˆ”ÓÓ‹œÝš[™ÚYžJÈÛÛ\[žRYˆ™\Ü˜ÛÛ\[žRY][RYˆ[X™\Š][RY
+KØ[\ÔšXÙNˆ[X™\ŠÙ[[™ÔšXÙJKÜ›”šXÙNˆÜ›”šXÙKš[J
+HOOHˆˆÈ[ˆ[X™\ŠÜ›”šXÙJK^XÝYšXÙNˆ›ÝËœØ]™YÙ[[™ÔšXÙK^XÝYÜ›”šXÙNˆ›ÝËœØ]™YÜ›”šXÙHOOHˆˆÈ[ˆ›ÝËœØ]™YÜ›”šXÙHJHJNÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›ÝØ]™HšXÙ\ËˆŠNÂˆØ\ÝœÝXØÙ\ÜÊ”šXÙ\ÈØ]™YÈ\ÈÛÛ\[žIÜÈ][KˆŠNÂˆÙ]][RY
+ˆŠNÂˆ]ØZ]Û”Ø]™Y
+
+NÂˆHØ]Ú
+\œ›ÜŠHÈØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›ÝØ]™HšXÙ\ËˆŠNÈBˆš[˜[HÈÙ]Ø]š[™Ê˜[ÙJNÈBˆNÂˆ™]\›ˆ›Ü›HÛ”ÝX›Z]^ÜØ]™_HÛ\ÜÓ˜[YOHœ›Ý[™Y^›Ü™\ˆ™Ë\Û]KMLMš[šY[ˆ‚ˆÚÝSØÚÓ›ÝXÙHY\ÜØYÙO^ÜÚÝSØÚË›Y\ÜØYÙ_HÏ]ˆÛ\ÜÓ˜[YOH™ÜšY][\ËY[™Ø\MÛN™ÜšYXÛÛËLˆÎ™ÜšYXÛÛËVÌ™œ—ÌYœ—ÌYœ—Ø]]×H‚ˆX™[Û\ÜÓ˜[YOH™ÜšYØ\Lˆ^\ÛH›Û[YY][H’][OÙ[XÝÛ\ÜÓ˜[YOHšLLZ[‹]ËL›Ý[™Y[Y›Ü™\ˆ™ËX˜XÚÙÜ›Ý[™LÈˆ˜[YO^Ú][RYHÛÚ[™ÙO^Ê]™[
+HOˆÙ[XÝ][J]™[\™Ù]˜[YJ_H\ØX›Y^ÜØ]š[™ßH™\]Z\™YÜ[Ûˆ˜[YOHˆ”Ù[XÝ][OÛÜ[ÛžÜ™\Üœ›ÝÜË›X\
+
+][JHOˆÜ[ÛˆÙ^O^ÔÝš[™Ê][Kš][RY
+_H˜[YO^ÔÝš[™Ê][Kš][RY
+_OžÚ][Kš[™[Üž_H0­ÈÚ][KœÚÝ_H0­ÈÚ][K›˜[Y_OÛÜ[ÛŠ_OÜÙ[XÝÛX™[‚ˆX™[Û\ÜÓ˜[YOH™ÜšYØ\Lˆ^\ÛH›Û[YY][H”Ù[[™ÈšXÙHÈ[š]
+Ü™\Ü˜Ý\œ™[˜Þ_JO[œ]\OH›[X™\ˆˆZ[HŒˆX^HŒLˆÝ\H˜[žHˆ™\]Z\™Y\ØX›Y^È\ÚÝSØÚËœ™XYH\›ÝÈØ]š[™ßH˜[YO^ÜÙ[[™ÔšXÙ_HÛÚ[™ÙO^Ê]™[
+HOˆÙ]Ù[[™ÔšXÙJ]™[\™Ù]˜[YJ_HÏÛX™[‚ˆX™[Û\ÜÓ˜[YOH™ÜšYØ\Lˆ^\ÛH›Û[YY][H‘Ô“ˆšXÙHÈ[š]
+Ü™\Ü˜Ý\œ™[˜Þ_JO[œ]\OH›[X™\ˆˆZ[HŒˆX^HŒLˆÝ\H˜[žHˆXÙZÛ\H•\ÙH™XÙZ\ÛÜÝˆ\ØX›Y^È\ÚÝSØÚËœ™XYH\›ÝÈØ]š[™ßH˜[YO^ÙÜ›”šXÙ_HÛÚ[™ÙO^Ê]™[
+HOˆÙ]Ü›”šXÙJ]™[\™Ù]˜[YJ_HÏÛX™[‚ˆ]Ûˆ\OHœÝX›Z]ˆ\ØX›Y^È\ÚÝSØÚËœ™XYH\›ÝÈØ]š[™ßOžÜØ]š[™ÈÈ”Ø]š[™ø )ˆˆˆ”Ø]™HšXÙ\ÈŸOÐ]Û‚ˆÙ]‚ˆÛ\ÜÓ˜[YOH›]LÈ^^È^\Û]KML”šXÙ\È\™HØ]™Y›ÜˆHÙ[XÝY][H[™[™[ÜžH[ˆ\ÈÛÛ\[žKˆÙ[[™ÈšXÙH\È\ÙY›Üˆ™]ÈØ[\ËˆX]™HÔ“ˆšXÙH›[šÈÈ\ÙH™XÙZ\ÛÜÝˆ\ÙHšXÙ\È\]HH\Ý[X]HÚ]Ý]Ú[™Ú[™ÈÜÝYÝØÚÈ˜[YKÜ‚ˆÙ›Ü›OŽÂŸB‚™[˜Ý[Ûˆ™\ÜX[ÙÊÈÛÝ\ÝÛY\‹Û“Ü[”ÛÝ\˜ÙKÙ]\ØY[™ËÛ”Ý][Y[\KÛ”šXÙ\ÔØ]™Y™\ÜÛÛ\[žS˜[YK[™[ÜžS˜[YKY[[Üš\ÙYØ]š[™ËÛ“Y[[Üš\ÙKÛÛÜÙHNˆÈÛÝ\ÝÛY\Žˆ
+˜[YNˆÝš[™ËÝ\œ™[˜ÞNˆÝš[™ËÝ™\™YNˆ›ÛÛX[ŠHOˆ›ÚYÈÛ“Ü[”ÛÝ\˜ÙNˆ
+Yˆ[X™\ŠHOˆ›ÚYÈÙ]\ˆÛÛ\[žTÙ]\ÈØY[™Îˆ›ÛÛX[ŽÈÛ”Ý][Y[\Nˆ
+š[\œÎˆÈY[[ÎˆÝš[™ÎÈÝ\ÝÛY\ŽˆÝš[™ÎÈÝ\œ™[˜ÞNˆÝš[™ÎÈÝ][Y[]NˆÝš[™ÎÈœ›ÛNˆÝš[™ÎÈÎˆÝš[™ÈJHOˆ›ÛZ\ÙO›ÚYŽÈÛ”šXÙ\ÔØ]™Yˆ
+
+HOˆ›ÛZ\ÙO›ÚYŽÈ™\Üˆ™\Ü]H[ÈÛÛ\[žS˜[YNˆÝš[™ÎÈ[™[ÜžS˜[YNˆÝš[™ÎÈY[[Üš\ÙYˆ›ÛÛX[ŽÈØ]š[™Îˆ›ÛÛX[ŽÈÛ“Y[[Üš\ÙNˆ
+
+HOˆ›ÚYÈÛÛÜÙNˆ
+
+HOˆ›ÚYJHÂˆÛÛœÝÚYV™\›Ô[ÚÙ]YV™\›Ô[ÚHH\ÙTÝ]J˜[ÙJNÂˆÛÛœÝÝ˜]ÛÙQš[\‹Ù]˜]ÛÙQš[\—HH\ÙTÝ]J˜[ŠNÂˆÛÛœÝÙ^Ü[™ËÙ]^Ü[™×HH\ÙTÝ]OžÞˆ˜ÜÝˆˆœˆˆ[Š[
+NÂˆÛÛœÝÛ[šÙYXØÛÝ[Ù][šÙYXØÛÝ[HH\ÙTÝ]OÈYˆ[X™\ŽÈ˜[YNˆÝš[™ÈH[Š[
+NÂˆYˆ
+\™\Ü
+H™]\›ˆ[ÂˆÛÛœÝÚÝÜÔ[Úš[\ˆH\Ò[™[ÜžT[Úš[\Š™\ÜšÙ^JNÂˆÛÛœÝ[Ú›ÝÜÈHš[\–™\›Ô[Ú›ÝÜÊ™\ÜšÙ^K™\Üœ›ÝÜËYV™\›Ô[Ú
+NÂˆÛÛœÝš\ÚX›T›ÝÜÈH™\ÜšÙ^HOOH˜]Y]Z[ˆ	‰ˆ˜]ÛÙQš[\ˆOOH˜[ˆÈ[Ú›ÝÜË™š[\Š
+›ÝÊHOˆÝš[™Ê›ÝË˜ÛÙJHOOH˜]ÛÙQš[\ŠHˆ[Ú›ÝÜÎÂˆÛÛœÝY[–™\›Ô[ÚH™\Üœ›ÝÜË›[™ÝHš\ÚX›T›ÝÜË›[™ÝÂˆÛÛœÝ˜]ÛÙSÜ[ÛœÈHË‹‹›™]ÈX\
+Ë‹‹Š™\Ü˜]ÛÙ\ÈÏÈ×JK‹‹œ™\Üœ›ÝÜË›X\
+
+›ÝÊHOˆÝš[™Ê›ÝË˜ÛÙHˆŠJK™š[\Š›ÛÛX[ŠK›X\
+
+ÛÙJHOˆ
+ÈÛÙK˜[YNˆÛÙK˜]Nˆ[X™\‹“˜SˆJJWK›X\
+
+Ü[ÛŠHOˆÛÜ[Û‹˜ÛÙKÜ[Û—JJK˜[Y\Ê
+WNÂˆÛÛœÝÛÛ[[•ÙZYÚÈH™\Ü˜ÛÛ[[œË›X\
+
+ÛÛ[[ŠHOˆ×Š˜[Y_][_\ØÜš\[ÛŸXØÛÝ[Ý\ÝÛY\ŸÝ\Y\Ÿ™[™ÜŸ\JIË\Ý
+ÛÛ[[‹šÙ^JHÈÈˆJNÂˆÛÛœÝÝ[ÙZYÚHÛÛ[[•ÙZYÚËœ™YXÙJ
+Ý[KÙZYÚ
+HOˆÝ[H
+ÈÙZYÚ
+NÂˆÛÛœÝÚ\X^H™\Ü˜Ú\ÈX]›X^
+K‹‹œ™\Üœ›ÝÜË™›]X\
+
+›ÝÊHOˆÓX]˜XœÊ[X™\Š›ÝÖÜ™\Ü˜Ú\Kš[˜ÛÛYRÙ^WHÏÈ
+JKX]˜XœÊ[X™\Š›ÝÖÜ™\Ü˜Ú\K™^[œÙRÙ^WHÏÈ
+JWJJHˆNÂˆÛÛœÝ™\ÜÙ[H
+›ÝÎˆ™XÛÜ™Ýš[™ËÝš[™È[X™\‹ÛÛ[[Žˆ™\Ü]VÈ˜ÛÛ[[œÈ—VÛ[X™\—JHOˆÂˆYˆ
+ÛÛ[[‹\HOOH›[Û™^Hˆ	‰ˆ\[Ùˆ›ÝÖØÛÛ[[‹šÙ^WHOOH›[X™\ˆŠH™]\›ˆ›Ü›X][Û™^J›ÝÖØÛÛ[[‹šÙ^WK™\Ü˜Ý\œ™[˜ÞJNÂˆÛÛœÝXØÛÝ[YH[X™\Š›ÝÖØ	ØÛÛ[[‹šÙ^_PXØÛÝ[YHÏÈ
+NÂˆYˆ
+™\Ü˜Ø[•šY]ÐXØÛÝ[È	‰ˆXØÛÝ[Yˆ
+H™]\›ˆ]Ûˆ\OH˜]ÛˆˆÛ\ÜÓ˜[YOH^[Y[™\›[™H[™\›[™K[Ù™œÙ]LˆÝ™\Ž^Y[Y\˜[MŒˆÛÛXÚÏ^Ê
+HOˆÙ][šÙYXØÛÝ[
+ÈYˆXØÛÝ[Y˜[YNˆÝš[™Ê›ÝÖØÛÛ[[‹šÙ^WHÏÈXØÛÝ[ŠHJ_OžÔÝš[™Ê›ÝÖØÛÛ[[‹šÙ^WHÏÈ¸ %Š_OØ]ÛŽÂˆ™]\›ˆÝš[™Ê›ÝÖØÛÛ[[‹šÙ^WHÏÈ¸ %ŠNÂˆNÂˆÛÛœÝÝÛ›ØY™\ÜH\Þ[˜È
+Ú[™ˆžÞˆ˜ÜÝˆˆœˆŠHOˆÂˆÙ]^Ü[™ÊÚ[™
+NÂˆžHÂˆÛÛœÝÈ™\ÜÜÝ‹™\Üš[[˜[YK™\Ü‹™\ÜÛÜšØ›ÛÚÈHH]ØZ][\Ü
+ÛX‹Ü™\ÜY^ÜŠNÂˆÛÛœÝ]HHÚ[™OOH˜ÜÝˆˆÈ™\ÜÜÝŠ™\ÜÛÛ\[žS˜[YK[™[ÜžS˜[YKš\ÚX›T›ÝÜÊHˆÚ[™OOHžÞˆÈ]ØZ]™\ÜÛÜšØ›ÛÚÊ™\ÜÛÛ\[žS˜[YK[™[ÜžS˜[YKš\ÚX›T›ÝÜÊHˆ]ØZ]™\ÜŠ™\ÜÛÛ\[žS˜[YK[™[ÜžS˜[YKš\ÚX›T›ÝÜÊNÂˆÛÛœÝ›ØˆH™]È›ØŠÙ]H\È›Ø”\KÈ\NˆÚ[™OOH˜ÜÝˆˆÈ^ØÜÝŽØÚ\œÙ]]]‹NˆˆÚ[™OOHœˆˆÈ˜\XØ][Û‹Üˆˆˆ˜\XØ][Û‹Ý›™›Ü[ž[›Ü›X]Ë[Ù™šXÙYØÝ[Y[œÜ™XYÚY][œÚY]ˆJNÂˆÛÛœÝ\›HT“˜Ü™X]SØš™XÝT“
+›ØŠNÂˆÛÛœÝ[˜ÚÜˆHØÝ[Y[˜Ü™X]Q[[Y[
+˜HŠNÂˆ[˜ÚÜ‹š™YˆH\›Âˆ[˜ÚÜ‹™ÝÛ›ØYH™\Üš[[˜[YJ™\ÜÚ[™
+NÂˆØÝ[Y[˜›ÙK˜\[™Ú[
+[˜ÚÜŠNÂˆ[˜ÚÜ‹˜ÛXÚÊ
+NÂˆ[˜ÚÜ‹œ™[[Ý™J
+NÂˆÙ][Y[Ý]
+
+
+HOˆT“œ™]›ÚÙSØš™XÝT“
+\›
+KL
+NÂˆØ\ÝœÝXØÙ\ÜÊ	ÚÚ[™OOHžÞˆÈ‘^Ù[ˆˆÚ[™Õ\\Ø\ÙJ
+_H™\ÜÝÛ›ØYY˜
+NÂˆHØ]ÚÂˆØ\Ý™\œ›ÜŠ‘^ÜÛÝ[›Ý™HÙ[™\˜]YˆX\ÙHžHYØZ[‹ˆŠNÂˆHš[˜[HÂˆÙ]^Ü[™Ê[
+NÂˆBˆNÂˆ™]\›ˆX[ÙÈÜ[ˆÛ“Ü[Ú[™ÙO^ÊÜ[ŠHOˆÈYˆ
+[Ü[ŠHÛÛÜÙJ
+NÈ_OX[ÙÐÛÛ[Û\ÜÓ˜[YO^Ø™\ÜYX[ÙÈ	Ü™\Üœ›Èœ›YX[ÙÈˆˆˆŸH	Ü™\ÜœÝ][Y[È˜Ý\ÝÛY\‹\Ý][Y[ˆˆˆŸHX^ZVÎL™šHZ[‹]ËLÝ™\™›ÝË^KX]]ÈÛN›X^]ËVØØ[ÊL	KLœ™[JWXO‚ˆX[ÙÒXY\]ˆÛ\ÜÓ˜[YOH™›^›^XÛÛØ\M‹NÛN™›^\›ÝÈÛNš][\Ë\Ý\ÛNš\ÝYžKX™]ÙY[ˆ]Û\ÜÓ˜[YOH^^È›ÛX›Û˜XÚÚ[™ËVËŒN[WH^Y[Y\˜[MŒžØÛÛ\[žS˜[YKÕ\\Ø\ÙJ
+_OÜX[ÙÕ]HÛ\ÜÓ˜[YOH›]LˆžÜ™\Ü]_OÑX[ÙÕ]OX[ÙÑ\ØÜš\[Û‘Ù[™\˜]YÛ™]È]J™\Ü™Ù[™\˜]Y]
+KÓØØ[TÝš[™Ê™[‹PQHŠ_H0­ÈÜ™\Ü˜XÝ]™PÝ\ÝÛY\œÈÈ˜[[˜Ù\È[ˆXXÚÝ\ÝÛY\ˆÝ\œ™[˜ÞHˆˆ	Ü™\Ü˜Ý\œ™[˜Þ_HXØÜX[˜\Ú\ØH0­ÈÚ[™[ÜžS˜[Y_OÑX[ÙÑ\ØÜš\[ÛÙ]]ˆÛ\ÜÓ˜[YOH™›^›^]Ü˜\Ø\Lˆš[šY[ˆ]Ûˆ˜\šX[^ÛY[[Üš\ÙYÈœÙXÛÛ™\žHˆˆ›Ý][™HŸHÛÛXÚÏ^ÛÛ“Y[[Üš\Ù_H\ØX›Y^ÜØ]š[™ßO›ÛÚÛX\šÔ\ÈÛ\ÜÓ˜[YOHœÚ^™KMˆÏžÜØ]š[™ÈÈ”Ø]š[™ø )ˆˆˆY[[Üš\ÙYÈ•\]HY[[Üš\ÙYˆˆ“Y[[Üš\ÙH™\ÜŸOÐ]ÛžÈ\™\Üœ›	‰ˆžÊÈžÞ‹˜ÜÝˆ‹œˆ—H\ÈÛÛœÝ
+K›X\
+
+Ú[™
+HOˆ]ÛˆÙ^O^ÚÚ[™H\OH˜]Ûˆˆ˜\šX[H›Ý][™Hˆ\ØX›Y^Ð›ÛÛX[Š^Ü[™ÊHØY[™ßHÛÛXÚÏ^Ê
+HOˆ›ÚYÝÛ›ØY™\Ü
+Ú[™
+_OÝÛ›ØYÛ\ÜÓ˜[YOHœÚ^™KMˆÏžÙ^Ü[™ÈOOHÚ[™È”™\\š[™ø )ˆˆˆÚ[™OOHžÞˆÈ‘^Ù[
+žÞ
+HˆˆÚ[™OOHœˆˆÈ”ˆ0­ÈMˆˆÔÕˆŸOÐ]ÛŠ_OÏŸOÙ]Ù]ÑX[ÙÒXY\‚ˆ™\Ü]Qš[\ˆÙ^O^Ø	Ü™\ÜšÙ^_KIÜ™\Ü™Ù[™\˜]Y]XH\š[Ù^Ü™\Üœ\š[Ù™\Ü\š[Ù
+™\ÜšÙ^Hˆ‹™\Üœ›Ë™œ›ÛH™\ÜœÝ][Y[Ë™œ›ÛHˆ‹™\Üœ›ËÈ™\ÜœÝ][Y[ËÈ™\Ü›Ü[˜[[˜ÙOË˜\ÓÙˆˆŠ_HØY[™Ï^ÛØY[™ßHÛ\O^Êœ›ÛKÊHOˆÛ”Ý][Y[\JÈœ›ÛKËÝ\œ™[˜ÞNˆ™\Ü˜Ý\œ™[˜ÞKÝ\ÝÛY\Žˆ™\ÜœÝ][Y[Ë˜Ý\ÝÛY\ˆ™\Ü›Ü[˜[[˜ÙOË˜Ý\ÝÛY\ˆˆ‹Ý][Y[]NˆÈ™\ÜœÝ][Y[ËœÝ][Y[]H™\Ü›Ü[˜[[˜ÙOË˜\ÓÙˆˆ‹Y[[Îˆ™\ÜœÝ][Y[Ë›Y[[ÈˆˆJ_O‚ˆÜ™\ÜšÙ^HOOH˜]Y]Z[ˆÈX™[Û\ÜÓ˜[YOH™ÜšYØ\LH^\ÛH•UÛÙOÙ[XÝ˜[YO^Ý˜]ÛÙQš[\ŸH\ØX›Y^ÛØY[™ßHÛ\ÜÓ˜[YOHšNHZ[‹]ËM›Ý[™Y[Y›Ü™\ˆ™ËX˜XÚÙÜ›Ý[™LÈˆÛÚ[™ÙO^Ê]™[
+HOˆÙ]˜]ÛÙQš[\Š]™[\™Ù]˜[YJ_OÜ[Ûˆ˜[YOH˜[[UÛÙ\ÏÛÜ[ÛžÝ˜]ÛÙSÜ[ÛœË›X\
+
+Ü[ÛŠHOˆÜ[ÛˆÙ^O^ÛÜ[Û‹˜ÛÙ_H˜[YO^ÛÜ[Û‹˜ÛÙ_OžÛÜ[Û‹˜ÛÙ_^Ó[X™\‹š\Ñš[š]JÜ[Û‹œ˜]JHÈ0­È	ÛÜ[Û‹œ˜]_IXˆˆŸOÛÜ[ÛŠ_OÜÙ[XÝÛX™[ˆˆ[BˆÔ™\Ü]Qš[\‚ˆÜÚÝÜÔ[Úš[\ˆ	‰ˆX™[Û\ÜÓ˜[YOH™›^ËYš]Ý\œÛÜ‹\Ú[\ˆ][\ËXÙ[\ˆØ\LÈ›Ý[™Y[È›Ü™\ˆ™ËX˜XÚÙÜ›Ý[™MKLÈ^\ÛH›Û[YY][H^Y›Ü™YÜ›Ý[™ÚYÝË\ÛHš[šY[ˆˆ[›ÜHšYK^™\›Ë\[ÚÚXÚØ›ÞYHšYK^™\›Ë\[ÚˆÚXÚÙY^ÚYV™\›Ô[ÚHÛÚXÚÙYÚ[™ÙO^ÊÚXÚÙY
+HOˆÙ]YV™\›Ô[Ú
+ÚXÚÙYOOHYJ_HÏÜ[’YH™\›ÈSÒÜÜ[žÚYV™\›Ô[Ú	‰ˆ˜YÙH˜\šX[HœÙXÛÛ™\žHžÚY[–™\›Ô[ÚHY[Ð˜YÙOŸOÛX™[ŸBˆÜ™\Ü˜XØÛÝ[[šÒ\ÜÝY\È	‰ˆ™\Ü˜XØÛÝ[[šÒ\ÜÝY\Ë›[™Ýˆ	‰ˆ]ˆÛ\ÜÓ˜[YOHœ›Ý[™Y^›Ü™\ˆ›Ü™\‹X[X™\‹LÌ™ËX[X™\‹MLM^\ÛH^X[X™\‹NML\šÎ˜›Ü™\‹X[X™\‹N\šÎ˜™ËX[X™\‹NML\šÎ^X[X™\‹LLÛ\ÜÓ˜[YOH™›Û\Ù[ZX›Û”ÛÛYH\XØ]HXØÛÝ[È™YY™]šY]ÏÜ[Û\ÜÓ˜[YOH›]Lˆ\ÝY\ØÈÜXÙK^KLHMHžÜ™\Ü˜XØÛÝ[[šÒ\ÜÝY\Ë›X\
+
+\ÜÝYJHOˆHÙ^O^Ú\ÜÝY_OžÚ\ÜÝY_OÛOŠ_OÝ[Ù]ŸBˆÜ™\ÜœÝ][Y[	‰ˆÝ][Y[š[\œÈÙ^O^Ü™\Ü™Ù[™\˜]Y]HÝ][Y[^Ü™\ÜœÝ][Y[HÝ\œ™[˜ÞO^Ü™\Ü˜Ý\œ™[˜Þ_HÝ\œ™[˜ÚY\Ï^ØÝ\œ™[˜ÚY\ßHØY[™Ï^ÛØY[™ßHÛ\O^ÛÛ”Ý][Y[\_HÏÝ][Y[XY[™ÈÝ][Y[^Ü™\ÜœÝ][Y[HÝ\œ™[˜ÞO^Ü™\Ü˜Ý\œ™[˜Þ_HÛÛ\[žO^ÜÙ]\HÏÏŸBˆÜ™\ÜšÙ^HOOHœÝØÚË\šXÚ[™Ë\›Ùš]ˆ	‰ˆ™\Ü˜Ø[‘Y]šXÙ\È	‰ˆÝØÚÔšXÙQY]ÜˆÙ^O^Ø	Ü™\Ü˜ÛÛ\[žRYKIÜ™\Ü™Ù[™\˜]Y]XH™\Ü^Ü™\ÜHÛ”Ø]™Y^ÛÛ”šXÙ\ÔØ]™YHÏŸBˆÜ™\Ü˜Ú\	‰ˆ™\Üœ›ÝÜË›[™Ýˆ	‰ˆ]ˆÛ\ÜÓ˜[YOHœ›Ý[™Y^›Ü™\ˆ™Ë\Û]KMLMH]ˆÛ\ÜÓ˜[YOH›X‹M›^Ø\MH^^È›Û\Ù[ZX›ÛÜ[ˆÛ\ÜÓ˜[YOH™›^][\ËXÙ[\ˆØ\LˆÜ[ˆÛ\ÜÓ˜[YOHœÚ^™KLÈ›Ý[™Y\ÛH™ËY[Y\˜[MLˆÏžÜ™\Ü˜Ú\š[˜ÛÛYSX™[ÏÈ’[˜ÛÛYHÈ\ÜÙ]ÈŸOÜÜ[Ü[ˆÛ\ÜÓ˜[YOH™›^][\ËXÙ[\ˆØ\LˆÜ[ˆÛ\ÜÓ˜[YOHœÚ^™KLÈ›Ý[™Y\ÛH™ËX[X™\‹MLˆÏžÜ™\Ü˜Ú\™^[œÙSX™[ÏÈ‘^[œÙ\ÈÈXXš[]Y\ÈŸOÜÜ[Ù]]ˆÛ\ÜÓ˜[YOH™ÜšYZ[‹ZMMˆÜšYXÛÛËMˆ][\ËY[™Ø\LÈY™ÜšYXÛÛËLLˆžÜ™\Üœ›ÝÜËœÛXÙJLLŠK›X\
+
+›ÝË[™^
+HOˆ]ˆÙ^O^Ú[™^HÛ\ÜÓ˜[YOH™›^Z[‹]ËL›^XÛÛ][\ËXÙ[\ˆØ\Lˆ]ˆÛ\ÜÓ˜[YOH™›^MËY[][\ËY[™\ÝYžKXÙ[\ˆØ\LH]ˆÛ\ÜÓ˜[YOHËLKÌˆ›Ý[™Y]™ËY[Y\˜[MLˆÝ[O^ÞÈZYÚˆ	ÓX]›X^
+‹X]˜XœÊ[X™\Š›ÝÖÜ™\Ü˜Ú\Kš[˜ÛÛYRÙ^WHÏÈ
+JHÈÚ\X^
+ˆL
+_IX_H]O^Ù›Ü›X][Û™^J›ÝÖÜ™\Ü˜Ú\Kš[˜ÛÛYRÙ^WK™\Ü˜Ý\œ™[˜ÞJ_HÏ]ˆÛ\ÜÓ˜[YOHËLKÌˆ›Ý[™Y]™ËX[X™\‹MLˆÝ[O^ÞÈZYÚˆ	ÓX]›X^
+‹X]˜XœÊ[X™\Š›ÝÖÜ™\Ü˜Ú\K™^[œÙRÙ^WHÏÈ
+JHÈÚ\X^
+ˆL
+_IX_H]O^Ù›Ü›X][Û™^J›ÝÖÜ™\Ü˜Ú\K™^[œÙRÙ^WK™\Ü˜Ý\œ™[˜ÞJ_HÏÙ]Ü[ˆÛ\ÜÓ˜[YOH›X^]ËY[[˜Ø]H^VÌL\H^\Û]KMLžÔÝš[™Ê›ÝÖÜ™\Ü˜Ú\K›X™[Ù^WHÏÈˆŠ_OÜÜ[Ù]Š_OÙ]Ù]ŸBˆÜ™\Ü™š[˜[˜ÚX[Èš[˜[˜ÚX[™\ÜÙ^O^Ü™\Ü™Ù[™\˜]Y]H™\Ü^Ü™\Ü\Èš[˜[˜ÚX[™\Ü]_HÛ“Ü[^ÛÛ“Ü[”ÛÝ\˜Ù_HÏˆˆ™\Üœ›È›Ùš]ÜÜÔ™\ÜÙ^O^Ü™\Ü™Ù[™\˜]Y]H™\Ü^Ü™\Ü\È›™\ÜHÛÛ\[žO^ØÛÛ\[žS˜[Y_HØY[™Ï^ÛØY[™ßHÛ“Ü[^ÛÛ“Ü[”ÛÝ\˜Ù_HÛ\O^Êœ›ÛKÊHOˆÛ”Ý][Y[\JÈœ›ÛKËÝ\œ™[˜ÞNˆ™\Ü˜Ý\œ™[˜ÞKÝ\ÝÛY\Žˆˆ‹Ý][Y[]Nˆˆ‹Y[[ÎˆˆˆJ_HÏˆˆ™\Ü˜XÝ]™PÝ\ÝÛY\œÈÈXÝ]™PÝ\ÝÛY\œÔ™\ÜÙ^O^Ü™\Ü™Ù[™\˜]Y]H›ÝÜÏ^Ü™\Üœ›ÝÜßHÛÛ\[žRY^Ü™\Ü˜ÛÛ\[žRY_HØ[•šY]ÐXØÛÝ[Ï^Ü™\Ü˜XÝ]™PÝ\ÝÛY\œË˜Ø[•šY]ÐXØÛÝ[ßHÛÝ[^Ü™\Ü˜XÝ]™PÝ\ÝÛY\œË˜ÛÝ[HÛÝ\ÝÛY\^ÛÛÝ\ÝÛY\ŸHÛ“Ü[”ÛÝ\˜ÙO^ÛÛ“Ü[”ÛÝ\˜Ù_HÏˆˆ™\Ü›Ü[˜[[˜ÙHÈÝ\ÝÛY\“Ü[˜[[˜ÙHÙ^O^Ü™\Ü™Ù[™\˜]Y]H]O^Ü™\Ü›Ü[˜[[˜Ù_H›ÝÜÏ^Ü™\Üœ›ÝÜßHÝ\œ™[˜ÞO^Ü™\Ü˜Ý\œ™[˜Þ_HÛÛ\[žRY^Ü™\Ü˜ÛÛ\[žRY_HØY[™Ï^ÛØY[™ßHÛ\O^ÛÛ”Ý][Y[\_HÛ“Ü[^ÛÛ“Ü[”ÛÝ\˜Ù_HÏˆˆ]ˆÛ\ÜÓ˜[YOHœ™\Ü]X›HZ[‹]ËL›Ý[™Y^›Ü™\ˆX›HÛ\ÜÓ˜[YOHX›KYš^YÛÛÜ›Ý\žÜ™\Ü˜ÛÛ[[œË›X\
+
+ÛÛ[[‹[™^
+HOˆÛÛÙ^O^ØÛÛ[[‹šÙ^_HÝ[O^ÞÈÚYˆ	ØÛÛ[[•ÙZYÚÖÚ[™^HÈÝ[ÙZYÚ
+ˆLIX_HÏŠ_OØÛÛÜ›Ý\X›RXY\X›T›ÝÏžÜ™\Ü˜ÛÛ[[œË›X\
+
+ÛÛ[[ŠHOˆX›RXYÙ^O^ØÛÛ[[‹šÙ^_HÛ\ÜÓ˜[YO^ØÛÛ[[‹\HOOH›[Û™^HˆÈ^\šYÚˆˆˆŸOžØÛÛ[[‹›X™[OÕX›RXYŠ_OÕX›T›ÝÏÕX›RXY\X›P›ÙOžÝš\ÚX›T›ÝÜË›[™ÝÈš\ÚX›T›ÝÜË›X\
+
+›ÝË[™^
+HOˆX›T›ÝÈÙ^O^Ú[™^OžÜ™\Ü˜ÛÛ[[œË›X\
+
+ÛÛ[[ŠHOˆX›PÙ[Ù^O^ØÛÛ[[‹šÙ^_HÛ\ÜÓ˜[YO^ØÛÛ[[‹\HOOH›[Û™^HˆÈ^\šYÚ›Û[YY][HˆˆˆŸOžÜ™\ÜÙ[
+›ÝËÛÛ[[Š_OÕX›PÙ[Š_OÕX›T›ÝÏŠHˆ[\T›ÝÈ^^ÚYV™\›Ô[Ú	‰ˆ™\Üœ›ÝÜË›[™ÝÈ[™\›ËTSÒ›ÝÜÈ\™HY[‹ˆˆˆ“›ÈÜÝY]H\È]˜Z[X›H›Üˆ\È™\ÜˆŸHÛÛ[[œÏ^Ü™\Ü˜ÛÛ[[œË›[™ÝHÏŸOÕX›P›ÙOÕX›OÙ]ŸBˆÛ[šÙYXØÛÝ[	‰ˆ™\Ü˜ÛÛ\[žRY	‰ˆ\™\Ü™š[˜[˜ÚX[	‰ˆ\™\Üœ›	‰ˆ]ˆÛ\ÜÓ˜[YOHœ›Ý[™Y^›Ü™\ˆMš[šY[ˆ]ˆÛ\ÜÓ˜[YOH›X‹LÈ›^][\ËXÙ[\ˆ\ÝYžKX™]ÙY[ˆØ\LÈÈÛ\ÜÓ˜[YOH™›ÛX›ÛžÛ[šÙYXØÛÝ[›˜[Y_H0­È[XØÛÝ[\ÝÜžOÚÏ]Ûˆ˜\šX[H›Ý][™HˆÛÛXÚÏ^Ê
+HOˆÙ][šÙYXØÛÝ[
+[
+_OÛÜÙHXØÛÝ[Ð]ÛÙ]XØÛÝ[\ÝÜžHXØÛÝ[Y^Û[šÙYXØÛÝ[šYHÛÛ\[žRY^Ü™\Ü˜ÛÛ\[žRYHÛ“Ü[^ÛÛ“Ü[”ÛÝ\˜Ù_HÏÙ]ŸBˆÑX[ÙÐÛÛ[ÑX[ÙÏŽÂŸB‚™[˜Ý[ÛˆÛÛ\[žTÙ]\Ù[\ŠÈÙ]\Û”Ø]™YØ[ÛX\ÛÛ\[žHNˆÈØ[ÛX\ÛÛ\[žNˆ›ÛÛX[ŽÈÙ]\ˆÛÛ\[žTÙ]\ÈÛ”Ø]™Yˆ
+Ù]\ˆÛÛ\[žTÙ]\
+HOˆ›ÚY›ÛZ\ÙO›ÚYˆJHÂˆÛÛœÝÙ›Ü›KÙ]›Ü›WHH\ÙTÝ]OÛÛ\[žTÙ]\ŠÙ]\
+NÂˆÛÛœÝÜØ]š[™ËÙ]Ø]š[™×HH\ÙTÝ]J˜[ÙJNÂˆÛÛœÝ\]HH
+šY[ˆÙ^[ÙˆÛÛ\[žTÙ]\˜[YNˆÝš[™ÊHOˆÙ]›Ü›J
+Ý\œ™[
+HOˆ
+È‹‹˜Ý\œ™[ÙšY[Nˆ˜[YHJJNÂˆÛÛœÝ\ØYÙÛÈH
+š[OÎˆš[KÚYNˆ›ÙÛÑ]HˆœšYÚÙÛÑ]HˆH›ÙÛÑ]HŠHOˆÂˆYˆ
+Yš[JH™]\›ŽÂˆYˆ
+VÈš[XYÙKÜ™È‹š[XYÙKÚœYÈ‹š[XYÙKÝÙXœ—Kš[˜ÛY\Êš[K\JHš[KœÚ^™HˆLÌ
+H™]\›ˆØ\Ý™\œ›ÜŠ•\ØYH‘Ë”ËÜˆÙX”ÙÛÈÛX[\ˆ[ˆLÐ‹ˆŠNÂˆÛÛœÝ™XY\ˆH™]Èš[T™XY\Š
+NÂˆ™XY\‹›Û›ØYH
+
+HOˆ\]JÚYKÝš[™Ê™XY\‹œ™\Ý[ÏÈˆŠJNÂˆ™XY\‹›Û™\œ›ÜˆH
+
+HOˆØ\Ý™\œ›ÜŠÛÝ[›Ý™XYHÙ[XÝYÙÛËˆŠNÂˆ™XY\‹œ™XY\Ñ]UT“
+š[JNÂˆNÂˆÛÛœÝ\ØYÝ[\H
+š[OÎˆš[JHOˆÂˆYˆ
+Yš[JH™]\›ŽÂˆYˆ
+Yš[K\KœÝ\ÕÚ]
+š[XYÙKÈŠHš[KœÚ^™HˆLÌ
+H™]\›ˆØ\Ý™\œ›ÜŠ•\ØY[ˆ[XYÙHÝ[\ÛX[\ˆ[ˆLÐ‹ˆŠNÂˆÛÛœÝ™XY\ˆH™]Èš[T™XY\Š
+NÂˆ™XY\‹›Û›ØYH
+
+HOˆ\]JœÝ[\]H‹Ýš[™Ê™XY\‹œ™\Ý[ÏÈˆŠJNÂˆ™XY\‹›Û™\œ›ÜˆH
+
+HOˆØ\Ý™\œ›ÜŠÛÝ[›Ý™XYHÙ[XÝYÝ[\ˆŠNÂˆ™XY\‹œ™XY\Ñ]UT“
+š[JNÂˆNÂˆÛÛœÝØ]™HH\Þ[˜È
+]™[ˆ›Ü›Q]™[
+HOˆÂˆ]™[œ™]™[Y˜][
+
+NÂˆÙ]Ø]š[™ÊYJNÂˆžHÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+‹Ø\KØÛÛ\[žK\Ù]\‹ÈY]Ùˆ”UÒ‹XY\œÎˆÈÛÛ[U\HŽˆ˜\XØ][Û‹ÚœÛÛˆˆK›ÙNˆ”ÓÓ‹œÝš[™ÚYžJÈ‹‹™›Ü›KÛÛ\[žRYˆ›Ü›KšYJHJNÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›ÝØ]™HÛÛ\[žHÙ]\ŠNÂˆÛÛœÝØ]™YH]Kœ™XÛÜ™\ÈÛÛ\[žTÙ]\ÂˆÙ]›Ü›JØ]™Y
+NÂˆ]ØZ]Û”Ø]™Y
+Ø]™Y
+NÂˆØ\ÝœÝXØÙ\ÜÊÛÛ\[žHÙ]\Ø]™YŠNÂˆHØ]Ú
+\œ›ÜŠHÈØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›ÝØ]™HÛÛ\[žHÙ]\ŠNÈBˆš[˜[HÈÙ]Ø]š[™Ê˜[ÙJNÈBˆNÂˆ™]\›ˆ›Ü›HÛ”ÝX›Z]^ÜØ]™_HÛ\ÜÓ˜[YOHœÜXÙK^KMH‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KMH‚ˆÙXÝ[ÛˆÛ\ÜÓ˜[YOHœ›Ý[™Y^›Ü™\ˆ™Ë]Ú]HMHÚYÝË\ÛH]ˆÛ\ÜÓ˜[YOH›X‹MH›^][\ËXÙ[\ˆØ\LÈ]ˆÛ\ÜÓ˜[YOH˜œ˜[™\ÛÙZXÛÛˆÜšYÚ^™KLLXÙKZ][\ËXÙ[\ˆ›Ý[™Y^Z[[™ÌˆÛ\ÜÓ˜[YOHœÚ^™KMHˆÏÙ]]ˆÛ\ÜÓ˜[YOH™›ÛX›ÛÛÛ\[žHY[]OÚÛ\ÜÓ˜[YOH^\ÛH^\Û]KML•\ÙYÛˆ[›ÚXÙ\Ëš[ËÝ][Y[Ë[™™\ÜËÜÙ]Ù]]ˆÛ\ÜÓ˜[YOH™ÜšYØ\MY™ÜšYXÛÛËLˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆY˜ÛÛ\Ü[‹LˆX™[ÛÛ\[žH˜[YH
+ÓX™[[œ]˜[YO^Ù›Ü›K›˜[Y_HÛÚ[™ÙO^Ê]™[
+HOˆ\]J›˜[YH‹]™[\™Ù]˜[YJ_H™\]Z\™YX^[™Ý^ÌLŒHÏÙ]]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆY˜ÛÛ\Ü[‹LˆX™[“YÙÛÏÓX™[]ˆÛ\ÜÓ˜[YOH™›^›^]Ü˜\][\ËXÙ[\ˆØ\M›Ý[™Y^›Ü™\ˆ›Ü™\‹Y\ÚYMžÙ›Ü›K›ÙÛÑ]HÈ[XYÙHÜ˜Ï^Ù›Ü›K›ÙÛÑ]_H[HÛÛ\[žHÙÛÈ™]šY]ÈˆÚY^ÎMŸHZYÚ^ÍH[›Ü[Z^™YÛ\ÜÓ˜[YOHšLMˆËL›Ý[™Y[È›Ü™\ˆ™Ë]Ú]HØš™XÝXÛÛZ[ˆLHˆÏˆˆ]ˆÛ\ÜÓ˜[YOH™ÜšYLMˆËLXÙKZ][\ËXÙ[\ˆ›Ý[™Y[È™Ë\Û]KLL^\Û]KM[XYÙU\Û\ÜÓ˜[YOHœÚ^™KMˆˆÏÙ]ŸO]ˆÛ\ÜÓ˜[YOH™›^›^]Ü˜\Ø\LˆX™[Û\ÜÓ˜[YOHš[›[™KY›^NHÝ\œÛÜ‹\Ú[\ˆ][\ËXÙ[\ˆØ\Lˆ›Ý[™Y[Y›Ü™\ˆ™Ë]Ú]HLÈ^\ÛH›Û[YY][HÝ™\Ž˜™Ë\Û]KML[XYÙU\Û\ÜÓ˜[YOHœÚ^™KMˆÏÚÛÜÙHÙÛÏ[œ]\OH™š[HˆXØÙ\Hš[XYÙKÜ™Ë[XYÙKÚœYË[XYÙKÝÙXœˆÛ\ÜÓ˜[YOHœÜ‹[Û›HˆÛÚ[™ÙO^Ê]™[
+HOˆ\ØYÙÛÊ]™[\™Ù]™š[\ÏË–ÌJ_HÏÓX™[žÙ›Ü›K›ÙÛÑ]HÈ]Ûˆ\OH˜]Ûˆˆ˜\šX[H›Ý][™HˆÛÛXÚÏ^Ê
+HOˆ\]J›ÙÛÑ]H‹ˆŠ_O”™[[Ý™OÐ]Ûˆˆ[OÙ]Ù]Û\ÜÓ˜[YOH^^È^\Û]KML”‘Ë”ËÜˆÙX”0­ÈX^[][HLÐÜÙ]]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆY˜ÛÛ\Ü[‹LˆX™[”šYÚÙÛÏÓX™[]ˆÛ\ÜÓ˜[YOH™›^›^]Ü˜\][\ËXÙ[\ˆØ\M›Ý[™Y^›Ü™\ˆ›Ü™\‹Y\ÚYMžÙ›Ü›KœšYÚÙÛÑ]HÈ[XYÙHÜ˜Ï^Ù›Ü›KœšYÚÙÛÑ]_H[HÛÛ\[žHÙÛÈ™]šY]ÈˆÚY^ÎMŸHZYÚ^ÍH[›Ü[Z^™YÛ\ÜÓ˜[YOHšLMˆËL›Ý[™Y[È›Ü™\ˆ™Ë]Ú]HØš™XÝXÛÛZ[ˆLHˆÏˆˆ]ˆÛ\ÜÓ˜[YOH™ÜšYLMˆËLXÙKZ][\ËXÙ[\ˆ›Ý[™Y[È™Ë\Û]KLL^\Û]KM[XYÙU\Û\ÜÓ˜[YOHœÚ^™KMˆˆÏÙ]ŸO]ˆÛ\ÜÓ˜[YOH™›^›^]Ü˜\Ø\LˆX™[Û\ÜÓ˜[YOHš[›[™KY›^NHÝ\œÛÜ‹\Ú[\ˆ][\ËXÙ[\ˆØ\Lˆ›Ý[™Y[Y›Ü™\ˆ™Ë]Ú]HLÈ^\ÛH›Û[YY][HÝ™\Ž˜™Ë\Û]KML[XYÙU\Û\ÜÓ˜[YOHœÚ^™KMˆÏÚÛÜÙHÙÛÏ[œ]\OH™š[HˆXØÙ\Hš[XYÙKÜ™Ë[XYÙKÚœYË[XYÙKÝÙXœˆÛ\ÜÓ˜[YOHœÜ‹[Û›HˆÛÚ[™ÙO^Ê]™[
+HOˆ\ØYÙÛÊ]™[\™Ù]™š[\ÏË–ÌKœšYÚÙÛÑ]HŠ_HÏÓX™[žÙ›Ü›KœšYÚÙÛÑ]HÈ]Ûˆ\OH˜]Ûˆˆ˜\šX[H›Ý][™HˆÛÛXÚÏ^Ê
+HOˆ\]JœšYÚÙÛÑ]H‹ˆŠ_O”™[[Ý™OÐ]Ûˆˆ[OÙ]Ù]Û\ÜÓ˜[YOH^^È^\Û]KML”‘Ë”ËÜˆÙX”0­ÈX^[][HLÐÜÙ]Ù]ÜÙXÝ[Û‚ˆÙXÝ[ÛˆÛ\ÜÓ˜[YOHœ›Ý[™Y^›Ü™\ˆ™Ë]Ú]HMHÚYÝË\ÛH]ˆÛ\ÜÓ˜[YOH›X‹MH›^][\ËXÙ[\ˆØ\LÈ]ˆÛ\ÜÓ˜[YOH™ÜšYÚ^™KLLXÙKZ][\ËXÙ[\ˆ›Ý[™Y^™Ë]š[Û]LL^]š[Û]MÌÝ[\Û\ÜÓ˜[YOHœÚ^™KMHˆÏÙ]]ˆÛ\ÜÓ˜[YOH™›ÛX›ÛÛÛ\[žHÝ[\ÚÛ\ÜÓ˜[YOH^\ÛH^\Û]KML‘\Ü^YY]H›ÝÛHÙˆ[›ÚXÙ\È[™Ý\ˆØÝ[Y[ËÜÙ]Ù]]ˆÛ\ÜÓ˜[YOH™›^›^]Ü˜\][\ËXÙ[\ˆØ\MH›Ý[™Y^›Ü™\ˆ›Ü™\‹Y\ÚYMžÙ›Ü›KœÝ[\]HÈ[XYÙHÜ˜Ï^Ù›Ü›KœÝ[\]_H[HÛÛ\[žHÝ[\™]šY]ÈˆÚY^ÌMHZYÚ^ÌLH[›Ü[Z^™YÛ\ÜÓ˜[YOHšLˆËLÍˆ›Ý[™Y[È™Ë]Ú]HØš™XÝXÛÛZ[ˆLHˆÏˆˆ]ˆÛ\ÜÓ˜[YOH™ÜšYLˆËLÍˆXÙKZ][\ËXÙ[\ˆ›Ý[™Y[È™Ë\Û]KLL^\Û]KMÝ[\Û\ÜÓ˜[YOHœÚ^™KNˆÏÙ]ŸO]]ˆÛ\ÜÓ˜[YOH™›^›^]Ü˜\Ø\LˆX™[Û\ÜÓ˜[YOHš[›[™KY›^NHÝ\œÛÜ‹\Ú[\ˆ][\ËXÙ[\ˆØ\Lˆ›Ý[™Y[Y›Ü™\ˆ™Ë]Ú]HLÈ^\ÛH›Û[YY][HÝ™\Ž˜™Ë\Û]KML[XYÙU\Û\ÜÓ˜[YOHœÚ^™KMˆÏÚÛÜÙHÝ[\[œ]\OH™š[HˆXØÙ\Hš[XYÙKÊˆˆÛ\ÜÓ˜[YOHœÜ‹[Û›HˆÛÚ[™ÙO^Ê]™[
+HOˆ\ØYÝ[\
+]™[\™Ù]™š[\ÏË–ÌJ_HÏÓX™[žÙ›Ü›KœÝ[\]HÈ]Ûˆ\OH˜]Ûˆˆ˜\šX[H›Ý][™HˆÛÛXÚÏ^Ê
+HOˆ\]JœÝ[\]H‹ˆŠ_O”™[[Ý™OÐ]Ûˆˆ[OÙ]Û\ÜÓ˜[YOH›]Lˆ^^È^\Û]KML[žH[XYÙH›Ü›X]0­ÈX^[][HLÐÜÙ]Ù]ÜÙXÝ[Û‚ˆÙXÝ[ÛˆÛ\ÜÓ˜[YOHœ›Ý[™Y^›Ü™\ˆ™Ë]Ú]HMHÚYÝË\ÛH]ˆÛ\ÜÓ˜[YOH›X‹MH›^][\ËXÙ[\ˆØ\LÈ]ˆÛ\ÜÓ˜[YOH™ÜšYÚ^™KLLXÙKZ][\ËXÙ[\ˆ›Ý[™Y^™Ë\ÚÞKLL^\ÚÞKMÌ[™X\šÈÛ\ÜÓ˜[YOHœÚ^™KMHˆÏÙ]]ˆÛ\ÜÓ˜[YOH™›ÛX›Û˜[šÈXØÛÝ[ÚÛ\ÜÓ˜[YOH^\ÛH^\Û]KML‘\Ü^YYÛˆÝ\ÝÛY\ˆØÝ[Y[È›Üˆ^[Y[ÜÙ]Ù]]ˆÛ\ÜÓ˜[YOH™ÜšYØ\MY™ÜšYXÛÛËLˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[˜[šÈ˜[YOÓX™[[œ]˜[YO^Ù›Ü›K˜˜[šÓ˜[Y_HÛÚ[™ÙO^Ê]™[
+HOˆ\]J˜˜[šÓ˜[YH‹]™[\™Ù]˜[YJ_HX^[™Ý^ÌLŒHÏÙ]]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[XØÛÝ[˜[YOÓX™[[œ]˜[YO^Ù›Ü›K˜˜[šÐXØÛÝ[˜[Y_HÛÚ[™ÙO^Ê]™[
+HOˆ\]J˜˜[šÐXØÛÝ[˜[YH‹]™[\™Ù]˜[YJ_HX^[™Ý^ÌLŒHÏÙ]]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[XØÛÝ[[X™\ÓX™[[œ]˜[YO^Ù›Ü›K˜˜[šÐXØÛÝ[[X™\ŸHÛÚ[™ÙO^Ê]™[
+HOˆ\]J˜˜[šÐXØÛÝ[[X™\ˆ‹]™[\™Ù]˜[YJ_HX^[™Ý^ÎHÏÙ]]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[XØÛÝ[Ý\œ™[˜ÞOÓX™[Ù[XÝ˜[YO^Ù›Ü›K˜˜[šÐÝ\œ™[˜ÞH›Ü›K˜˜\ÙPÝ\œ™[˜Þ_HÛ•˜[YPÚ[™ÙO^Ê˜[YJHOˆ\]J˜˜[šÐÝ\œ™[˜ÞH‹˜[YJ_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žØÝ\œ™[˜ÚY\Ë›X\
+
+Ý\œ™[˜ÞJHOˆÙ[XÝ][HÙ^O^ØÝ\œ™[˜Þ_H˜[YO^ØÝ\œ™[˜Þ_OžØÝ\œ™[˜Þ_OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝÙ]]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[’PSÓX™[[œ]˜[YO^Ù›Ü›K˜˜[šÒX˜[ŸHÛÚ[™ÙO^Ê]™[
+HOˆ\]J˜˜[šÒX˜[ˆ‹]™[\™Ù]˜[YKÕ\\Ø\ÙJ
+J_HX^[™Ý^ÎHÏÙ]]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[”ÕÒQ•È’PÏÓX™[[œ]˜[YO^Ù›Ü›K˜˜[šÔÝÚYHÛÚ[™ÙO^Ê]™[
+HOˆ\]J˜˜[šÔÝÚY‹]™[\™Ù]˜[YKÕ\\Ø\ÙJ
+J_HX^[™Ý^ÌÌHÏÙ]Ù]ÜÙXÝ[Û‚ˆÙ]‚ˆÛÛ\[žU[\]Q\ÚYÛ™\ˆ˜[YO^Ù›Ü›K™ØÝ[Y[\ÚYÛŸHÛÚ[™ÙO^Ý˜[YHOˆ\]J™ØÝ[Y[\ÚYÛˆ‹˜[YJ_HÙ]\^Ù›Ü›_H\ØX›Y^ÜØ]š[™ßHÏ‚ˆØØ[ÛX\ÛÛ\[žH	‰ˆÛÛ\[žPÛX\]ÛˆÛÛ\[žRY^ÜÙ]\šYHÛÛ\[žS˜[YO^ÜÙ]\›˜[Y_H\ØX›Y^ÜØ]š[™ßHÏŸBˆÙ›Ü›OŽÂŸB‚™[˜Ý[ÛˆYZ[”Ù][™ÜÐÙ[\ŠÈÛÛ\[žRYÛÛ\[žS˜[YKÝ\œ™[\Ù\‘[XZ[NˆÈÛÛ\[žRYˆ[X™\ŽÈÛÛ\[žS˜[YNˆÝš[™ÎÈÝ\œ™[\Ù\‘[XZ[ˆÝš[™ÈJHÂˆÛÛœÝØÛÛ™šYÝ\™YÙ]ÛÛ™šYÝ\™YHH\ÙTÝ]J˜[ÙJNÂˆÛÛœÝÛØY[™ËÙ]ØY[™×HH\ÙTÝ]JYJNÂˆÛÛœÝÜØ]š[™ËÙ]Ø]š[™×HH\ÙTÝ]J˜[ÙJNÂˆÛÛœÝØÝ\œ™[[‹Ù]Ý\œ™[[—HH\ÙTÝ]JˆŠNÂˆÛÛœÝÛ™]Ô[‹Ù]™]Ô[—HH\ÙTÝ]JˆŠNÂˆÛÛœÝØÛÛ™š\›T[‹Ù]ÛÛ™š\›T[—HH\ÙTÝ]JˆŠNÂˆÛÛœÝØÝ\œ™[\ÜÝÛÜ™Ù]Ý\œ™[\ÜÝÛÜ™HH\ÙTÝ]JˆŠNÂˆÛÛœÝÛ™]Ô\ÜÝÛÜ™Ù]™]Ô\ÜÝÛÜ™HH\ÙTÝ]JˆŠNÂˆÛÛœÝØÛÛ™š\›T\ÜÝÛÜ™Ù]ÛÛ™š\›T\ÜÝÛÜ™HH\ÙTÝ]JˆŠNÂˆÛÛœÝÜ\ÜÝÛÜ™Ø]š[™ËÙ]\ÜÝÛÜ™Ø]š[™×HH\ÙTÝ]J˜[ÙJNÂ‚ˆ\ÙQY™™XÝ
+
+
+HOˆÂˆ]XÝ]™HHYNÂˆ\Þ[˜È[˜Ý[ÛˆØYÙ][™ÜÊ
+HÂˆÙ]ØY[™ÊYJNÂˆžHÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+Ø\KØYZ[‹\Ù][™ÜÏØÛÛ\[žRYIØÛÛ\[žRYX
+NÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›ÝØYYZ[ˆÛÛ›ÛÈŠNÂˆYˆ
+XÝ]™JHÙ]ÛÛ™šYÝ\™Y
+›ÛÛX[Š]K˜ÛÛ™šYÝ\™Y
+JNÂˆHØ]Ú
+\œ›ÜŠHÂˆYˆ
+XÝ]™JHØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›ÝØYYZ[ˆÛÛ›ÛÈŠNÂˆHš[˜[HÂˆYˆ
+XÝ]™JHÙ]ØY[™Ê˜[ÙJNÂˆBˆBˆYˆ
+ÛÛ\[žRY
+HØYÙ][™ÜÊ
+NÂˆ™]\›ˆ
+
+HOˆÈXÝ]™HH˜[ÙNÈNÂˆKØÛÛ\[žRYJNÂ‚ˆ\Þ[˜È[˜Ý[ÛˆØ]™T[Š]™[ˆ›Ü›Q]™[
+HÂˆ]™[œ™]™[Y˜][
+
+NÂˆYˆ
+K×—ÍLŸIË\Ý
+™]Ô[ŠJH™]\›ˆØ\Ý™\œ›ÜŠ•H™]ÈSˆ]\ÝÛÛZ[ˆÈLˆ[X™\œËˆŠNÂˆYˆ
+™]Ô[ˆOOHÛÛ™š\›T[ŠH™]\›ˆØ\Ý™\œ›ÜŠ•H™]ÈSˆ[™ÛÛ™š\›X][ÛˆÈ›ÝX]ÚˆŠNÂˆÙ]Ø]š[™ÊYJNÂˆžHÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+‹Ø\KØYZ[‹\Ù][™ÜÈ‹ÈY]Ùˆ”ÔÕ‹XY\œÎˆÈÛÛ[U\HŽˆ˜\XØ][Û‹ÚœÛÛˆˆK›ÙNˆ”ÓÓ‹œÝš[™ÚYžJÈÛÛ\[žRYÝ\œ™[[‹™]Ô[ˆJHJNÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›ÝØ]™HHYZ[ˆSˆŠNÂˆÙ]ÛÛ™šYÝ\™Y
+YJNÂˆÙ]Ý\œ™[[ŠˆŠNÈÙ]™]Ô[ŠˆŠNÈÙ]ÛÛ™š\›T[ŠˆŠNÂˆØ\ÝœÝXØÙ\ÜÊYZ[ˆSˆØ]™YŠNÂˆHØ]Ú
+\œ›ÜŠHÂˆØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›ÝØ]™HHYZ[ˆSˆŠNÂˆHš[˜[HÈÙ]Ø]š[™Ê˜[ÙJNÈBˆB‚ˆ\Þ[˜È[˜Ý[ÛˆØ]™T\ÜÝÛÜ™
+]™[ˆ›Ü›Q]™[
+HÂˆ]™[œ™]™[Y˜][
+
+NÂˆYˆ
+™]Ô\ÜÝÛÜ™›[™ÝLŠH™]\›ˆØ\Ý™\œ›ÜŠ•H™]È\ÜÝÛÜ™]\ÝÛÛZ[ˆ]X\ÝLˆÚ\˜XÝ\œËˆŠNÂˆYˆ
+™]Ô\ÜÝÛÜ™OOHÛÛ™š\›T\ÜÝÛÜ™
+H™]\›ˆØ\Ý™\œ›ÜŠ•H™]È\ÜÝÛÜ™[™ÛÛ™š\›X][ÛˆÈ›ÝX]ÚˆŠNÂˆÙ]\ÜÝÛÜ™Ø]š[™ÊYJNÂˆžHÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+‹Ø\KØ]]ÜÙ\ÜÚ[Ûˆ‹ÈY]Ùˆ”UÒ‹XY\œÎˆÈÛÛ[U\HŽˆ˜\XØ][Û‹ÚœÛÛˆˆK›ÙNˆ”ÓÓ‹œÝš[™ÚYžJÈÝ\œ™[\ÜÝÛÜ™™]Ô\ÜÝÛÜ™JHJNÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›ÝÚ[™ÙHH\ÜÝÛÜ™ŠNÂˆØ\ÝœÝXØÙ\ÜÊ”\ÜÝÛÜ™Ú[™ÙYˆÚYÛˆ[ˆYØZ[‹ˆŠNÂˆÚ[™ÝËœÙ][Y[Ý]
+
+
+HOˆÚ[™ÝË›ØØ][Û‹œ™[ØY
+
+KÌ
+NÂˆHØ]Ú
+\œ›ÜŠHÈØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›ÝÚ[™ÙHH\ÜÝÛÜ™ŠNÈÙ]\ÜÝÛÜ™Ø]š[™Ê˜[ÙJNÈBˆB‚ˆ™]\›ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KMH]ˆÛ\ÜÓ˜[YOH™ÜšYØ\MH™ÜšYXÛÛËVÌYœ—ÍŒH‚ˆÙXÝ[ÛˆÛ\ÜÓ˜[YOHœ›Ý[™Y^›Ü™\ˆ™Ë]Ú]HÚYÝË\ÛH‚ˆ]ˆÛ\ÜÓ˜[YOH™›^][\Ë\Ý\\ÝYžKX™]ÙY[ˆØ\M›Ü™\‹XˆMH]ˆÛ\ÜÓ˜[YOH™›ÛX›Û”™\ÝšXÝYÝØÚÈÜ\˜][ÛœÏÚÛ\ÜÓ˜[YOH›]LH^\ÛH^\Û]KML”ÙXÝ\š]HÛÛ›ÛÈ\HÙ\\˜][HÈØÛÛ\[žS˜[Y_KÜÙ]˜YÙHÛ\ÜÓ˜[YO^ØÛÛ™šYÝ\™YÈ˜™ËY[Y\˜[LL^Y[Y\˜[NÝ™\Ž˜™ËY[Y\˜[LLˆˆ˜™ËX[X™\‹LL^X[X™\‹NLÝ™\Ž˜™ËX[X™\‹LLŸOžÛØY[™ÈÈÚXÚÚ[™ø )ˆˆˆÛÛ™šYÝ\™YÈ”SˆÛÛ™šYÝ\™Yˆˆ”Ù]\™\]Z\™YŸOÐ˜YÙOÙ]‚ˆ]ˆÛ\ÜÓ˜[YOHœMH]ˆÛ\ÜÓ˜[YOH™›^Ø\M›Ý[™Y^›Ü™\ˆ›Ü™\‹X[X™\‹LŒ™ËX[X™\‹MLM]ˆÛ\ÜÓ˜[YOH™ÜšYÚ^™KLLHÚš[šËLXÙKZ][\ËXÙ[\ˆ›Ý[™Y[È™ËX[X™\‹LL^X[X™\‹NÚY[ÚXÚÈÛ\ÜÓ˜[YOHœÚ^™KMˆˆÏÙ]]ÈÛ\ÜÓ˜[YOH™›Û\Ù[ZX›Û^X[X™\‹NML“™YØ]]™K\ÝØÚÈ[›ÚXÙHÝ™\œšYOÚÏÛ\ÜÓ˜[YOH›]LH^\ÛHXY[™ËMˆ^X[X™\‹NL’[›ÚXÙ\È[™Ø[\È™XÙZ\È\™H›ØÚÙYÚ[ˆÝØÚÈ\È[œÝY™šXÚY[ˆHÛÛ\[žHYZ[ˆØ[ˆ[\ˆ\ÈSˆÛˆHØÝ[Y[È\›Ý™H[ˆ^Ù\[Û‹ÜÛ\ÜÓ˜[YOH›]Lˆ^\ÛH›Û[YY][H^X[X™\‹NML‘]™\žHÝ™\œšYH\È™XÛÜ™Y[ˆH]Y]ÙËÜÙ]Ù]Ù]‚ˆÜÙXÝ[Û‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KMH›Ü›HÛ”ÝX›Z]^ÜØ]™T[ŸHÛ\ÜÓ˜[YOHœÜXÙK^KM›Ý[™Y^›Ü™\ˆ™Ë]Ú]HMHÚYÝË\ÛH‚ˆ]ˆÛ\ÜÓ˜[YOH™›^][\ËXÙ[\ˆØ\LÈ]ˆÛ\ÜÓ˜[YOH™ÜšYÚ^™KLLXÙKZ][\ËXÙ[\ˆ›Ý[™Y[È™Ë\Û]KLL^\Û]KMÌÙ^T›Ý[™Û\ÜÓ˜[YOHœÚ^™KMHˆÏÙ]]ˆÛ\ÜÓ˜[YOH™›ÛX›ÛžØÛÛ™šYÝ\™YÈÚ[™ÙHYZ[ˆSˆˆˆ”Ù]YZ[ˆSˆŸOÚÛ\ÜÓ˜[YOH^\ÛH^\Û]KML•\ÙHÈLˆ[X™\œËÜÙ]Ù]‚ˆØÛÛ™šYÝ\™Y	‰ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[[›ÜH˜Ý\œ™[YZ[”[ˆÝ\œ™[SÓX™[[œ]YH˜Ý\œ™[YZ[”[ˆˆ\OHœ\ÜÝÛÜ™ˆ[œ][ÙOH›[Y\šXÈˆ]]ÐÛÛ\]OH˜Ý\œ™[\\ÜÝÛÜ™ˆ]\›H–ÌNW^ÍLŸHˆ˜[YO^ØÝ\œ™[[ŸHÛÚ[™ÙO^Ê]™[
+HOˆÙ]Ý\œ™[[Š]™[\™Ù]˜[YKœ™\XÙJ×ÙËˆŠKœÛXÙJLŠJ_H™\]Z\™YXÙZÛ\H‘[\ˆÝ\œ™[SˆˆÏÙ]ŸBˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[[›ÜH›™]ÐYZ[”[ˆ“™]ÈSÓX™[[œ]YH›™]ÐYZ[”[ˆˆ\OHœ\ÜÝÛÜ™ˆ[œ][ÙOH›[Y\šXÈˆ]]ÐÛÛ\]OH›™]Ë\\ÜÝÛÜ™ˆ]\›H–ÌNW^ÍLŸHˆ˜[YO^Û™]Ô[ŸHÛÚ[™ÙO^Ê]™[
+HOˆÙ]™]Ô[Š]™[\™Ù]˜[YKœ™\XÙJ×ÙËˆŠKœÛXÙJLŠJ_H™\]Z\™YXÙZÛ\H‘[\ˆ™]ÈSˆˆÏÙ]‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[[›ÜH˜ÛÛ™š\›PYZ[”[ˆÛÛ™š\›H™]ÈSÓX™[[œ]YH˜ÛÛ™š\›PYZ[”[ˆˆ\OHœ\ÜÝÛÜ™ˆ[œ][ÙOH›[Y\šXÈˆ]]ÐÛÛ\]OH›™]Ë\\ÜÝÛÜ™ˆ]\›H–ÌNW^ÍLŸHˆ˜[YO^ØÛÛ™š\›T[ŸHÛÚ[™ÙO^Ê]™[
+HOˆÙ]ÛÛ™š\›T[Š]™[\™Ù]˜[YKœ™\XÙJ×ÙËˆŠKœÛXÙJLŠJ_H™\]Z\™YXÙZÛ\H”™KY[\ˆ™]ÈSˆˆÏÙ]‚ˆ]Ûˆ\OHœÝX›Z]ˆ\ØX›Y^ÛØY[™ÈØ]š[™ÈXÛÛ\[žRYHÛ\ÜÓ˜[YOHËY[™ËY[Y\˜[ML›Û\Ù[ZX›Û^\Û]KNMLÝ™\Ž˜™ËY[Y\˜[MžÜØ]š[™ÈÈ”Ø]š[™ø )ˆˆˆÛÛ™šYÝ\™YÈÚ[™ÙHYZ[ˆSˆˆˆ”Ù]YZ[ˆSˆŸOÐ]Û‚ˆÛ\ÜÓ˜[YOH^\ÛHXY[™ËMH^\Û]KML•HSˆ\ÈÙXÝ\™[H\ÚY™Y›Ü™HÝÜ˜YÙH[™\È™]™\ˆ\Ü^YYˆÛ›H]]Üš^™YÛÛ\[žHYZ[š\Ý˜]ÜœÈÚÝ[Ú[™ÙH]Ü‚ˆÙ›Ü›O‚ˆ›Ü›HÛ”ÝX›Z]^ÜØ]™T\ÜÝÛÜ™HÛ\ÜÓ˜[YOHœÜXÙK^KM›Ý[™Y^›Ü™\ˆ™Ë]Ú]HMHÚYÝË\ÛH‚ˆ]ˆÛ\ÜÓ˜[YOH™›^][\ËXÙ[\ˆØ\LÈ]ˆÛ\ÜÓ˜[YOH™ÜšYÚ^™KLLXÙKZ][\ËXÙ[\ˆ›Ý[™Y[È™ËY[Y\˜[LL^Y[Y\˜[MÌÚY[ÚXÚÈÛ\ÜÓ˜[YOHœÚ^™KMHˆÏÙ]]ˆÛ\ÜÓ˜[YOH™›ÛX›ÛÚ[™ÙHÙÚ[ˆ\ÜÝÛÜ™ÚÛ\ÜÓ˜[YOH^\ÛH^\Û]KMLžØÝ\œ™[\Ù\‘[XZ[OÜÙ]Ù]‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[[›ÜH˜Ý\œ™[ÙÚ[”\ÜÝÛÜ™Ý\œ™[\ÜÝÛÜ™ÓX™[[œ]YH˜Ý\œ™[ÙÚ[”\ÜÝÛÜ™ˆ\OHœ\ÜÝÛÜ™ˆ]]ÐÛÛ\]OH˜Ý\œ™[\\ÜÝÛÜ™ˆ˜[YO^ØÝ\œ™[\ÜÝÛÜ™HÛÚ[™ÙO^Ê]™[
+HOˆÙ]Ý\œ™[\ÜÝÛÜ™
+]™[\™Ù]˜[YJ_H™\]Z\™YÏÙ]‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[[›ÜH›™]ÓÙÚ[”\ÜÝÛÜ™“™]È\ÜÝÛÜ™ÓX™[[œ]YH›™]ÓÙÚ[”\ÜÝÛÜ™ˆ\OHœ\ÜÝÛÜ™ˆ]]ÐÛÛ\]OH›™]Ë\\ÜÝÛÜ™ˆZ[“[™Ý^ÌLŸHX^[™Ý^ÌLŽH˜[YO^Û™]Ô\ÜÝÛÜ™HÛÚ[™ÙO^Ê]™[
+HOˆÙ]™]Ô\ÜÝÛÜ™
+]™[\™Ù]˜[YJ_H™\]Z\™YÏÙ]‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[[›ÜH˜ÛÛ™š\›SÙÚ[”\ÜÝÛÜ™ÛÛ™š\›H™]È\ÜÝÛÜ™ÓX™[[œ]YH˜ÛÛ™š\›SÙÚ[”\ÜÝÛÜ™ˆ\OHœ\ÜÝÛÜ™ˆ]]ÐÛÛ\]OH›™]Ë\\ÜÝÛÜ™ˆZ[“[™Ý^ÌLŸHX^[™Ý^ÌLŽH˜[YO^ØÛÛ™š\›T\ÜÝÛÜ™HÛÚ[™ÙO^Ê]™[
+HOˆÙ]ÛÛ™š\›T\ÜÝÛÜ™
+]™[\™Ù]˜[YJ_H™\]Z\™YÏÙ]‚ˆ]Ûˆ\OHœÝX›Z]ˆ\ØX›Y^Ü\ÜÝÛÜ™Ø]š[™ßHÛ\ÜÓ˜[YOHËY[žÜ\ÜÝÛÜ™Ø]š[™ÈÈÚ[™Ú[™ø )ˆˆˆÚ[™ÙHÙÚ[ˆ\ÜÝÛÜ™ŸOÐ]Û‚ˆÛ\ÜÓ˜[YOH^\ÛHXY[™ËMH^\Û]KMLÚ[™Ú[™ÈH\ÜÝÛÜ™ÚYÛœÈÝ]]™\žHXÝ]™HÙ\ÜÚ[Û‹Ü‚ˆÙ›Ü›OÙ]‚ˆÙ]\Ù\”›ÛPÙ[\ˆÏÙ]ŽÂŸB‚™[˜Ý[ÛˆÛÜšÜÜXÙPÙ[\ŠÈ[ÙKÛÛ\[šY\ËXÝ]™PÛÛ\[žRYØ[‘[]PÛÛ\[šY\ËÛÚ[™ÙYNˆÈ[ÙNˆ˜ÛÛ\[šY\Èˆš[™[ÜšY\Èˆš[›ÚXÙK\Ù\šY\Èˆ˜Ý\œ™[˜ÚY\ÈŽÈÛÛ\[šY\ÎˆÛÛ\[žUÛÜšÜÜXÙV×NÈXÝ]™PÛÛ\[žRYˆ[X™\ŽÈØ[‘[]PÛÛ\[šY\Îˆ›ÛÛX[ŽÈÛÚ[™ÙYˆ
+
+HOˆ›ÛZ\ÙO›ÚYˆJHÂˆÛÛœÝXÝ]™PÛÛ\[žHHÛÛ\[šY\Ë™š[™
+
+ÛÛ\[žJHOˆÛÛ\[žKšYOOHXÝ]™PÛÛ\[žRY
+NÂˆÛÛœÝÛ˜[YKÙ]˜[YWHH\ÙTÝ]JˆŠNÂˆÛÛœÝØÛÙKÙ]ÛÙWHH\ÙTÝ]JˆŠNÂˆÛÛœÝØÝ\œ™[˜ÞKÙ]Ý\œ™[˜ÞWHH\ÙTÝ]JXÝ]™PÛÛ\[žOË˜˜\ÙPÝ\œ™[˜ÞHÏÈQQŠNÂˆÛÛœÝÙY][™ÔÙ\šY\ËÙ]Y][™ÔÙ\šY\×HH\ÙTÝ]O[™[ÜžSØØ][Ûˆ[Š[
+NÂˆÛÛœÝÜÙ\šY\Ô™Yš^Ù]Ù\šY\Ô™Yš^HH\ÙTÝ]JˆŠNÂˆÛÛœÝÜÙ\šY\Ó™^[X™\‹Ù]Ù\šY\Ó™^[X™\—HH\ÙTÝ]JŒHŠNÂˆÛÛœÝÜØ]š[™ËÙ]Ø]š[™×HH\ÙTÝ]J˜[ÙJNÂˆËÈ\Û[Y\ØX›K[™^[[™H™XXÝZÛÚÜËÜÙ]\Ý]KZ[‹YY™™XÝˆ\ÙQY™™XÝ
+
+
+HOˆÈÙ]Ý\œ™[˜ÞJXÝ]™PÛÛ\[žOË˜˜\ÙPÝ\œ™[˜ÞHÏÈQQŠNÈKØXÝ]™PÛÛ\[žWJNÂˆÛÛœÝØ]™HH\Þ[˜È
+Y]Ùˆ”ÔÕˆ”UÒ‹^[ØYˆ™XÛÜ™Ýš[™ËÝš[™È[X™\ŠHOˆÂˆÙ]Ø]š[™ÊYJNÂˆžHÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+‹Ø\KÝÛÜšÜÜXÙ\È‹ÈY]ÙXY\œÎˆÈÛÛ[U\HŽˆ˜\XØ][Û‹ÚœÛÛˆˆK›ÙNˆ”ÓÓ‹œÝš[™ÚYžJ^[ØY
+HJNÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›ÝØ]™HŠNÂˆ]ØZ]ÛÚ[™ÙY
+
+NÈÙ]˜[YJˆŠNÈÙ]ÛÙJˆŠNÂˆYˆ
+^[ØY\HOOHš[›ÚXÙTÙ\šY\ÈŠHÙ]Y][™ÔÙ\šY\Ê[
+NÂˆØ\ÝœÝXØÙ\ÜÊ^[ØY\HOOHš[›ÚXÙTÙ\šY\ÈˆÈ’[›ÚXÙHÙ\šY\È\]Yˆˆ[ÙHOOH˜ÛÛ\[šY\ÈˆÈÛÛ\[žHYYˆˆ[ÙHOOHš[™[ÜšY\ÈˆÈ’[™[ÜžHYYˆˆ˜\ÙHÝ\œ™[˜ÞH\]YŠNÂˆHØ]Ú
+\œ›ÜŠHÈØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›ÝØ]™HŠNÈBˆš[˜[HÈÙ]Ø]š[™Ê˜[ÙJNÈBˆNÂˆÛÛœÝ™[[Ý™R[™[ÜžHH\Þ[˜È
+ØØ][ÛŽˆ[™[ÜžSØØ][ÛŠHOˆÂˆYˆ
+Ø]š[™È]Ú[™ÝË˜ÛÛ™š\›J™[[Ý™H[™[ÜžH‰ÛØØ][Û‹›˜[Y_HÈÛ›H[\ÙY[™[ÜšY\ÈØ[ˆ™H™[[Ý™Y˜
+JH™]\›ŽÂˆÙ]Ø]š[™ÊYJNÂˆžHÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+‹Ø\KÝÛÜšÜÜXÙ\È‹ÈY]Ùˆ‘SUH‹XY\œÎˆÈÛÛ[U\HŽˆ˜\XØ][Û‹ÚœÛÛˆˆK›ÙNˆ”ÓÓ‹œÝš[™ÚYžJÈ\Nˆ›ØØ][Ûˆ‹ÛÛ\[žRYˆXÝ]™PÛÛ\[žRYØØ][Û’YˆØØ][Û‹šYJHJNÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›Ý™[[Ý™H[™[ÜžKˆŠNÂˆ]ØZ]ÛÚ[™ÙY
+
+NÂˆØ\ÝœÝXØÙ\ÜÊ’[™[ÜžH™[[Ý™YŠNÂˆHØ]Ú
+\œ›ÜŠHÈØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›Ý™[[Ý™H[™[ÜžKˆŠNÈBˆš[˜[HÈÙ]Ø]š[™Ê˜[ÙJNÈBˆNÂˆÛÛœÝ™[[Ý™PÛÛ\[žHH\Þ[˜È
+ÛÛ\[žNˆÛÛ\[žUÛÜšÜÜXÙJHOˆÂˆYˆ
+Ø]š[™ÊH™]\›ŽÂˆÛÛœÝÛÛ™š\›S˜[YHHÚ[™ÝËœ›Û\
+[]HÛÛ\[žH‰ØÛÛ\[žK›˜[Y_Hˆ[™[Ùˆ]È]OÈ\ÈØ[››Ý™H[™Û™K——•\HH^XÝÛÛ\[žH˜[YHÈÛÛ[YN˜
+NÂˆYˆ
+ÛÛ™š\›S˜[YHOOH[
+H™]\›ŽÂˆYˆ
+ÛÛ™š\›S˜[YKš[J
+HOOHÛÛ\[žK›˜[YJH™]\›ˆØ\Ý™\œ›ÜŠ•HÛÛ\[žH˜[YHÙ\È›ÝX]ÚˆŠNÂˆÙ]Ø]š[™ÊYJNÂˆžHÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+‹Ø\KÝÛÜšÜÜXÙ\È‹ÈY]Ùˆ‘SUH‹XY\œÎˆÈÛÛ[U\HŽˆ˜\XØ][Û‹ÚœÛÛˆˆK›ÙNˆ”ÓÓ‹œÝš[™ÚYžJÈ\Nˆ˜ÛÛ\[žH‹ÛÛ\[žRYˆÛÛ\[žKšYÛÛ™š\›S˜[YNˆÛÛ™š\›S˜[YKš[J
+HJHJNÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›Ý[]HÛÛ\[žKˆŠNÂˆ]ØZ]ÛÚ[™ÙY
+
+NÂˆØ\ÝœÝXØÙ\ÜÊÛÛ\[žH[]YŠNÂˆHØ]Ú
+\œ›ÜŠHÈØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›Ý[]HÛÛ\[žKˆŠNÈBˆš[˜[HÈÙ]Ø]š[™Ê˜[ÙJNÈBˆNÂˆÛÛœÝÜ[”Ù\šY\ÑY]ÜˆH
+ØØ][ÛŽˆ[™[ÜžSØØ][ÛŠHOˆÂˆÙ]Y][™ÔÙ\šY\ÊØØ][ÛŠNÂˆÙ]Ù\šY\Ô™Yš^
+ØØ][Û‹š[›ÚXÙT™Yš^
+NÂˆÙ]Ù\šY\Ó™^[X™\ŠÝš[™ÊØØ][Û‹›™^[›ÚXÙS[X™\ŠJNÂˆNÂˆÛÛœÝÙ\šY\ÑY]ÜˆHX[ÙÈÜ[^Ð›ÛÛX[ŠY][™ÔÙ\šY\Ê_HÛ“Ü[Ú[™ÙO^ÊÜ[ŠHOˆÈYˆ
+[Ü[ŠHÙ]Y][™ÔÙ\šY\Ê[
+NÈ_OX[ÙÐÛÛ[Û\ÜÓ˜[YOHœÛN›X^]Ë[ÈX[ÙÒXY\X[ÙÕ]OÝ\ÝÛZ^™H[›ÚXÙHÙ\šY\ÏÑX[ÙÕ]OX[ÙÑ\ØÜš\[Û”Ù]H™Yš^[™™^[›ÚXÙH[X™\ˆ›ÜˆÙY][™ÔÙ\šY\ÏË›˜[Y_Kˆ\ÈY™™XÝÈÛ›H\ÈÛÛ\[žH[™[ÜžKÑX[ÙÑ\ØÜš\[ÛÑX[ÙÒXY\›Ü›HÛ\ÜÓ˜[YOHœÜXÙK^KMˆÛ”ÝX›Z]^Ê]™[
+HOˆÈ]™[œ™]™[Y˜][
+
+NÈYˆ
+YY][™ÔÙ\šY\ÊH™]\›ŽÈØ]™J”UÒ‹È\Nˆš[›ÚXÙTÙ\šY\È‹ÛÛ\[žRYˆXÝ]™PÛÛ\[žRYØØ][Û’YˆY][™ÔÙ\šY\ËšY[›ÚXÙT™Yš^ˆÙ\šY\Ô™Yš^™^[›ÚXÙS[X™\Žˆ[X™\ŠÙ\šY\Ó™^[X™\ŠHJNÈ_O]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[’[›ÚXÙHÙ\šY\È™Yš^ÓX™[[œ]˜[YO^ÜÙ\šY\Ô™Yš^HÛÚ[™ÙO^Ê]™[
+HOˆÙ]Ù\šY\Ô™Yš^
+]™[\™Ù]˜[YKÕ\\Ø\ÙJ
+J_H™\]Z\™YX^[™Ý^ÌŒHXÙZÛ\H’Q–HˆÏÛ\ÜÓ˜[YOH^^È^\Û]KML“]\œË[X™\œË\[œÈ[™Û\Ú\È\™H[ÝÙYÜÙ]]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[“™^[›ÚXÙH[X™\ÓX™[[œ]\OH›[X™\ˆˆZ[HŒHˆX^HŽNNNNNNNNHˆÝ\HŒHˆ˜[YO^ÜÙ\šY\Ó™^[X™\ŸHÛÚ[™ÙO^Ê]™[
+HOˆÙ]Ù\šY\Ó™^[X™\Š]™[\™Ù]˜[YJ_H™\]Z\™YÏÙ]]ˆÛ\ÜÓ˜[YOHœ›Ý[™Y[È›Ü™\ˆ™Ë\Û]KMLLÈÛ\ÜÓ˜[YOH^^È›Û[YY][H^\Û]KML”™]šY]ÏÜÛ\ÜÓ˜[YOH›]LH›Û[[Û›È^\ÛH›Û\Ù[ZX›Û^Y[Y\˜[MÌÞÔÝš[™ÊXÝ]™PÛÛ\[žRY
+KœYÝ\
+ËŒŠ_K^ÜÙ\šY\Ô™Yš^”‘Q’VŸKRS•‹^ÔÝš[™ÊX]›X^
+K[X™\ŠÙ\šY\Ó™^[X™\ŠHJJKœYÝ\
+ŒŠ_OÜÙ]X[ÙÑ›ÛÝ\]Ûˆ\OH˜]Ûˆˆ˜\šX[H›Ý][™HˆÛÛXÚÏ^Ê
+HOˆÙ]Y][™ÔÙ\šY\Ê[
+_OØ[˜Ù[Ð]Û]Ûˆ\OHœÝX›Z]ˆ\ØX›Y^ÜØ]š[™ßO”Ø]™HÙ\šY\ÏÐ]ÛÑX[ÙÑ›ÛÝ\Ù›Ü›OÑX[ÙÐÛÛ[ÑX[ÙÏŽÂˆYˆ
+[ÙHOOH˜ÛÛ\[šY\ÈŠH™]\›ˆ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\MH™ÜšYXÛÛËVÌYœ—ÌÍŒHÙXÝ[ÛˆÛ\ÜÓ˜[YOHœ›Ý[™Y^›Ü™\ˆ™Ë]Ú]HÚYÝË\ÛH]ˆÛ\ÜÓ˜[YOH˜›Ü™\‹XˆMHˆÛ\ÜÓ˜[YOH™›ÛX›ÛÛÛ\[žHš[\ÏÚÛ\ÜÓ˜[YOH^\ÛH^\Û]KML‘XXÚÛÛ\[žH\ÈÙ\\˜]HÝ\ÝÛY\œËXØÛÝ[Ë˜[œØXÝ[ÛœÈ[™[™[ÜžKÜÙ]]ˆÛ\ÜÓ˜[YOH™ÜšYØ\LÈMHY™ÜšYXÛÛËLˆžØÛÛ\[šY\Ë›X\
+
+ÛÛ\[žJHOˆ\XÛHÙ^O^ØÛÛ\[žKšYHÛ\ÜÓ˜[YO^Ø›Ý[™Y^›Ü™\ˆM	ØÛÛ\[žKšYOOHXÝ]™PÛÛ\[žRYÈ˜›Ü™\‹Y[Y\˜[LÌ™ËY[Y\˜[MLÍLˆˆˆŸXO]ˆÛ\ÜÓ˜[YOH™›^][\Ë\Ý\\ÝYžKX™]ÙY[ˆØ\LÈ]ÈÛ\ÜÓ˜[YOH™›Û\Ù[ZX›ÛžØÛÛ\[žK›˜[Y_OÚÏÛ\ÜÓ˜[YOH›]LH^\ÛH^\Û]KMLžØÛÛ\[žK›ØØ][ÛœË›[™ÝHØÛÛ\[žK›ØØ][ÛœË›[™ÝOOHHÈš[™[ÜžHˆˆš[™[ÜšY\ÈŸOÜÙ]]ˆÛ\ÜÓ˜[YOH™›^][\ËXÙ[\ˆØ\LH˜YÙH˜\šX[H›Ý][™HžØÛÛ\[žK˜˜\ÙPÝ\œ™[˜Þ_OÐ˜YÙOžØØ[‘[]PÛÛ\[šY\È	‰ˆ]Ûˆ\OH˜]Ûˆˆ˜\šX[H™ÚÜÝˆÚ^™OHšXÛÛˆˆ\ØX›Y^ÜØ]š[™ÈÛÛ\[šY\Ë›[™ÝH_H]OH‘[]HÛÛ\[žHˆ\šXK[X™[^Ø[]H	ØÛÛ\[žK›˜[Y_XHÛÛXÚÏ^Ê
+HOˆ›ÚY™[[Ý™PÛÛ\[žJÛÛ\[žJ_HÛ\ÜÓ˜[YOH^\›ÜÙKMŒÝ™\Ž^\›ÜÙKMÌ˜\ÚˆÛ\ÜÓ˜[YOHœÚ^™KMˆÏÐ]ÛŸOÙ]Ù]žØÛÛ\[žKšYOOHXÝ]™PÛÛ\[žRY	‰ˆÛ\ÜÓ˜[YOH›]LÈ^^È›Û\Ù[ZX›Û^Y[Y\˜[MÌÝ\œ™[HÙ[XÝYÜŸOØ\XÛOŠ_OÙ]ÜÙXÝ[Û›Ü›HÛ\ÜÓ˜[YOHœÜXÙK^KM›Ý[™Y^›Ü™\ˆ™Ë]Ú]HMHÚYÝË\ÛHˆÛ”ÝX›Z]^Ê]™[
+HOˆÈ]™[œ™]™[Y˜][
+
+NÈØ]™J”ÔÕ‹È\Nˆ˜ÛÛ\[žH‹˜[YK˜\ÙPÝ\œ™[˜ÞNˆÝ\œ™[˜ÞKÛÝ\˜ÙPÛÛ\[žRYˆXÝ]™PÛÛ\[žRYJNÈ_O]ˆÛ\ÜÓ˜[YOH™›ÛX›ÛYÛÛ\[žOÚÛ\ÜÓ˜[YOH^\ÛH^\Û]KML’[˜ÛY\ÈHXZ[ˆ[™[ÜžH[™HÙ[XÝYÛÛ\[žx &\ÈXZ[ˆÚ\ÙˆXØÛÝ[È]™\›È˜[[˜ÙKˆÝX‹XXØÛÝ[È[™\ÝÜžH\™H›ÝÛÜYYÜÙ]]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[ÛÛ\[žH˜[YOÓX™[[œ]˜[YO^Û˜[Y_HÛÚ[™ÙO^Ê]™[
+HOˆÙ]˜[YJ]™[\™Ù]˜[YJ_H™\]Z\™YXÙZÛ\HÛÛ\[žH˜[YHˆÏÙ]]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[˜\ÙHÝ\œ™[˜ÞOÓX™[Ù[XÝ˜[YO^ØÝ\œ™[˜Þ_HÛ•˜[YPÚ[™ÙO^ÜÙ]Ý\œ™[˜Þ_OÙ[XÝšYÙÙ\Ù[XÝ˜[YHÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žØÝ\œ™[˜ÚY\Ë›X\
+
+˜[YJHOˆÙ[XÝ][HÙ^O^Ý˜[Y_H˜[YO^Ý˜[Y_OžÝ˜[Y_OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝÙ]]Ûˆ\ØX›Y^ÜØ]š[™ßHÛ\ÜÓ˜[YOHËY[\ÈÛ\ÜÓ˜[YOHœÚ^™KMˆÏYÛÛ\[žOÐ]ÛÙ›Ü›OÙ]ŽÂˆYˆ
+[ÙHOOHš[™[ÜšY\ÈŠH™]\›ˆ‚ˆ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\MH™ÜšYXÛÛËVÌYœ—ÌÍŒHÙXÝ[ÛˆÛ\ÜÓ˜[YOHœ›Ý[™Y^›Ü™\ˆ™Ë]Ú]HÚYÝË\ÛH]ˆÛ\ÜÓ˜[YOH˜›Ü™\‹XˆMHˆÛ\ÜÓ˜[YOH™›ÛX›ÛžØXÝ]™PÛÛ\[žOË›˜[Y_H[™[ÜšY\ÏÚÛ\ÜÓ˜[YOH^\ÛH^\Û]KML“X[˜YÙHÝØÚÈØØ][ÛœÈ[™Z\ˆ[›ÚXÙHÙ\šY\ËÜÙ]]ˆÛ\ÜÓ˜[YOH™ÜšYØ\LÈMHY™ÜšYXÛÛËLˆžØXÝ]™PÛÛ\[žOË›ØØ][ÛœË›X\
+
+ØØ][ÛŠHOˆ\XÛHÙ^O^ÛØØ][Û‹šYHÛ\ÜÓ˜[YOHœ›Ý[™Y^›Ü™\ˆM]ˆÛ\ÜÓ˜[YOH™›^][\Ë\Ý\\ÝYžKX™]ÙY[ˆØ\LÈXÚØYÙTÙX\˜ÚÛ\ÜÓ˜[YOHœÚ^™KMH^Y[Y\˜[MŒˆÏ]ˆÛ\ÜÓ˜[YOH™›^Ø\Lˆ]Ûˆ\OH˜]Ûˆˆ˜\šX[H›Ý][™HˆÚ^™OHœÛHˆÛÛXÚÏ^Ê
+HOˆÜ[”Ù\šY\ÑY]ÜŠØØ][ÛŠ_O[˜Ú[Û\ÜÓ˜[YOHœÚ^™KLÈˆÏ‘Y]Ù\šY\ÏÐ]Û]Ûˆ\OH˜]Ûˆˆ˜\šX[H™ÚÜÝˆÚ^™OHšXÛÛˆˆ\ØX›Y^ÜØ]š[™ßH]OH”™[[Ý™H[™[ÜžHˆ\šXK[X™[^Ø™[[Ý™H	ÛØØ][Û‹›˜[Y_XHÛÛXÚÏ^Ê
+HOˆ›ÚY™[[Ý™R[™[ÜžJØØ][ÛŠ_HÛ\ÜÓ˜[YOH^\›ÜÙKMŒ˜\ÚˆÛ\ÜÓ˜[YOHœÚ^™KMˆÏÐ]ÛÙ]Ù]ÈÛ\ÜÓ˜[YOH›]LÈ›Û\Ù[ZX›ÛžÛØØ][Û‹›˜[Y_OÚÏÛ\ÜÓ˜[YOH›]LH›Û[[Û›È^^È^\Û]KMLžÛØØ][Û‹˜ÛÙ_OÜÛ\ÜÓ˜[YOH›]LÈ^^È›Û[YY][H^\Û]KML“™^[›ÚXÙOÜÛ\ÜÓ˜[YOH›]LH›Û[[Û›È^\ÛH^Y[Y\˜[MÌžÚ[›ÚXÙS[X™\”™]šY]ÊXÝ]™PÛÛ\[žRYØØ][ÛŠ_OÜØ\XÛOŠ_OÙ]ÜÙXÝ[Û›Ü›HÛ\ÜÓ˜[YOHœÜXÙK^KM›Ý[™Y^›Ü™\ˆ™Ë]Ú]HMHÚYÝË\ÛHˆÛ”ÝX›Z]^Ê]™[
+HOˆÈ]™[œ™]™[Y˜][
+
+NÈØ]™J”ÔÕ‹È\Nˆ›ØØ][Ûˆ‹ÛÛ\[žRYˆXÝ]™PÛÛ\[žRY˜[YKÛÙHJNÈ_O]ˆÛ\ÜÓ˜[YOH™›ÛX›ÛY[™[ÜžOÚÛ\ÜÓ˜[YOH^\ÛH^\Û]KML•Ø\™ZÝ\ÙKÚÝÜ›ÛÛHÜˆÝÜ™Kˆ]ÈÛÙH™XÛÛY\È\ÙˆH[›ÚXÙHÙ\šY\ËÜÙ]]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[’[™[ÜžH˜[YOÓX™[[œ]˜[YO^Û˜[Y_HÛÚ[™ÙO^Ê]™[
+HOˆÙ]˜[YJ]™[\™Ù]˜[YJ_H™\]Z\™YXÙZÛ\H’™X™[[HØ\™ZÝ\ÙHˆÏÙ]]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[ÛÙHÈ[›ÚXÙH™Yš^ÓX™[[œ]˜[YO^ØÛÙ_HÛÚ[™ÙO^Ê]™[
+HOˆÙ]ÛÙJ]™[\™Ù]˜[YKÕ\\Ø\ÙJ
+J_H™\]Z\™YXÙZÛ\H’Q–HˆÏÙ]]Ûˆ\ØX›Y^ÜØ]š[™ÈXXÝ]™PÛÛ\[žRYHÛ\ÜÓ˜[YOHËY[\ÈÛ\ÜÓ˜[YOHœÚ^™KMˆÏY[™[ÜžOÐ]ÛÙ›Ü›OÙ]‚ˆÜÙ\šY\ÑY]ÜŸBˆÏŽÂˆYˆ
+[ÙHOOHš[›ÚXÙK\Ù\šY\ÈŠH™]\›ˆÙXÝ[ÛˆÛ\ÜÓ˜[YOHœ›Ý[™Y^›Ü™\ˆ™Ë]Ú]HÚYÝË\ÛH]ˆÛ\ÜÓ˜[YOH˜›Ü™\‹XˆMHˆÛ\ÜÓ˜[YOH™›ÛX›ÛžØXÝ]™PÛÛ\[žOË›˜[Y_H[›ÚXÙHÙ\šY\ÏÚÛ\ÜÓ˜[YOH^\ÛH^\Û]KML‘]™\žH[™[ÜžH\È[ˆ[™\[™[™Yš^[™™^[›ÚXÙH[X™\‹ÜÙ]]ˆÛ\ÜÓ˜[YOH™ÜšYØ\MMHY™ÜšYXÛÛËLˆ™ÜšYXÛÛËLÈžØXÝ]™PÛÛ\[žOË›ØØ][ÛœË›X\
+
+ØØ][ÛŠHOˆ\XÛHÙ^O^ÛØØ][Û‹šYHÛ\ÜÓ˜[YOHœ›Ý[™Y^›Ü™\ˆMH]ˆÛ\ÜÓ˜[YOH™›^][\Ë\Ý\\ÝYžKX™]ÙY[ˆØ\LÈ]ˆÛ\ÜÓ˜[YOHœ›Ý[™Y[È™ËY[Y\˜[MLLˆ^Y[Y\˜[MÌ™XÙZ\^Û\ÜÓ˜[YOHœÚ^™KMHˆÏÙ]˜YÙH˜\šX[H›Ý][™HžÛØØ][Û‹˜ÛÙ_OÐ˜YÙOÙ]ÈÛ\ÜÓ˜[YOH›]M›Û\Ù[ZX›ÛžÛØØ][Û‹›˜[Y_OÚÏÛ\ÜÓ˜[YOH›]LH^\ÛH^\Û]KML“™^[›ÚXÙOÜÛ\ÜÓ˜[YOH›]Lˆœ™XZËX[›Û[[Û›È^X˜\ÙH›Û\Ù[ZX›Û^Y[Y\˜[MÌžÚ[›ÚXÙS[X™\”™]šY]ÊXÝ]™PÛÛ\[žRYØØ][ÛŠ_OÜ]Ûˆ\OH˜]ÛˆˆÛ\ÜÓ˜[YOH›]MHËY[ˆ˜\šX[H›Ý][™HˆÛÛXÚÏ^Ê
+HOˆÜ[”Ù\šY\ÑY]ÜŠØØ][ÛŠ_O[˜Ú[Û\ÜÓ˜[YOHœÚ^™KMˆÏÝ\ÝÛZ^™HÙ\šY\ÏÐ]ÛØ\XÛOŠ_OÙ]ÜÙXÝ[ÛžÜÙ\šY\ÑY]ÜŸOÏŽÂˆ™]\›ˆ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\MH™ÜšYXÛÛËVÌYœ—ÌÍŒHÙXÝ[ÛˆÛ\ÜÓ˜[YOHœ›Ý[™Y^›Ü™\ˆ™Ë]Ú]HÚYÝË\ÛH]ˆÛ\ÜÓ˜[YOH˜›Ü™\‹XˆMHˆÛ\ÜÓ˜[YOH™›ÛX›Û]˜Z[X›H˜[œØXÝ[ÛˆÝ\œ™[˜ÚY\ÏÚÛ\ÜÓ˜[YOH^\ÛH^\Û]KML•\ÙH[žHÝ\ÜYÝ\œ™[˜ÞHÛˆ[›ÚXÙ\Ëš[È[™Ý\ˆ˜[œØXÝ[ÛœËÜÙ]]ˆÛ\ÜÓ˜[YOH™›^›^]Ü˜\Ø\LˆMHžØÝ\œ™[˜ÚY\Ë›X\
+
+˜[YJHOˆ˜YÙHÙ^O^Ý˜[Y_H˜\šX[^Ý˜[YHOOHXÝ]™PÛÛ\[žOË˜˜\ÙPÝ\œ™[˜ÞHÈ™Y˜][ˆˆ›Ý][™HŸHÛ\ÜÓ˜[YOHœLÈKLKHžÝ˜[Y_^Ý˜[YHOOHXÝ]™PÛÛ\[žOË˜˜\ÙPÝ\œ™[˜ÞHÈˆ0­È˜\ÙHˆˆˆŸOÐ˜YÙOŠ_OÙ]ÜÙXÝ[Û›Ü›HÛ\ÜÓ˜[YOHœÜXÙK^KM›Ý[™Y^›Ü™\ˆ™Ë]Ú]HMHÚYÝË\ÛHˆÛ”ÝX›Z]^Ê]™[
+HOˆÈ]™[œ™]™[Y˜][
+
+NÈØ]™J”UÒ‹ÈÛÛ\[žRYˆXÝ]™PÛÛ\[žRY˜\ÙPÝ\œ™[˜ÞNˆÝ\œ™[˜ÞHJNÈ_O]ˆÛ\ÜÓ˜[YOH™›ÛX›ÛÛÛ\[žH˜\ÙHÝ\œ™[˜ÞOÚÛ\ÜÓ˜[YOH^\ÛH^\Û]KML”™\ÜÈ[™XØÛÝ[[™È[šY\È\ÙH\ÈÝ\œ™[˜ÞKÜÙ]]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[žØXÝ]™PÛÛ\[žOË›˜[Y_OÓX™[Ù[XÝ˜[YO^ØÝ\œ™[˜Þ_HÛ•˜[YPÚ[™ÙO^ÜÙ]Ý\œ™[˜Þ_OÙ[XÝšYÙÙ\Ù[XÝ˜[YHÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žØÝ\œ™[˜ÚY\Ë›X\
+
+˜[YJHOˆÙ[XÝ][HÙ^O^Ý˜[Y_H˜[YO^Ý˜[Y_OžÝ˜[Y_OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝÙ]]Ûˆ\ØX›Y^ÜØ]š[™ÈXXÝ]™PÛÛ\[žRYHÛ\ÜÓ˜[YOHËY[”Ø]™HÝ\œ™[˜ÞOÐ]ÛÙ›Ü›OÙ]ŽÂŸB‚™[˜Ý[ÛˆÛÜšÜÜXÙQX[ÙÊÈÜ[‹ÛÛ\[šY\ËXÝ]™PÛÛ\[žRYÛÛÜÙKÛÚ[™ÙYNˆÈÜ[Žˆ›ÛÛX[ŽÈÛÛ\[šY\ÎˆÛÛ\[žUÛÜšÜÜXÙV×NÈXÝ]™PÛÛ\[žRYˆ[X™\ŽÈÛÛÜÙNˆ
+
+HOˆ›ÚYÈÛÚ[™ÙYˆ
+
+HOˆ›ÛZ\ÙO›ÚYˆJHÂˆÛÛœÝØÛÛ\[žS˜[YKÙ]ÛÛ\[žS˜[YWHH\ÙTÝ]JˆŠNÂˆÛÛœÝØÛÛ\[žPÝ\œ™[˜ÞKÙ]ÛÛ\[žPÝ\œ™[˜ÞWHH\ÙTÝ]JQQŠNÂˆÛÛœÝÛØØ][Û“˜[YKÙ]ØØ][Û“˜[YWHH\ÙTÝ]JˆŠNÂˆÛÛœÝÛØØ][ÛÛÙKÙ]ØØ][ÛÛÙWHH\ÙTÝ]JˆŠNÂˆÛÛœÝÜØ]š[™ËÙ]Ø]š[™×HH\ÙTÝ]J˜[ÙJNÂˆÛÛœÝÝX›Z]H\Þ[˜È
+^[ØYˆ™XÛÜ™Ýš[™ËÝš[™È[X™\ŠHOˆÂˆÙ]Ø]š[™ÊYJNÂˆžHÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+‹Ø\KÝÛÜšÜÜXÙ\È‹ÈY]Ùˆ”ÔÕ‹XY\œÎˆÈÛÛ[U\HŽˆ˜\XØ][Û‹ÚœÛÛˆˆK›ÙNˆ”ÓÓ‹œÝš[™ÚYžJ^[ØY
+HJNÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›ÝØ]™HŠNÂˆ]ØZ]ÛÚ[™ÙY
+
+NÂˆÙ]ÛÛ\[žS˜[YJˆŠNÈÙ]ØØ][Û“˜[YJˆŠNÈÙ]ØØ][ÛÛÙJˆŠNÂˆØ\ÝœÝXØÙ\ÜÊ^[ØY\HOOH˜ÛÛ\[žHˆÈÛÛ\[žHYYˆˆ’[™[ÜžHØØ][ÛˆYYŠNÂˆHØ]Ú
+\œ›ÜŠHÈØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›ÝØ]™HŠNÈBˆš[˜[HÈÙ]Ø]š[™Ê˜[ÙJNÈBˆNÂˆ™]\›ˆX[ÙÈÜ[^ÛÜ[ŸHÛ“Ü[Ú[™ÙO^Ê™^
+HOˆÈYˆ
+[™^
+HÛÛÜÙJ
+NÈ_OX[ÙÐÛÛ[Û\ÜÓ˜[YOHœÛN›X^]ËLÞX[ÙÒXY\X[ÙÕ]OÛÛ\[šY\È	ˆ[™[ÜžOÑX[ÙÕ]OX[ÙÑ\ØÜš\[ÛYÙ\\˜]HÛÛ\[žHš[\È[™ÝØÚÈØØ][ÛœËˆXXÚÛÛ\[žHÙY\È]ÈÝÛˆ™XÛÜ™È[™˜\ÙHÝ\œ™[˜ÞKÑX[ÙÑ\ØÜš\[ÛÑX[ÙÒXY\‚ˆ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\MHY™ÜšYXÛÛËLˆ‚ˆ›Ü›HÛ\ÜÓ˜[YOHœÜXÙK^KM›Ý[™Y^›Ü™\ˆMˆÛ”ÝX›Z]^Ê]™[
+HOˆÈ]™[œ™]™[Y˜][
+
+NÈÝX›Z]
+È\Nˆ˜ÛÛ\[žH‹˜[YNˆÛÛ\[žS˜[YK˜\ÙPÝ\œ™[˜ÞNˆÛÛ\[žPÝ\œ™[˜ÞKÛÝ\˜ÙPÛÛ\[žRYˆXÝ]™PÛÛ\[žRYJNÈ_O]ÈÛ\ÜÓ˜[YOH™›Û\Ù[ZX›ÛYÛÛ\[žOÚÏÛ\ÜÓ˜[YOH^^È^\Û]KMLÛÜY\ÈÛ›HHÙ[XÝYÛÛ\[žx &\ÈXZ[ˆÚ\ÙˆXØÛÝ[È]™\›È˜[[˜ÙKˆÝX‹XXØÛÝ[Ë˜[œØXÝ[ÛœÈ[™\ÝÜžHÝ^H[\KÜÙ]]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[ÛÛ\[žH˜[YOÓX™[[œ]˜[YO^ØÛÛ\[žS˜[Y_HÛÚ[™ÙO^Ê]™[
+HOˆÙ]ÛÛ\[žS˜[YJ]™[\™Ù]˜[YJ_H™\]Z\™YXÙZÛ\HÛÛ\[žH˜[YHˆÏÙ]]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[˜\ÙHÝ\œ™[˜ÞOÓX™[Ù[XÝ˜[YO^ØÛÛ\[žPÝ\œ™[˜Þ_HÛ•˜[YPÚ[™ÙO^ÜÙ]ÛÛ\[žPÝ\œ™[˜Þ_OÙ[XÝšYÙÙ\Ù[XÝ˜[YHÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žØÝ\œ™[˜ÚY\Ë›X\
+
+Ý\œ™[˜ÞJHOˆÙ[XÝ][HÙ^O^ØÝ\œ™[˜Þ_H˜[YO^ØÝ\œ™[˜Þ_OžØÝ\œ™[˜Þ_OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝÙ]]Ûˆ\OHœÝX›Z]ˆ\ØX›Y^ÜØ]š[™ßHÛ\ÜÓ˜[YOHËY[\ÈÛ\ÜÓ˜[YOHœÚ^™KMˆÏYÛÛ\[žOÐ]ÛÙ›Ü›O‚ˆ›Ü›HÛ\ÜÓ˜[YOHœÜXÙK^KM›Ý[™Y^›Ü™\ˆMˆÛ”ÝX›Z]^Ê]™[
+HOˆÈ]™[œ™]™[Y˜][
+
+NÈÝX›Z]
+È\Nˆ›ØØ][Ûˆ‹ÛÛ\[žRYˆXÝ]™PÛÛ\[žRY˜[YNˆØØ][Û“˜[YKÛÙNˆØØ][ÛÛÙHJNÈ_O]ÈÛ\ÜÓ˜[YOH™›Û\Ù[ZX›ÛY[™[ÜžHØØ][ÛÚÏÛ\ÜÓ˜[YOH^^È^\Û]KMLYHØ\™ZÝ\ÙKÚÝÜ›ÛÛHÜˆÝÜ™HÈHÙ[XÝYÛÛ\[žKÜÙ]]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[“ØØ][Ûˆ˜[YOÓX™[[œ]˜[YO^ÛØØ][Û“˜[Y_HÛÚ[™ÙO^Ê]™[
+HOˆÙ]ØØ][Û“˜[YJ]™[\™Ù]˜[YJ_H™\]Z\™YXÙZÛ\H’™X™[[HØ\™ZÝ\ÙHˆÏÙ]]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[“ØØ][ÛˆÛÙOÓX™[[œ]˜[YO^ÛØØ][ÛÛÙ_HÛÚ[™ÙO^Ê]™[
+HOˆÙ]ØØ][ÛÛÙJ]™[\™Ù]˜[YKÕ\\Ø\ÙJ
+J_H™\]Z\™YXÙZÛ\H’Q–HˆÏÙ]]Ûˆ\OHœÝX›Z]ˆ\ØX›Y^ÜØ]š[™ÈXXÝ]™PÛÛ\[žRYH˜\šX[H›Ý][™HˆÛ\ÜÓ˜[YOHËY[\ÈÛ\ÜÓ˜[YOHœÚ^™KMˆÏY[™[ÜžOÐ]ÛÙ›Ü›O‚ˆÙ]‚ˆ]ˆÛ\ÜÓ˜[YOH›X^ZMÜXÙK^KLˆÝ™\™›ÝË^KX]]È›Ý[™Y^™Ë\Û]KMLLÈžØÛÛ\[šY\Ë›X\
+
+ÛÛ\[žJHOˆ]ˆÙ^O^ØÛÛ\[žKšYHÛ\ÜÓ˜[YOH™›^][\ËXÙ[\ˆ\ÝYžKX™]ÙY[ˆ›Ý[™Y[È™Ë]Ú]HLÈKLˆ^\ÛH]Ý›Û™ÏžØÛÛ\[žK›˜[Y_OÜÝ›Û™ÏÛ\ÜÓ˜[YOH^^È^\Û]KMLžØÛÛ\[žK›ØØ][ÛœË›X\
+
+ØØ][ÛŠHOˆ	ÛØØ][Û‹›˜[Y_H
+	ÛØØ][Û‹˜ÛÙ_JX
+Kš›Ú[Šˆ0­ÈŠ_OÜÙ]˜YÙH˜\šX[H›Ý][™HžØÛÛ\[žK˜˜\ÙPÝ\œ™[˜Þ_OÐ˜YÙOÙ]Š_OÙ]‚ˆX[ÙÑ›ÛÝ\]Ûˆ\OH˜]Ûˆˆ˜\šX[H›Ý][™HˆÛÛXÚÏ^ÛÛÛÜÙ_O‘Û™OÐ]ÛÑX[ÙÑ›ÛÝ\‚ˆÑX[ÙÐÛÛ[ÑX[ÙÏŽÂŸB‚™[˜Ý[ÛˆšY[
+ÈX™[˜[YK›Ü›KÙ]›Ü›K\HH^‹™\]Z\™YH˜[ÙKXÙZÛ\ˆNˆÈX™[ˆÝš[™ÎÈ˜[YNˆÝš[™ÎÈ›Ü›Nˆ™XÛÜ™Ýš[™ËÝš[™ÏŽÈÙ]›Ü›Nˆ
+Žˆ™XÛÜ™Ýš[™ËÝš[™ÏŠHOˆ›ÚYÈ\OÎˆÝš[™ÎÈ™\]Z\™YÎˆ›ÛÛX[ŽÈXÙZÛ\ÎˆÝš[™ÈJHÈ™]\›ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[[›Ü^Û˜[Y_OžÛX™[^Ü™\]Z\™YÈˆ
+ˆˆˆˆŸOÓX™[[œ]Y^Û˜[Y_H˜[YO^Û˜[Y_H\O^Ý\_H™\]Z\™Y^Ü™\]Z\™YHXÙZÛ\^ÜXÙZÛ\ŸH˜[YO^Ù›Ü›VÛ˜[YWHÏÈˆŸHÛÚ[™ÙO^ÊJHOˆÙ]›Ü›JÈ‹‹™›Ü›KÛ˜[YWNˆK\™Ù]˜[YHJ_HÏÙ]ŽÈB™[˜Ý[ÛˆÚÚXÙJÈX™[˜[YK˜[Y\Ë›Ü›KÙ]›Ü›KXÙZÛ\ˆNˆÈX™[ˆÝš[™ÎÈ˜[YNˆÝš[™ÎÈ˜[Y\ÎˆÝš[™Ö×NÈ›Ü›Nˆ™XÛÜ™Ýš[™ËÝš[™ÏŽÈÙ]›Ü›Nˆ
+Žˆ™XÛÜ™Ýš[™ËÝš[™ÏŠHOˆ›ÚYÈXÙZÛ\ÎˆÝš[™ÈJHÈ™]\›ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[žÛX™[OÓX™[Ù[XÝ˜[YO^Ù›Ü›VÛ˜[YW_HÛ•˜[YPÚ[™ÙO^Ê˜[YJHOˆÙ]›Ü›JÈ‹‹™›Ü›KÛ˜[YWNˆ˜[YHJ_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHXÙZÛ\^ÜXÙZÛ\ŸHÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žÝ˜[Y\Ë›X\
+
+˜[YJHOˆÙ[XÝ][HÙ^O^Ý˜[Y_H˜[YO^Ý˜[Y_OÜ[ˆÛ\ÜÓ˜[YOH˜Ø\][^™HžÝ˜[Y_OÜÜ[ÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝÙ]ŽÈB™[˜Ý[ÛˆÝ\œ™[˜ÞQ^Ú[™ÙPÚÚXÙJÈ›Ü›KÙ]›Ü›K^Ú[™ÙT˜]\Ë˜\ÙPÝ\œ™[˜ÞHNˆÈ›Ü›Nˆ™XÛÜ™Ýš[™ËÝš[™ÏŽÈÙ]›Ü›Nˆ
+›Ü›Nˆ™XÛÜ™Ýš[™ËÝš[™ÏŠHOˆ›ÚYÈ^Ú[™ÙT˜]\Îˆ^Ú[™ÙT˜]T™XÛÜ™×NÈ˜\ÙPÝ\œ™[˜ÞNˆÝš[™ÈJHÂˆÛÛœÝÙ[XÝY˜]HH^Ú[™ÙT˜]\Ë™š[™
+
+˜]JHOˆ˜]K˜Ý\œ™[˜ÞPÛÙHOOH›Ü›K˜Ý\œ™[˜ÞJOËœ˜]NÂˆ™]\›ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[Ý\œ™[˜ÞH
+ÓX™[Ù[XÝ˜[YO^Ù›Ü›K˜Ý\œ™[˜Þ_HÛ•˜[YPÚ[™ÙO^ÊÝ\œ™[˜ÞJHOˆÈÛÛœÝØ]™Y˜]HH^Ú[™ÙT˜]\Ë™š[™
+
+[žJHOˆ[žK˜Ý\œ™[˜ÞPÛÙHOOHÝ\œ™[˜ÞJOËœ˜]NÈÙ]›Ü›JÈ‹‹™›Ü›KÝ\œ™[˜ÞK^Ú[™ÙT˜]NˆÝ\œ™[˜ÞHOOH˜\ÙPÝ\œ™[˜ÞHÈŒHˆˆØ]™Y˜]HÈÝš[™ÊØ]™Y˜]JHˆˆˆJNÈ_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žØÝ\œ™[˜ÚY\Ë›X\
+
+Ý\œ™[˜ÞJHOˆÙ[XÝ][HÙ^O^ØÝ\œ™[˜Þ_H˜[YO^ØÝ\œ™[˜Þ_OÜ[ˆÛ\ÜÓ˜[YOH™›^ËY[][\ËXÙ[\ˆ\ÝYžKX™]ÙY[ˆØ\LÈÜ[žØÝ\œ™[˜Þ_OÜÜ[Ü[ˆÛ\ÜÓ˜[YOH^^È^\Û]KMLžØÝ\œ™[˜ÞHOOH˜\ÙPÝ\œ™[˜ÞHÈ˜\ÙH0­ÈKŒˆˆ^Ú[™ÙT˜]\Ë™š[™
+
+[žJHOˆ[žK˜Ý\œ™[˜ÞPÛÙHOOHÝ\œ™[˜ÞJOËœ˜]HÈ˜]H	Ù^Ú[™ÙT˜]\Ë™š[™
+
+[žJHOˆ[žK˜Ý\œ™[˜ÞPÛÙHOOHÝ\œ™[˜ÞJOËœ˜]_Xˆ”˜]H›ÝÙ]ŸOÜÜ[ÜÜ[ÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝžÙ›Ü›K˜Ý\œ™[˜ÞHOOH˜\ÙPÝ\œ™[˜ÞH	‰ˆÙ[XÝY˜]HÈÛ\ÜÓ˜[YOH^^È^Y[Y\˜[MÌ”Ø]™Y˜]H\YYˆHÙ›Ü›K˜Ý\œ™[˜Þ_HHÜÙ[XÝY˜]_HØ˜\ÙPÝ\œ™[˜Þ_OÜˆˆ›Ü›K˜Ý\œ™[˜ÞHOOH˜\ÙPÝ\œ™[˜ÞHÈÛ\ÜÓ˜[YOH^^È^X[X™\‹MÌ“›ÈØ]™Y˜]Kˆ[\ˆHØÝ[Y[˜]HX[X[KÜˆˆ[OÙ]ŽÂŸB™[˜Ý[Ûˆš[šY[ÊÈ›Ü›KÙ]›Ü›K][\Ë™[™ÜœËØ[\ÛY[‹XØÛÝ[ËØØ][ÛœË[™\ËÙ][™\Ë˜]ÛÙSÜ[ÛœË^Ú[™ÙT˜]\Ë˜\ÙPÝ\œ™[˜ÞHNˆÈ›Ü›Nˆ™XÛÜ™Ýš[™ËÝš[™ÏŽÈÙ]›Ü›Nˆ
+Žˆ™XÛÜ™Ýš[™ËÝš[™ÏŠHOˆ›ÚYÈ][\Îˆ]T™XÛÜ™×NÈ™[™ÜœÎˆ]T™XÛÜ™×NÈØ[\ÛY[Žˆ]T™XÛÜ™×NÈXØÛÝ[Îˆ]T™XÛÜ™×NÈØØ][ÛœÎˆ[™[ÜžSØØ][Û–×NÈ[™\Îˆ[™Q›Ü›V×NÈÙ][™\Îˆ
+[™\Îˆ[™Q›Ü›V×JHOˆ›ÚYÈ˜]ÛÙSÜ[ÛœÎˆ˜]ÛÙSÜ[Û–×NÈ^Ú[™ÙT˜]\Îˆ^Ú[™ÙT˜]T™XÛÜ™×NÈ˜\ÙPÝ\œ™[˜ÞNˆÝš[™ÈJHÂˆÛÛœÝ\]HH
+[™^ˆ[X™\‹Ú[™Ù\Îˆ\X[[™Q›Ü›OŠHOˆÙ][™\Ê[™\Ë›X\
+
+[™KÜÚ][ÛŠHOˆÜÚ][ÛˆOOH[™^ÈÈ‹‹›[™K‹‹˜Ú[™Ù\ÈHˆ[™JJNÂˆÛÛœÝY[™HH
+
+HOˆÙ][™\ÊË‹‹›[™\ËÈ][RYˆˆ‹\ØÜš\[ÛŽˆˆ‹]X[]NˆŒH‹[š]šXÙNˆŒ‹[š]ÛÜÝˆŒ‹œ™ZYÚÚ\™ÙNˆŒ‹˜]ÛÙNˆ›Ü›Kš\Ò[\ÜOOHYHˆÈ”ÕS‘T‘ˆˆ–‘T“È‹˜]˜]Nˆ›Ü›Kš\Ò[\ÜOOHYHˆÈHˆˆŒˆWJNÂˆÛÛœÝØÝ[Y[˜]HHX]›X^
+[X™\Š›Ü›K™^Ú[™ÙT˜]JHK[X™\‹‘TÒSÓŠNÂˆÛÛœÝÝXÝ[H[™\Ëœ™YXÙJ
+Ý[K[™JHOˆÝ[H
+ÈX]œ›Ý[™
+[X™\Š[™Kœ]X[]H
+H
+ˆ[X™\Š[™K[š]šXÙH
+H
+ˆL
+HÈL
+NÂˆÛÛœÝ˜]H[™\Ëœ™YXÙJ
+Ý[K[™JHOˆÝ[H
+ÈX]œ›Ý[™
+X]œ›Ý[™
+[X™\Š[™Kœ]X[]H
+H
+ˆ[X™\Š[™K[š]šXÙH
+H
+ˆL
+HÈL
+ˆ[X™\Š[™K˜]˜]H
+JHÈL
+NÂˆÛÛœÝ[™Qœ™ZYÚH
+[™Nˆ[™Q›Ü›JHOˆX]œ›Ý[™
+[X™\Š[™K™œ™ZYÚÚ\™ÙH
+H
+ˆL
+HÈLÂˆÛÛœÝœ™ZYÚÚ\™Ù\ÈH[™\Ëœ™YXÙJ
+Ý[K[™JHOˆÝ[H
+È[™Qœ™ZYÚ
+[™JK
+NÂˆÛÛœÝÝ[]X[]HH[™\Ëœ™YXÙJ
+Ý[K[™JHOˆÝ[H
+È[X™\Š[™Kœ]X[]H
+K
+NÂˆÛÛœÝœ™ZYÚžU^H™]ÈX\Ýš[™ËÈ[[Ý[ˆ[X™\ŽÈ˜]Nˆ[X™\ˆOŠ
+NÂˆ[™\Ë™›Ü‘XXÚ
+[™HOˆÈÛÛœÝÛHœ™ZYÚžU^™Ù]
+[™K˜]ÛÙJNÈœ™ZYÚžU^œÙ]
+[™K˜]ÛÙKÈ[[Ý[ˆ
+ÛË˜[[Ý[
+H
+È[™Qœ™ZYÚ
+[™JK˜]Nˆ[X™\Š[™K˜]˜]H
+HJNÈJNÂˆÛÛœÝœ™ZYÚ˜]HË‹‹™œ™ZYÚžU^˜[Y\Ê
+WKœ™YXÙJ
+Ý[KÜ›Ý\
+HOˆÝ[H
+ÈX]œ›Ý[™
+Ü›Ý\˜[[Ý[
+ˆÜ›Ý\œ˜]JHÈL
+NÂˆÛÛœÝÝ[˜]H˜]
+Èœ™ZYÚ˜]ÂˆÛÛœÝÝ[HÝXÝ[
+Èœ™ZYÚÚ\™Ù\È
+ÈÝ[˜]ÂˆÛÛœÝ\˜Ú\ÙPXØÛÝ[ÈHXØÛÝ[Ë™š[\Š
+XØÛÝ[
+HOˆXØÛÝ[˜XÝ]™H	‰ˆ
+ˆÈ”TÒTÑTÈ‹‘VS”ÑH‹ÓÑÔÈ—Kš[˜ÛY\ÊÝš[™ÊXØÛÝ[œÞ\Ý[T›ÛJJBˆÈ‘^[œÙH‹“Ý\ˆ^[œÙH‹ÛÜÝÙˆÛÛÙÈÛÛ—Kš[˜ÛY\ÊÝš[™ÊXØÛÝ[\JJBˆ
+JNÂˆÛÛœÝY˜][\˜Ú\ÙPXØÛÝ[HÝš[™ÊˆY˜][š[\˜Ú\ÙPXØÛÝ[
+\˜Ú\ÙPXØÛÝ[ÊBˆ
+NÂˆ\ÙQY™™XÝ
+
+
+HOˆÂˆYˆ
+Y›Ü›K˜XØÛÝ[	‰ˆY˜][\˜Ú\ÙPXØÛÝ[
+HÙ]›Ü›JÈ‹‹™›Ü›KXØÛÝ[ˆY˜][\˜Ú\ÙPXØÛÝ[JNÂˆKÙY˜][\˜Ú\ÙPXØÛÝ[›Ü›KÙ]›Ü›WJNÂˆÛÛœÝ\˜Ú\ÙR][\ÈH][\Ë™š[\Š][PØ[™QØÝ[Y[[™JNÂˆ™]\›ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KMH‚ˆ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\M›Ý[™Y^›Ü™\ˆ™Ë\Û]KMLMY™ÜšYXÛÛËLˆ™ÜšYXÛÛËMˆ‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[”Ø[\È™\ÓX™[Ù[XÝ˜[YO^Ù›Ü›KœØ[\ÛX[ˆ[™Yš[™YHÛ•˜[YPÚ[™ÙO^Ê˜[YJHOˆÙ]›Ü›JÈ‹‹™›Ü›KØ[\ÛX[Žˆ˜[YHJ_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHXÙZÛ\H”Ù[XÝØ[\È™\ˆÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žÜØ[\ÛY[‹›[™ÝÈØ[\ÛY[‹›X\
+
+Ø[\ÛX[ŠHOˆÙ[XÝ][HÙ^O^ÜØ[\ÛX[‹šYH˜[YO^ÔÝš[™ÊØ[\ÛX[‹›˜[YJ_OžÔÝš[™ÊØ[\ÛX[‹›˜[YJ_OÔÙ[XÝ][OŠHˆÙ[XÝ][H˜[YOH››Ë\Ø[\ÛY[ˆˆ\ØX›Y“›ÈØ[\È™\È]˜Z[X›OÔÙ[XÝ][OŸOÔÙ[XÝÛÛ[ÔÙ[XÝÙ]‚ˆšY[X™[H”™Y™\™[˜ÙH›Ëˆˆ˜[YOH›[X™\ˆˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_H™\]Z\™YXÙZÛ\H‘[\ˆ™Y™\™[˜ÙH›ËˆˆÏ‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[’[™[ÜžH
+ÓX™[Ù[XÝ\ØX›Y^Ð›ÛÛX[Š›Ü›Kœ™]š\Ú[ÛŠ_H˜[YO^Ù›Ü›K˜š[ØØ][Û’YÝš[™ÊØØ][ÛœÖÌOËšYÏÈˆŠ_HÛ•˜[YPÚ[™ÙO^Ê˜[YJHOˆÙ]›Ü›JÈ‹‹™›Ü›Kš[ØØ][Û’Yˆ˜[YHJ_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHXÙZÛ\H”Ù[XÝ[™[ÜžHˆÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žÛØØ][ÛœË›X\
+
+ØØ][ÛŠHOˆÙ[XÝ][HÙ^O^ÛØØ][Û‹šYH˜[YO^ÔÝš[™ÊØØ][Û‹šY
+_OžÛØØ][Û‹›˜[Y_OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝÙ]‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[’[\ÜÓX™[Ù[XÝ˜[YO^Ù›Ü›Kš\Ò[\ÜÏÈ™˜[ÙHŸHÛ•˜[YPÚ[™ÙO^Ê˜[YJHOˆÈÛÛœÝ˜]˜]HH˜[YHOOHYHˆÈHˆˆŒŽÈÛÛœÝ˜]ÛÙHH˜[YHOOHYHˆÈ”ÕS‘T‘ˆˆ–‘T“ÈŽÈÙ]›Ü›JÈ‹‹™›Ü›K\Ò[\Üˆ˜[YK˜]˜]HJNÈÙ][™\Ê[™\Ë›X\
+
+[™JHOˆ
+È‹‹›[™K˜]ÛÙK˜]˜]HJJJNÈ_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[Ù[XÝ][H˜[YOHYH–Y\È8 %IHUÔÙ[XÝ][OÙ[XÝ][H˜[YOH™˜[ÙH“›È8 %	HUÔÙ[XÝ][OÔÙ[XÝÛÛ[ÔÙ[XÝÙ]‚ˆÝ\œ™[˜ÞQ^Ú[™ÙPÚÚXÙH›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_H^Ú[™ÙT˜]\Ï^Ù^Ú[™ÙT˜]\ßH˜\ÙPÝ\œ™[˜ÞO^Ø˜\ÙPÝ\œ™[˜Þ_HÏ‚ˆšY[X™[^Ø^Ú[™ÙH˜]HÈ	Ø˜\ÙPÝ\œ™[˜Þ_XH˜[YOH™^Ú[™ÙT˜]Hˆ\OH›[X™\ˆˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_H™\]Z\™YXÙZÛ\HŒKŒˆÏ‚ˆÙ]‚ˆ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\MY™ÜšYXÛÛËLÈ‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[•™[™Üˆ
+ÓX™[Ù[XÝ˜[YO^Ù›Ü›Kœ\_HÛ•˜[YPÚ[™ÙO^Ê˜[YJHOˆÙ]›Ü›J\PÛÛXÝÝ\œ™[˜ÞJ›Ü›K™[™ÜœË˜[YK™[™Üˆ‹^Ú[™ÙT˜]\Ë˜\ÙPÝ\œ™[˜ÞJJ_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHXÙZÛ\H”Ù[XÝ™[™ÜˆˆÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žÝ™[™ÜœË›[™ÝÈ™[™ÜœË›X\
+
+™[™ÜŠHOˆÙ[XÝ][HÙ^O^Ý™[™Ü‹šYH˜[YO^ÔÝš[™Ê™[™Ü‹›˜[YJ_OžÔÝš[™Ê™[™Ü‹˜ÛÛ\[žH™[™Ü‹›˜[YJ_H0­ÈÔÝš[™Ê™[™Ü‹˜Ý\œ™[˜ÞJ_OÔÙ[XÝ][OŠHˆÙ[XÝ][H˜[YOH››Ë]™[™ÜœÈˆ\ØX›Y“›È™[™ÜœÈ]˜Z[X›OÔÙ[XÝ][OŸOÔÙ[XÝÛÛ[ÔÙ[XÝÙ]‚ˆšY[X™[H‘]Hˆ˜[YOH˜[œØXÝ[Û‘]Hˆ\OH™]Hˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_H™\]Z\™YÏ‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[”\˜Ú\ÙHXØÛÝ[
+ÓX™[Ù[XÝ˜[YO^Ù›Ü›K˜XØÛÝ[Y˜][\˜Ú\ÙPXØÛÝ[HÛ•˜[YPÚ[™ÙO^ÊXØÛÝ[
+HOˆÙ]›Ü›JÈ‹‹™›Ü›KXØÛÝ[J_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHXÙZÛ\H”Ù[XÝ\˜Ú\ÙHÈ^[œÙHXØÛÝ[ˆÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žÜ\˜Ú\ÙPXØÛÝ[Ë›[™ÝÈ\˜Ú\ÙPXØÛÝ[Ë›X\
+
+XØÛÝ[
+HOˆÙ[XÝ][HÙ^O^ØXØÛÝ[šYH˜[YO^ÔÝš[™ÊXØÛÝ[›˜[YJ_OžÔÝš[™ÊXØÛÝ[˜ÛÙHˆŠ_H0­ÈÔÝš[™ÊXØÛÝ[›˜[YJ_H0­ÈÔÝš[™ÊXØÛÝ[\J_OÔÙ[XÝ][OŠHˆÙ[XÝ][H˜[YOH››Ë\\˜Ú\ÙKXXØÛÝ[Èˆ\ØX›Y“›È\˜Ú\ÙHÈ^[œÙHXØÛÝ[È]˜Z[X›OÔÙ[XÝ][OŸOÔÙ[XÝÛÛ[ÔÙ[XÝÛ\ÜÓ˜[YOH^^È^\Û]KML•\ÙY›Üˆ›Û‹\ÝØÚÈ\˜Ú\Ù\È[™˜[˜XÚÈÜÝ[™ËˆÝØÚÈ][\È\ÙHZ\ˆ[šÙY[™[ÜžH\ÜÙ]XØÛÝ[ÜÙ]‚ˆÙ]‚ˆ]ˆÛ\ÜÓ˜[YOH˜š[Z][K]X›HÝ™\™›ÝËZY[ˆ›Ý[™Y[È›Ü™\ˆ™Ë]Ú]H‚ˆ]ˆÛ\ÜÓ˜[YOH™›^][\ËXÙ[\ˆ\ÝYžKX™]ÙY[ˆ›Ü™\‹XˆLÈš[[[Øš[KZXY[™ÈÝ›Û™Ïš[][\ÏÜÝ›Û™Ï]Ûˆ\OH˜]ÛˆˆÛ\ÜÓ˜[YOH˜™ËYÜ™Y[‹MŒ^]Ú]HÝ™\Ž˜™ËYÜ™Y[‹MÌˆÚ^™OHšXÛÛˆˆ\šXK[X™[HYš[][HˆÛÛXÚÏ^ØY[™_O\ÈÛ\ÜÓ˜[YOHœÚ^™KMˆÏÐ]ÛÙ]‚ˆ]ˆÛ\ÜÓ˜[YOH˜š[Z][KZXY[™È™Ë\Û]KML^\ÛH›ÛX›Û]ˆÏÙ]]‘\ØÏÙ]]”UH
+ÜÊOÙ]]”˜]OÙ]]”ÝXÝ[Ù]]•UÙ]]]Ûˆ\OH˜]ÛˆˆÛ\ÜÓ˜[YOH˜™ËYÜ™Y[‹MŒ^]Ú]HÝ™\Ž˜™ËYÜ™Y[‹MÌˆÚ^™OHšXÛÛˆˆ\šXK[X™[HYš[][HˆÛÛXÚÏ^ØY[™_O\ÈÛ\ÜÓ˜[YOHœÚ^™KMˆÏÐ]ÛÙ]Ù]‚ˆÛ[™\Ë›X\
+
+[™K[™^
+HOˆÂˆÛÛœÝ[™TÝXÝ[HX]œ›Ý[™
+[X™\Š[™Kœ]X[]H
+H
+ˆ[X™\Š[™K[š]šXÙH
+H
+ˆL
+HÈLÂˆÛÛœÝÙ[XÝY][HH\˜Ú\ÙR][\Ë™š[™
+
+[žJHOˆÝš[™Ê[žKšY
+HOOH[™Kš][RY
+NÂˆ™]\›ˆ]ˆÙ^O^Ú[™^HÛ\ÜÓ˜[YOH˜š[Z][K\›ÝÈ‚ˆ]ˆÛ\ÜÓ˜[YOH˜š[Z][K[[X™\ˆ^\ÛH^\Û]KMLžÚ[™^
+È_OÙ]‚ˆ]ˆÛ\ÜÓ˜[YOH˜š[Z][K\›ÙXÝÜXÙK^KLˆZ[‹]ËLÙ[XÝ˜[YO^Û[™Kš][RY˜Ý\ÝÛHŸHÛ•˜[YPÚ[™ÙO^Ê˜[YJHOˆÈÛÛœÝ][HH\˜Ú\ÙR][\Ë™š[™
+
+[žJHOˆÝš[™Ê[žKšY
+HOOH˜[YJNÈÛÛœÝ\˜Ú\ÙU˜]ÛÙHH›Ü›Kš\Ò[\ÜOOHYHˆÈÝš[™Ê][OËœ\˜Ú\ÙU˜]ÛÙH”ÕS‘T‘ŠHˆ–‘T“ÈŽÈÛÛœÝ\˜Ú\ÙU˜]˜]HH[X™\Š˜]˜]Q›ÜÛÙJ\˜Ú\ÙU˜]ÛÙK˜]ÛÙSÜ[ÛœÊJNÈÛÛœÝÝÜ™YÛYTšXÙHH[X™\Š][OË›\Ý\˜Ú\ÙTšXÙHÏÈ][OË˜ÛÜÝÏÈ
+NÈÛÛœÝ\ÝÛYTšXÙHH][OË˜[[Ý[Ò[˜ÛYU˜]OOHYH	‰ˆ\˜Ú\ÙU˜]˜]HˆÈÝÜ™YÛYTšXÙHÈ
+H
+È\˜Ú\ÙU˜]˜]HÈL
+HˆÝÜ™YÛYTšXÙNÈÛÛœÝØÝ[Y[šXÙHH[X™\Š
+\ÝÛYTšXÙHÈØÝ[Y[˜]JKÑš^Y
+ŠJNÈ\]J[™^˜[YHOOH˜Ý\ÝÛHˆÈÈ][RYˆˆ‹\ØÜš\[ÛŽˆˆˆHˆÈ][RYˆ˜[YK\ØÜš\[ÛŽˆ][HÈ][Q\Ü^Q\ØÜš\[ÛŠ][JHÝš[™Ê][K›˜[YJHˆˆ‹[š]šXÙNˆÝš[™ÊØÝ[Y[šXÙJK[š]ÛÜÝˆÝš[™ÊØÝ[Y[šXÙJKœ™ZYÚÚ\™ÙNˆŒ‹˜]ÛÙNˆ\˜Ú\ÙU˜]ÛÙK˜]˜]NˆÝš[™Ê\˜Ú\ÙU˜]˜]JHJNÈ_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHXÙZÛ\H”Ù[XÝ›ÙXÝˆÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[Ù[XÝ][H˜[YOH˜Ý\ÝÛHÝ\ÝÛH\ØÜš\[ÛÔÙ[XÝ][OžÜ\˜Ú\ÙR][\Ë›X\
+
+][JHOˆÙ[XÝ][HÙ^O^Ú][KšYH˜[YO^ÔÝš[™Ê][KšY
+_OžÔÝš[™Ê][KœÚÝJ_H0­ÈÔÝš[™Ê][K›˜[YJ_H0­ÈÚ][U\Q]Z[ÖÚ][U\SÙŠ][Kš][U\JWK›X™[H0­È\ÝØ˜\ÙPÝ\œ™[˜Þ_HÓ[X™\Š][K›\Ý\˜Ú\ÙTšXÙHÏÈ][K˜ÛÜÝÏÈ
+KÑš^Y
+Š_OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝžÜÙ[XÝY][H	‰ˆÛ\ÜÓ˜[YOH^^È›Û[YY][H^\ÚÞKMÌ“\Ý\˜Ú\ÙHšXÙH]š[[žNˆÙ›Ü›X][Û™^JÙ[XÝY][K›\Ý\˜Ú\ÙTšXÙHÏÈÙ[XÝY][K˜ÛÜÝ˜\ÙPÝ\œ™[˜ÞJ_OÜŸ^È[[™Kš][RY	‰ˆ[œ]XÙZÛ\H‘[\ˆ\ØÜš\[Ûˆˆ™\]Z\™Y˜[YO^Û[™K™\ØÜš\[ÛŸHÛÚ[™ÙO^Ê]™[
+HOˆ\]J[™^È\ØÜš\[ÛŽˆ]™[\™Ù]˜[YHJ_HÏŸOØÝ[Y[^˜QšY[È˜[YO^ÞÈÛÛ[Y[Îˆ[™K˜ÛÛ[Y[Èˆ‹Ù\šX[[X™\Žˆ[™KœÙ\šX[[X™\ˆˆˆ_HÛÚ[™ÙO^Ý˜[YHOˆ\]J[™^˜[YJ_HÏÙ]‚ˆ]X™[Û\ÜÓ˜[YOH˜š[[[Øš[K[X™[”UH
+ÜÊOÓX™[[œ]\šXK[X™[^Ø]X[]H›Üˆ[™H	Ú[™^
+È_XH\OH›[X™\ˆˆZ[HŒŒHˆÝ\HŒŒHˆ˜[YO^Û[™Kœ]X[]_HÛÚ[™ÙO^Ù]™[Oˆ\]J[™^È]X[]Nˆ]™[\™Ù]˜[YHJ_HÏÙ]‚ˆ]X™[Û\ÜÓ˜[YOH˜š[[[Øš[K[X™[”˜]OÓX™[[œ]\šXK[X™[^Ø˜]H›Üˆ[™H	Ú[™^
+È_XH\OH›[X™\ˆˆZ[HŒˆÝ\HŒŒHˆ˜[YO^Û[™K[š]šXÙ_HÛÚ[™ÙO^Ù]™[Oˆ\]J[™^È[š]šXÙNˆ]™[\™Ù]˜[YK[š]ÛÜÝˆ]™[\™Ù]˜[YHJ_HÏÙ]‚ˆ]X™[Û\ÜÓ˜[YOH˜š[[[Øš[K[X™[”ÝXÝ[ÓX™[[œ]\šXK[X™[^ØÝXÝ[›Üˆ[™H	Ú[™^
+È_XH™XYÛ›H˜[YO^Û[™TÝXÝ[Ñš^Y
+Š_HÛ\ÜÓ˜[YOH˜™Ë\Û]KLLˆÏÙ]‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[Û\ÜÓ˜[YOH˜š[[[Øš[K[X™[•UÓX™[[œ]\šXK[X™[^ØU[[Ý[›Üˆ[™H	Ú[™^
+È_XH™XYÛ›H˜[YO^ÊX]œ›Ý[™
+
+[™TÝXÝ[
+È[™Qœ™ZYÚ
+[™JJH
+ˆ[X™\Š[™K˜]˜]H
+JHÈL
+KÑš^Y
+Š_HÛ\ÜÓ˜[YOH˜™Ë\Û]KLLˆÏÙ[XÝ˜[YO^Û[™K˜]ÛÙ_HÛ•˜[YPÚ[™ÙO^Ê˜]ÛÙJHOˆ\]J[™^È˜]ÛÙK˜]˜]Nˆ˜]˜]Q›ÜÛÙJ˜]ÛÙK˜]ÛÙSÜ[ÛœÊHJ_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žÝ˜]ÛÙSÜ[ÛœË›X\
+
+Ü[ÛŠHOˆÙ[XÝ][HÙ^O^ÛÜ[Û‹˜ÛÙ_H˜[YO^ÛÜ[Û‹˜ÛÙ_OÜ[ˆÛ\ÜÓ˜[YOH™›^›^XÛÛÜ[žÛÜ[Û‹›X™[OÜÜ[žÛÜ[Û‹™\ØÜš\[ÛˆÈÜ[ˆÛ\ÜÓ˜[YOH^^È^\Û]KMLžÛÜ[Û‹™\ØÜš\[ÛŸOÜÜ[ˆˆ[OÜÜ[ÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝÙ]‚ˆ]ˆÛ\ÜÓ˜[YOH˜š[Z][KY[]H]Ûˆ\OH˜]ÛˆˆÚ^™OHšXÛÛˆˆ\ØX›Y^Û[™\Ë›[™ÝOOH_HÛÛXÚÏ^Ê
+HOˆÙ][™\Ê[™\Ë™š[\Š
+ËÜÚ][ÛŠHOˆÜÚ][ÛˆOOH[™^
+J_HÛ\ÜÓ˜[YOH˜™Ë\™YMŒ^]Ú]HÝ™\Ž˜™Ë\™YMÌˆ\šXK[X™[^Ø[]Hš[][H	Ú[™^
+È_XO˜\ÚˆÛ\ÜÓ˜[YOHœÚ^™KMˆÏÐ]ÛÙ]‚ˆÙ]ŽÂˆJ_BˆÙ]‚ˆ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\MHÎ™ÜšYXÛÛËVÌYœ—ÍŒH‚ˆ]ˆÏ‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KM›Ý[™Y^›Ü™\ˆ™Ë\Û]KMLM‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLÈ^\ÛH]ˆÛ\ÜÓ˜[YOH™›^\ÝYžKX™]ÙY[ˆÜ[ˆÛ\ÜÓ˜[YOH^\Û]KML•Ý[]X[]OÜÜ[Ý›Û™ÏžÝÝ[]X[]KÓØØ[TÝš[™Ê
+_OÜÝ›Û™ÏÙ]]ˆÛ\ÜÓ˜[YOH™›^\ÝYžKX™]ÙY[ˆÜ[ˆÛ\ÜÓ˜[YOH^\Û]KML”ÝXÝ[ÜÜ[Ý›Û™ÏžÙ›Ü›X][Û™^JÝXÝ[
+Èœ™ZYÚÚ\™Ù\Ë›Ü›K˜Ý\œ™[˜ÞJ_OÜÝ›Û™ÏÙ]]ˆÛ\ÜÓ˜[YOH™›^\ÝYžKX™]ÙY[ˆÜ[ˆÛ\ÜÓ˜[YOH^\Û]KML•UÜÜ[Ý›Û™ÏžÙ›Ü›X][Û™^JÝ[˜]›Ü›K˜Ý\œ™[˜ÞJ_OÜÝ›Û™ÏÙ]]ˆÛ\ÜÓ˜[YOH™›^\ÝYžKX™]ÙY[ˆ›Ü™\‹]LÈ^[ÈÜ[ˆÛ\ÜÓ˜[YOH™›ÛX›Û•Ý[ÜÜ[Ý›Û™ÏžÙ›Ü›X][Û™^JÝ[›Ü›K˜Ý\œ™[˜ÞJ_OÜÝ›Û™ÏÙ]Ù]‚ˆÙ]‚ˆÙ]‚ˆÙ]ŽÂŸB™[˜Ý[ÛˆØ\Ú˜[œØXÝ[Û‘šY[ÊÈ›Ü›KÙ]›Ü›KÛÛXÝËXØÛÝ[ËØØ][ÛœË[™\ËÙ][™\Ë˜]ÛÙSÜ[ÛœË^Ú[™ÙT˜]\Ë˜\ÙPÝ\œ™[˜ÞHNˆÈ›Ü›Nˆ™XÛÜ™Ýš[™ËÝš[™ÏŽÈÙ]›Ü›Nˆ
+Žˆ™XÛÜ™Ýš[™ËÝš[™ÏŠHOˆ›ÚYÈÛÛXÝÎˆ]T™XÛÜ™×NÈXØÛÝ[Îˆ]T™XÛÜ™×NÈØØ][ÛœÎˆ[™[ÜžSØØ][Û–×NÈ[™\Îˆ[™Q›Ü›V×NÈÙ][™\Îˆ
+[™\Îˆ[™Q›Ü›V×JHOˆ›ÚYÈ˜]ÛÙSÜ[ÛœÎˆ˜]ÛÙSÜ[Û–×NÈ^Ú[™ÙT˜]\Îˆ^Ú[™ÙT˜]T™XÛÜ™×NÈ˜\ÙPÝ\œ™[˜ÞNˆÝš[™ÈJHÂˆÛÛœÝ™XÙZ]™T^[Y[H›Ü›K\HOOH˜Ý\ÝÛY\ˆ^[Y[ŽÂˆÛÛœÝ^Pš[H›Ü›K\HOOH˜š[^[Y[ŽÂˆÛÛœÝ[™HH[™\ÖÌHÏÈÈ][RYˆˆ‹\ØÜš\[ÛŽˆ™XÙZ]™T^[Y[È”^[Y[™XÙZ]™YˆˆÚ\]YH^[Y[‹]X[]NˆŒH‹[š]šXÙNˆŒ‹[š]ÛÜÝˆŒ‹˜]ÛÙNˆ–‘T“È‹˜]˜]NˆŒˆNÂˆÛÛœÝ\]S[™HH
+Ú[™Ù\Îˆ\X[[™Q›Ü›OŠHOˆÙ][™\ÊÞÈ‹‹›[™K‹‹˜Ú[™Ù\ÈWJNÂˆÛÛœÝ[[Ý[H[X™\Š[™K[š]šXÙH
+NÂ‚ˆÛÛœÝ˜[šÐXØÛÝ[ÈHXØÛÝ[Ë™š[\Š
+XØÛÝ[
+HOˆXØÛÝ[˜XÝ]™H	‰ˆ
+XØÛÝ[\HOOH˜[šÈˆXØÛÝ[œÞ\Ý[T›ÛHOOHS’ÈŠJNÂˆÛÛœÝ\˜[YHH[šÙYXØÛÝ[˜[YJXØÛÝ[ËT‹XØÛÝ[È^XX›H‹›Ü›K˜Ý\œ™[˜ÞJNÂˆÛÛœÝÚ\]YPXØÛÝ[ÈHXØÛÝ[Ë™š[\Š
+XØÛÝ[
+HOˆXØÛÝ[˜XÝ]™H	‰ˆ
+ˆÈ‘VS”ÑH‹”TÒTÑTÈ‹ÓÑÔÈ‹”VT“Ó—Kš[˜ÛY\ÊÝš[™ÊXØÛÝ[œÞ\Ý[T›ÛJJBˆÈ‘^[œÙH‹“Ý\ˆ^[œÙH‹ÛÜÝÙˆÛÛÙÈÛÛ—Kš[˜ÛY\ÊÝš[™ÊXØÛÝ[\JJBˆ
+XØÛÝ[œÞ\Ý[T›ÛHOOHTˆ	‰ˆÝš[™ÊXØÛÝ[˜Ý\œ™[˜ÞJHOOH›Ü›K˜Ý\œ™[˜ÞJBˆ
+JNÂˆÛÛœÝ\ÐXØÛÝ[Ô^XX›HH
+›Ü›K˜XØÛÝ[\˜[YJHOOH\˜[YNÂˆÛÛœÝ[™™\œ™YÚ\]YU\HHÛÛXÝËœÛÛYJ
+ÛÛXÝ
+HOˆÛÛXÝ\HOOH™[\ÞYYHˆ	‰ˆÛÛXÝ›˜[YHOOH›Ü›Kœ\JHÈœØ[\žHˆˆ\ÐXØÛÝ[Ô^XX›HÈœÝ\Y\ˆˆˆ™^[œÙHŽÂˆÛÛœÝÚ\]YU\HH›Ü›K˜Ú\]YU\H[™™\œ™YÚ\]YU\NÂˆÛÛœÝÚ\]YT\SÜ[Û˜[H›Ü›K\HOOH˜Ú\]YHˆ	‰ˆÚ\]YU\HOOHœÝ\Y\ˆŽÂˆÛÛœÝ\Y\ÈHÛÛXÝË™š[\Š
+ÛÛXÝ
+HOˆÛÛXÝ\HOOH
+™XÙZ]™T^[Y[È˜Ý\ÝÛY\ˆˆˆÚ\]YU\HOOHœØ[\žHˆÈ™[\ÞYYHˆˆ™[™ÜˆŠH	‰ˆÛÛXÝœÝ]\ÈOOHš[˜XÝ]™HŠNÂˆÛÛœÝ^[œÙPXØÛÝ[ÈHÚ\]YPXØÛÝ[Ë™š[\Š
+XØÛÝ[
+HOˆXØÛÝ[œÞ\Ý[T›ÛHOOHTŠNÂˆÛÛœÝØ[\žPXØÛÝ[H^[œÙPXØÛÝ[Ë™š[™
+
+XØÛÝ[
+HOˆXØÛÝ[œÞ\Ý[T›ÛHOOH”VT“ÓŠHÏÈ^[œÙPXØÛÝ[Ë™š[™
+
+XØÛÝ[
+HOˆÜØ[\ž_^\›ÛÚK\Ý
+Ýš[™ÊXØÛÝ[›˜[YJJJHÏÈ^[œÙPXØÛÝ[ÖÌNÂˆÛÛœÝ\™XÝ^[œÙPXØÛÝ[H^[œÙPXØÛÝ[Ë™š[™
+
+XØÛÝ[
+HOˆXØÛÝ[œÞ\Ý[T›ÛHOOH”VT“ÓŠHÏÈ^[œÙPXØÛÝ[ÖÌNÂˆÛÛœÝ™\›Õ˜]Û›HH™XÙZ]™T^[Y[^Pš[ÂˆÛÛœÝY™™XÝ]™U˜]ÛÙHH™\›Õ˜]Û›HÈ–‘T“Èˆˆ[™K˜]ÛÙNÂˆÛÛœÝ˜]H™\›Õ˜]Û›HÈˆ[[Ý[
+ˆ[X™\Š˜]˜]Q›ÜÛÙJY™™XÝ]™U˜]ÛÙK˜]ÛÙSÜ[ÛœÊJHÈLÂˆÛÛœÝ˜[šÓX™[H
+˜[šÎˆ]T™XÛÜ™
+HOˆÂˆÛÛœÝ\™[HXØÛÝ[Ë™š[™
+
+XØÛÝ[
+HOˆXØÛÝ[šYOOH[X™\Š˜[šËœ\™[XØÛÝ[Y
+JNÂˆ™]\›ˆ	Ü\™[È	ÔÝš[™Ê\™[›˜[YJ_HÈˆˆŸIÔÝš[™Ê˜[šË›˜[YJ_H0­È	ÔÝš[™Ê˜[šË˜Ý\œ™[˜ÞJ_XÂˆNÂˆÛÛœÝÙ[XÝYÝ\Y\ˆH\™XÙZ]™T^[Y[È\Y\Ë™š[™
+
+\JHOˆ\K›˜[YHOOH›Ü›Kœ\JHˆ[™Yš[™YÂˆÛÛœÝÙ[XÝY˜[šÈH˜[šÐXØÛÝ[Ë™š[™
+
+˜[šÊHOˆÝš[™Ê˜[šËšY
+HOOH›Ü›K˜˜[šÐXØÛÝ[Y	‰ˆÝš[™Ê˜[šË˜Ý\œ™[˜ÞJHOOH›Ü›K˜Ý\œ™[˜ÞJNÂˆÛÛœÝÙ[XÝ\HH
+˜[YNˆÝš[™ÊHOˆÂˆÛÛœÝÛÛXÝ\HH™XÙZ]™T^[Y[È˜Ý\ÝÛY\ˆˆˆÚ\]YU\HOOHœØ[\žHˆÈ™[\ÞYYHˆˆ™[™ÜˆŽÂˆÛÛœÝ™^H\PÛÛXÝÝ\œ™[˜ÞJ›Ü›K\Y\Ë˜[YKÛÛXÝ\K^Ú[™ÙT˜]\Ë˜\ÙPÝ\œ™[˜ÞJNÂˆÛÛœÝÝ\œ™[˜ÞHH™^˜Ý\œ™[˜ÞNÂˆÛÛœÝXØÛÝ[H™XÙZ]™T^[Y[^Pš[ˆÈ˜[šÐXØÛÝ[ËœÛÛYJ
+˜[šÊHOˆ˜[šË›˜[YHOOH›Ü›K˜XØÛÝ[	‰ˆ˜[šË˜Ý\œ™[˜ÞHOOHÝ\œ™[˜ÞJHÈ›Ü›K˜XØÛÝ[ˆˆ‚ˆˆÚ\]YU\HOOHœÝ\Y\ˆˆÈ[šÙYXØÛÝ[˜[YJXØÛÝ[ËT‹XØÛÝ[È^XX›H‹Ý\œ™[˜ÞJHˆ›Ü›K˜XØÛÝ[ÂˆÙ]›Ü›JÈ‹‹›™^XØÛÝ[JNÂˆNÂˆÛÛœÝÙ[XÝÚ\]YU\HH
+˜[YNˆÝš[™ÊHOˆÂˆÛÛœÝÝ\Y\ˆH˜[YHOOHœÝ\Y\ˆŽÂˆÛÛœÝØ[\žHH˜[YHOOHœØ[\žHŽÂˆÛÛœÝXØÛÝ[HÝ\Y\ˆÈ\˜[YHˆÝš[™Ê
+Ø[\žHÈØ[\žPXØÛÝ[ˆ\™XÝ^[œÙPXØÛÝ[
+OË›˜[YHÏÈˆŠNÂˆÛÛœÝ˜]ÛÙHHØ[\žHÝ\Y\ˆÈ–‘T“Èˆˆ˜]ÛÙSÜ[ÛœË™š[™
+
+Ü[ÛŠHOˆÜ[Û‹˜ÛÙHOOH”ÕS‘T‘ŠOË˜ÛÙHÏÈ˜]ÛÙSÜ[ÛœÖÌOË˜ÛÙHÏÈ–‘T“ÈŽÂˆÛÛœÝ˜]˜]HH˜]˜]Q›ÜÛÙJ˜]ÛÙK˜]ÛÙSÜ[ÛœÊNÂˆÙ]›Ü›JÈ‹‹™›Ü›KÚ\]YU\Nˆ˜[YK\Nˆˆ‹XØÛÝ[š[Yˆˆ‹š[YÎˆ–×H‹š[™Y™\™[˜Ù\Îˆˆ‹š[™[XZ[š[™Îˆˆ‹˜]˜]HJNÂˆ\]S[™JÈ\ØÜš\[ÛŽˆØ[\žHÈ”Ø[\žH^[Y[ˆˆÝ\Y\ˆÈÚ\]YH^[Y[ˆˆ‘^[œÙH^[Y[‹˜]ÛÙK˜]˜]HJNÂˆNÂˆ™]\›ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KM‚ˆÙXÝ[ÛˆÛ\ÜÓ˜[YOH™ÜšYØ\^MØ\^KLÈY™ÜšYXÛÛËLˆ™ÜšYXÛÛËLÈˆ\šXK[X™[H”^[Y[Ù]\‚ˆÙ›Ü›K\HOOH˜Ú\]YHˆÈ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[Ú\]YH\H
+ÓX™[Ù[XÝ˜[YO^ØÚ\]YU\_HÛ•˜[YPÚ[™ÙO^ÜÙ[XÝÚ\]YU\_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[Ù[XÝ][H˜[YOHœÝ\Y\ˆ”Ý\Y\ˆ^[Y[ÔÙ[XÝ][OÙ[XÝ][H˜[YOH™^[œÙH‘\™XÝ^[œÙOÔÙ[XÝ][OÙ[XÝ][H˜[YOHœØ[\žH”Ø[\žOÔÙ[XÝ][OÔÙ[XÝÛÛ[ÔÙ[XÝÙ]ˆˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[žÜ™XÙZ]™T^[Y[ÈÝ\ÝÛY\ˆˆˆ•™[™ÜˆÈ^YYHŸH
+ÓX™[Ù[XÝ˜[YO^Ù›Ü›Kœ\H[™Yš[™YHÛ•˜[YPÚ[™ÙO^ÜÙ[XÝ\_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHXÙZÛ\^Ü™XÙZ]™T^[Y[È”Ù[XÝÝ\ÝÛY\ˆˆˆ”Ù[XÝ™[™ÜˆŸHÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žÜ\Y\Ë›[™ÝÈ\Y\Ë›X\
+
+\JHOˆÙ[XÝ][HÙ^O^Ü\KšYH˜[YO^ÔÝš[™Ê\K›˜[YJ_OžÔÝš[™Ê\K˜ÛÛ\[žH\K›˜[YJ_H0­ÈÔÝš[™Ê\K˜Ý\œ™[˜ÞJ_OÔÙ[XÝ][OŠHˆÙ[XÝ][H˜[YOH››Ë\\Y\Èˆ\ØX›Y“›ÈÜ™XÙZ]™T^[Y[È˜Ý\ÝÛY\œÈˆˆ™[™ÜœÈŸH]˜Z[X›OÔÙ[XÝ][OŸOÔÙ[XÝÛÛ[ÔÙ[XÝÙ]ŸBˆšY[X™[^Ü™XÙZ]™T^[Y[È”^[Y[™Y™\™[˜ÙHˆˆ^Pš[Èš[^[Y[™Y™\™[˜ÙHˆˆÚ\]YH[X™\ˆŸH˜[YOH›[X™\ˆˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_H™\]Z\™YXÙZÛ\^Ü™XÙZ]™T^[Y[È‘[\ˆ^[Y[™Y™\™[˜ÙHˆˆ^Pš[È‘[\ˆš[^[Y[™Y™\™[˜ÙHˆˆ‘[\ˆÚ\]YH[X™\ˆŸHÏ‚ˆšY[X™[^Ü^Pš[È”^[Y[]Hˆˆ™XÙZ]™T^[Y[È”^[Y[]HˆˆÚ\]YH]HŸH˜[YOH˜[œØXÝ[Û‘]Hˆ\OH™]Hˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_H™\]Z\™YÏ‚ˆÜ^Pš[	‰ˆ^[Y[Ø[\Ô™\ÛÛ\[žRY^ÛØØ][ÛœÖÌOË˜ÛÛ\[žRYÏÈHÝ\œ™[˜ÞO^Ø˜\ÙPÝ\œ™[˜Þ_H[\ÞYY\Ï^ØÛÛXÝË™š[\Š
+ÛÛXÝ
+HOˆÛÛXÝ\HOOH™[\ÞYYHˆ	‰ˆÛÛXÝœÝ]\ÈOOHš[˜XÝ]™HŠK›X\
+
+ÛÛXÝ
+HOˆ
+ÈYˆÛÛXÝšY˜[YNˆÝš[™ÊÛÛXÝ›˜[YJHJJ_H˜[YO^Ù›Ü›KœØ[\ÛX[ˆˆŸHÛÚ[™ÙO^ÊØ[\ÛX[ŠHOˆÙ]›Ü›JÈ‹‹™›Ü›KØ[\ÛX[ˆJ_HÏŸBˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[’[™[ÜžH
+ÓX™[Ù[XÝ\ØX›Y^Ð›ÛÛX[Š›Ü›Kœ™]š\Ú[ÛŠ_H˜[YO^Ù›Ü›K˜[œØXÝ[Û“ØØ][Û’YÝš[™ÊØØ][ÛœÖÌOËšYÏÈˆŠ_HÛ•˜[YPÚ[™ÙO^Ê˜[YJHOˆÙ]›Ü›JÈ‹‹™›Ü›K˜[œØXÝ[Û“ØØ][Û’Yˆ˜[YHJ_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHXÙZÛ\H”Ù[XÝ[™[ÜžHˆÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žÛØØ][ÛœË›X\
+
+ØØ][ÛŠHOˆÙ[XÝ][HÙ^O^ÛØØ][Û‹šYH˜[YO^ÔÝš[™ÊØØ][Û‹šY
+_OžÛØØ][Û‹›˜[Y_OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝÙ]‚ˆÝ\œ™[˜ÞQ^Ú[™ÙPÚÚXÙH›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_H^Ú[™ÙT˜]\Ï^Ù^Ú[™ÙT˜]\ßH˜\ÙPÝ\œ™[˜ÞO^Ø˜\ÙPÝ\œ™[˜Þ_HÏ‚ˆšY[X™[^Ø^Ú[™ÙH˜]HÈ	Ø˜\ÙPÝ\œ™[˜Þ_XH˜[YOH™^Ú[™ÙT˜]Hˆ\OH›[X™\ˆˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_H™\]Z\™YÏ‚ˆÙ›Ü›K\HOOH˜Ú\]YHˆ	‰ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[[›ÜH˜Ú\]YKX˜[šÈ”^Hœ›ÛH
+ÓX™[Ù[XÝ˜[YO^Ø˜[šÐXØÛÝ[ËœÛÛYJ
+˜[šÊHOˆÝš[™Ê˜[šËšY
+HOOH›Ü›K˜˜[šÐXØÛÝ[Y	‰ˆÝš[™Ê˜[šË˜Ý\œ™[˜ÞJHOOH›Ü›K˜Ý\œ™[˜ÞJHÈ›Ü›K˜˜[šÐXØÛÝ[YˆˆŸHÛ•˜[YPÚ[™ÙO^Ê˜[šÐXØÛÝ[Y
+HOˆÂˆÛÛœÝ˜[šÈH˜[šÐXØÛÝ[Ë™š[™
+
+[žJHOˆÝš[™Ê[žKšY
+HOOH˜[šÐXØÛÝ[Y
+NÂˆYˆ
+X˜[šÊH™]\›ŽÂˆÛÛœÝÝ\œ™[˜ÞHHÝš[™Ê˜[šË˜Ý\œ™[˜ÞJNÂˆÛÛœÝ˜]HHÝ\œ™[˜ÞHOOH˜\ÙPÝ\œ™[˜ÞHÈŒHˆˆÝš[™Ê^Ú[™ÙT˜]\Ë™š[™
+
+[žJHOˆ[žK˜Ý\œ™[˜ÞPÛÙHOOHÝ\œ™[˜ÞJOËœ˜]HÏÈˆŠNÂˆÙ]›Ü›JÈ‹‹™›Ü›K˜[šÐXØÛÝ[YÝ\œ™[˜ÞK^Ú[™ÙT˜]Nˆ˜]K‹‹Š\ÐXØÛÝ[Ô^XX›HÈÈXØÛÝ[ˆ[šÙYXØÛÝ[˜[YJXØÛÝ[ËT‹XØÛÝ[È^XX›H‹Ý\œ™[˜ÞJHHˆßJHJNÂˆ_OÙ[XÝšYÙÙ\ˆYH˜Ú\]YKX˜[šÈˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHXÙZÛ\H”Ù[XÝ˜[šÈXØÛÝ[ˆÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žØ˜[šÐXØÛÝ[Ë›[™ÝÈ˜[šÐXØÛÝ[Ë›X\
+
+˜[šÊHOˆÙ[XÝ][HÙ^O^Ø˜[šËšYH˜[YO^ÔÝš[™Ê˜[šËšY
+_OžØ˜[šÓX™[
+˜[šÊ_H0­È˜[[˜ÙHÙ›Ü›X][Û™^J[X™\Š˜[šË˜˜[[˜ÙH
+K˜\ÙPÝ\œ™[˜ÞJ_OÔÙ[XÝ][OŠHˆÙ[XÝ][H˜[YOH››ËX˜[šÜÈˆ\ØX›Y“›ÈXÝ]™H˜[šÈXØÛÝ[ÏÔÙ[XÝ][OŸOÔÙ[XÝÛÛ[ÔÙ[XÝÛ\ÜÓ˜[YOH^\ÛH›Û[YY][HžÜÙ[XÝY˜[šÈÈ	Ø˜[šÓX™[
+Ù[XÝY˜[šÊ_H8 %˜[[˜ÙH	Ù›Ü›X][Û™^J[X™\ŠÙ[XÝY˜[šË˜˜[[˜ÙH
+K˜\ÙPÝ\œ™[˜ÞJ_H
+	Ø˜\ÙPÝ\œ™[˜Þ_HYÙ\ˆ˜[[˜ÙJXˆ”Ù[XÝH˜[šÈÈÙYH]È˜[[˜ÙKˆŸOÜÛ\ÜÓ˜[YOH^^È^\Û]KML•HÚ\]YH\Ù\ÈHÙ[XÝY˜[šø &\ÈÝ\œ™[˜ÞKˆ[[Ý[ÈÜÝÈHYÙ\ˆ[ˆØ˜\ÙPÝ\œ™[˜Þ_KÜÙ]ŸBˆÜ™XÙZ]™T^[Y[È]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[[›ÜHœ^[Y[Y\ÜÚ]X˜[šÈ‘\ÜÚ]È
+ÓX™[Ù[XÝ˜[YO^Ø˜[šÐXØÛÝ[ËœÛÛYJ
+XØÛÝ[
+HOˆXØÛÝ[›˜[YHOOH›Ü›K˜XØÛÝ[	‰ˆXØÛÝ[˜Ý\œ™[˜ÞHOOH›Ü›K˜Ý\œ™[˜ÞJHÈ›Ü›K˜XØÛÝ[ˆˆŸHÛ•˜[YPÚ[™ÙO^ÊXØÛÝ[
+HOˆÙ]›Ü›JÈ‹‹™›Ü›KXØÛÝ[J_OÙ[XÝšYÙÙ\ˆYHœ^[Y[Y\ÜÚ]X˜[šÈˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHXÙZÛ\H”Ù[XÝ˜[šÈXØÛÝ[ˆÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žØ˜[šÐXØÛÝ[ËœÛÛYJ
+˜[šÊHOˆ˜[šË˜Ý\œ™[˜ÞHOOH›Ü›K˜Ý\œ™[˜ÞJHÈ˜[šÐXØÛÝ[Ë™š[\Š
+˜[šÊHOˆ˜[šË˜Ý\œ™[˜ÞHOOH›Ü›K˜Ý\œ™[˜ÞJK›X\
+
+XØÛÝ[
+HOˆÙ[XÝ][HÙ^O^ØXØÛÝ[šYH˜[YO^ÔÝš[™ÊXØÛÝ[›˜[YJ_OžØ˜[šÓX™[
+XØÛÝ[
+_H0­È˜[[˜ÙHÙ›Ü›X][Û™^J[X™\ŠXØÛÝ[˜˜[[˜ÙH
+K˜\ÙPÝ\œ™[˜ÞJ_OÔÙ[XÝ][OŠHˆÙ[XÝ][H˜[YOH››ËX˜[šËXXØÛÝ[Èˆ\ØX›Y“›ÈXÝ]™H˜[šÈ[ˆÙ›Ü›K˜Ý\œ™[˜Þ_OÔÙ[XÝ][OŸOÔÙ[XÝÛÛ[ÔÙ[XÝžÈX˜[šÐXØÛÝ[ËœÛÛYJ
+˜[šÊHOˆ˜[šË˜Ý\œ™[˜ÞHOOH›Ü›K˜Ý\œ™[˜ÞJH	‰ˆÛ\ÜÓ˜[YOH^^È^\Û]KMLYH˜[šÈ[ˆ\ÈÝ\œ™[˜ÞH[ˆÚ\ÙˆXØÛÝ[Èš\œÝÜŸOÙ]ˆˆ^Pš[È]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[[›ÜH˜š[\^[Y[X˜[šÈ”^Hœ›ÛH
+ÓX™[Ù[XÝ˜[YO^Ø˜[šÐXØÛÝ[ËœÛÛYJ
+˜[šÊHOˆ˜[šË›˜[YHOOH›Ü›K˜XØÛÝ[	‰ˆ˜[šË˜Ý\œ™[˜ÞHOOH›Ü›K˜Ý\œ™[˜ÞJHÈ›Ü›K˜XØÛÝ[ˆˆŸHÛ•˜[YPÚ[™ÙO^ÊXØÛÝ[
+HOˆÙ]›Ü›JÈ‹‹™›Ü›KXØÛÝ[J_OÙ[XÝšYÙÙ\ˆYH˜š[\^[Y[X˜[šÈˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHXÙZÛ\H”Ù[XÝ˜[šÈXØÛÝ[ˆÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žØ˜[šÐXØÛÝ[Ë™š[\Š
+˜[šÊHOˆ˜[šË˜Ý\œ™[˜ÞHOOH›Ü›K˜Ý\œ™[˜ÞJK›X\
+
+˜[šÊHOˆÙ[XÝ][HÙ^O^Ø˜[šËšYH˜[YO^ÔÝš[™Ê˜[šË›˜[YJ_OžØ˜[šÓX™[
+˜[šÊ_H0­È˜[[˜ÙHÙ›Ü›X][Û™^J[X™\Š˜[šË˜˜[[˜ÙH
+K˜\ÙPÝ\œ™[˜ÞJ_OÔÙ[XÝ][OŠ_^ÈX˜[šÐXØÛÝ[ËœÛÛYJ
+˜[šÊHOˆ˜[šË˜Ý\œ™[˜ÞHOOH›Ü›K˜Ý\œ™[˜ÞJH	‰ˆÙ[XÝ][H˜[YOH››ËX˜[šÜÈˆ\ØX›Y“›ÈXÝ]™H˜[šÈ[ˆÙ›Ü›K˜Ý\œ™[˜Þ_OÔÙ[XÝ][OŸOÔÙ[XÝÛÛ[ÔÙ[XÝÛ\ÜÓ˜[YOH^^È^\Û]KML˜[[˜Ù\ÈÚÝÛˆ[ˆØ˜\ÙPÝ\œ™[˜Þ_KˆY˜[šÜÈ[ˆÚ\ÙˆXØÛÝ[ËÜÙ]ˆˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[”ÜÝ[™ÈXØÛÝ[ÓX™[Ù[XÝ˜[YO^Ù›Ü›K˜XØÛÝ[\˜[Y_HÛ•˜[YPÚ[™ÙO^Ê˜[YJHOˆÈÛÛœÝ\Ô^XX›HH˜[YHOOH\˜[YNÈÙ]›Ü›JÈ‹‹™›Ü›KXØÛÝ[ˆ˜[YK‹‹ŠZ\Ô^XX›HÈÈš[Yˆˆ‹š[YÎˆ–×H‹š[™Y™\™[˜Ù\Îˆˆ‹š[™[XZ[š[™ÎˆˆˆHˆßJK‹‹Š\Ô^XX›HÈÈ˜]˜]NˆŒˆHˆßJHJNÈYˆ
+\Ô^XX›JH\]S[™JÈ˜]ÛÙNˆ–‘T“È‹˜]˜]NˆŒˆJNÈ_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žØÚ\]YPXØÛÝ[Ë›X\
+
+XØÛÝ[
+HOˆÙ[XÝ][HÙ^O^ØXØÛÝ[šYH˜[YO^ÔÝš[™ÊXØÛÝ[›˜[YJ_OžÔÝš[™ÊXØÛÝ[˜ÛÙJ_H0­ÈÔÝš[™ÊXØÛÝ[›˜[YJ_OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝÛ\ÜÓ˜[YOH^^È^\Û]KML”Ù[XÝXØÛÝ[È^XX›H›Üˆš[Ù][Y[Üˆ[žHXÝ]™H^[œÙHXØÛÝ[›Üˆ\™XÝÚ\]YH^[œÙ\ËÜÙ]ŸBˆÜÙXÝ[Û‚ˆÙ›Ü›K\HOOH˜Ú\]YHˆ	‰ˆÚ\]YU\HOOHœÝ\Y\ˆˆ	‰ˆÙ[XÝYÝ\Y\ˆ	‰ˆ]ˆÛ\ÜÓ˜[YOH™›^›^]Ü˜\][\ËXÙ[\ˆ\ÝYžKX™]ÙY[ˆØ\Lˆ›Ý[™Y[È™Ë[]]YÍLMKLÈÛ\ÜÓ˜[YOH^\ÛH^[]]YY›Ü™YÜ›Ý[™”Ý\Y\ˆ˜[[˜ÙH0­È[[™[ÜšY\È0­ÈÔÝš[™ÊÙ[XÝYÝ\Y\‹˜Ý\œ™[˜ÞJ_OÜÝ›Û™ÈÛ\ÜÓ˜[YOH^X˜\ÙHžÙ›Ü›X][Û™^J[X™\ŠÙ[XÝYÝ\Y\‹˜˜[[˜ÙH
+KÝš[™ÊÙ[XÝYÝ\Y\‹˜Ý\œ™[˜ÞJJ_OÜÝ›Û™ÏÙ]ŸBˆÊ^Pš[
+›Ü›K\HOOH˜Ú\]YHˆ	‰ˆ\ÐXØÛÝ[Ô^XX›JJH	‰ˆ[œZYš[ÈÙ^O^Ø	ÛØØ][ÛœÖÌOË˜ÛÛ\[žRYN‰Ù›Ü›K˜[œØXÝ[Û“ØØ][Û’YN‰Ù›Ü›Kœ\_N‰Ù›Ü›K˜Ý\œ™[˜Þ_XHÛÛ\[žRY^ÛØØ][ÛœÖÌOË˜ÛÛ\[žRYÏÈHØØ][Û’Y^Ó[X™\Š›Ü›K˜[œØXÝ[Û“ØØ][Û’YØØ][ÛœÖÌOËšY
+_H\O^Ù›Ü›Kœ\HˆŸHÝ\œ™[˜ÞO^Ù›Ü›K˜Ý\œ™[˜ÞH˜\ÙPÝ\œ™[˜Þ_H^[Y[Y^Ù›Ü›Kœ™]š\Ú[ÛˆÈ›Ü›KšYˆ[™Yš[™YHÙ[XÝYš[Y^Ù›Ü›K˜š[YˆŸHÙ[XÝYš[YÏ^Ù›Ü›K\HOOH˜Ú\]YHˆÈ”ÓÓ‹œ\œÙJ›Ü›K˜š[YÈ
+›Ü›K˜š[YÈÉÙ›Ü›K˜š[YWXˆ–×HŠJHˆ[™Yš[™YHÛ”Ù[XÝX[žO^Ù›Ü›K\HOOH˜Ú\]YHˆÈ
+š[ÊHOˆÈÛÛœÝ[[Ý[HÝš[™ÊX]œ›Ý[™
+š[Ëœ™YXÙJ
+Ý[Kš[
+HOˆÝ[H
+Èš[œ™[XZ[š[™Ë
+JŒL
+KÌL
+NÈÛÛœÝ™Y™\™[˜Ù\ÈHš[Ë›X\
+
+š[
+HOˆš[›[X™\ŠKš›Ú[Š‹ŠNÈÙ]›Ü›JË‹‹™›Ü›Kš[Yˆˆ‹š[YÎˆ”ÓÓ‹œÝš[™ÚYžJš[Ë›X\
+
+š[
+HOˆš[šY
+JKš[™Y™\™[˜Ù\Îˆ™Y™\™[˜Ù\Ëš[™[XZ[š[™Îˆ[[Ý[JNÈ\]S[™JÝ[š]šXÙN˜[[Ý[[š]ÛÜÝ˜[[Ý[\ØÜš\[ÛŽœ™Y™\™[˜Ù\ÈÈ^[Y[›Üˆš[È	Ü™Y™\™[˜Ù\ßXˆÚ\]YH^[Y[‹]X[]NˆŒH‹˜]ÛÙNˆ–‘T“È‹˜]˜]NˆŒŸJNÈHˆ[™Yš[™YHÛ”Ù[XÝ^Êš[
+HOˆÈÙ]›Ü›JÈ‹‹™›Ü›Kš[Yˆš[ÈÝš[™Êš[šY
+Hˆˆ‹š[™[XZ[š[™Îˆš[ÈÝš[™Êš[œ™[XZ[š[™ÊHˆˆˆJNÈ\]S[™JÈ[š]šXÙNˆš[ÈÝš[™Êš[œ™[XZ[š[™ÊHˆŒ‹[š]ÛÜÝˆš[ÈÝš[™Êš[œ™[XZ[š[™ÊHˆŒ‹\ØÜš\[ÛŽˆš[È^[Y[›Üˆš[	Øš[›[X™\ŸXˆš[^[Y[‹]X[]NˆŒH‹˜]ÛÙNˆ–‘T“È‹˜]˜]NˆŒˆJNÈ_HÏŸBˆÜ™XÙZ]™T^[Y[	‰ˆ[œZY[›ÚXÙ\ÈÙ^O^Ø	ÛØØ][ÛœÖÌOË˜ÛÛ\[žRYN‰Ù›Ü›K˜[œØXÝ[Û“ØØ][Û’YN‰Ù›Ü›Kœ\_N‰Ù›Ü›K˜Ý\œ™[˜Þ_XHÛÛ\[žRY^ÛØØ][ÛœÖÌOË˜ÛÛ\[žRYÏÈHØØ][Û’Y^Ó[X™\Š›Ü›K˜[œØXÝ[Û“ØØ][Û’YØØ][ÛœÖÌOËšY
+_H\O^Ù›Ü›Kœ\HˆŸHÝ\œ™[˜ÞO^Ù›Ü›K˜Ý\œ™[˜ÞH˜\ÙPÝ\œ™[˜Þ_H^[Y[Y^Ù›Ü›Kœ™]š\Ú[ÛˆÈ›Ü›KšYˆ[™Yš[™YHÙ[XÝY[›ÚXÙRYÏ^Ò”ÓÓ‹œ\œÙJ›Ü›Kš[›ÚXÙRYÈ–×HŠ_HÛ”Ù[XÝ^Ê[›ÚXÙ\ÊHOˆÈÛÛœÝ[[Ý[HÝš[™ÊX]œ›Ý[™
+[›ÚXÙ\Ëœ™YXÙJ
+Ý[K[›ÚXÙJHOˆÝ[H
+È[›ÚXÙKœ™[XZ[š[™Ë
+H
+ˆL
+HÈL
+NÈÙ]›Ü›JÈ‹‹™›Ü›K[›ÚXÙRYˆˆ‹[›ÚXÙRYÎˆ”ÓÓ‹œÝš[™ÚYžJ[›ÚXÙ\Ë›X\
+
+[›ÚXÙJHOˆ[›ÚXÙKšY
+JK[›ÚXÙT™[XZ[š[™Îˆ[[Ý[JNÈ\]S[™JÈ[š]šXÙNˆ[[Ý[[š]ÛÜÝˆ[[Ý[\ØÜš\[ÛŽˆ[›ÚXÙ\Ë›[™ÝÈ^[Y[›Üˆ[›ÚXÙ\È	Ú[›ÚXÙ\Ë›X\
+
+[›ÚXÙJHOˆ[›ÚXÙK›[X™\ŠKš›Ú[Š‹Š_Xˆ’[›ÚXÙH^[Y[‹]X[]NˆŒH‹˜]ÛÙNˆ–‘T“È‹˜]˜]NˆŒˆJNÈ_HÏŸBˆÙXÝ[ÛˆÛ\ÜÓ˜[YOHœÜXÙK^KLÈ›Ü™\‹]Mˆ\šXK[X™[YžOHœ^[Y[Y]Z[ËZXY[™È‚ˆÈYHœ^[Y[Y]Z[ËZXY[™ÈˆÛ\ÜÓ˜[YOH^\ÛH›Û\Ù[ZX›Û”^[Y[]Z[ÏÚÏ‚ˆ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\MY™ÜšYXÛÛËLˆ™ÜšYXÛÛËM‚ˆÙ›Ü›K\HOOH˜Ú\]YHˆ	‰ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[žØÚ\]YU\HOOHœØ[\žHˆÈ‘[\ÞYYH˜[YHˆˆ”^YYH˜[YHŸ^ØÚ\]YT\SÜ[Û˜[Èˆ
+Ü[Û˜[
+Hˆˆˆ
+ˆŸOÓX™[Ù[XÝ˜[YO^Ù›Ü›Kœ\H[™Yš[™YHÛ•˜[YPÚ[™ÙO^ÜÙ[XÝ\_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHXÙZÛ\^ØÚ\]YU\HOOHœØ[\žHˆÈ”Ù[XÝ[\ÞYYHÜˆX]™H›[šÈˆˆÚ\]YT\SÜ[Û˜[È”Ù[XÝ^YYHÜˆX]™H›[šÈˆˆ”Ù[XÝ™[™ÜˆÈ^YYHŸHÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žØÚ\]YT\SÜ[Û˜[	‰ˆÙ[XÝ][H˜[YOH‘Ù[™\˜[^[œÙHžØÚ\]YU\HOOHœØ[\žHˆÈ“›È[\ÞYYH0­ÈÙ[™\˜[^[œÙHˆˆ“›È^YYH0­ÈÙ[™\˜[^[œÙHŸOÔÙ[XÝ][OŸ^Ü\Y\Ë›X\
+
+\JHOˆÙ[XÝ][HÙ^O^Ü\KšYH˜[YO^ÔÝš[™Ê\K›˜[YJ_OžÔÝš[™Ê\K˜ÛÛ\[žH\K›˜[YJ_^Ü\K˜Ý\œ™[˜ÞHÈ0­È	ÔÝš[™Ê\K˜Ý\œ™[˜ÞJ_XˆˆŸOÔÙ[XÝ][OŠ_^È\\Y\Ë›[™Ý	‰ˆXÚ\]YT\SÜ[Û˜[	‰ˆÙ[XÝ][H˜[YOH››Ë\^YY\Èˆ\ØX›Y“›È™[™ÜœÈ]˜Z[X›OÔÙ[XÝ][OŸOÔÙ[XÝÛÛ[ÔÙ[XÝžØÚ\]YT\SÜ[Û˜[	‰ˆÛ\ÜÓ˜[YOH^^È^\Û]KML“Ü[Û˜[ˆX]™H›[šÈÜˆÚÛÜÙHÙ[™\˜[^[œÙHÈØ]™HÚ]Ý]H˜[YKÜŸOÙ]]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆY˜ÛÛ\Ü[‹LH˜ÛÛ\Ü[‹LÈX™[‘]Z[È
+ÓX™[[œ]˜[YO^Û[™K™\ØÜš\[ÛŸHÛÚ[™ÙO^Ê]™[
+HOˆ\]S[™JÈ\ØÜš\[ÛŽˆ]™[\™Ù]˜[YHJ_HXÙZÛ\^ØÚ\]YU\HOOHœØ[\žHˆÈ‘^[\NˆÙ\[X™\ˆŒˆØ[\žHˆˆÚ\]YU\HOOH™^[œÙHˆÈ‘\ØÜšX™HH^[œÙHˆˆÚ\]YH^[Y[]Z[ÈŸH™\]Z\™YÏÙ]ÏŸBˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[[[Ý[
+ÓX™[[œ]\OH›[X™\ˆˆZ[HŒŒHˆÝ\HŒŒHˆ˜[YO^Û[™K[š]šXÙ_HÛÚ[™ÙO^Ê]™[
+HOˆ\]S[™JÈ[š]šXÙNˆ]™[\™Ù]˜[YK[š]ÛÜÝˆ]™[\™Ù]˜[YHJ_H™\]Z\™YÏÙ]‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[[›ÜH˜Ø\Ú]˜]XÛÙH•UÛÙOÓX™[Ù[XÝ˜[YO^ÙY™™XÝ]™U˜]ÛÙ_HÛ•˜[YPÚ[™ÙO^Ê˜]ÛÙJHOˆÈÛÛœÝ˜]˜]HH˜]˜]Q›ÜÛÙJ˜]ÛÙK˜]ÛÙSÜ[ÛœÊNÈÛÛœÝ^X›TÝ\Y\Ú\]YHH›Ü›K\HOOH˜Ú\]YHˆ	‰ˆ\ÐXØÛÝ[Ô^XX›H	‰ˆ[X™\Š˜]˜]JHˆ	‰ˆ\™XÝ^[œÙPXØÛÝ[È\]S[™JÈ˜]ÛÙK˜]˜]HJNÈÙ]›Ü›JÈ‹‹™›Ü›K˜]˜]K‹‹Š^X›TÝ\Y\Ú\]YHÈÈÚ\]YU\Nˆ™^[œÙH‹XØÛÝ[ˆÝš[™Ê\™XÝ^[œÙPXØÛÝ[›˜[YJKš[Yˆˆ‹š[YÎˆ–×H‹š[™Y™\™[˜Ù\Îˆˆ‹š[™[XZ[š[™ÎˆˆˆHˆßJHJNÈ_OÙ[XÝšYÙÙ\ˆYH˜Ø\Ú]˜]XÛÙHˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žÞ™\›Õ˜]Û›H	‰ˆ]˜]ÛÙSÜ[ÛœËœÛÛYJ
+Ü[ÛŠHOˆÜ[Û‹˜ÛÙHOOH–‘T“ÈŠH	‰ˆÙ[XÝ][H˜[YOH–‘T“È–‘T“È0­È	OÔÙ[XÝ][OŸ^Ý˜]ÛÙSÜ[ÛœË›X\
+
+Ü[ÛŠHOˆÙ[XÝ][HÙ^O^ÛÜ[Û‹˜ÛÙ_H˜[YO^ÛÜ[Û‹˜ÛÙ_H\ØX›Y^Ê™\›Õ˜]Û›H	‰ˆÜ[Û‹˜ÛÙHOOH–‘T“ÈŠH
+›Ü›K\HOOH˜Ú\]YHˆ	‰ˆ\ÐXØÛÝ[Ô^XX›H	‰ˆ[X™\ŠÜ[Û‹œ˜]JHˆ	‰ˆY\™XÝ^[œÙPXØÛÝ[
+_OžÛÜ[Û‹›X™[OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝžÙ›Ü›K\HOOH˜Ú\]YHˆ	‰ˆ\ÐXØÛÝ[Ô^XX›H	‰ˆÛ\ÜÓ˜[YOH^^È^\Û]KMLÚÛÜÙH[žHXÝ]™HUÛÙKˆÙ[XÝ[™È^X›HUÚ[™Ù\È\ÈÚ\]YHÈ\™XÝ^[œÙH[™ÛX\œÈÙ[XÝYš[ËÜŸOÙ]‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[•U[[Ý[ÓX™[[œ]™XYÛ›H˜[YO^Ù›Ü›X][Û™^J˜]›Ü›K˜Ý\œ™[˜ÞJ_HÛ\ÜÓ˜[YOH˜™Ë\Û]KLLˆÏÙ]‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[•Ý[ÓX™[[œ]™XYÛ›H˜[YO^Ù›Ü›X][Û™^J[[Ý[
+È˜]›Ü›K˜Ý\œ™[˜ÞJ_HÛ\ÜÓ˜[YOH˜™Ë\Û]KLL›ÛX›ÛˆÏÙ]‚ˆ]ˆÛ\ÜÓ˜[YOH›Y˜ÛÛ\Ü[‹Lˆ˜ÛÛ\Ü[‹MšY[X™[H“Y[[Èˆ˜[YOH›Y[[Èˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HXÙZÛ\H“Ü[Û˜[›ÝHˆÏÙ]‚ˆÙ›Ü›K\HOOH˜Ú\]YHˆ	‰ˆ›Ü›K˜š[™Y™\™[˜Ù\È	‰ˆX™[Û\ÜÓ˜[YOH™ÜšYØ\Lˆ^\ÛHY˜ÛÛ\Ü[‹Lˆ˜ÛÛ\Ü[‹MÚ\]YHY[[Ï^\™XH™XYÛ›HÛ\ÜÓ˜[YOH›Z[‹ZLŒ›Ý[™Y[Y›Ü™\ˆ™ËX˜XÚÙÜ›Ý[™LÈˆ˜[YO^ÖÙ›Ü›K›Y[[Ëš[™Y™\™[˜Ù\Îˆ	Ù›Ü›K˜š[™Y™\™[˜Ù\ßXK™š[\Š›ÛÛX[ŠKš›Ú[Šˆ0­ÈŠ_HÏÜ[ˆÛ\ÜÓ˜[YOH^[]]YY›Ü™YÜ›Ý[™”Ù[XÝYš[™Y™\™[˜Ù\È\™HYY]]ÛX]XØ[HÚ[ˆØ]™YÜÜ[ÛX™[ŸBˆÙ]‚ˆÜÙXÝ[Û‚ˆ]ˆÛ\ÜÓ˜[YOHœ›Ý[™Y[È›Ü™\ˆ›Ü™\‹Y[Y\˜[LŒ™ËY[Y\˜[MLMKLÈ^\ÛH^Y[Y\˜[NL•\ÈÜ™XÙZ]™T^[Y[Èœ^[Y[™YXÙ\ÈXØÛÝ[È™XÙZ]˜X›Hˆˆ^Pš[Èœ^[Y[™YXÙ\ÈXØÛÝ[È^XX›H[™H[šÙY˜[šÈXØÛÝ[ˆˆ\ÐXØÛÝ[Ô^XX›HÈ˜Ú\]YH™YXÙ\ÈXØÛÝ[È^XX›Hˆˆ˜Ú\]YHÜÝÈÈHÙ[XÝY^[œÙHXØÛÝ[ŸH›ÜˆHÙ[XÝY[™[ÜžKÙ]‚ˆÙ]ŽÂŸB‚™[˜Ý[Ûˆ˜[šÕ˜[œØXÝ[Û‘šY[ÊÈ›Ü›KÙ]›Ü›KÛÛXÝËXØÛÝ[ËØØ][ÛœË[™\ËÙ][™\Ë˜]ÛÙSÜ[ÛœË^Ú[™ÙT˜]\Ë˜\ÙPÝ\œ™[˜ÞHNˆÈ›Ü›Nˆ™XÛÜ™Ýš[™ËÝš[™ÏŽÈÙ]›Ü›Nˆ
+Žˆ™XÛÜ™Ýš[™ËÝš[™ÏŠHOˆ›ÚYÈÛÛXÝÎˆ]T™XÛÜ™×NÈXØÛÝ[Îˆ]T™XÛÜ™×NÈØØ][ÛœÎˆ[™[ÜžSØØ][Û–×NÈ[™\Îˆ[™Q›Ü›V×NÈÙ][™\Îˆ
+[™\Îˆ[™Q›Ü›V×JHOˆ›ÚYÈ˜]ÛÙSÜ[ÛœÎˆ˜]ÛÙSÜ[Û–×NÈ^Ú[™ÙT˜]\Îˆ^Ú[™ÙT˜]T™XÛÜ™×NÈ˜\ÙPÝ\œ™[˜ÞNˆÝš[™ÈJHÂˆÛÛœÝ[™HH[™\ÖÌHÏÈÈ][RYˆˆ‹\ØÜš\[ÛŽˆˆ‹]X[]NˆŒH‹[š]šXÙNˆŒ‹[š]ÛÜÝˆŒ‹˜]ÛÙNˆ–‘T“È‹˜]˜]NˆŒˆNÂˆÛÛœÝ\]S[™HH
+Ú[™Ù\Îˆ\X[[™Q›Ü›OŠHOˆÙ][™\ÊÞÈ‹‹›[™K‹‹˜Ú[™Ù\ÈWJNÂˆÛÛœÝ˜[šÜÈHXØÛÝ[Ë™š[\Š
+XØÛÝ[
+HOˆXØÛÝ[˜XÝ]™H	‰ˆ
+XØÛÝ[\HOOH˜[šÈˆXØÛÝ[œÞ\Ý[T›ÛHOOHS’ÈŠJNÂˆÛÛœÝ^[œÙPXØÛÝ[ÈHXØÛÝ[Ë™š[\Š
+XØÛÝ[
+HOˆXØÛÝ[˜XÝ]™H	‰ˆÈ‘^[œÙH‹ÛÜÝÙˆÛÛÙÈÛÛ‹“Ý\ˆ^[œÙH‹”\˜Ú\Ù\È—Kš[˜ÛY\ÊÝš[™ÊXØÛÝ[\JJJNÂˆÛÛœÝ[˜ÛÛYPXØÛÝ[ÈHXØÛÝ[Ë™š[\Š
+XØÛÝ[
+HOˆXØÛÝ[˜XÝ]™H	‰ˆÈ’[˜ÛÛYH‹“Ý\ˆ[˜ÛÛYH‹‘\]Z]H—Kš[˜ÛY\ÊÝš[™ÊXØÛÝ[\JJJNÂˆÛÛœÝ™[™ÜœÈHÛÛXÝË™š[\Š
+ÛÛXÝ
+HOˆÛÛXÝ\HOOH™[™ÜˆŠNÂˆÛÛœÝÙ[XÝ™[™ÜˆH
+\NˆÝš[™ÊHOˆÙ]›Ü›J\PÛÛXÝÝ\œ™[˜ÞJ›Ü›K™[™ÜœË\K™[™Üˆ‹^Ú[™ÙT˜]\Ë˜\ÙPÝ\œ™[˜ÞJJNÂˆÛÛœÝ\Õ˜[œÙ™\ˆH›Ü›K\HOOH˜[œÙ™\ˆŽÂˆÛÛœÝœ›ÛP˜[šÈH˜[šÜË™š[™
+˜[šÈOˆ˜[šË›˜[YHOOH›Ü›K˜XØÛÝ[
+NÂˆÛÛœÝÐ˜[šÈH˜[šÜË™š[™
+˜[šÈOˆ˜[šË›˜[YHOOH›Ü›Kœ\H	‰ˆ˜[šË›˜[YHOOH›Ü›K˜XØÛÝ[
+NÂˆÛÛœÝ˜[œÙ™\˜[šÓX™[H
+˜[šÎˆ]T™XÛÜ™
+HOˆ	Ø˜[šË˜ÛÙ_H0­È	Ø˜[šË›˜[Y_H0­È	Ø˜[šË˜Ý\œ™[˜ÞH˜\ÙPÝ\œ™[˜Þ_H0­È˜[[˜ÙH	Ù›Ü›X][Û™^J[X™\Š˜[šË˜˜[[˜ÙH
+K˜\ÙPÝ\œ™[˜ÞJ_XÂˆÛÛœÝ˜[œÙ™\˜[[˜ÙHH
+˜[šÎˆ]T™XÛÜ™[™Yš[™Y
+HOˆ˜[šÈÈÝ\œ™[˜[[˜ÙNˆ	Ù›Ü›X][Û™^J[X™\Š˜[šË˜˜[[˜ÙH
+K˜\ÙPÝ\œ™[˜ÞJ_H
+	Ø˜\ÙPÝ\œ™[˜Þ_HYÙ\ˆ˜[[˜ÙJXˆ”Ù[XÝH˜[šÈÈÙYH]È˜[[˜ÙKˆŽÂˆÛÛœÝ\ÐØ\™H›Ü›K\HOOH˜Ü™Y]Ø\™Ú\™ÙHŽÂˆÛÛœÝ\ÓÜ™\ˆH›Ü›K\HOOH˜Ú\]YHÜ™\ˆŽÂˆÛÛœÝ\ÐÜ™Y]Ø\™HXØÛÝ[ËœÛÛYJ
+XØÛÝ[
+HOˆXØÛÝ[˜XÝ]™H	‰ˆXØÛÝ[\HOOHÜ™Y]Ø\™ŠNÂˆÛÛœÝÙ[XÝX›PXØÛÝ[ÈH\Õ˜[œÙ™\ˆ\ÓÜ™\ˆÈ˜[šÜÈˆ\ÐØ\™È^[œÙPXØÛÝ[Èˆ[˜ÛÛYPXØÛÝ[ÎÂˆÛÛœÝ[[Ý[H[X™\Š[™K[š]šXÙH
+NÂˆÛÛœÝ˜]H[[Ý[
+ˆ[X™\Š[™K˜]˜]H
+HÈLÂˆ™]\›ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KMH‚ˆ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\M›Ý[™Y^›Ü™\ˆ™Ë\Û]KMLMY™ÜšYXÛÛËLˆ™ÜšYXÛÛËLÈ‚ˆšY[X™[^Ú\ÓÜ™\ˆÈ“Ü™\ˆ™Y™\™[˜ÙHˆˆ”™Y™\™[˜ÙH[X™\ˆŸH˜[YOH›[X™\ˆˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_H™\]Z\™YÏ‚ˆšY[X™[^Ú\ÓÜ™\ˆÈ“Ü™\ˆ]Hˆˆ•˜[œØXÝ[Ûˆ]HŸH˜[YOH˜[œØXÝ[Û‘]Hˆ\OH™]Hˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_H™\]Z\™YÏ‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[’[™[ÜžH
+ÓX™[Ù[XÝ\ØX›Y^Ð›ÛÛX[Š›Ü›Kœ™]š\Ú[ÛŠ_H˜[YO^Ù›Ü›K˜[œØXÝ[Û“ØØ][Û’YÝš[™ÊØØ][ÛœÖÌOËšYÏÈˆŠ_HÛ•˜[YPÚ[™ÙO^Ê˜[œØXÝ[Û“ØØ][Û’Y
+HOˆÙ]›Ü›JÈ‹‹™›Ü›K˜[œØXÝ[Û“ØØ][Û’YJ_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHXÙZÛ\H”Ù[XÝ[™[ÜžHˆÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žÛØØ][ÛœË›X\
+
+ØØ][ÛŠHOˆÙ[XÝ][HÙ^O^ÛØØ][Û‹šYH˜[YO^ÔÝš[™ÊØØ][Û‹šY
+_OžÛØØ][Û‹›˜[Y_OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝÙ]‚ˆÝ\œ™[˜ÞQ^Ú[™ÙPÚÚXÙH›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_H^Ú[™ÙT˜]\Ï^Ù^Ú[™ÙT˜]\ßH˜\ÙPÝ\œ™[˜ÞO^Ø˜\ÙPÝ\œ™[˜Þ_HÏ‚ˆšY[X™[^Ø^Ú[™ÙH˜]HÈ	Ø˜\ÙPÝ\œ™[˜Þ_XH˜[YOH™^Ú[™ÙT˜]Hˆ\OH›[X™\ˆˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_H™\]Z\™YÏ‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[žÚ\Õ˜[œÙ™\ˆÈ•˜[œÙ™\ˆœ›ÛHˆˆ\ÐØ\™È‘^[œÙHXØÛÝ[ˆˆ\ÓÜ™\ˆÈ˜[šÈXØÛÝ[ˆˆ‘\ÜÚ]ÛÝ\˜ÙHŸH
+ÓX™[Ù[XÝ˜[YO^Ù›Ü›K˜XØÛÝ[[™Yš[™YHÛ•˜[YPÚ[™ÙO^ÊXØÛÝ[
+HOˆÙ]›Ü›JÈ‹‹™›Ü›KXØÛÝ[‹‹Š\Õ˜[œÙ™\ˆ	‰ˆ›Ü›Kœ\HOOHXØÛÝ[ÈÈ\NˆˆˆHˆßJHJ_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHXÙZÛ\H”Ù[XÝXØÛÝ[ˆÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žÜÙ[XÝX›PXØÛÝ[Ë›X\
+
+XØÛÝ[
+HOˆÙ[XÝ][HÙ^O^ØXØÛÝ[šYH˜[YO^ÔÝš[™ÊXØÛÝ[›˜[YJ_OžÚ\Õ˜[œÙ™\ˆÈ˜[œÙ™\˜[šÓX™[
+XØÛÝ[
+Hˆ	ØXØÛÝ[˜ÛÙ_H0­È	ØXØÛÝ[›˜[Y_XOÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝžÚ\Õ˜[œÙ™\ˆ	‰ˆÛ\ÜÓ˜[YOHœ›Ý[™Y[Y›Ü™\ˆ™Ë]Ú]HLÈ^\ÛH›Û\Ù[ZX›Ûˆ\šXK[]™OHœÛ]HžÝ˜[œÙ™\˜[[˜ÙJœ›ÛP˜[šÊ_OÜŸOÙ]‚ˆÚ\Õ˜[œÙ™\ˆÈ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[•˜[œÙ™\ˆÈ
+ÓX™[Ù[XÝ˜[YO^Ù›Ü›Kœ\H[™Yš[™YHÛ•˜[YPÚ[™ÙO^Ê\JHOˆÙ]›Ü›JÈ‹‹™›Ü›K\HJ_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHXÙZÛ\H”Ù[XÝ\Ý[˜][Ûˆ˜[šÈˆÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žØ˜[šÜË™š[\Š
+XØÛÝ[
+HOˆÝš[™ÊXØÛÝ[›˜[YJHOOH›Ü›K˜XØÛÝ[
+K›X\
+
+XØÛÝ[
+HOˆÙ[XÝ][HÙ^O^ØXØÛÝ[šYH˜[YO^ÔÝš[™ÊXØÛÝ[›˜[YJ_OžÝ˜[œÙ™\˜[šÓX™[
+XØÛÝ[
+_OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝÛ\ÜÓ˜[YOHœ›Ý[™Y[Y›Ü™\ˆ™Ë]Ú]HLÈ^\ÛH›Û\Ù[ZX›Ûˆ\šXK[]™OHœÛ]HžÝ˜[œÙ™\˜[[˜ÙJÐ˜[šÊ_OÜÙ]ˆˆ\ÐØ\™\ÓÜ™\ˆÈ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[žÚ\ÓÜ™\ˆÈ”Ý\Y\ˆˆˆ•™[™ÜˆÈ^YYHŸH
+ÓX™[Ù[XÝ˜[YO^Ù›Ü›Kœ\H[™Yš[™YHÛ•˜[YPÚ[™ÙO^ÜÙ[XÝ™[™ÜŸOÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHXÙZÛ\H”Ù[XÝ™[™ÜˆˆÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žÝ™[™ÜœË›X\
+
+™[™ÜŠHOˆÙ[XÝ][HÙ^O^Ý™[™Ü‹šYH˜[YO^ÔÝš[™Ê™[™Ü‹›˜[YJ_OžÔÝš[™Ê™[™Ü‹˜ÛÛ\[žH™[™Ü‹›˜[YJ_H0­ÈÔÝš[™Ê™[™Ü‹˜Ý\œ™[˜ÞJ_OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝÙ]ˆˆšY[X™[H”™XÙZ]™Yœ›ÛHˆ˜[YOHœ\Hˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_H™\]Z\™YXÙZÛ\HÝ\ÝÛY\‹ÝÛ™\‹ÜˆÝ\ˆÛÝ\˜ÙHˆÏŸBˆÙ]‚ˆ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\M›Ý[™Y^›Ü™\ˆ™Ë]Ú]HMY™ÜšYXÛÛËLˆ™ÜšYXÛÛËM‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆ˜ÛÛ\Ü[‹LˆX™[žÚ\ÓÜ™\ˆÈ“Ü™\ˆ]Z[Èˆˆ‘\ØÜš\[ÛˆŸH
+ÓX™[[œ]™\]Z\™Y˜[YO^Û[™K™\ØÜš\[ÛŸHÛÚ[™ÙO^Ê]™[
+HOˆ\]S[™JÈ\ØÜš\[ÛŽˆ]™[\™Ù]˜[YHJ_HÏÙ]‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[žÚ\ÓÜ™\ˆÈ‘\Ý[X]YÛÜÝˆˆ[[Ý[ŸHÚ\ÓÜ™\ˆÈˆˆˆŠˆŸOÓX™[[œ]\OH›[X™\ˆˆZ[^Ú\ÓÜ™\ˆÈŒˆˆŒŒHŸHÝ\HŒŒHˆ˜[YO^Û[™K[š]šXÙ_HÛÚ[™ÙO^Ê]™[
+HOˆ\]S[™JÈ[š]šXÙNˆ]™[\™Ù]˜[YK[š]ÛÜÝˆ]™[\™Ù]˜[YHJ_H™\]Z\™YÏÙ]‚ˆÚ\ÐØ\™È]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[•UÛÙOÓX™[Ù[XÝ˜[YO^Û[™K˜]ÛÙ_HÛ•˜[YPÚ[™ÙO^Ê˜]ÛÙJHOˆ\]S[™JÈ˜]ÛÙK˜]˜]Nˆ˜]˜]Q›ÜÛÙJ˜]ÛÙK˜]ÛÙSÜ[ÛœÊHJ_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žÝ˜]ÛÙSÜ[ÛœË›X\
+
+Ü[ÛŠHOˆÙ[XÝ][HÙ^O^ÛÜ[Û‹˜ÛÙ_H˜[YO^ÛÜ[Û‹˜ÛÙ_OžÛÜ[Û‹›X™[OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝÙ]ˆˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[•UÛÙOÓX™[[œ]™XYÛ›H˜[YOH–‘T“È0­È	HˆÛ\ÜÓ˜[YOH˜™Ë\Û]KLLˆÏÙ]ŸBˆ]ˆÛ\ÜÓ˜[YOH›Y˜ÛÛ\Ü[‹Lˆ˜ÛÛ\Ü[‹LÈšY[X™[H“Y[[Èˆ˜[YOH›Y[[Èˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HXÙZÛ\H“Ü[Û˜[›ÝHˆÏÙ]‚ˆ]ˆÛ\ÜÓ˜[YOHœ›Ý[™Y[È™Ë\Û]KNLLÈ^\šYÚ^]Ú]HÛ\ÜÓ˜[YOH^^È^\Û]KM•Ý[ÜÛ\ÜÓ˜[YOH™›ÛX›ÛžÙ›Ü›X][Û™^J[[Ý[
+È˜]›Ü›K˜Ý\œ™[˜ÞJ_OÜÙ]‚ˆÙ]‚ˆ]ˆÛ\ÜÓ˜[YO^Ø›Ý[™Y[È›Ü™\ˆM^\ÛH	Ú\ÐØ\™	‰ˆZ\ÐÜ™Y]Ø\™È˜›Ü™\‹X[X™\‹LŒ™ËX[X™\‹ML^X[X™\‹NLˆˆ˜›Ü™\‹Y[Y\˜[LŒ™ËY[Y\˜[ML^Y[Y\˜[NLŸXOžÚ\ÓÜ™\ˆÈ•\ÈÜ™\ˆ\ÈØ]™Y›Üˆ˜XÚÚ[™È[™Ù\È›ÝÜÝÈHYÙ\‹ˆˆˆ\Õ˜[œÙ™\ˆÈ•H[[Ý[\ÈÜ™Y]Yœ›ÛHHÛÝ\˜ÙH˜[šÈ[™Xš]YÈH\Ý[˜][Ûˆ˜[šËˆˆˆ\ÐØ\™	‰ˆZ\ÐÜ™Y]Ø\™ÈY[ˆXÝ]™HÜ™Y]Ø\™XØÛÝ[[ˆÚ\ÙˆXØÛÝ[È™Y›Ü™HØ]š[™È\ÈÚ\™ÙKˆˆˆ\ÐØ\™È•H^[œÙH[™™XÛÝ™\˜X›HU\™HÜÝYYØZ[œÝH[šÙYÜ™Y]XØ\™XØÛÝ[ˆˆˆ•H[šÙY˜[šÈXØÛÝ[\ÈXš]Y[™HÙ[XÝYÛÝ\˜ÙHXØÛÝ[\ÈÜ™Y]YˆŸOÙ]‚ˆÙ]ŽÂŸB™[˜Ý[Ûˆ˜[œØXÝ[Û‘šY[ÊÈ›Ü›KÙ]›Ü›K\\Ë][\ËÛÛXÝËXØÛÝ[ËØØ][ÛœË[™\ËÙ][™\Ë˜]ÛÙSÜ[ÛœË^Ú[™ÙT˜]\Ë˜\ÙPÝ\œ™[˜ÞHNˆÈ›Ü›Nˆ™XÛÜ™Ýš[™ËÝš[™ÏŽÈÙ]›Ü›Nˆ
+Žˆ™XÛÜ™Ýš[™ËÝš[™ÏŠHOˆ›ÚYÈ\\ÎˆÝš[™Ö×NÈ][\Îˆ]T™XÛÜ™×NÈÛÛXÝÎˆ]T™XÛÜ™×NÈXØÛÝ[Îˆ]T™XÛÜ™×NÈØØ][ÛœÎˆ[™[ÜžSØØ][Û–×NÈ[™\Îˆ[™Q›Ü›V×NÈÙ][™\Îˆ
+[™\Îˆ[™Q›Ü›V×JHOˆ›ÚYÈ˜]ÛÙSÜ[ÛœÎˆ˜]ÛÙSÜ[Û–×NÈ^Ú[™ÙT˜]\Îˆ^Ú[™ÙT˜]T™XÛÜ™×NÈ˜\ÙPÝ\œ™[˜ÞNˆÝš[™ÈJHÂˆYˆ
+›Ü›K\HOOH˜š[ŠH™]\›ˆš[šY[È›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_H][\Ï^Ú][\ßH™[™ÜœÏ^ØÛÛXÝË™š[\Š
+ÛÛXÝ
+HOˆÛÛXÝ\HOOH™[™ÜˆŠ_HØ[\ÛY[^ØÛÛXÝË™š[\Š
+ÛÛXÝ
+HOˆÛÛXÝ\HOOH™[\ÞYYHŠ_HXØÛÝ[Ï^ØXØÛÝ[ßHØØ][ÛœÏ^ÛØØ][ÛœßH[™\Ï^Û[™\ßHÙ][™\Ï^ÜÙ][™\ßH˜]ÛÙSÜ[ÛœÏ^Ý˜]ÛÙSÜ[ÛœßH^Ú[™ÙT˜]\Ï^Ù^Ú[™ÙT˜]\ßH˜\ÙPÝ\œ™[˜ÞO^Ø˜\ÙPÝ\œ™[˜Þ_HÏŽÂˆYˆ
+È˜Ý\ÝÛY\ˆ^[Y[‹˜š[^[Y[‹˜Ú\]YH—Kš[˜ÛY\Ê›Ü›K\JJH™]\›ˆØ\Ú˜[œØXÝ[Û‘šY[È›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HÛÛXÝÏ^ØÛÛXÝßHXØÛÝ[Ï^ØXØÛÝ[ßHØØ][ÛœÏ^ÛØØ][ÛœßH[™\Ï^Û[™\ßHÙ][™\Ï^ÜÙ][™\ßH˜]ÛÙSÜ[ÛœÏ^Ý˜]ÛÙSÜ[ÛœßH^Ú[™ÙT˜]\Ï^Ù^Ú[™ÙT˜]\ßH˜\ÙPÝ\œ™[˜ÞO^Ø˜\ÙPÝ\œ™[˜Þ_HÏŽÂˆYˆ
+È™\ÜÚ]‹˜[œÙ™\ˆ‹˜Ü™Y]Ø\™Ú\™ÙH‹˜Ú\]YHÜ™\ˆ—Kš[˜ÛY\Ê›Ü›K\JJH™]\›ˆ˜[šÕ˜[œØXÝ[Û‘šY[È›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HÛÛXÝÏ^ØÛÛXÝßHXØÛÝ[Ï^ØXØÛÝ[ßHØØ][ÛœÏ^ÛØØ][ÛœßH[™\Ï^Û[™\ßHÙ][™\Ï^ÜÙ][™\ßH˜]ÛÙSÜ[ÛœÏ^Ý˜]ÛÙSÜ[ÛœßH^Ú[™ÙT˜]\Ï^Ù^Ú[™ÙT˜]\ßH˜\ÙPÝ\œ™[˜ÞO^Ø˜\ÙPÝ\œ™[˜Þ_HÏŽÂˆÛÛœÝ\]HH
+[™^ˆ[X™\‹Ú[™Ù\Îˆ\X[[™Q›Ü›OŠHOˆÙ][™\Ê[™\Ë›X\
+
+[™KÜÚ][ÛŠHOˆÜÚ][ÛˆOOH[™^ÈÈ‹‹›[™K‹‹ŠÚ[™Ù\Ë[š]šXÙHOOH[™Yš[™YÈÈÛYU[š]šXÙNˆ[™Yš[™YHˆßJK‹‹˜Ú[™Ù\ÈHˆ[™JJNÂˆÛÛœÝÝ\ÝÛY\‘ØÝ[Y[HÈš[›ÚXÙH‹œØ[\È™XÙZ\‹œ][Ý][Ûˆ‹™\Ý[X]H‹œ›Ù›Ü›XH[›ÚXÙH‹œØ[\ÈÜ™\ˆ‹˜Ü™Y]Y[[È‹œÝ][Y[Ú\™ÙH‹™š[˜[˜ÙHÚ\™ÙH—Kš[˜ÛY\Ê›Ü›K\JNÂˆÛÛœÝ\˜Ú\ÙQØÝ[Y[HÈ˜š[‹œ\˜Ú\ÙHÜ™\ˆ‹š][H™XÙZ\‹œ™XÙZ]™Y][Hš[—Kš[˜ÛY\Ê›Ü›K\JNÂˆÛÛœÝÙ[XÝX›R][\ÈH][\Ë™š[\Š][PØ[™QØÝ[Y[[™JNÂˆÛÛœÝØÝ[Y[˜]HHX]›X^
+[X™\Š›Ü›K™^Ú[™ÙT˜]JHK[X™\‹‘TÒSÓŠNÂˆÛÛœÝÚ[™ÙR[›ÚXÙQ›Ü›HH
+™^ˆ™XÛÜ™Ýš[™ËÝš[™ÏŠHOˆÂˆYˆ
+XÝ\ÝÛY\‘ØÝ[Y[
+™^˜Ý\œ™[˜ÞHOOH›Ü›K˜Ý\œ™[˜ÞH	‰ˆ™^™^Ú[™ÙT˜]HOOH›Ü›K™^Ú[™ÙT˜]JJHÈÙ]›Ü›J™^
+NÈ™]\›ŽÈBˆžHÂˆÛÛœÝÛ˜]HH›Ü›K˜Ý\œ™[˜ÞHOOH˜\ÙPÝ\œ™[˜ÞHÈHˆ˜[YØÝ[Y[˜]J›Ü›K™^Ú[™ÙT˜]JNÂˆÛÛœÝ™]Ô˜]HH™^˜Ý\œ™[˜ÞHOOH˜\ÙPÝ\œ™[˜ÞHÈHˆ˜[YØÝ[Y[˜]J™^™^Ú[™ÙT˜]JNÂˆÙ][™\ÊÛÛ™\[›ÚXÙS[™\Ê[™\ËÛ˜]K™]Ô˜]JJNÂˆÙ]›Ü›JÈ‹‹›™^^Ú[™ÙT˜]NˆÝš[™Ê™]Ô˜]JHJNÂˆHØ]Ú
+\œ›ÜŠHÂˆØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆ”Ù]HÝ\œ™[˜ÞH^Ú[™ÙH˜]Hš\œÝˆŠNÂˆBˆNÂˆÛÛœÝÝXÝ[H[™\Ëœ™YXÙJ
+Ý[K[™JHOˆÝ[H
+È[X™\Š[™Kœ]X[]H
+H
+ˆ[X™\Š[™K[š]šXÙH
+K
+NÂˆÛÛœÝ˜]H[™\Ëœ™YXÙJ
+Ý[K[™JHOˆÝ[H
+È[X™\Š[™Kœ]X[]H
+H
+ˆ[X™\Š[™K[š]šXÙH
+H
+ˆ[X™\Š[™K˜]˜]H
+HÈL
+NÂˆ™]\›ˆ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\MÛN™ÜšYXÛÛËLˆ‚ˆÙ›Ü›KœÛÝ\˜ÙQØÝ[Y[X™[È]ˆÛ\ÜÓ˜[YOHœ›Ý[™Y[È›Ü™\ˆ›Ü™\‹\ÚÞKLŒ™Ë\ÚÞKMLLÈ^\ÛH›Û[YY][H^\ÚÞKNÛN˜ÛÛ\Ü[‹LˆÜ™X][™ÈÙ›Ü›K\HOOH˜š[ˆÈœÝ\Y\ˆš[ˆˆš[›ÚXÙHŸHœ›ÛHÙ›Ü›KœÛÝ\˜ÙQØÝ[Y[X™[KˆHÜšYÚ[˜[ØÝ[Y[Ú[™H[šÙY[™X\šÙYÛÛ™\YY\ˆØ]š[™ËÙ]ˆˆ[BˆÙ›Ü›Kœ™]š\Ú[Ûˆ\\Ë›[™ÝOOHHÝ\ÝÛY\‘ØÝ[Y[È]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[[›ÜH˜[œØXÝ[Û‹]\H•˜[œØXÝ[Ûˆ\OÓX™[[œ]YH˜[œØXÝ[Û‹]\Hˆ˜[YO^Ù›Ü›K\_H™XYÛ›HÛ\ÜÓ˜[YOH˜Ø\][^™H™Ë\Û]KLLˆÏÙ]ˆˆÚÚXÙHX™[H•˜[œØXÝ[Ûˆ\Hˆ˜[YOH\Hˆ˜[Y\Ï^Ý\\ßH›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HÏŸOšY[X™[H‘ØÝ[Y[[X™\ˆˆ˜[YOH›[X™\ˆˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_H™\]Z\™YÏ‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆÛN˜ÛÛ\Ü[‹LˆX™[žØÝ\ÝÛY\‘ØÝ[Y[ÈÝ\ÝÛY\ˆˆˆ•™[™ÜˆÈ^YYHŸH
+ÓX™[Ù[XÝ˜[YO^Ù›Ü›Kœ\H[™Yš[™YHÛ•˜[YPÚ[™ÙO^Ê˜[YJHOˆÚ[™ÙR[›ÚXÙQ›Ü›J\PÛÛXÝÝ\œ™[˜ÞJ›Ü›KÛÛXÝË˜[YKÝ\ÝÛY\‘ØÝ[Y[È˜Ý\ÝÛY\ˆˆˆ™[™Üˆ‹^Ú[™ÙT˜]\Ë˜\ÙPÝ\œ™[˜ÞJJ_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHXÙZÛ\^ØÝ\ÝÛY\‘ØÝ[Y[È”Ù[XÝÝ\ÝÛY\ˆˆˆ”Ù[XÝ™[™ÜˆÜˆ^YYHŸHÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žØÛÛXÝË™š[\Š
+ÛÛXÝ
+HOˆÛÛXÝ\HOOH
+Ý\ÝÛY\‘ØÝ[Y[È˜Ý\ÝÛY\ˆˆˆ™[™ÜˆŠJK›X\
+
+ÛÛXÝ
+HOˆÙ[XÝ][HÙ^O^ØÛÛXÝšYH˜[YO^ÔÝš[™ÊÛÛXÝ›˜[YJ_OžÔÝš[™ÊÛÛXÝ˜ÛÛ\[žHÛÛXÝ›˜[YJ_H0­ÈÔÝš[™ÊÛÛXÝ˜Ý\œ™[˜ÞJ_OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝÙ]‚ˆšY[X™[H•˜[œØXÝ[Ûˆ]Hˆ˜[YOH˜[œØXÝ[Û‘]Hˆ\OH™]Hˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_H™\]Z\™YÏšY[X™[H‘YH]Hˆ˜[YOH™YQ]Hˆ\OH™]Hˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HÏ‚ˆÖÈš[›ÚXÙH‹™\Ý[X]H‹œ›Ù›Ü›XH[›ÚXÙH‹œØ[\ÈÜ™\ˆ‹œ][Ý][Ûˆ—Kš[˜ÛY\Ê›Ü›K\JH	‰ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[’[™[ÜžH
+ÓX™[Ù[XÝ\ØX›Y^Ð›ÛÛX[Š›Ü›KœÛÝ\˜ÙQØÝ[Y[X™[
+_H˜[YO^Ù›Ü›K˜[œØXÝ[Û“ØØ][Û’YÝš[™ÊØØ][ÛœÖÌOËšYÏÈˆŠ_HÛ•˜[YPÚ[™ÙO^Ê˜[œØXÝ[Û“ØØ][Û’Y
+HOˆÙ]›Ü›JÈ‹‹™›Ü›K˜[œØXÝ[Û“ØØ][Û’YJ_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHXÙZÛ\H”Ù[XÝ[™[ÜžHˆÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žÛØØ][ÛœË›X\
+
+ØØ][ÛŠHOˆÙ[XÝ][HÙ^O^ÛØØ][Û‹šYH˜[YO^ÔÝš[™ÊØØ][Û‹šY
+_OžÛØØ][Û‹›˜[Y_OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝÙ]ŸBˆÖÈš[›ÚXÙH‹™\Ý[X]H‹œ›Ù›Ü›XH[›ÚXÙH‹œØ[\ÈÜ™\ˆ‹œ][Ý][Ûˆ—Kš[˜ÛY\Ê›Ü›K\JH	‰ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[[›ÜH™ØÝ[Y[\Ø[\Ë\™\”Ø[\È™\ÓX™[Ù[XÝ˜[YO^Ù›Ü›KœØ[\ÛX[ˆ[™Yš[™YHÛ•˜[YPÚ[™ÙO^ÊØ[\ÛX[ŠHOˆÙ]›Ü›JÈ‹‹™›Ü›KØ[\ÛX[ˆJ_OÙ[XÝšYÙÙ\ˆYH™ØÝ[Y[\Ø[\Ë\™\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHXÙZÛ\H”Ù[XÝØ[\È™\ˆÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žØÛÛXÝË™š[\Š
+ÛÛXÝ
+HOˆÛÛXÝ\HOOH™[\ÞYYHŠK›X\
+
+Ø[\ÛX[ŠHOˆÙ[XÝ][HÙ^O^ÜØ[\ÛX[‹šYH˜[YO^ÔÝš[™ÊØ[\ÛX[‹›˜[YJ_OžÔÝš[™ÊØ[\ÛX[‹›˜[YJ_OÔÙ[XÝ][OŠ_^ÈXÛÛXÝËœÛÛYJ
+ÛÛXÝ
+HOˆÛÛXÝ\HOOH™[\ÞYYHŠH	‰ˆÙ[XÝ][H˜[YOH››Ë\Ø[\Ë\™\Èˆ\ØX›Y“›ÈØ[\È™\È]˜Z[X›OÔÙ[XÝ][OŸOÔÙ[XÝÛÛ[ÔÙ[XÝÙ]ŸBˆÝ\œ™[˜ÞQ^Ú[™ÙPÚÚXÙH›Ü›O^Ù›Ü›_HÙ]›Ü›O^ØÚ[™ÙR[›ÚXÙQ›Ü›_H^Ú[™ÙT˜]\Ï^Ù^Ú[™ÙT˜]\ßH˜\ÙPÝ\œ™[˜ÞO^Ø˜\ÙPÝ\œ™[˜Þ_HÏžØÝ\ÝÛY\‘ØÝ[Y[È]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[[›ÜHš[›ÚXÙKY^Ú[™ÙK\˜]H‘^Ú[™ÙH˜]HÈØ˜\ÙPÝ\œ™[˜Þ_OÓX™[[œ]Ù^O^Ø	Ù›Ü›K˜Ý\œ™[˜Þ_KIÙ›Ü›K™^Ú[™ÙT˜]_XHYHš[›ÚXÙKY^Ú[™ÙK\˜]Hˆ\OH›[X™\ˆˆZ[HŒŒHˆÝ\H˜[žHˆ™\]Z\™Y™XYÛ›O^Ù›Ü›K˜Ý\œ™[˜ÞHOOH˜\ÙPÝ\œ™[˜Þ_HY˜][˜[YO^Ù›Ü›K™^Ú[™ÙT˜]_HÛ’Ù^QÝÛ^Ê]™[
+HOˆÈYˆ
+]™[šÙ^HOOH‘[\ˆŠHÈ]™[œ™]™[Y˜][
+
+NÈ]™[˜Ý\œ™[\™Ù]˜›\Š
+NÈH_HÛ›\^Ê]™[
+HOˆÈÛÛœÝ˜[YHH]™[˜Ý\œ™[\™Ù]˜[YNÈÚ[™ÙR[›ÚXÙQ›Ü›JÈ‹‹™›Ü›K^Ú[™ÙT˜]Nˆ˜[YHJNÈYˆ
+S[X™\‹š\Ñš[š]J[X™\Š˜[YJJH[X™\Š˜[YJHH
+H]™[˜Ý\œ™[\™Ù]˜[YHH›Ü›K™^Ú[™ÙT˜]NÈ_HÏÛ\ÜÓ˜[YOH^^È^\Û]KMLŒHÙ›Ü›K˜Ý\œ™[˜Þ_HHÙ›Ü›K™^Ú[™ÙT˜]_HØ˜\ÙPÝ\œ™[˜Þ_Kˆ][HšXÙ\ÈÛÛ™\]]ÛX]XØ[KÜÙ]ˆˆšY[X™[^Ø^Ú[™ÙH˜]HÈ	Ø˜\ÙPÝ\œ™[˜Þ_XH˜[YOH™^Ú[™ÙT˜]Hˆ\OH›[X™\ˆˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_H™\]Z\™YÏŸBˆ]ˆÛ\ÜÓ˜[YOH›Z[‹]ËLÜXÙK^KLÈ›Ý[™Y^›Ü™\ˆ™Ë\Û]KMLLÈÛN˜ÛÛ\Ü[‹Lˆ‚ˆ]ˆÛ\ÜÓ˜[YOH™›^][\ËXÙ[\ˆ\ÝYžKX™]ÙY[ˆ]X™[’][\È[™Ù\šXÙ\ÏÓX™[Û\ÜÓ˜[YOH^^È^\Û]KML”ÝØÚÈ\]\ÈÚ[ˆ[›ÚXÙ\Ëš[Ë[™][H™XÙZ\ÈÜÝÜÙ]]Ûˆ\OH˜]Ûˆˆ˜\šX[H›Ý][™HˆÚ^™OHœÛHˆÛ\ÜÓ˜[YOH˜œ˜[™\š[X\žKX]Ûˆ›Ü™\‹]˜[œÜ\™[›Û\Ù[ZX›ÛˆÛÛXÚÏ^Ê
+HOˆÙ][™\ÊË‹‹›[™\ËÈ][RYˆˆ‹\ØÜš\[ÛŽˆˆ‹]X[]NˆŒH‹[š]šXÙNˆŒ‹[š]ÛÜÝˆŒ‹˜]ÛÙNˆ›Ü›K˜]˜]HOOHŒˆÈ–‘T“Èˆˆ”ÕS‘T‘‹˜]˜]Nˆ›Ü›K˜]˜]HÏÈHˆWJ_O\ÈÛ\ÜÓ˜[YOHœÚ^™KLÈˆÏ“[™OÐ]ÛÙ]‚ˆ]ˆÛ\ÜÓ˜[YOH˜[œØXÝ[Û‹[[™\ÈžÛ[™\Ë›X\
+
+[™K[™^
+HOˆ]ˆÙ^O^Ú[™^HÛ\ÜÓ˜[YOH˜[œØXÝ[Û‹[[™H›Ý[™Y[È›Ü™\ˆ™Ë]Ú]HLÈ‚ˆ]ˆÛ\ÜÓ˜[YOH˜[œØXÝ[Û‹[[™KY\ØÜš\[ÛˆÜXÙK^KLˆX™[[›Ü^Ø[™KY\ØÜš\[Û‹IÚ[™^XO’][H\ØÜš\[ÛÓX™[‚ˆÙ[XÝ˜[YO^Û[™Kš][RY˜Ý\ÝÛHŸHÛ•˜[YPÚ[™ÙO^Ê˜[YJHOˆÈÛÛœÝ][HHÙ[XÝX›R][\Ë™š[™
+
+[žJHOˆÝš[™Ê[žKšY
+HOOH˜[YJNÈÛÛœÝÙ[XÝY˜]ÛÙHHÝš[™Ê\˜Ú\ÙQØÝ[Y[È][OËœ\˜Ú\ÙU˜]ÛÙH[™K˜]ÛÙHˆ][OËœØ[\Õ˜]ÛÙH[™K˜]ÛÙJNÈÛÛœÝÙ[XÝY˜]˜]HH[X™\Š˜]˜]Q›ÜÛÙJÙ[XÝY˜]ÛÙK˜]ÛÙSÜ[ÛœÊJNÈÛÛœÝ\˜Ú\ÙPÛÜÝ˜]˜]HH[X™\Š˜]˜]Q›ÜÛÙJÝš[™Ê][OËœ\˜Ú\ÙU˜]ÛÙH–‘T“ÈŠK˜]ÛÙSÜ[ÛœÊJNÈÛÛœÝÝÜ™Y\˜Ú\ÙTšXÙHH[X™\Š][OË›\Ý\˜Ú\ÙTšXÙHÏÈ][OË˜ÛÜÝÏÈ
+NÈÛÛœÝ™]\˜Ú\ÙTšXÙHH][OË˜[[Ý[Ò[˜ÛYU˜]OOHYH	‰ˆ\˜Ú\ÙPÛÜÝ˜]˜]HˆÈÝÜ™Y\˜Ú\ÙTšXÙHÈ
+H
+È\˜Ú\ÙPÛÜÝ˜]˜]HÈL
+HˆÝÜ™Y\˜Ú\ÙTšXÙNÈÛÛœÝÝÜ™YØ[\ÔšXÙHH[X™\Š][OËœØ[\ÔšXÙHÏÈ
+NÈÛÛœÝ™]Ø[\ÔšXÙHH][OË˜[[Ý[Ò[˜ÛYU˜]OOHYH	‰ˆÙ[XÝY˜]˜]HˆÈÝÜ™YØ[\ÔšXÙHÈ
+H
+ÈÙ[XÝY˜]˜]HÈL
+HˆÝÜ™YØ[\ÔšXÙNÈÛÛœÝÝÜ™YÛÜÝH[X™\Š][OË˜ÛÜÝÏÈ
+NÈÛÛœÝ™]ÛÜÝH][OË˜[[Ý[Ò[˜ÛYU˜]OOHYH	‰ˆ\˜Ú\ÙPÛÜÝ˜]˜]HˆÈÝÜ™YÛÜÝÈ
+H
+È\˜Ú\ÙPÛÜÝ˜]˜]HÈL
+HˆÝÜ™YÛÜÝÈÛÛœÝÝ\”]X[]HH[™\Ëœ™YXÙJ
+Ý[K[žKÜÚ][ÛŠHOˆÜÚ][ÛˆOOH[™^	‰ˆ[žKš][RYOOH˜[YHÈÝ[H
+ÈX]›X^
+[X™\Š[žKœ]X[]JH
+HˆÝ[K
+NÈÛÛœÝ[›ÚXÙT]X[]HH›Ü›K\HOOHš[›ÚXÙHˆ	‰ˆY›Ü›Kœ™]š\Ú[Ûˆ	‰ˆ][H	‰ˆ][U\SÙŠ][Kš][U\JHOOHœÝØÚË\\ˆÈÈ]X[]NˆÝš[™ÊX]›X^
+[X™\Š][Kœ]X[]H
+HHÝ\”]X[]JJHHˆßNÈ\]J[™^˜[YHOOH˜Ý\ÝÛHˆÈÈ][RYˆˆˆHˆÈ‹‹š[›ÚXÙT]X[]K][RYˆ˜[YK\ØÜš\[ÛŽˆ][HÈ][Q\Ü^Q\ØÜš\[ÛŠ][JHÝš[™Ê][K›˜[YJHˆˆ‹[š]šXÙNˆ\˜Ú\ÙQØÝ[Y[ÈÝš[™Ê[X™\Š
+™]\˜Ú\ÙTšXÙHÈØÝ[Y[˜]JKÑš^Y
+ŠJJHˆ[›ÚXÙPÝ\œ™[˜ÞP[[Ý[
+™]Ø[\ÔšXÙKØÝ[Y[˜]JK[š]ÛÜÝˆÝ\ÝÛY\‘ØÝ[Y[È[›ÚXÙPÝ\œ™[˜ÞP[[Ý[
+™]ÛÜÝØÝ[Y[˜]JHˆÝš[™Ê™]ÛÜÝ
+KÛYU[š]šXÙNˆÝ\ÝÛY\‘ØÝ[Y[È™]Ø[\ÔšXÙHˆ[™Yš[™YÛYU[š]ÛÜÝˆÝ\ÝÛY\‘ØÝ[Y[È™]ÛÜÝˆ[™Yš[™Y˜]ÛÙNˆÙ[XÝY˜]ÛÙK˜]˜]NˆÝš[™ÊÙ[XÝY˜]˜]JHJNÈ_OÙ[XÝšYÙÙ\ˆ\šXK[X™[^Ø][H	Ú[™^
+È_XHÛ\ÜÓ˜[YOHËY[Z[‹]ËLÉ—ÖÙ]K\ÛÝ\Ù[XÝ]˜[YWWN›Z[‹]ËLÉ—ÖÙ]K\ÛÝ\Ù[XÝ]˜[YWWN[˜Ø]HÙ[XÝ˜[YHXÙZÛ\H’][HˆÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[ÜÚ][ÛHœÜ\ˆˆÛ\ÜÓ˜[YOH›X^]ËVØØ[ÊLËLÜ™[JWHÉ—ÖÙ]K\ÛÝ\Ù[XÝZ][WWNÚ]\ÜXÙK[›Ü›X[É—ÖÙ]K\ÛÝ\Ù[XÝZ][WWN˜œ™XZË]ÛÜ™ÈÙ[XÝ][H˜[YOH˜Ý\ÝÛH”Ù\šXÙHÈÝ\ÝÛOÔÙ[XÝ][OžÜÙ[XÝX›R][\Ë›X\
+
+][JHOˆÙ[XÝ][HÙ^O^Ú][KšYH˜[YO^ÔÝš[™Ê][KšY
+_OžÔÝš[™Ê][KœÚÝJ_H0­ÈÔÝš[™Ê][K›˜[YJ_H0­ÈÚ][U\Q]Z[ÖÚ][U\SÙŠ][Kš][U\JWK›X™[OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝ‚ˆ^\™XHY^Ø[™KY\ØÜš\[Û‹IÚ[™^XH\šXK[X™[^Ø][H\ØÜš\[Ûˆ	Ú[™^
+È_XHXÙZÛ\H‘\ØÜš\[Ûˆˆ™\]Z\™Y›ÝÜÏ^ÌŸHÛ\ÜÓ˜[YOH›Z[‹ZLMˆËY[Z[‹]ËL™\Ú^™K^Hœ™XZË]ÛÜ™Èˆ˜[YO^Û[™K™\ØÜš\[ÛŸHÛÚ[™ÙO^ÊJHOˆ\]J[™^È\ØÜš\[ÛŽˆK\™Ù]˜[YHJ_HÏ‚ˆÙ›Ü›K\HOOHš[›ÚXÙHˆ	‰ˆØÝ[Y[^˜QšY[È˜[YO^ÞÈÛÛ[Y[Îˆ[™K˜ÛÛ[Y[Èˆ‹Ù\šX[[X™\Žˆ[™KœÙ\šX[[X™\ˆˆˆ_HÛÚ[™ÙO^Ý˜[YHOˆ\]J[™^˜[YJ_HÏŸBˆÙ]‚ˆ]ˆÛ\ÜÓ˜[YOH›Z[‹]ËLÜXÙK^KLˆX™[[›Ü^Ø[™K\]X[]KIÚ[™^XO”]OÓX™[[œ]Y^Ø[™K\]X[]KIÚ[™^XH\šXK[X™[H”]X[]Hˆ]OH”]X[]HˆÛ\ÜÓ˜[YOHËY[Z[‹]ËLLˆˆ\OH›[X™\ˆˆZ[HŒŒHˆÝ\HŒŒHˆ˜[YO^Û[™Kœ]X[]_HÛÚ[™ÙO^ÊJHOˆ\]J[™^È]X[]NˆK\™Ù]˜[YHJ_HÏÙ]‚ˆ]ˆÛ\ÜÓ˜[YOH›Z[‹]ËLÜXÙK^KLˆX™[[›Ü^Ø[™K\˜]KIÚ[™^XO”˜]OÓX™[[œ]Y^Ø[™K\˜]KIÚ[™^XH\šXK[X™[H•[š]šXÙHˆ]OH•[š]˜]H™Y›Ü™HUˆÛ\ÜÓ˜[YOHËY[Z[‹]ËLLˆˆ\OH›[X™\ˆˆZ[HŒˆÝ\HŒŒHˆ˜[YO^Û[™K[š]šXÙ_HÛÚ[™ÙO^ÊJHOˆ\]J[™^È[š]šXÙNˆK\™Ù]˜[YHJ_HÏÙ]‚ˆ]ˆÛ\ÜÓ˜[YOH›Z[‹]ËLÜXÙK^KLˆX™[[›Ü^Ø[™KZ[˜Û\Ú]™KIÚ[™^XO’[˜ÈUÓX™[[œ]Y^Ø[™KZ[˜Û\Ú]™KIÚ[™^XH\šXK[X™[H•[š]˜]H[˜ÛY[™ÈUˆ]OH•[š]˜]H[˜ÛY[™ÈÙ[XÝYUˆÛ\ÜÓ˜[YOHËY[Z[‹]ËL™Ë\Û]KMLLˆˆ™XYÛ›H˜[YO^Ê[X™\Š[™K[š]šXÙH
+H
+ˆ
+H
+È[X™\Š[™K˜]˜]H
+HÈL
+JKÑš^Y
+Š_HÏÙ]‚ˆ]ˆÛ\ÜÓ˜[YOH›Z[‹]ËLÜXÙK^KLˆX™[[›Ü^Ø[™K]˜]IÚ[™^XO•UÓX™[žÙ›Ü›K\HOOHš][H™XÙZ\ˆÈ[œ]Y^Ø[™K]˜]IÚ[™^XH™XYÛ›H˜[YOHŒ	HˆÛ\ÜÓ˜[YOHËY[Z[‹]ËL™Ë\Û]KLLLˆˆÏˆˆÙ[XÝ˜[YO^Û[™K˜]ÛÙ_HÛ•˜[YPÚ[™ÙO^Ê˜]ÛÙJHOˆ\]J[™^È˜]ÛÙK˜]˜]Nˆ˜]˜]Q›ÜÛÙJ˜]ÛÙK˜]ÛÙSÜ[ÛœÊHJ_OÙ[XÝšYÙÙ\ˆY^Ø[™K]˜]IÚ[™^XH\šXK[X™[^ØU˜]H›Üˆ[™H	Ú[™^
+È_XH]O^Ý˜]ÛÙSÜ[ÛœË™š[™
+
+Ü[ÛŠHOˆÜ[Û‹˜ÛÙHOOH[™K˜]ÛÙJOË›X™[HÛ\ÜÓ˜[YOHËY[Z[‹]ËLLˆÙ[XÝ˜[YOžÛ[™K˜]˜]_IOÔÙ[XÝ˜[YOÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[ÜÚ][ÛHœÜ\ˆˆ[YÛH™[™ˆÛ\ÜÓ˜[YOH›X^]ËVÛZ[ŠŒ™[KØ[ÊLËLÜ™[JJWHžÝ˜]ÛÙSÜ[ÛœË›X\
+
+Ü[ÛŠHOˆÙ[XÝ][HÙ^O^ÛÜ[Û‹˜ÛÙ_H˜[YO^ÛÜ[Û‹˜ÛÙ_HÛ\ÜÓ˜[YOHÚ]\ÜXÙK[›Ü›X[œ™XZË]ÛÜ™ÈžÛÜ[Û‹›X™[OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝŸOÙ]‚ˆ]Ûˆ\OH˜]Ûˆˆ˜\šX[H™ÚÜÝˆÚ^™OHšXÛÛˆˆ\šXK[X™[^Ø™[[Ý™H[™H	Ú[™^
+È_XH\ØX›Y^Û[™\Ë›[™ÝOOH_HÛÛXÚÏ^Ê
+HOˆÙ][™\Ê[™\Ë™š[\Š
+ËÜÚ][ÛŠHOˆÜÚ][ÛˆOOH[™^
+J_HÛ\ÜÓ˜[YOH˜[œØXÝ[Û‹[[™K\™[[Ý™H^\Û]KMÝ™\Ž^\›ÜÙKMŒˆ]OH‘[]H˜\ÚˆÛ\ÜÓ˜[YOHœÚ^™KMˆÏÐ]Û‚ˆÙ]Š_OÙ]‚ˆ]ˆÛ\ÜÓ˜[YOH›[X]]ÈÜšYX^]Ë^ÈØ\LˆLˆ^\ÛH]ˆÛ\ÜÓ˜[YOH™›^\ÝYžKX™]ÙY[ˆ^\Û]KMLÜ[”ÝXÝ[ÜÜ[Ü[žÙ›Ü›X][Û™^JÝXÝ[›Ü›K˜Ý\œ™[˜ÞJ_OÜÜ[Ù]]ˆÛ\ÜÓ˜[YOH™›^\ÝYžKX™]ÙY[ˆ^\Û]KMLÜ[•UÜÜ[Ü[žÙ›Ü›X][Û™^J˜]›Ü›K˜Ý\œ™[˜ÞJ_OÜÜ[Ù]]ˆÛ\ÜÓ˜[YOH™›^\ÝYžKX™]ÙY[ˆ›Ü™\‹]Lˆ^X˜\ÙH›ÛX›ÛÜ[•Ý[ÜÜ[Ü[žÙ›Ü›X][Û™^JÝXÝ[
+È˜]›Ü›K˜Ý\œ™[˜ÞJ_OÜÜ[Ù]Ù]‚ˆÙ]‚ˆÖÈš[›ÚXÙH‹œØ[\È™XÙZ\—Kš[˜ÛY\Ê›Ü›K\JH	‰ˆ]ˆÛ\ÜÓ˜[YOHœ›Ý[™Y^›Ü™\ˆ›Ü™\‹X[X™\‹LŒ™ËX[X™\‹MLMÛN˜ÛÛ\Ü[‹Lˆ‚ˆX™[Û\ÜÓ˜[YOH™›^Ý\œÛÜ‹\Ú[\ˆ][\Ë\Ý\Ø\LÈÚXÚØ›ÞÚXÚÙY^Ù›Ü›K˜[ÝÓ™YØ]]™TÝØÚÈOOHYHŸHÛÚXÚÙYÚ[™ÙO^ÊÚXÚÙY
+HOˆÙ]›Ü›JÈ‹‹™›Ü›K[ÝÓ™YØ]]™TÝØÚÎˆÚXÚÙYOOHYHÈYHˆˆ™˜[ÙH‹YZ[“Ý™\œšYT[ŽˆÚXÚÙYOOHYHÈ›Ü›K˜YZ[“Ý™\œšYT[ˆÏÈˆˆˆˆˆJ_HÏÜ[Ü[ˆÛ\ÜÓ˜[YOH˜›ØÚÈ^\ÛH›Û\Ù[ZX›Û^X[X™\‹NMLYZ[ˆÝ™\œšYNˆ[ÝÈ™YØ]]™HÝØÚÏÜÜ[Ü[ˆÛ\ÜÓ˜[YOH›]LH›ØÚÈ^^È^X[X™\‹N“›Ü›X[H›ØÚÙYÚ[ˆÝØÚÈ\È[œÝY™šXÚY[ˆÛÛ™šYÝ\™HÜˆÚ[™ÙHHSˆ[ˆX[˜YÙ[Y[	™ÝÈYZ[ˆÛÛ›ÛËÜÜ[ÜÜ[ÛX™[‚ˆÙ›Ü›K˜[ÝÓ™YØ]]™TÝØÚÈOOHYHˆ	‰ˆ]ˆÛ\ÜÓ˜[YOH›]LÈX^]Ë\ÛHÜXÙK^KLˆX™[[›ÜH˜YZ[“Ý™\œšYT[ˆYZ[ˆSÓX™[[œ]YH˜YZ[“Ý™\œšYT[ˆˆ˜[YOH˜YZ[“Ý™\œšYT[ˆˆ\OHœ\ÜÝÛÜ™ˆ[œ][ÙOH›[Y\šXÈˆ]]ÐÛÛ\]OH›Ù™ˆˆ™\]Z\™Y˜[YO^Ù›Ü›K˜YZ[“Ý™\œšYT[ˆÏÈˆŸHÛÚ[™ÙO^Ê]™[
+HOˆÙ]›Ü›JÈ‹‹™›Ü›KYZ[“Ý™\œšYT[Žˆ]™[\™Ù]˜[YHJ_HXÙZÛ\H‘[\ˆYZ[ˆSˆˆÏÙ]ŸBˆÙ]ŸBˆÙ›Ü›Kœ™]š\Ú[ÛˆÈ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[”Ý]\ÏÓX™[[œ]™XYÛ›H˜[YO^Ù›Ü›KœÝ]\ßHÏÙ]ˆˆÚÚXÙHX™[H”Ý]\Èˆ˜[YOHœÝ]\Èˆ˜[Y\Ï^ÖÈ›Ü[ˆ‹œZY‹›Ý™\™YH‹˜ÛX\™Y—_H›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HÏŸO]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[”ÜÝ[™ÈXØÛÝ[ÓX™[Ù[XÝ˜[YO^Ù›Ü›K˜XØÛÝ[HÛ•˜[YPÚ[™ÙO^ÊXØÛÝ[
+HOˆÙ]›Ü›JÈ‹‹™›Ü›KXØÛÝ[J_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHXÙZÛ\H”Ù[XÝ[šÙYXØÛÝ[ˆÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žØXØÛÝ[Ë™š[\Š
+XØÛÝ[
+HOˆXØÛÝ[˜XÝ]™H	‰ˆXØÛÝ[œÞ\Ý[T›ÛJK›X\
+
+XØÛÝ[
+HOˆÙ[XÝ][HÙ^O^ØXØÛÝ[šYH˜[YO^ÔÝš[™ÊXØÛÝ[›˜[YJ_OžÔÝš[™ÊXØÛÝ[›˜[YJ_OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝÙ]‚ˆ]ˆÛ\ÜÓ˜[YOHœÛN˜ÛÛ\Ü[‹LˆšY[X™[H“Y[[Èˆ˜[YOH›Y[[Èˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HÏÙ]‚ˆÙ]ŽÂŸB™[˜Ý[ÛˆÛÛXÝšY[ÊÈ›Ü›KÙ]›Ü›KXØÛÝ[ÈNˆÈ›Ü›Nˆ™XÛÜ™Ýš[™ËÝš[™ÏŽÈÙ]›Ü›Nˆ
+Žˆ™XÛÜ™Ýš[™ËÝš[™ÏŠHOˆ›ÚYÈXØÛÝ[Îˆ]T™XÛÜ™×HJHÂˆÛÛœÝÛÝ[šY\ÈHÈ•[š]Y\˜Xˆ[Z\˜]\È‹”Ø]YH\˜XšXH‹“ÛX[ˆ‹”X]\ˆ‹˜Z˜Z[ˆ‹’Ý]ØZ]‹’[™XH‹”ZÚ\Ý[ˆ‹Ú[˜H‹’Û™ÈÛÛ™È‹•[š]YÚ[™ÙÛH‹•[š]YÝ]\È‹“Ý\ˆ—NÂˆÛÛœÝYÙ\”›ÛHH›Ü›K\HOOH˜Ý\ÝÛY\ˆˆÈTˆˆˆ›Ü›K\HOOH™[™ÜˆˆÈTˆˆ[ÂˆÛÛœÝX]Ú[™ÐXØÛÝ[ÈHYÙ\”›ÛHÈXØÛÝ[Ë™š[\Š
+XØÛÝ[
+HOˆXØÛÝ[˜XÝ]™H	‰ˆXØÛÝ[œÞ\Ý[T›ÛHOOHYÙ\”›ÛH	‰ˆÝš[™ÊXØÛÝ[˜Ý\œ™[˜ÞJHOOH›Ü›K˜Ý\œ™[˜ÞJHˆ×NÂˆÛÛœÝÝ\œ™[˜ÞP[™XØÛÝ[HYÙ\”›ÛHÈ‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[Ý\œ™[˜ÞH
+ÓX™[Ù[XÝ˜[YO^Ù›Ü›K˜Ý\œ™[˜Þ_HÛ•˜[YPÚ[™ÙO^ÊÝ\œ™[˜ÞJHOˆÈÛÛœÝX]ÚHÛÛ›ÛXØÛÝ[›ÜŠXØÛÝ[ËYÙ\”›ÛKÝ\œ™[˜ÞJNÈÙ]›Ü›JÈ‹‹™›Ü›KÝ\œ™[˜ÞKYÙ\XØÛÝ[YˆX]ÚÈÝš[™ÊX]ÚšY
+HˆˆˆJNÈ_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žØÝ\œ™[˜ÚY\Ë›X\
+
+Ý\œ™[˜ÞJHOˆÙ[XÝ][HÙ^O^ØÝ\œ™[˜Þ_H˜[YO^ØÝ\œ™[˜Þ_OžØÝ\œ™[˜Þ_OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝÙ]‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[žÛYÙ\”›ÛHOOHTˆˆÈXØÛÝ[È™XÙZ]˜X›HˆˆXØÛÝ[È^XX›HŸHXØÛÝ[ÓX™[žÛX]Ú[™ÐXØÛÝ[Ë›[™ÝÈÙ[XÝ˜[YO^Ù›Ü›K›YÙ\XØÛÝ[YÝš[™ÊX]Ú[™ÐXØÛÝ[ÖÌKšY
+_HÛ•˜[YPÚ[™ÙO^ÊYÙ\XØÛÝ[Y
+HOˆÙ]›Ü›JÈ‹‹™›Ü›KYÙ\XØÛÝ[YJ_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHXÙZÛ\^ØÙ[XÝ	Ù›Ü›K˜Ý\œ™[˜Þ_HXØÛÝ[HÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žÛX]Ú[™ÐXØÛÝ[Ë›X\
+
+XØÛÝ[
+HOˆÙ[XÝ][HÙ^O^ØXØÛÝ[šYH˜[YO^ÔÝš[™ÊXØÛÝ[šY
+_OžÔÝš[™ÊXØÛÝ[˜ÛÙJ_H0­ÈÔÝš[™ÊXØÛÝ[›˜[YJ_OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝˆˆ]ˆÛ\ÜÓ˜[YOHœ›Ý[™Y[È›Ü™\ˆ›Ü™\‹Y\ÚY›Ü™\‹Y[Y\˜[LÌ™ËY[Y\˜[MLLÈKLˆ^\ÛH^Y[Y\˜[NžÛYÙ\”›Û_K^Ù›Ü›K˜Ý\œ™[˜Þ_HÚ[™HÜ™X]Y]]ÛX]XØ[KÙ]ŸOÛ\ÜÓ˜[YOH^^È^\Û]KML•˜[œØXÝ[ÛœÈ›Üˆ\ÈÛÛXÝÜÝÈHX]Ú[™ÈÝ\œ™[˜ÞHÛÛ›ÛXØÛÝ[ÜÙ]‚ˆÏˆˆ[ÂˆYˆ
+›Ü›K\HOOH™[™ÜˆŠH™]\›ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KMH‚ˆ]ˆÛ\ÜÓ˜[YOHœ›Ý[™Y^›Ü™\ˆ›Ü™\‹\Û]KLŒ™Ë\Û]KMLM‚ˆÛ\ÜÓ˜[YOH^\ÛH›ÛX›Û^\Û]KNL•™[™Üˆ]Z[ÏÜ‚ˆÛ\ÜÓ˜[YOH›]LH^^È^\Û]KMLYÛÛ\[žKÛÛXÝÝ\œ™[˜ÞH[™^[™›Ü›X][Ûˆ›Üˆ\È™[™Ü‹Ü‚ˆÙ]‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KM‚ˆšY[X™[HÛÛ\[žH˜[YHˆ˜[YOH˜ÛÛ\[žHˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^Ê™^
+HOˆÙ]›Ü›JÈ‹‹›™^˜[YNˆ™^˜ÛÛ\[žHJ_H™\]Z\™YXÙZÛ\H‘[\ˆÛÛ\[žH˜[YHˆÏ‚ˆšY[X™[H•[\Û™Hˆ˜[YOHœÛ™Hˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_H™\]Z\™YXÙZÛ\H‘›Ü›X]
+ÎMÌLÍMÎHˆÏ‚ˆšY[X™[H“[Øš[H[X™\ˆˆ˜[YOHÚ]Ø\ˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HXÙZÛ\H‘›Ü›X]
+ÎMÌMLLŒÍMÈˆÏ‚ˆšY[X™[H‘[XZ[Y™\ÜÈˆ˜[YOH™[XZ[ˆ\OH™[XZ[ˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HXÙZÛ\H‘[\ˆ[XZ[Y™\ÜÈˆÏ‚ˆØÝ\œ™[˜ÞP[™XØÛÝ[BˆÚÚXÙHX™[HÛÝ[žH
+ˆˆ˜[YOH˜ÛÝ[žHˆ˜[Y\Ï^ØÛÝ[šY\ßH›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HXÙZÛ\H”Ù[XÝÛÝ[žHˆÏ‚ˆšY[X™[H•“ˆˆ˜[YOH›ˆˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HXÙZÛ\H‘[\ˆ“ˆˆÏ‚ˆÙ]‚ˆÙ]ŽÂˆYˆ
+›Ü›K\HOOH˜Ý\ÝÛY\ˆŠH™]\›ˆ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\MÛN™ÜšYXÛÛËLˆ]ˆÛ\ÜÓ˜[YOHœÛN˜ÛÛ\Ü[‹LˆšY[X™[H“˜[YHˆ˜[YOH›˜[YHˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_H™\]Z\™YÏÙ]šY[X™[HÛÛ\[žHˆ˜[YOH˜ÛÛ\[žHˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HÏšY[X™[H‘[XZ[ˆ˜[YOH™[XZ[ˆ\OH™[XZ[ˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HÏšY[X™[H”Û™Hˆ˜[YOHœÛ™Hˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HÏÙ]ŽÂ‚ˆ™]\›ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KMH‚ˆ]ˆÛ\ÜÓ˜[YOHœ›Ý[™Y^›Ü™\ˆ›Ü™\‹\Û]KLŒ™Ë\Û]KMLM‚ˆÛ\ÜÓ˜[YOH^\ÛH›ÛX›Û^\Û]KNLÝ\ÝÛY\ˆ]Z[ÏÜ‚ˆÛ\ÜÓ˜[YOH›]LH^^È^\Û]KMLYš[[™ËÛÛXÝ[™^[™›Ü›X][Ûˆ›Üˆ\ÈÝ\ÝÛY\‹Ü‚ˆÙ]‚ˆ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\^MHØ\^KMY™ÜšYXÛÛËLˆ‚ˆšY[X™[HÛÛ\[žH˜[YHˆ˜[YOH˜ÛÛ\[žHˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_H™\]Z\™YXÙZÛ\H‘[\ˆÛÛ\[žH˜[YHˆÏ‚ˆÚÚXÙHX™[HÛÝ[žH
+ˆˆ˜[YOH˜ÛÝ[žHˆ˜[Y\Ï^ØÛÝ[šY\ßH›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HXÙZÛ\H”Ù[XÝÛÝ[žHˆÏ‚ˆšY[X™[Hš[[™È˜[YHˆ˜[YOH›˜[YHˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^Ê™^
+HOˆÙ]›Ü›JÈ‹‹›™^š[[™Ó˜[YNˆ™^›˜[YHJ_H™\]Z\™YXÙZÛ\H‘[\ˆš[[™È˜[YHˆÏ‚ˆšY[X™[H•“ˆ
+MHYÚ]ÊHˆ˜[YOH›ˆˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HXÙZÛ\HŒMHYÚ]ËYˆ™YÚ\Ý\™YˆÏ‚ˆšY[X™[HÛÛXÝ[X™\ˆˆ˜[YOHœÛ™Hˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_H™\]Z\™YXÙZÛ\H‘›Ü›X]
+ÎMÌLÍMÎHˆÏ‚ˆÚÚXÙHX™[H”™\Ù[\ˆ
+ˆˆ˜[YOHœ™\Ù[\ˆˆ˜[Y\Ï^ÖÈ”™\Ù[\ˆ‹‘[™\Ù\ˆ—_H›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HÏ‚ˆšY[X™[H“[Øš[HÈÚ]Ð\
+
+ÈÛÝ[žHÛÙJHˆ˜[YOHÚ]Ø\ˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_H™\]Z\™YXÙZÛ\H‘›Ü›X]
+ÎMÌMLLŒÍMÈˆÏ‚ˆÚÚXÙHX™[H”[™]
+ˆˆ˜[YOHœ[™]ˆ˜[Y\Ï^ÖÈ“›È‹–Y\È—_H›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HÏ‚ˆšY[X™[H‘[XZ[Y™\ÜÈˆ˜[YOH™[XZ[ˆ\OH™[XZ[ˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HXÙZÛ\H‘[\ˆ[XZ[Y™\ÜÈˆÏ‚ˆšY[X™[H”\ÜÜÜÈˆ˜[YOHœ\ÜÜÜˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HXÙZÛ\H‘[\ˆ\ÜÜÜÈˆÏ‚ˆØÝ\œ™[˜ÞP[™XØÛÝ[Bˆˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆY˜ÛÛ\Ü[‹LˆX™[[›ÜH™\ØÜš\[Ûˆ‘\ØÜš\[ÛÓX™[^\™XHYH™\ØÜš\[Ûˆˆ˜[YOH™\ØÜš\[Ûˆˆ›ÝÜÏ^ÍHXÙZÛ\HYÝ\ÝÛY\ˆ›Ý\Èˆ˜[YO^Ù›Ü›K™\ØÜš\[ÛˆÏÈˆŸHÛÚ[™ÙO^Ê]™[
+HOˆÙ]›Ü›JÈ‹‹™›Ü›K\ØÜš\[ÛŽˆ]™[\™Ù]˜[YHJ_HÏÙ]‚ˆÙ]‚ˆÙ]ŽÂŸB™[˜Ý[Ûˆ][QšY[ÊÈ›Ü›KÙ]›Ü›K][\ËXØÛÝ[ËÛÛXÝË˜]ÛÙSÜ[ÛœËÝ\œ™[˜ÞKY][™ÈNˆÈ›Ü›Nˆ™XÛÜ™Ýš[™ËÝš[™ÏŽÈÙ]›Ü›Nˆ
+Žˆ™XÛÜ™Ýš[™ËÝš[™ÏŠHOˆ›ÚYÈ][\Îˆ]T™XÛÜ™×NÈXØÛÝ[Îˆ]T™XÛÜ™×NÈÛÛXÝÎˆ]T™XÛÜ™×NÈ˜]ÛÙSÜ[ÛœÎˆ˜]ÛÙSÜ[Û–×NÈÝ\œ™[˜ÞNˆÝš[™ÎÈY][™Îˆ›ÛÛX[ˆJHÂˆÛÛœÝÛÝ[HX]›Z[ŠÌX]›X^
+K[X™\Š›Ü›KœÜXÐÛÝ[ÏÈ
+JJNÂˆÛÛœÝÛÜ[Û‘]KÙ]Ü[Û‘]WHH\ÙTÝ]OÈÜ[ÛœÎˆ™XÛÜ™Ýš[™ËÝš[™Ö×OŽÈ\ØX›Yˆ™XÛÜ™Ýš[™ËÝš[™Ö×OŽÈX™[ÎˆÝš[™Ö×NÈ\ØX›YX™[ÎˆÝš[™Ö×NÈØ]YÛÜšY\ÎˆÝš[™Ö×NÈ\ØX›YØ]YÛÜšY\ÎˆÝš[™Ö×HOŠÈÜ[ÛœÎˆßK\ØX›YˆßKX™[ÎˆË‹‹œÜXÚYšXØ][Û‘šY[×K\ØX›YX™[Îˆ×KØ]YÛÜšY\ÎˆÈ“TÔ—K\ØX›YØ]YÛÜšY\Îˆ×HJNÂˆÛÛœÝØYÜ[ÛœÈH\ÙPØ[˜XÚÊ\Þ[˜È
+
+HOˆÂˆžHÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+‹Ø\KÜÜXË[Ü[ÛœÈŠNÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›ÝØYÚÚXÙ\ÈŠNÂˆÙ]Ü[Û‘]J]JNÂˆHØ]Ú
+\œ›ÜŠHÈØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›ÝØYÚÚXÙ\ÈŠNÈBˆK×JNÂˆËÈ\Û[Y\ØX›K[™^[[™H™XXÝZÛÚÜËÜÙ]\Ý]KZ[‹YY™™XÝˆ\ÙQY™™XÝ
+
+
+HOˆÈØYÜ[ÛœÊ
+NÈKÛØYÜ[Ûœ×JNÂ‚ˆÛÛœÝÚ[™ÙSÜ[ÛˆH\Þ[˜È
+Y]Ùˆ”ÔÕˆ”UÒˆ‘SUH‹^[ØYˆ™XÛÜ™Ýš[™ËÝš[™ÏŠHOˆÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]™]Ú
+‹Ø\KÜÜXË[Ü[ÛœÈ‹ÈY]ÙXY\œÎˆÈÛÛ[U\HŽˆ˜\XØ][Û‹ÚœÛÛˆˆK›ÙNˆ”ÓÓ‹œÝš[™ÚYžJ^[ØY
+HJNÂˆÛÛœÝ]HH]ØZ]™\ÜÛœÙKšœÛÛŠ
+NÂˆYˆ
+\™\ÜÛœÙK›ÚÊH›ÝÈ™]È\œ›ÜŠ]K™\œ›ÜˆÛÝ[›Ý\]HHÚÚXÙHŠNÂˆ]ØZ]ØYÜ[ÛœÊ
+NÂˆNÂˆÛÛœÝØ]™YX™[ÈH][\Ë™›]X\
+
+][JHOˆÂˆžHÂˆÛÛœÝ\œÙYH”ÓÓ‹œ\œÙJÝš[™Ê][KœÜXÚYšXØ][ÛœÈÏÈ–×HŠJH\È\œ˜^OÈX™[ÎˆÝš[™ÈOŽÂˆ™]\›ˆ\œÙY›X\
+
+ÜXÚYšXØ][ÛŠHOˆÜXÚYšXØ][Û‹›X™[Ëš[J
+JK™š[\Š
+X™[
+NˆX™[\ÈÝš[™ÈOˆ›ÛÛX[ŠX™[
+JNÂˆHØ]ÚÈ™]\›ˆ×NÈBˆJNÂˆÛÛœÝ\ØX›YX™[ÈH™]ÈÙ]
+Ü[Û‘]K™\ØX›YX™[ÊNÂˆÛÛœÝX™[Ü[ÛœÈHË‹‹›™]ÈÙ]
+Ë‹‹›Ü[Û‘]K›X™[Ë‹‹œØ]™YX™[Ë‹‹“Øš™XÝšÙ^\ÊÜ[Û‘]K›Ü[ÛœÊWJWK™š[\Š
+X™[
+HOˆY\ØX›YX™[Ëš\ÊX™[
+JNÂˆÛÛœÝÛÛ\\˜X›PÚÚXÙHH
+˜[YNˆÝš[™ÊHOˆ˜[YK››Ü›X[^™J“‘’ÐÈŠKÓÝÙ\Ø\ÙJ
+Kœ™\XÙJÖ×—ÓWÓŸWKÙÝKˆŠNÂˆÛÛœÝ\ØX›YØ]YÛÜšY\ÈH™]ÈÙ]
+Ü[Û‘]K™\ØX›YØ]YÛÜšY\Ë›X\
+ÛÛ\\˜X›PÚÚXÙJJNÂˆÛÛœÝØ]™YØ]YÛÜšY\ÈH][\Ë›X\
+
+][JHOˆÝš[™Ê][K˜Ø]YÛÜžHÏÈˆŠKš[J
+KÓØØ[U\\Ø\ÙJ™[ˆŠJK™š[\Š›ÛÛX[ŠNÂˆÛÛœÝØ]YÛÜžSÜ[ÛœÈHË‹‹›™]ÈX\
+Ë‹‹›Ü[Û‘]K˜Ø]YÛÜšY\Ë‹‹œØ]™YØ]YÛÜšY\×K›X\
+
+Ø]YÛÜžJHOˆØÛÛ\\˜X›PÚÚXÙJØ]YÛÜžJKØ]YÛÜžKÓØØ[U\\Ø\ÙJ™[ˆŠWJJK˜[Y\Ê
+WK™š[\Š
+Ø]YÛÜžJHOˆY\ØX›YØ]YÛÜšY\Ëš\ÊÛÛ\\˜X›PÚÚXÙJØ]YÛÜžJJJNÂˆÛÛœÝ\ØÜš\[ÛˆH\œ˜^K™œ›ÛJÈ[™ÝˆÛÝ[K
+Ë[™^
+HOˆ›Ü›VØÜXÕ˜[YIÚ[™^XOËš[J
+HÏÈˆŠK™š[\Š
+˜[YJHOˆ˜[YH	‰ˆ˜[YKÓÝÙ\Ø\ÙJ
+HOOH››ÈŠKš›Ú[ŠˆŠNÂˆÛÛœÝ][U\HH][U\SÙŠ›Ü›Kš][U\JNÂˆÛÛœÝ\R[™›ÈH][U\Q]Z[ÖÚ][U\WNÂˆÛÛœÝÝ[™\™[™R][HHØÝ[Y[[™R][U\\Ëš\Ê][U\JNÂˆÛÛœÝÝØÚÔ\H][U\HOOHœÝØÚË\\ŽÂˆÛÛœÝXÝ]™PXØÛÝ[ÈHXØÛÝ[Ë™š[\Š
+XØÛÝ[
+HOˆXØÛÝ[˜XÝ]™HOOH˜[ÙH	‰ˆÝš[™ÊXØÛÝ[˜XÝ]™JHOOH™˜[ÙHŠNÂˆÛÛœÝ›Ü›X[^™YXØÛÝ[˜[YHH
+˜[YNˆ[šÛ›ÝÛŠHOˆÝš[™Ê˜[YHÏÈˆŠKš[J
+KÓÝÙ\Ø\ÙJ
+NÂˆÛÛœÝÝØÚÐÛÙÜÐXØÛÝ[ÈHXÝ]™PXØÛÝ[Ë™š[\Š
+XØÛÝ[
+HOˆÂˆÛÛœÝ›ÛHH›Ü›X[^™YXØÛÝ[˜[YJXØÛÝ[œÞ\Ý[T›ÛJNÂˆÛÛœÝ\HH›Ü›X[^™YXØÛÝ[˜[YJXØÛÝ[\JNÂˆÛÛœÝ˜[YHH›Ü›X[^™YXØÛÝ[˜[YJXØÛÝ[›˜[YJNÂˆ™]\›ˆ›ÛHOOH˜ÛÙÜÈˆ\HOOH˜ÛÜÝÙˆÛÛÙÈÛÛˆ˜[YKš[˜ÛY\Ê˜ÛÜÝÙˆÛÛÙÈŠNÂˆJNÂˆÛÛœÝ\˜Ú\ÙPXØÛÝ[ÈHXÝ]™PXØÛÝ[Ë™š[\Š
+XØÛÝ[
+HOˆÂˆÛÛœÝ›ÛHH›Ü›X[^™YXØÛÝ[˜[YJXØÛÝ[œÞ\Ý[T›ÛJNÂˆÛÛœÝ\HH›Ü›X[^™YXØÛÝ[˜[YJXØÛÝ[\JNÂˆÛÛœÝ˜[YHH›Ü›X[^™YXØÛÝ[˜[YJXØÛÝ[›˜[YJNÂˆ™]\›ˆÈ˜ÛÙÜÈ‹œ\˜Ú\Ù\È‹™^[œÙH—Kš[˜ÛY\Ê›ÛJBˆÈ˜ÛÜÝÙˆÛÛÙÈÛÛ‹™^[œÙH‹›Ý\ˆ^[œÙH—Kš[˜ÛY\Ê\JBˆ˜[YKš[˜ÛY\Ê˜ÛÜÝÙˆÛÛÙÈŠBˆ˜[YKš[˜ÛY\Êœ\˜Ú\Ù\ÈŠNÂˆJNÂˆÛÛœÝ[˜ÛÛYPXØÛÝ[ÈHXÝ]™PXØÛÝ[Ë™š[\Š
+XØÛÝ[
+HOˆÂˆÛÛœÝ›ÛHH›Ü›X[^™YXØÛÝ[˜[YJXØÛÝ[œÞ\Ý[T›ÛJNÂˆÛÛœÝ\HH›Ü›X[^™YXØÛÝ[˜[YJXØÛÝ[\JNÂˆ™]\›ˆÈœØ[\È‹›Ý\—Ú[˜ÛÛYH—Kš[˜ÛY\Ê›ÛJHÈš[˜ÛÛYH‹›Ý\ˆ[˜ÛÛYH—Kš[˜ÛY\Ê\JNÂˆJNÂˆÛÛœÝ\ÜÙ]XØÛÝ[ÈHXÝ]™PXØÛÝ[Ë™š[\Š
+XØÛÝ[
+HOˆÂˆÛÛœÝ›ÛHH›Ü›X[^™YXØÛÝ[˜[YJXØÛÝ[œÞ\Ý[T›ÛJNÂˆÛÛœÝ˜[YHH›Ü›X[^™YXØÛÝ[˜[YJXØÛÝ[›˜[YJNÂˆ™]\›ˆ›ÛHOOHš[™[ÜžHˆ˜[YKš[˜ÛY\Êš[™[ÜžH\ÜÙ]ŠNÂˆJNÂˆÛÛœÝ™[™ÜœÈHÛÛXÝË™š[\Š
+ÛÛXÝ
+HOˆÛÛXÝ\HOOH™[™Üˆˆ	‰ˆÝš[™ÊÛÛXÝœÝ]\È˜XÝ]™HŠHOOHš[˜XÝ]™HŠNÂˆÛÛœÝÙ[XÝY\˜Ú\ÙU˜]H›Ü›Kœ\˜Ú\ÙU˜]ÛÙH˜]ÛÙSÜ[ÛœË™š[™
+
+ÛÙJHOˆÛÙK˜ÛÙHOOH”ÕS‘T‘ŠOË˜ÛÙH˜]ÛÙSÜ[ÛœÖÌOË˜ÛÙH–‘T“ÈŽÂˆÛÛœÝÙ[XÝYØ[\Õ˜]H›Ü›KœØ[\Õ˜]ÛÙH˜]ÛÙSÜ[ÛœË™š[™
+
+ÛÙJHOˆÛÙK˜ÛÙHOOH”ÕS‘T‘ŠOË˜ÛÙH˜]ÛÙSÜ[ÛœÖÌOË˜ÛÙH–‘T“ÈŽÂˆÛÛœÝYÜXÚYšXØ][ÛˆH
+
+HOˆÂˆYˆ
+ÛÝ[HÌ
+H™]\›ŽÂˆÙ]›Ü›JÈ‹‹™›Ü›KÜXÐÛÝ[ˆÝš[™ÊÛÝ[
+ÈJKØÜXÓX™[	ØÛÝ[XNˆÜXÚYšXØ][Û‘šY[ÖØÛÝ[KØÜXÕ˜[YIØÛÝ[XNˆˆˆJNÂˆNÂˆÛÛœÝ™[[Ý™TÜXÚYšXØ][ÛˆH
+[™^ˆ[X™\ŠHOˆÂˆYˆ
+ÛÝ[HJH™]\›ŽÂˆÛÛœÝ™^›Ü›HHÈ‹‹™›Ü›HNÂˆ›Üˆ
+]ÜÚ][ÛˆH[™^ÈÜÚ][ÛˆÛÝ[HNÈÜÚ][Ûˆ
+ÏHJHÂˆ™^›Ü›VØÜXÓX™[	ÜÜÚ][ÛŸXHH™^›Ü›VØÜXÓX™[	ÜÜÚ][Ûˆ
+È_XHÏÈÜXÚYšXØ][Û‘šY[ÖÜÜÚ][Û—NÂˆ™^›Ü›VØÜXÕ˜[YIÜÜÚ][ÛŸXHH™^›Ü›VØÜXÕ˜[YIÜÜÚ][Ûˆ
+È_XHÏÈˆŽÂˆBˆ[]H™^›Ü›VØÜXÓX™[	ØÛÝ[H_XNÂˆ[]H™^›Ü›VØÜXÕ˜[YIØÛÝ[H_XNÂˆ™^›Ü›KœÜXÐÛÝ[HÝš[™ÊÛÝ[HJNÂˆÙ]›Ü›J™^›Ü›JNÂˆNÂˆÛÛœÝ˜[Y\Ñ›ÜˆH
+X™[ˆÝš[™ÊHOˆÂˆÛÛœÝØ]™YH][\Ë™›]X\
+
+][JHOˆÂˆžHÂˆÛÛœÝ\œÙYH”ÓÓ‹œ\œÙJÝš[™Ê][KœÜXÚYšXØ][ÛœÈÏÈ–×HŠJH\È\œ˜^OÈX™[ÎˆÝš[™ÎÈ˜[YOÎˆÝš[™ÈOŽÂˆ™]\›ˆ\œÙY™š[\Š
+ÜXÚYšXØ][ÛŠHOˆÜXÚYšXØ][Û‹›X™[OOHX™[	‰ˆÜXÚYšXØ][Û‹˜[YJK›X\
+
+ÜXÚYšXØ][ÛŠHOˆÜXÚYšXØ][Û‹˜[YHJNÂˆHØ]ÚÈ™]\›ˆ×NÈBˆJNÂˆÛÛœÝ\ØX›YH™]ÈÙ]
+Ü[Û‘]K™\ØX›YÛX™[HÏÈ×JNÂˆ™]\›ˆË‹‹›™]ÈÙ]
+Ë‹‹ŠÜ[Û‘]K›Ü[ÛœÖÛX™[HÏÈ×JK‹‹œØ]™YJWK™š[\Š
+˜[YJHOˆY\ØX›Yš\Ê˜[YJJNÂˆNÂˆÛÛœÝXØÛÝ[XÚÙ\ˆH
+X™[ˆÝš[™Ë˜[YNˆ˜ÛÙÜÐXØÛÝ[Yˆš[˜ÛÛYPXØÛÝ[Yˆ˜\ÜÙ]XØÛÝ[Y‹ÚÚXÙ\Îˆ]T™XÛÜ™×JHOˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[žÛX™[OÓX™[Ù[XÝ˜[YO^Ù›Ü›VÛ˜[YWH››Û™HŸHÛ•˜[YPÚ[™ÙO^Ê˜[YJHOˆÙ]›Ü›JÈ‹‹™›Ü›KÛ˜[YWNˆ˜[YHOOH››Û™HˆÈˆˆˆ˜[YHJ_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHXÙZÛ\H”Ù[XÝXØÛÝ[ˆÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[Ù[XÝ][H˜[YOH››Û™H“›Ý[šÙYÔÙ[XÝ][OžØÚÚXÙ\Ë›X\
+
+XØÛÝ[
+HOˆÙ[XÝ][HÙ^O^ØXØÛÝ[šYH˜[YO^ÔÝš[™ÊXØÛÝ[šY
+_OžÔÝš[™ÊXØÛÝ[˜ÛÙHˆŠ_H0­ÈÔÝš[™ÊXØÛÝ[›˜[YJ_OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝÛ\ÜÓ˜[YOH^^È^\Û]KML“[šÙYÈÚ\ÙˆXØÛÝ[ËÜÙ]ŽÂˆÛÛœÝ˜]XÚÙ\ˆH
+X™[ˆÝš[™Ë˜[YNˆœ\˜Ú\ÙU˜]ÛÙHˆœØ[\Õ˜]ÛÙH‹˜[YNˆÝš[™ÊHOˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[žÛX™[OÓX™[Ù[XÝ˜[YO^Ý˜[Y_HÛ•˜[YPÚ[™ÙO^Ê™^
+HOˆÙ]›Ü›JÈ‹‹™›Ü›KÛ˜[YWNˆ™^J_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHXÙZÛ\H”Ù[XÝUÛÙHˆÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žÝ˜]ÛÙSÜ[ÛœË›X\
+
+Ü[ÛŠHOˆÙ[XÝ][HÙ^O^ÛÜ[Û‹˜ÛÙ_H˜[YO^ÛÜ[Û‹˜ÛÙ_OžÛÜ[Û‹›X™[OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝÛ\ÜÓ˜[YOH^^È^\Û]KML“[šÙYÈX[˜YÙ[Y[	™ÝÈUÛÙ\ËÜÙ]ŽÂˆ™]\›ˆ]ˆ]KX]XÚY[ËY^ÛYYHYHˆÛ\ÜÓ˜[YOH™ÜšYØ\MÛN™ÜšYXÛÛËLˆ‚ˆÙXÝ[ÛˆÛ\ÜÓ˜[YOHœÜXÙK^KM›Ý[™Y^›Ü™\ˆ™Ë]Ú]HMÛN˜ÛÛ\Ü[‹Lˆ‚ˆ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\MÎ™ÜšYXÛÛËVÌŽÌYœ—H‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[•\H
+ÓX™[Ù[XÝ˜[YO^Ú][U\_HÛ•˜[YPÚ[™ÙO^Ê˜[YJHOˆÈÛÛœÝ™^\HH][U\SÙŠ˜[YJNÈÙ]›Ü›JÈ‹‹™›Ü›K][U\Nˆ™^\K‹‹Š™^\HOOHœÝØÚË\\ˆÈßHˆÈ]X[]NˆŒ‹™[Ü™\”Ú[ˆŒ‹\ÜÙ]XØÛÝ[YˆˆˆJHJNÈ_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[žÚ][U\U˜[Y\Ë›X\
+
+˜[YJHOˆÙ[XÝ][HÙ^O^Ý˜[Y_H˜[YO^Ý˜[Y_OžÚ][U\Q]Z[ÖÝ˜[YWK›X™[OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝÙ]‚ˆ]ˆÛ\ÜÓ˜[YOHœ›Ý[™Y[È›Ü™\ˆ™Ë\Û]KMLLÈÛ\ÜÓ˜[YOH™›Û\Ù[ZX›Û^\Û]KNLžÝ\R[™›Ë›X™[OÜÛ\ÜÓ˜[YOH›]LH^\ÛHXY[™ËMˆ^\Û]KMŒžÝ\R[™›Ë™\ØÜš\[ÛŸOÜÛ\ÜÓ˜[YOH›]Lˆ^^È›Û\Ù[ZX›Û^Y[Y\˜[MÌ“[šÙY\™XNˆÝ\R[™›Ë›[šÙY\™X_OÜÙ]‚ˆÙ]‚ˆÜÙXÝ[Û‚‚ˆÜÝ[™\™[™R][H	‰ˆÙXÝ[ÛˆÛ\ÜÓ˜[YOHœÜXÙK^KM›Ý[™Y^›Ü™\ˆ™Ë\Û]KMLM‚ˆ]ÈÛ\ÜÓ˜[YOH™›ÛX›Û^\Û]KNL”\˜Ú\ÙH[™›Ü›X][ÛÚÏÛ\ÜÓ˜[YOH›]LH^^È^\Û]KML‘Y˜][È\ÙYÚ[ˆ\È][H\ÈÙ[XÝYÛˆ\˜Ú\ÙHØÝ[Y[ËÜÙ]‚ˆšY[X™[^ÜÝØÚÔ\ÈÛÜÝ
+	ØÝ\œ™[˜Þ_JXˆ\˜Ú\ÙHÛÜÝÈ˜]H
+	ØÝ\œ™[˜Þ_JXH˜[YOH˜ÛÜÝˆ\OH›[X™\ˆˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HÏ‚ˆÝ˜]XÚÙ\Š”\˜ÚUÛÙH‹œ\˜Ú\ÙU˜]ÛÙH‹Ù[XÝY\˜Ú\ÙU˜]
+_BˆØXØÛÝ[XÚÙ\ŠÝØÚÔ\ÈÓÑÔÈXØÛÝ[ˆˆ‘^[œÙHÈÓÑÔÈXØÛÝ[‹˜ÛÙÜÐXØÛÝ[Y‹ÝØÚÔ\ÈÝØÚÐÛÙÜÐXØÛÝ[Èˆ\˜Ú\ÙPXØÛÝ[Ê_Bˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[”™Y™\œ™YÝ\Y\ÓX™[Ù[XÝ˜[YO^Ù›Ü›Kœ™Y™\œ™YÝ\Y\’Y››Û™HŸHÛ•˜[YPÚ[™ÙO^Ê˜[YJHOˆÙ]›Ü›JÈ‹‹™›Ü›K™Y™\œ™YÝ\Y\’Yˆ˜[YHOOH››Û™HˆÈˆˆˆ˜[YHJ_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHXÙZÛ\H”Ù[XÝÝ\Y\ˆˆÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[Ù[XÝ][H˜[YOH››Û™H“›È™Y™\œ™YÝ\Y\ÔÙ[XÝ][OžÝ™[™ÜœË›X\
+
+™[™ÜŠHOˆÙ[XÝ][HÙ^O^Ý™[™Ü‹šYH˜[YO^ÔÝš[™Ê™[™Ü‹šY
+_OžÔÝš[™Ê™[™Ü‹˜ÛÛ\[žH™[™Ü‹›˜[YJ_OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝÛ\ÜÓ˜[YOH^^È^\Û]KML“[šÙYÈ™[™ÜˆÙ[\‹ÜÙ]‚ˆÜÙXÝ[Û‚ˆÙXÝ[ÛˆÛ\ÜÓ˜[YOHœÜXÙK^KM›Ý[™Y^›Ü™\ˆ™Ë\Û]KMLM‚ˆ]ÈÛ\ÜÓ˜[YOH™›ÛX›Û^\Û]KNL”Ø[\È[™›Ü›X][ÛÚÏÛ\ÜÓ˜[YOH›]LH^^È^\Û]KML‘Y˜][È\ÙYÚ[ˆ\È][H\ÈÙ[XÝYÛˆØ[\ÈØÝ[Y[ËÜÙ]‚ˆšY[X™[^Ú][U\HOOHœÙ\šXÙHˆÈ˜]H
+	ØÝ\œ™[˜Þ_JXˆØ[\ÈšXÙH
+	ØÝ\œ™[˜Þ_JXH˜[YOHœØ[\ÔšXÙHˆ\OH›[X™\ˆˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HÏ‚ˆÝ˜]XÚÙ\Š”Ø[\ÈUÛÙH‹œØ[\Õ˜]ÛÙH‹Ù[XÝYØ[\Õ˜]
+_BˆØXØÛÝ[XÚÙ\Š’[˜ÛÛYHXØÛÝ[‹š[˜ÛÛYPXØÛÝ[Y‹[˜ÛÛYPXØÛÝ[Ê_BˆÜÙXÝ[ÛÏŸB‚ˆÜÝØÚÔ\	‰ˆÙXÝ[ÛˆÛ\ÜÓ˜[YOHœÜXÙK^KM›Ý[™Y^›Ü™\ˆ™Ë]Ú]HMÛN˜ÛÛ\Ü[‹Lˆ‚ˆ]ÈÛ\ÜÓ˜[YOH™›ÛX›Û^\Û]KNL”ÝØÚÈ[™›Ü›X][ÛÚÏÛ\ÜÓ˜[YOH›]LH^^È^\Û]KML“Û‹Z[™ÝØÚÈÚ[™Ù\ÈÛ›Hœ›ÛHÝØÚÈØÝ[Y[ÈY\ˆHÜ[š[™È]X[]H\ÈØ]™YÜÙ]‚ˆ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\MY™ÜšYXÛÛËLˆ™ÜšYXÛÛËMH‚ˆ]ˆÛ\ÜÓ˜[YOHž˜ÛÛ\Ü[‹LHžØXØÛÝ[XÚÙ\Š\ÜÙ]XØÛÝ[‹˜\ÜÙ]XØÛÝ[Y‹\ÜÙ]XØÛÝ[Ê_OÙ]‚ˆšY[X™[H”™[Ü™\ˆÚ[
+Z[ŠHˆ˜[YOHœ™[Ü™\”Ú[ˆ\OH›[X™\ˆˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HÏ‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[“Ûˆ[™ÓX™[[œ]\OH›[X™\ˆˆZ[HŒˆÝ\HŒŒHˆ™XYÛ›O^ÙY][™ßH˜[YO^Ù›Ü›Kœ]X[]HŒŸHÛÚ[™ÙO^Ê]™[
+HOˆÙ]›Ü›JÈ‹‹™›Ü›K]X[]Nˆ]™[\™Ù]˜[YHJ_HÛ\ÜÓ˜[YO^ÙY][™ÈÈ˜™Ë\Û]KLLˆˆˆŸHÏÛ\ÜÓ˜[YOH^^È^\Û]KMLžÙY][™ÈÈ•\]YžHÜÝYÝØÚÈØÝ[Y[Ëˆˆˆ“Ü[š[™È]X[]H›Üˆ\È[™[ÜžKˆŸOÜÙ]‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[]™\˜YÙHÛÜÝÓX™[[œ]™XYÛ›H˜[YO^Ó[X™\Š›Ü›K˜ÛÜÝ
+KÓØØ[TÝš[™Ê[™Yš[™YÈX^[][Qœ˜XÝ[Û‘YÚ]ÎˆJ_HÛ\ÜÓ˜[YOH˜™Ë\Û]KLLˆÏÛ\ÜÓ˜[YOH^^È^\Û]KMLØ[Ý[]Yœ›ÛHÜÝYÝØÚÈ\˜Ú\Ù\È[ˆÛYHÝ\œ™[˜ÞKÜÙ]‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[“Ûˆ“ËÓX™[[œ]™XYÛ›H˜[YO^Ó[X™\Š›Ü›K›Û”È
+KÓØØ[TÝš[™Ê[™Yš[™YÈX^[][Qœ˜XÝ[Û‘YÚ]ÎˆJ_HÛ\ÜÓ˜[YOH˜™Ë\Û]KLLˆÏÛ\ÜÓ˜[YOH^^È^\Û]KML“Ü[ˆ\˜Ú\ÙHÜ™\ˆ]X[]KÜÙ]‚ˆÙ]‚ˆÜÙXÝ[ÛŸB‚ˆÈ\Ý[™\™[™R][H	‰ˆÙXÝ[ÛˆÛ\ÜÓ˜[YOHœ›Ý[™Y^›Ü™\ˆ›Ü™\‹\ÚÞKLŒ™Ë\ÚÞKMLMÛN˜ÛÛ\Ü[‹LˆÈÛ\ÜÓ˜[YOH™›ÛX›Û^\ÚÞKNML‘ØÝ[Y[ÛÛ›Û][OÚÏÛ\ÜÓ˜[YOH›]LH^\ÛHXY[™ËMˆ^\ÚÞKNLžÝ\R[™›Ë›X™[H\È[šÙYÈÝ›Û™ÏžÝ\R[™›Ë›[šÙY\™X_OÜÝ›Û™Ïˆ˜]\ˆ[ˆH›Ü›X[ÝØÚËÜÙ\šXÙH][HÙ[XÝÜ‹ÛÈ]Ú[›ÝÚ[™ÙH[™[ÜžH]X[]KÜÜÙXÝ[ÛŸB‚ˆÙXÝ[ÛˆÛ\ÜÓ˜[YOH™ÜšYØ\M›Ý[™Y^›Ü™\ˆ™Ë]Ú]HMÛN˜ÛÛ\Ü[‹LˆY™ÜšYXÛÛËLˆ‚ˆX™[Û\ÜÓ˜[YOH™›^][\ËXÙ[\ˆØ\LÈ^\ÛH›Û[YY][HÚXÚØ›ÞÚXÚÙY^Ù›Ü›KœÝ]\ÈOOHš[˜XÝ]™HŸHÛÚXÚÙYÚ[™ÙO^ÊÚXÚÙY
+HOˆÙ]›Ü›JÈ‹‹™›Ü›KÝ]\ÎˆÚXÚÙYOOHYHÈš[˜XÝ]™Hˆˆ˜XÝ]™HˆJ_HÏ’][H\È[˜XÝ]™OÛX™[‚ˆX™[Û\ÜÓ˜[YOH™›^][\ËXÙ[\ˆØ\LÈ^\ÛH›Û[YY][HÚXÚØ›ÞÚXÚÙY^Ù›Ü›K˜[[Ý[Ò[˜ÛYU˜]OOHYHŸHÛÚXÚÙYÚ[™ÙO^ÊÚXÚÙY
+HOˆÙ]›Ü›JÈ‹‹™›Ü›K[[Ý[Ò[˜ÛYU˜]ˆÚXÚÙYOOHYHÈYHˆˆ™˜[ÙHˆJ_HÏ[[Ý[È[˜ÈUÛX™[‚ˆÙ›Ü›K˜[[Ý[Ò[˜ÛYU˜]OOHYHˆ	‰ˆÛ\ÜÓ˜[YOH^^È^\Û]KMLY˜ÛÛ\Ü[‹Lˆ”Ø]™YÛÜÝ[™Ø[\ÈšXÙKÔ˜]H\™H™X]Y\ÈUZ[˜Û\Ú]™KˆØÝ[Y[[™\ÈÛÛ™\[HÈ™]˜[Y\È\Ú[™ÈH[šÙYUÛÙKÜŸBˆÜÙXÝ[Û‚‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆÛN˜ÛÛ\Ü[‹Lˆ]X™[Ø]YÛÜžOÓX™[Û\ÜÓ˜[YOH›]LH^^È^\Û]KML”ÒÕH[™][H›Ëˆ\™HÙ[™\˜]Y]]ÛX]XØ[H›Üˆ]™\žH™]È][KÜÙ]ÜXÚYšXØ][Û•˜[YTXÚÙ\‚ˆX™[H’][HØ]YÛÜžH‚ˆXÙZÛ\H”Ù[XÝÜˆ\HØ]YÛÜžH‚ˆ˜[YO^Ù›Ü›K˜Ø]YÛÜžHÏÈˆŸBˆÜ[ÛœÏ^ØØ]YÛÜžSÜ[ÛœßBˆ\\˜Ø\ÙBˆÛÚ[™ÙO^Ê˜[YJHOˆÙ]›Ü›JÈ‹‹™›Ü›KØ]YÛÜžNˆ˜[YHJ_BˆÛY^Ê˜[YJHOˆÚ[™ÙSÜ[ÛŠ”ÔÕ‹È\Nˆ˜Ø]YÛÜžH‹˜[YHJ_BˆÛ”™[˜[YO^ÊÛ˜[YK™]Õ˜[YJHOˆÚ[™ÙSÜ[ÛŠ”UÒ‹È\Nˆ˜Ø]YÛÜžH‹Û˜[YK™]Õ˜[YHJ_BˆÛ‘[]O^Ê˜[YJHOˆÚ[™ÙSÜ[ÛŠ‘SUH‹È\Nˆ˜Ø]YÛÜžH‹˜[YHJ_BˆÏÙ]‚ˆÙXÝ[ÛˆÛ\ÜÓ˜[YOHœÜXÙK^KLÈ›Ý[™Y^›Ü™\ˆ™Ë\Û]KMLMÛN˜ÛÛ\Ü[‹Lˆ‚ˆ]ˆÛ\ÜÓ˜[YOH™›^›^]Ü˜\][\ËXÙ[\ˆ\ÝYžKX™]ÙY[ˆØ\LÈ]X™[’][H\ØÜš\[ÛˆÜXÚYšXØ][ÛœÏÓX™[Û\ÜÓ˜[YOH›]LH^^È^\Û]KML”Ù[XÝÜˆ\H[žH]Z[[ˆ[\ˆ]È˜[YKˆYÜˆ™[[Ý™H\ÈÌšY[ËÜÙ]]Ûˆ\OH˜]Ûˆˆ˜\šX[H›Ý][™HˆÚ^™OHœÛHˆ\ØX›Y^ØÛÝ[HÌHÛÛXÚÏ^ØYÜXÚYšXØ][ÛŸO\ÈÛ\ÜÓ˜[YOHœÚ^™KLÈˆÏY]Z[
+ØÛÝ[KÌÌ
+OÐ]ÛÙ]‚ˆ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\LˆY™ÜšYXÛÛËLˆžÐ\œ˜^K™œ›ÛJÈ[™ÝˆÛÝ[K
+Ë[™^
+HOˆ]ˆÙ^O^Ú[™^HÛ\ÜÓ˜[YOH™ÜšYÜšYXÛÛËVÛZ[›X^
+LÌŽœŠWÛZ[›X^
+KŒ™œŠWØ]]×HØ\Lˆ›Ý[™Y[È›Ü™\ˆ™Ë]Ú]HLˆ‚ˆÜXÚYšXØ][Û•˜[YTXÚÙ\‚ˆX™[H”ÜXÚYšXØ][Ûˆ]Z[‚ˆXÙZÛ\H”Ù[XÝÜˆ\H]Z[‚ˆ˜[YO^Ù›Ü›VØÜXÓX™[	Ú[™^XHÏÈÜXÚYšXØ][Û‘šY[ÖÚ[™^_BˆÜ[ÛœÏ^ÛX™[Ü[ÛœßBˆÛÚ[™ÙO^Ê˜[YJHOˆÙ]›Ü›JÈ‹‹™›Ü›KØÜXÓX™[	Ú[™^XNˆ˜[YHJ_BˆÛY^Ê˜[YJHOˆÚ[™ÙSÜ[ÛŠ”ÔÕ‹È\Nˆ›X™[‹˜[YHJ_BˆÛ”™[˜[YO^ÊÛ˜[YK™]Õ˜[YJHOˆÚ[™ÙSÜ[ÛŠ”UÒ‹È\Nˆ›X™[‹Û˜[YK™]Õ˜[YHJ_BˆÛ‘[]O^Ê˜[YJHOˆÚ[™ÙSÜ[ÛŠ‘SUH‹È\Nˆ›X™[‹˜[YHJ_BˆÏ‚ˆÜXÚYšXØ][Û•˜[YTXÚÙ\‚ˆX™[^Ù›Ü›VØÜXÓX™[	Ú[™^XHÏÈÜXÚYšXØ][Û‘šY[ÖÚ[™^_Bˆ˜[YO^Ù›Ü›VØÜXÕ˜[YIÚ[™^XHÏÈˆŸBˆÜ[ÛœÏ^Ý˜[Y\Ñ›ÜŠ›Ü›VØÜXÓX™[	Ú[™^XHÏÈÜXÚYšXØ][Û‘šY[ÖÚ[™^J_Bˆ\\˜Ø\ÙBˆÛÚ[™ÙO^Ê˜[YJHOˆÙ]›Ü›JÈ‹‹™›Ü›KØÜXÕ˜[YIÚ[™^XNˆ˜[YHJ_BˆÛY^Ê˜[YJHOˆÚ[™ÙSÜ[ÛŠ”ÔÕ‹ÈX™[ˆ›Ü›VØÜXÓX™[	Ú[™^XHÏÈÜXÚYšXØ][Û‘šY[ÖÚ[™^K˜[YHJ_BˆÛ”™[˜[YO^ÊÛ˜[YK™]Õ˜[YJHOˆÚ[™ÙSÜ[ÛŠ”UÒ‹ÈX™[ˆ›Ü›VØÜXÓX™[	Ú[™^XHÏÈÜXÚYšXØ][Û‘šY[ÖÚ[™^KÛ˜[YK™]Õ˜[YHJ_BˆÛ‘[]O^Ê˜[YJHOˆÚ[™ÙSÜ[ÛŠ‘SUH‹ÈX™[ˆ›Ü›VØÜXÓX™[	Ú[™^XHÏÈÜXÚYšXØ][Û‘šY[ÖÚ[™^K˜[YHJ_BˆÏ‚ˆ]Ûˆ\OH˜]Ûˆˆ˜\šX[H™ÚÜÝˆÚ^™OHšXÛÛˆˆ\ØX›Y^ØÛÝ[H_H\šXK[X™[^Ø™[[Ý™H	Ù›Ü›VØÜXÓX™[	Ú[™^XHÏÈœÜXÚYšXØ][ÛˆŸXH]OH”™[[Ý™H]Z[ˆÛÛXÚÏ^Ê
+HOˆ™[[Ý™TÜXÚYšXØ][ÛŠ[™^
+_HÛ\ÜÓ˜[YOH^\Û]KMÝ™\Ž^\›ÜÙKMŒ˜\ÚˆÛ\ÜÓ˜[YOHœÚ^™KMˆÏÐ]Û‚ˆÙ]Š_OÙ]‚ˆ]ˆÛ\ÜÓ˜[YOHœ›Ý[™Y[È›Ü™\ˆ›Ü™\‹Y[Y\˜[LL™ËY[Y\˜[MLLÈÛ\ÜÓ˜[YOH^^È›Û\Ù[ZX›Û\\˜Ø\ÙH˜XÚÚ[™Ë]ÚY\ˆ^Y[Y\˜[MÌ‘Ù[™\˜]Y\ØÜš\[ÛÜÛ\ÜÓ˜[YOH›]LˆZ[‹ZMˆ^\ÛHXY[™ËMˆ^\Û]KMÌžÙ\ØÜš\[Ûˆ‘[\ˆÜXÚYšXØ][Ûˆ˜[Y\ÈÈZ[H][H\ØÜš\[Û‹ˆŸOÜÙ]‚ˆÜÙXÝ[Û‚ˆÙ]ŽÂŸB™[˜Ý[ÛˆÜXÚYšXØ][Û•˜[YTXÚÙ\ŠÈX™[˜[YKÜ[ÛœËÛÚ[™ÙKÛYÛ”™[˜[YKÛ‘[]KXÙZÛ\ˆH”Ù[XÝÜˆ[\ˆ˜[YH‹\\˜Ø\ÙHH˜[ÙHNˆÈX™[ˆÝš[™ÎÈ˜[YNˆÝš[™ÎÈÜ[ÛœÎˆÝš[™Ö×NÈÛÚ[™ÙNˆ
+˜[YNˆÝš[™ÊHOˆ›ÚYÈÛYˆ
+˜[YNˆÝš[™ÊHOˆ›ÛZ\ÙO›ÚYŽÈÛ”™[˜[YNˆ
+Û˜[YNˆÝš[™Ë™]Õ˜[YNˆÝš[™ÊHOˆ›ÛZ\ÙO›ÚYŽÈÛ‘[]Nˆ
+˜[YNˆÝš[™ÊHOˆ›ÛZ\ÙO›ÚYŽÈXÙZÛ\ÎˆÝš[™ÎÈ\\˜Ø\ÙOÎˆ›ÛÛX[ˆJHÂˆÛÛœÝ›Ü›X[^™Y[œ]H
+[œ]ˆÝš[™ÊHOˆ\\˜Ø\ÙHÈ[œ]ÓØØ[U\\Ø\ÙJ™[ˆŠHˆ[œ]ÂˆÛÛœÝÛÜ[‹Ù]Ü[—HH\ÙTÝ]J˜[ÙJNÂˆÛÛœÝØÚÚXÙTÙX\˜ÚÙ]ÚÚXÙTÙX\˜ÚHH\ÙTÝ]JˆŠNÂˆÛÛœÝš[\™YÜ[ÛœÈHÜ[ÛœË™š[\Š
+Ü[ÛŠHOˆÜ[Û‹ÓÝÙ\Ø\ÙJ
+Kš[˜ÛY\ÊÚÚXÙTÙX\˜Úš[J
+KÓÝÙ\Ø\ÙJ
+JJNÂˆÛÛœÝÛ™]Õ˜[YKÙ]™]Õ˜[YWHH\ÙTÝ]JˆŠNÂˆÛÛœÝÙY][™ËÙ]Y][™×HH\ÙTÝ]OÝš[™È[Š[
+NÂˆÛÛœÝÙY]Y˜[YKÙ]Y]Y˜[YWHH\ÙTÝ]JˆŠNÂˆÛÛœÝØ\ÞKÙ]\ÞWHH\ÙTÝ]J˜[ÙJNÂ‚ˆÛÛœÝ[ˆH\Þ[˜È
+XÝ[ÛŽˆ
+
+HOˆ›ÛZ\ÙO›ÚY‹ÝXØÙ\ÜÎˆÝš[™ÊHOˆÂˆÙ]\ÞJYJNÂˆžHÈ]ØZ]XÝ[ÛŠ
+NÈØ\ÝœÝXØÙ\ÜÊÝXØÙ\ÜÊNÈBˆØ]Ú
+\œ›ÜŠHÈØ\Ý™\œ›ÜŠ\œ›Üˆ[œÝ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›Y\ÜØYÙHˆÛÝ[›Ý\]HHÚÚXÙHŠNÈBˆš[˜[HÈÙ]\ÞJ˜[ÙJNÈBˆNÂ‚ˆÛÛœÝYH
+
+HOˆÂˆÛÛœÝ™^H›Ü›X[^™Y[œ]
+™]Õ˜[YKš[J
+JNÂˆYˆ
+[™^
+H™]\›ŽÂˆ[Š\Þ[˜È
+
+HOˆÈ]ØZ]ÛY
+™^
+NÈÙ]™]Õ˜[YJˆŠNÈKÚÚXÙHYYŠNÂˆNÂˆÛÛœÝ™[˜[YHH
+Û˜[YNˆÝš[™ÊHOˆÂˆÛÛœÝ™^H›Ü›X[^™Y[œ]
+Y]Y˜[YKš[J
+JNÂˆYˆ
+[™^
+H™]\›ŽÂˆ[Š\Þ[˜È
+
+HOˆÂˆ]ØZ]Û”™[˜[YJÛ˜[YK™^
+NÂˆYˆ
+˜[YHOOHÛ˜[YJHÛÚ[™ÙJ™^
+NÂˆÙ]Y][™Ê[
+NÂˆKÚÚXÙH™[˜[YYŠNÂˆNÂˆÛÛœÝ™[[Ý™HH
+Ü[ÛŽˆÝš[™ÊHOˆ[Š\Þ[˜È
+
+HOˆÂˆ]ØZ]Û‘[]JÜ[ÛŠNÂˆYˆ
+˜[YHOOHÜ[ÛŠHÛÚ[™ÙJˆŠNÂˆKÚÚXÙH™[[Ý™YŠNÂ‚ˆ™]\›ˆÜÝ™\ˆ[Ù[Ü[^ÛÜ[ŸHÛ“Ü[Ú[™ÙO^Ê™^Ü[ŠHOˆÈÙ]Ü[Š™^Ü[ŠNÈYˆ
+™^Ü[ŠHÙ]ÚÚXÙTÙX\˜Ú
+ˆŠNÈ_O‚ˆ]ˆÛ\ÜÓ˜[YOH™›^Z[‹]ËL‚ˆ^\™XH›ÝÜÏ^Ì_H™Y^Ê[[Y[
+HOˆÈYˆ
+[[Y[
+HÈ[[Y[œÝ[KšZYÚH˜]]ÈŽÈ[[Y[œÝ[KšZYÚH	Ù[[Y[œØÜ›ÛZYÚ\ÈH_H\šXK[X™[^Ø	ÛX™[”ÜXÚYšXØ][ÛˆŸH˜[YXHXÙZÛ\^ÜXÙZÛ\ŸH˜[YO^Ý˜[Y_HÛÚ[™ÙO^Ê]™[
+HOˆÛÚ[™ÙJ›Ü›X[^™Y[œ]
+]™[\™Ù]˜[YJJ_HÛ\ÜÓ˜[YOH›Z[‹ZNHZ[‹]ËL™\Ú^™K[›Û™HÝ™\™›ÝËZY[ˆ›Ý[™Y\‹[›Û™Hœ™XZË]ÛÜ™ÈˆÏ‚ˆÜÝ™\•šYÙÙ\ˆ\ÐÚ[]Ûˆ\OH˜]Ûˆˆ˜\šX[H›Ý][™HˆÚ^™OHšXÛÛˆˆ]O^ØX[˜YÙH	ÛX™[™]Z[ŸHÚÚXÙ\ØH\šXK[X™[^ØX[˜YÙH	ÛX™[™]Z[ŸHÚÚXÙ\ØHÛ\ÜÓ˜[YOHšX]]ÈZ[‹ZNHÚš[šËLÙ[‹\Ý™]Ú›Ý[™Y[[›Û™H›Ü™\‹[LÚ]œ›Û‘ÝÛˆÛ\ÜÓ˜[YOHœÚ^™KMˆÏÐ]ÛÔÜÝ™\•šYÙÙ\‚ˆÙ]‚ˆÜÝ™\ÛÛ[]KX]XÚY[ËY^ÛYYHYHˆ[YÛHœÝ\ˆÛ\ÜÓ˜[YOH™›^X^ZVÝ˜\ŠK\˜Y^\ÜÝ™\‹XÛÛ[X]˜Z[X›KZZYÚ
+WHËVÛZ[ŠÍœ™[KØ[ÊLËLœ™[JJWH›^XÛÛØ\LÈÝ™\™›ÝË^KX]]ÈLÈ‚ˆ]Û\ÜÓ˜[YOH^\ÛH›ÛX›Û^\Û]KNLžÛX™[‘]Z[ŸHÚÚXÙ\ÏÜÛ\ÜÓ˜[YOH^^È^\Û]KML”Ù[XÝY™[˜[YHÜˆ™[[Ý™HHÚÚXÙKÜÙ]‚ˆ[œ]\šXK[X™[^ØÙX\˜Ú	ÛX™[™]Z[ŸHÚÚXÙ\ØHXÙZÛ\H”ÙX\˜ÚÚÚXÙ\ø )ˆˆ˜[YO^ØÚÚXÙTÙX\˜ÚHÛÚ[™ÙO^Ê]™[
+HOˆÙ]ÚÚXÙTÙX\˜Ú
+]™[\™Ù]˜[YJ_HÛ’Ù^QÝÛ^Ê]™[
+HOˆÈYˆ
+]™[šÙ^HOOH‘[\ˆŠH]™[œ™]™[Y˜][
+
+NÈ_HÛ\ÜÓ˜[YOHœÚš[šËLˆÏ‚ˆ]ˆÛ\ÜÓ˜[YOH›Z[‹ZLX^ZMÜXÙK^KLHÝ™\™›ÝË^KX]]ÈÝ™\œØÜ›ÛXÛÛZ[ˆ‹LHˆX’[™^^ÌH›ÛOHœ™YÚ[Ûˆˆ\šXK[X™[^Ø	ÛX™[‘]Z[ŸHÚÚXÙ\ØO‚ˆÙš[\™YÜ[ÛœË›[™ÝOOHÈÛ\ÜÓ˜[YOHœ›Ý[™Y[Y™Ë\Û]KMLLÈ^^È^\Û]KMLžÛÜ[ÛœË›[™ÝÈ“›ÈX]Ú[™ÈÚÚXÙ\Ëˆˆˆ“›ÈØ]™YÚÚXÙ\ÈY]ˆŸOÜˆˆš[\™YÜ[ÛœË›X\
+
+Ü[ÛŠHOˆY][™ÈOOHÜ[ÛˆÈ]ˆÙ^O^ÛÜ[ÛŸHÛ\ÜÓ˜[YOH™›^Ø\LH‚ˆ[œ]]]Ñ›ØÝ\È˜[YO^ÙY]Y˜[Y_HÛÚ[™ÙO^Ê]™[
+HOˆÙ]Y]Y˜[YJ›Ü›X[^™Y[œ]
+]™[\™Ù]˜[YJJ_HÛ’Ù^QÝÛ^Ê]™[
+HOˆÈYˆ
+]™[šÙ^HOOH‘[\ˆŠHÈ]™[œ™]™[Y˜][
+
+NÈ™[˜[YJÜ[ÛŠNÈH_HÛ\ÜÓ˜[YOHšNˆÏ‚ˆ]Ûˆ\OH˜]ÛˆˆÚ^™OHšXÛÛˆˆ˜\šX[H™ÚÜÝˆ\ØX›Y^Ø\Þ_HÛÛXÚÏ^Ê
+HOˆ™[˜[YJÜ[ÛŠ_H\šXK[X™[H”Ø]™H™[˜[YYÚÚXÙHˆÛ\ÜÓ˜[YOHœÚ^™KN^Y[Y\˜[MŒÚXÚÈÛ\ÜÓ˜[YOHœÚ^™KMˆÏÐ]Û‚ˆÙ]ˆˆ]ˆÙ^O^ÛÜ[ÛŸHÛ\ÜÓ˜[YOH™Ü›Ý\›^][\ËXÙ[\ˆØ\LH›Ý[™Y[YÝ™\Ž˜™Ë\Û]KML‚ˆ]Ûˆ\OH˜]ÛˆˆÛÛXÚÏ^Ê
+HOˆÈÛÚ[™ÙJÜ[ÛŠNÈÙ]Ü[Š˜[ÙJNÈ_HÛ\ÜÓ˜[YOH›Z[‹]ËL›^LHÚ]\ÜXÙK[›Ü›X[œ™XZË]ÛÜ™ÈÛÝ™\™›ÝË]Ü˜\˜[ž]Ú\™WHLˆKLˆ^[Y^\ÛHžÛÜ[ÛŸOØ]Û‚ˆ]Ûˆ\OH˜]ÛˆˆÚ^™OHšXÛÛˆˆ˜\šX[H™ÚÜÝˆ\ØX›Y^Ø\Þ_HÛÛXÚÏ^Ê
+HOˆÈÙ]Y][™ÊÜ[ÛŠNÈÙ]Y]Y˜[YJÜ[ÛŠNÈ_H\šXK[X™[^Ø™[˜[YH	ÛÜ[ÛŸXHÛ\ÜÓ˜[YOHœÚ^™KNÚš[šËL^\Û]KMÝ™\Ž^\ÚÞKMŒ[˜Ú[Û\ÜÓ˜[YOHœÚ^™KLËHˆÏÐ]Û‚ˆ]Ûˆ\OH˜]ÛˆˆÚ^™OHšXÛÛˆˆ˜\šX[H™ÚÜÝˆ\ØX›Y^Ø\Þ_HÛÛXÚÏ^Ê
+HOˆ™[[Ý™JÜ[ÛŠ_H\šXK[X™[^Ø™[[Ý™H	ÛÜ[ÛŸXHÛ\ÜÓ˜[YOHœÚ^™KNÚš[šËL^\Û]KMÝ™\Ž^\›ÜÙKMŒˆ]OH‘[]H˜\ÚˆÛ\ÜÓ˜[YOHœÚ^™KLËHˆÏÐ]Û‚ˆÙ]Š_BˆÙ]‚ˆ]ˆÛ\ÜÓ˜[YOH™›^Úš[šËLØ\Lˆ›Ü™\‹]LÈ[œ]˜[YO^Û™]Õ˜[Y_HÛÚ[™ÙO^Ê]™[
+HOˆÙ]™]Õ˜[YJ›Ü›X[^™Y[œ]
+]™[\™Ù]˜[YJJ_HÛ’Ù^QÝÛ^Ê]™[
+HOˆÈYˆ
+]™[šÙ^HOOH‘[\ˆŠHÈ]™[œ™]™[Y˜][
+
+NÈY
+
+NÈH_HXÙZÛ\HY™]ÈÚÚXÙHˆÛ\ÜÓ˜[YOHšNHˆÏ]Ûˆ\OH˜]ÛˆˆÚ^™OHœÛHˆ\ØX›Y^Ø\ÞH[™]Õ˜[YKš[J
+_HÛÛXÚÏ^ØYO\ÈÛ\ÜÓ˜[YOHœÚ^™KMˆÏYÐ]ÛÙ]‚ˆÔÜÝ™\ÛÛ[‚ˆÔÜÝ™\ŽÂŸB™[˜Ý[ÛˆXØÛÝ[šY[ÊÈ›Ü›KÙ]›Ü›KXØÛÝ[ÈNˆÈ›Ü›Nˆ™XÛÜ™Ýš[™ËÝš[™ÏŽÈÙ]›Ü›Nˆ
+Žˆ™XÛÜ™Ýš[™ËÝš[™ÏŠHOˆ›ÚYÈXØÛÝ[Îˆ]T™XÛÜ™×HJHÂˆÛÛœÝ][PÝ\œ™[˜ÞT›ÛHH›Ü›KœÞ\Ý[T›ÛHOOHTˆˆ›Ü›KœÞ\Ý[T›ÛHOOHTŽÂˆÛÛœÝ]˜Z[X›T›Û\ÈHXØÛÝ[›ÛSÜ[ÛœË™š[\Š
+Ü›ÛWJHOˆ›ÛHOOHTˆˆ›ÛHOOHTˆXXØÛÝ[ËœÛÛYJ
+XØÛÝ[
+HOˆXØÛÝ[œÞ\Ý[T›ÛHOOH›ÛJJNÂˆÛÛœÝÚ[™ÙTÞ\Ý[T›ÛHH
+˜[YNˆÝš[™ÊHOˆÂˆÛÛœÝÞ\Ý[T›ÛHH˜[YHOOH››Û™HˆÈˆˆˆ˜[YNÂˆÛÛœÝ\HHÞ\Ý[T›ÛHOOHTˆˆÈXØÛÝ[È™XÙZ]˜X›HˆˆÞ\Ý[T›ÛHOOHTˆÈXØÛÝ[È^XX›Hˆˆ›Ü›K\NÂˆÙ]›Ü›JÈ‹‹™›Ü›KÞ\Ý[T›ÛK\HJNÂˆNÂˆ™]\›ˆ]ˆÛ\ÜÓ˜[YOH™ÜšYØ\MÛN™ÜšYXÛÛËLˆ‚ˆšY[X™[HXØÛÝ[ÛÙHˆ˜[YOH˜ÛÙHˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_H™\]Z\™YÏ‚ˆšY[X™[HXØÛÝ[˜[YHˆ˜[YOH›˜[YHˆ›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_H™\]Z\™YÏ‚ˆÚÚXÙHX™[HXØÛÝ[\Hˆ˜[YOH\Hˆ˜[Y\Ï^ØXØÛÝ[\\Ñ›Ü”›ÛJ›Ü›KœÞ\Ý[T›ÛHˆŠ_H›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HÏ‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[“[šÙYÞ\Ý[H\ÙOÓX™[Ù[XÝ˜[YO^Ù›Ü›KœÞ\Ý[T›ÛH››Û™HŸHÛ•˜[YPÚ[™ÙO^ØÚ[™ÙTÞ\Ý[T›Û_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[Ù[XÝ][H˜[YOH››Û™H“›ÈÞ\Ý[H[šÏÔÙ[XÝ][OžØ]˜Z[X›T›Û\Ë›X\
+
+Ü›ÛKX™[JHOˆÙ[XÝ][HÙ^O^Ü›Û_H˜[YO^Ü›Û_OžÛX™[OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝÛ\ÜÓ˜[YOH^^È^\Û]KMLžÛ][PÝ\œ™[˜ÞT›ÛHÈYÛ™HÛÛ›ÛXØÛÝ[›ÜˆXXÚÝ\œ™[˜ÞH\ÙYžHÝ\ÝÛY\œÈÜˆ™[™ÜœËˆˆˆ“[šÙYXØÛÝ[È\X\ˆ[ˆ[›ÚXÙ\Ëš[Ë˜[šÚ[™ËU[™[™[ÜžHÜÝ[™ÜËˆŸOÜÙ]‚ˆÚÚXÙHX™[^Û][PÝ\œ™[˜ÞT›ÛHÈÛÛ›ÛXØÛÝ[Ý\œ™[˜ÞH
+ˆˆˆXØÛÝ[Ý\œ™[˜ÞH
+ˆŸH˜[YOH˜Ý\œ™[˜ÞHˆ˜[Y\Ï^ØÝ\œ™[˜ÚY\ßH›Ü›O^Ù›Ü›_HÙ]›Ü›O^ÜÙ]›Ü›_HÏ‚ˆ]ˆÛ\ÜÓ˜[YOHœÜXÙK^KLˆX™[”ÝX‹XXØÛÝ[ÙÓX™[Ù[XÝ˜[YO^Ù›Ü›Kœ\™[XØÛÝ[Y››Û™HŸHÛ•˜[YPÚ[™ÙO^Ê˜[YJHOˆÙ]›Ü›JÈ‹‹™›Ü›K\™[XØÛÝ[Yˆ˜[YHOOH››Û™HˆÈˆˆˆ˜[YHJ_OÙ[XÝšYÙÙ\ˆÛ\ÜÓ˜[YOHËY[Ù[XÝ˜[YHÏÔÙ[XÝšYÙÙ\Ù[XÝÛÛ[Ù[XÝ][H˜[YOH››Û™H“›ÝHÝX‹XXØÛÝ[ÔÙ[XÝ][OžØXØÛÝ[Ë›X\
+
+XØÛÝ[
+HOˆÙ[XÝ][HÙ^O^ØXØÛÝ[šYH˜[YO^ÔÝš[™ÊXØÛÝ[šY
+_OžÔÝš[™ÊXØÛÝ[˜ÛÙJ_H0­ÈÔÝš[™ÊXØÛÝ[›˜[YJ_OÔÙ[XÝ][OŠ_OÔÙ[XÝÛÛ[ÔÙ[XÝÙ]‚ˆˆÙ]ŽÂŸB
