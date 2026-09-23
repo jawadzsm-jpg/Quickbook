@@ -49,7 +49,11 @@ export function DeliveryNoteTemplate({
   return <article className="custom-invoice delivery-note-page bg-white text-black" style={{ fontFamily: "Arial, sans-serif", padding: 28, minWidth: 0, maxWidth: "100%" }}>
     <style>{`
       .delivery-note-page,.delivery-note-page *{box-sizing:border-box;color:#111!important}
-      .delivery-note-page{background:#fff!important;line-height:1.35}
+      .delivery-note-page{background:#fff!important;color:#111!important;line-height:1.35}
+      .delivery-note-page p,.delivery-note-page h1,.delivery-note-page h2,.delivery-note-page h3,.delivery-note-page span,.delivery-note-page strong,.delivery-note-page div{color:#111!important}
+      .delivery-note-page table,.delivery-note-page thead,.delivery-note-page tbody,.delivery-note-page tr,.delivery-note-page td{background:#fff!important;color:#111!important}
+      .delivery-note-page th{background:#f8fafc!important;color:#111!important}
+      .delivery-note-page img{filter:none!important;opacity:1!important}
       .delivery-note-page .dn-header{display:grid;grid-template-columns:1fr 1.15fr 1fr;gap:24px;align-items:start}
       .delivery-note-page .dn-logo{min-height:92px;display:flex;align-items:flex-start}
       .delivery-note-page .dn-logo.right{justify-content:flex-end}
