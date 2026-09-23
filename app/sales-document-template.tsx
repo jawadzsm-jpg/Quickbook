@@ -8,6 +8,7 @@ import { documentPageRule } from "@/lib/document-print";
 import { createA4PdfBlob, documentPdfFileName, downloadPdfBlob, savePdfBlob } from "@/lib/document-output";
 import { CustomInvoiceTemplate, type TemplateBranding } from "./custom-invoice-template";
 import { InvoicePackingListDialog } from "./invoice-packing-list";
+import { DeliveryNoteTemplate } from "./delivery-note-template";
 import { toast } from "sonner";
 
 type RecordData = Record<string, string | number | boolean>;
@@ -225,8 +226,8 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
         </Button>
       </div>
     </div>
-    <div ref={screenPreviewRef} className="invoice-screen-only"><CustomInvoiceTemplate design={design} record={record} lines={lines} contact={contact} setup={setup} /></div>
-    <div className="invoice-print-only"><CustomInvoiceTemplate design={a4Design} record={record} lines={lines} contact={contact} setup={setup} target="print" /></div>
+    <div ref={screenPreviewRef} className="invoice-screen-only">{activeMode === "delivery-note" && connectedPackingList ? <DeliveryNoteTemplate record={record} lines={lines} contact={contact} setup={setup} /> : <CustomInvoiceTemplate design={design} record={record} lines={lines} contact={contact} setup={setup} />}</div>
+    <div className="invoice-print-only">{activeMode === "delivery-note" && connectedPackingList ? <DeliveryNoteTemplate record={record} lines={lines} contact={contact} setup={setup} /> : <CustomInvoiceTemplate design={a4Design} record={record} lines={lines} contact={contact} setup={setup} target="print" />}</div>
     {connectedPackingList ? <InvoicePackingListDialog open={packingOpen} onOpenChange={setPackingOpen} companyId={Number(record.companyId)} companyName={String(setup.name || "Company")} invoiceId={Number(record.id)} initialView={packingView} /> : null}
   </>;
 }
