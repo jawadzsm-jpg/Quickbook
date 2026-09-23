@@ -8,6 +8,7 @@ import {
   journalLines, transactionLines, transactions, vatCodes, billPaymentAllocations, invoicePaymentAllocations, purchaseReceiptAllocations, salesInvoiceAllocations,
 } from "../../../db/schema";
 import { verifyAdminPin } from "../../../lib/admin-pin";
+import { customerConflict, validInternationalPhone } from "../../../lib/customer-identity";
 import { canAccessCompany, isAdministrator, hasPermission, requireApiUser, type Permission, type SessionUser } from "@/lib/auth";
 
 type RecordKind = "transactions" | "contacts" | "items" | "accounts";
@@ -375,6 +376,12 @@ export async function GET(request: Request) {
 
 async function handlePOST(request: Request) {
   const payload = await request.clone().json();
+  if (payload.kind === "contacts") return withWriteTransaction(async () => {
+    if (payload.type === "customer" && process.env.COMNET_LOCAL_DB !== "1" && Number.isInteger(Number(payload.companyId))) {
+      await getDb().execute(sql`select pg_advisory_xact_lock(731459, ${Number(payload.companyId)})`);
+    }
+    return saveNewRecord(request);
+  });
   if (payload.kind === "transactions" && ["bill payment", "customer payment", "cheque"].includes(payload.type)) return withWriteTransaction(() => saveNewRecord(request));
   return saveNewRecord(request);
 }
@@ -405,6 +412,14 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       if (payload.type === "customer") {
         const required = [payload.company, payload.phone, payload.whatsapp, payload.country, payload.reseller, payload.planet, payload.currency];
         if (required.some((value) => !String(value ?? "").trim())) return Response.json({ error: "Complete all required customer fields." }, { status: 400 });
+        const phone = String(payload.phone).trim();
+        const whatsapp = String(payload.whatsapp).trim();
+        const trn = String(payload.trn ?? "").trim();
+        if (!validInternationalPhone(phone) || !validInternationalPhone(whatsapp)) return Response.json({ error: "Contact and WhatsApp numbers must include + and a country code (7–15 digits)." }, { status: 400 });
+        if (trn && !/^\d{15}$/.test(trn)) return Response.json({ error: "TRN must contain exactly 15 digits." }, { status: 400 });
+        const customers = await db.select({ id: contacts.id, name: contacts.name, company: contacts.company, phone: contacts.phone, whatsapp: contacts.whatsapp, trn: contacts.trn }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "customer")));
+        const conflict = customerConflict({ name, company: String(payload.company).trim(), phone, whatsapp, trn }, customers);
+        if (conflict) return Response.json({ error: conflict }, { status: 409 });
       }
       if (payload.type === "vendor") {
         const required = [payload.company, payload.phone, payload.country, payload.currency];
@@ -428,8 +443,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const [record] = await db.insert(contacts).values({
         companyId, type: contactType, name,
         company: String(payload.company ?? ""), billingName: String(payload.billingName ?? name),
-        email: String(payload.email ?? ""), phone: String(payload.phone ?? ""), whatsapp: String(payload.whatsapp ?? ""),
-        country: String(payload.country ?? ""), trn: String(payload.trn ?? ""), reseller: String(payload.reseller ?? "Reseller"),
+        email: String(payload.email ?? ""), phone: String(payload.phone ?? "").trim(), whatsapp: String(payload.whatsapp ?? "").trim(),
+        country: String(payload.country ?? ""), trn: String(payload.trn ?? "").trim(), reseller: String(payload.reseller ?? "Reseller"),
         planet: String(payload.planet ?? "No"), passport: String(payload.passport ?? ""), currency, ledgerAccountId,
         description: String(payload.description ?? ""), balance: Number(payload.balance ?? 0),
       }).returning();
@@ -1190,6 +1205,7 @@ async function handlePATCH(request: Request) {
     if (payload.kind === "contacts" || payload.kind === "accounts") return await withWriteTransaction(async () => {
       const db = getDb();
       const accountEdit = payload.kind === "accounts";
+      if (!accountEdit && process.env.COMNET_LOCAL_DB !== "1") await db.execute(sql`select pg_advisory_xact_lock(731459, ${companyId})`);
       const [existing] = accountEdit
         ? await db.select().from(accounts).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId)))
         : await db.select().from(contacts).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId)));
@@ -1198,6 +1214,19 @@ async function handlePATCH(request: Request) {
       if (!accountEdit && existing.type === "vendor" && !isAdministrator(authorization)) return Response.json({ error: "Only All-Admin and Admin can edit vendor details." }, { status: 403 });
       const name = String(payload.name ?? existing.name).trim();
       if (!name) return Response.json({ error: "Name is required." }, { status: 400 });
+      if (!accountEdit && existing.type === "customer") {
+        const customer = existing as typeof contacts.$inferSelect;
+        const candidate = {
+          name, company: String(payload.company ?? customer.company).trim(),
+          phone: String(payload.phone ?? customer.phone).trim(), whatsapp: String(payload.whatsapp ?? customer.whatsapp).trim(),
+          trn: String(payload.trn ?? customer.trn).trim(),
+        };
+        if (!validInternationalPhone(candidate.phone) || !validInternationalPhone(candidate.whatsapp)) return Response.json({ error: "Contact and WhatsApp numbers must include + and a country code (7–15 digits)." }, { status: 400 });
+        if (candidate.trn && !/^\d{15}$/.test(candidate.trn)) return Response.json({ error: "TRN must contain exactly 15 digits." }, { status: 400 });
+        const customers = await db.select({ id: contacts.id, name: contacts.name, company: contacts.company, phone: contacts.phone, whatsapp: contacts.whatsapp, trn: contacts.trn }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "customer")));
+        const conflict = customerConflict(candidate, customers, id);
+        if (conflict) return Response.json({ error: conflict }, { status: 409 });
+      }
       const sameName = accountEdit ? await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.name, name))) : await db.select({ id: contacts.id }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.name, name)));
       if (sameName.some((entry) => entry.id !== id)) return Response.json({ error: "Another record already uses this name." }, { status: 409 });
       if (name !== existing.name) {

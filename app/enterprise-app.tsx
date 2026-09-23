@@ -1232,6 +1232,11 @@ function PurchaseCenter({ companies, companyId, locationId, onWorkspaceChange, o
 }
 
 function CustomerCenter({ onEdit, records, accounts, currency, loading, search, setSearch, onRefresh, onCreateCustomer, onDelete, onTransaction, onReport, canViewReports, onOpenDetail, canWrite, canDelete, reportLoading }: { onEdit?: (record: DataRecord) => void; records: DataRecord[]; accounts: DataRecord[]; currency: string; loading: boolean; search: string; setSearch: (v: string) => void; onRefresh: () => void; onCreateCustomer: () => void; onDelete: (id: number) => void; onTransaction: (type: string) => void; onReport: (key: string) => void; canViewReports: boolean; onOpenDetail: (id: number) => void; canWrite: boolean; canDelete: boolean; reportLoading: boolean }) {
+  const balances = records.reduce((totals, customer) => {
+    const code = String(customer.currency || currency);
+    totals.set(code, (totals.get(code) || 0) + Number(customer.balance || 0));
+    return totals;
+  }, new Map<string, number>());
   const actions = [
     { label: "Create Estimates", detail: "Estimate customer products and services", type: "estimate", icon: BadgeDollarSign },
     { label: "Create Sales Orders", detail: "Confirm an order before invoicing", type: "sales order", icon: ShoppingCart },
@@ -1248,6 +1253,11 @@ function CustomerCenter({ onEdit, records, accounts, currency, loading, search, 
     { label: "Create Credit Notes / Refunds", detail: "Reduce receivables with a customer credit", type: "credit memo", icon: RefreshCw },
   ];
   return <div className="space-y-6">
+    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm" aria-label="Customer balance summary">
+      <h2 className="font-bold text-slate-900">Customer list and balance summary</h2>
+      <p className="mt-1 text-sm text-slate-500">{records.length} customers in this company{search ? " matching your search" : ""}</p>
+      <div className="mt-3 flex flex-wrap gap-3">{[...balances].map(([code, balance]) => <div key={code} className="rounded-lg border bg-slate-50 px-4 py-2"><span className="text-xs text-slate-500">{code} balance</span><p className="font-semibold">{formatMoney(balance, code)}</p></div>)}{!balances.size && <p className="text-sm text-slate-500">No customers found.</p>}</div>
+    </section>
     <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-col gap-3 border-b bg-slate-50/80 p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-slate-900">Customer workflows</h2><p className="mt-1 text-sm text-slate-500">Create and post every customer document from one place.</p></div><Badge variant="outline" className="w-fit">Customer Centre · Ctrl+J</Badge></div>
       <div className="grid gap-px bg-slate-200 sm:grid-cols-2 xl:grid-cols-4">{actions.map((action) => <button key={action.label} type="button" disabled={(action.report ? reportLoading || !canViewReports : false) || (!action.report && !canWrite)} onClick={() => action.report ? onReport(action.report) : action.type && onTransaction(action.type)} className="group min-h-32 bg-white p-5 text-left transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"><div className="flex items-start justify-between gap-3"><span className="grid size-10 place-items-center rounded-lg bg-slate-100 text-slate-600 group-hover:bg-emerald-100 group-hover:text-emerald-700"><action.icon className="size-5" /></span>{action.shortcut && <span className="text-xs font-medium text-slate-400">{action.shortcut}</span>}</div><p className="mt-4 text-sm font-bold text-slate-900">{action.label}</p><p className="mt-1 text-xs leading-5 text-slate-500">{action.detail}</p></button>)}</div>
@@ -2106,10 +2116,10 @@ function ContactFields({ form, setForm, accounts }: { form: Record<string, strin
       <Field label="Company Name" name="company" form={form} setForm={setForm} required placeholder="Enter company name" />
       <Choice label="Country *" name="country" values={countries} form={form} setForm={setForm} placeholder="Select country" />
       <Field label="Billing Name" name="name" form={form} setForm={(next) => setForm({ ...next, billingName: next.name })} required placeholder="Enter billing name" />
-      <Field label="TRN" name="trn" form={form} setForm={setForm} placeholder="Enter TRN" />
+      <Field label="TRN (15 digits)" name="trn" form={form} setForm={setForm} placeholder="15 digits, if registered" />
       <Field label="Contact Number" name="phone" form={form} setForm={setForm} required placeholder="Format +9713456789" />
       <Choice label="Reseller *" name="reseller" values={["Reseller", "End User"]} form={form} setForm={setForm} />
-      <Field label="WhatsApp Number" name="whatsapp" form={form} setForm={setForm} required placeholder="Format +9713456789" />
+      <Field label="Mobile / WhatsApp (+ country code)" name="whatsapp" form={form} setForm={setForm} required placeholder="Format +971501234567" />
       <Choice label="Planet *" name="planet" values={["No", "Yes"]} form={form} setForm={setForm} />
       <Field label="Email Address" name="email" type="email" form={form} setForm={setForm} placeholder="Enter email address" />
       <Field label="Passport #" name="passport" form={form} setForm={setForm} placeholder="Enter passport #" />
