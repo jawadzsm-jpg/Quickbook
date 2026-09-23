@@ -337,6 +337,42 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
     }
   }
 
+  if (initialView === "hs-summary") {
+    const summary = activeList ? hsCodeSummaryDocument(activeList) : null;
+    return <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[94vh] w-[calc(100vw-2rem)] !max-w-[calc(100vw-2rem)] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>HS Code Summary · {data?.invoice.number || "Loading…"}</DialogTitle>
+          <DialogDescription>HS Code Summary generated directly from the selected saved Packing List.</DialogDescription>
+        </DialogHeader>
+        {loading || !data ? <p className="py-16 text-center text-slate-500">Loading HS Code Summary…</p> : <div className="space-y-4">
+          {data.packingLists.length === 0 ? <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">Create and save a Packing List first. The HS Code Summary uses its packed quantities, HS codes, country of origin, weight and invoice values.</div> : <>
+            <section className="rounded-xl border border-blue-300 bg-blue-50/50 p-3 dark:border-blue-800 dark:bg-blue-950/20">
+              <div className="mb-2 flex items-center gap-2"><History className="size-4" /><strong className="text-sm">Select Packing List</strong></div>
+              <div className="flex flex-wrap gap-2">{data.packingLists.map((list) => <Button key={list.id} type="button" size="sm" variant={selectedListId === list.id ? "default" : "outline"} onClick={() => setSelectedListId(list.id)}>{list.number} · {display(list.lines.reduce((sum, line) => sum + Number(line.packedQuantity), 0), 2)} pcs</Button>)}</div>
+            </section>
+            {activeList && summary ? <>
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-slate-50 p-3 dark:bg-slate-900/70">
+                <div className="text-sm"><strong>{activeList.number}</strong> · {activeList.packingDate}</div>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" size="sm" variant="outline" onClick={() => printHsCodeSummary(activeList)}><Printer className="size-4" />Print HS Code Summary</Button>
+                  <Button type="button" size="sm" variant="outline" disabled={hsPdfBusy} onClick={() => void downloadHsCodeSummaryPdf(activeList)}><Download className="size-4" />{hsPdfBusy ? "Creating PDF…" : "Download HS Summary PDF"}</Button>
+                </div>
+              </div>
+              <div className="overflow-auto rounded-xl border bg-slate-200 p-4 dark:bg-slate-950">
+                <div className="mx-auto w-fit bg-white p-4 shadow-sm">
+                  <style>{summary.styles}</style>
+                  <div dangerouslySetInnerHTML={{ __html: summary.html }} />
+                </div>
+              </div>
+            </> : null}
+          </>}
+        </div>}
+        <DialogFooter><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Close</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>;
+  }
+
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[94vh] w-[calc(100vw-2rem)] !max-w-[calc(100vw-2rem)] overflow-y-auto"><DialogHeader><DialogTitle>{initialView === "hs-summary" ? "HS Code Summary" : "Invoice Packing Lists"} · {data?.invoice.number || "Loading…"}</DialogTitle><DialogDescription>{initialView === "hs-summary" ? "Select a saved packing list below, then print or download its HS Code Summary. The summary is generated from the packed quantities and details." : "Select invoice items and pack only the remaining balance. Add another line to split repacked cartons or use the same CTN number for multiple items in one carton."}</DialogDescription></DialogHeader>
     {loading || !data ? <p className="py-16 text-center text-slate-500">Loading invoice packing details…</p> : <div className="space-y-5">
       <div className="grid gap-3 rounded-xl border bg-slate-50 p-4 text-sm dark:bg-slate-900/70 sm:grid-cols-4"><div><span className="text-slate-500 dark:text-slate-400">Customer</span><strong className="block">{data.invoice.party}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Invoice Qty</span><strong className="block">{display(data.lines.reduce((sum, line) => sum + Number(line.invoicedQuantity), 0), 2)}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Already Packed + Current</span><strong className="block">{display(packedBeforeDraft + totals.quantity, 2)}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Balance After This Packing</span><strong className={`block ${remainingAfterDraft < 0 ? "text-red-600" : "text-amber-700 dark:text-amber-400"}`}>{display(Math.max(0, remainingAfterDraft), 2)}</strong></div></div>
