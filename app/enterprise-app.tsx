@@ -1432,7 +1432,7 @@ function DocumentDialog({ onOpenInvoice, onReceiptSaved, detail, companyName, ba
   const contact = detail.partyContact;
   const purchaseOrder = record.type === "purchase order";
   const savedTemplateMode = record.type === "credit memo" ? creditPresentation : salesDocumentModeForTransaction(String(record.type));
-  const usesSavedTemplate = savedTemplateMode !== null && ["invoice", "estimate", "proforma invoice", "sales order", "purchase order", "credit memo", "sales receipt"].includes(String(record.type));
+  const usesSavedTemplate = savedTemplateMode !== null && ["invoice", "estimate", "proforma invoice", "sales order", "purchase order", "credit memo", "sales receipt", "customer payment", "bill payment", "vendor payment", "cheque", "item receipt"].includes(String(record.type));
   const convertible = ((purchaseOrder && record.status !== "received") || record.type === "quotation") && record.status !== "converted" && !record.convertedInvoiceId;
   const showsPrices = documentMode === "tax-invoice" || documentMode === "commercial-invoice";
   return <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}><DialogContent className="max-h-[94vh] overflow-y-auto sm:max-w-[1400px]">
