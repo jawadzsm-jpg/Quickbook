@@ -1069,7 +1069,6 @@ async function handlePATCH(request: Request) {
             const appendVatAmount = round(appended.reduce((sum, line) => sum + line.vatAmount, 0));
             const appendTotal = round(appendSubtotal + appendVatAmount);
             const exchangeRate = Number(existing.exchangeRate || 1);
-            const baseSubtotal = round(appendSubtotal * exchangeRate);
             const baseVatAmount = round(appendVatAmount * exchangeRate);
             const baseTotal = round(appendTotal * exchangeRate);
 
