@@ -269,6 +269,32 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
     return { styles, html };
   }
 
+  function hsSummaryData(list: PackingList) {
+    if (!data) return { rows: [] as Array<{ country: string; description: string; hsCode: string; weight: number; units: number; value: number }>, totalQty: 0, totalWeight: 0, totalValue: 0, currency: "AED" };
+    const invoiceLines = new Map(data.lines.map((line) => [line.id, line]));
+    const grouped = new Map<string, { country: string; description: string; hsCode: string; weight: number; units: number; value: number }>();
+    for (const packed of list.lines) {
+      const source = invoiceLines.get(packed.invoiceLineId);
+      const country = (packed.countryOfOrigin || source?.countryOfOrigin || "—").trim() || "—";
+      const description = (packed.description || source?.description || "—").trim() || "—";
+      const hsCode = (packed.hsCode || source?.hsCode || "—").trim() || "—";
+      const key = [country.toUpperCase(), description.toUpperCase(), hsCode.toUpperCase()].join("|");
+      const current = grouped.get(key) ?? { country, description, hsCode, weight: 0, units: 0, value: 0 };
+      current.weight += Number(packed.grossWeightKg || 0);
+      current.units += Number(packed.packedQuantity || 0);
+      current.value += Number(packed.packedQuantity || 0) * Number(source?.unitPrice || 0);
+      grouped.set(key, current);
+    }
+    const rows = [...grouped.values()];
+    return {
+      rows,
+      totalQty: rows.reduce((sum, row) => sum + row.units, 0),
+      totalWeight: rows.reduce((sum, row) => sum + row.weight, 0),
+      totalValue: rows.reduce((sum, row) => sum + row.value, 0),
+      currency: data.invoice.currency || "AED",
+    };
+  }
+
   function printHsCodeSummary(list: PackingList) {
     const document = hsCodeSummaryDocument(list);
     if (!document) return;
@@ -338,34 +364,51 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
   }
 
   if (initialView === "hs-summary") {
-    const summary = activeList ? hsCodeSummaryDocument(activeList) : null;
+    const summary = activeList ? hsSummaryData(activeList) : null;
     return <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[94vh] w-[calc(100vw-2rem)] !max-w-[calc(100vw-2rem)] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>HS Code Summary · {data?.invoice.number || "Loading…"}</DialogTitle>
-          <DialogDescription>HS Code Summary generated directly from the selected saved Packing List.</DialogDescription>
+          <DialogDescription>Generated from the selected saved Packing List.</DialogDescription>
         </DialogHeader>
         {loading || !data ? <p className="py-16 text-center text-slate-500">Loading HS Code Summary…</p> : <div className="space-y-4">
-          {data.packingLists.length === 0 ? <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">Create and save a Packing List first. The HS Code Summary uses its packed quantities, HS codes, country of origin, weight and invoice values.</div> : <>
-            <section className="rounded-xl border border-blue-300 bg-blue-50/50 p-3 dark:border-blue-800 dark:bg-blue-950/20">
-              <div className="mb-2 flex items-center gap-2"><History className="size-4" /><strong className="text-sm">Select Packing List</strong></div>
-              <div className="flex flex-wrap gap-2">{data.packingLists.map((list) => <Button key={list.id} type="button" size="sm" variant={selectedListId === list.id ? "default" : "outline"} onClick={() => setSelectedListId(list.id)}>{list.number} · {display(list.lines.reduce((sum, line) => sum + Number(line.packedQuantity), 0), 2)} pcs</Button>)}</div>
-            </section>
-            {activeList && summary ? <>
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-slate-50 p-3 dark:bg-slate-900/70">
+          {data.packingLists.length === 0 ? <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">Create and save a Packing List first. The HS Code Summary uses its packed quantities and item details.</div> : <>
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-slate-50 p-3 dark:bg-slate-900/70">
+              <span className="text-sm font-semibold">Packing List:</span>
+              {data.packingLists.map((list) => <Button key={list.id} type="button" size="sm" variant={selectedListId === list.id ? "default" : "outline"} onClick={() => setSelectedListId(list.id)}>{list.number} · {display(list.lines.reduce((sum, line) => sum + Number(line.packedQuantity), 0), 2)} pcs</Button>)}
+            </div>
+            {activeList && summary ? <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="text-sm"><strong>{activeList.number}</strong> · {activeList.packingDate}</div>
                 <div className="flex flex-wrap gap-2">
                   <Button type="button" size="sm" variant="outline" onClick={() => printHsCodeSummary(activeList)}><Printer className="size-4" />Print HS Code Summary</Button>
                   <Button type="button" size="sm" variant="outline" disabled={hsPdfBusy} onClick={() => void downloadHsCodeSummaryPdf(activeList)}><Download className="size-4" />{hsPdfBusy ? "Creating PDF…" : "Download HS Summary PDF"}</Button>
                 </div>
               </div>
-              <div className="overflow-auto rounded-xl border bg-slate-200 p-4 dark:bg-slate-950">
-                <div className="mx-auto w-fit bg-white p-4 shadow-sm">
-                  <style>{summary.styles}</style>
-                  <div dangerouslySetInnerHTML={{ __html: summary.html }} />
+              <div className="mx-auto w-full max-w-[900px] rounded-xl border bg-white p-6 text-black shadow-sm">
+                <p className="text-center text-sm font-bold">{companyName}</p>
+                <h2 className="mt-2 text-center text-2xl font-black">DETAILED COMMODITY CLASSIFICATION FORM</h2>
+                <div className="mt-8 space-y-1 text-sm">
+                  <div><strong>Customer Name:</strong> {data.customer?.company || data.customer?.billingName || data.invoice.party}</div>
+                  <div><strong>Delivery Address:</strong> {activeList.deliveryAddress || "—"}</div>
+                  <div><strong>Date:</strong> {activeList.packingDate}</div>
+                  <div><strong>Invoice #:</strong> {data.invoice.number}</div>
+                  <div><strong>Packing List:</strong> {activeList.number}</div>
+                </div>
+                <div className="my-8 text-center text-lg font-bold">(FOR STATISTICAL USE)</div>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse text-sm">
+                    <thead><tr>{["#","COUNTRY OF ORIGIN","DESCRIPTION OF GOODS","H.S.CODE","WEIGHT /KG","NO. OF UNITS","VALUE"].map((label) => <th key={label} className="border border-black bg-slate-100 px-2 py-2 text-center text-xs font-black">{label}</th>)}</tr></thead>
+                    <tbody>{summary.rows.map((row, index) => <tr key={`${row.country}-${row.description}-${row.hsCode}-${index}`}><td className="border border-black px-2 py-2 text-center">{index + 1}</td><td className="border border-black px-2 py-2 text-center">{row.country}</td><td className="border border-black px-2 py-2 text-center font-semibold">{row.description}</td><td className="border border-black px-2 py-2 text-center">{row.hsCode}</td><td className="border border-black px-2 py-2 text-center">{display(row.weight, 2)}</td><td className="border border-black px-2 py-2 text-center">{display(row.units, 2)}</td><td className="border border-black px-2 py-2 text-center">{row.value.toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>)}</tbody>
+                  </table>
+                </div>
+                <div className="mt-5 space-y-1 text-sm font-bold">
+                  <div>Total Qty → {display(summary.totalQty, 2)} PCS</div>
+                  <div>Total Weight → {display(summary.totalWeight, 2)} KG(s)</div>
+                  <div>Total Value → {summary.totalValue.toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {summary.currency}</div>
                 </div>
               </div>
-            </> : null}
+            </div> : null}
           </>}
         </div>}
         <DialogFooter><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Close</Button></DialogFooter>
@@ -373,7 +416,7 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
     </Dialog>;
   }
 
-  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[94vh] w-[calc(100vw-2rem)] !max-w-[calc(100vw-2rem)] overflow-y-auto"><DialogHeader><DialogTitle>{initialView === "hs-summary" ? "HS Code Summary" : "Invoice Packing Lists"} · {data?.invoice.number || "Loading…"}</DialogTitle><DialogDescription>{initialView === "hs-summary" ? "Select a saved packing list below, then print or download its HS Code Summary. The summary is generated from the packed quantities and details." : "Select invoice items and pack only the remaining balance. Add another line to split repacked cartons or use the same CTN number for multiple items in one carton."}</DialogDescription></DialogHeader>
+  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[94vh] w-[calc(100vw-2rem)] !max-w-[calc(100vw-2rem)] overflow-y-auto"><DialogHeader><DialogTitle>Invoice Packing Lists · {data?.invoice.number || "Loading…"}</DialogTitle><DialogDescription>Select invoice items and pack only the remaining balance. Add another line to split repacked cartons or use the same CTN number for multiple items in one carton.</DialogDescription></DialogHeader>
     {loading || !data ? <p className="py-16 text-center text-slate-500">Loading invoice packing details…</p> : <div className="space-y-5">
       <div className="grid gap-3 rounded-xl border bg-slate-50 p-4 text-sm dark:bg-slate-900/70 sm:grid-cols-4"><div><span className="text-slate-500 dark:text-slate-400">Customer</span><strong className="block">{data.invoice.party}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Invoice Qty</span><strong className="block">{display(data.lines.reduce((sum, line) => sum + Number(line.invoicedQuantity), 0), 2)}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Already Packed + Current</span><strong className="block">{display(packedBeforeDraft + totals.quantity, 2)}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Balance After This Packing</span><strong className={`block ${remainingAfterDraft < 0 ? "text-red-600" : "text-amber-700 dark:text-amber-400"}`}>{display(Math.max(0, remainingAfterDraft), 2)}</strong></div></div>
       {initialView === "hs-summary" && data.packingLists.length === 0 ? <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">Create and save a Packing List first. The HS Code Summary uses the saved packed quantities, HS codes, COO, weight and invoice values.</div> : null}
