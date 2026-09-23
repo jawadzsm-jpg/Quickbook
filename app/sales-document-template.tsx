@@ -15,6 +15,7 @@ type RecordData = Record<string, string | number | boolean>;
 type Branding = TemplateBranding & { documentDesign?: string };
 export const salesDocumentTitles = {
   "tax-invoice": "Tax Invoice",
+  "commercial-invoice": "Commercial Invoice",
   estimate: "Estimate",
   "proforma-invoice": "Proforma Invoice",
   "sales-order": "Sales Order",
@@ -31,6 +32,7 @@ export type SalesDocumentMode = keyof typeof salesDocumentTitles;
 
 const savedTemplateType: Partial<Record<SalesDocumentMode, TemplateDocumentType>> = {
   "tax-invoice": "Invoice",
+  "commercial-invoice": "Invoice",
   estimate: "Estimate",
   "proforma-invoice": "Proforma Invoice",
   "sales-order": "Sales Order",
@@ -43,7 +45,7 @@ const savedTemplateType: Partial<Record<SalesDocumentMode, TemplateDocumentType>
 };
 
 const relatedDocumentOutputs: Partial<Record<SalesDocumentMode, SalesDocumentMode[]>> = {
-  "tax-invoice": ["tax-invoice", "delivery-note", "packing-list", "hs-code-summary"],
+  "tax-invoice": ["tax-invoice", "commercial-invoice", "delivery-note", "packing-list", "hs-code-summary"],
   "sales-order": ["sales-order", "delivery-note", "packing-list"],
   "proforma-invoice": ["proforma-invoice", "delivery-note", "packing-list"],
   "cash-sales": ["cash-sales", "delivery-note", "packing-list"],
@@ -80,7 +82,7 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
   const activeMode = selection.source === mode && outputModes.includes(selection.output) ? selection.output : mode;
   const requestedTemplateType = savedTemplateType[activeMode];
   const { design, savedTemplate } = resolveDocumentDesign(setup.documentDesign, requestedTemplateType);
-  if (!savedTemplate || savedTemplate.appliesToAll || (requestedTemplateType && savedTemplate.type !== requestedTemplateType)) design.title = salesDocumentTitles[activeMode];
+  if (!savedTemplate || savedTemplate.appliesToAll || (requestedTemplateType && savedTemplate.type !== requestedTemplateType) || activeMode === "commercial-invoice") design.title = salesDocumentTitles[activeMode];
 
   const a4Design = { ...design, paper: "A4" as const, printerMode: "specified" as const };
   const pageRule = documentPageRule(a4Design);
