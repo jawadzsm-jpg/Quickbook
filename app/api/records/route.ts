@@ -1000,7 +1000,7 @@ async function handlePATCH(request: Request) {
         if (existing && ["invoice", "customer payment"].includes(existing.type)) {
           if (payload.editMode !== "details") return Response.json({ error: "Use Edit details for invoices and customer payments. Posted amounts and allocations are protected." }, { status: 400 });
           const allowed = new Set(["kind", "id", "companyId", "revision", "editMode", "number", "transactionDate", "dueDate", "salesman", "memo"]);
-          if (existing.type === "invoice") { allowed.add("comments"); allowed.add("serialNumber"); allowed.add("lineDetails"); }
+          if (existing.type === "invoice") { allowed.add("comments"); allowed.add("serialNumber"); allowed.add("lineDetails"); allowed.add("appendLines"); }
           if (Object.keys(payload).some((field) => !allowed.has(field))) return Response.json({ error: "Only reference, dates, sales rep, memo and invoice comments/serial numbers can be changed here." }, { status: 400 });
           const oldLines = await db.select().from(transactionLines).where(eq(transactionLines.transactionId, id)).orderBy(asc(transactionLines.id));
           if (payload.revision !== purchaseRevision(existing, oldLines)) return Response.json({ error: "This document changed. Close and reopen the editor before saving." }, { status: 409 });
@@ -1018,6 +1018,24 @@ async function handlePATCH(request: Request) {
               lineDetails.push({ id: line.id, comments, serialNumber });
             }
           }
+          const appendInputs = existing.type === "invoice" && Array.isArray(payload.appendLines) ? payload.appendLines as InputLine[] : [];
+          if (payload.appendLines !== undefined && !Array.isArray(payload.appendLines)) return Response.json({ error: "Select valid invoice lines to add." }, { status: 400 });
+          if (appendInputs.length && !["open", "overdue", "partially paid", "pending"].includes(existing.status)) return Response.json({ error: "Only open, overdue or partially paid invoices can have new item lines added." }, { status: 409 });
+          if (appendInputs.length > 100) return Response.json({ error: "Add no more than 100 invoice lines at a time." }, { status: 400 });
+          const configuredVatCodes = appendInputs.length ? await db.select({ code: vatCodes.code, rate: vatCodes.rate }).from(vatCodes).where(and(eq(vatCodes.companyId, companyId), eq(vatCodes.active, true))) : [];
+          const vatRateMap = configuredVatCodes.length ? Object.fromEntries(configuredVatCodes.map((entry) => [entry.code, Number(entry.rate)])) : fallbackVatRates;
+          const appended = appendInputs.map((line) => {
+            const quantity = Number(line.quantity);
+            const unitPrice = Number(line.unitPrice);
+            const unitCost = Number(line.unitCost ?? 0);
+            const vatCode = String(line.vatCode ?? (Number(line.vatRate ?? existing.vatRate) === 5 ? "STANDARD" : "ZERO")).trim().toUpperCase();
+            const vatRate = Object.hasOwn(vatRateMap, vatCode) ? vatRateMap[vatCode] : Number(line.vatRate ?? 0);
+            const subtotal = round(quantity * unitPrice);
+            const vatAmount = round(subtotal * vatRate / 100);
+            return { itemId: line.itemId ? Number(line.itemId) : null, description: String(line.description ?? "").trim(), comments: String(line.comments ?? ""), serialNumber: String(line.serialNumber ?? ""), quantity, unitPrice, unitCost, freightCharge: 0, isFreightCharge: false, vatCode, vatRate, subtotal, vatAmount, total: round(subtotal + vatAmount) };
+          });
+          if (appended.some((line) => !line.description || !Number.isFinite(line.quantity) || line.quantity <= 0 || !Number.isFinite(line.unitPrice) || line.unitPrice < 0 || !Number.isFinite(line.unitCost) || line.unitCost < 0 || !Number.isFinite(line.vatRate))) return Response.json({ error: "Complete each new invoice line with an item/description, positive quantity, valid rate and VAT." }, { status: 400 });
+          if (appended.some((line) => line.itemId !== null && (!Number.isInteger(line.itemId) || line.itemId <= 0))) return Response.json({ error: "Select a valid inventory item for every stock line." }, { status: 400 });
           const number = String(payload.number ?? "").trim();
           const transactionDate = String(payload.transactionDate ?? "");
           const dueDate = String(payload.dueDate ?? "");
@@ -1033,11 +1051,93 @@ async function handlePATCH(request: Request) {
           }
           const [duplicate] = await db.select({ id: transactions.id }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.number, number), sql`${transactions.locationId} IS NOT DISTINCT FROM ${existing.locationId}`, sql`${transactions.id} <> ${id}`)).limit(1);
           if (number !== existing.number && duplicate) return Response.json({ error: "That reference is already used in this inventory." }, { status: 409 });
-          const [record] = await db.update(transactions).set({ number, transactionDate, dueDate, salesman, memo, comments, serialNumber }).where(eq(transactions.id, id)).returning();
+          let appendedSummary: { subtotal: number; vatAmount: number; total: number } | null = null;
+          if (appended.length) {
+            if (!existing.locationId) return Response.json({ error: "This invoice has no inventory location." }, { status: 409 });
+            const itemIds = [...new Set(appended.flatMap((line) => line.itemId ? [line.itemId] : []))];
+            const itemRows = itemIds.length ? await db.select({ id: items.id, companyId: items.companyId, locationId: items.locationId, name: items.name, sku: items.sku, quantity: items.quantity, itemType: items.itemType, status: items.status, cogsAccountId: items.cogsAccountId, incomeAccountId: items.incomeAccountId, assetAccountId: items.assetAccountId }).from(items).where(inArray(items.id, itemIds)).orderBy(asc(items.id)).for("update") : [];
+            if (itemRows.length !== itemIds.length || itemRows.some((item) => item.companyId !== companyId || item.locationId !== existing.locationId)) return Response.json({ error: "Select items from the invoice's company and inventory." }, { status: 400 });
+            if (itemRows.some((item) => item.status === "inactive")) return Response.json({ error: "Inactive items cannot be added to an invoice." }, { status: 409 });
+            if (itemRows.some((item) => !documentLineItemTypes.has(item.itemType))) return Response.json({ error: "Select stock, non-stock, service or other-charge items only." }, { status: 400 });
+            const stockIds = new Set(itemRows.filter((item) => item.itemType === "stock-part").map((item) => item.id));
+            const requested = new Map<number, number>();
+            for (const line of appended) if (line.itemId && stockIds.has(line.itemId)) requested.set(line.itemId, round((requested.get(line.itemId) ?? 0) + line.quantity));
+            const shortages = itemRows.filter((item) => stockIds.has(item.id) && Number(item.quantity) < (requested.get(item.id) ?? 0));
+            if (shortages.length) return Response.json({ error: `Invoice blocked to prevent negative stock. ${shortages.map((item) => `${item.sku} ${item.name}: available ${item.quantity}, requested ${requested.get(item.id)}`).join("; ")}` }, { status: 409 });
+
+            const appendSubtotal = round(appended.reduce((sum, line) => sum + line.subtotal, 0));
+            const appendVatAmount = round(appended.reduce((sum, line) => sum + line.vatAmount, 0));
+            const appendTotal = round(appendSubtotal + appendVatAmount);
+            const exchangeRate = Number(existing.exchangeRate || 1);
+            const baseSubtotal = round(appendSubtotal * exchangeRate);
+            const baseVatAmount = round(appendVatAmount * exchangeRate);
+            const baseTotal = round(appendTotal * exchangeRate);
+
+            await db.insert(transactionLines).values(appended.map((line) => ({ ...line, transactionId: id })));
+            for (const line of appended) if (line.itemId && stockIds.has(line.itemId)) {
+              await db.update(items).set({ quantity: sql`${items.quantity} - ${line.quantity}` }).where(eq(items.id, line.itemId));
+              await db.insert(inventoryMovements).values({ itemId: line.itemId, transactionId: id, movementDate: transactionDate, movementType: "invoice", quantity: -line.quantity, unitCost: line.unitCost, reference: number });
+            }
+
+            const [postingCompany] = await db.select({ baseCurrency: companies.baseCurrency }).from(companies).where(eq(companies.id, companyId)).limit(1);
+            const linkedRows = await db.select({ id: accounts.id, name: accounts.name, type: accounts.type, systemRole: accounts.systemRole, currency: accounts.currency }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true)));
+            const linkedAccounts: Record<string, string> = {};
+            for (const account of linkedRows.filter((account) => account.systemRole && !["AR", "AP"].includes(account.systemRole))) linkedAccounts[account.systemRole!] = account.name;
+            for (const role of ["SALES", "COGS", "INVENTORY", "OUTPUT_VAT"]) {
+              const candidates = linkedRows.filter((account) => account.systemRole === role).sort((a, b) => a.id - b.id);
+              const selected = candidates.find((account) => account.currency === postingCompany?.baseCurrency) ?? candidates.find((account) => account.currency === existing.currency) ?? candidates[0];
+              if (selected) linkedAccounts[role] = selected.name;
+            }
+            const receivable = (await ensureCurrencyControlAccount(companyId, "AR", existing.currency)).account;
+            linkedAccounts.AR = receivable.name;
+            const accountById = new Map(linkedRows.map((account) => [account.id, account.name]));
+            const itemById = new Map(itemRows.map((item) => [item.id, item]));
+            const accountFor = (itemId: number | null, field: "incomeAccountId" | "cogsAccountId" | "assetAccountId", fallback: string) => {
+              const accountId = itemId ? itemById.get(itemId)?.[field] : null;
+              return accountId ? accountById.get(accountId) ?? fallback : fallback;
+            };
+            const add = (map: Map<string, number>, accountName: string, amount: number) => map.set(accountName, round((map.get(accountName) ?? 0) + amount));
+            const income = new Map<string, number>();
+            const cogs = new Map<string, number>();
+            const asset = new Map<string, number>();
+            for (const line of appended) {
+              add(income, accountFor(line.itemId, "incomeAccountId", linkedAccounts.SALES ?? "Sales Revenue"), round(line.subtotal * exchangeRate));
+              if (line.itemId && stockIds.has(line.itemId)) {
+                const homeCogs = round(line.quantity * line.unitCost * exchangeRate);
+                if (homeCogs) {
+                  add(cogs, accountFor(line.itemId, "cogsAccountId", linkedAccounts.COGS ?? "Cost of Goods Sold"), homeCogs);
+                  add(asset, accountFor(line.itemId, "assetAccountId", linkedAccounts.INVENTORY ?? "Inventory Asset"), homeCogs);
+                }
+              }
+            }
+            const [entry] = await db.select().from(journalEntries).where(eq(journalEntries.transactionId, id)).limit(1);
+            if (!entry) return Response.json({ error: "The invoice journal entry is missing. Repair the invoice posting before adding lines." }, { status: 409 });
+            const extraJournal = [
+              { accountName: linkedAccounts.AR ?? "Accounts Receivable", debit: baseTotal, credit: 0 },
+              ...[...income].filter(([, amount]) => amount !== 0).map(([accountName, amount]) => ({ accountName, debit: 0, credit: amount })),
+              ...(baseVatAmount ? [{ accountName: linkedAccounts.OUTPUT_VAT ?? "VAT Payable", debit: 0, credit: baseVatAmount }] : []),
+              ...[...cogs].filter(([, amount]) => amount !== 0).map(([accountName, amount]) => ({ accountName, debit: amount, credit: 0 })),
+              ...[...asset].filter(([, amount]) => amount !== 0).map(([accountName, amount]) => ({ accountName, debit: 0, credit: amount })),
+            ];
+            await db.insert(journalLines).values(extraJournal.map((line) => ({ ...line, journalEntryId: entry.id })));
+            await db.update(contacts).set({ balance: sql`${contacts.balance} + ${appendTotal}` }).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "customer"), eq(contacts.name, existing.party)));
+            appendedSummary = { subtotal: appendSubtotal, vatAmount: appendVatAmount, total: appendTotal };
+          }
+
+          const [record] = await db.update(transactions).set({
+            number, transactionDate, dueDate, salesman, memo, comments, serialNumber,
+            ...(appendedSummary ? {
+              subtotal: round(Number(existing.subtotal) + appendedSummary.subtotal),
+              vatAmount: round(Number(existing.vatAmount) + appendedSummary.vatAmount),
+              total: round(Number(existing.total) + appendedSummary.total),
+              baseTotal: round(Number(existing.baseTotal) + appendedSummary.total * Number(existing.exchangeRate || 1)),
+            } : {}),
+          }).where(eq(transactions.id, id)).returning();
           for (const line of lineDetails) await db.update(transactionLines).set({ comments: line.comments, serialNumber: line.serialNumber }).where(and(eq(transactionLines.id, line.id), eq(transactionLines.transactionId, id)));
+          if (appendedSummary) await refreshInvoiceStatus(id);
           await db.update(journalEntries).set({ entryDate: transactionDate, reference: number }).where(eq(journalEntries.transactionId, id));
           await db.update(inventoryMovements).set({ movementDate: transactionDate, reference: number }).where(eq(inventoryMovements.transactionId, id));
-          await db.insert(auditLog).values({ companyId, action: "updated", entityType: "transaction", entityId: id, details: JSON.stringify({ actor: { id: authorization.id, email: authorization.email }, mode: "details", before: existing, after: record, lineDetails: { before: oldLines.map(line => ({ id: line.id, comments: line.comments, serialNumber: line.serialNumber })), after: lineDetails } }) });
+          await db.insert(auditLog).values({ companyId, action: "updated", entityType: "transaction", entityId: id, details: JSON.stringify({ actor: { id: authorization.id, email: authorization.email }, mode: appended.length ? "details+append-lines" : "details", before: existing, after: record, appendedLines: appended, lineDetails: { before: oldLines.map(line => ({ id: line.id, comments: line.comments, serialNumber: line.serialNumber })), after: lineDetails } }) });
           return Response.json({ record });
         }
         if (existing?.purchaseOrderId) return Response.json({ error: "Remove and recreate this linked receipt to change received quantities." }, { status: 409 });
