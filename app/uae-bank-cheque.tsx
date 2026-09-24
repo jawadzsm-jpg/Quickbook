@@ -9,7 +9,7 @@ import { inferUaeChequeLayout, uaeChequeLayout, type ChequeFieldPosition } from 
 
 type RecordValue = string | number | boolean;
 type ChequeRecord = Record<string, RecordValue> & { id: number };
-const MAX_ALIGNMENT_OFFSET_MM = 20;
+const MAX_ALIGNMENT_OFFSET_MM = 10;
 
 function safeAlignmentOffset(value: string): number {
   const offset = Number(value);
@@ -133,14 +133,17 @@ export function UaeBankCheque({ record, lines, journal, companyName, revision, c
   function print(mode: "cheque" | "voucher") {
     const safeX = safeAlignmentOffset(offsetX);
     const safeY = safeAlignmentOffset(offsetY);
-    if (mode === "cheque" && (Number(offsetX) !== safeX || Number(offsetY) !== safeY)) {
+    const invalidAlignment = Number(offsetX) !== safeX || Number(offsetY) !== safeY;
+    const printX = invalidAlignment ? 0 : safeX;
+    const printY = invalidAlignment ? 0 : safeY;
+    if (mode === "cheque" && invalidAlignment) {
       setOffsetX("0");
       setOffsetY("0");
-      setAlignmentMessage("Alignment was outside the safe range and has been reset to 0 mm.");
+      setAlignmentMessage("Paper dimensions cannot be used as alignment. Both movements were reset to 0 mm.");
     }
     if (mode === "cheque") {
       const styles = `@page{size:${selectedLayout.widthMm}mm ${selectedLayout.heightMm}mm;margin:0}*{box-sizing:border-box}html,body{width:${selectedLayout.widthMm}mm;height:${selectedLayout.heightMm}mm;margin:0!important;padding:0!important;overflow:hidden!important;background:#fff;color:#000;font-family:Arial,sans-serif}.cheque-page,.calibrated{position:relative;width:${selectedLayout.widthMm}mm;height:${selectedLayout.heightMm}mm;overflow:hidden}.calibrated{position:absolute;inset:0}.field{position:absolute;overflow:hidden;color:#000}.crossing{white-space:nowrap;font-size:9pt;font-weight:700;transform:rotate(-7deg)}.date{text-align:center;white-space:nowrap;font:600 11pt monospace;letter-spacing:.04em}.payee{white-space:nowrap;text-overflow:clip;font-size:11pt;font-weight:600;text-transform:uppercase}.words{font-size:9.5pt;font-weight:600;line-height:1.35;text-transform:uppercase}.amount{text-align:right;font:700 10pt monospace;line-height:1.15;white-space:nowrap;font-variant-numeric:tabular-nums}@media print{html,body,.cheque-page{break-after:avoid;break-inside:avoid;page-break-after:avoid;page-break-inside:avoid}}`;
-      printIsolatedDocument(`Cheque ${chequeNumber}`, styles, chequePrintBody({ date, party: String(record.party), words, amount, currency, crossed, layout: selectedLayout, offsetX: safeX, offsetY: safeY }));
+      printIsolatedDocument(`Cheque ${chequeNumber}`, styles, chequePrintBody({ date, party: String(record.party), words, amount, currency, crossed, layout: selectedLayout, offsetX: printX, offsetY: printY }));
       return;
     }
     const styles = `@page{size:A4 portrait;margin:10mm}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:#0f172a;font-family:Arial,sans-serif}.voucher-page{width:190mm;min-height:277mm;padding:9mm;border:1px solid #cbd5e1;break-inside:avoid;page-break-inside:avoid}.voucher-page header{display:flex;justify-content:space-between;gap:12mm;padding-bottom:7mm;border-bottom:1px solid #cbd5e1}.company{margin:0;color:#047857;font-size:10pt;font-weight:800;letter-spacing:.18em}.voucher-page h1{margin:3mm 0 1mm;font-size:21pt}.muted{margin:0;color:#64748b;font-size:10pt}.number{text-align:right}.number span,.facts span,.words span,.details span{display:block;color:#64748b;font-size:8.5pt;font-weight:700;letter-spacing:.05em}.number strong{display:block;margin-top:2mm;font:700 13pt monospace}.facts{display:grid;grid-template-columns:repeat(4,1fr);gap:6mm;margin-top:10mm}.facts strong{display:block;margin-top:2mm;font-size:10.5pt}.words{margin-top:9mm;padding:6mm;border:1px solid #cbd5e1;border-radius:3mm;background:#f8fafc}.words strong{display:block;margin-top:2mm;font-size:11pt;text-transform:uppercase}.details{display:grid;grid-template-columns:1fr 1fr;gap:10mm;margin-top:9mm;padding-top:7mm;border-top:1px solid #cbd5e1}.details p{margin:2mm 0 0;font-size:10.5pt;white-space:pre-wrap}footer{display:grid;grid-template-columns:repeat(3,1fr);gap:10mm;margin-top:28mm;padding-top:12mm}footer p{margin:0;padding-top:3mm;border-top:1px solid #64748b;text-align:center;color:#64748b;font-size:8.5pt;font-weight:700}@media print{.voucher-page{break-after:avoid;page-break-after:avoid}}`;
@@ -185,9 +188,9 @@ export function UaeBankCheque({ record, lines, journal, companyName, revision, c
         {numberError && <p role="alert" className="mt-2 text-xs font-medium text-red-600">{numberError}</p>}
       </div>}
       <div className="grid gap-3 sm:grid-cols-[1fr_9rem_9rem_auto] sm:items-end">
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950"><strong>Before the first print:</strong> use plain paper to test alignment, then load the bank cheque in the same orientation. Printer scaling must be 100% / Actual size. Alignment is a small movement only, from -20 to +20 mm; it is not the cheque size.</div>
-        <div className="space-y-1"><Label htmlFor="cheque-offset-x" className="flex items-center gap-1 text-xs"><Move className="size-3" />Horizontal offset (mm)</Label><Input id="cheque-offset-x" type="number" min={-MAX_ALIGNMENT_OFFSET_MM} max={MAX_ALIGNMENT_OFFSET_MM} step="0.5" value={offsetX} onChange={(event) => { setOffsetX(event.target.value); setAlignmentMessage(""); }} /></div>
-        <div className="space-y-1"><Label htmlFor="cheque-offset-y" className="flex items-center gap-1 text-xs"><Move className="size-3" />Vertical offset (mm)</Label><Input id="cheque-offset-y" type="number" min={-MAX_ALIGNMENT_OFFSET_MM} max={MAX_ALIGNMENT_OFFSET_MM} step="0.5" value={offsetY} onChange={(event) => { setOffsetY(event.target.value); setAlignmentMessage(""); }} /></div>
+        <div className="space-y-2"><div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-950"><strong>Fixed paper size:</strong> {selectedLayout.widthMm} × {selectedLayout.heightMm} mm ({selectedLayout.widthMm / 10} × {selectedLayout.heightMm / 10} cm). This is applied automatically.</div><div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950"><strong>Before printing:</strong> use 100% / Actual size and no margins. Do not enter the paper dimensions below. These boxes only move the print slightly, from -10 to +10 mm.</div></div>
+        <div className="space-y-1"><Label htmlFor="cheque-offset-x" className="flex items-center gap-1 text-xs"><Move className="size-3" />Move right (+) / left (-), mm</Label><Input id="cheque-offset-x" type="number" min={-MAX_ALIGNMENT_OFFSET_MM} max={MAX_ALIGNMENT_OFFSET_MM} step="0.5" value={offsetX} onChange={(event) => { setOffsetX(event.target.value); setAlignmentMessage(""); }} /></div>
+        <div className="space-y-1"><Label htmlFor="cheque-offset-y" className="flex items-center gap-1 text-xs"><Move className="size-3" />Move down (+) / up (-), mm</Label><Input id="cheque-offset-y" type="number" min={-MAX_ALIGNMENT_OFFSET_MM} max={MAX_ALIGNMENT_OFFSET_MM} step="0.5" value={offsetY} onChange={(event) => { setOffsetY(event.target.value); setAlignmentMessage(""); }} /></div>
         <Button type="button" variant="outline" onClick={() => { setOffsetX("0"); setOffsetY("0"); setAlignmentMessage("Alignment reset to 0 mm."); }}><RotateCcw className="size-4" />Reset</Button>
       </div>
       {alignmentMessage && <p role="status" className="text-xs font-medium text-amber-700">{alignmentMessage}</p>}

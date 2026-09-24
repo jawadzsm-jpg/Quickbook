@@ -20,6 +20,8 @@ type LayoutVariant = "standard" | "compact" | "wide-date" | "lower-amount" | "ha
 
 export const UAE_CHEQUE_WIDTH_MM = 190.5;
 export const UAE_CHEQUE_HEIGHT_MM = 88.9;
+export const HABIB_CHEQUE_WIDTH_MM = 187;
+export const HABIB_CHEQUE_HEIGHT_MM = 90;
 
 const variants: Record<LayoutVariant, Omit<UaeChequeLayout, "key" | "name">> = {
   standard: {
@@ -55,11 +57,11 @@ const variants: Record<LayoutVariant, Omit<UaeChequeLayout, "key" | "name">> = {
     crossing: { left: 7.5, top: 7, width: 45.5 },
   },
   habib: {
-    widthMm: UAE_CHEQUE_WIDTH_MM, heightMm: UAE_CHEQUE_HEIGHT_MM,
+    widthMm: HABIB_CHEQUE_WIDTH_MM, heightMm: HABIB_CHEQUE_HEIGHT_MM,
     date: { left: 105, top: 14.5, width: 50 },
     payee: { left: 7, top: 34, width: 172 },
     words: { left: 7, top: 49.5, width: 128 },
-    amount: { left: 136, top: 55, width: 50 },
+    amount: { left: 136, top: 55, width: 47 },
     crossing: { left: 7, top: 7, width: 45 },
   },
 };
