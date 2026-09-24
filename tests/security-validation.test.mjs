@@ -157,7 +157,10 @@ test("UAE bank cheque is linked to Banking and supports save and print", () => {
   assert.match(layouts, /UAE_CHEQUE_HEIGHT_MM = 88\.9/);
   assert.equal((layouts.match(/widthMm: UAE_CHEQUE_WIDTH_MM, heightMm: UAE_CHEQUE_HEIGHT_MM/g) || []).length, 5);
   assert.match(layouts, /habib:[\s\S]*widthMm: UAE_CHEQUE_WIDTH_MM, heightMm: UAE_CHEQUE_HEIGHT_MM/);
+  assert.match(layouts, /habib:[\s\S]*date: \{ left: 105, top: 14\.5, width: 50 \}/);
+  assert.match(layouts, /habib:[\s\S]*amount: \{ left: 136, top: 55, width: 50 \}/);
   assert.match(layouts, /"habib-bank-ag-zurich", "Habib Bank AG Zurich", "habib"/);
+  assert.match(cheque, /\.amount\{[^}]*white-space:nowrap/);
 });
 
 test("Escape and close controls protect editable dialogs with save, discard, and cancel choices", () => {

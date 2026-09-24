@@ -56,10 +56,10 @@ const variants: Record<LayoutVariant, Omit<UaeChequeLayout, "key" | "name">> = {
   },
   habib: {
     widthMm: UAE_CHEQUE_WIDTH_MM, heightMm: UAE_CHEQUE_HEIGHT_MM,
-    date: { left: 140, top: 14.5, width: 41 },
-    payee: { left: 33, top: 34.5, width: 145 },
-    words: { left: 25.5, top: 50, width: 122 },
-    amount: { left: 148.5, top: 54.5, width: 32 },
+    date: { left: 105, top: 14.5, width: 50 },
+    payee: { left: 7, top: 34, width: 172 },
+    words: { left: 7, top: 49.5, width: 128 },
+    amount: { left: 136, top: 55, width: 50 },
     crossing: { left: 7, top: 7, width: 45 },
   },
 };
