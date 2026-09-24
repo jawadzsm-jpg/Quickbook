@@ -4,7 +4,7 @@ import { getDb } from "@/db";
 import { appUsers, auditLog, companies, inventoryCheckLines, inventoryCheckReports, inventoryLocations, items } from "@/db/schema";
 import { requireCompanyAccess, type SessionUser } from "@/lib/auth";
 
-type CompanyQuantity = { companyId: number; companyName: string; quantity: number; countedQuantity: number | null };
+type CompanyQuantity = { companyId: number; companyName: string; quantity: number; countedQuantity: number | null; checkedByUserId?: number; checkedBy?: string; checkedByEmail?: string; checkedAt?: string };
 type StockOption = { itemId: number; itemNumber: string; sku: string; itemName: string; totalQuantity: number; companyQuantities: CompanyQuantity[] };
 
 const clean = (value: unknown, max = 240) => String(value ?? "").trim().slice(0, max);
@@ -67,7 +67,9 @@ function parsedQuantities(value: string, fallback?: CompanyQuantity): CompanyQua
       const quantities = parsed.filter((entry): entry is CompanyQuantity => Boolean(entry) && typeof entry === "object" && Number.isInteger(Number((entry as CompanyQuantity).companyId))).map((entry) => {
         const raw = (entry as { countedQuantity?: unknown }).countedQuantity;
         const counted = raw === null || raw === undefined || raw === "" ? null : Number(raw);
-        return { companyId: Number(entry.companyId), companyName: clean(entry.companyName, 160), quantity: Number(entry.quantity) || 0, countedQuantity: counted !== null && Number.isFinite(counted) ? counted : null };
+        const checkedByUserId = Number(entry.checkedByUserId);
+        const checkedAt = clean(entry.checkedAt, 80);
+        return { companyId: Number(entry.companyId), companyName: clean(entry.companyName, 160), quantity: Number(entry.quantity) || 0, countedQuantity: counted !== null && Number.isFinite(counted) ? counted : null, ...(Number.isInteger(checkedByUserId) && checkedByUserId > 0 ? { checkedByUserId } : {}), ...(clean(entry.checkedBy, 160) ? { checkedBy: clean(entry.checkedBy, 160) } : {}), ...(clean(entry.checkedByEmail, 240) ? { checkedByEmail: clean(entry.checkedByEmail, 240) } : {}), ...(checkedAt && !Number.isNaN(Date.parse(checkedAt)) ? { checkedAt } : {}) };
       });
       return quantities.length ? quantities : fallback ? [fallback] : [];
     }
@@ -75,14 +77,17 @@ function parsedQuantities(value: string, fallback?: CompanyQuantity): CompanyQua
   return fallback ? [fallback] : [];
 }
 
-function quantitiesWithCounts(values: CompanyQuantity[], counts: unknown): CompanyQuantity[] {
+function quantitiesWithCounts(values: CompanyQuantity[], counts: unknown, user: SessionUser, checkedAt: string): CompanyQuantity[] {
   const input = counts && typeof counts === "object" ? counts as Record<string, unknown> : {};
   return values.map((entry) => {
     const raw = input[String(entry.companyId)];
-    if (raw === "" || raw === null || raw === undefined) return { ...entry, countedQuantity: null };
+    if (raw === "" || raw === null || raw === undefined) {
+      return { companyId: entry.companyId, companyName: entry.companyName, quantity: entry.quantity, countedQuantity: null };
+    }
     const countedQuantity = Number(raw);
     if (!Number.isFinite(countedQuantity) || countedQuantity < 0 || countedQuantity > 1_000_000_000) throw new Error("Enter a valid checked quantity.");
-    return { ...entry, countedQuantity };
+    if (entry.countedQuantity !== null && Math.abs(entry.countedQuantity - countedQuantity) <= 0.000001) return { ...entry, countedQuantity };
+    return { ...entry, countedQuantity, checkedByUserId: user.id, checkedBy: clean(user.fullName, 160) || clean(user.email, 240), checkedByEmail: clean(user.email, 240), checkedAt };
   });
 }
 
@@ -162,10 +167,11 @@ async function handlePOST(request: Request) {
       if (option) selected.set(key, { option, remark: clean(line.remark, 500), counts: line.counts });
     }
     if (!selected.size) return Response.json({ error: "The selected items are no longer in stock." }, { status: 409 });
-    const [record] = await db.insert(inventoryCheckReports).values({ companyId, locationId, memo, createdByUserId: user.id }).returning();
+    const checkedAt = new Date().toISOString();
+    const [record] = await db.insert(inventoryCheckReports).values({ companyId, locationId, memo, createdByUserId: user.id, createdAt: checkedAt, updatedAt: checkedAt }).returning();
     await db.insert(inventoryCheckLines).values([...selected.values()].map(({ option, remark, counts }) => ({
       reportId: record.id, itemId: option.itemId, itemNumber: option.itemNumber, sku: option.sku, itemName: option.itemName,
-      systemQuantity: option.totalQuantity, companyQuantities: JSON.stringify(quantitiesWithCounts(option.companyQuantities, counts)), remark,
+      systemQuantity: option.totalQuantity, companyQuantities: JSON.stringify(quantitiesWithCounts(option.companyQuantities, counts, user, checkedAt)), remark,
     })));
     await db.insert(auditLog).values({ companyId, action: "created", entityType: "inventory_check_report", entityId: record.id, details: `Inventory check report #${record.id} created with ${selected.size} selected item(s) by ${user.email}` });
     return Response.json({ record }, { status: 201 });
@@ -190,6 +196,7 @@ async function handlePATCH(request: Request) {
     const seenSkus = new Set<string>();
     const keepIds = new Set<number>();
     const [ownerCompany] = await db.select({ id: companies.id, name: companies.name }).from(companies).where(eq(companies.id, record.companyId)).limit(1);
+    const checkedAt = new Date().toISOString();
     const additions: Array<{ sku: string; remark: string; counts: unknown }> = [];
     for (const line of requestedLines) {
       const existing = byId.get(Number(line.id));
@@ -199,7 +206,7 @@ async function handlePATCH(request: Request) {
       if (existing) {
         keepIds.add(existing.id);
         const quantities = parsedQuantities(existing.companyQuantities, ownerCompany ? { companyId: ownerCompany.id, companyName: ownerCompany.name, quantity: Number(existing.systemQuantity), countedQuantity: existing.countedQuantity } : undefined);
-        await db.update(inventoryCheckLines).set({ remark: clean(line.remark, 500), companyQuantities: JSON.stringify(quantitiesWithCounts(quantities, line.counts)) }).where(and(eq(inventoryCheckLines.id, existing.id), eq(inventoryCheckLines.reportId, id)));
+        await db.update(inventoryCheckLines).set({ remark: clean(line.remark, 500), companyQuantities: JSON.stringify(quantitiesWithCounts(quantities, line.counts, user, checkedAt)) }).where(and(eq(inventoryCheckLines.id, existing.id), eq(inventoryCheckLines.reportId, id)));
       } else additions.push({ sku: key, remark: clean(line.remark, 500), counts: line.counts });
     }
     for (const line of current) if (!keepIds.has(line.id)) await db.delete(inventoryCheckLines).where(and(eq(inventoryCheckLines.id, line.id), eq(inventoryCheckLines.reportId, id)));
@@ -208,11 +215,11 @@ async function handlePATCH(request: Request) {
       const available = new Map(stock.items.map((item) => [skuKey(item.sku), item]));
       const rows = additions.map((line) => ({ line, option: available.get(line.sku) })).filter((entry): entry is { line: { sku: string; remark: string; counts: unknown }; option: StockOption } => Boolean(entry.option));
       if (rows.length !== additions.length) throw new Error("One or more selected items are no longer in stock. Refresh the report and try again.");
-      if (rows.length) await db.insert(inventoryCheckLines).values(rows.map(({ line, option }) => ({ reportId: id, itemId: option.itemId, itemNumber: option.itemNumber, sku: option.sku, itemName: option.itemName, systemQuantity: option.totalQuantity, companyQuantities: JSON.stringify(quantitiesWithCounts(option.companyQuantities, line.counts)), remark: line.remark })));
+      if (rows.length) await db.insert(inventoryCheckLines).values(rows.map(({ line, option }) => ({ reportId: id, itemId: option.itemId, itemNumber: option.itemNumber, sku: option.sku, itemName: option.itemName, systemQuantity: option.totalQuantity, companyQuantities: JSON.stringify(quantitiesWithCounts(option.companyQuantities, line.counts, user, checkedAt)), remark: line.remark })));
     }
     const remaining = await db.select({ id: inventoryCheckLines.id }).from(inventoryCheckLines).where(eq(inventoryCheckLines.reportId, id)).limit(1);
     if (!remaining.length) throw new Error("At least one in-stock item must remain on the report.");
-    const [saved] = await db.update(inventoryCheckReports).set({ memo, updatedAt: new Date().toISOString() }).where(eq(inventoryCheckReports.id, id)).returning();
+    const [saved] = await db.update(inventoryCheckReports).set({ memo, updatedAt: checkedAt }).where(eq(inventoryCheckReports.id, id)).returning();
     await db.insert(auditLog).values({ companyId, action: "updated", entityType: "inventory_check_report", entityId: id, details: `Inventory check report #${id} updated by administrator ${user.email}` });
     return Response.json({ record: saved });
   } catch (error) { return Response.json({ error: databaseError(error) }, { status: 500 }); }

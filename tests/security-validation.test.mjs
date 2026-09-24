@@ -89,6 +89,19 @@ test("purchase returns are linked, stock-posting, and available as A4 documents"
   assert.match(template, /createA4PdfBlob/);
 });
 
+test("inventory checks keep the checker, date and time on each completed count", () => {
+  const api = readFileSync(new URL("../app/api/inventory-check-reports/route.ts", import.meta.url), "utf8");
+  const report = readFileSync(new URL("../app/inventory-check-reports.tsx", import.meta.url), "utf8");
+  assert.match(api, /checkedByUserId: user\.id/);
+  assert.match(api, /checkedBy: clean\(user\.fullName/);
+  assert.match(api, /checkedByEmail: clean\(user\.email/);
+  assert.match(api, /checkedAt/);
+  assert.match(api, /Math\.abs\(entry\.countedQuantity - countedQuantity\)/);
+  assert.match(report, /By \{entry\?\.checkedBy/);
+  assert.match(report, /formatCheckDate\(entry\?\.checkedAt \|\| detail\.createdAt\)/);
+  assert.match(report, /Report date &amp; time/);
+});
+
 test("Escape and close controls protect editable dialogs with save, discard, and cancel choices", () => {
   const closer = readFileSync(new URL("../app/escape-window-closer.tsx", import.meta.url), "utf8");
   assert.match(closer, /document\.addEventListener\("keydown", onKeyDown, true\)/);
