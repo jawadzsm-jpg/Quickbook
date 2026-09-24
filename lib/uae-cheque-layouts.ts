@@ -16,48 +16,51 @@ export type UaeChequeLayout = {
   crossing: ChequeFieldPosition;
 };
 
-type LayoutVariant = "standard" | "compact" | "wide-date" | "lower-amount" | "habib-186x90";
+type LayoutVariant = "standard" | "compact" | "wide-date" | "lower-amount" | "habib";
+
+export const UAE_CHEQUE_WIDTH_MM = 190.5;
+export const UAE_CHEQUE_HEIGHT_MM = 88.9;
 
 const variants: Record<LayoutVariant, Omit<UaeChequeLayout, "key" | "name">> = {
   standard: {
-    widthMm: 210, heightMm: 99,
-    date: { left: 153, top: 15, width: 47 },
-    payee: { left: 34, top: 37, width: 163 },
-    words: { left: 27, top: 53, width: 137 },
-    amount: { left: 164, top: 55, width: 36 },
-    crossing: { left: 9, top: 8, width: 48 },
+    widthMm: UAE_CHEQUE_WIDTH_MM, heightMm: UAE_CHEQUE_HEIGHT_MM,
+    date: { left: 139, top: 13.5, width: 42.5 },
+    payee: { left: 31, top: 33, width: 148 },
+    words: { left: 24.5, top: 47.5, width: 124 },
+    amount: { left: 149, top: 49.5, width: 32.5 },
+    crossing: { left: 8, top: 7, width: 43.5 },
   },
   compact: {
-    widthMm: 210, heightMm: 95,
-    date: { left: 155, top: 13, width: 44 },
-    payee: { left: 39, top: 34, width: 157 },
-    words: { left: 31, top: 49, width: 130 },
-    amount: { left: 164, top: 50, width: 35 },
-    crossing: { left: 8, top: 7, width: 49 },
+    widthMm: UAE_CHEQUE_WIDTH_MM, heightMm: UAE_CHEQUE_HEIGHT_MM,
+    date: { left: 140.5, top: 12, width: 40 },
+    payee: { left: 35.5, top: 31.5, width: 142.5 },
+    words: { left: 28, top: 45.5, width: 118 },
+    amount: { left: 149, top: 46.5, width: 31.5 },
+    crossing: { left: 7.5, top: 6.5, width: 44.5 },
   },
   "wide-date": {
-    widthMm: 210, heightMm: 99,
-    date: { left: 148, top: 14, width: 51 },
-    payee: { left: 30, top: 38, width: 168 },
-    words: { left: 25, top: 55, width: 138 },
-    amount: { left: 162, top: 56, width: 38 },
-    crossing: { left: 9, top: 9, width: 50 },
+    widthMm: UAE_CHEQUE_WIDTH_MM, heightMm: UAE_CHEQUE_HEIGHT_MM,
+    date: { left: 134.5, top: 12.5, width: 46 },
+    payee: { left: 27, top: 34, width: 152.5 },
+    words: { left: 22.5, top: 49.5, width: 125 },
+    amount: { left: 147, top: 50.5, width: 34.5 },
+    crossing: { left: 8, top: 8, width: 45.5 },
   },
   "lower-amount": {
-    widthMm: 210, heightMm: 100,
-    date: { left: 154, top: 16, width: 45 },
-    payee: { left: 36, top: 39, width: 160 },
-    words: { left: 28, top: 56, width: 134 },
-    amount: { left: 164, top: 61, width: 35 },
-    crossing: { left: 8, top: 8, width: 50 },
+    widthMm: UAE_CHEQUE_WIDTH_MM, heightMm: UAE_CHEQUE_HEIGHT_MM,
+    date: { left: 139.5, top: 14, width: 41 },
+    payee: { left: 32.5, top: 34.5, width: 145 },
+    words: { left: 25.5, top: 49.5, width: 121.5 },
+    amount: { left: 149, top: 54, width: 31.5 },
+    crossing: { left: 7.5, top: 7, width: 45.5 },
   },
-  "habib-186x90": {
-    widthMm: 186, heightMm: 90,
-    date: { left: 136.5, top: 14.5, width: 40 },
-    payee: { left: 32, top: 35, width: 142 },
-    words: { left: 25, top: 50.5, width: 119 },
-    amount: { left: 145, top: 55, width: 31 },
-    crossing: { left: 7, top: 7, width: 44 },
+  habib: {
+    widthMm: UAE_CHEQUE_WIDTH_MM, heightMm: UAE_CHEQUE_HEIGHT_MM,
+    date: { left: 140, top: 14.5, width: 41 },
+    payee: { left: 33, top: 34.5, width: 145 },
+    words: { left: 25.5, top: 50, width: 122 },
+    amount: { left: 148.5, top: 54.5, width: 32 },
+    crossing: { left: 7, top: 7, width: 45 },
   },
 };
 
@@ -77,7 +80,7 @@ const bankLayouts: Array<[string, string, LayoutVariant]> = [
   ["hsbc-uae", "HSBC UAE", "wide-date"],
   ["standard-chartered-business", "Standard Chartered · Business", "standard"],
   ["standard-chartered-personal", "Standard Chartered · Personal", "compact"],
-  ["habib-bank-ag-zurich", "Habib Bank AG Zurich", "habib-186x90"],
+  ["habib-bank-ag-zurich", "Habib Bank AG Zurich", "habib"],
   ["national-bank-fujairah", "National Bank of Fujairah (NBF)", "wide-date"],
   ["sharjah-islamic-bank", "Sharjah Islamic Bank", "compact"],
   ["united-arab-bank", "United Arab Bank", "standard"],

@@ -140,8 +140,8 @@ test("UAE bank cheque is linked to Banking and supports save and print", () => {
   assert.match(cheque, /Print A4 voucher/);
   assert.match(cheque, /Edit cheque number/);
   assert.match(cheque, /editMode: "cheque-number"/);
-  assert.match(cheque, /uae-cheque-page-size/);
-  assert.match(cheque, /@page \{ size:/);
+  assert.match(cheque, /printIsolatedDocument/);
+  assert.match(cheque, /@page\{size:\$\{selectedLayout\.widthMm\}mm \$\{selectedLayout\.heightMm\}mm;margin:0\}/);
   const css = readFileSync("app/globals.css", "utf8");
   assert.match(css, /uae-cheque-document > :not\(\.uae-cheque-print-layer\)/);
   assert.doesNotMatch(css, /document-print-surface > :not\(\.uae-cheque-print-layer\)/);
@@ -151,10 +151,13 @@ test("UAE bank cheque is linked to Banking and supports save and print", () => {
   assert.match(cheque, /MAX_ALIGNMENT_OFFSET_MM = 20/);
   assert.match(cheque, /Alignment reset to 0 mm/);
   assert.match(cheque, /Amount in words/);
-  assert.match(cheque, /window\.print\(\)/);
+  assert.match(cheque, /printWindow\.print\(\)/);
   for (const bank of ["Emirates NBD", "First Abu Dhabi Bank", "ADCB", "Dubai Islamic Bank", "Mashreq", "RAKBANK", "Habib Bank AG Zurich", "Wio Business"]) assert.match(layouts, new RegExp(bank));
-  assert.match(layouts, /"habib-186x90"[\s\S]*widthMm: 186, heightMm: 90/);
-  assert.match(layouts, /"habib-bank-ag-zurich", "Habib Bank AG Zurich", "habib-186x90"/);
+  assert.match(layouts, /UAE_CHEQUE_WIDTH_MM = 190\.5/);
+  assert.match(layouts, /UAE_CHEQUE_HEIGHT_MM = 88\.9/);
+  assert.equal((layouts.match(/widthMm: UAE_CHEQUE_WIDTH_MM, heightMm: UAE_CHEQUE_HEIGHT_MM/g) || []).length, 5);
+  assert.match(layouts, /habib:[\s\S]*widthMm: UAE_CHEQUE_WIDTH_MM, heightMm: UAE_CHEQUE_HEIGHT_MM/);
+  assert.match(layouts, /"habib-bank-ag-zurich", "Habib Bank AG Zurich", "habib"/);
 });
 
 test("Escape and close controls protect editable dialogs with save, discard, and cancel choices", () => {

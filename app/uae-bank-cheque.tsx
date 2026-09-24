@@ -44,6 +44,59 @@ function positionStyle(position: ChequeFieldPosition): CSSProperties {
   return { left: `${position.left}mm`, top: `${position.top}mm`, width: `${position.width}mm` };
 }
 
+function escapeMarkup(value: unknown): string {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character] || character);
+}
+
+function fieldPositionCss(position: ChequeFieldPosition): string {
+  return `left:${position.left}mm;top:${position.top}mm;width:${position.width}mm`;
+}
+
+function printIsolatedDocument(title: string, styles: string, body: string) {
+  const frame = document.createElement("iframe");
+  frame.title = title;
+  frame.setAttribute("aria-hidden", "true");
+  frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
+  document.body.appendChild(frame);
+  const printWindow = frame.contentWindow;
+  const printDocument = frame.contentDocument;
+  if (!printWindow || !printDocument) {
+    frame.remove();
+    return;
+  }
+  printDocument.open();
+  printDocument.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeMarkup(title)}</title><style>${styles}</style></head><body>${body}</body></html>`);
+  printDocument.close();
+  let started = false;
+  const startPrint = async () => {
+    if (started) return;
+    started = true;
+    await printDocument.fonts?.ready;
+    printWindow.addEventListener("afterprint", () => frame.remove(), { once: true });
+    printWindow.focus();
+    printWindow.print();
+    window.setTimeout(() => frame.isConnected && frame.remove(), 60_000);
+  };
+  if (printDocument.readyState === "complete") window.setTimeout(() => void startPrint(), 50);
+  else frame.addEventListener("load", () => void startPrint(), { once: true });
+}
+
+function chequePrintBody({ date, party, words, amount, currency, crossed, layout, offsetX, offsetY }: {
+  date: string; party: string; words: string; amount: number; currency: string; crossed: boolean;
+  layout: ReturnType<typeof uaeChequeLayout>; offsetX: number; offsetY: number;
+}): string {
+  const formattedDate = date ? date.split("-").reverse().join(" / ") : "";
+  const crossing = crossed ? `<div class="field crossing" style="${fieldPositionCss(layout.crossing)}">A/C PAYEE ONLY</div>` : "";
+  return `<main class="cheque-page"><div class="calibrated" style="transform:translate(${offsetX}mm,${offsetY}mm)">${crossing}<div class="field date" style="${fieldPositionCss(layout.date)}">${escapeMarkup(formattedDate)}</div><div class="field payee" style="${fieldPositionCss(layout.payee)}">** ${escapeMarkup(party)} **</div><div class="field words" style="${fieldPositionCss(layout.words)}">** ${escapeMarkup(words)} **</div><div class="field amount" style="${fieldPositionCss(layout.amount)}">**${escapeMarkup(currency)} ${escapeMarkup(amount.toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}**</div></div></main>`;
+}
+
+function voucherPrintBody({ companyName, chequeNumber, bankName, layoutName, party, date, amount, currency, words, details, memo }: {
+  companyName: string; chequeNumber: string; bankName: string; layoutName: string; party: string; date: string;
+  amount: number; currency: string; words: string; details: string; memo: string;
+}): string {
+  return `<main class="voucher-page"><header><div><p class="company">${escapeMarkup(companyName)}</p><h1>CHEQUE PAYMENT VOUCHER</h1><p class="muted">${escapeMarkup(bankName)} · ${escapeMarkup(layoutName)}</p></div><div class="number"><span>CHEQUE NUMBER</span><strong>${escapeMarkup(chequeNumber)}</strong></div></header><section class="facts"><div><span>PAYEE</span><strong>${escapeMarkup(party)}</strong></div><div><span>CHEQUE DATE</span><strong>${escapeMarkup(date)}</strong></div><div><span>PAY FROM</span><strong>${escapeMarkup(bankName)}</strong></div><div><span>AMOUNT</span><strong>${escapeMarkup(money(amount, currency))}</strong></div></section><section class="words"><span>AMOUNT IN WORDS</span><strong>${escapeMarkup(words)}</strong></section><section class="details"><div><span>PAYMENT DETAILS</span><p>${escapeMarkup(details)}</p></div><div><span>MEMO / BILL REFERENCES</span><p>${escapeMarkup(memo || "—")}</p></div></section><footer><p>PREPARED BY</p><p>CHECKED BY</p><p>APPROVED BY</p></footer></main>`;
+}
+
 function ChequeFields({ date, party, words, amount, currency, crossed, layout, preview = false }: {
   date: string; party: string; words: string; amount: number; currency: string; crossed: boolean;
   layout: ReturnType<typeof uaeChequeLayout>; preview?: boolean;
@@ -78,32 +131,20 @@ export function UaeBankCheque({ record, lines, journal, companyName, revision, c
   const calibrationStyle = { "--cheque-offset-x": `${safeAlignmentOffset(offsetX)}mm`, "--cheque-offset-y": `${safeAlignmentOffset(offsetY)}mm` } as CSSProperties;
 
   function print(mode: "cheque" | "voucher") {
-    if (mode === "cheque" && (Number(offsetX) !== safeAlignmentOffset(offsetX) || Number(offsetY) !== safeAlignmentOffset(offsetY))) {
+    const safeX = safeAlignmentOffset(offsetX);
+    const safeY = safeAlignmentOffset(offsetY);
+    if (mode === "cheque" && (Number(offsetX) !== safeX || Number(offsetY) !== safeY)) {
       setOffsetX("0");
       setOffsetY("0");
       setAlignmentMessage("Alignment was outside the safe range and has been reset to 0 mm.");
     }
-    const root = document.documentElement;
-    const oldPageStyle = document.getElementById("uae-cheque-page-size");
-    oldPageStyle?.remove();
-    const pageStyle = document.createElement("style");
-    pageStyle.id = "uae-cheque-page-size";
-    pageStyle.textContent = mode === "cheque"
-      ? `@page { size: ${selectedLayout.widthMm}mm ${selectedLayout.heightMm}mm; margin: 0; }`
-      : "@page { size: A4 portrait; margin: 10mm; }";
-    document.head.appendChild(pageStyle);
-    root.dataset.chequePrintMode = mode;
-    root.style.setProperty("--cheque-page-width", `${selectedLayout.widthMm}mm`);
-    root.style.setProperty("--cheque-page-height", `${selectedLayout.heightMm}mm`);
-    const cleanup = () => {
-      delete root.dataset.chequePrintMode;
-      root.style.removeProperty("--cheque-page-width");
-      root.style.removeProperty("--cheque-page-height");
-      pageStyle.remove();
-      window.removeEventListener("afterprint", cleanup);
-    };
-    window.addEventListener("afterprint", cleanup);
-    window.print();
+    if (mode === "cheque") {
+      const styles = `@page{size:${selectedLayout.widthMm}mm ${selectedLayout.heightMm}mm;margin:0}*{box-sizing:border-box}html,body{width:${selectedLayout.widthMm}mm;height:${selectedLayout.heightMm}mm;margin:0!important;padding:0!important;overflow:hidden!important;background:#fff;color:#000;font-family:Arial,sans-serif}.cheque-page,.calibrated{position:relative;width:${selectedLayout.widthMm}mm;height:${selectedLayout.heightMm}mm;overflow:hidden}.calibrated{position:absolute;inset:0}.field{position:absolute;overflow:hidden;color:#000}.crossing{white-space:nowrap;font-size:9pt;font-weight:700;transform:rotate(-7deg)}.date{text-align:center;white-space:nowrap;font:600 11pt monospace;letter-spacing:.04em}.payee{white-space:nowrap;text-overflow:clip;font-size:11pt;font-weight:600;text-transform:uppercase}.words{font-size:9.5pt;font-weight:600;line-height:1.35;text-transform:uppercase}.amount{text-align:right;font:700 10pt monospace;line-height:1.15;white-space:normal;font-variant-numeric:tabular-nums}@media print{html,body,.cheque-page{break-after:avoid;break-inside:avoid;page-break-after:avoid;page-break-inside:avoid}}`;
+      printIsolatedDocument(`Cheque ${chequeNumber}`, styles, chequePrintBody({ date, party: String(record.party), words, amount, currency, crossed, layout: selectedLayout, offsetX: safeX, offsetY: safeY }));
+      return;
+    }
+    const styles = `@page{size:A4 portrait;margin:10mm}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:#0f172a;font-family:Arial,sans-serif}.voucher-page{width:190mm;min-height:277mm;padding:9mm;border:1px solid #cbd5e1;break-inside:avoid;page-break-inside:avoid}.voucher-page header{display:flex;justify-content:space-between;gap:12mm;padding-bottom:7mm;border-bottom:1px solid #cbd5e1}.company{margin:0;color:#047857;font-size:10pt;font-weight:800;letter-spacing:.18em}.voucher-page h1{margin:3mm 0 1mm;font-size:21pt}.muted{margin:0;color:#64748b;font-size:10pt}.number{text-align:right}.number span,.facts span,.words span,.details span{display:block;color:#64748b;font-size:8.5pt;font-weight:700;letter-spacing:.05em}.number strong{display:block;margin-top:2mm;font:700 13pt monospace}.facts{display:grid;grid-template-columns:repeat(4,1fr);gap:6mm;margin-top:10mm}.facts strong{display:block;margin-top:2mm;font-size:10.5pt}.words{margin-top:9mm;padding:6mm;border:1px solid #cbd5e1;border-radius:3mm;background:#f8fafc}.words strong{display:block;margin-top:2mm;font-size:11pt;text-transform:uppercase}.details{display:grid;grid-template-columns:1fr 1fr;gap:10mm;margin-top:9mm;padding-top:7mm;border-top:1px solid #cbd5e1}.details p{margin:2mm 0 0;font-size:10.5pt;white-space:pre-wrap}footer{display:grid;grid-template-columns:repeat(3,1fr);gap:10mm;margin-top:28mm;padding-top:12mm}footer p{margin:0;padding-top:3mm;border-top:1px solid #64748b;text-align:center;color:#64748b;font-size:8.5pt;font-weight:700}@media print{.voucher-page{break-after:avoid;page-break-after:avoid}}`;
+    printIsolatedDocument(`Cheque voucher ${chequeNumber}`, styles, voucherPrintBody({ companyName, chequeNumber, bankName, layoutName: selectedLayout.name, party: String(record.party), date, amount, currency, words, details: String(lines[0]?.description || "Cheque payment"), memo: String(record.memo || "") }));
   }
 
   async function saveChequeNumber() {
