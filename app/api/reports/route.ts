@@ -19,7 +19,7 @@ export async function GET(request: Request) {
   const key = new URL(request.url).searchParams.get("type") ?? "profit-loss";
   const authorization = await requireApiUser(request);
   if (authorization instanceof Response) return authorization;
-  const canOpen = key === "customer-statements" ? hasPermission(authorization, "sales:write") || hasPermission(authorization, "reports:read") : hasPermission(authorization, "reports:read");
+  const canOpen = ["customer-statements", "customer-document-summary"].includes(key) ? hasPermission(authorization, "sales:write") || hasPermission(authorization, "reports:read") : hasPermission(authorization, "reports:read");
   if (!canOpen) return Response.json({ error: "Your role does not allow this report." }, { status: 403 });
   try {
     const url = new URL(request.url);
@@ -706,6 +706,20 @@ export async function GET(request: Request) {
       title = "Pending Builds";
       rows = stockItems.filter((row) => row.quantity < row.reorderPoint).map((row) => ({ account: inventoryAccountFor(row), itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, category: row.category, onHand: row.quantity, buildLevel: row.reorderPoint, required: Math.max(0, row.reorderPoint - row.quantity), status: row.quantity <= 0 ? "Required" : "Below Level" }));
       columns = [{ key: "account", label: "Inventory Asset Account" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item / Assembly" }, { key: "category", label: "Category" }, { key: "onHand", label: "On Hand" }, { key: "buildLevel", label: "Build Level" }, { key: "required", label: "Required Qty" }, { key: "status", label: "Status" }];
+    } else if (key === "customer-document-summary") {
+      title = "Customer Document Summary";
+      const documentTypes = new Set(["estimate", "proforma invoice", "sales order"]);
+      const totals = new Map<string, { estimates: number; proformaInvoices: number; salesOrders: number }>();
+      allContacts.filter((contact) => contact.type === "customer").forEach((contact) => totals.set(contact.name, { estimates: 0, proformaInvoices: 0, salesOrders: 0 }));
+      scopedTransactions.filter((row) => documentTypes.has(row.type)).forEach((row) => {
+        const current = totals.get(row.party) ?? { estimates: 0, proformaInvoices: 0, salesOrders: 0 };
+        if (row.type === "estimate") current.estimates += 1;
+        if (row.type === "proforma invoice") current.proformaInvoices += 1;
+        if (row.type === "sales order") current.salesOrders += 1;
+        totals.set(row.party, current);
+      });
+      rows = [...totals].map(([customer, counts]) => ({ customer, ...counts, totalDocuments: counts.estimates + counts.proformaInvoices + counts.salesOrders })).sort((a, b) => b.totalDocuments - a.totalDocuments || a.customer.localeCompare(b.customer));
+      columns = [{ key: "customer", label: "Customer" }, { key: "estimates", label: "Estimates" }, { key: "proformaInvoices", label: "Proforma Invoices" }, { key: "salesOrders", label: "Sales Orders" }, { key: "totalDocuments", label: "Total Documents" }];
     } else if (key === "open-invoices") {
       title = "Open Invoices";
       const invoiceAllocations = await db.select({ invoiceId: invoicePaymentAllocations.invoiceId, amount: invoicePaymentAllocations.amount }).from(invoicePaymentAllocations).innerJoin(transactions, eq(transactions.id, invoicePaymentAllocations.paymentId)).where(eq(transactions.companyId, companyId));

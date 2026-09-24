@@ -76,6 +76,10 @@ async function transaction(type, number, subtotal, vatAmount, rate = 1, inventor
 await transaction("invoice", "INV-USD", 1000, 50, 3.675);
 await transaction("customer payment", "PAY-USD", 200, 0, 3.675);
 await transaction("credit memo", "CR-USD", 100, 5, 3.675);
+await transaction("estimate", "EST-USD", 100, 5, 3.675);
+await transaction("estimate", "EST-USD-2", 100, 5, 3.675);
+await transaction("proforma invoice", "PRO-USD", 100, 5, 3.675);
+await transaction("sales order", "SO-USD", 100, 5, 3.675);
 await transaction("invoice", "INV-OTHER", 500, 25, 1, otherLocation.id);
 await transaction("bill", "BILL", 1000, 50);
 await transaction("cheque", "CHQ-DEWA", 1000, 50);
@@ -413,6 +417,14 @@ test("customer summary matches detail in home currency after payments and credit
   assert.equal(summary.rows[0].amount, 2737.87);
   assert.equal(summary.rows[0].amount, detail.rows.at(-1).balance);
   assert.equal((await report("customer-balances", 0)).rows[0].amount, 3262.87);
+});
+
+test("customer document summary counts each pre-sale document and keeps zero-count customers", async () => {
+  await db.insert(schema.contacts).values({ companyId, name: "No Documents Customer", type: "customer", currency: "AED", balance: 0 });
+  const result = await report("customer-document-summary");
+  assert.deepEqual(result.columns.map((column) => column.key), ["customer", "estimates", "proformaInvoices", "salesOrders", "totalDocuments"]);
+  assert.deepEqual(result.rows.find((row) => row.customer === "USD Customer"), { customer: "USD Customer", estimates: 2, proformaInvoices: 1, salesOrders: 1, totalDocuments: 4 });
+  assert.deepEqual(result.rows.find((row) => row.customer === "No Documents Customer"), { customer: "No Documents Customer", estimates: 0, proformaInvoices: 0, salesOrders: 0, totalDocuments: 0 });
 });
 
 test("VAT includes expense cheques and foreign card charges, subtracts credits, and scopes inventories", async () => {
