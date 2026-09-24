@@ -79,6 +79,7 @@ test("purchase returns are linked, stock-posting, and available as A4 documents"
   const api = readFileSync(new URL("../app/api/records/route.ts", import.meta.url), "utf8");
   const template = readFileSync(new URL("../app/sales-document-template.tsx", import.meta.url), "utf8");
   assert.match(app, /label: "Return Purchases"/);
+  assert.match(app, /function VendorCenter[\s\S]*label: "Return Purchases"/);
   assert.match(source, /Original supplier bill/);
   assert.match(api, /kind === "purchase-return-bills"/);
   assert.match(api, /Return quantity exceeds the quantity remaining/);
