@@ -310,9 +310,11 @@ button, input, select { font: inherit; }
   line-height: 1.5;
 }
 .report-table th { height: auto; padding-block: 0.75rem; }
+@page report { size: A4 landscape; margin: 10mm; }
 @media print {
   body:has(.report-dialog) > :not([data-slot="dialog-content"]) { display: none !important; }
   .report-dialog {
+    page: report;
     position: static !important;
     transform: none !important;
     width: 100% !important;
@@ -324,6 +326,7 @@ button, input, select { font: inherit; }
     box-shadow: none !important;
     background: white !important;
     color: black !important;
+    print-color-adjust: exact;
   }
   .report-dialog [data-export-slot] { display: none !important; }
   .report-table { font-size: 9pt; }

@@ -102,6 +102,17 @@ test("inventory checks keep the checker, date and time on each completed count",
   assert.match(report, /Report date &amp; time/);
 });
 
+test("memorised reports live in Report Center categories with A4 print and PDF actions", () => {
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(app, /\["All", "Memorised Reports", \.\.\.reportCategoryOrder\]/);
+  assert.match(app, /onOpenMemorised\(savedReport\)/);
+  assert.match(app, /definition\?\.\[1\] \|\| `Linked to \$\{category\} reports`/);
+  assert.match(app, /<Printer className="size-4" \/>Print · A4/);
+  assert.match(app, /kind === "pdf" \? "PDF · A4"/);
+  assert.match(css, /@page report \{ size: A4 landscape; margin: 10mm; \}/);
+});
+
 test("Escape and close controls protect editable dialogs with save, discard, and cancel choices", () => {
   const closer = readFileSync(new URL("../app/escape-window-closer.tsx", import.meta.url), "utf8");
   assert.match(closer, /document\.addEventListener\("keydown", onKeyDown, true\)/);
