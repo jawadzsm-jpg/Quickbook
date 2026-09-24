@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 87936)
-Total output lines: 2444
-
 "use client";
 import { FinancialReport } from "./financial-report";
 import type { FinancialReportData } from "@/lib/financial-reports";
@@ -1054,7 +1051,810 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
 
       <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open && saving) { toast.info("Please wait until saving finishes."); return; } setDialogOpen(open); if (!open) { setEditingItemId(null); setEditorKind(null); } }}>
         <DialogContent showCloseButton={true} onInteractOutside={(event) => { if (["items", "transactions"].includes(activeEditorKind) || saving) event.preventDefault(); }} onEscapeKeyDown={(event) => { if (["items", "transactions"].includes(activeEditorKind) || saving) event.preventDefault(); }} data-record-kind={activeEditorKind} className={`max-h-[92dvh] ${activeEditorKind === "transactions" ? "overflow-hidden sm:max-w-6xl" : "overflow-y-auto"} ${activeEditorKind === "items" || (activeEditorKind === "contacts" && view === "customers") ? "sm:max-w-5xl" : activeEditorKind === "transactions" ? "" : "sm:max-w-xl"}`}>
-          <DialogHeader><DialogTitle>{editingItemId !== nu…37936 tokens truncated…700">Currently selected</p>}</article>)}</div></section><form className="space-y-4 rounded-xl border bg-white p-5 shadow-sm" onSubmit={(event) => { event.preventDefault(); save("POST", { type: "company", name, baseCurrency: currency, sourceCompanyId: activeCompanyId }); }}><div><h2 className="font-bold">Add company</h2><p className="text-sm text-slate-500">Includes a Main Inventory and the selected company’s main Chart of Accounts at zero balance. Sub-accounts and history are not copied.</p></div><div className="space-y-2"><Label>Company name</Label><Input value={name} onChange={(event) => setName(event.target.value)} required placeholder="Company name" /></div><div className="space-y-2"><Label>Base currency</Label><Select value={currency} onValueChange={setCurrency}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{currencies.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div><Button disabled={saving} className="w-full"><Plus className="size-4" />Add company</Button></form></div>;
+          <DialogHeader><DialogTitle>{editingItemId !== null && activeEditorKind === "items" ? "Edit Item" : editingRecordId !== null ? `Edit ${activeEditorKind === "transactions" ? form.type : activeEditorKind === "accounts" ? "Account" : form.type === "vendor" ? "Vendor" : "Customer"}` : editorLabel}</DialogTitle><DialogDescription>{editingItemId !== null && activeEditorKind === "items" ? "Update the category and item description details." : activeEditorKind === "transactions" && form.type === "bill" ? "Select the vendor and enter the bill items below." : "Enter the record details below. Required fields are marked."}</DialogDescription></DialogHeader>
+          {dialogOpen && activeEditorKind === "transactions" && form.type === "item receipt" && editingRecordId === null && form.party && <OpenPurchaseOrders key={`${activeCompanyId}:${form.party}`} companyId={activeCompanyId} party={form.party} onComplete={() => { setDialogOpen(false); void loadData(); }} onSaved={() => { void loadData(); }} />}
+          {dialogOpen && activeEditorKind === "transactions" && form.type === "bill" && editingRecordId === null && !form.sourceTransactionId && !form.purchaseOrderId && form.party && <OpenPurchaseOrders key={`bill:${activeCompanyId}:${form.party}`} companyId={activeCompanyId} party={form.party} onSaved={() => { void loadData(); }} onComplete={() => {}} onSelectBill={async (id) => {
+            const response = await fetch(`/api/records?kind=transactions&companyId=${activeCompanyId}&id=${id}`, { cache: "no-store" });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || "Could not load purchase order.");
+            if (data.record.party !== form.party || data.record.type !== "purchase order" || data.record.convertedInvoiceId || ["received", "converted"].includes(data.record.status)) throw new Error("This PO is no longer available for full-PO billing. Refresh the supplier selection.");
+            convertSourceDocument(data as TransactionDetail);
+          }} />}
+          {dialogOpen && activeEditorKind === "transactions" && form.type === "invoice" && editingRecordId === null && !form.sourceTransactionId && !form.salesSourceId && form.party && <OpenSalesDocuments key={`${activeCompanyId}:${form.party}`} companyId={activeCompanyId} party={form.party} onSelect={(id) => setForm({ ...form, salesSourceId: String(id) })} />}
+          {activeEditorKind === "transactions" && editingRecordId === null && form.type === "invoice" && form.salesSourceId ? <SalesSourceInvoicing key={form.salesSourceId} sourceId={Number(form.salesSourceId)} companyId={activeCompanyId} onSaved={() => { setDialogOpen(false); setEditorKind(null); void loadData(); }} onViewInvoice={(id) => { setDialogOpen(false); void openDetail(id); }} /> : activeEditorKind === "transactions" && form.type === "bill" && form.purchaseOrderId ? <PurchaseOrderReceiving key={`bill:${form.purchaseOrderId}`} orderId={Number(form.purchaseOrderId)} companyId={activeCompanyId} documentType="bill" account={defaultPostingAccount("bill", records.accounts)} onSaved={() => { setDialogOpen(false); setEditorKind(null); void loadData(); }} /> : <form onSubmit={saveRecord} className={activeEditorKind === "transactions" ? "flex min-h-0 flex-col gap-4 overflow-hidden" : "space-y-5"}>
+            <SkuLockNotice message={skuLock.message} /><fieldset disabled={!skuLock.ready} className={activeEditorKind === "transactions" ? "min-h-0 flex-1 space-y-5 overflow-y-auto pr-1" : "space-y-5"}>
+            {linkedInventoryDocument && !salesDetailsOnly && <p role="status" className="text-sm text-slate-500">{documentInventory.key === documentInventoryKey && documentInventory.error ? documentInventory.error : !documentInventoryReady ? "Loading inventory items…" : `${documentItems.length} items available in the selected inventory.`}</p>}
+            {activeEditorKind === "transactions" && !salesDetailsOnly && <TransactionFields form={form} setForm={updateDocumentForm} types={["sales", "customers", "vendors", "banking"].includes(view) ? [form.type] : transactionTypes[view] ?? transactionTypes.dashboard} items={documentItems} contacts={records.contacts} accounts={records.accounts} locations={activeLocations} lines={lines} setLines={setLines} vatCodeOptions={vatCodeOptions} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />}
+            {salesDetailsOnly && <div className="space-y-4">
+              <p className="rounded-md border p-3 text-sm">{form.party} · {formatMoney(Number(form.total), form.currency)} · {form.status}<br /><span className="text-muted-foreground">Edit document details. Existing posted items, currency, inventory and payment links are protected. New invoice lines can be added below.</span></p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="grid gap-2 text-sm">Reference number<Input required maxLength={100} value={form.number} onChange={(event) => setForm({ ...form, number: event.target.value })} /></label>
+                <label className="grid gap-2 text-sm">Transaction date<Input required type="date" value={form.transactionDate} onChange={(event) => { const transactionDate = event.target.value; const dueDate = dueDateForPaymentTerms(transactionDate, form.terms || ""); setForm({ ...form, transactionDate, ...(dueDate ? { dueDate } : {}) }); }} /></label>
+                <label className="grid gap-2 text-sm">Due date<Input type="date" value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })} /></label>
+                <PaymentTermsPicker value={form.terms || ""} onChange={(terms) => { const dueDate = dueDateForPaymentTerms(form.transactionDate, terms); setForm({ ...form, terms, ...(dueDate ? { dueDate } : {}) }); }} />
+                <PaymentSalesRep employees={records.contacts.filter((contact) => contact.type === "employee" && contact.status === "active").map((contact) => ({ id: contact.id, name: String(contact.name) }))} value={form.salesman} onChange={(salesman) => setForm({ ...form, salesman })} />
+              </div>
+              <label className="grid gap-2 text-sm">Memo<Textarea maxLength={5000} value={form.memo} onChange={(event) => setForm({ ...form, memo: event.target.value })} /></label>
+            </div>}
+            {salesDetailsOnly && form.type === "invoice" && <div className="space-y-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-semibold">Items and services</h3><p className="text-xs text-muted-foreground">Existing posted lines are locked. Use Add Line to append another item to this invoice.</p></div><Button type="button" disabled={!documentInventoryReady} onClick={appendInvoiceLine} className="brand-primary-button border-transparent font-semibold"><Plus className="size-4" />Add Line</Button></div>{!documentInventoryReady && <p className="text-xs text-slate-500">Loading inventory items…</p>}{lines.map((line, index) => line.id ? <div key={line.id} className="space-y-2 rounded-xl border p-3"><p className="text-sm font-medium">{index + 1}. {line.description}</p><DocumentExtraFields value={{ comments: line.comments || "", serialNumber: line.serialNumber || "" }} onChange={value => setLines(lines.map((entry, position) => position === index ? { ...entry, ...value } : entry))} /></div> : <div key={`new-invoice-line-${index}`} className="space-y-3 rounded-xl border border-emerald-300 bg-emerald-50/40 p-3 dark:bg-emerald-950/20"><div className="flex items-center justify-between"><strong className="text-sm">New line {index + 1}</strong><Button type="button" size="sm" variant="outline" className="border-rose-300 text-rose-600" onClick={() => setLines((current) => current.filter((_, position) => position !== index))}><Trash2 className="size-4" />Remove</Button></div><div className="grid gap-3 md:grid-cols-[minmax(260px,2fr)_110px_130px_150px]"><label className="grid gap-1 text-sm">Item<Select value={line.itemId || ""} onValueChange={(value) => { const item = documentItems.find((entry) => String(entry.id) === value); if (!item) return; const vatCode = String(item.salesVatCode || "STANDARD"); const vatRate = vatCodeOptions.find((code) => code.code === vatCode)?.rate ?? 5; setLines((current) => current.map((entry, position) => position === index ? { ...entry, itemId: value, description: String(item.description || item.name || ""), unitPrice: invoiceCurrencyAmount(Number(item.salesPrice ?? 0), Number(form.exchangeRate || 1)), unitCost: invoiceCurrencyAmount(Number(item.averageCost ?? item.cost ?? 0), Number(form.exchangeRate || 1)), vatCode, vatRate: String(vatRate) } : entry)); }}><SelectTrigger><SelectValue placeholder="Select item" /></SelectTrigger><SelectContent>{documentItems.filter((item) => item.status !== "inactive").map((item) => <SelectItem key={item.id} value={String(item.id)}>{String(item.sku || "")} · {String(item.name || item.description || "Item")}</SelectItem>)}</SelectContent></Select></label><label className="grid gap-1 text-sm">Qty<Input type="number" min="0.01" step="0.01" value={line.quantity} onChange={(event) => setLines((current) => current.map((entry, position) => position === index ? { ...entry, quantity: event.target.value } : entry))} /></label><label className="grid gap-1 text-sm">Rate<Input type="number" min="0" step="0.01" value={line.unitPrice} onChange={(event) => setLines((current) => current.map((entry, position) => position === index ? { ...entry, unitPrice: event.target.value } : entry))} /></label><label className="grid gap-1 text-sm">VAT<Select value={line.vatCode} onValueChange={(value) => { const rate = vatCodeOptions.find((code) => code.code === value)?.rate ?? 0; setLines((current) => current.map((entry, position) => position === index ? { ...entry, vatCode: value, vatRate: String(rate) } : entry)); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{vatCodeOptions.map((code) => <SelectItem key={code.code} value={code.code}>{code.label}</SelectItem>)}</SelectContent></Select></label></div><label className="grid gap-1 text-sm">Description<Textarea value={line.description} onChange={(event) => setLines((current) => current.map((entry, position) => position === index ? { ...entry, description: event.target.value } : entry))} /></label><DocumentExtraFields value={{ comments: line.comments || "", serialNumber: line.serialNumber || "" }} onChange={value => setLines(lines.map((entry, position) => position === index ? { ...entry, ...value } : entry))} /></div>)}<div className="flex justify-end border-t pt-3"><Button type="button" disabled={!documentInventoryReady} onClick={appendInvoiceLine} className="brand-primary-button border-transparent font-semibold"><Plus className="size-4" />Add Another Line</Button></div></div>}
+            {activeEditorKind === "contacts" && editingRecordId === null && <ContactFields form={form} setForm={setForm} accounts={records.accounts} />}
+            {editingRecordId !== null && ["contacts", "accounts"].includes(activeEditorKind) && <div className="grid gap-4 sm:grid-cols-2">{(activeEditorKind === "accounts" ? [["Account code", "code"], ["Account name", "name"]] : [["Name", "name"], ["Company", "company"], ["Billing name", "billingName"], ["Email", "email"], ["Phone", "phone"], ["WhatsApp", "whatsapp"], ["Country", "country"], ["TRN", "trn"], ["Reseller", "reseller"], ["Planet", "planet"], ["Passport", "passport"], ["Description", "description"]]).map(([label, name]) => <Field key={name} label={label} name={name} form={form} setForm={setForm} required={name === "name" || name === "code"} />)}{activeEditorKind === "accounts" && <Choice label="Account type" name="type" values={accountTypesForRole(form.systemRole || "")} form={form} setForm={setForm} />}<p className="text-xs text-slate-500 sm:col-span-2">{activeEditorKind === "accounts" ? "Account type can be changed. Currency, opening balance and system link are preserved." : "Currency, balances and ledger links are preserved when editing these details."}</p></div>}
+            {activeEditorKind === "items" && <>
+              {editingItemId === null && <section className="grid gap-4 rounded-xl border bg-slate-50 p-4 sm:grid-cols-2">
+                <label className="grid gap-2 text-sm font-medium">Company *<select required className="h-10 w-full rounded-md border bg-background px-3" value={activeCompanyId || ""} onChange={event => { const company = companies.find(entry => entry.id === Number(event.target.value)); if (!company) return; setRecords({ transactions: [], contacts: [], items: [], accounts: [] }); setActiveCompanyId(company.id); setActiveLocationId(company.locations[0]?.id ?? 0); }}><option value="" disabled>Select company</option>{companies.map(company => <option key={company.id} value={company.id}>{company.name}</option>)}</select></label>
+                <label className="grid gap-2 text-sm font-medium">Inventory *<select required className="h-10 w-full rounded-md border bg-background px-3" value={activeLocations.some(location => location.id === activeLocationId) ? activeLocationId : ""} disabled={!activeLocations.length} onChange={event => { setRecords(current => ({ ...current, items: [] })); setActiveLocationId(Number(event.target.value)); }}><option value="" disabled>Select inventory</option>{activeLocations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
+                <p className="text-sm text-slate-500 sm:col-span-2">{activeLocations.length ? `The new item will be saved in ${activeCompany?.name || "the selected company"} · ${activeLocations.find(location => location.id === activeLocationId)?.name || "select an inventory"}.` : "This company has no active inventory. Add an inventory or select another company."}</p>
+              </section>}
+              <ItemFields form={form} setForm={setForm} items={records.items} accounts={records.accounts} contacts={records.contacts} vatCodeOptions={vatCodeOptions} currency={baseCurrency} editing={editingItemId !== null} />
+            </>}
+            {activeEditorKind === "accounts" && editingRecordId === null && <AccountFields form={form} setForm={setForm} accounts={records.accounts} />}
+            </fieldset><DialogFooter className={activeEditorKind === "transactions" ? "shrink-0 border-t bg-background pt-4" : ""}><Button type="button" variant="outline" disabled={saving} onClick={() => { setDialogOpen(false); setEditingItemId(null); setEditingRecordId(null); setEditorKind(null); }}>Cancel</Button>{activeEditorKind === "transactions" && form.type === "cheque" && <Button type="submit" data-action="save-print" disabled={saving || !skuLock.ready} variant="outline"><Printer className="size-4" />{saving ? "Saving…" : "Save & Print"}</Button>}<Button type="submit" disabled={saving || !skuLock.ready} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400">{saving ? "Saving…" : (editingRecordId !== null || editingItemId !== null && activeEditorKind === "items") ? "Save changes" : "Save record"}</Button></DialogFooter>
+          </form>}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={invoiceInventoryOpen} onOpenChange={setInvoiceInventoryOpen}>
+        <DialogContent className="sm:max-w-3xl"><DialogHeader><DialogTitle>Select Inventory</DialogTitle><DialogDescription>Choose which company inventory will issue this invoice. Every company and inventory combination has its own invoice-number series.</DialogDescription></DialogHeader><div className="grid gap-3 py-3 sm:grid-cols-2 lg:grid-cols-3">{activeLocations.map((location) => <button type="button" key={location.id} onClick={() => startInvoice(location)} className="rounded-xl border-2 border-slate-200 bg-white p-5 text-left transition hover:border-emerald-400 hover:bg-emerald-50"><p className="font-semibold text-slate-900">{location.name}</p><p className="mt-2 font-mono text-xs text-slate-500">Next: {invoiceNumberPreview(activeCompanyId, location)}</p></button>)}</div>{activeLocations.length === 0 && <p className="rounded-lg bg-amber-50 p-4 text-sm text-amber-800">Add an inventory location before creating an invoice.</p>}</DialogContent>
+      </Dialog>
+      <DocumentDialog onOpenInvoice={openDetail} onReceiptSaved={() => { setDetail(null); void loadData(); }} key={detail ? String(detail.record.id) : "closed-document"} detail={detail} companyName={activeCompany?.name ?? "Company"} baseCurrency={baseCurrency} setup={companySetup} canConvert={detail?.record.type === "purchase order" ? roleWriteViews[currentUser.role].includes("purchases") : roleWriteViews[currentUser.role].includes("sales")} onConvert={convertSourceDocument} onClose={() => setDetail(null)} />
+      <ReportDialog onOpenReport={(key) => { void openReport(key, reportContext?.periodStart || reportContext?.periodEnd ? { start: reportContext.periodStart, end: reportContext.periodEnd } : undefined); }} onCustomerDocument={(customer, type) => { setReport(null); setSearch(customer); setSalesListTarget((current) => ({ type, customer, nonce: (current?.nonce ?? 0) + 1 })); setView("sales"); }} onCustomer={(name, currency, overdue) => { void openReport(overdue ? "customers-overdue-invoices" : "customer-open-balance", undefined, { locationId: reportContext?.locationId ?? activeLocationId, currency, customer: name }); }} onOpenSource={(id) => { setReport(null); void openDetail(id); }} setup={companySetup} loading={reportLoading} onStatementApply={(filters) => openReport(report?.key || "customer-statements", { start: filters.from, end: filters.to }, { locationId: reportContext?.locationId ?? activeLocationId, currency: filters.currency, customer: filters.customer, statementDate: filters.statementDate, memo: filters.memo })} onPricesSaved={async () => { await openReport("stock-pricing-profit", undefined, reportContext ? { locationId: reportContext.locationId, currency: reportContext.currency } : undefined); await loadData(); }} report={report} companyName={activeCompany?.name ?? "Company"} inventoryName={activeLocations.find((location) => location.id === (reportContext?.locationId ?? activeLocationId))?.name ?? "All inventories"} memorised={Boolean(reportContext && memorisedReports.some((savedReport) => savedReport.reportKey === reportContext.key))} saving={memoriseSaving} onMemorise={saveMemorisedReport} onClose={() => setReport(null)} />
+      <WorkspaceDialog open={workspaceOpen} companies={companies} activeCompanyId={activeCompanyId} onClose={() => setWorkspaceOpen(false)} onChanged={loadWorkspaces} />
+      <Toaster richColors position="bottom-right" />
+    </SidebarProvider>
+  );
+}
+
+function Dashboard({ metrics, records, companyName, currency, themeColor, themeSaving, onThemeChange, onNavigate, onWorkflow, onCreate, onOpenDetail, canCreate, canViewReports }: { metrics: Record<string, number>; records: Record<Kind, DataRecord[]>; companyName: string; currency: string; themeColor: UserTheme; themeSaving: boolean; onThemeChange: (theme: UserTheme) => void; onNavigate: (v: View) => void; onWorkflow: (type: string, target: View) => void; onCreate: () => void; onOpenDetail: (id: number) => void; canCreate: boolean; canViewReports: boolean }) {
+  const [dashboardTab, setDashboardTab] = useState<"home" | "insights">("home");
+
+  useEffect(() => {
+    if (dashboardTab !== "insights") return;
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+      const openLayer = document.querySelector(
+        '[data-slot="dialog-content"][data-state="open"], [data-slot="sheet-content"][data-state="open"], [data-slot="drawer-content"][data-state="open"], [data-slot="alert-dialog-content"][data-state="open"], [role="dialog"][aria-modal="true"]'
+      );
+      if (openLayer) return;
+      event.preventDefault();
+      setDashboardTab("home");
+    };
+    document.addEventListener("keydown", onEscape);
+    return () => document.removeEventListener("keydown", onEscape);
+  }, [dashboardTab]);
+
+  const recent = records.transactions.slice(0, 6);
+  const cards = [
+    ["Cash position", metrics.cash, CircleDollarSign, "Linked Bank accounts", "emerald"],
+    ["Accounts receivable", metrics.receivable, Clock3, "Linked AR control accounts", "blue"],
+    ["Accounts payable", metrics.payable, BadgeDollarSign, "Linked AP control accounts", "amber"],
+    ["Inventory value", metrics.inventory, PackageSearch, "Linked Inventory Asset account", "violet"],
+  ] as const;
+  const max = Math.max(metrics.sales, metrics.expenses, 1);
+  return <div className="space-y-6">
+    <div className="flex w-fit rounded-xl border border-slate-200 bg-white p-1 shadow-sm" role="tablist" aria-label="Overview sections"><button type="button" role="tab" aria-selected={dashboardTab === "home"} onClick={() => setDashboardTab("home")} className={`rounded-lg px-5 py-2 text-sm font-bold transition ${dashboardTab === "home" ? "brand-primary-button shadow-sm" : "text-slate-500 hover:bg-slate-100"}`}>Home Page</button><button type="button" role="tab" aria-selected={dashboardTab === "insights"} onClick={() => setDashboardTab("insights")} className={`rounded-lg px-5 py-2 text-sm font-bold transition ${dashboardTab === "insights" ? "brand-primary-button shadow-sm" : "text-slate-500 hover:bg-slate-100"}`}>Insights</button></div>
+    {dashboardTab === "home" ? <WorkflowHome onNavigate={onNavigate} onWorkflow={onWorkflow} /> : <>
+    <section className="brand-hero rounded-2xl p-6 text-white shadow-sm lg:flex lg:items-center lg:justify-between">
+      <div><div className="brand-hero-signal mb-3 flex items-center gap-2 text-xs font-semibold tracking-[.15em]"><span className="brand-hero-dot size-2 rounded-full" /> COMPANY FILE ACTIVE</div><h2 className="text-2xl font-bold">{companyName}</h2><p className="mt-1 text-sm text-slate-300">Post transactions, control stock and close your books from one workspace.</p></div>
+      <div className="mt-5 flex flex-wrap gap-2 lg:mt-0">{canViewReports && <Button variant="outline" onClick={() => onNavigate("reports")} className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white"><FileBarChart2 />View reports</Button>}{canCreate && <Button onClick={onCreate} className="brand-primary-button"><Plus />Record transaction</Button>}</div>
+    </section>
+    <section className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex items-center gap-3"><div className="brand-soft-icon grid size-10 shrink-0 place-items-center rounded-xl"><Palette className="size-5" /></div><div><h3 className="text-sm font-bold text-slate-900">Your interface color</h3><p className="text-xs text-slate-500">Saved privately to your user account.</p></div></div>
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Choose interface color">{userThemes.map((theme) => <button type="button" key={theme.value} disabled={themeSaving} aria-pressed={themeColor === theme.value} onClick={() => onThemeChange(theme.value)} className={`flex min-h-10 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition disabled:opacity-60 ${themeColor === theme.value ? "border-slate-900 bg-slate-900 text-white shadow-sm" : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"}`}><span className="size-4 rounded-full border border-black/10" style={{ backgroundColor: theme.color }} />{theme.label}{themeColor === theme.value ? <Check className="size-3.5" /> : null}</button>)}</div>
+    </section>
+    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{cards.map(([label, value, Icon, detail, color]) => <article key={label} className="rounded-xl border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,.04)]"><div className="flex items-start justify-between"><div><p className="text-sm font-medium text-slate-500">{label}</p><p className="mt-2 text-2xl font-bold tracking-tight text-slate-900">{formatMoney(value, currency)}</p></div><div className={`metric-icon metric-${color}`}><Icon className="size-5" /></div></div><p className="mt-4 text-xs text-slate-500">{detail}</p></article>)}</section>
+    <section className="grid gap-5 xl:grid-cols-[1.35fr_.65fr]">
+      <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><div><h3 className="font-bold text-slate-900">Income vs expenses</h3><p className="text-xs text-slate-500">Posted income and expense accounts</p></div><Badge variant="outline">{currency}</Badge></div><div className="mt-8 grid grid-cols-[80px_1fr] gap-x-4 gap-y-5 text-sm"><span className="text-slate-500">Income</span><div className="flex items-center gap-3"><div className="brand-chart-bar h-8 rounded-r-md" style={{ width: `${Math.max((metrics.sales / max) * 100, metrics.sales ? 6 : 1)}%` }} /><strong className="whitespace-nowrap text-slate-800">{formatMoney(metrics.sales, currency)}</strong></div><span className="text-slate-500">Expenses</span><div className="flex items-center gap-3"><div className="h-8 rounded-r-md bg-sky-400" style={{ width: `${Math.max((metrics.expenses / max) * 100, metrics.expenses ? 6 : 1)}%` }} /><strong className="whitespace-nowrap text-slate-800">{formatMoney(metrics.expenses, currency)}</strong></div></div><div className="mt-7 flex items-center justify-between border-t pt-4"><span className="text-sm text-slate-500">Net result</span><strong className={metrics.sales - metrics.expenses >= 0 ? "brand-accent-text" : "text-rose-600"}>{formatMoney(metrics.sales - metrics.expenses, currency)}</strong></div></article>
+      <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><h3 className="font-bold text-slate-900">Business status</h3><div className="mt-5 space-y-4"><StatusLine label="Customers" value={records.contacts.filter((r) => r.type === "customer").length} action={() => onNavigate("customers")} /><StatusLine label="Vendors" value={records.contacts.filter((r) => r.type === "vendor").length} action={() => onNavigate("vendors")} /><StatusLine label="Inventory items" value={records.items.length} action={() => onNavigate("inventory")} /><StatusLine label="Transactions" value={records.transactions.length} action={() => onNavigate("sales")} /></div></article>
+    </section>
+    <article className="rounded-xl border border-slate-200 bg-white shadow-sm"><div className="flex items-center justify-between border-b px-5 py-4"><div><h3 className="font-bold text-slate-900">Recent activity</h3><p className="text-xs text-slate-500">Latest entries across the company file</p></div><Button variant="ghost" size="sm" onClick={() => onNavigate("sales")}>View all <ChevronRight /></Button></div><TransactionTable records={recent} empty="No transactions yet. Use Record transaction to add your first entry." onOpen={onOpenDetail} /></article>
+    </>}
+  </div>;
+}
+
+type OverviewWorkflowAction = { label: string; detail: string; icon: typeof ReceiptText; view: View; transaction?: string };
+
+function WorkflowHome({ onNavigate, onWorkflow }: { onNavigate: (view: View) => void; onWorkflow: (type: string, target: View) => void }) {
+  const supplierActions: OverviewWorkflowAction[] = [
+    { label: "Purchase Orders", detail: "Order supplier stock", icon: FileBarChart2, view: "purchases", transaction: "purchase order" },
+    { label: "Receive Stock", detail: "Receive before billing", icon: PackageCheck, view: "purchases", transaction: "item receipt" },
+    { label: "Enter Supplier Bill", detail: "Record a supplier bill", icon: ReceiptText, view: "purchases", transaction: "bill" },
+    { label: "Pay Bills", detail: "Settle supplier balances", icon: WalletCards, view: "purchases", transaction: "bill payment" },
+  ];
+  const customerActions: OverviewWorkflowAction[] = [
+    { label: "Estimates", detail: "Estimate customer work", icon: FileBarChart2, view: "sales", transaction: "estimate" },
+    { label: "Sales Orders", detail: "Confirm an accepted order", icon: ShoppingCart, view: "sales", transaction: "sales order" },
+    { label: "Create Invoices", detail: "Post customer sales", icon: ReceiptText, view: "sales", transaction: "invoice" },
+    { label: "Receive Payments", detail: "Reduce receivables", icon: CircleDollarSign, view: "receive-payment", transaction: "customer payment" },
+    { label: "Record Deposits", detail: "Post bank deposits", icon: Landmark, view: "banking", transaction: "deposit" },
+    { label: "Sales Receipts", detail: "Immediate paid sales", icon: BadgeDollarSign, view: "sales", transaction: "sales receipt" },
+    { label: "Statement Charges", detail: "Charge customer account", icon: Plus, view: "sales", transaction: "statement charge" },
+    { label: "Refunds & Credits", detail: "Issue customer credits", icon: RefreshCw, view: "sales", transaction: "credit memo" },
+  ];
+  const companyActions: OverviewWorkflowAction[] = [
+    { label: "Company Setup", detail: "Logo, address, bank, and templates", icon: Settings, view: "company-setup" },
+    { label: "Manage VAT", detail: "VAT codes and returns", icon: Percent, view: "vat-management" },
+    { label: "Chart of Accounts", detail: "Manage ledger accounts", icon: BookOpen, view: "accounts" },
+    { label: "Inventory Center", detail: "Products and stock", icon: Boxes, view: "inventory" },
+    { label: "Add Item", detail: "Add and manage inventory items", icon: PackageSearch, view: "inventory" },
+  ];
+  const bankingActions: OverviewWorkflowAction[] = [
+    { label: "Write Cheques", detail: "Pay by cheque", icon: WalletCards, view: "write-cheque", transaction: "cheque" },
+    { label: "Transfer Funds", detail: "Move bank balances", icon: ArrowRightLeft, view: "banking", transaction: "transfer" },
+    { label: "Bank Register", detail: "Review bank activity", icon: Landmark, view: "banking" },
+    { label: "Reconcile", detail: "Match cleared entries", icon: CheckCircle2, view: "banking" },
+  ];
+
+  return <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+    <div className="space-y-5">
+      <WorkflowSection title="SUPPLIERS" tone="blue" actions={supplierActions} onNavigate={onNavigate} onWorkflow={onWorkflow} />
+      <WorkflowSection title="CUSTOMERS" tone="emerald" actions={customerActions} onNavigate={onNavigate} onWorkflow={onWorkflow} />
+      <WorkflowSection title="BANKING" tone="sky" actions={bankingActions} onNavigate={onNavigate} onWorkflow={onWorkflow} />
+    </div>
+    <div className="space-y-5">
+      <WorkflowSection title="COMPANY" tone="amber" actions={companyActions} onNavigate={onNavigate} onWorkflow={onWorkflow} compact />
+    </div>
+  </div>;
+}
+
+function WorkflowSection({ title, tone, actions, onNavigate, onWorkflow, compact = false }: { title: string; tone: "blue" | "emerald" | "violet" | "amber" | "sky"; actions: OverviewWorkflowAction[]; onNavigate: (view: View) => void; onWorkflow: (type: string, target: View) => void; compact?: boolean }) {
+  const toneClasses = { blue: "bg-blue-100 text-blue-700", emerald: "bg-emerald-100 text-emerald-700", violet: "bg-violet-100 text-violet-700", amber: "bg-amber-100 text-amber-800", sky: "bg-sky-100 text-sky-700" } as const;
+  return <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="flex items-center gap-3 border-b bg-slate-50 px-5 py-3"><span className={`rounded-md px-3 py-1 text-xs font-black tracking-[.12em] ${toneClasses[tone]}`}>{title}</span><div className="h-px flex-1 bg-slate-200" /></div><div className={`grid gap-px bg-slate-200 ${compact ? "sm:grid-cols-2 xl:grid-cols-1" : "sm:grid-cols-2 lg:grid-cols-4"}`}>{actions.map((action, index) => <button key={action.label} type="button" onClick={() => action.transaction ? onWorkflow(action.transaction, action.view) : onNavigate(action.view)} className="group relative min-h-32 bg-white p-5 text-left transition hover:z-10 hover:bg-emerald-50 focus-visible:z-10"><div className="flex items-start justify-between gap-3"><span className={`grid size-11 place-items-center rounded-xl ${toneClasses[tone]}`}><action.icon className="size-5" /></span>{index < actions.length - 1 ? <ChevronRight className="mt-3 size-4 text-slate-300 group-hover:text-emerald-500" /> : null}</div><p className="mt-4 text-sm font-bold text-slate-900">{action.label}</p><p className="mt-1 text-xs leading-5 text-slate-500">{action.detail}</p></button>)}</div></section>;
+}
+
+function StatusLine({ label, value, action }: { label: string; value: number; action: () => void }) { return <button onClick={action} className="brand-status-line flex w-full items-center justify-between rounded-lg border border-slate-100 p-3 text-left"><span className="text-sm text-slate-600">{label}</span><span className="flex items-center gap-2 font-bold text-slate-900">{value}<ChevronRight className="size-4 text-slate-400" /></span></button>; }
+
+function SalesCenter({ initialListType = "all", onEdit, records, accounts, currency, loading, search, setSearch, onRefresh, onCreate, onDelete, onTransaction, onOpenDetail, canWrite, canDelete }: { initialListType?: string; onEdit?: (record: DataRecord) => void; records: DataRecord[]; accounts: DataRecord[]; currency: string; loading: boolean; search: string; setSearch: (v: string) => void; onRefresh: () => void; onCreate: () => void; onDelete: (id: number) => void; onTransaction: (type: string) => void; onOpenDetail: (id: number) => void; canWrite: boolean; canDelete: boolean }) {
+  const [listType, setListType] = useState(initialListType);
+  const listedRecords = records.filter((record) => listType === "all" || record.type === listType);
+  const actions = [
+    { label: "Create Estimate", detail: "Estimate products, services, VAT, and terms", type: "estimate", icon: BadgeDollarSign },
+    { label: "Create Proforma Invoice", detail: "Prepare a proforma before posting the sale", type: "proforma invoice", icon: FileBarChart2 },
+    { label: "Create Sales Order", detail: "Confirm an accepted order before invoicing", type: "sales order", icon: ShoppingCart },
+    { label: "Create Invoice", detail: "Post sales, stock, VAT, and Accounts Receivable", type: "invoice", icon: ReceiptText },
+  ];
+  return <div className="space-y-6">
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"><div className="flex flex-col gap-3 border-b bg-slate-50/80 p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-slate-900">Sales document workflow</h2><p className="mt-1 text-sm text-slate-500">View an Estimate, Proforma Invoice or Sales Order, select an inventory, and save an invoice for the available quantities.</p></div><Badge variant="outline" className="w-fit">QuickBooks-style conversion</Badge></div><div className="grid gap-px bg-slate-200 sm:grid-cols-2 xl:grid-cols-4">{actions.map((action) => <button key={action.type} type="button" disabled={!canWrite} onClick={() => onTransaction(action.type)} className="group min-h-32 bg-white p-5 text-left transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"><div className="flex items-start justify-between"><span className="grid size-10 place-items-center rounded-lg bg-slate-100 text-slate-600 group-hover:bg-emerald-100 group-hover:text-emerald-700"><action.icon className="size-5" /></span><ChevronRight className="size-4 text-slate-300 group-hover:text-emerald-500" /></div><p className="mt-4 text-sm font-bold text-slate-900">{action.label}</p><p className="mt-1 text-xs leading-5 text-slate-500">{action.detail}</p></button>)}</div></section>
+    <div className="flex flex-wrap gap-2" aria-label="Sales lists">{[["all", "All sales"], ["estimate", "Estimates"], ["proforma invoice", "Proforma Invoices"], ["sales order", "Sales Orders"], ["invoice", "Invoices"]].map(([value, label]) => <Button key={value} type="button" variant={listType === value ? "default" : "outline"} aria-pressed={listType === value} onClick={() => setListType(value)}>{label}</Button>)}</div>
+    <RecordView onEdit={onEdit} view="sales" kind="transactions" records={listedRecords} accounts={accounts} currency={currency} loading={loading} search={search} setSearch={setSearch} onRefresh={onRefresh} onCreate={onCreate} onDelete={onDelete} onEditItem={() => {}} onDuplicateItem={() => {}} onOpenDetail={onOpenDetail} canWrite={canWrite} canDelete={canDelete} />
+  </div>;
+}
+
+function PurchaseCenter({ companies, companyId, locationId, onWorkspaceChange, onEdit, records, accounts, currency, loading, search, setSearch, onRefresh, onCreate, onDelete, onTransaction, onOpenDetail, canWrite, canDelete }: { companies: CompanyWorkspace[]; companyId: number; locationId: number; onWorkspaceChange: (companyId: number, locationId: number) => void; onEdit?: (record: DataRecord) => void; records: DataRecord[]; accounts: DataRecord[]; currency: string; loading: boolean; search: string; setSearch: (v: string) => void; onRefresh: () => void; onCreate: () => void; onDelete: (id: number) => void; onTransaction: (type: string) => void; onOpenDetail: (id: number) => void; canWrite: boolean; canDelete: boolean }) {
+  const [listType, setListType] = useState("purchase order");
+  const [orderStatus, setOrderStatus] = useState("all");
+  const selectedCompany = companies.find((company) => company.id === companyId);
+  const locations = selectedCompany?.locations ?? [];
+  const workspaceReady = !loading && locations.some((location) => location.id === locationId);
+  const scopedRecords: DataRecord[] = records.filter((record) => Number(record.companyId) === companyId && Number(record.locationId) === locationId).map((record) => ({ ...record, companyName: selectedCompany?.name ?? "", inventoryName: locations.find((location) => location.id === Number(record.locationId))?.name ?? "" }));
+  const listedRecords = scopedRecords.filter((record) => (listType === "all" || record.type === listType) && (listType !== "purchase order" || orderStatus === "all" || (orderStatus === "open" ? ["open", "draft", "pending", "overdue", "partially received"].includes(String(record.status)) : orderStatus === "converted" ? ["received", "converted"].includes(String(record.status)) : record.status === orderStatus)));
+  const actions = [
+    { label: "Create Purchase Order", detail: "Order products or services from a supplier", type: "purchase order", icon: FileBarChart2 },
+    { label: "Enter Bill", detail: "Post the supplier invoice and Accounts Payable", type: "bill", icon: ReceiptText },
+    { label: "Receive Items", detail: "Receive ordered stock before the bill arrives", type: "item receipt", icon: PackageCheck },
+    { label: "Return Purchases", detail: "Return items against the original supplier bill", type: "vendor credit", icon: ArrowRightLeft },
+    { label: "Pay Bills", detail: "Settle supplier balances from the linked bank", type: "bill payment", icon: WalletCards },
+  ];
+  return <div className="space-y-6">
+    <section className="rounded-xl border bg-background p-4" aria-label="Purchase company and inventory">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="grid min-w-0 gap-2 text-sm font-medium">Company<select className="h-10 w-full min-w-0 rounded-md border bg-background px-3" value={companyId || ""} disabled={!companies.length} onChange={(event) => { const company = companies.find((entry) => entry.id === Number(event.target.value)); if (company) onWorkspaceChange(company.id, company.locations[0]?.id ?? 0); }}><option value="" disabled>Select company</option>{companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}</select></label>
+        <label className="grid min-w-0 gap-2 text-sm font-medium">Inventory<select className="h-10 w-full min-w-0 rounded-md border bg-background px-3" value={locationId || ""} disabled={!locations.length} onChange={(event) => { const location = locations.find((entry) => entry.id === Number(event.target.value)); if (location) onWorkspaceChange(companyId, location.id); }}><option value="" disabled>Select inventory</option>{locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
+      </div>
+      <p className="mt-3 text-sm text-muted-foreground">{!locations.length ? "Add an inventory to this company to create purchases." : "Purchases and new documents use the selected company and inventory."}</p>
+    </section>
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"><div className="flex flex-col gap-3 border-b bg-slate-50/80 p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-slate-900">Purchase order workflow</h2><p className="mt-1 text-sm text-slate-500">View saved purchase orders, receive items, return purchases, or pay bills.</p></div><Badge variant="outline" className="w-fit">QuickBooks-style conversion</Badge></div><div className="grid gap-px bg-slate-200 sm:grid-cols-2 xl:grid-cols-5">{actions.map((action) => <button key={action.type} type="button" disabled={!canWrite || !workspaceReady} onClick={() => onTransaction(action.type)} className="group min-h-32 bg-white p-5 text-left transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"><div className="flex items-start justify-between"><span className="grid size-10 place-items-center rounded-lg bg-slate-100 text-slate-600 group-hover:bg-emerald-100 group-hover:text-emerald-700"><action.icon className="size-5" /></span><ChevronRight className="size-4 text-slate-300 group-hover:text-emerald-500" /></div><p className="mt-4 text-sm font-bold text-slate-900">{action.label}</p><p className="mt-1 text-xs leading-5 text-slate-500">{action.detail}</p></button>)}</div></section>
+    <section className="space-y-3 rounded-xl border bg-slate-50 p-4" aria-label="Purchase lists">
+      <div className="flex flex-wrap gap-2">{[["all", "All purchases"], ["purchase order", "Purchase Orders"], ["item receipt", "Item Receipts"], ["vendor credit", "Purchase Returns"]].map(([value, label]) => <Button key={value} type="button" variant={listType === value ? "default" : "outline"} aria-pressed={listType === value} onClick={() => setListType(value)}>{label}</Button>)}</div>
+      {listType === "purchase order" && <label className="flex flex-wrap items-center gap-3 text-sm font-medium">PO status<select className="h-9 rounded-md border bg-background px-3" value={orderStatus} onChange={(event) => setOrderStatus(event.target.value)}><option value="all">All statuses</option><option value="open">Open / Remaining to receive</option><option value="partially received">Partially received</option><option value="converted">Converted / Fully received</option></select></label>}
+      <p className="text-sm text-slate-500">{listType === "purchase order" ? "View a saved PO to check quantities and receive items. Admin and All-Admin can edit or delete orders without receipts." : listType === "item receipt" ? "View saved item receipts and their source purchase orders." : listType === "vendor credit" ? "View purchase returns linked to their original supplier bills." : "Choose a list above to find purchase documents."}</p>
+    </section>
+    <RecordView onEdit={onEdit} view="purchases" kind="transactions" records={listedRecords} accounts={accounts} currency={currency} loading={loading} search={search} setSearch={setSearch} onRefresh={onRefresh} onCreate={onCreate} onDelete={onDelete} onEditItem={() => {}} onDuplicateItem={() => {}} onOpenDetail={onOpenDetail} canWrite={canWrite && workspaceReady} canDelete={canDelete && workspaceReady} />
+  </div>;
+}
+
+function CustomerCenter({ onEdit, records, accounts, currency, loading, search, setSearch, onRefresh, onCreateCustomer, onDelete, onTransaction, onReport, canViewReports, onOpenDetail, canWrite, canDelete, reportLoading }: { onEdit?: (record: DataRecord) => void; records: DataRecord[]; accounts: DataRecord[]; currency: string; loading: boolean; search: string; setSearch: (v: string) => void; onRefresh: () => void; onCreateCustomer: () => void; onDelete: (id: number) => void; onTransaction: (type: string) => void; onReport: (key: string) => void; canViewReports: boolean; onOpenDetail: (id: number) => void; canWrite: boolean; canDelete: boolean; reportLoading: boolean }) {
+  const balances = records.reduce((totals, customer) => {
+    const code = String(customer.currency || currency);
+    totals.set(code, (totals.get(code) || 0) + Number(customer.balance || 0));
+    return totals;
+  }, new Map<string, number>());
+  const actions = [
+    { label: "Create Estimates", detail: "Estimate customer products and services", type: "estimate", icon: BadgeDollarSign },
+    { label: "Create Sales Orders", detail: "Confirm an order before invoicing", type: "sales order", icon: ShoppingCart },
+    { label: "Create Invoices", detail: "Post sales and accounts receivable", type: "invoice", shortcut: "Ctrl+I", icon: ReceiptText },
+    { label: "Enter Sales Receipts", detail: "Record an immediate customer sale", type: "sales receipt", icon: CircleDollarSign },
+    { label: "Enter Statement Charges", detail: "Add a charge directly to a statement", type: "statement charge", icon: Plus },
+    { label: "Create Statements", detail: "Review and print customer activity", report: "customer-statements", icon: FileBarChart2 },
+    { label: "Customer Document Summary", detail: "Count estimates, proforma invoices, and sales orders by customer", report: "customer-document-summary", icon: Table2 },
+    { label: "Assess Finance Charges", detail: "Post a finance charge to receivables", type: "finance charge", icon: BadgeDollarSign },
+    { label: "Receive Payments", detail: "Reduce the customer's open balance", type: "customer payment", icon: WalletCards },
+    { label: "Active Customers", detail: "Active contacts, balances and receivable accounts", report: "active-customers", icon: Users },
+    { label: "Customers with Overdue Invoices", detail: "Past-due invoices and remaining amounts to collect", report: "customers-overdue-invoices", icon: Clock3 },
+    { label: "Customer Open Balance", detail: "Unpaid invoices, unused payments and receivable accounts", report: "customer-open-balance", icon: FileBarChart2 },
+    { label: "Accounts Receivable", detail: "Review outstanding customer balances and aging", report: "ar-aging-summary", icon: BookOpenCheck },
+    { label: "Create Credit Notes / Refunds", detail: "Reduce receivables with a customer credit", type: "credit memo", icon: RefreshCw },
+  ];
+  return <div className="space-y-6">
+    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm" aria-label="Customer balance summary">
+      <h2 className="font-bold text-slate-900">Customer list and balance summary</h2>
+      <p className="mt-1 text-sm text-slate-500">{records.length} customers in this company{search ? " matching your search" : ""}</p>
+      <div className="mt-3 flex flex-wrap gap-3">{[...balances].map(([code, balance]) => <div key={code} className="rounded-lg border bg-slate-50 px-4 py-2"><span className="text-xs text-slate-500">{code} balance</span><p className="font-semibold">{formatMoney(balance, code)}</p></div>)}{!balances.size && <p className="text-sm text-slate-500">No customers found.</p>}</div>
+    </section>
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-b bg-slate-50/80 p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-slate-900">Customer workflows</h2><p className="mt-1 text-sm text-slate-500">Create and post every customer document from one place.</p></div><Badge variant="outline" className="w-fit">Customer Centre · Ctrl+J</Badge></div>
+      <div className="grid gap-px bg-slate-200 sm:grid-cols-2 xl:grid-cols-4">{actions.map((action) => <button key={action.label} type="button" disabled={(action.report ? reportLoading || (!canViewReports && action.report !== "customer-document-summary") : false) || (!action.report && !canWrite)} onClick={() => action.report ? onReport(action.report) : action.type && onTransaction(action.type)} className="group min-h-32 bg-white p-5 text-left transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"><div className="flex items-start justify-between gap-3"><span className="grid size-10 place-items-center rounded-lg bg-slate-100 text-slate-600 group-hover:bg-emerald-100 group-hover:text-emerald-700"><action.icon className="size-5" /></span>{action.shortcut && <span className="text-xs font-medium text-slate-400">{action.shortcut}</span>}</div><p className="mt-4 text-sm font-bold text-slate-900">{action.label}</p><p className="mt-1 text-xs leading-5 text-slate-500">{action.detail}</p></button>)}</div>
+    </section>
+    <RecordView onEdit={onEdit} view="customers" kind="contacts" records={records} accounts={accounts} currency={currency} loading={loading} search={search} setSearch={setSearch} onRefresh={onRefresh} onCreate={onCreateCustomer} onDelete={onDelete} onEditItem={() => {}} onDuplicateItem={() => {}} onOpenDetail={onOpenDetail} canWrite={canWrite} canDelete={canDelete} />
+  </div>;
+}
+
+function VendorCenter({ companyId, onEdit, records, accounts, currency, loading, search, setSearch, onRefresh, onCreateVendor, onDelete, onTransaction, onOpenDetail, canWrite, canDelete }: { companyId: number; onEdit?: (record: DataRecord) => void; records: DataRecord[]; accounts: DataRecord[]; currency: string; loading: boolean; search: string; setSearch: (v: string) => void; onRefresh: () => void; onCreateVendor: () => void; onDelete: (id: number) => void; onTransaction: (type: string) => void; onOpenDetail: (id: number) => void; canWrite: boolean; canDelete: boolean }) {
+  const [deletingVendor, setDeletingVendor] = useState<DataRecord | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [history, setHistory] = useState<Array<{ id: number; action: string; createdAt: string; details: string }>>([]);
+  async function openHistory() {
+    setHistoryOpen(true); setHistoryLoading(true); setHistory([]);
+    try {
+      const response = await fetch(`/api/records?kind=vendor-history&companyId=${companyId}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not load vendor history.");
+      setHistory(data.history);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not load vendor history."); }
+    finally { setHistoryLoading(false); }
+  }
+  const actions = [
+    { label: "Enter Bills", detail: "Record a vendor bill and receive its items", type: "bill", icon: ReceiptText },
+    { label: "Pay Bills", detail: "Reduce the vendor balance and bank account", type: "bill payment", icon: WalletCards },
+    { label: "Create Purchase Orders", detail: "Send a non-posting order to a supplier", type: "purchase order", icon: FileBarChart2 },
+    { label: "Receive Items and Enter Bill", detail: "Receive stock and post Accounts Payable together", type: "bill", icon: PackageCheck },
+    { label: "Receive Items", detail: "Increase stock before the supplier bill arrives", type: "item receipt", icon: Boxes },
+    { label: "Enter Bill for Received Items", detail: "Move received-item clearing into Accounts Payable", type: "received item bill", icon: BadgeDollarSign },
+    { label: "Return Purchases", detail: "Return items against the original supplier bill", type: "vendor credit", icon: ArrowRightLeft },
+  ];
+  return <div className="space-y-6">
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-b bg-slate-50/80 p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-slate-900">Supplier workflows</h2><p className="mt-1 text-sm text-slate-500">Order, receive, bill, return purchases, and pay vendors from one place.</p></div><Badge variant="outline" className="w-fit">Supplier Centre</Badge></div>
+      <div className="grid gap-px bg-slate-200 sm:grid-cols-2 xl:grid-cols-4">{actions.map((action) => <button key={action.label} type="button" disabled={!canWrite} onClick={() => onTransaction(action.type)} className="group min-h-32 bg-white p-5 text-left transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"><div className="flex items-start justify-between"><span className="grid size-10 place-items-center rounded-lg bg-slate-100 text-slate-600 group-hover:bg-emerald-100 group-hover:text-emerald-700"><action.icon className="size-5" /></span><ChevronRight className="size-4 text-slate-300 group-hover:text-emerald-500" /></div><p className="mt-4 text-sm font-bold text-slate-900">{action.label}</p><p className="mt-1 text-xs leading-5 text-slate-500">{action.detail}</p></button>)}</div>
+    </section>
+    {canDelete && <div className="flex justify-end"><Button type="button" variant="outline" onClick={openHistory}><Clock3 className="size-4" />Vendor history</Button></div>}
+    <Dialog open={historyOpen} onOpenChange={setHistoryOpen}><DialogContent className="sm:max-w-3xl"><DialogHeader><DialogTitle>Vendor history</DialogTitle><DialogDescription>Recent edits and deletions, including who made each change. Recording starts with this update.</DialogDescription></DialogHeader>
+      {historyLoading ? <p>Loading history…</p> : !history.length ? <p className="text-sm text-muted-foreground">No recorded vendor changes yet.</p> : <div className="space-y-3">{history.map((entry) => {
+        let detail: { actorName?: string; actorEmail?: string; vendorName?: string; changes?: Array<{ field: string; before: unknown; after: unknown }> } = {};
+        try { detail = JSON.parse(entry.details); } catch { /* Legacy entries do not record an actor. */ }
+        return <div key={entry.id} className="rounded-lg border p-3 text-sm"><p className="font-semibold">{detail.vendorName || "Vendor"} · {entry.action}</p><p className="text-muted-foreground">{detail.actorName || detail.actorEmail || "User not recorded"} · {new Date(entry.createdAt).toLocaleString()}</p>{detail.changes?.map((change) => <p key={change.field} className="mt-1 break-words"><span className="font-medium">{change.field}:</span> {String(change.before || "—")} → {String(change.after || "—")}</p>)}</div>;
+      })}</div>}
+    </DialogContent></Dialog>
+    <Dialog open={Boolean(deletingVendor)} onOpenChange={(open) => { if (!open) setDeletingVendor(null); }}><DialogContent><DialogHeader><DialogTitle>Delete vendor?</DialogTitle><DialogDescription>Delete {String(deletingVendor?.name || "this vendor")}? This cannot be undone. Your name and the deletion time will remain in Vendor history. Vendors with balances or transactions cannot be deleted.</DialogDescription></DialogHeader><DialogFooter><Button type="button" variant="outline" onClick={() => setDeletingVendor(null)}>Cancel</Button><Button type="button" variant="destructive" onClick={() => { if (deletingVendor) { onDelete(deletingVendor.id); setDeletingVendor(null); } }}>Delete vendor</Button></DialogFooter></DialogContent></Dialog>
+    <RecordView onEdit={onEdit} view="vendors" kind="contacts" records={records} accounts={accounts} currency={currency} loading={loading} search={search} setSearch={setSearch} onRefresh={onRefresh} onCreate={onCreateVendor} onDelete={(id) => setDeletingVendor(records.find((record) => record.id === id) ?? null)} onEditItem={() => {}} onDuplicateItem={() => {}} onOpenDetail={onOpenDetail} canWrite={canWrite} canDelete={canDelete} />
+  </div>;
+}
+
+function BankingCenter({ records, accounts, currency, loading, search, setSearch, onRefresh, onCreate, onDelete, onTransaction, onReport, onOpenDetail, canWrite, canDelete, reportLoading }: { records: DataRecord[]; accounts: DataRecord[]; currency: string; loading: boolean; search: string; setSearch: (v: string) => void; onRefresh: () => void; onCreate: () => void; onDelete: (id: number) => void; onTransaction: (type: string) => void; onReport: (key: string) => void; onOpenDetail: (id: number) => void; canWrite: boolean; canDelete: boolean; reportLoading: boolean }) {
+  const actions = [
+    { label: "Write UAE Bank Cheque", detail: "Prepare, save, post and print a UAE-format cheque", type: "cheque", shortcut: "Ctrl+W", icon: WalletCards },
+    { label: "Order Cheques & Envelopes", detail: "Record a non-posting cheque-supply order", type: "cheque order", icon: ReceiptText },
+    { label: "Enter Credit Card Charges", detail: "Post a purchase to the linked credit-card account", type: "credit card charge", icon: BadgeDollarSign },
+    { label: "Use Register", detail: "Review bank debits, credits, and balances", report: "bank-register", shortcut: "Ctrl+R", icon: BookOpen },
+    { label: "Make Deposits", detail: "Post money received to the linked bank account", type: "deposit", icon: CircleDollarSign },
+    { label: "Transfer Funds", detail: "Move money between two bank accounts", type: "transfer", icon: ArrowRightLeft },
+    { label: "Reconcile", detail: "Review cleared and uncleared bank activity", report: "bank-reconciliation", icon: CheckCircle2 },
+  ];
+  return <div className="space-y-6">
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-b bg-slate-50/80 p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-slate-900">Banking workflows</h2><p className="mt-1 text-sm text-slate-500">Payments, deposits, transfers, registers, and reconciliation in one place.</p></div><Badge variant="outline" className="w-fit">Banking Centre</Badge></div>
+      <div className="grid gap-px bg-slate-200 sm:grid-cols-2 xl:grid-cols-4">{actions.map((action) => <button key={action.label} type="button" disabled={action.report ? reportLoading : !canWrite} onClick={() => action.report ? onReport(action.report) : action.type && onTransaction(action.type)} className="group min-h-32 bg-white p-5 text-left transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"><div className="flex items-start justify-between gap-3"><span className="grid size-10 place-items-center rounded-lg bg-slate-100 text-slate-600 group-hover:bg-emerald-100 group-hover:text-emerald-700"><action.icon className="size-5" /></span>{action.shortcut ? <span className="text-xs font-medium text-slate-400">{action.shortcut}</span> : <ChevronRight className="size-4 text-slate-300 group-hover:text-emerald-500" />}</div><p className="mt-4 text-sm font-bold text-slate-900">{action.label}</p><p className="mt-1 text-xs leading-5 text-slate-500">{action.detail}</p></button>)}</div>
+    </section>
+    <RecordView view="banking" kind="transactions" records={records} accounts={accounts} currency={currency} loading={loading} search={search} setSearch={setSearch} onRefresh={onRefresh} onCreate={onCreate} onDelete={onDelete} onEditItem={() => {}} onDuplicateItem={() => {}} onOpenDetail={onOpenDetail} canWrite={canWrite} canDelete={canDelete} />
+  </div>;
+}
+
+const accountCategories = ["Assets", "Liabilities", "Equity", "Income", "Cost of Goods Sold", "Expenses", "Other / Unclassified"] as const;
+type AccountCategory = (typeof accountCategories)[number];
+function accountCategory(type: unknown): AccountCategory {
+  if (["Bank", "Accounts Receivable", "Other Current Asset", "Fixed Asset", "Other Asset"].includes(String(type))) return "Assets";
+  if (["Accounts Payable", "Other Current Liability", "Long Term Liability", "Loan", "Credit Card"].includes(String(type))) return "Liabilities";
+  if (type === "Equity") return "Equity";
+  if (["Income", "Other Income"].includes(String(type))) return "Income";
+  if (type === "Cost of Goods Sold") return "Cost of Goods Sold";
+  if (["Expense", "Other Expense"].includes(String(type))) return "Expenses";
+  return "Other / Unclassified";
+}
+
+function RecordView({ companyId, locationId, onEdit, view, kind, records, accounts, currency, loading, search, setSearch, onRefresh, onCreate, onDelete, onEditItem, onDuplicateItem, onOpenDetail, canWrite, canDelete }: { companyId?: number; locationId?: number; onEdit?: (record: DataRecord) => void; view: View; kind: Kind; records: DataRecord[]; accounts: DataRecord[]; currency: string; loading: boolean; search: string; setSearch: (v: string) => void; onRefresh: () => void; onCreate: () => void; onDelete: (id: number) => void; onEditItem: (item: DataRecord) => void; onDuplicateItem: (id: number) => void; onOpenDetail: (id: number) => void; canWrite: boolean; canDelete: boolean }) {
+  const [sharedRefresh,setSharedRefresh] = useState(0);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [exportingList, setExportingList] = useState<"xlsx" | "pdf" | "csv" | null>(null);
+  const [accountCurrency, setAccountCurrency] = useState("all");
+  const [selectedCategory, setSelectedCategory] = useState<"All" | AccountCategory>("All");
+  const accountCurrencies = [...new Set(accounts.map((account) => String(account.currency || currency)))].sort();
+  const selectedAccountCurrency = accountCurrencies.includes(accountCurrency) ? accountCurrency : "all";
+  const [stockFilter, setStockFilter] = useState<"all" | "in" | "low" | "out" | "shared">("all");
+  const stockCounts = kind === "items" ? {
+    all: records.length,
+    in: records.filter((record) => Number(record.quantity) > 0).length,
+    low: records.filter((record) => Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint)).length,
+    out: records.filter((record) => Number(record.quantity) <= 0).length,
+  } : { all: 0, in: 0, low: 0, out: 0 };
+  const currencyAccounts = records.filter((record) => selectedAccountCurrency === "all" || String(record.currency || currency) === selectedAccountCurrency);
+  const unfilteredRecords = kind === "accounts" ? currencyAccounts.filter((record) => selectedCategory === "All" || accountCategory(record.type) === selectedCategory) : kind !== "items" || stockFilter === "all" ? records : records.filter((record) => stockFilter === "in" ? Number(record.quantity) > 0 : stockFilter === "low" ? Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint) : Number(record.quantity) <= 0);
+  const visibleRecords = filterRecordListByDate(unfilteredRecords, kind, dateFrom, dateTo);
+  async function exportList(format: "xlsx" | "pdf" | "csv") {
+    if (!visibleRecords.length) return toast.error("There are no records to export.");
+    setExportingList(format);
+    try {
+      const report = recordListReport(view, kind, visibleRecords, currency, dateFrom, dateTo);
+      const content = format === "csv" ? reportCsv(report, "COMNET Enterprise Accounting", "Current selection") : format === "xlsx" ? await reportWorkbook(report, "COMNET Enterprise Accounting", "Current selection") : await reportPdf(report, "COMNET Enterprise Accounting", "Current selection");
+      const blob = new Blob([content as BlobPart], { type: format === "csv" ? "text/csv;charset=utf-8" : format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = reportFilename(report, format);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast.success(`${format === "xlsx" ? "Excel" : format.toUpperCase()} export downloaded.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not create this export.");
+    } finally {
+      setExportingList(null);
+    }
+  }
+  return <section className="rounded-xl border border-slate-200 bg-white shadow-sm"><div className="flex flex-col gap-3 border-b p-4 lg:flex-row lg:items-center lg:justify-between"><div className="flex min-w-0 flex-1 flex-wrap items-center gap-2"><div className="relative w-full sm:max-w-sm"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={`Search ${view}…`} className="pl-9" /></div>{kind === "transactions" && <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/20 p-1" role="group" aria-label="Filter transactions by date"><span className="px-2 text-xs font-medium text-muted-foreground">Date</span><Input type="date" value={dateFrom} max={dateTo || undefined} onChange={(event) => setDateFrom(event.target.value)} aria-label="Transaction date from" title="From date" className="w-[150px] border-0 bg-background shadow-none" /><span className="text-xs text-muted-foreground">to</span><Input type="date" value={dateTo} min={dateFrom || undefined} onChange={(event) => setDateTo(event.target.value)} aria-label="Transaction date to" title="To date" className="w-[150px] border-0 bg-background shadow-none" />{(dateFrom || dateTo) && <Button type="button" variant="ghost" size="sm" onClick={() => { setDateFrom(""); setDateTo(""); }}>Clear</Button>}</div>}</div><div className="flex flex-wrap gap-2">{kind === "accounts" && <Select value={selectedAccountCurrency} onValueChange={setAccountCurrency}><SelectTrigger className="w-40" aria-label="Filter accounts by currency"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All currencies</SelectItem>{accountCurrencies.map((code) => <SelectItem key={code} value={code}>{code}</SelectItem>)}</SelectContent></Select>}<Button variant="outline" size="icon" onClick={() => { if(kind === "items" && ["out","shared"].includes(stockFilter)) setSharedRefresh(value => value + 1); else onRefresh(); }} aria-label="Refresh"><RefreshCw className="size-4" /></Button>{!(kind === "items" && ["out","shared"].includes(stockFilter)) && <DropdownMenu modal={false}><DropdownMenuTrigger asChild><Button type="button" variant="outline" disabled={Boolean(exportingList) || !visibleRecords.length}><Download className="size-4" />{exportingList ? "Preparing…" : "Export"}<ChevronDown className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => void exportList("pdf")}><FileText className="size-4" />PDF · A4</DropdownMenuItem><DropdownMenuItem onSelect={() => void exportList("xlsx")}><FileSpreadsheet className="size-4" />Excel (.xlsx)</DropdownMenuItem><DropdownMenuItem onSelect={() => void exportList("csv")}><Table2 className="size-4" />CSV</DropdownMenuItem></DropdownMenuContent></DropdownMenu>}{canWrite && <Button onClick={onCreate} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400"><Plus className="size-4" />Add new</Button>}</div></div>
+    {kind === "accounts" && <div className="flex flex-wrap gap-2 border-b bg-slate-50 p-3" aria-label="Account categories"><Button type="button" size="sm" variant={selectedCategory === "All" ? "default" : "outline"} aria-pressed={selectedCategory === "All"} onClick={() => setSelectedCategory("All")}>All accounts <Badge variant="secondary">{currencyAccounts.length}</Badge></Button>{accountCategories.filter(category => category !== "Other / Unclassified" || currencyAccounts.some(record => accountCategory(record.type) === category)).map(category => <Button key={category} type="button" size="sm" variant={selectedCategory === category ? "default" : "outline"} aria-pressed={selectedCategory === category} onClick={() => setSelectedCategory(category)}>{category}<Badge variant="secondary">{currencyAccounts.filter(record => accountCategory(record.type) === category).length}</Badge></Button>)}</div>}
+    {kind === "items" ? <div className="flex flex-wrap gap-2 border-b bg-slate-50 p-3"><Button type="button" size="sm" variant={stockFilter === "all" ? "default" : "outline"} onClick={() => setStockFilter("all")}><Boxes className="size-4" />All items <Badge variant="secondary">{stockCounts.all}</Badge></Button><Button type="button" size="sm" variant={stockFilter === "in" ? "default" : "outline"} onClick={() => setStockFilter("in")}><PackageCheck className="size-4" />In stock <Badge variant="secondary">{stockCounts.in}</Badge></Button><Button type="button" size="sm" variant={stockFilter === "low" ? "default" : "outline"} onClick={() => setStockFilter("low")}><AlertTriangle className="size-4" />Low stock <Badge variant="secondary">{stockCounts.low}</Badge></Button><Button type="button" size="sm" variant={stockFilter === "out" ? "destructive" : "outline"} onClick={() => setStockFilter("out")}><PackageX className="size-4" />Out of stock · All companies</Button></div> : null}
+    {kind === "items" && stockFilter === "shared" ? <SharedItemCatalogue key={sharedRefresh} search={search} refresh={sharedRefresh} companyId={companyId} locationId={locationId} canUse={canWrite} onUsed={onRefresh} /> : kind === "items" && stockFilter === "out" ? <SharedOutOfStock key={sharedRefresh} search={search} refresh={sharedRefresh} companyId={companyId} locationId={locationId} canUse={canWrite} onUsed={onRefresh} /> : kind === "transactions" ? <TransactionTable onEdit={onEdit} records={visibleRecords} empty={loading ? "Loading records…" : "No transactions found."} onDelete={canDelete ? onDelete : undefined} onOpen={onOpenDetail} /> : kind === "contacts" ? <ContactTable onEdit={canWrite ? onEdit : undefined} records={visibleRecords} accounts={accounts} empty={loading ? "Loading records…" : "No contacts found."} onDelete={canDelete ? onDelete : undefined} /> : kind === "items" ? <ItemTable records={visibleRecords} currency={currency} empty={loading ? "Loading records…" : stockFilter === "out" ? "No out-of-stock items found." : "No inventory items found."} onDelete={canDelete ? onDelete : undefined} onEdit={canWrite ? onEditItem : undefined} onDuplicate={canWrite ? onDuplicateItem : undefined} /> : <AccountTable onOpenTransaction={onOpenDetail} accounts={accounts} onEdit={canWrite ? onEdit : undefined} records={visibleRecords} currency={currency} empty={loading ? "Loading records…" : "No accounts found."} onDelete={canDelete ? onDelete : undefined} />}
+  </section>;
+}
+
+function EmptyRow({ text, columns }: { text: string; columns: number }) { return <TableRow><TableCell colSpan={columns} className="h-40 text-center text-sm text-slate-500">{text}</TableCell></TableRow>; }
+function DeleteButton({ id, onDelete }: { id: number; onDelete?: (id: number) => void }) { return onDelete ? <Button variant="ghost" size="icon" onClick={() => onDelete(id)} aria-label="Delete record" className="text-slate-400 hover:text-rose-600" title="Delete"><Trash2 className="size-4" /></Button> : null; }
+function TransactionTable({ records, empty, onDelete, onOpen, onEdit }: { onEdit?: (record: DataRecord) => void; records: DataRecord[]; empty: string; onDelete?: (id: number) => void; onOpen?: (id: number) => void }) { return <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead>No.</TableHead><TableHead>Name</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Amount</TableHead><TableHead className="w-44">Actions</TableHead></TableRow></TableHeader><TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={7} /> : records.map((r) => <TableRow key={r.id} className="cursor-pointer" onDoubleClick={() => onOpen?.(r.id)}><TableCell className="text-slate-500">{String(r.transactionDate)}</TableCell><TableCell className="font-medium capitalize">{String(r.type)}</TableCell><TableCell className="font-mono text-xs text-slate-500">{String(r.number)}{r.companyName && <div className="mt-1 flex flex-wrap gap-1 font-sans"><Badge variant="outline">{String(r.companyName)}</Badge><Badge variant="secondary">{String(r.inventoryName)}</Badge></div>}</TableCell><TableCell>{String(r.party)}</TableCell><TableCell><StatusBadge value={(r.type === "purchase order" && r.status === "received") || (["estimate", "sales order", "proforma invoice"].includes(String(r.type)) && r.status === "invoiced") ? "converted" : String(r.status)} /></TableCell><TableCell className="text-right font-semibold">{formatMoney(r.total, String(r.currency || "AED"))}</TableCell><TableCell><div className="flex flex-wrap gap-1"><Button variant="ghost" size="icon" onClick={() => onOpen?.(r.id)} aria-label={`View ${String(r.number)}`} className="text-slate-400 hover:text-emerald-600" title="View"><Eye className="size-4" /></Button>{onEdit && ["invoice", "customer payment", "estimate", "proforma invoice", "sales order", "bill", "purchase order", "item receipt", "received item bill", "expense", "bill payment", "vendor payment", "vendor credit"].includes(String(r.type)) && <Button variant="ghost" size="icon" title="Edit" onClick={() => onEdit(r)} aria-label={`Edit ${String(r.number)}`}><Pencil className="size-4" /></Button>}{onDelete && ["purchase order", "item receipt", "estimate", "proforma invoice", "sales order", "invoice"].includes(String(r.type)) ? <Button type="button" variant="ghost" size="icon" aria-label={`Delete ${String(r.number)}`} className="text-rose-600" onClick={() => { if (window.confirm(`Delete ${String(r.type)} ${String(r.number)}? This cannot be undone.${r.type === "item receipt" ? " Received stock will be reversed and any linked PO balance will be restored." : ""}`)) onDelete(r.id); }} title="Delete"><Trash2 className="size-4" /></Button> : <DeleteButton id={r.id} onDelete={onDelete} />}</div></TableCell></TableRow>)}</TableBody></Table>; }
+function ContactTable({ onEdit, records, accounts, empty, onDelete }: { onEdit?: (record: DataRecord) => void; records: DataRecord[]; accounts: DataRecord[]; empty: string; onDelete?: (id: number) => void }) {
+  return <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Company</TableHead><TableHead>Currency</TableHead><TableHead>Linked account</TableHead><TableHead>Email</TableHead><TableHead>Phone</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Balance</TableHead><TableHead className="w-12" /></TableRow></TableHeader><TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={9} /> : records.map((record) => { const ledgerAccount = accounts.find((account) => account.id === Number(record.ledgerAccountId)); return <TableRow key={record.id}><TableCell className="font-semibold"><div className="flex items-center gap-3"><span>{String(record.name)}</span>{record.type === "vendor" && <div className="flex gap-2">{onEdit && <Button type="button" variant="outline" size="sm" aria-label={`Edit vendor ${String(record.name)}`} onClick={() => onEdit(record)}><Pencil className="size-4" />Edit</Button>}{onDelete && <Button type="button" variant="outline" size="icon" aria-label={`Delete vendor ${String(record.name)}`} onClick={() => onDelete(record.id)} className="text-rose-600" title="Delete"><Trash2 className="size-4" /></Button>}</div>}</div></TableCell><TableCell>{String(record.company || "—")}</TableCell><TableCell><Badge variant="outline">{String(record.currency || "AED")}</Badge></TableCell><TableCell className="text-slate-500">{ledgerAccount ? String(ledgerAccount.name) : record.type === "employee" ? "—" : "Not linked"}</TableCell><TableCell>{String(record.email || "—")}</TableCell><TableCell>{String(record.phone || "—")}</TableCell><TableCell><StatusBadge value={String(record.status)} /></TableCell><TableCell className="text-right font-semibold">{formatMoney(record.balance, String(record.currency || "AED"))}</TableCell><TableCell><div className="flex">{record.type !== "vendor" && onEdit && <Button type="button" variant="ghost" size="icon" aria-label={`Edit ${String(record.name)}`} onClick={() => onEdit(record)}><Pencil className="size-4" /></Button>}{record.type !== "vendor" && <DeleteButton id={record.id} onDelete={onDelete} />}</div></TableCell></TableRow>; })}</TableBody></Table>;
+}
+function ItemTable({ records, currency, empty, onDelete, onEdit, onDuplicate }: { records: DataRecord[]; currency: string; empty: string; onDelete?: (id: number) => void; onEdit?: (item: DataRecord) => void; onDuplicate?: (id: number) => void }) { return <Table><TableHeader><TableRow><TableHead>Item No.</TableHead><TableHead>SKU</TableHead><TableHead>Item & description</TableHead><TableHead>Category</TableHead><TableHead className="text-right">On hand</TableHead><TableHead className="text-right">Reorder</TableHead><TableHead className="text-right">Sales price</TableHead><TableHead className="text-right">Avg. cost</TableHead><TableHead className="w-32" /></TableRow></TableHeader><TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={9} /> : records.map((r) => { const description = itemDisplayDescription(r); const out = Number(r.quantity) <= 0; return <TableRow key={r.id}><TableCell className="font-mono text-xs">{String(r.itemNumber || 13000 + r.id)}</TableCell><TableCell className="font-mono text-xs">{String(r.sku)}</TableCell><TableCell><div className="flex flex-wrap items-center gap-2"><p className="font-semibold">{String(r.name)}</p>{out ? <Badge className="bg-rose-100 text-rose-700 hover:bg-rose-100">Out of stock</Badge> : null}</div>{description ? <p className="mt-1 min-w-64 max-w-xl whitespace-normal break-words [overflow-wrap:anywhere] text-xs leading-5 text-slate-500" title={description}>{description}</p> : null}</TableCell><TableCell>{String(r.category)}</TableCell><TableCell className={`text-right font-semibold ${out ? "text-rose-600" : ""}`}>{String(r.quantity)}</TableCell><TableCell className="text-right">{String(r.reorderPoint)}</TableCell><TableCell className="text-right">{formatMoney(r.salesPrice, currency)}</TableCell><TableCell className="text-right">{formatMoney(r.cost, currency)}</TableCell><TableCell><div className="flex">{onDuplicate && <Button type="button" variant="ghost" size="icon" onClick={() => onDuplicate(r.id)} aria-label={`Duplicate ${String(r.name)}`} title="Duplicate item" className="text-slate-400 hover:text-violet-600"><Copy className="size-4" /></Button>}{onEdit && <Button type="button" variant="ghost" size="icon" onClick={() => onEdit(r)} aria-label={`Edit ${String(r.name)}`} className="text-slate-400 hover:text-sky-600"><Pencil className="size-4" /></Button>}<DeleteButton id={r.id} onDelete={onDelete} /></div></TableCell></TableRow>; })}</TableBody></Table>; }
+function AccountTable({ onOpenTransaction, accounts, onEdit, records, currency, empty, onDelete }: { onOpenTransaction: (id: number) => void; accounts: DataRecord[]; onEdit?: (record: DataRecord) => void; records: DataRecord[]; currency: string; empty: string; onDelete?: (id: number) => void }) {
+  const [viewId, setViewId] = useState<number | null>(null);
+  const viewed = records.find((record) => record.id === viewId);
+  const viewedParent = accounts.find((account) => account.id === Number(viewed?.parentAccountId));
+  const viewedRole = accountRoleOptions.find(([value]) => value === viewed?.systemRole);
+  return <><Table><TableHeader><TableRow><TableHead>Code</TableHead><TableHead>Account name</TableHead><TableHead>Linked use</TableHead><TableHead>Currency</TableHead><TableHead>Sub-account of</TableHead><TableHead>Type</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Balance</TableHead><TableHead className="w-32">Actions</TableHead></TableRow></TableHeader><TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={9} /> : accountCategories.flatMap((category) => { const group = records.filter(record => accountCategory(record.type) === category).sort((a, b) => String(a.code).localeCompare(String(b.code), undefined, { numeric: true })); return group.length ? [<TableRow key={`category-${category}`} className="bg-slate-100"><TableCell colSpan={9} className="font-bold text-slate-800">{category} <span className="ml-2 text-xs font-normal text-slate-500">{group.length} {group.length === 1 ? "account" : "accounts"}</span></TableCell></TableRow>, ...group.map((r) => { const parent = accounts.find((candidate) => candidate.id === Number(r.parentAccountId)); const role = accountRoleOptions.find(([value]) => value === r.systemRole); return <TableRow key={r.id}><TableCell className="font-mono text-xs">{String(r.code)}</TableCell><TableCell className="font-semibold">{String(r.name)}</TableCell><TableCell>{role ? <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">{role[1]}</Badge> : <span className="text-slate-400">Unlinked</span>}</TableCell><TableCell><Badge variant="outline">{String(r.currency || currency)}</Badge></TableCell><TableCell className="text-slate-500">{parent ? String(parent.name) : "—"}</TableCell><TableCell>{String(r.type)}</TableCell><TableCell><Badge variant="outline">{r.active ? "Active" : "Inactive"}</Badge></TableCell><TableCell className="text-right font-semibold">{formatMoney(r.balance, String(r.currency || currency))}</TableCell><TableCell><div className="flex"><Button type="button" variant="ghost" size="icon" title="View account" aria-label={`View ${String(r.name)}`} onClick={() => setViewId(r.id)}><Eye className="size-4" /></Button>{onEdit && <Button type="button" variant="ghost" size="icon" aria-label={`Edit ${String(r.name)}`} onClick={() => onEdit(r)}><Pencil className="size-4" /></Button>}{r.parentAccountId ? <DeleteButton id={r.id} onDelete={onDelete} /> : null}</div></TableCell></TableRow>; })] : []; })}</TableBody></Table>
+    <Dialog open={Boolean(viewed)} onOpenChange={(open) => { if (!open) setViewId(null); }}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
+        <DialogHeader><DialogTitle>{viewed ? String(viewed.name) : "Account details"}</DialogTitle><DialogDescription>Account details and current balance.</DialogDescription></DialogHeader>
+        {viewed && <dl className="grid gap-4 sm:grid-cols-2">
+          {[
+            ["Account code", String(viewed.code)],
+            ["Account name", String(viewed.name)],
+            ["Type", String(viewed.type)],
+            ["Linked use", viewedRole?.[1] ?? "Unlinked"],
+            ["Account currency", String(viewed.currency || currency)],
+            ["Sub-account of", viewedParent ? String(viewedParent.name) : "—"],
+            ["Status", viewed.active ? "Active" : "Inactive"],
+            [`Balance (${String(viewed.currency || currency)})`, formatMoney(viewed.balance, String(viewed.currency || currency))],
+          ].map(([label, value]) => <div key={label} className="rounded-md border p-3"><dt className="text-sm text-muted-foreground">{label}</dt><dd className="mt-1 break-words font-medium">{value}</dd></div>)}
+        </dl>}
+        {viewed && <AccountHistory key={viewed.id} accountId={viewed.id} companyId={Number(viewed.companyId)} onOpen={(id) => { setViewId(null); onOpenTransaction(id); }} />}
+        <DialogFooter><Button type="button" variant="outline" onClick={() => setViewId(null)}>Close</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
+  </>;
+}
+function StatusBadge({ value }: { value: string }) { const good = value === "paid" || value === "active" || value === "cleared" || value === "converted"; return <Badge variant="outline" className={good ? "border-emerald-200 bg-emerald-50 text-emerald-700" : value === "overdue" ? "border-rose-200 bg-rose-50 text-rose-700" : "border-amber-200 bg-amber-50 text-amber-700"}>{value}</Badge>; }
+
+function ReportCenter({ companyId, locationId, memorisedReports, onOpen, onOpenMemorised, onDeleteMemorised, loading }: { companyId: number; locationId: number; memorisedReports: MemorisedReportRecord[]; onOpen: (key: string) => void; onOpenMemorised: (record: MemorisedReportRecord) => void; onDeleteMemorised: (record: MemorisedReportRecord) => void; loading: boolean }) {
+  const [reportSearch, setReportSearch] = useState("");
+  const [activeCategory, setActiveCategory] = useState<"All" | "Memorised Reports" | ReportCategory>("All");
+  const normalizedSearch = reportSearch.trim().toLowerCase();
+  const reports = allReports.filter(([name, description, category]) =>
+    activeCategory !== "Memorised Reports"
+    && (activeCategory === "All" || category === activeCategory)
+    && (!normalizedSearch || [name, description, category].some((value) => value.toLowerCase().includes(normalizedSearch))),
+  );
+  const groupedReports = reportCategoryOrder
+    .map((category) => ({ category, reports: reports.filter((report) => report[2] === category) }))
+    .filter((group) => group.reports.length > 0);
+  const filteredMemorised = memorisedReports.filter((report) => {
+    const definition = allReports.find((candidate) => candidate[3] === report.reportKey);
+    const category = definition?.[2] ?? report.category;
+    return !normalizedSearch || [report.name, definition?.[0], definition?.[1], category, report.currency].some((value) => String(value ?? "").toLowerCase().includes(normalizedSearch));
+  });
+  const groupedMemorised = reportCategoryOrder
+    .map((category) => ({ category, reports: filteredMemorised.filter((report) => (allReports.find((definition) => definition[3] === report.reportKey)?.[2] ?? report.category) === category) }))
+    .filter((group) => group.reports.length > 0);
+  const resetFilters = () => { setReportSearch(""); setActiveCategory("All"); };
+  const selectedLabel = activeCategory === "All" ? "All Reports" : activeCategory;
+  const resultCount = activeCategory === "Memorised Reports" ? filteredMemorised.length : reports.length + (normalizedSearch ? filteredMemorised.length : 0);
+  const memorisedLibrary = groupedMemorised.length ? <div className="space-y-6">{groupedMemorised.map(({ category, reports: savedReports }) => <section key={category}><div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2"><span className="h-5 w-1 rounded-full bg-emerald-500" /><h4 className="font-bold text-slate-900">{category}</h4></div><span className="text-xs font-medium text-slate-400">{savedReports.length} saved</span></div><div className="grid gap-3 xl:grid-cols-2">{savedReports.map((savedReport) => { const definition = allReports.find((candidate) => candidate[3] === savedReport.reportKey); return <div key={savedReport.id} className="report-memorised-card group flex min-h-28 items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md"><button type="button" disabled={loading} onClick={() => onOpenMemorised(savedReport)} className="flex min-w-0 flex-1 items-center gap-4 text-left disabled:opacity-60"><span className="grid size-11 shrink-0 place-items-center rounded-xl bg-emerald-100 text-emerald-700"><BookmarkPlus className="size-5" /></span><span className="min-w-0 flex-1"><span className="block text-sm font-bold text-slate-900">{savedReport.name}</span><span className="mt-1 block text-xs leading-5 text-slate-500">{definition?.[1] || `Linked to ${category} reports`}</span><span className="mt-1 block text-[11px] font-semibold uppercase tracking-wide text-emerald-700">{category} · {savedReport.currency}{savedReport.periodStart ? ` · ${savedReport.periodStart} to ${savedReport.periodEnd}` : " · Current period"}</span></span><ChevronRight className="size-5 shrink-0 text-slate-300 transition group-hover:translate-x-1 group-hover:text-emerald-500" /></button><Button type="button" variant="ghost" size="icon" onClick={() => onDeleteMemorised(savedReport)} aria-label={`Remove ${savedReport.name}`} className="shrink-0 text-slate-400 hover:text-rose-600" title="Delete memorised report"><Trash2 className="size-4" /></Button></div>; })}</div></section>)}</div> : <div className="report-center-empty rounded-xl border border-dashed border-slate-300 bg-white p-12 text-center"><BookmarkPlus className="mx-auto size-7 text-slate-300" /><p className="mt-3 font-bold text-slate-800">No memorised reports yet</p><p className="mt-1 text-sm text-slate-500">Open a report and choose Memorise Report to save its current settings here.</p><Button variant="outline" size="sm" className="mt-4" onClick={resetFilters}>Browse report library</Button></div>;
+
+  return <div className="space-y-6">
+    <section className="report-center-shell overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-emerald-950 px-6 py-6 text-white">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div><div className="flex items-center gap-3"><span className="grid size-11 place-items-center rounded-xl bg-emerald-400 text-slate-950"><FileBarChart2 className="size-5" /></span><div><h2 className="text-xl font-bold">Professional Report Center</h2><p className="mt-1 text-sm text-slate-300">Find, open and export every business report from one place.</p></div></div></div>
+          <div className="relative w-full lg:max-w-md"><Search className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-slate-400" /><Input value={reportSearch} onChange={(event) => { setReportSearch(event.target.value); if (event.target.value) setActiveCategory("All"); }} placeholder="Search report name, category or purpose..." aria-label="Search all reports" className="report-center-search h-12 border-white/15 bg-white text-slate-950 pl-12 shadow-lg placeholder:text-slate-400" />{reportSearch && <button type="button" onClick={resetFilters} className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-semibold text-emerald-700">Clear</button>}</div>
+        </div>
+        <div className="mt-5 flex flex-wrap items-center gap-2 text-xs text-slate-300"><Badge className="bg-white/10 text-white hover:bg-white/10">{allReports.length} reports</Badge><span>•</span><span>{reportCategoryOrder.length + 1} categories</span><span>•</span><span>{memorisedReports.length} memorised</span></div>
+      </div>
+      <div className="grid min-h-[620px] lg:grid-cols-[300px_minmax(0,1fr)]">
+        <aside className="border-b bg-slate-950 p-3 lg:border-b-0 lg:border-r lg:border-slate-800">
+          <p className="px-4 pb-3 pt-2 text-[11px] font-bold uppercase tracking-[.18em] text-slate-500">Report categories</p>
+          <nav className="space-y-1" aria-label="Report categories">
+            {(["All", "Memorised Reports", ...reportCategoryOrder] as const).map((category) => { const active = activeCategory === category; const count = category === "All" ? allReports.length : category === "Memorised Reports" ? memorisedReports.length : allReports.filter((report) => report[2] === category).length; return <button key={category} type="button" onClick={() => { setActiveCategory(category); setReportSearch(""); }} className={`group flex w-full items-center gap-3 rounded-xl px-4 py-3.5 text-left transition ${active ? "report-category-active bg-emerald-400 text-slate-950 shadow-lg shadow-emerald-950/30" : "text-slate-300 hover:bg-white/8 hover:text-white"}`} aria-current={active ? "page" : undefined}><span className={`min-w-0 flex-1 text-sm font-bold ${active ? "" : "group-hover:translate-x-0.5"}`}>{category === "All" ? "All Reports" : category}</span><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${active ? "bg-slate-950/10" : "bg-white/8 text-slate-400"}`}>{count}</span><ChevronRight className={`size-4 shrink-0 transition ${active ? "translate-x-0.5" : "text-slate-600 group-hover:translate-x-0.5 group-hover:text-slate-300"}`} /></button>; })}
+          </nav>
+        </aside>
+        <div className="report-library-panel min-w-0 bg-slate-50/70 p-5 sm:p-6">
+          <div className="mb-5 flex flex-col gap-2 border-b border-slate-200 pb-5 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-bold uppercase tracking-[.16em] text-emerald-600">Report library</p><h3 className="mt-1 text-xl font-bold text-slate-950">{normalizedSearch ? `Search results for “${reportSearch.trim()}”` : selectedLabel}</h3><p className="mt-1 text-sm text-slate-500">{resultCount} {resultCount === 1 ? "report" : "reports"} available</p></div>{loading && <Badge variant="outline" className="w-fit bg-white">Opening report…</Badge>}</div>
+          {activeCategory === "Memorised Reports" ? memorisedLibrary : <>{normalizedSearch && groupedMemorised.length ? <section className="mb-7"><div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2"><span className="h-5 w-1 rounded-full bg-emerald-500" /><h4 className="font-bold text-slate-900">Memorised Reports</h4></div><span className="text-xs font-medium text-slate-400">{filteredMemorised.length} saved</span></div>{memorisedLibrary}</section> : null}{groupedReports.length ? <div className="space-y-6">{groupedReports.map(({ category, reports: categoryReports }) => <section key={category}><div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2"><span className="h-5 w-1 rounded-full bg-emerald-500" /><h4 className="font-bold text-slate-900">{category}</h4></div><span className="text-xs font-medium text-slate-400">{categoryReports.length} reports</span></div><div className="grid gap-3 xl:grid-cols-2">{categoryReports.map(([name, description, , key]) => <button key={name} type="button" disabled={loading} onClick={() => onOpen(key)} className="report-center-card group flex min-h-24 items-center gap-4 rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 disabled:opacity-60"><span className="grid size-11 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-500 transition group-hover:bg-emerald-100 group-hover:text-emerald-700"><FileText className="size-5" /></span><span className="min-w-0 flex-1"><span className="block text-sm font-bold text-slate-900">{name}</span><span className="mt-1 block text-xs leading-5 text-slate-500">{description}</span></span><ChevronRight className="size-5 shrink-0 text-slate-300 transition group-hover:translate-x-1 group-hover:text-emerald-500" /></button>)}</div></section>)}</div> : normalizedSearch && groupedMemorised.length ? null : <div className="report-center-empty rounded-xl border border-dashed border-slate-300 bg-white p-12 text-center"><Search className="mx-auto size-7 text-slate-300" /><p className="mt-3 font-bold text-slate-800">No reports found</p><p className="mt-1 text-sm text-slate-500">Try a different report name or category.</p><Button variant="outline" size="sm" className="mt-4" onClick={resetFilters}>Show all reports</Button></div>} </>}
+        </div>
+      </div>
+    </section>
+    <div className="grid gap-6 lg:grid-cols-2">
+      <LiveProfitLossSummary key={`${companyId}-${locationId}`} companyId={companyId} locationId={locationId} /><article className="report-live-card rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><CheckCircle2 className="size-5 text-emerald-500" /><h3 className="mt-3 font-bold">Live reporting</h3><p className="mt-2 text-sm leading-6 text-slate-500">Every report reads the selected company and inventory, with date filters and professional PDF, Excel and CSV exports.</p></article>
+    </div>
+  </div>;
+}
+
+type DocumentMode = "proforma-invoice" | "tax-invoice" | "commercial-invoice" | "delivery-note" | "packing-list" | "hs-code-summary";
+const documentModeLabels: Record<DocumentMode, string> = { "proforma-invoice": "Proforma Invoice", "tax-invoice": "Tax Invoice", "commercial-invoice": "Commercial Invoice", "delivery-note": "Delivery Note", "packing-list": "Packing List", "hs-code-summary": "HS Code Summary" };
+function documentLineSpecification(line: DataRecord, names: string[]) {
+  const normalized = names.map((name) => name.toLowerCase());
+  if (normalized.some((name) => name === "hs code" || name === "hsn code") && line.hsCode) return String(line.hsCode);
+  if (normalized.some((name) => name === "country of origin" || name === "coo") && line.countryOfOrigin) return String(line.countryOfOrigin);
+  if (normalized.some((name) => name.includes("dimensions")) && line.dimensionText) return String(line.dimensionText);
+  if (normalized.some((name) => name.includes("weight")) && Number(line.weightKg) > 0) return `${line.weightKg} kg`;
+  try {
+    const specifications = JSON.parse(String(line.specifications || "[]")) as Array<{ label?: string; value?: string }>;
+    return specifications.find((specification) => names.some((name) => String(specification.label || "").toLowerCase() === name.toLowerCase()))?.value || "—";
+  } catch { return "—"; }
+}
+
+function DocumentDialog({ onOpenInvoice, onReceiptSaved, detail, companyName, baseCurrency, setup, canConvert, onConvert, onClose }: { onOpenInvoice: (id: number) => void; onReceiptSaved: () => void; detail: TransactionDetail | null; companyName: string; baseCurrency: string; setup: CompanySetup; canConvert: boolean; onConvert: (detail: TransactionDetail) => void; onClose: () => void }) {
+  const startingMode: DocumentMode = detail?.record.type === "proforma invoice" ? "proforma-invoice" : detail?.record.type === "invoice" ? "tax-invoice" : detail?.record.type === "sales order" ? "delivery-note" : "commercial-invoice";
+  const [documentMode] = useState<DocumentMode>(startingMode);
+  const [showStamp] = useState(Boolean(setup.stampData));
+  const [showBillingName] = useState(true);
+  const [showShipping] = useState(true);
+  const [showHsCode] = useState(false);
+  const [showDimensions] = useState(false);
+  const [creditPresentation, setCreditPresentation] = useState<"credit-note" | "refund">("credit-note");
+  const [selectedBank] = useState(detail?.record.type === "invoice" ? "" : setup.bankName || "Emirates NBD Bank");
+  if (!detail) return null;
+  const record = detail.record;
+  const brandedName = setup.name || companyName;
+  const contact = detail.partyContact;
+  const purchaseOrder = record.type === "purchase order";
+  const savedTemplateMode = record.type === "credit memo" ? creditPresentation : salesDocumentModeForTransaction(String(record.type));
+  const usesSavedTemplate = savedTemplateMode !== null && ["invoice", "estimate", "proforma invoice", "sales order", "purchase order", "vendor credit", "credit memo", "sales receipt"].includes(String(record.type));
+  const convertible = ((purchaseOrder && record.status !== "received") || record.type === "quotation") && record.status !== "converted" && !record.convertedInvoiceId;
+  const showsPrices = documentMode === "tax-invoice" || documentMode === "commercial-invoice";
+  return <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}><DialogContent className="max-h-[94vh] overflow-y-auto sm:max-w-[1400px]">
+    <div className="grid grid-cols-1 gap-5"><div className="document-print-surface min-w-0 space-y-4" data-document-id={record.id}>
+    {record.type === "cheque" ? <UaeBankCheque record={record} lines={detail.lines} journal={detail.journal} companyName={brandedName} /> : usesSavedTemplate && savedTemplateMode ? <>
+    <DialogTitle className="sr-only">{String(record.type)} {String(record.number)}</DialogTitle><DialogDescription className="sr-only">Document preview for {String(record.party)}</DialogDescription>
+    {record.type === "credit memo" ? <div className="document-internal-only flex flex-wrap items-center gap-2 rounded-lg border bg-slate-50 p-3 text-sm"><span className="mr-1 font-semibold text-slate-700">Document layout</span><Button type="button" size="sm" variant={creditPresentation === "credit-note" ? "default" : "outline"} onClick={() => setCreditPresentation("credit-note")}>Credit Note</Button><Button type="button" size="sm" variant={creditPresentation === "refund" ? "default" : "outline"} onClick={() => setCreditPresentation("refund")}>Refund</Button></div> : null}
+    <SalesDocumentTemplate mode={savedTemplateMode} record={record} lines={detail.lines} contact={contact} setup={{ ...setup, name: brandedName }} showBillingName={showBillingName} showShipping={showShipping} showHsCode={showHsCode} showDimensions={showDimensions} />
+    {["estimate", "sales order", "proforma invoice"].includes(String(record.type)) && ["invoiced", "converted"].includes(String(record.status)) && <div className="document-internal-only my-4 w-fit rounded-lg border-4 border-emerald-600 px-5 py-2 text-xl font-extrabold uppercase tracking-wider text-emerald-700">Fully Invoiced</div>}
+    {purchaseOrder && record.status === "received" && <div className="document-internal-only my-4 w-fit rounded-lg border-4 border-emerald-600 px-5 py-2 text-xl font-extrabold uppercase tracking-wider text-emerald-700">Fully Received</div>}
+    {purchaseOrder && canConvert && !record.convertedInvoiceId && record.status !== "converted" && <div className="document-internal-only"><PurchaseOrderReceiving orderId={Number(record.id)} companyId={Number(record.companyId)} onSaved={onReceiptSaved} /></div>}
+    {["estimate", "proforma invoice", "sales order"].includes(String(record.type)) && canConvert && !record.convertedInvoiceId && record.status !== "converted" && <div className="document-internal-only"><SalesSourceInvoicing sourceId={Number(record.id)} companyId={Number(record.companyId)} onSaved={onReceiptSaved} onViewInvoice={onOpenInvoice} /></div>}
+    {record.convertedDocumentNumber && ["estimate", "proforma invoice", "sales order", "purchase order"].includes(String(record.type)) ? <div className="document-internal-only rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-800">Converted to {String(record.convertedDocumentType)} {String(record.convertedDocumentNumber)}</div> : null}
+    {record.sourceDocumentNumber && ["estimate", "proforma invoice", "sales order", "purchase order", "vendor credit"].includes(String(record.type)) ? <div className="document-internal-only rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm font-medium text-sky-800">Linked to {String(record.sourceDocumentType)} {String(record.sourceDocumentNumber)}</div> : null}
+    </> : <>
+    <DialogHeader><div className={`flex items-start justify-between gap-4 rounded-xl p-5 pr-8 ${setup.documentTemplate === "modern" ? "text-white" : setup.documentTemplate === "classic" ? "border-b-4 bg-slate-50" : "border-b"}`} style={setup.documentTemplate === "modern" ? { backgroundColor: setup.documentColor } : setup.documentTemplate === "classic" ? { borderColor: setup.documentColor } : undefined}><div className="flex min-w-0 gap-4">{setup.logoData ? <Image src={setup.logoData} alt={`${brandedName} logo`} width={88} height={56} unoptimized className="h-14 w-22 shrink-0 rounded-lg bg-white object-contain p-1" /> : null}<div><p className={`text-xs font-bold tracking-[.18em] ${setup.documentTemplate === "modern" ? "text-white/80" : "text-emerald-600"}`}>{brandedName.toUpperCase()}</p><DialogTitle className={`mt-2 ${setup.documentTemplate === "modern" ? "text-white" : ""}`}>{documentModeLabels[documentMode]} {String(record.number)}</DialogTitle><DialogDescription className={setup.documentTemplate === "modern" ? "text-white/75" : ""}>{String(record.party)} · {String(record.transactionDate)}</DialogDescription>{(setup.addressLine1 || setup.city || setup.phone || setup.trn) ? <p className={`mt-2 max-w-xl text-xs leading-5 ${setup.documentTemplate === "modern" ? "text-white/75" : "text-slate-500"}`}>{[setup.addressLine1, setup.addressLine2, setup.city, setup.country].filter(Boolean).join(", ")}{setup.phone ? ` · ${setup.phone}` : ""}{setup.trn ? ` · TRN ${setup.trn}` : ""}</p> : null}</div></div><div className="flex flex-wrap justify-end gap-2">{setup.rightLogoData && <Image src={setup.rightLogoData} alt={`${brandedName} right logo`} width={120} height={60} unoptimized className="h-14 w-28 object-contain" />}{convertible && canConvert ? <Button onClick={() => onConvert(detail)} className={setup.documentTemplate === "modern" ? "bg-white text-slate-900 hover:bg-white/90" : "brand-primary-button"}><ReceiptText className="size-4" />{purchaseOrder ? "Convert to Bill / Supplier Invoice" : "Convert to Invoice"}</Button> : null}</div></div></DialogHeader>
+    {record.type === "proforma invoice" && <p className="text-sm font-semibold">Proforma Invoice · Not a tax invoice</p>}
+    {["estimate", "sales order", "proforma invoice"].includes(String(record.type)) && ["invoiced", "converted"].includes(String(record.status)) && <div className="my-4 w-fit rounded-lg border-4 border-emerald-600 px-5 py-2 text-xl font-extrabold uppercase tracking-wider text-emerald-700">Fully Invoiced</div>}
+    {purchaseOrder && record.status === "received" && <div className="my-4 w-fit rounded-lg border-4 border-emerald-600 px-5 py-2 text-xl font-extrabold uppercase tracking-wider text-emerald-700">Fully Received</div>}
+    {purchaseOrder && canConvert && !record.convertedInvoiceId && record.status !== "converted" && <PurchaseOrderReceiving orderId={Number(record.id)} companyId={Number(record.companyId)} onSaved={onReceiptSaved} />}
+    {["estimate", "proforma invoice", "sales order"].includes(String(record.type)) && canConvert && !record.convertedInvoiceId && record.status !== "converted" && <SalesSourceInvoicing sourceId={Number(record.id)} companyId={Number(record.companyId)} onSaved={onReceiptSaved} onViewInvoice={onOpenInvoice} />}
+    {record.type === "customer payment" && <PaidInvoiceStamp payment status={String(record.status)} paidAt={record.paidAt ? String(record.paidAt) : null} />}
+    {record.type === "invoice" && documentMode === "commercial-invoice" && <PaidInvoiceStamp status={String(record.status)} paidAt={record.paidAt ? String(record.paidAt) : null} />}
+    {record.convertedDocumentNumber ? <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-800">Converted to {String(record.convertedDocumentType)} {String(record.convertedDocumentNumber)}</div> : null}
+    {record.sourceDocumentNumber ? <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm font-medium text-sky-800">Created from {String(record.sourceDocumentType)} {String(record.sourceDocumentNumber)}</div> : null}
+    {(showBillingName || showShipping) ? <div className="grid gap-4 rounded-xl border p-4 text-sm sm:grid-cols-2">{showBillingName ? <div><p className="font-bold text-slate-900">Billing Name</p><p className="mt-1">{String(contact?.billingName || contact?.company || record.party)}</p>{contact?.trn ? <p className="mt-1 text-slate-500">TRN: {String(contact.trn)}</p> : null}</div> : null}{showShipping ? <div><p className="font-bold text-slate-900">Shipping Details</p><p className="mt-1">{String(contact?.company || record.party)}</p><p className="mt-1 text-slate-500">{[contact?.country, contact?.phone, contact?.email].filter(Boolean).map(String).join(" · ") || "No shipping details saved"}</p></div> : null}</div> : null}
+    <div className="grid gap-4 rounded-xl bg-slate-50 p-4 text-sm sm:grid-cols-4"><div><p className="text-slate-500">Status</p><StatusBadge value={["estimate", "sales order", "proforma invoice"].includes(String(record.type)) && record.status === "invoiced" ? "converted" : String(record.status)} /></div><div><p className="text-slate-500">Due date</p><strong>{String(record.dueDate || "—")}</strong></div><div><p className="text-slate-500">Account</p><strong>{String(record.account)}</strong></div><div><p className="text-slate-500">Currency</p><strong>{String(record.currency)}</strong></div></div>
+    <div className="overflow-x-auto rounded-xl border"><Table><TableHeader><TableRow><TableHead>Item / Description</TableHead><TableHead className="text-right">Qty</TableHead>{showHsCode ? <><TableHead>HS Code</TableHead><TableHead>COO</TableHead></> : null}{showDimensions ? <><TableHead>Dimensions</TableHead><TableHead>Weight</TableHead></> : null}{showsPrices ? <><TableHead className="text-right">Rate</TableHead>{documentMode === "tax-invoice" ? <TableHead>VAT</TableHead> : null}<TableHead className="text-right">Total</TableHead></> : null}</TableRow></TableHeader><TableBody>{detail.lines.map((line, index) => <TableRow key={index}><TableCell className="font-medium">{line.itemNumber || line.sku ? <p className="mb-1 text-xs font-mono text-slate-500">{String(line.itemNumber || line.sku)}</p> : null}{String(line.description)}{["invoice", "bill"].includes(String(record.type)) && (line.comments || line.serialNumber) && <div className="mt-2 space-y-1 whitespace-pre-wrap break-words text-xs font-normal">{line.comments && <p><strong>Comments: </strong>{String(line.comments)}</p>}{line.serialNumber && <p><strong>Serial Number: </strong>{String(line.serialNumber)}</p>}</div>}</TableCell><TableCell className="text-right">{String(line.quantity)}</TableCell>{showHsCode ? <><TableCell>{documentLineSpecification(line, ["HS Code", "HSN Code"])}</TableCell><TableCell>{documentLineSpecification(line, ["Country of Origin", "COO"])}</TableCell></> : null}{showDimensions ? <><TableCell>{documentLineSpecification(line, ["Dimensions", "Product Dimensions", "Package Dimensions"])}</TableCell><TableCell>{documentLineSpecification(line, ["Weight", "Product Weight", "Package Weight"])}</TableCell></> : null}{showsPrices ? <><TableCell className="text-right">{formatMoney(line.unitPrice, String(record.currency))}</TableCell>{documentMode === "tax-invoice" ? <TableCell>{String(line.vatCode || `${Number(line.vatRate)}%`)}</TableCell> : null}<TableCell className="text-right font-semibold">{formatMoney(line.total, String(record.currency))}</TableCell></> : null}</TableRow>)}</TableBody></Table></div>
+    {showsPrices ? <div className="ml-auto grid w-full max-w-sm gap-2 text-sm"><div className="flex justify-between"><span className="text-slate-500">Subtotal</span><span>{formatMoney(record.subtotal, String(record.currency))}</span></div>{documentMode === "tax-invoice" ? <div className="flex justify-between"><span className="text-slate-500">VAT</span><span>{formatMoney(record.vatAmount, String(record.currency))}</span></div> : null}<div className="flex justify-between border-t pt-3 text-lg font-bold"><span>Total</span><span>{formatMoney(record.total, String(record.currency))}</span></div></div> : null}
+    </>}
+    {record.type !== "cheque" && <>{selectedBank ? <div className="rounded-xl border p-4 text-sm"><div className="mb-3 flex items-center gap-2 font-bold" style={{ color: setup.documentColor }}><Landmark className="size-4" />{selectedBank}</div>{setup.bankName && !setup.bankName.toLowerCase().includes(selectedBank.toLowerCase().replace(" bank", "")) ? <p className="text-slate-500">Configure this bank account in Company Setup to show its payment details.</p> : <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2"><p><span className="text-slate-500">Account name:</span> {setup.bankAccountName || brandedName}</p><p><span className="text-slate-500">Account number:</span> {setup.bankAccountNumber || "—"}</p><p><span className="text-slate-500">Currency:</span> {setup.bankCurrency || setup.baseCurrency}</p><p><span className="text-slate-500">IBAN:</span> {setup.bankIban || "—"}</p>{setup.bankSwift ? <p><span className="text-slate-500">SWIFT:</span> {setup.bankSwift}</p> : null}</div>}</div> : null}
+    {showStamp && setup.stampData ? <div className="flex justify-end"><Image src={setup.stampData} alt={`${brandedName} company stamp`} width={160} height={120} unoptimized className="max-h-30 w-auto max-w-40 object-contain" /></div> : null}
+    {detail.journal.length > 0 && <div className="document-internal-only"><h3 className="mb-2 text-sm font-bold">Accounting entry ({baseCurrency})</h3><div className="overflow-hidden rounded-xl border"><Table><TableHeader><TableRow><TableHead>Account</TableHead><TableHead className="text-right">Debit</TableHead><TableHead className="text-right">Credit</TableHead></TableRow></TableHeader><TableBody>{detail.journal.map((line, index) => <TableRow key={index}><TableCell>{String(line.accountName)}</TableCell><TableCell className="text-right">{Number(line.debit) ? formatMoney(line.debit, baseCurrency) : "—"}</TableCell><TableCell className="text-right">{Number(line.credit) ? formatMoney(line.credit, baseCurrency) : "—"}</TableCell></TableRow>)}</TableBody></Table></div></div>}
+    {["invoice", "bill"].includes(String(record.type)) && (record.comments || record.serialNumber) && <div className="grid gap-4 rounded-lg border p-4 text-sm sm:grid-cols-2">{record.comments && <div><h3 className="font-bold">Comments</h3><p className="mt-1 whitespace-pre-wrap break-words">{String(record.comments)}</p></div>}{record.serialNumber && <div><h3 className="font-bold">Serial Number</h3><p className="mt-1 whitespace-pre-wrap break-words">{String(record.serialNumber)}</p></div>}</div>}
+    {record.memo && !(documentMode === "tax-invoice" && record.type === "invoice") && <p className="rounded-lg border p-3 text-sm text-slate-600"><strong>Memo:</strong> {String(record.memo)}</p>}</>}
+    </div></div>
+  </DialogContent></Dialog>;
+}
+
+function StockPriceEditor({ report, onSaved }: { report: ReportData; onSaved: () => Promise<void> }) {
+  const [itemId, setItemId] = useState("");
+  const [sellingPrice, setSellingPrice] = useState("");
+  const [grnPrice, setGrnPrice] = useState("");
+  const [saving, setSaving] = useState(false);
+  const skuLock = useSkuLock(itemId ? { resource: "stock-pricing", itemId: Number(itemId) } : null);
+  const row = report.rows.find((candidate) => String(candidate.itemId) === itemId);
+  const selectItem = (value: string) => {
+    setItemId(value);
+    const selected = report.rows.find((candidate) => String(candidate.itemId) === value);
+    setSellingPrice(String(selected?.savedSellingPrice ?? ""));
+    setGrnPrice(String(selected?.savedGrnPrice ?? ""));
+  };
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!skuLock.ready) return;
+    if (!row || !sellingPrice.trim()) return;
+    setSaving(true);
+    try {
+      const response = await fetch("/api/stock-pricing", { method: "PATCH", headers: { "Content-Type": "application/json", ...skuLock.headers }, body: JSON.stringify({ companyId: report.companyId, itemId: Number(itemId), salesPrice: Number(sellingPrice), grnPrice: grnPrice.trim() === "" ? null : Number(grnPrice), expectedPrice: row.savedSellingPrice, expectedGrnPrice: row.savedGrnPrice === "" ? null : row.savedGrnPrice }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not save prices.");
+      toast.success("Prices saved to this company's item.");
+      setItemId("");
+      await onSaved();
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save prices."); }
+    finally { setSaving(false); }
+  };
+  return <form onSubmit={save} className="rounded-xl border bg-slate-50 p-4 print:hidden">
+    <SkuLockNotice message={skuLock.message} /><div className="grid items-end gap-4 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_auto]">
+      <label className="grid gap-2 text-sm font-medium">Item<select className="h-10 min-w-0 rounded-md border bg-background px-3" value={itemId} onChange={(event) => selectItem(event.target.value)} disabled={saving} required><option value="">Select item</option>{report.rows.map((item) => <option key={String(item.itemId)} value={String(item.itemId)}>{item.inventory} · {item.sku} · {item.name}</option>)}</select></label>
+      <label className="grid gap-2 text-sm font-medium">Selling price / unit ({report.currency})<Input type="number" min="0" max="1000000000000" step="any" required disabled={!skuLock.ready || !row || saving} value={sellingPrice} onChange={(event) => setSellingPrice(event.target.value)} /></label>
+      <label className="grid gap-2 text-sm font-medium">GRN price / unit ({report.currency})<Input type="number" min="0" max="1000000000000" step="any" placeholder="Use receipt cost" disabled={!skuLock.ready || !row || saving} value={grnPrice} onChange={(event) => setGrnPrice(event.target.value)} /></label>
+      <Button type="submit" disabled={!skuLock.ready || !row || saving}>{saving ? "Saving…" : "Save prices"}</Button>
+    </div>
+    <p className="mt-3 text-xs text-slate-500">Prices are saved for the selected item and inventory in this company. Selling price is used for new sales. Leave GRN price blank to use receipt cost. These prices update the estimate without changing posted stock value.</p>
+  </form>;
+}
+
+function ReportDialog({ onOpenReport, onCustomerDocument, onCustomer, onOpenSource, setup, loading, onStatementApply, onPricesSaved, report, companyName, inventoryName, memorised, saving, onMemorise, onClose }: { onOpenReport: (key: string) => void; onCustomerDocument: (customer: string, type: string) => void; onCustomer: (name: string, currency: string, overdue: boolean) => void; onOpenSource: (id: number) => void; setup: CompanySetup; loading: boolean; onStatementApply: (filters: { memo: string; customer: string; currency: string; statementDate: string; from: string; to: string }) => Promise<void>; onPricesSaved: () => Promise<void>; report: ReportData | null; companyName: string; inventoryName: string; memorised: boolean; saving: boolean; onMemorise: () => void; onClose: () => void }) {
+  const [hideZeroQoh, setHideZeroQoh] = useState(false);
+  const [vatCodeFilter, setVatCodeFilter] = useState("all");
+  const [exporting, setExporting] = useState<"xlsx" | "csv" | "pdf" | null>(null);
+  const [linkedAccount, setLinkedAccount] = useState<{ id: number; name: string } | null>(null);
+  if (!report) return null;
+  const showsQohFilter = hasInventoryQohFilter(report.key);
+  const qohRows = filterZeroQohRows(report.key, report.rows, hideZeroQoh);
+  const visibleRows = report.key === "vat-detail" && vatCodeFilter !== "all" ? qohRows.filter((row) => String(row.code) === vatCodeFilter) : qohRows;
+  const hiddenZeroQoh = report.rows.length - visibleRows.length;
+  const vatCodeOptions = [...new Map([...(report.vatCodes ?? []), ...report.rows.map((row) => String(row.code || "")).filter(Boolean).map((code) => ({ code, name: code, rate: Number.NaN }))].map((option) => [option.code, option])).values()];
+  const columnWeights = report.columns.map((column) => /^(name|item|description|account|customer|supplier|vendor|party)$/.test(column.key) ? 3 : 1);
+  const totalWeight = columnWeights.reduce((sum, weight) => sum + weight, 0);
+  const chartMax = report.chart ? Math.max(1, ...report.rows.flatMap((row) => [Math.abs(Number(row[report.chart!.incomeKey] ?? 0)), Math.abs(Number(row[report.chart!.expenseKey] ?? 0))])) : 1;
+  const reportCell = (row: Record<string, string | number>, column: ReportData["columns"][number]) => {
+    const documentType = report.key === "customer-document-summary" ? ({ estimates: "estimate", proformaInvoices: "proforma invoice", salesOrders: "sales order" } as Record<string, string>)[column.key] : undefined;
+    if (documentType) {
+      const count = Number(row[column.key] ?? 0);
+      return count > 0 ? <button type="button" className="font-semibold text-emerald-700 underline underline-offset-4 hover:text-emerald-500" aria-label={`Open ${count} ${column.label} for ${row.customer}`} onClick={() => onCustomerDocument(String(row.customer), documentType)}>{count}</button> : "0";
+    }
+    if (column.type === "money" && typeof row[column.key] === "number") return formatMoney(row[column.key], report.currency);
+    const accountId = Number(row[`${column.key}AccountId`] ?? 0);
+    if (report.canViewAccounts && accountId > 0) return <button type="button" className="text-left underline underline-offset-2 hover:text-emerald-600" onClick={() => setLinkedAccount({ id: accountId, name: String(row[column.key] ?? "Account") })}>{String(row[column.key] ?? "—")}</button>;
+    return String(row[column.key] ?? "—");
+  };
+  const downloadReport = async (kind: "xlsx" | "csv" | "pdf") => {
+    setExporting(kind);
+    try {
+      const { reportCsv, reportFilename, reportPdf, reportWorkbook } = await import("@/lib/report-export");
+      const data = kind === "csv" ? reportCsv(report, companyName, inventoryName, visibleRows) : kind === "xlsx" ? await reportWorkbook(report, companyName, inventoryName, visibleRows) : await reportPdf(report, companyName, inventoryName, visibleRows);
+      const blob = new Blob([data as BlobPart], { type: kind === "csv" ? "text/csv;charset=utf-8" : kind === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = reportFilename(report, kind);
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast.success(`${kind === "xlsx" ? "Excel" : kind.toUpperCase()} report downloaded.`);
+    } catch {
+      toast.error("Export could not be generated. Please try again.");
+    } finally {
+      setExporting(null);
+    }
+  };
+  return <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}><DialogContent className={`report-dialog ${report.pnl ? "pnl-dialog" : ""} ${report.statement ? "customer-statement" : ""} max-h-[92dvh] min-w-0 overflow-y-auto sm:max-w-[calc(100%-2rem)]`}>
+    <DialogHeader><div className="flex flex-col gap-4 pr-8 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold tracking-[.18em] text-emerald-600">{companyName.toUpperCase()}</p><DialogTitle className="mt-2">{report.title}</DialogTitle><DialogDescription>Generated {new Date(report.generatedAt).toLocaleString("en-AE")} · {report.activeCustomers ? "Balances in each customer currency" : `${report.currency} accrual basis`} · {inventoryName}</DialogDescription></div><div className="flex flex-wrap gap-2 print:hidden"><Button variant={memorised ? "secondary" : "outline"} onClick={onMemorise} disabled={saving}><BookmarkPlus className="size-4" />{saving ? "Saving…" : memorised ? "Update Memorised" : "Memorise Report"}</Button><Button type="button" variant="outline" disabled={loading} onClick={() => window.print()}><Printer className="size-4" />Print · A4</Button>{!report.pnl && <>{(["xlsx", "csv", "pdf"] as const).map((kind) => <Button key={kind} type="button" variant="outline" disabled={Boolean(exporting) || loading} onClick={() => void downloadReport(kind)}><Download className="size-4" />{exporting === kind ? "Preparing…" : kind === "xlsx" ? "Excel (.xlsx)" : kind === "pdf" ? "PDF · A4" : "CSV"}</Button>)}</>}</div></div></DialogHeader>
+    <ReportDateFilter key={`${report.key}-${report.generatedAt}`} period={report.period || reportPeriod(report.key || "", report.pnl?.from || report.statement?.from || "", report.pnl?.to || report.statement?.to || report.openBalance?.asOf || "")} loading={loading} onApply={(from, to) => onStatementApply({ from, to, currency: report.currency, customer: report.statement?.customer || report.openBalance?.customer || "", statementDate: to || report.statement?.statementDate || report.openBalance?.asOf || "", memo: report.statement?.memo || "" })}>
+      {report.key === "vat-detail" ? <label className="grid gap-1 text-sm">VAT Code<select value={vatCodeFilter} disabled={loading} className="h-9 min-w-44 rounded-md border bg-background px-3" onChange={(event) => setVatCodeFilter(event.target.value)}><option value="all">All VAT Codes</option>{vatCodeOptions.map((option) => <option key={option.code} value={option.code}>{option.code}{Number.isFinite(option.rate) ? ` · ${option.rate}%` : ""}</option>)}</select></label> : null}
+    </ReportDateFilter>
+    {showsQohFilter && <label className="flex w-fit cursor-pointer items-center gap-3 rounded-lg border bg-background px-4 py-3 text-sm font-medium text-foreground shadow-sm print:hidden" htmlFor="hide-zero-qoh"><Checkbox id="hide-zero-qoh" checked={hideZeroQoh} onCheckedChange={(checked) => setHideZeroQoh(checked === true)} /><span>Hide zero QOH</span>{hideZeroQoh && <Badge variant="secondary">{hiddenZeroQoh} hidden</Badge>}</label>}
+    {report.accountLinkIssues && report.accountLinkIssues.length > 0 && <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"><p className="font-semibold">Some duplicate accounts need review</p><ul className="mt-2 list-disc space-y-1 pl-5">{report.accountLinkIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul></div>}
+    {report.statement && <><StatementFilters key={report.generatedAt} statement={report.statement} currency={report.currency} currencies={currencies} loading={loading} onApply={onStatementApply} /><StatementHeading statement={report.statement} currency={report.currency} company={setup} /></>}
+    {report.key === "stock-pricing-profit" && report.canEditPrices && <StockPriceEditor key={`${report.companyId}-${report.generatedAt}`} report={report} onSaved={onPricesSaved} />}
+    {report.chart && report.rows.length > 0 && <div className="rounded-xl border bg-slate-50 p-5"><div className="mb-4 flex gap-5 text-xs font-semibold"><span className="flex items-center gap-2"><span className="size-3 rounded-sm bg-emerald-500" />{report.chart.incomeLabel ?? "Income / Assets"}</span><span className="flex items-center gap-2"><span className="size-3 rounded-sm bg-amber-500" />{report.chart.expenseLabel ?? "Expenses / Liabilities"}</span></div><div className="grid min-h-56 grid-cols-6 items-end gap-3 md:grid-cols-12">{report.rows.slice(-12).map((row, index) => <div key={index} className="flex min-w-0 flex-col items-center gap-2"><div className="flex h-44 w-full items-end justify-center gap-1"><div className="w-1/2 rounded-t bg-emerald-500" style={{ height: `${Math.max(2, Math.abs(Number(row[report.chart!.incomeKey] ?? 0)) / chartMax * 100)}%` }} title={formatMoney(row[report.chart!.incomeKey], report.currency)} /><div className="w-1/2 rounded-t bg-amber-500" style={{ height: `${Math.max(2, Math.abs(Number(row[report.chart!.expenseKey] ?? 0)) / chartMax * 100)}%` }} title={formatMoney(row[report.chart!.expenseKey], report.currency)} /></div><span className="max-w-full truncate text-[11px] text-slate-500">{String(row[report.chart!.labelKey] ?? "")}</span></div>)}</div></div>}
+    {report.key === "business-final" ? <BusinessFinalReport rows={report.rows} currency={report.currency} onOpenReport={onOpenReport} /> : report.financial ? <FinancialReport key={report.generatedAt} report={report as FinancialReportData} onOpen={onOpenSource} /> : report.pnl ? <ProfitLossReport key={report.generatedAt} report={report as PnlReport} company={companyName} loading={loading} onOpen={onOpenSource} onApply={(from, to) => onStatementApply({ from, to, currency: report.currency, customer: "", statementDate: "", memo: "" })} /> : report.activeCustomers ? <ActiveCustomersReport key={report.generatedAt} rows={report.rows} companyId={report.companyId!} canViewAccounts={report.activeCustomers.canViewAccounts} count={report.activeCustomers.count} onCustomer={onCustomer} onOpenSource={onOpenSource} /> : report.openBalance ? <CustomerOpenBalance key={report.generatedAt} data={report.openBalance} rows={report.rows} currency={report.currency} companyId={report.companyId!} loading={loading} onApply={onStatementApply} onOpen={onOpenSource} /> : <div className="report-table min-w-0 rounded-xl border"><Table className="table-fixed"><colgroup>{report.columns.map((column, index) => <col key={column.key} style={{ width: `${columnWeights[index] / totalWeight * 100}%` }} />)}</colgroup><TableHeader><TableRow>{report.columns.map((column) => <TableHead key={column.key} className={column.type === "money" ? "text-right" : ""}>{column.label}</TableHead>)}</TableRow></TableHeader><TableBody>{visibleRows.length ? visibleRows.map((row, index) => <TableRow key={index}>{report.columns.map((column) => <TableCell key={column.key} className={column.type === "money" ? "text-right font-medium" : ""}>{reportCell(row, column)}</TableCell>)}</TableRow>) : <EmptyRow text={hideZeroQoh && report.rows.length ? "All zero-QOH rows are hidden." : "No posted data is available for this report."} columns={report.columns.length} />}</TableBody></Table></div>}
+    {linkedAccount && report.companyId && !report.financial && !report.pnl && <div className="rounded-xl border p-4 print:hidden"><div className="mb-3 flex items-center justify-between gap-3"><h3 className="font-bold">{linkedAccount.name} · full account history</h3><Button variant="outline" onClick={() => setLinkedAccount(null)}>Close account</Button></div><AccountHistory accountId={linkedAccount.id} companyId={report.companyId} onOpen={onOpenSource} /></div>}
+  </DialogContent></Dialog>;
+}
+
+function CompanySetupCenter({ setup, onSaved, canClearCompany }: { canClearCompany: boolean; setup: CompanySetup; onSaved: (setup: CompanySetup) => void | Promise<void> }) {
+  const [form, setForm] = useState<CompanySetup>(setup);
+  const [saving, setSaving] = useState(false);
+  const update = (field: keyof CompanySetup, value: string) => setForm((current) => ({ ...current, [field]: value }));
+  const uploadLogo = (file?: File, side: "logoData" | "rightLogoData" = "logoData") => {
+    if (!file) return;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 500_000) return toast.error("Upload a PNG, JPG, or WebP logo smaller than 500 KB.");
+    const reader = new FileReader();
+    reader.onload = () => update(side, String(reader.result ?? ""));
+    reader.onerror = () => toast.error("Could not read the selected logo.");
+    reader.readAsDataURL(file);
+  };
+  const uploadStamp = (file?: File) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/") || file.size > 500_000) return toast.error("Upload an image stamp smaller than 500 KB.");
+    const reader = new FileReader();
+    reader.onload = () => update("stampData", String(reader.result ?? ""));
+    reader.onerror = () => toast.error("Could not read the selected stamp.");
+    reader.readAsDataURL(file);
+  };
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      const response = await fetch("/api/company-setup", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, companyId: form.id }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not save company setup");
+      const saved = data.record as CompanySetup;
+      setForm(saved);
+      await onSaved(saved);
+      toast.success("Company setup saved");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save company setup"); }
+    finally { setSaving(false); }
+  };
+  return <form onSubmit={save} className="space-y-5">
+    <div className="space-y-5">
+      <section className="rounded-xl border bg-white p-5 shadow-sm"><div className="mb-5 flex items-center gap-3"><div className="brand-soft-icon grid size-10 place-items-center rounded-xl"><Building2 className="size-5" /></div><div><h2 className="font-bold">Company identity</h2><p className="text-sm text-slate-500">Used on invoices, bills, statements, and reports.</p></div></div><div className="grid gap-4 md:grid-cols-2"><div className="space-y-2 md:col-span-2"><Label>Company Name *</Label><Input value={form.name} onChange={(event) => update("name", event.target.value)} required maxLength={120} /></div><div className="space-y-2 md:col-span-2"><Label>Left Logo</Label><div className="flex flex-wrap items-center gap-4 rounded-xl border border-dashed p-4">{form.logoData ? <Image src={form.logoData} alt="Company logo preview" width={96} height={64} unoptimized className="h-16 w-24 rounded-lg border bg-white object-contain p-1" /> : <div className="grid h-16 w-24 place-items-center rounded-lg bg-slate-100 text-slate-400"><ImageUp className="size-6" /></div>}<div className="flex flex-wrap gap-2"><Label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border bg-white px-3 text-sm font-medium hover:bg-slate-50"><ImageUp className="size-4" />Choose logo<input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(event) => uploadLogo(event.target.files?.[0])} /></Label>{form.logoData ? <Button type="button" variant="outline" onClick={() => update("logoData", "")}>Remove</Button> : null}</div></div><p className="text-xs text-slate-500">PNG, JPG, or WebP · maximum 500 KB</p></div><div className="space-y-2 md:col-span-2"><Label>Right Logo</Label><div className="flex flex-wrap items-center gap-4 rounded-xl border border-dashed p-4">{form.rightLogoData ? <Image src={form.rightLogoData} alt="Company logo preview" width={96} height={64} unoptimized className="h-16 w-24 rounded-lg border bg-white object-contain p-1" /> : <div className="grid h-16 w-24 place-items-center rounded-lg bg-slate-100 text-slate-400"><ImageUp className="size-6" /></div>}<div className="flex flex-wrap gap-2"><Label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border bg-white px-3 text-sm font-medium hover:bg-slate-50"><ImageUp className="size-4" />Choose logo<input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(event) => uploadLogo(event.target.files?.[0], "rightLogoData")} /></Label>{form.rightLogoData ? <Button type="button" variant="outline" onClick={() => update("rightLogoData", "")}>Remove</Button> : null}</div></div><p className="text-xs text-slate-500">PNG, JPG, or WebP · maximum 500 KB</p></div></div></section>
+      <section className="rounded-xl border bg-white p-5 shadow-sm"><div className="mb-5 flex items-center gap-3"><div className="grid size-10 place-items-center rounded-xl bg-violet-100 text-violet-700"><Stamp className="size-5" /></div><div><h2 className="font-bold">Company stamp</h2><p className="text-sm text-slate-500">Displayed at the bottom of invoices and other documents.</p></div></div><div className="flex flex-wrap items-center gap-5 rounded-xl border border-dashed p-4">{form.stampData ? <Image src={form.stampData} alt="Company stamp preview" width={144} height={104} unoptimized className="h-26 w-36 rounded-lg bg-white object-contain p-1" /> : <div className="grid h-26 w-36 place-items-center rounded-lg bg-slate-100 text-slate-400"><Stamp className="size-8" /></div>}<div><div className="flex flex-wrap gap-2"><Label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border bg-white px-3 text-sm font-medium hover:bg-slate-50"><ImageUp className="size-4" />Choose stamp<input type="file" accept="image/*" className="sr-only" onChange={(event) => uploadStamp(event.target.files?.[0])} /></Label>{form.stampData ? <Button type="button" variant="outline" onClick={() => update("stampData", "")}>Remove</Button> : null}</div><p className="mt-2 text-xs text-slate-500">Any image format · maximum 500 KB</p></div></div></section>
+      <section className="rounded-xl border bg-white p-5 shadow-sm"><div className="mb-5 flex items-center gap-3"><div className="grid size-10 place-items-center rounded-xl bg-sky-100 text-sky-700"><Landmark className="size-5" /></div><div><h2 className="font-bold">Bank account</h2><p className="text-sm text-slate-500">Displayed on customer documents for payment.</p></div></div><div className="grid gap-4 md:grid-cols-2"><div className="space-y-2"><Label>Bank Name</Label><Input value={form.bankName} onChange={(event) => update("bankName", event.target.value)} maxLength={120} /></div><div className="space-y-2"><Label>Account Name</Label><Input value={form.bankAccountName} onChange={(event) => update("bankAccountName", event.target.value)} maxLength={120} /></div><div className="space-y-2"><Label>Account Number</Label><Input value={form.bankAccountNumber} onChange={(event) => update("bankAccountNumber", event.target.value)} maxLength={80} /></div><div className="space-y-2"><Label>Account Currency</Label><Select value={form.bankCurrency || form.baseCurrency} onValueChange={(value) => update("bankCurrency", value)}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{currencies.map((currency) => <SelectItem key={currency} value={currency}>{currency}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>IBAN</Label><Input value={form.bankIban} onChange={(event) => update("bankIban", event.target.value.toUpperCase())} maxLength={80} /></div><div className="space-y-2"><Label>SWIFT / BIC</Label><Input value={form.bankSwift} onChange={(event) => update("bankSwift", event.target.value.toUpperCase())} maxLength={30} /></div></div></section>
+    </div>
+    <CompanyTemplateDesigner value={form.documentDesign} onChange={value => update("documentDesign", value)} setup={form} disabled={saving} />
+    {canClearCompany && <CompanyClearButton companyId={setup.id} companyName={setup.name} disabled={saving} />}
+  </form>;
+}
+
+function AdminSettingsCenter({ companyId, companyName, currentUserEmail }: { companyId: number; companyName: string; currentUserEmail: string }) {
+  const [configured, setConfigured] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [currentPin, setCurrentPin] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordSaving, setPasswordSaving] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    async function loadSettings() {
+      setLoading(true);
+      try {
+        const response = await fetch(`/api/admin-settings?companyId=${companyId}`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not load admin controls");
+        if (active) setConfigured(Boolean(data.configured));
+      } catch (error) {
+        if (active) toast.error(error instanceof Error ? error.message : "Could not load admin controls");
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+    if (companyId) loadSettings();
+    return () => { active = false; };
+  }, [companyId]);
+
+  async function savePin(event: FormEvent) {
+    event.preventDefault();
+    if (!/^\d{4,12}$/.test(newPin)) return toast.error("The new PIN must contain 4 to 12 numbers.");
+    if (newPin !== confirmPin) return toast.error("The new PIN and confirmation do not match.");
+    setSaving(true);
+    try {
+      const response = await fetch("/api/admin-settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, currentPin, newPin }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not save the admin PIN");
+      setConfigured(true);
+      setCurrentPin(""); setNewPin(""); setConfirmPin("");
+      toast.success("Admin PIN saved");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not save the admin PIN");
+    } finally { setSaving(false); }
+  }
+
+  async function savePassword(event: FormEvent) {
+    event.preventDefault();
+    if (newPassword.length < 12) return toast.error("The new password must contain at least 12 characters.");
+    if (newPassword !== confirmPassword) return toast.error("The new password and confirmation do not match.");
+    setPasswordSaving(true);
+    try {
+      const response = await fetch("/api/auth/session", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ currentPassword, newPassword }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not change the password");
+      toast.success("Password changed. Sign in again.");
+      window.setTimeout(() => window.location.reload(), 700);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not change the password"); setPasswordSaving(false); }
+  }
+
+  return <div className="space-y-5"><div className="grid gap-5 xl:grid-cols-[1fr_420px]">
+    <section className="rounded-xl border bg-white shadow-sm">
+      <div className="flex items-start justify-between gap-4 border-b p-5"><div><h2 className="font-bold">Restricted stock operations</h2><p className="mt-1 text-sm text-slate-500">Security controls apply separately to {companyName}.</p></div><Badge className={configured ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100" : "bg-amber-100 text-amber-900 hover:bg-amber-100"}>{loading ? "Checking…" : configured ? "PIN configured" : "Setup required"}</Badge></div>
+      <div className="p-5"><div className="flex gap-4 rounded-xl border border-amber-200 bg-amber-50 p-4"><div className="grid size-11 shrink-0 place-items-center rounded-lg bg-amber-100 text-amber-800"><ShieldCheck className="size-6" /></div><div><h3 className="font-semibold text-amber-950">Negative-stock invoice override</h3><p className="mt-1 text-sm leading-6 text-amber-900">Invoices and sales receipts are blocked when stock is insufficient. A company admin can enter this PIN on the document to approve an exception.</p><p className="mt-2 text-sm font-medium text-amber-950">Every override is recorded in the audit log.</p></div></div></div>
+    </section>
+    <div className="space-y-5"><form onSubmit={savePin} className="space-y-4 rounded-xl border bg-white p-5 shadow-sm">
+      <div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-lg bg-slate-100 text-slate-700"><KeyRound className="size-5" /></div><div><h2 className="font-bold">{configured ? "Change admin PIN" : "Set admin PIN"}</h2><p className="text-sm text-slate-500">Use 4 to 12 numbers.</p></div></div>
+      {configured && <div className="space-y-2"><Label htmlFor="currentAdminPin">Current PIN</Label><Input id="currentAdminPin" type="password" inputMode="numeric" autoComplete="current-password" pattern="[0-9]{4,12}" value={currentPin} onChange={(event) => setCurrentPin(event.target.value.replace(/\D/g, "").slice(0, 12))} required placeholder="Enter current PIN" /></div>}
+      <div className="space-y-2"><Label htmlFor="newAdminPin">New PIN</Label><Input id="newAdminPin" type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,12}" value={newPin} onChange={(event) => setNewPin(event.target.value.replace(/\D/g, "").slice(0, 12))} required placeholder="Enter new PIN" /></div>
+      <div className="space-y-2"><Label htmlFor="confirmAdminPin">Confirm new PIN</Label><Input id="confirmAdminPin" type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,12}" value={confirmPin} onChange={(event) => setConfirmPin(event.target.value.replace(/\D/g, "").slice(0, 12))} required placeholder="Re-enter new PIN" /></div>
+      <Button type="submit" disabled={loading || saving || !companyId} className="w-full bg-emerald-500 font-semibold text-slate-950 hover:bg-emerald-400">{saving ? "Saving…" : configured ? "Change admin PIN" : "Set admin PIN"}</Button>
+      <p className="text-sm leading-5 text-slate-500">The PIN is securely hashed before storage and is never displayed. Only authorized company administrators should change it.</p>
+    </form>
+    <form onSubmit={savePassword} className="space-y-4 rounded-xl border bg-white p-5 shadow-sm">
+      <div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-lg bg-emerald-100 text-emerald-700"><ShieldCheck className="size-5" /></div><div><h2 className="font-bold">Change login password</h2><p className="text-sm text-slate-500">{currentUserEmail}</p></div></div>
+      <div className="space-y-2"><Label htmlFor="currentLoginPassword">Current password</Label><Input id="currentLoginPassword" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></div>
+      <div className="space-y-2"><Label htmlFor="newLoginPassword">New password</Label><Input id="newLoginPassword" type="password" autoComplete="new-password" minLength={12} maxLength={128} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required /></div>
+      <div className="space-y-2"><Label htmlFor="confirmLoginPassword">Confirm new password</Label><Input id="confirmLoginPassword" type="password" autoComplete="new-password" minLength={12} maxLength={128} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required /></div>
+      <Button type="submit" disabled={passwordSaving} className="w-full">{passwordSaving ? "Changing…" : "Change login password"}</Button>
+      <p className="text-sm leading-5 text-slate-500">Changing the password signs out every active session.</p>
+    </form></div>
+  </div><UserRoleCenter /></div>;
+}
+
+function WorkspaceCenter({ mode, companies, activeCompanyId, canDeleteCompanies, onChanged }: { mode: "companies" | "inventories" | "invoice-series" | "currencies"; companies: CompanyWorkspace[]; activeCompanyId: number; canDeleteCompanies: boolean; onChanged: () => Promise<void> }) {
+  const activeCompany = companies.find((company) => company.id === activeCompanyId);
+  const [name, setName] = useState("");
+  const [code, setCode] = useState("");
+  const [currency, setCurrency] = useState(activeCompany?.baseCurrency ?? "AED");
+  const [editingSeries, setEditingSeries] = useState<InventoryLocation | null>(null);
+  const [seriesPrefix, setSeriesPrefix] = useState("");
+  const [seriesNextNumber, setSeriesNextNumber] = useState("1");
+  const [saving, setSaving] = useState(false);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { setCurrency(activeCompany?.baseCurrency ?? "AED"); }, [activeCompany]);
+  const save = async (method: "POST" | "PATCH", payload: Record<string, string | number>) => {
+    setSaving(true);
+    try {
+      const response = await fetch("/api/workspaces", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not save");
+      await onChanged(); setName(""); setCode("");
+      if (payload.type === "invoiceSeries") setEditingSeries(null);
+      toast.success(payload.type === "invoiceSeries" ? "Invoice series updated" : mode === "companies" ? "Company added" : mode === "inventories" ? "Inventory added" : "Base currency updated");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save"); }
+    finally { setSaving(false); }
+  };
+  const removeInventory = async (location: InventoryLocation) => {
+    if (saving || !window.confirm(`Remove inventory "${location.name}"? Only unused inventories can be removed.`)) return;
+    setSaving(true);
+    try {
+      const response = await fetch("/api/workspaces", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "location", companyId: activeCompanyId, locationId: location.id }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not remove inventory.");
+      await onChanged();
+      toast.success("Inventory removed");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not remove inventory."); }
+    finally { setSaving(false); }
+  };
+  const removeCompany = async (company: CompanyWorkspace) => {
+    if (saving) return;
+    const confirmName = window.prompt(`Delete company "${company.name}" and all of its data? This cannot be undone.\n\nType the exact company name to continue:`);
+    if (confirmName === null) return;
+    if (confirmName.trim() !== company.name) return toast.error("The company name does not match.");
+    setSaving(true);
+    try {
+      const response = await fetch("/api/workspaces", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "company", companyId: company.id, confirmName: confirmName.trim() }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not delete company.");
+      await onChanged();
+      toast.success("Company deleted");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not delete company."); }
+    finally { setSaving(false); }
+  };
+  const openSeriesEditor = (location: InventoryLocation) => {
+    setEditingSeries(location);
+    setSeriesPrefix(location.invoicePrefix);
+    setSeriesNextNumber(String(location.nextInvoiceNumber));
+  };
+  const seriesEditor = <Dialog open={Boolean(editingSeries)} onOpenChange={(open) => { if (!open) setEditingSeries(null); }}><DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>Customize invoice series</DialogTitle><DialogDescription>Set the prefix and next invoice number for {editingSeries?.name}. This affects only this company inventory.</DialogDescription></DialogHeader><form className="space-y-4" onSubmit={(event) => { event.preventDefault(); if (!editingSeries) return; save("PATCH", { type: "invoiceSeries", companyId: activeCompanyId, locationId: editingSeries.id, invoicePrefix: seriesPrefix, nextInvoiceNumber: Number(seriesNextNumber) }); }}><div className="space-y-2"><Label>Invoice series prefix</Label><Input value={seriesPrefix} onChange={(event) => setSeriesPrefix(event.target.value.toUpperCase())} required maxLength={20} placeholder="JAFZA" /><p className="text-xs text-slate-500">Letters, numbers, hyphens and slashes are allowed.</p></div><div className="space-y-2"><Label>Next invoice number</Label><Input type="number" min="1" max="999999999" step="1" value={seriesNextNumber} onChange={(event) => setSeriesNextNumber(event.target.value)} required /></div><div className="rounded-lg border bg-slate-50 p-3"><p className="text-xs font-medium text-slate-500">Preview</p><p className="mt-1 font-mono text-sm font-semibold text-emerald-700">C{String(activeCompanyId).padStart(3, "0")}-{seriesPrefix || "PREFIX"}-INV-{String(Math.max(1, Number(seriesNextNumber) || 1)).padStart(4, "0")}</p></div><DialogFooter><Button type="button" variant="outline" onClick={() => setEditingSeries(null)}>Cancel</Button><Button type="submit" disabled={saving}>Save series</Button></DialogFooter></form></DialogContent></Dialog>;
+  if (mode === "companies") return <div className="grid gap-5 xl:grid-cols-[1fr_360px]"><section className="rounded-xl border bg-white shadow-sm"><div className="border-b p-5"><h2 className="font-bold">Company files</h2><p className="text-sm text-slate-500">Each company has separate customers, accounts, transactions and inventory.</p></div><div className="grid gap-3 p-5 md:grid-cols-2">{companies.map((company) => <article key={company.id} className={`rounded-xl border p-4 ${company.id === activeCompanyId ? "border-emerald-300 bg-emerald-50/50" : ""}`}><div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold">{company.name}</h3><p className="mt-1 text-sm text-slate-500">{company.locations.length} {company.locations.length === 1 ? "inventory" : "inventories"}</p></div><div className="flex items-center gap-1"><Badge variant="outline">{company.baseCurrency}</Badge>{canDeleteCompanies && <Button type="button" variant="ghost" size="icon" disabled={saving || companies.length <= 1} title="Delete company" aria-label={`Delete ${company.name}`} onClick={() => void removeCompany(company)} className="text-rose-600 hover:text-rose-700"><Trash2 className="size-4" /></Button>}</div></div>{company.id === activeCompanyId && <p className="mt-3 text-xs font-semibold text-emerald-700">Currently selected</p>}</article>)}</div></section><form className="space-y-4 rounded-xl border bg-white p-5 shadow-sm" onSubmit={(event) => { event.preventDefault(); save("POST", { type: "company", name, baseCurrency: currency, sourceCompanyId: activeCompanyId }); }}><div><h2 className="font-bold">Add company</h2><p className="text-sm text-slate-500">Includes a Main Inventory and the selected company’s main Chart of Accounts at zero balance. Sub-accounts and history are not copied.</p></div><div className="space-y-2"><Label>Company name</Label><Input value={name} onChange={(event) => setName(event.target.value)} required placeholder="Company name" /></div><div className="space-y-2"><Label>Base currency</Label><Select value={currency} onValueChange={setCurrency}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{currencies.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div><Button disabled={saving} className="w-full"><Plus className="size-4" />Add company</Button></form></div>;
   if (mode === "inventories") return <>
     <div className="grid gap-5 xl:grid-cols-[1fr_360px]"><section className="rounded-xl border bg-white shadow-sm"><div className="border-b p-5"><h2 className="font-bold">{activeCompany?.name} inventories</h2><p className="text-sm text-slate-500">Manage stock locations and their invoice series.</p></div><div className="grid gap-3 p-5 md:grid-cols-2">{activeCompany?.locations.map((location) => <article key={location.id} className="rounded-xl border p-4"><div className="flex items-start justify-between gap-3"><PackageSearch className="size-5 text-emerald-600" /><div className="flex gap-2"><Button type="button" variant="outline" size="sm" onClick={() => openSeriesEditor(location)}><Pencil className="size-3" />Edit series</Button><Button type="button" variant="ghost" size="icon" disabled={saving} title="Remove inventory" aria-label={`Remove ${location.name}`} onClick={() => void removeInventory(location)} className="text-rose-600"><Trash2 className="size-4" /></Button></div></div><h3 className="mt-3 font-semibold">{location.name}</h3><p className="mt-1 font-mono text-xs text-slate-500">{location.code}</p><p className="mt-3 text-xs font-medium text-slate-500">Next invoice</p><p className="mt-1 font-mono text-sm text-emerald-700">{invoiceNumberPreview(activeCompanyId, location)}</p></article>)}</div></section><form className="space-y-4 rounded-xl border bg-white p-5 shadow-sm" onSubmit={(event) => { event.preventDefault(); save("POST", { type: "location", companyId: activeCompanyId, name, code }); }}><div><h2 className="font-bold">Add inventory</h2><p className="text-sm text-slate-500">Warehouse, showroom or store. Its code becomes part of the invoice series.</p></div><div className="space-y-2"><Label>Inventory name</Label><Input value={name} onChange={(event) => setName(event.target.value)} required placeholder="Jebel Ali Warehouse" /></div><div className="space-y-2"><Label>Code / invoice prefix</Label><Input value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} required placeholder="JAFZA" /></div><Button disabled={saving || !activeCompanyId} className="w-full"><Plus className="size-4" />Add inventory</Button></form></div>
     {seriesEditor}

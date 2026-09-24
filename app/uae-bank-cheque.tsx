@@ -22,7 +22,7 @@ function amountInWords(amount: number, currency: string): string {
   const safe = Math.max(0, Math.round(amount * 100) / 100);
   const whole = Math.floor(safe);
   const fils = Math.round((safe - whole) * 100);
-  const unit = currency === "AED" ? "UAE Dirham" : currency;
+  const unit = currency === "AED" ? "UAE Dirham" : currency === "USD" ? "US Dollar" : currency === "EUR" ? "Euro" : currency;
   return `${integerWords(whole) || "Zero"} ${unit}${whole === 1 ? "" : "s"}${fils ? ` and ${integerWords(fils)} Fils` : ""} Only`;
 }
 
