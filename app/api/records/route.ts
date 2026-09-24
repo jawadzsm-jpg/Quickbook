@@ -1101,6 +1101,20 @@ async function handlePATCH(request: Request) {
       return await withWriteTransaction(async () => {
         const db = getDb();
         const [existing] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId))).for("update");
+        if (existing?.type === "cheque" && payload.editMode === "cheque-number") {
+          const allowed = new Set(["kind", "id", "companyId", "revision", "editMode", "number"]);
+          if (Object.keys(payload).some((field) => !allowed.has(field))) return Response.json({ error: "Only the cheque number can be changed here." }, { status: 400 });
+          const oldLines = await db.select().from(transactionLines).where(eq(transactionLines.transactionId, id)).orderBy(asc(transactionLines.id));
+          if (payload.revision !== purchaseRevision(existing, oldLines)) return Response.json({ error: "This cheque changed. Close and reopen it before saving." }, { status: 409 });
+          const number = String(payload.number ?? "").trim();
+          if (!number || number.length > 100) return Response.json({ error: "Enter a cheque number of no more than 100 characters." }, { status: 400 });
+          const [duplicate] = await db.select({ id: transactions.id }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.number, number), sql`${transactions.locationId} IS NOT DISTINCT FROM ${existing.locationId}`, sql`${transactions.id} <> ${id}`)).limit(1);
+          if (number !== existing.number && duplicate) return Response.json({ error: "That cheque number is already used in this inventory." }, { status: 409 });
+          const [record] = await db.update(transactions).set({ number }).where(eq(transactions.id, id)).returning();
+          await db.update(journalEntries).set({ reference: number }).where(eq(journalEntries.transactionId, id));
+          await db.insert(auditLog).values({ companyId, action: "updated", entityType: "transaction", entityId: id, details: JSON.stringify({ actor: { id: authorization.id, email: authorization.email }, mode: "cheque-number", before: { number: existing.number }, after: { number } }) });
+          return Response.json({ record, revision: purchaseRevision(record, oldLines) });
+        }
         if (existing && ["invoice", "customer payment"].includes(existing.type)) {
           if (payload.editMode !== "details") return Response.json({ error: "Use Edit details for invoices and customer payments. Posted amounts and allocations are protected." }, { status: 400 });
           const allowed = new Set(["kind", "id", "companyId", "revision", "editMode", "number", "transactionDate", "dueDate", "terms", "salesman", "memo"]);

@@ -138,6 +138,8 @@ test("UAE bank cheque is linked to Banking and supports save and print", () => {
   assert.match(app, /<UaeBankCheque record=\{record\}/);
   assert.match(cheque, /Print on bank cheque/);
   assert.match(cheque, /Print A4 voucher/);
+  assert.match(cheque, /Edit cheque number/);
+  assert.match(cheque, /editMode: "cheque-number"/);
   assert.match(cheque, /Horizontal mm/);
   assert.match(cheque, /Amount in words/);
   assert.match(cheque, /window\.print\(\)/);

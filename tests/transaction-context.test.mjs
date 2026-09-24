@@ -432,6 +432,7 @@ test('cheques credit the chosen currency bank and debit the selected AP or expen
   for (const changes of [{ bankAccountId: null }, { bankAccountId: rows[0].id }, { bankAccountId: rows[2].id }, { account: 'Missing AP' }, { chequeBankKey: 'not-a-uae-bank' }]) assert.equal((await pay(changes)).status, 400);
   assert.equal((await pay({ party: '', chequeType: 'supplier' })).status, 400);
   assert.equal((await database.query('SELECT count(*)::int AS n FROM transactions WHERE company_id=$1', [companyId])).rows[0].n, 0);
+  const savedChequeIds = [];
   for (const account of ['Cheque USD AP', 'Cheque Expense', 'Direct Expense']) {
     const response = await pay({ account }); assert.equal(response.status, 201);
     const savedCheque = (await response.json()).record;
@@ -439,6 +440,7 @@ test('cheques credit the chosen currency bank and debit the selected AP or expen
     assert.equal(savedCheque.chequeBankKey, 'emirates-nbd-business');
     assert.ok(savedCheque.paidAt);
     const id = savedCheque.id;
+    savedChequeIds.push(id);
     const journal = (await database.query('SELECT jl.account_name, jl.debit, jl.credit FROM journal_lines jl JOIN journal_entries je ON jl.journal_entry_id=je.id WHERE je.transaction_id=$1 ORDER BY jl.id', [id])).rows;
     assert.deepEqual(journal, [{ account_name: account, debit: 367.5, credit: 0 }, { account_name: 'Cheque USD Bank', debit: 0, credit: 367.5 }]);
   }
@@ -454,11 +456,24 @@ test('cheques credit the chosen currency bank and debit the selected AP or expen
   assert.equal(vendorExpense.status, 201);
   const vendorExpenseId = (await vendorExpense.json()).record.id;
   assert.deepEqual((await database.query('SELECT jl.account_name, jl.debit, jl.credit FROM journal_lines jl JOIN journal_entries je ON jl.journal_entry_id=je.id WHERE je.transaction_id=$1 ORDER BY jl.id', [vendorExpenseId])).rows, [{ account_name: 'Direct Expense', debit: 367.5, credit: 0 }, { account_name: 'Recoverable VAT', debit: 18.38, credit: 0 }, { account_name: 'Cheque USD Bank', debit: 0, credit: 385.88 }]);
-  const { GET, DELETE } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const { GET, PATCH, DELETE } = await vite.ssrLoadModule('/app/api/records/route.ts');
   const accountRecords = (await (await GET(new Request(`https://app.test/api/records?kind=accounts&companyId=${companyId}`))).json()).records;
   const listedUsdBank = accountRecords.find(account => account.name === 'Cheque USD Bank');
   assert.equal(listedUsdBank.balance, -655);
   assert.equal(listedUsdBank.baseBalance, -2407.13);
+  const chequeDetail = await (await GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${companyId}&id=${savedChequeIds[0]}`))).json();
+  const renameCheque = (id, revision, number) => PATCH(new Request('https://app.test/api/records', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'transactions', companyId, id, revision, editMode: 'cheque-number', number }) }));
+  const renamed = await renameCheque(savedChequeIds[0], chequeDetail.revision, 'CHQ-EDITED');
+  assert.equal(renamed.status, 200);
+  const renamedPayload = await renamed.json();
+  const renamedRecord = renamedPayload.record;
+  assert.equal(renamedRecord.number, 'CHQ-EDITED');
+  const renamedRevision = renamedPayload.revision;
+  assert.ok(renamedRevision);
+  assert.equal((await database.query('SELECT reference FROM journal_entries WHERE transaction_id=$1', [savedChequeIds[0]])).rows[0].reference, 'CHQ-EDITED');
+  assert.equal((await renameCheque(savedChequeIds[0], renamedRevision, 'CHQ-EDITED-2')).status, 200);
+  const duplicateDetail = await (await GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${companyId}&id=${savedChequeIds[1]}`))).json();
+  assert.equal((await renameCheque(savedChequeIds[1], duplicateDetail.revision, 'CHQ-EDITED-2')).status, 409);
   const legacyId = (await database.query("UPDATE transactions SET status='open',paid_at=NULL WHERE company_id=$1 RETURNING id", [companyId])).rows[0].id;
   const legacyDetail = await (await GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${companyId}&id=${legacyId}`))).json();
   assert.equal(legacyDetail.record.status,'paid');

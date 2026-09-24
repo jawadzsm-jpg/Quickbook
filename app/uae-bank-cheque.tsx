@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type CSSProperties } from "react";
-import { FileText, Move, Printer } from "lucide-react";
+import { Check, FileText, Move, Pencil, Printer, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -53,7 +53,7 @@ function ChequeFields({ date, party, words, amount, currency, crossed, layout, p
   </>;
 }
 
-export function UaeBankCheque({ record, lines, journal, companyName }: { record: ChequeRecord; lines: ChequeRecord[]; journal: ChequeRecord[]; companyName: string }) {
+export function UaeBankCheque({ record, lines, journal, companyName, revision, canEditNumber = false, onNumberSaved }: { record: ChequeRecord; lines: ChequeRecord[]; journal: ChequeRecord[]; companyName: string; revision: string; canEditNumber?: boolean; onNumberSaved?: (number: string, revision: string) => void }) {
   const amount = Number(record.total || lines[0]?.total || 0);
   const currency = String(record.currency || "AED");
   const bankName = String(journal.find((line) => Number(line.credit) > 0)?.accountName || "Selected UAE bank account");
@@ -63,6 +63,11 @@ export function UaeBankCheque({ record, lines, journal, companyName }: { record:
   const words = amountInWords(amount, currency);
   const [offsetX, setOffsetX] = useState("0");
   const [offsetY, setOffsetY] = useState("0");
+  const [chequeNumber, setChequeNumber] = useState(String(record.number));
+  const [numberDraft, setNumberDraft] = useState(String(record.number));
+  const [editingNumber, setEditingNumber] = useState(false);
+  const [savingNumber, setSavingNumber] = useState(false);
+  const [numberError, setNumberError] = useState("");
   const calibrationStyle = { "--cheque-offset-x": `${Number(offsetX) || 0}mm`, "--cheque-offset-y": `${Number(offsetY) || 0}mm` } as CSSProperties;
 
   function print(mode: "cheque" | "voucher") {
@@ -80,15 +85,43 @@ export function UaeBankCheque({ record, lines, journal, companyName }: { record:
     window.print();
   }
 
+  async function saveChequeNumber() {
+    const number = numberDraft.trim();
+    if (!number) return setNumberError("Enter the cheque number.");
+    if (number.length > 100) return setNumberError("Cheque number must be no more than 100 characters.");
+    setSavingNumber(true);
+    setNumberError("");
+    try {
+      const response = await fetch("/api/records", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "transactions", id: record.id, companyId: Number(record.companyId), revision, editMode: "cheque-number", number }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not update the cheque number.");
+      setChequeNumber(number);
+      setNumberDraft(number);
+      setEditingNumber(false);
+      onNumberSaved?.(number, String(data.revision || ""));
+    } catch (error) {
+      setNumberError(error instanceof Error ? error.message : "Could not update the cheque number.");
+    } finally {
+      setSavingNumber(false);
+    }
+  }
+
   return <div className="space-y-5">
     <div className="document-internal-only space-y-4 rounded-xl border bg-slate-50 p-4 print:hidden">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div><p className="font-bold text-slate-900">UAE Bank Cheque</p><p className="text-sm text-slate-500">{selectedLayout.name} · Saved cheque {String(record.number)}</p></div>
+        <div><p className="font-bold text-slate-900">UAE Bank Cheque</p><p className="text-sm text-slate-500">{selectedLayout.name} · Saved cheque {chequeNumber}</p></div>
         <div className="flex flex-wrap gap-2">
           <Button type="button" onClick={() => print("cheque")}><Printer className="size-4" />Print on bank cheque</Button>
           <Button type="button" variant="outline" onClick={() => print("voucher")}><FileText className="size-4" />Print A4 voucher</Button>
         </div>
       </div>
+      {canEditNumber && <div className="rounded-lg border bg-white p-3">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="min-w-56 flex-1 space-y-1"><Label htmlFor="saved-cheque-number" className="text-xs">Cheque number</Label><Input id="saved-cheque-number" value={numberDraft} disabled={!editingNumber || savingNumber} maxLength={100} onChange={(event) => { setNumberDraft(event.target.value); setNumberError(""); }} /></div>
+          {editingNumber ? <><Button type="button" size="sm" disabled={savingNumber} onClick={() => void saveChequeNumber()}><Check className="size-4" />{savingNumber ? "Saving…" : "Save number"}</Button><Button type="button" size="sm" variant="outline" disabled={savingNumber} onClick={() => { setNumberDraft(chequeNumber); setNumberError(""); setEditingNumber(false); }}><X className="size-4" />Cancel</Button></> : <Button type="button" size="sm" variant="outline" onClick={() => setEditingNumber(true)}><Pencil className="size-4" />Edit cheque number</Button>}
+        </div>
+        {numberError && <p role="alert" className="mt-2 text-xs font-medium text-red-600">{numberError}</p>}
+      </div>}
       <div className="grid gap-3 sm:grid-cols-[1fr_8rem_8rem] sm:items-end">
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950"><strong>Before the first print:</strong> use plain paper to test alignment, then load the bank cheque in the same orientation. Printer scaling must be 100% / Actual size.</div>
         <div className="space-y-1"><Label htmlFor="cheque-offset-x" className="flex items-center gap-1 text-xs"><Move className="size-3" />Horizontal mm</Label><Input id="cheque-offset-x" type="number" step="0.5" value={offsetX} onChange={(event) => setOffsetX(event.target.value)} /></div>
@@ -111,7 +144,7 @@ export function UaeBankCheque({ record, lines, journal, companyName }: { record:
     <section className="uae-cheque-sheet rounded-xl border-2 border-slate-300 bg-white p-7 text-slate-950 shadow-sm">
       <div className="flex items-start justify-between gap-6 border-b border-slate-300 pb-5">
         <div><p className="text-xs font-bold uppercase tracking-[.2em] text-emerald-700">{companyName}</p><h2 className="mt-2 text-2xl font-black">CHEQUE PAYMENT VOUCHER</h2><p className="mt-1 text-sm text-slate-500">{bankName} · {selectedLayout.name}</p></div>
-        <div className="text-right"><p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Cheque number</p><p className="mt-1 font-mono text-lg font-bold">{String(record.number)}</p></div>
+        <div className="text-right"><p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Cheque number</p><p className="mt-1 font-mono text-lg font-bold">{chequeNumber}</p></div>
       </div>
       <div className="mt-7 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
         <div><p className="text-xs uppercase text-slate-500">Payee</p><p className="mt-1 font-bold">{String(record.party)}</p></div>
