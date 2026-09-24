@@ -113,6 +113,20 @@ test("memorised reports live in Report Center categories with A4 print and PDF a
   assert.match(css, /@page report \{ size: A4 landscape; margin: 10mm; \}/);
 });
 
+test("complete business final report links executive measures to detailed report areas", () => {
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const api = readFileSync(new URL("../app/api/reports/route.ts", import.meta.url), "utf8");
+  const view = readFileSync(new URL("../app/business-final-report.tsx", import.meta.url), "utf8");
+  assert.match(app, /"Complete Business Final Report"[\s\S]*"Financial"[\s\S]*"business-final"/);
+  for (const section of ["Trading", "Profitability", "VAT", "Working Capital", "Banking", "Inventory", "Operations", "Contacts"]) assert.match(api, new RegExp(`finalRow\\(\\"${section}\\"`));
+  assert.match(api, /"Net income"[\s\S]*"profit-loss"/);
+  assert.match(api, /"Net VAT position"[\s\S]*"vat-summary"/);
+  assert.match(api, /"Customer receivables"[\s\S]*"ar-aging-summary"/);
+  assert.match(api, /"Current stock value"[\s\S]*"inventory-valuation"/);
+  assert.match(view, /onOpenReport\(String\(row\.reportKey\)\)/);
+  assert.match(view, /Detailed report: \{row\.detailReport\}/);
+});
+
 test("Escape and close controls protect editable dialogs with save, discard, and cancel choices", () => {
   const closer = readFileSync(new URL("../app/escape-window-closer.tsx", import.meta.url), "utf8");
   assert.match(closer, /document\.addEventListener\("keydown", onKeyDown, true\)/);

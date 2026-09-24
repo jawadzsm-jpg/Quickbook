@@ -223,7 +223,48 @@ export async function GET(request: Request) {
     let rows: Row[] = txRows();
     let chart: { labelKey: string; incomeKey: string; expenseKey: string; incomeLabel?: string; expenseLabel?: string } | undefined;
 
-    if (key === "profit-loss") {
+    if (key === "business-final") {
+      title = "Complete Business Final Report";
+      const sales = scopedTransactions.filter((row) => salesTypes.has(row.type) || row.type === "credit memo").reduce((sum, row) => sum + (row.type === "credit memo" ? -baseSubtotal(row) : baseSubtotal(row)), 0);
+      const purchases = scopedTransactions.filter((row) => purchaseTypes.has(row.type)).reduce((sum, row) => sum + purchaseSubtotal(row), 0);
+      const income = ledgerRows.filter((row) => incomeTypes.has(row.type)).reduce((sum, row) => sum - row.balance, 0);
+      const expenses = ledgerRows.filter((row) => expenseTypes.has(row.type)).reduce((sum, row) => sum + row.balance, 0);
+      const netIncome = income - expenses;
+      const receivables = customerActivities.reduce((sum, row) => sum + customerImpact(row), 0);
+      const payables = supplierActivities.reduce((sum, row) => sum + supplierImpact(row), 0);
+      const bankMovement = ledgerRows.filter((row) => { const account = accountsById.get(row.accountId); return account?.systemRole === "BANK" || account?.type === "Bank"; }).reduce((sum, row) => sum + row.balance, 0);
+      const stockQuantity = stockItems.reduce((sum, item) => sum + Number(item.quantity), 0);
+      const stockValue = stockItems.reduce((sum, item) => sum + Number(item.quantity) * inventoryCostFor(item), 0);
+      const lowStock = stockItems.filter((item) => Number(item.quantity) > 0 && Number(item.quantity) <= Number(item.reorderPoint)).length;
+      const outOfStock = stockItems.filter((item) => Number(item.quantity) <= 0).length;
+      const openSalesOrders = scopedTransactions.filter((row) => row.type === "sales order" && !["paid", "closed", "cancelled", "converted"].includes(row.status)).length;
+      const openPurchaseOrders = scopedTransactions.filter((row) => row.type === "purchase order" && !["paid", "closed", "received", "cancelled", "converted"].includes(row.status)).length;
+      const activeCustomers = allContacts.filter((contact) => contact.type === "customer" && contact.status === "active").length;
+      const activeSuppliers = allContacts.filter((contact) => contact.type === "vendor" && contact.status === "active").length;
+      const finalRow = (section: string, metric: string, detailReport: string, reportKey: string, amount: number | null, count: number | null, status: string): Row => ({ section, metric, amount, count, status, detailReport, reportKey });
+      rows = [
+        finalRow("Trading", "Net sales", "Sales by Customer Summary", "sales-by-customer", sales, null, sales >= 0 ? "Recorded" : "Credit balance"),
+        finalRow("Trading", "Purchase spend", "Purchases by Supplier Summary", "purchases-by-vendor", purchases, null, purchases >= 0 ? "Recorded" : "Credit balance"),
+        finalRow("Profitability", "Income", "Profit & Loss Standard", "profit-loss", income, null, "Posted ledger"),
+        finalRow("Profitability", "Expenses and cost of sales", "Profit & Loss Standard", "profit-loss", expenses, null, "Posted ledger"),
+        finalRow("Profitability", "Net income", "Profit & Loss Standard", "profit-loss", netIncome, null, netIncome >= 0 ? "Profit" : "Loss"),
+        finalRow("VAT", "Output VAT", "VAT Summary Report", "vat-summary", outputVat, null, "Collected"),
+        finalRow("VAT", "Recoverable input VAT", "VAT Summary Report", "vat-summary", inputVat, null, "Recoverable"),
+        finalRow("VAT", "Net VAT position", "VAT Summary Report", "vat-summary", outputVat - inputVat, null, outputVat - inputVat >= 0 ? "Payable" : "Recoverable"),
+        finalRow("Working Capital", "Customer receivables", "A/R Aging Summary", "ar-aging-summary", receivables, null, receivables > 0.005 ? "Outstanding" : "Clear"),
+        finalRow("Working Capital", "Supplier payables", "A/P Aging Summary", "ap-aging-summary", payables, null, payables > 0.005 ? "Outstanding" : "Clear"),
+        finalRow("Banking", "Net bank movement", "Statement of Cash Flows", "cash-flow", bankMovement, null, bankMovement >= 0 ? "Net inflow" : "Net outflow"),
+        finalRow("Inventory", "Current stock value", "Stock Valuation Summary", "inventory-valuation", stockValue, null, "Current snapshot"),
+        finalRow("Inventory", "Current on-hand quantity", "Stock Status by Item", "inventory-status", null, stockQuantity, "Current snapshot"),
+        finalRow("Inventory", "Low-stock items", "Stock Status by Item", "inventory-status", null, lowStock, lowStock ? "Review" : "OK"),
+        finalRow("Inventory", "Out-of-stock items", "Stock Status by Item", "inventory-status", null, outOfStock, outOfStock ? "Action required" : "OK"),
+        finalRow("Operations", "Open sales orders", "Sales Order Fulfilment", "sales-orders", null, openSalesOrders, openSalesOrders ? "Open" : "Clear"),
+        finalRow("Operations", "Open purchase orders", "Open Purchase Orders", "open-purchase-orders", null, openPurchaseOrders, openPurchaseOrders ? "Open" : "Clear"),
+        finalRow("Contacts", "Active customers", "Active Customers", "active-customers", null, activeCustomers, "Active"),
+        finalRow("Contacts", "Active suppliers", "Supplier Contact List", "supplier-contact-list", null, activeSuppliers, "Active"),
+      ];
+      columns = [{ key: "section", label: "Business Area" }, { key: "metric", label: "Measure" }, { key: "amount", label: `Amount (${currency})`, ...money }, { key: "count", label: "Count / Qty" }, { key: "status", label: "Status" }, { key: "detailReport", label: "Linked Detailed Report" }];
+    } else if (key === "profit-loss") {
       title = "Profit & Loss Standard";
       rows = ledgerRows.filter((row) => incomeTypes.has(row.type) || expenseTypes.has(row.type)).map((row) => ({ name: row.name, type: row.type, amount: incomeTypes.has(row.type) ? -row.balance : row.balance }));
       const income = rows.filter((row) => incomeTypes.has(String(row.type))).reduce((n, row) => n + Number(row.amount), 0);
