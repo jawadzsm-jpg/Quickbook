@@ -20,6 +20,7 @@ export const salesDocumentTitles = {
   "proforma-invoice": "Proforma Invoice",
   "sales-order": "Sales Order",
   "purchase-order": "Purchase Order",
+  "purchase-return": "Purchase Return",
   "credit-note": "Credit Note",
   refund: "Refund",
   quotation: "Quotation",
@@ -37,6 +38,7 @@ const savedTemplateType: Partial<Record<SalesDocumentMode, TemplateDocumentType>
   "proforma-invoice": "Proforma Invoice",
   "sales-order": "Sales Order",
   "purchase-order": "Purchase Order",
+  "purchase-return": "Refund",
   "credit-note": "Credit Note",
   refund: "Refund",
   "cash-sales": "Sales Receipt",
@@ -58,6 +60,8 @@ export function salesDocumentModeForTransaction(type: string): SalesDocumentMode
     case "proforma invoice": return "proforma-invoice";
     case "sales order": return "sales-order";
     case "purchase order": return "purchase-order";
+    case "vendor credit":
+    case "purchase return": return "purchase-return";
     case "credit memo":
     case "credit note": return "credit-note";
     case "refund": return "refund";
@@ -82,7 +86,7 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
   const activeMode = selection.source === mode && outputModes.includes(selection.output) ? selection.output : mode;
   const requestedTemplateType = savedTemplateType[activeMode];
   const { design, savedTemplate } = resolveDocumentDesign(setup.documentDesign, requestedTemplateType);
-  if (!savedTemplate || savedTemplate.appliesToAll || (requestedTemplateType && savedTemplate.type !== requestedTemplateType) || activeMode === "commercial-invoice") design.title = salesDocumentTitles[activeMode];
+  if (!savedTemplate || savedTemplate.appliesToAll || (requestedTemplateType && savedTemplate.type !== requestedTemplateType) || activeMode === "commercial-invoice" || activeMode === "purchase-return") design.title = salesDocumentTitles[activeMode];
 
   const a4Design = { ...design, paper: "A4" as const, printerMode: "specified" as const };
   const pageRule = documentPageRule(a4Design);

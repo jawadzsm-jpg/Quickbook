@@ -73,6 +73,20 @@ test("payment terms update the due date from the transaction date", () => {
   assert.equal(dueDateForPaymentTerms("2026-09-24", "50% advance · 50% on delivery"), undefined);
 });
 
+test("purchase returns are linked, stock-posting, and available as A4 documents", () => {
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const api = readFileSync(new URL("../app/api/records/route.ts", import.meta.url), "utf8");
+  const template = readFileSync(new URL("../app/sales-document-template.tsx", import.meta.url), "utf8");
+  assert.match(app, /label: "Return Purchases"/);
+  assert.match(app, /Original supplier bill/);
+  assert.match(api, /kind === "purchase-return-bills"/);
+  assert.match(api, /Return quantity exceeds the quantity remaining/);
+  assert.match(api, /\["invoice", "sales receipt", "vendor credit"\]/);
+  assert.match(api, /type === "vendor credit"[\s\S]*Accounts Payable/);
+  assert.match(template, /"purchase-return": "Purchase Return"/);
+  assert.match(template, /createA4PdfBlob/);
+});
+
 test("Escape and close controls protect editable dialogs with save, discard, and cancel choices", () => {
   const closer = readFileSync(new URL("../app/escape-window-closer.tsx", import.meta.url), "utf8");
   assert.match(closer, /document\.addEventListener\("keydown", onKeyDown, true\)/);

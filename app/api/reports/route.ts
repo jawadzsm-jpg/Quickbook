@@ -116,8 +116,9 @@ export async function GET(request: Request) {
     const liabilityTypes = new Set(["Accounts Payable", "Other Current Liability", "Long Term Liability", "Loan", "Credit Card"]);
     const scopedTransactions = allTransactions.filter((row) => !Number.isInteger(locationId) || locationId <= 0 || row.locationId === locationId);
     const salesTypes = new Set(["invoice", "sales receipt", "statement charge", "finance charge"]);
-    const purchaseTypes = new Set(["bill", "received item bill", "expense", "cheque", "credit card charge"]);
+    const purchaseTypes = new Set(["bill", "received item bill", "expense", "cheque", "credit card charge", "vendor credit"]);
     const baseSubtotal = (row: typeof allTransactions[number]) => Number(row.subtotal) * Number(row.exchangeRate);
+    const purchaseSubtotal = (row: typeof allTransactions[number]) => (row.type === "vendor credit" ? -1 : 1) * baseSubtotal(row);
     const rateMap = new Map(currentRates.map((rate) => [rate.currencyCode, Number(rate.rate)]));
     const entryAccountType = (entry: typeof journal[number]) => journalAccount(entry)?.type ?? "Unclassified";
     const activeInventoryAccounts = allAccounts.filter((account) => account.active && (account.systemRole === "INVENTORY" || /inventory asset/i.test(account.name)));
@@ -253,7 +254,7 @@ export async function GET(request: Request) {
         const name = key === "profit-loss-job" ? locationNames.get(row.locationId ?? 0) ?? "Unassigned" : row.type;
         const old = grouped.get(name) ?? { income: 0, expenses: 0 };
         if (salesTypes.has(row.type)) old.income += baseSubtotal(row);
-        if (purchaseTypes.has(row.type)) old.expenses += baseSubtotal(row);
+        if (purchaseTypes.has(row.type)) old.expenses += purchaseSubtotal(row);
         grouped.set(name, old);
       });
       rows = [...grouped].map(([name, value]) => ({ name, ...value, netIncome: value.income - value.expenses }));
@@ -266,18 +267,18 @@ export async function GET(request: Request) {
       const income = key === "income-customer-summary";
       title = income ? "Income by Customer Summary" : "Expenses by Supplier Summary";
       const grouped = new Map<string, number>();
-      scopedTransactions.filter((row) => income ? salesTypes.has(row.type) : purchaseTypes.has(row.type)).forEach((row) => grouped.set(row.party, (grouped.get(row.party) ?? 0) + baseSubtotal(row)));
+      scopedTransactions.filter((row) => income ? salesTypes.has(row.type) : purchaseTypes.has(row.type)).forEach((row) => grouped.set(row.party, (grouped.get(row.party) ?? 0) + (income ? baseSubtotal(row) : purchaseSubtotal(row))));
       rows = [...grouped].map(([name, amount]) => ({ name, amount })).sort((a, b) => b.amount - a.amount);
       columns = [{ key: "name", label: income ? "Customer" : "Supplier" }, { key: "amount", label: income ? "Income" : "Expenses", ...money }];
     } else if (key === "income-customer-detail" || key === "expenses-supplier-detail") {
       const income = key === "income-customer-detail";
       title = income ? "Income by Customer Detail" : "Expenses by Supplier Detail";
-      rows = scopedTransactions.filter((row) => income ? salesTypes.has(row.type) : purchaseTypes.has(row.type)).map((row) => ({ date: row.transactionDate, number: row.number, name: row.party, type: row.type, currency: row.currency, amount: baseSubtotal(row) }));
+      rows = scopedTransactions.filter((row) => income ? salesTypes.has(row.type) : purchaseTypes.has(row.type)).map((row) => ({ date: row.transactionDate, number: row.number, name: row.party, type: row.type, currency: row.currency, amount: income ? baseSubtotal(row) : purchaseSubtotal(row) }));
       columns = [{ key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "name", label: income ? "Customer" : "Supplier" }, { key: "type", label: "Type" }, { key: "currency", label: "Currency" }, { key: "amount", label: income ? "Income" : "Expenses", ...money }];
     } else if (key === "income-expense-graph") {
       title = "Income & Expense Graph";
       const months = new Map<string, { income: number; expenses: number }>();
-      scopedTransactions.forEach((row) => { const month = row.transactionDate.slice(0, 7); const old = months.get(month) ?? { income: 0, expenses: 0 }; if (salesTypes.has(row.type)) old.income += baseSubtotal(row); if (purchaseTypes.has(row.type)) old.expenses += baseSubtotal(row); months.set(month, old); });
+      scopedTransactions.forEach((row) => { const month = row.transactionDate.slice(0, 7); const old = months.get(month) ?? { income: 0, expenses: 0 }; if (salesTypes.has(row.type)) old.income += baseSubtotal(row); if (purchaseTypes.has(row.type)) old.expenses += purchaseSubtotal(row); months.set(month, old); });
       rows = [...months].sort(([a], [b]) => a.localeCompare(b)).map(([month, value]) => ({ month, ...value, net: value.income - value.expenses }));
       columns = [{ key: "month", label: "Month" }, { key: "income", label: "Income", ...money }, { key: "expenses", label: "Expenses", ...money }, { key: "net", label: "Net", ...money }];
       chart = { labelKey: "month", incomeKey: "income", expenseKey: "expenses" };

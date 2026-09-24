@@ -168,7 +168,7 @@ export async function GET(request: Request) {
   if (authorization instanceof Response) return authorization;
   try {
     const url = new URL(request.url);
-    const kind = url.searchParams.get("kind") as RecordKind | "vendor-history" | "unpaid-bills" | "unpaid-invoices" | "open-sales-documents" | "open-purchase-orders" | "po-receiving" | "sales-invoicing" | null;
+    const kind = url.searchParams.get("kind") as RecordKind | "vendor-history" | "unpaid-bills" | "unpaid-invoices" | "open-sales-documents" | "open-purchase-orders" | "purchase-return-bills" | "po-receiving" | "sales-invoicing" | null;
     const id = Number(url.searchParams.get("id"));
     const companyId = Number(url.searchParams.get("companyId"));
     const locationId = Number(url.searchParams.get("locationId"));
@@ -208,6 +208,26 @@ export async function GET(request: Request) {
           sql`EXISTS (SELECT 1 FROM transaction_lines pol WHERE pol.transaction_id = ${transactions.id} AND pol.quantity > COALESCE((SELECT SUM(pra.quantity) FROM purchase_receipt_allocations pra WHERE pra.order_line_id = pol.id), 0))`))
         .orderBy(asc(transactions.transactionDate), asc(transactions.id));
       return Response.json({ orders }, { headers: { "Cache-Control": "no-store" } });
+    }
+    if (kind === "purchase-return-bills") {
+      if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
+      const party = String(url.searchParams.get("party") || "").trim();
+      const currency = String(url.searchParams.get("currency") || "").trim().toUpperCase();
+      if (!party || !currency || !Number.isSafeInteger(locationId) || locationId <= 0) return Response.json({ error: "Select a vendor, inventory and currency." }, { status: 400 });
+      const bills = await db.select({ id: transactions.id, number: transactions.number, transactionDate: transactions.transactionDate, currency: transactions.currency }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId), eq(transactions.party, party), eq(transactions.currency, currency), eq(transactions.type, "bill"))).orderBy(desc(transactions.transactionDate), desc(transactions.id));
+      if (!bills.length) return Response.json({ records: [] }, { headers: { "Cache-Control": "no-store" } });
+      const billIds = bills.map((bill) => bill.id);
+      const purchased = await db.select({ id: transactionLines.id, transactionId: transactionLines.transactionId, itemId: transactionLines.itemId, description: transactionLines.description, quantity: transactionLines.quantity, unitPrice: transactionLines.unitPrice, unitCost: transactionLines.unitCost, vatCode: transactionLines.vatCode, vatRate: transactionLines.vatRate }).from(transactionLines).where(inArray(transactionLines.transactionId, billIds)).orderBy(asc(transactionLines.id));
+      const returnDocuments = await db.select({ id: transactions.id, billId: transactions.billId }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.type, "vendor credit"), inArray(transactions.billId, billIds)));
+      const returnedLines = returnDocuments.length ? await db.select({ transactionId: transactionLines.transactionId, itemId: transactionLines.itemId, description: transactionLines.description, quantity: transactionLines.quantity }).from(transactionLines).where(inArray(transactionLines.transactionId, returnDocuments.map((document) => document.id))) : [];
+      const returnedByBillAndLine = new Map<string, number>();
+      for (const line of returnedLines) {
+        const billId = returnDocuments.find((document) => document.id === line.transactionId)?.billId;
+        const key = `${billId}:${line.itemId ?? 0}:${line.description.trim().toLowerCase()}`;
+        returnedByBillAndLine.set(key, round((returnedByBillAndLine.get(key) ?? 0) + Number(line.quantity)));
+      }
+      const records = bills.map((bill) => ({ ...bill, lines: purchased.filter((line) => line.transactionId === bill.id && !/freight charges/i.test(line.description)).map((line) => { const key = `${bill.id}:${line.itemId ?? 0}:${line.description.trim().toLowerCase()}`; return { sourceLineId: line.id, itemId: line.itemId, description: line.description, remaining: round(Number(line.quantity) - (returnedByBillAndLine.get(key) ?? 0)), unitPrice: Number(line.unitPrice), unitCost: Number(line.unitCost), vatCode: line.vatCode, vatRate: Number(line.vatRate) }; }).filter((line) => line.remaining > 0) })).filter((bill) => bill.lines.length > 0);
+      return Response.json({ records }, { headers: { "Cache-Control": "no-store" } });
     }
     if (kind === "po-receiving") {
       if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
@@ -288,7 +308,8 @@ export async function GET(request: Request) {
       const journal = await db.select({
         accountName: journalLines.accountName, debit: journalLines.debit, credit: journalLines.credit,
       }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(eq(journalEntries.transactionId, id)).orderBy(asc(journalLines.id));
-      const [sourceDocument] = (record.sourceTransactionId || record.purchaseOrderId || record.salesSourceId) ? await db.select({ number: transactions.number, type: transactions.type }).from(transactions).where(eq(transactions.id, (record.sourceTransactionId || record.purchaseOrderId || record.salesSourceId)!)).limit(1) : [];
+      const linkedSourceId = record.sourceTransactionId || record.purchaseOrderId || record.salesSourceId || (record.type === "vendor credit" ? record.billId : null);
+      const [sourceDocument] = linkedSourceId ? await db.select({ number: transactions.number, type: transactions.type }).from(transactions).where(eq(transactions.id, linkedSourceId)).limit(1) : [];
       const [convertedDocument] = record.convertedInvoiceId ? await db.select({ number: transactions.number, type: transactions.type }).from(transactions).where(eq(transactions.id, record.convertedInvoiceId)).limit(1) : [];
       const customerType = ["invoice", "quotation", "estimate", "proforma invoice", "sales order", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(record.type) ? "customer" : "vendor";
       const [partyContact] = await db.select().from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, customerType), eq(contacts.name, record.party))).limit(1);
@@ -666,6 +687,38 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       payload.salesman = order.salesman; payload.account = type === "bill" ? String(payload.account || "Purchases") : "Suspense"; payload.status = "open";
       payload.memo = [order.memo, String(payload.memo || ""), `Received from PO ${order.number}`].filter(Boolean).join(" · ");
     }
+    let purchaseReturnBillId: number | null = null;
+    if (type === "vendor credit") {
+      purchaseReturnBillId = Number(payload.billId);
+      if (!Number.isSafeInteger(purchaseReturnBillId) || purchaseReturnBillId <= 0) return Response.json({ error: "Select the original supplier bill for this purchase return." }, { status: 400 });
+      const [sourceBill] = await db.select().from(transactions).where(and(eq(transactions.id, purchaseReturnBillId), eq(transactions.companyId, companyId), eq(transactions.type, "bill"))).for("update");
+      if (!sourceBill || sourceBill.locationId !== locationId) return Response.json({ error: "Select a supplier bill from this company and inventory." }, { status: 400 });
+      if (!rawLines.length || rawLines.some((line) => !Number.isSafeInteger(Number(line.sourceLineId)) || Number(line.sourceLineId) <= 0)) return Response.json({ error: "Choose return lines from the original supplier bill." }, { status: 400 });
+      const sourceLines = await db.select().from(transactionLines).where(eq(transactionLines.transactionId, sourceBill.id)).orderBy(asc(transactionLines.id));
+      const sourceById = new Map(sourceLines.map((line) => [line.id, line]));
+      const returnDocuments = await db.select({ id: transactions.id }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.type, "vendor credit"), eq(transactions.billId, sourceBill.id), sql`${transactions.id} <> ${replacing?.id ?? 0}`));
+      const priorLines = returnDocuments.length ? await db.select().from(transactionLines).where(inArray(transactionLines.transactionId, returnDocuments.map((document) => document.id))) : [];
+      const lineKey = (line: { itemId: number | null; description: string }) => `${line.itemId ?? 0}:${line.description.trim().toLowerCase()}`;
+      const purchasedByKey = new Map<string, number>();
+      const returnedByKey = new Map<string, number>();
+      const requestedByKey = new Map<string, number>();
+      for (const line of sourceLines) purchasedByKey.set(lineKey(line), round((purchasedByKey.get(lineKey(line)) ?? 0) + Number(line.quantity)));
+      for (const line of priorLines) returnedByKey.set(lineKey(line), round((returnedByKey.get(lineKey(line)) ?? 0) + Number(line.quantity)));
+      const validatedLines: InputLine[] = [];
+      for (const input of rawLines) {
+        const source = sourceById.get(Number(input.sourceLineId));
+        const quantity = Number(input.quantity);
+        if (!source || !Number.isFinite(quantity) || quantity <= 0 || source.isFreightCharge) return Response.json({ error: "Select valid positive quantities from the original supplier bill." }, { status: 400 });
+        const key = lineKey(source);
+        requestedByKey.set(key, round((requestedByKey.get(key) ?? 0) + quantity));
+        validatedLines.push({ sourceLineId: source.id, itemId: source.itemId, description: source.description, quantity, unitPrice: source.unitPrice, unitCost: source.unitCost, vatCode: source.vatCode, vatRate: source.vatRate });
+      }
+      for (const [key, requested] of requestedByKey) if (requested > round((purchasedByKey.get(key) ?? 0) - (returnedByKey.get(key) ?? 0))) return Response.json({ error: "Return quantity exceeds the quantity remaining on the supplier bill. Refresh the return and try again." }, { status: 409 });
+      rawLines = validatedLines;
+      payload.party = sourceBill.party; payload.currency = sourceBill.currency; payload.exchangeRate = sourceBill.exchangeRate;
+      payload.account = sourceBill.account; payload.status = "open";
+      payload.memo = [String(payload.memo || ""), `Returned against bill ${sourceBill.number}`].filter(Boolean).join(" · ");
+    }
     const requestedParty = String(payload.party ?? "").trim();
     const chequeType = String(payload.chequeType ?? "").trim();
     const party = type === "cheque" && !requestedParty && ["expense", "salary"].includes(chequeType) ? "General expense" : requestedParty;
@@ -711,7 +764,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       }
     }
     const stockItemIds = new Set(linkedItems.filter((item) => item.itemType === "stock-part").map((item) => item.id));
-    const stockReducing = ["invoice", "sales receipt"].includes(type);
+    const stockReducing = ["invoice", "sales receipt", "vendor credit"].includes(type);
     let usedAdminNegativeStockOverride = false;
     if (stockReducing) {
       if (!Number.isInteger(locationId) || locationId <= 0) return Response.json({ error: "Select an inventory before creating the document." }, { status: 400 });
@@ -721,7 +774,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       if (itemIds.length) {
         const available = await db.select({ id: items.id, sku: items.sku, name: items.name, quantity: items.quantity }).from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId), inArray(items.id, itemIds))).orderBy(asc(items.id)).for("update");
         if (available.length !== itemIds.length) return Response.json({ error: "One or more selected items do not belong to this company inventory." }, { status: 400 });
-        const wantsOverride = payload.allowNegativeStock === true || String(payload.allowNegativeStock) === "true";
+        const wantsOverride = type !== "vendor credit" && (payload.allowNegativeStock === true || String(payload.allowNegativeStock) === "true");
         let overrideApproved = false;
         if (wantsOverride) {
           if (!stockSettings?.pinHash) return Response.json({ error: "Admin PIN is not configured. Open Management > Admin Controls." }, { status: 403 });
@@ -733,7 +786,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
           const shortages = available.filter((item) => Number(item.quantity) < (requestedByItem.get(item.id) ?? 0));
           if (shortages.length) {
             const detail = shortages.map((item) => `${item.sku} ${item.name}: available ${item.quantity}, requested ${requestedByItem.get(item.id)}`).join("; ");
-            return Response.json({ error: `Invoice blocked to prevent negative stock. ${detail}` }, { status: 409 });
+            return Response.json({ error: `${type === "vendor credit" ? "Purchase return" : "Invoice"} blocked to prevent negative stock. ${detail}` }, { status: 409 });
           }
         }
       }
@@ -807,8 +860,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     if (!Array.isArray(requestedBillIds) || requestedBillIds.some((id) => !Number.isSafeInteger(id) || id <= 0) || new Set(requestedBillIds).size !== requestedBillIds.length) return Response.json({ error: "Select valid bills." }, { status: 400 });
     const selectedBillIds: number[] = ["bill payment", "cheque"].includes(type) ? requestedBillIds : [];
     if (selectedBillIds.length > 1 && type !== "cheque") return Response.json({ error: "Select one bill for Bill Payment." }, { status: 400 });
-    const billId = selectedBillIds.length === 1 ? selectedBillIds[0] : null;
-    const linkedBillIds = [...new Set([...selectedBillIds, ...[replacing?.billId].filter((id): id is number => Boolean(id))])].sort((a, b) => a - b);
+    const billId = type === "vendor credit" ? purchaseReturnBillId : selectedBillIds.length === 1 ? selectedBillIds[0] : null;
+    const linkedBillIds = [...new Set([...selectedBillIds, ...[billId, replacing?.billId].filter((id): id is number => Boolean(id))])].sort((a, b) => a - b);
     const lockedBills = linkedBillIds.length ? await db.select().from(transactions).where(inArray(transactions.id, linkedBillIds)).orderBy(asc(transactions.id)).for("update") : [];
     if (selectedBillIds.length && type === "cheque") {
       const [posting] = await db.select().from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.name, String(payload.account))));
@@ -944,6 +997,22 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
           ...(baseVatAmount ? [{ accountName: linkedAccounts.INPUT_VAT ?? "Recoverable VAT", debit: baseVatAmount, credit: 0 }] : []),
           { accountName: linkedAccounts.AP ?? "Accounts Payable", debit: 0, credit: baseTotal },
         ];
+      } else if (type === "vendor credit") {
+        const purchaseFallback = record.account || linkedAccounts.PURCHASES || "Purchases";
+        const inventoryFallback = linkedAccounts.INVENTORY ?? "Inventory Asset";
+        const returnTotals = new Map<string, number>();
+        for (const line of prepared) {
+          const accountName = line.itemId && stockItemIds.has(line.itemId)
+            ? itemAccount(line.itemId, "assetAccountId", inventoryFallback)
+            : itemAccount(line.itemId, "cogsAccountId", purchaseFallback);
+          addAmount(returnTotals, accountName, round(line.subtotal * exchangeRate));
+        }
+        matchTarget(returnTotals, baseSubtotal, purchaseFallback);
+        baseLines = [
+          { accountName: linkedAccounts.AP ?? "Accounts Payable", debit: baseTotal, credit: 0 },
+          ...[...returnTotals].filter(([, amount]) => amount !== 0).map(([accountName, amount]) => ({ accountName, debit: 0, credit: amount })),
+          ...(baseVatAmount ? [{ accountName: linkedAccounts.INPUT_VAT ?? "Recoverable VAT", debit: 0, credit: baseVatAmount }] : []),
+        ];
       } else if (type === "item receipt") {
         const purchaseFallback = record.account || linkedAccounts.PURCHASES || "Purchases";
         const inventoryFallback = linkedAccounts.INVENTORY ?? "Inventory Asset";
@@ -988,14 +1057,14 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     }
 
     if (!nonPosting) {
-      const direction = ["invoice", "sales receipt"].includes(type) ? -1 : ["bill", "item receipt"].includes(type) ? 1 : 0;
+      const direction = ["invoice", "sales receipt", "vendor credit"].includes(type) ? -1 : ["bill", "item receipt"].includes(type) ? 1 : 0;
       if (direction) for (const line of prepared.filter((entry) => entry.itemId)) {
-        const homeCurrencyPurchaseCost = round((type === "bill" ? line.unitCost : line.unitPrice) * exchangeRate);
+        const homeCurrencyPurchaseCost = round((["bill", "vendor credit"].includes(type) ? line.unitCost : line.unitPrice) * exchangeRate);
         if (["bill", "item receipt"].includes(type)) await db.update(items).set({ lastPurchasePrice: homeCurrencyPurchaseCost }).where(eq(items.id, line.itemId!));
         if (!stockItemIds.has(line.itemId!)) continue;
         const quantity = direction * line.quantity;
         await db.update(items).set({ quantity: sql`${items.quantity} + ${quantity}` }).where(eq(items.id, line.itemId!));
-        await db.insert(inventoryMovements).values({ itemId: line.itemId!, transactionId: record.id, movementDate: transactionDate, movementType: type, quantity, unitCost: type === "bill" ? homeCurrencyPurchaseCost : line.unitCost, reference: number });
+        await db.insert(inventoryMovements).values({ itemId: line.itemId!, transactionId: record.id, movementDate: transactionDate, movementType: type, quantity, unitCost: ["bill", "vendor credit"].includes(type) ? homeCurrencyPurchaseCost : line.unitCost, reference: number });
       }
       const balanceChange = contactBalanceChange(type, total, postingAccountRole);
       if (balanceChange && partyContactType) await db.update(contacts).set({ balance: sql`${contacts.balance} + ${balanceChange}` }).where(and(eq(contacts.companyId, companyId), eq(contacts.name, party), eq(contacts.type, partyContactType)));
@@ -1369,6 +1438,11 @@ function postingLines(type: string, account: string, party: string, subtotal: nu
     { accountName: account || named("PURCHASES", "Purchases"), debit: subtotal, credit: 0 },
     ...(vatAmount ? [{ accountName: named("INPUT_VAT", "Recoverable VAT"), debit: vatAmount, credit: 0 }] : []),
     { accountName: named("AP", "Accounts Payable"), debit: 0, credit: total },
+  ];
+  if (type === "vendor credit") return [
+    { accountName: named("AP", "Accounts Payable"), debit: total, credit: 0 },
+    { accountName: account || named("PURCHASES", "Purchases"), debit: 0, credit: subtotal },
+    ...(vatAmount ? [{ accountName: named("INPUT_VAT", "Recoverable VAT"), debit: 0, credit: vatAmount }] : []),
   ];
   if (type === "item receipt") return [
     { accountName: named("INVENTORY", "Inventory Asset"), debit: subtotal, credit: 0 },
