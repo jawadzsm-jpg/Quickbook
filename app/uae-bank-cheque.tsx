@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type CSSProperties } from "react";
-import { Check, FileText, Move, Pencil, Printer, X } from "lucide-react";
+import { Check, FileText, Move, Pencil, Printer, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,6 +9,12 @@ import { inferUaeChequeLayout, uaeChequeLayout, type ChequeFieldPosition } from 
 
 type RecordValue = string | number | boolean;
 type ChequeRecord = Record<string, RecordValue> & { id: number };
+const MAX_ALIGNMENT_OFFSET_MM = 20;
+
+function safeAlignmentOffset(value: string): number {
+  const offset = Number(value);
+  return Number.isFinite(offset) && Math.abs(offset) <= MAX_ALIGNMENT_OFFSET_MM ? offset : 0;
+}
 
 function integerWords(value: number): string {
   const ones = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
@@ -68,9 +74,15 @@ export function UaeBankCheque({ record, lines, journal, companyName, revision, c
   const [editingNumber, setEditingNumber] = useState(false);
   const [savingNumber, setSavingNumber] = useState(false);
   const [numberError, setNumberError] = useState("");
-  const calibrationStyle = { "--cheque-offset-x": `${Number(offsetX) || 0}mm`, "--cheque-offset-y": `${Number(offsetY) || 0}mm` } as CSSProperties;
+  const [alignmentMessage, setAlignmentMessage] = useState("");
+  const calibrationStyle = { "--cheque-offset-x": `${safeAlignmentOffset(offsetX)}mm`, "--cheque-offset-y": `${safeAlignmentOffset(offsetY)}mm` } as CSSProperties;
 
   function print(mode: "cheque" | "voucher") {
+    if (mode === "cheque" && (Number(offsetX) !== safeAlignmentOffset(offsetX) || Number(offsetY) !== safeAlignmentOffset(offsetY))) {
+      setOffsetX("0");
+      setOffsetY("0");
+      setAlignmentMessage("Alignment was outside the safe range and has been reset to 0 mm.");
+    }
     const root = document.documentElement;
     const oldPageStyle = document.getElementById("uae-cheque-page-size");
     oldPageStyle?.remove();
@@ -131,11 +143,13 @@ export function UaeBankCheque({ record, lines, journal, companyName, revision, c
         </div>
         {numberError && <p role="alert" className="mt-2 text-xs font-medium text-red-600">{numberError}</p>}
       </div>}
-      <div className="grid gap-3 sm:grid-cols-[1fr_8rem_8rem] sm:items-end">
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950"><strong>Before the first print:</strong> use plain paper to test alignment, then load the bank cheque in the same orientation. Printer scaling must be 100% / Actual size.</div>
-        <div className="space-y-1"><Label htmlFor="cheque-offset-x" className="flex items-center gap-1 text-xs"><Move className="size-3" />Horizontal mm</Label><Input id="cheque-offset-x" type="number" step="0.5" value={offsetX} onChange={(event) => setOffsetX(event.target.value)} /></div>
-        <div className="space-y-1"><Label htmlFor="cheque-offset-y" className="flex items-center gap-1 text-xs"><Move className="size-3" />Vertical mm</Label><Input id="cheque-offset-y" type="number" step="0.5" value={offsetY} onChange={(event) => setOffsetY(event.target.value)} /></div>
+      <div className="grid gap-3 sm:grid-cols-[1fr_9rem_9rem_auto] sm:items-end">
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950"><strong>Before the first print:</strong> use plain paper to test alignment, then load the bank cheque in the same orientation. Printer scaling must be 100% / Actual size. Alignment is a small movement only, from -20 to +20 mm; it is not the cheque size.</div>
+        <div className="space-y-1"><Label htmlFor="cheque-offset-x" className="flex items-center gap-1 text-xs"><Move className="size-3" />Horizontal offset (mm)</Label><Input id="cheque-offset-x" type="number" min={-MAX_ALIGNMENT_OFFSET_MM} max={MAX_ALIGNMENT_OFFSET_MM} step="0.5" value={offsetX} onChange={(event) => { setOffsetX(event.target.value); setAlignmentMessage(""); }} /></div>
+        <div className="space-y-1"><Label htmlFor="cheque-offset-y" className="flex items-center gap-1 text-xs"><Move className="size-3" />Vertical offset (mm)</Label><Input id="cheque-offset-y" type="number" min={-MAX_ALIGNMENT_OFFSET_MM} max={MAX_ALIGNMENT_OFFSET_MM} step="0.5" value={offsetY} onChange={(event) => { setOffsetY(event.target.value); setAlignmentMessage(""); }} /></div>
+        <Button type="button" variant="outline" onClick={() => { setOffsetX("0"); setOffsetY("0"); setAlignmentMessage("Alignment reset to 0 mm."); }}><RotateCcw className="size-4" />Reset</Button>
       </div>
+      {alignmentMessage && <p role="status" className="text-xs font-medium text-amber-700">{alignmentMessage}</p>}
     </div>
 
     <div className="document-internal-only overflow-x-auto rounded-xl border bg-slate-100 p-4 print:hidden">

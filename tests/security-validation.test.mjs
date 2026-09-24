@@ -145,7 +145,11 @@ test("UAE bank cheque is linked to Banking and supports save and print", () => {
   const css = readFileSync("app/globals.css", "utf8");
   assert.match(css, /uae-cheque-document > :not\(\.uae-cheque-print-layer\)/);
   assert.doesNotMatch(css, /document-print-surface > :not\(\.uae-cheque-print-layer\)/);
-  assert.match(cheque, /Horizontal mm/);
+  assert.match(css, /\[data-slot="dialog-content"\]:has\(\.document-print-surface\)/);
+  assert.match(css, /data-cheque-print-mode="voucher"\][\s\S]*\.document-print-surface \{ position: static/);
+  assert.match(cheque, /Horizontal offset \(mm\)/);
+  assert.match(cheque, /MAX_ALIGNMENT_OFFSET_MM = 20/);
+  assert.match(cheque, /Alignment reset to 0 mm/);
   assert.match(cheque, /Amount in words/);
   assert.match(cheque, /window\.print\(\)/);
   for (const bank of ["Emirates NBD", "First Abu Dhabi Bank", "ADCB", "Dubai Islamic Bank", "Mashreq", "RAKBANK", "Habib Bank AG Zurich", "Wio Business"]) assert.match(layouts, new RegExp(bank));

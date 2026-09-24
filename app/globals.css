@@ -285,6 +285,22 @@ button, input, select { font: inherit; }
   [data-slot="sidebar"], header, button { display: none !important; }
   main { margin: 0 !important; }
   .document-internal-only { display: none !important; }
+  body:has(.document-print-surface) [data-slot="dialog-overlay"] { display: none !important; }
+  body:has(.document-print-surface) [data-slot="dialog-content"]:has(.document-print-surface) {
+    position: static !important;
+    inset: auto !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    transform: none !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: white !important;
+  }
   body:has(.document-print-surface) * { visibility: hidden; }
   body:has(.document-print-surface) .document-print-surface,
   body:has(.document-print-surface) .document-print-surface * { visibility: visible; }
@@ -297,6 +313,8 @@ button, input, select { font: inherit; }
   html[data-cheque-print-mode="cheque"] .uae-cheque-document > :not(.uae-cheque-print-layer),
   html[data-cheque-print-mode="cheque"] .uae-cheque-sheet { display: none !important; }
   html[data-cheque-print-mode="cheque"] .uae-cheque-print-layer { display: block !important; visibility: visible !important; position: absolute !important; inset: 0 !important; overflow: hidden !important; }
+  html[data-cheque-print-mode="voucher"] .document-print-surface { position: static !important; inset: auto !important; width: 100% !important; min-height: 0 !important; overflow: visible !important; }
+  html[data-cheque-print-mode="voucher"] .uae-cheque-document { position: static !important; width: 100% !important; height: auto !important; margin: 0 !important; overflow: visible !important; }
   html[data-cheque-print-mode="voucher"] .uae-cheque-print-layer { display: none !important; }
 }
 
