@@ -127,6 +127,18 @@ test("complete business final report links executive measures to detailed report
   assert.match(view, /Detailed report: \{row\.detailReport\}/);
 });
 
+test("UAE bank cheque is linked to Banking and supports save and print", () => {
+  const app = readFileSync("app/enterprise-app.tsx", "utf8");
+  const cheque = readFileSync("app/uae-bank-cheque.tsx", "utf8");
+  assert.match(app, /Write UAE Bank Cheque/);
+  assert.match(app, /data-action="save-print"/);
+  assert.match(app, /A\/C Payee Only \(recommended\)/);
+  assert.match(app, /<UaeBankCheque record=\{record\}/);
+  assert.match(cheque, /UAE BANK CHEQUE/);
+  assert.match(cheque, /Amount in words/);
+  assert.match(cheque, /window\.print\(\)/);
+});
+
 test("Escape and close controls protect editable dialogs with save, discard, and cancel choices", () => {
   const closer = readFileSync(new URL("../app/escape-window-closer.tsx", import.meta.url), "utf8");
   assert.match(closer, /document\.addEventListener\("keydown", onKeyDown, true\)/);

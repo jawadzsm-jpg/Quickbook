@@ -286,7 +286,11 @@ button, input, select { font: inherit; }
   body:has(.document-print-surface) .document-print-surface,
   body:has(.document-print-surface) .document-print-surface * { visibility: visible; }
   body:has(.document-print-surface) .document-print-surface { position: absolute; inset: 0; width: 100%; padding: 12mm; background: white; color: #0f172a; print-color-adjust: exact; }
+  body:has(.uae-cheque-sheet) .document-print-surface { page: uae-cheque; }
+  .uae-cheque-sheet { break-inside: avoid; box-shadow: none !important; }
 }
+
+@page uae-cheque { size: A4 portrait; margin: 10mm; }
 
 /* Size line items to the form, not the viewport or dropdown contents. */
 .transaction-lines { container-type: inline-size; min-width: 0; display: grid; gap: 0.5rem; }
