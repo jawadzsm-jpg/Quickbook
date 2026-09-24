@@ -15,6 +15,7 @@ const { filterZeroQohRows, hasInventoryQohFilter } = await sourceModule("../lib/
 const { linkReportAccounts } = await sourceModule("../lib/report-account-links.ts");
 const { filterRecordListByDate, recordListReport } = await sourceModule("../lib/record-list-export.ts");
 const { normalizeComparableText, uppercaseText } = await sourceModule("../lib/text-normalization.ts");
+const { dueDateForPaymentTerms } = await sourceModule("../lib/payment-terms.ts");
 
 test("email validation accepts ordinary addresses and rejects malformed or oversized input", () => {
   for (const email of ["name@example.com", "name+sales@example.co.uk"]) assert.equal(isValidEmail(email), true);
@@ -63,6 +64,13 @@ test("sales documents save manageable payment terms without a duplicate add-sale
   assert.doesNotMatch(salesRep, /Add sales rep|\+ Add sales rep/);
   assert.match(records, /const terms = String\(payload\.terms/);
   assert.match(records, /dueDate, terms, salesman/);
+});
+
+test("payment terms update the due date from the transaction date", () => {
+  assert.equal(dueDateForPaymentTerms("2026-09-24", "Net 7"), "2026-10-01");
+  assert.equal(dueDateForPaymentTerms("2026-09-24", "7 days"), "2026-10-01");
+  assert.equal(dueDateForPaymentTerms("2026-09-24", "Due on receipt"), "2026-09-24");
+  assert.equal(dueDateForPaymentTerms("2026-09-24", "50% advance · 50% on delivery"), undefined);
 });
 
 test("dashboard totals use linked ledger accounts without counting payments as income or expense", () => {

@@ -34,6 +34,7 @@ import { filterZeroQohRows, hasInventoryQohFilter } from "@/lib/inventory-report
 import { filterRecordListByDate, recordListReport } from "@/lib/record-list-export";
 import { reportCsv, reportFilename, reportPdf, reportWorkbook } from "@/lib/report-export";
 import { convertInvoiceLines, invoiceCurrencyAmount, validDocumentRate, type PricedInvoiceLine } from "@/lib/invoice-pricing";
+import { dueDateForPaymentTerms } from "@/lib/payment-terms";
 import { applyContactCurrency } from "@/lib/contact-currency";
 import { SalesDocumentTemplate, salesDocumentModeForTransaction } from "./sales-document-template";
 import {
@@ -649,6 +650,10 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     return () => controller.abort();
   }, [dialogOpen, linkedInventoryDocument, activeCompanyId, documentLocationId, documentInventoryKey]);
   function updateDocumentForm(next: Record<string, string>) {
+    if (["invoice", "estimate", "proforma invoice", "sales order", "quotation"].includes(next.type) && (next.terms !== form.terms || next.transactionDate !== form.transactionDate)) {
+      const dueDate = dueDateForPaymentTerms(next.transactionDate, next.terms || "");
+      if (dueDate) next = { ...next, dueDate };
+    }
     if (["bill payment", "customer payment", "cheque"].includes(next.type) && ["party", "currency", "transactionLocationId"].some((key) => next[key] !== form[key])) {
       next = { ...next, billId: "", billIds: "[]", billReferences: "", billRemaining: "", invoiceId: "", invoiceIds: "[]", invoiceRemaining: "" };
       setLines(lines.map((line) => ({ ...line, unitPrice: "0", unitCost: "0" })));
@@ -1055,9 +1060,9 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
               <p className="rounded-md border p-3 text-sm">{form.party} · {formatMoney(Number(form.total), form.currency)} · {form.status}<br /><span className="text-muted-foreground">Edit document details. Existing posted items, currency, inventory and payment links are protected. New invoice lines can be added below.</span></p>
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="grid gap-2 text-sm">Reference number<Input required maxLength={100} value={form.number} onChange={(event) => setForm({ ...form, number: event.target.value })} /></label>
-                <label className="grid gap-2 text-sm">Transaction date<Input required type="date" value={form.transactionDate} onChange={(event) => setForm({ ...form, transactionDate: event.target.value })} /></label>
+                <label className="grid gap-2 text-sm">Transaction date<Input required type="date" value={form.transactionDate} onChange={(event) => { const transactionDate = event.target.value; const dueDate = dueDateForPaymentTerms(transactionDate, form.terms || ""); setForm({ ...form, transactionDate, ...(dueDate ? { dueDate } : {}) }); }} /></label>
                 <label className="grid gap-2 text-sm">Due date<Input type="date" value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })} /></label>
-                <PaymentTermsPicker value={form.terms || ""} onChange={(terms) => setForm({ ...form, terms })} />
+                <PaymentTermsPicker value={form.terms || ""} onChange={(terms) => { const dueDate = dueDateForPaymentTerms(form.transactionDate, terms); setForm({ ...form, terms, ...(dueDate ? { dueDate } : {}) }); }} />
                 <PaymentSalesRep employees={records.contacts.filter((contact) => contact.type === "employee" && contact.status === "active").map((contact) => ({ id: contact.id, name: String(contact.name) }))} value={form.salesman} onChange={(salesman) => setForm({ ...form, salesman })} />
               </div>
               <label className="grid gap-2 text-sm">Memo<Textarea maxLength={5000} value={form.memo} onChange={(event) => setForm({ ...form, memo: event.target.value })} /></label>
