@@ -11,6 +11,7 @@ import { verifyAdminPin } from "../../../lib/admin-pin";
 import { customerConflict, validInternationalPhone } from "../../../lib/customer-identity";
 import { canAccessCompany, isAdministrator, hasPermission, requireApiUser, type Permission, type SessionUser } from "@/lib/auth";
 import { normalizeComparableText, uppercaseText } from "@/lib/text-normalization";
+import { uaeChequeLayouts } from "@/lib/uae-cheque-layouts";
 
 type RecordKind = "transactions" | "contacts" | "items" | "accounts";
 type InputLine = { comments?: string; serialNumber?: string; freightCharge?: number | string; isFreightCharge?: boolean; orderLineId?: number; sourceLineId?: number; itemId?: number | string | null; description?: string; quantity?: number | string; unitPrice?: number | string; unitCost?: number | string; vatCode?: string; vatRate?: number | string };
@@ -599,6 +600,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const type = String(payload.type ?? "invoice");
     const terms = String(payload.terms ?? "").trim();
     if (terms.length > 200) return Response.json({ error: "Payment terms must be no more than 200 characters." }, { status: 400 });
+    const chequeBankKey = type === "cheque" ? String(payload.chequeBankKey ?? "other-uae-bank").trim() : "";
+    if (type === "cheque" && !uaeChequeLayouts.some((layout) => layout.key === chequeBankKey)) return Response.json({ error: "Select a valid UAE bank cheque layout." }, { status: 400 });
     const comments = ["invoice", "bill"].includes(type) ? String(payload.comments ?? replacing?.comments ?? "") : "";
     const serialNumber = ["invoice", "bill"].includes(type) ? String(payload.serialNumber ?? replacing?.serialNumber ?? "") : "";
     const conversionSourceId = ["invoice", "bill"].includes(type) ? Number(payload.sourceTransactionId) : NaN;
@@ -908,6 +911,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       companyId, locationId: Number.isInteger(locationId) ? locationId : null, number, type, party, billId, invoiceId, purchaseOrderId, salesSourceId,
       salesman: String(payload.salesman ?? ""), isImport: payload.isImport === true || String(payload.isImport) === "true",
       transactionDate, dueDate: String(payload.dueDate ?? ""), terms,
+      chequeBankKey,
       account: String(payload.account ?? "Accounts Receivable"), status: ["customer payment", "cheque", "transfer"].includes(type) && total > 0 ? "paid" : String(payload.status ?? "open"), ...(["customer payment", "cheque", "transfer"].includes(type) && total > 0 ? { paidAt: new Date().toISOString() } : {}), memo: String(payload.memo ?? ""), comments, serialNumber,
       subtotal, vatRate: Number(payload.vatRate ?? 5), vatAmount, total, currency, exchangeRate, baseTotal,
       sourceTransactionId: replacing ? replacing.sourceTransactionId : Number.isInteger(conversionSourceId) && conversionSourceId > 0 ? conversionSourceId : null,

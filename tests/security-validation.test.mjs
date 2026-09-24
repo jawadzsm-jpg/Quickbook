@@ -130,13 +130,18 @@ test("complete business final report links executive measures to detailed report
 test("UAE bank cheque is linked to Banking and supports save and print", () => {
   const app = readFileSync("app/enterprise-app.tsx", "utf8");
   const cheque = readFileSync("app/uae-bank-cheque.tsx", "utf8");
+  const layouts = readFileSync("lib/uae-cheque-layouts.ts", "utf8");
   assert.match(app, /Write UAE Bank Cheque/);
   assert.match(app, /data-action="save-print"/);
   assert.match(app, /A\/C Payee Only \(recommended\)/);
+  assert.match(app, /Cheque bank layout \*/);
   assert.match(app, /<UaeBankCheque record=\{record\}/);
-  assert.match(cheque, /UAE BANK CHEQUE/);
+  assert.match(cheque, /Print on bank cheque/);
+  assert.match(cheque, /Print A4 voucher/);
+  assert.match(cheque, /Horizontal mm/);
   assert.match(cheque, /Amount in words/);
   assert.match(cheque, /window\.print\(\)/);
+  for (const bank of ["Emirates NBD", "First Abu Dhabi Bank", "ADCB", "Dubai Islamic Bank", "Mashreq", "RAKBANK", "Habib Bank AG Zurich", "Wio Business"]) assert.match(layouts, new RegExp(bank));
 });
 
 test("Escape and close controls protect editable dialogs with save, discard, and cancel choices", () => {

@@ -1,7 +1,11 @@
 "use client";
 
-import { Printer } from "lucide-react";
+import { useState, type CSSProperties } from "react";
+import { FileText, Move, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { inferUaeChequeLayout, uaeChequeLayout, type ChequeFieldPosition } from "@/lib/uae-cheque-layouts";
 
 type RecordValue = string | number | boolean;
 type ChequeRecord = Record<string, RecordValue> & { id: number };
@@ -30,41 +34,92 @@ function money(amount: number, currency: string): string {
   return new Intl.NumberFormat("en-AE", { style: "currency", currency, minimumFractionDigits: 2 }).format(amount);
 }
 
+function positionStyle(position: ChequeFieldPosition): CSSProperties {
+  return { left: `${position.left}mm`, top: `${position.top}mm`, width: `${position.width}mm` };
+}
+
+function ChequeFields({ date, party, words, amount, currency, crossed, layout, preview = false }: {
+  date: string; party: string; words: string; amount: number; currency: string; crossed: boolean;
+  layout: ReturnType<typeof uaeChequeLayout>; preview?: boolean;
+}) {
+  const formattedDate = date ? date.split("-").reverse().join(" / ") : "";
+  const fieldClass = preview ? "absolute rounded border border-dashed border-sky-400/80 bg-sky-50/70 px-1 text-slate-950" : "absolute text-black";
+  return <>
+    {crossed && <div className={`${fieldClass} whitespace-nowrap text-[9pt] font-bold`} style={{ ...positionStyle(layout.crossing), transform: "rotate(-7deg)" }}>A/C PAYEE ONLY</div>}
+    <div className={`${fieldClass} text-center font-mono text-[11pt] font-semibold tracking-wide`} style={positionStyle(layout.date)}>{formattedDate}</div>
+    <div className={`${fieldClass} truncate text-[11pt] font-semibold uppercase`} style={positionStyle(layout.payee)}>** {party} **</div>
+    <div className={`${fieldClass} text-[9.5pt] font-semibold uppercase leading-[1.35]`} style={positionStyle(layout.words)}>** {words} **</div>
+    <div className={`${fieldClass} text-right font-mono text-[11pt] font-bold tabular-nums`} style={positionStyle(layout.amount)}>**{currency} {amount.toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}**</div>
+  </>;
+}
+
 export function UaeBankCheque({ record, lines, journal, companyName }: { record: ChequeRecord; lines: ChequeRecord[]; journal: ChequeRecord[]; companyName: string }) {
   const amount = Number(record.total || lines[0]?.total || 0);
   const currency = String(record.currency || "AED");
   const bankName = String(journal.find((line) => Number(line.credit) > 0)?.accountName || "Selected UAE bank account");
   const date = String(record.transactionDate || "");
-  const dateDigits = date ? date.split("-").reverse().join("").split("") : [];
   const crossed = String(record.terms || "account-payee") !== "bearer";
+  const selectedLayout = uaeChequeLayout(String(record.chequeBankKey || inferUaeChequeLayout(bankName)));
+  const words = amountInWords(amount, currency);
+  const [offsetX, setOffsetX] = useState("0");
+  const [offsetY, setOffsetY] = useState("0");
+  const calibrationStyle = { "--cheque-offset-x": `${Number(offsetX) || 0}mm`, "--cheque-offset-y": `${Number(offsetY) || 0}mm` } as CSSProperties;
+
+  function print(mode: "cheque" | "voucher") {
+    const root = document.documentElement;
+    root.dataset.chequePrintMode = mode;
+    root.style.setProperty("--cheque-page-width", `${selectedLayout.widthMm}mm`);
+    root.style.setProperty("--cheque-page-height", `${selectedLayout.heightMm}mm`);
+    const cleanup = () => {
+      delete root.dataset.chequePrintMode;
+      root.style.removeProperty("--cheque-page-width");
+      root.style.removeProperty("--cheque-page-height");
+      window.removeEventListener("afterprint", cleanup);
+    };
+    window.addEventListener("afterprint", cleanup);
+    window.print();
+  }
 
   return <div className="space-y-5">
-    <div className="document-internal-only flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-slate-50 p-4 print:hidden">
-      <div><p className="font-bold text-slate-900">UAE Bank Cheque</p><p className="text-sm text-slate-500">Saved cheque and payment voucher · {String(record.number)}</p></div>
-      <Button type="button" onClick={() => window.print()}><Printer className="size-4" />Print cheque · A4</Button>
+    <div className="document-internal-only space-y-4 rounded-xl border bg-slate-50 p-4 print:hidden">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div><p className="font-bold text-slate-900">UAE Bank Cheque</p><p className="text-sm text-slate-500">{selectedLayout.name} · Saved cheque {String(record.number)}</p></div>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" onClick={() => print("cheque")}><Printer className="size-4" />Print on bank cheque</Button>
+          <Button type="button" variant="outline" onClick={() => print("voucher")}><FileText className="size-4" />Print A4 voucher</Button>
+        </div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-[1fr_8rem_8rem] sm:items-end">
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950"><strong>Before the first print:</strong> use plain paper to test alignment, then load the bank cheque in the same orientation. Printer scaling must be 100% / Actual size.</div>
+        <div className="space-y-1"><Label htmlFor="cheque-offset-x" className="flex items-center gap-1 text-xs"><Move className="size-3" />Horizontal mm</Label><Input id="cheque-offset-x" type="number" step="0.5" value={offsetX} onChange={(event) => setOffsetX(event.target.value)} /></div>
+        <div className="space-y-1"><Label htmlFor="cheque-offset-y" className="flex items-center gap-1 text-xs"><Move className="size-3" />Vertical mm</Label><Input id="cheque-offset-y" type="number" step="0.5" value={offsetY} onChange={(event) => setOffsetY(event.target.value)} /></div>
+      </div>
+    </div>
+
+    <div className="document-internal-only overflow-x-auto rounded-xl border bg-slate-100 p-4 print:hidden">
+      <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Bank cheque alignment preview · blue boxes are not printed</p>
+      <div className="uae-cheque-preview relative mx-auto overflow-hidden border border-slate-400 bg-[#f4f0d7] shadow-sm" style={{ width: `${selectedLayout.widthMm}mm`, height: `${selectedLayout.heightMm}mm`, ...calibrationStyle }}>
+        <div className="absolute inset-0 grid place-items-center text-2xl font-black tracking-[.25em] text-slate-400/30">{selectedLayout.name}</div>
+        <div className="uae-cheque-calibrated absolute inset-0"><ChequeFields date={date} party={String(record.party)} words={words} amount={amount} currency={currency} crossed={crossed} layout={selectedLayout} preview /></div>
+      </div>
+    </div>
+
+    <div className="uae-cheque-print-layer" style={{ width: `${selectedLayout.widthMm}mm`, height: `${selectedLayout.heightMm}mm`, ...calibrationStyle }} aria-hidden="true">
+      <div className="uae-cheque-calibrated absolute inset-0"><ChequeFields date={date} party={String(record.party)} words={words} amount={amount} currency={currency} crossed={crossed} layout={selectedLayout} /></div>
     </div>
 
     <section className="uae-cheque-sheet rounded-xl border-2 border-slate-300 bg-white p-7 text-slate-950 shadow-sm">
       <div className="flex items-start justify-between gap-6 border-b border-slate-300 pb-5">
-        <div><p className="text-xs font-bold uppercase tracking-[.2em] text-emerald-700">{companyName}</p><h2 className="mt-2 text-2xl font-black">UAE BANK CHEQUE</h2><p className="mt-1 text-sm text-slate-500">{bankName}</p></div>
+        <div><p className="text-xs font-bold uppercase tracking-[.2em] text-emerald-700">{companyName}</p><h2 className="mt-2 text-2xl font-black">CHEQUE PAYMENT VOUCHER</h2><p className="mt-1 text-sm text-slate-500">{bankName} · {selectedLayout.name}</p></div>
         <div className="text-right"><p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Cheque number</p><p className="mt-1 font-mono text-lg font-bold">{String(record.number)}</p></div>
       </div>
-
-      <div className="relative mt-6 min-h-[290px] rounded-lg border-2 border-slate-400 p-6">
-        {crossed && <div className="absolute left-6 top-5 -rotate-6 border-y-2 border-slate-800 px-4 py-1 text-xs font-black tracking-widest">A/C PAYEE ONLY</div>}
-        <div className="ml-auto w-fit"><p className="mb-1 text-right text-[10px] font-bold tracking-[.3em] text-slate-500">DDMMYYYY</p><div className="flex">{Array.from({ length: 8 }, (_, index) => <span key={index} className="grid size-8 place-items-center border border-slate-500 font-mono font-bold">{dateDigits[index] || ""}</span>)}</div></div>
-        <div className="mt-12 grid grid-cols-[140px_1fr] items-end gap-3"><span className="text-sm font-semibold">Pay to the order of</span><p className="border-b-2 border-slate-500 pb-1 text-lg font-bold uppercase">{String(record.party)}</p></div>
-        <div className="mt-7 grid grid-cols-[140px_1fr] items-end gap-3"><span className="text-sm font-semibold">Amount in words</span><p className="border-b-2 border-slate-500 pb-1 font-semibold uppercase leading-7">*** {amountInWords(amount, currency)} ***</p></div>
-        <div className="mt-7 flex items-end justify-between gap-6"><p className="text-sm text-slate-500">{crossed ? "Crossed cheque · Account payee only" : "Bearer cheque"}</p><div className="flex min-w-64 items-center border-2 border-slate-700"><span className="border-r-2 border-slate-700 bg-slate-100 px-4 py-3 font-black">{currency}</span><span className="flex-1 px-4 py-3 text-right text-xl font-black">{amount.toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div></div>
-        <div className="mt-9 flex justify-end"><p className="w-64 border-t border-slate-500 pt-2 text-center text-xs font-semibold text-slate-500">AUTHORIZED SIGNATURE</p></div>
-      </div>
-
       <div className="mt-7 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
         <div><p className="text-xs uppercase text-slate-500">Payee</p><p className="mt-1 font-bold">{String(record.party)}</p></div>
         <div><p className="text-xs uppercase text-slate-500">Cheque date</p><p className="mt-1 font-bold">{date}</p></div>
-        <div><p className="text-xs uppercase text-slate-500">Bank account</p><p className="mt-1 font-bold">{bankName}</p></div>
+        <div><p className="text-xs uppercase text-slate-500">Pay from</p><p className="mt-1 font-bold">{bankName}</p></div>
         <div><p className="text-xs uppercase text-slate-500">Amount</p><p className="mt-1 font-bold">{money(amount, currency)}</p></div>
       </div>
+      <div className="mt-6 rounded-lg border bg-slate-50 p-4"><p className="text-xs uppercase text-slate-500">Amount in words</p><p className="mt-1 font-semibold uppercase">{words}</p></div>
       <div className="mt-6 grid gap-5 border-t pt-5 sm:grid-cols-2"><div><p className="text-xs uppercase text-slate-500">Payment details</p><p className="mt-1">{String(lines[0]?.description || "Cheque payment")}</p></div><div><p className="text-xs uppercase text-slate-500">Memo / bill references</p><p className="mt-1 whitespace-pre-wrap">{String(record.memo || "—")}</p></div></div>
       <div className="mt-8 grid grid-cols-3 gap-8 pt-8 text-center text-xs font-semibold text-slate-500"><p className="border-t pt-2">PREPARED BY</p><p className="border-t pt-2">CHECKED BY</p><p className="border-t pt-2">APPROVED BY</p></div>
     </section>

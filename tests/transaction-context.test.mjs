@@ -428,14 +428,15 @@ test('cheques credit the chosen currency bank and debit the selected AP or expen
   const bankAccountId = rows.find(r => r.name === 'Cheque USD Bank').id;
   await database.query("INSERT INTO contacts (company_id, type, name, currency, balance) VALUES ($1, 'vendor', 'Cheque Supplier', 'USD', 500), ($1, 'employee', 'Salary Employee', 'USD', 0)", [companyId]);
   const { POST } = await vite.ssrLoadModule('/app/api/records/route.ts');
-  const pay = (changes = {}) => POST(new Request('https://app.test/api/records', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'transactions', companyId, type: 'cheque', number: 'CHQ-TEST', party: 'Cheque Supplier', account: 'Cheque USD AP', bankAccountId, currency: 'USD', exchangeRate: 3.675, transactionDate: '2026-09-11', lines: [{ description: 'Cheque', quantity: 1, unitPrice: 100, unitCost: 0, vatCode: 'ZERO' }], ...changes }) }));
-  for (const changes of [{ bankAccountId: null }, { bankAccountId: rows[0].id }, { bankAccountId: rows[2].id }, { account: 'Missing AP' }]) assert.equal((await pay(changes)).status, 400);
+  const pay = (changes = {}) => POST(new Request('https://app.test/api/records', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'transactions', companyId, type: 'cheque', number: 'CHQ-TEST', party: 'Cheque Supplier', account: 'Cheque USD AP', bankAccountId, chequeBankKey: 'emirates-nbd-business', currency: 'USD', exchangeRate: 3.675, transactionDate: '2026-09-11', lines: [{ description: 'Cheque', quantity: 1, unitPrice: 100, unitCost: 0, vatCode: 'ZERO' }], ...changes }) }));
+  for (const changes of [{ bankAccountId: null }, { bankAccountId: rows[0].id }, { bankAccountId: rows[2].id }, { account: 'Missing AP' }, { chequeBankKey: 'not-a-uae-bank' }]) assert.equal((await pay(changes)).status, 400);
   assert.equal((await pay({ party: '', chequeType: 'supplier' })).status, 400);
   assert.equal((await database.query('SELECT count(*)::int AS n FROM transactions WHERE company_id=$1', [companyId])).rows[0].n, 0);
   for (const account of ['Cheque USD AP', 'Cheque Expense', 'Direct Expense']) {
     const response = await pay({ account }); assert.equal(response.status, 201);
     const savedCheque = (await response.json()).record;
     assert.equal(savedCheque.status, 'paid');
+    assert.equal(savedCheque.chequeBankKey, 'emirates-nbd-business');
     assert.ok(savedCheque.paidAt);
     const id = savedCheque.id;
     const journal = (await database.query('SELECT jl.account_name, jl.debit, jl.credit FROM journal_lines jl JOIN journal_entries je ON jl.journal_entry_id=je.id WHERE je.transaction_id=$1 ORDER BY jl.id', [id])).rows;
