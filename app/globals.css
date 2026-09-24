@@ -291,10 +291,12 @@ button, input, select { font: inherit; }
   body:has(.document-print-surface) .document-print-surface { position: absolute; inset: 0; width: 100%; padding: 12mm; background: white; color: #0f172a; print-color-adjust: exact; }
   body:has(.uae-cheque-sheet) .document-print-surface { page: uae-cheque; }
   .uae-cheque-sheet { break-inside: avoid; box-shadow: none !important; }
+  html[data-cheque-print-mode="cheque"] body { margin: 0 !important; }
   html[data-cheque-print-mode="cheque"] .document-print-surface { page: cheque-stock !important; inset: 0 !important; width: var(--cheque-page-width, 210mm) !important; height: var(--cheque-page-height, 100mm) !important; padding: 0 !important; overflow: hidden !important; }
-  html[data-cheque-print-mode="cheque"] .document-print-surface > :not(.uae-cheque-print-layer),
+  html[data-cheque-print-mode="cheque"] .uae-cheque-document { position: absolute !important; inset: 0 !important; width: var(--cheque-page-width, 210mm) !important; height: var(--cheque-page-height, 100mm) !important; margin: 0 !important; overflow: hidden !important; }
+  html[data-cheque-print-mode="cheque"] .uae-cheque-document > :not(.uae-cheque-print-layer),
   html[data-cheque-print-mode="cheque"] .uae-cheque-sheet { display: none !important; }
-  html[data-cheque-print-mode="cheque"] .uae-cheque-print-layer { display: block !important; position: absolute !important; inset: 0 !important; overflow: hidden !important; }
+  html[data-cheque-print-mode="cheque"] .uae-cheque-print-layer { display: block !important; visibility: visible !important; position: absolute !important; inset: 0 !important; overflow: hidden !important; }
   html[data-cheque-print-mode="voucher"] .uae-cheque-print-layer { display: none !important; }
 }
 

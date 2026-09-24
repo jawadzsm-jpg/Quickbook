@@ -140,6 +140,11 @@ test("UAE bank cheque is linked to Banking and supports save and print", () => {
   assert.match(cheque, /Print A4 voucher/);
   assert.match(cheque, /Edit cheque number/);
   assert.match(cheque, /editMode: "cheque-number"/);
+  assert.match(cheque, /uae-cheque-page-size/);
+  assert.match(cheque, /@page \{ size:/);
+  const css = readFileSync("app/globals.css", "utf8");
+  assert.match(css, /uae-cheque-document > :not\(\.uae-cheque-print-layer\)/);
+  assert.doesNotMatch(css, /document-print-surface > :not\(\.uae-cheque-print-layer\)/);
   assert.match(cheque, /Horizontal mm/);
   assert.match(cheque, /Amount in words/);
   assert.match(cheque, /window\.print\(\)/);

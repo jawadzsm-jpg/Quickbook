@@ -72,6 +72,14 @@ export function UaeBankCheque({ record, lines, journal, companyName, revision, c
 
   function print(mode: "cheque" | "voucher") {
     const root = document.documentElement;
+    const oldPageStyle = document.getElementById("uae-cheque-page-size");
+    oldPageStyle?.remove();
+    const pageStyle = document.createElement("style");
+    pageStyle.id = "uae-cheque-page-size";
+    pageStyle.textContent = mode === "cheque"
+      ? `@page { size: ${selectedLayout.widthMm}mm ${selectedLayout.heightMm}mm; margin: 0; }`
+      : "@page { size: A4 portrait; margin: 10mm; }";
+    document.head.appendChild(pageStyle);
     root.dataset.chequePrintMode = mode;
     root.style.setProperty("--cheque-page-width", `${selectedLayout.widthMm}mm`);
     root.style.setProperty("--cheque-page-height", `${selectedLayout.heightMm}mm`);
@@ -79,6 +87,7 @@ export function UaeBankCheque({ record, lines, journal, companyName, revision, c
       delete root.dataset.chequePrintMode;
       root.style.removeProperty("--cheque-page-width");
       root.style.removeProperty("--cheque-page-height");
+      pageStyle.remove();
       window.removeEventListener("afterprint", cleanup);
     };
     window.addEventListener("afterprint", cleanup);
@@ -106,7 +115,7 @@ export function UaeBankCheque({ record, lines, journal, companyName, revision, c
     }
   }
 
-  return <div className="space-y-5">
+  return <div className="uae-cheque-document space-y-5">
     <div className="document-internal-only space-y-4 rounded-xl border bg-slate-50 p-4 print:hidden">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div><p className="font-bold text-slate-900">UAE Bank Cheque</p><p className="text-sm text-slate-500">{selectedLayout.name} · Saved cheque {chequeNumber}</p></div>
