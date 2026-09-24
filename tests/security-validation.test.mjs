@@ -153,6 +153,8 @@ test("UAE bank cheque is linked to Banking and supports save and print", () => {
   assert.match(cheque, /Amount in words/);
   assert.match(cheque, /window\.print\(\)/);
   for (const bank of ["Emirates NBD", "First Abu Dhabi Bank", "ADCB", "Dubai Islamic Bank", "Mashreq", "RAKBANK", "Habib Bank AG Zurich", "Wio Business"]) assert.match(layouts, new RegExp(bank));
+  assert.match(layouts, /"habib-186x90"[\s\S]*widthMm: 186, heightMm: 90/);
+  assert.match(layouts, /"habib-bank-ag-zurich", "Habib Bank AG Zurich", "habib-186x90"/);
 });
 
 test("Escape and close controls protect editable dialogs with save, discard, and cancel choices", () => {

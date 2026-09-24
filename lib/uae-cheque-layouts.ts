@@ -16,7 +16,7 @@ export type UaeChequeLayout = {
   crossing: ChequeFieldPosition;
 };
 
-type LayoutVariant = "standard" | "compact" | "wide-date" | "lower-amount";
+type LayoutVariant = "standard" | "compact" | "wide-date" | "lower-amount" | "habib-186x90";
 
 const variants: Record<LayoutVariant, Omit<UaeChequeLayout, "key" | "name">> = {
   standard: {
@@ -51,6 +51,14 @@ const variants: Record<LayoutVariant, Omit<UaeChequeLayout, "key" | "name">> = {
     amount: { left: 164, top: 61, width: 35 },
     crossing: { left: 8, top: 8, width: 50 },
   },
+  "habib-186x90": {
+    widthMm: 186, heightMm: 90,
+    date: { left: 136.5, top: 14.5, width: 40 },
+    payee: { left: 32, top: 35, width: 142 },
+    words: { left: 25, top: 50.5, width: 119 },
+    amount: { left: 145, top: 55, width: 31 },
+    crossing: { left: 7, top: 7, width: 44 },
+  },
 };
 
 const bankLayouts: Array<[string, string, LayoutVariant]> = [
@@ -69,7 +77,7 @@ const bankLayouts: Array<[string, string, LayoutVariant]> = [
   ["hsbc-uae", "HSBC UAE", "wide-date"],
   ["standard-chartered-business", "Standard Chartered · Business", "standard"],
   ["standard-chartered-personal", "Standard Chartered · Personal", "compact"],
-  ["habib-bank-ag-zurich", "Habib Bank AG Zurich", "lower-amount"],
+  ["habib-bank-ag-zurich", "Habib Bank AG Zurich", "habib-186x90"],
   ["national-bank-fujairah", "National Bank of Fujairah (NBF)", "wide-date"],
   ["sharjah-islamic-bank", "Sharjah Islamic Bank", "compact"],
   ["united-arab-bank", "United Arab Bank", "standard"],

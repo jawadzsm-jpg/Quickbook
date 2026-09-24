@@ -130,7 +130,7 @@ export function UaeBankCheque({ record, lines, journal, companyName, revision, c
   return <div className="uae-cheque-document space-y-5">
     <div className="document-internal-only space-y-4 rounded-xl border bg-slate-50 p-4 print:hidden">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div><p className="font-bold text-slate-900">UAE Bank Cheque</p><p className="text-sm text-slate-500">{selectedLayout.name} · Saved cheque {chequeNumber}</p></div>
+        <div><p className="font-bold text-slate-900">UAE Bank Cheque</p><p className="text-sm text-slate-500">{selectedLayout.name} · {selectedLayout.widthMm} × {selectedLayout.heightMm} mm · Saved cheque {chequeNumber}</p></div>
         <div className="flex flex-wrap gap-2">
           <Button type="button" onClick={() => print("cheque")}><Printer className="size-4" />Print on bank cheque</Button>
           <Button type="button" variant="outline" onClick={() => print("voucher")}><FileText className="size-4" />Print A4 voucher</Button>
