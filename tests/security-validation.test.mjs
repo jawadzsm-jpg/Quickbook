@@ -44,6 +44,15 @@ test("dark mode keeps striped report rows and darkest utility text readable", ()
   assert.match(pnl, /dark:bg-emerald-950 dark:text-emerald-100/);
 });
 
+test("invoice edit keeps compact line comments once and offers add line at the bottom", () => {
+  const editor = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const extraFields = readFileSync(new URL("../app/document-extra-fields.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(editor, /\["invoice", "bill"\]\.includes\(form\.type\).*<DocumentExtraFields/);
+  assert.match(editor, />Add Another Line<\/Button>/);
+  assert.match(extraFields, /rows=\{2\}/);
+  assert.match(extraFields, /min-h-12/);
+});
+
 test("dashboard totals use linked ledger accounts without counting payments as income or expense", () => {
   assert.deepEqual(dashboardMetrics([
     { active: true, type: "Bank", systemRole: "BANK", balance: 10, baseBalance: 150 },
