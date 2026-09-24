@@ -53,6 +53,18 @@ test("invoice edit keeps compact line comments once and offers add line at the b
   assert.match(extraFields, /min-h-12/);
 });
 
+test("sales documents save manageable payment terms without a duplicate add-sales-rep action", () => {
+  const editor = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const terms = readFileSync(new URL("../app/payment-terms-picker.tsx", import.meta.url), "utf8");
+  const salesRep = readFileSync(new URL("../app/payment-sales-rep.tsx", import.meta.url), "utf8");
+  const records = readFileSync(new URL("../app/api/records/route.ts", import.meta.url), "utf8");
+  assert.match(editor, /<PaymentTermsPicker/);
+  assert.match(terms, /Select, add, rename or remove a choice/);
+  assert.doesNotMatch(salesRep, /Add sales rep|\+ Add sales rep/);
+  assert.match(records, /const terms = String\(payload\.terms/);
+  assert.match(records, /dueDate, terms, salesman/);
+});
+
 test("dashboard totals use linked ledger accounts without counting payments as income or expense", () => {
   assert.deepEqual(dashboardMetrics([
     { active: true, type: "Bank", systemRole: "BANK", balance: 10, baseBalance: 150 },
