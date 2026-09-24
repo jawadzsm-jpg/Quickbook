@@ -73,6 +73,18 @@ test("payment terms update the due date from the transaction date", () => {
   assert.equal(dueDateForPaymentTerms("2026-09-24", "50% advance · 50% on delivery"), undefined);
 });
 
+test("Escape and close controls protect editable dialogs with save, discard, and cancel choices", () => {
+  const closer = readFileSync(new URL("../app/escape-window-closer.tsx", import.meta.url), "utf8");
+  assert.match(closer, /document\.addEventListener\("keydown", onKeyDown, true\)/);
+  assert.match(closer, /document\.addEventListener\("click", onClick, true\)/);
+  assert.match(closer, /Save before closing\?/);
+  assert.match(closer, /Keep editing/);
+  assert.match(closer, /Discard &amp; close/);
+  assert.match(closer, /Save changes/);
+  assert.match(closer, /form\.requestSubmit\(target\.saveControl\)/);
+  assert.match(closer, /hasOpenTransientLayer\(\)/);
+});
+
 test("dashboard totals use linked ledger accounts without counting payments as income or expense", () => {
   assert.deepEqual(dashboardMetrics([
     { active: true, type: "Bank", systemRole: "BANK", balance: 10, baseBalance: 150 },
