@@ -16,6 +16,18 @@ const { linkReportAccounts } = await sourceModule("../lib/report-account-links.t
 const { filterRecordListByDate, recordListReport } = await sourceModule("../lib/record-list-export.ts");
 const { normalizeComparableText, uppercaseText } = await sourceModule("../lib/text-normalization.ts");
 const { dueDateForPaymentTerms } = await sourceModule("../lib/payment-terms.ts");
+const { chequeAlignmentBounds, uaeChequeLayout, validChequeAlignment } = await sourceModule("../lib/uae-cheque-layouts.ts");
+
+test("cheque print calibration keeps the amount and every field on the paper", () => {
+  const habib = uaeChequeLayout("habib-bank-ag-zurich");
+  const original = { x: 0, y: 0, amountX: 0 };
+  assert.deepEqual(chequeAlignmentBounds(habib, true, original).x, { min: -7, max: 4 });
+  assert.equal(validChequeAlignment(habib, true, { ...original, x: 25 }), false);
+  assert.equal(validChequeAlignment(habib, true, { ...original, amountX: -25 }), true);
+  assert.equal(validChequeAlignment(habib, true, { ...original, amountX: 5 }), false);
+  assert.equal(validChequeAlignment(habib, true, { ...original, amountX: -25, x: 8 }), true);
+  assert.equal(validChequeAlignment(habib, true, { ...original, amountX: -25, x: 9 }), false);
+});
 
 test("email validation accepts ordinary addresses and rejects malformed or oversized input", () => {
   for (const email of ["name@example.com", "name+sales@example.co.uk"]) assert.equal(isValidEmail(email), true);
@@ -147,13 +159,12 @@ test("UAE bank cheque is linked to Banking and supports save and print", () => {
   assert.doesNotMatch(css, /document-print-surface > :not\(\.uae-cheque-print-layer\)/);
   assert.match(css, /\[data-slot="dialog-content"\]:has\(\.document-print-surface\)/);
   assert.match(css, /data-cheque-print-mode="voucher"\][\s\S]*\.document-print-surface \{ position: static/);
-  assert.match(cheque, /Move right \(\+\) \/ left \(-\), mm/);
-  assert.match(cheque, /Move down \(\+\) \/ up \(-\), mm/);
-  assert.match(cheque, /MAX_ALIGNMENT_OFFSET_MM = 25/);
+  assert.match(cheque, /Amount only: left \(−\) \/ right \(\+\), mm/);
+  assert.match(cheque, /Save layout & alignment/);
   assert.match(cheque, /Cheque bank layout for this print/);
   assert.match(cheque, /uaeChequeLayouts\.map\(\(layout\) => <option/);
   assert.match(cheque, /Fixed paper size:/);
-  assert.match(cheque, /Both movements were reset to 0 mm/);
+  assert.match(cheque, /validChequeAlignment/);
   assert.match(cheque, /Alignment reset to 0 mm/);
   assert.match(cheque, /Amount in words/);
   assert.match(cheque, /printWindow\.print\(\)/);
