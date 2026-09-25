@@ -31,12 +31,14 @@ export async function GET(request: Request) {
         .from(transactionLines).leftJoin(items, eq(transactionLines.itemId, items.id)).where(eq(transactionLines.transactionId, invoiceId));
       return Response.json({ invoice, lines }, { headers: { "Cache-Control": "no-store" } });
     }
-    const [slips, customers, invoices] = await Promise.all([
+    const [slips, customers, invoices, suppliers, purchaseBills] = await Promise.all([
       list(companyId),
       db.select({ id: contacts.id, name: contacts.name, company: contacts.company, phone: contacts.phone, email: contacts.email }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "customer"))),
       db.select({ id: transactions.id, number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.type, "invoice"))).orderBy(desc(transactions.id)).limit(500),
+      db.select({ id: contacts.id, name: contacts.name, company: contacts.company }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "vendor"))),
+      db.select({ id: transactions.id, number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.type, "bill"))).orderBy(desc(transactions.id)).limit(500),
     ]);
-    return Response.json({ slips: slips.map(({ slip, customerName, customerCompany, createdBy }) => ({ ...slip, status: normalizeWarrantyStatus(slip.status) ?? slip.status, customerName, customerCompany, createdBy: createdBy || "" })), customers, invoices }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ slips: slips.map(({ slip, customerName, customerCompany, createdBy }) => ({ ...slip, status: normalizeWarrantyStatus(slip.status) ?? slip.status, customerName, customerCompany, createdBy: createdBy || "" })), customers, invoices, suppliers, purchaseBills }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not load warranty slips." }, { status: 500 });
   }
@@ -51,26 +53,47 @@ async function save(request: Request, editing: boolean) {
     const customerId = Number(input.customerId);
     const invoiceId = input.invoiceId ? Number(input.invoiceId) : null;
     const invoiceLineId = input.invoiceLineId ? Number(input.invoiceLineId) : null;
+    const supplierId = input.supplierId ? Number(input.supplierId) : null;
+    const purchaseBillId = input.purchaseBillId ? Number(input.purchaseBillId) : null;
     const id = editing ? Number(input.id) : 0;
     const slipDate = clean(input.slipDate, 10);
     const problem = clean(input.problem, 2000);
     const stampLeft = Number(input.stampLeft);
     const stampTop = Number(input.stampTop);
     const status = normalizeWarrantyStatus(clean(input.status, 30));
+    const purchaseDate = clean(input.purchaseDate, 10);
+    const returnedToSupplierDate = clean(input.returnedToSupplierDate, 10);
+    const receivedFromSupplierDate = clean(input.receivedFromSupplierDate, 10);
     if (!Number.isInteger(customerId) || customerId < 1 || !validDate(slipDate) || !problem || !status
       || (invoiceId !== null && (!Number.isInteger(invoiceId) || invoiceId < 1))
       || (invoiceLineId !== null && (!Number.isInteger(invoiceLineId) || invoiceLineId < 1))
       || (invoiceLineId !== null && invoiceId === null)
+      || (supplierId !== null && (!Number.isInteger(supplierId) || supplierId < 1))
+      || (purchaseBillId !== null && (!Number.isInteger(purchaseBillId) || purchaseBillId < 1 || supplierId === null))
+      || (purchaseDate !== "" && !validDate(purchaseDate))
+      || (returnedToSupplierDate !== "" && (!validDate(returnedToSupplierDate) || supplierId === null))
+      || (receivedFromSupplierDate !== "" && (!validDate(receivedFromSupplierDate) || !returnedToSupplierDate || receivedFromSupplierDate < returnedToSupplierDate))
+      || (status === "Returned to Supplier" && !supplierId)
       || !Number.isInteger(stampLeft) || stampLeft < 0 || stampLeft > 170
       || !Number.isInteger(stampTop) || stampTop < 0 || stampTop > 260
       || typeof input.showStamp !== "boolean"
       || (editing && (!Number.isInteger(id) || id < 1 || typeof input.revision !== "string"))) {
-      return Response.json({ error: "Check the customer, date, problem and stamp position." }, { status: 400 });
+      return Response.json({ error: "Check the customer, supplier, purchase and return dates, problem, and stamp position." }, { status: 400 });
     }
     return await withWriteTransaction(async () => {
       const db = getDb();
       const [customer] = await db.select().from(contacts).where(and(eq(contacts.id, customerId), eq(contacts.companyId, companyId), eq(contacts.type, "customer"))).limit(1);
       if (!customer) return Response.json({ error: "Select a customer from this company." }, { status: 400 });
+      let supplier = null;
+      if (supplierId !== null) {
+        [supplier] = await db.select({ id: contacts.id, name: contacts.name }).from(contacts).where(and(eq(contacts.id, supplierId), eq(contacts.companyId, companyId), eq(contacts.type, "vendor"))).limit(1);
+        if (!supplier) return Response.json({ error: "Select a supplier from this company." }, { status: 400 });
+      }
+      let purchaseBill = null;
+      if (purchaseBillId !== null && supplier) {
+        [purchaseBill] = await db.select({ number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate }).from(transactions).where(and(eq(transactions.id, purchaseBillId), eq(transactions.companyId, companyId), eq(transactions.type, "bill"))).limit(1);
+        if (!purchaseBill || purchaseBill.party.trim().toLocaleLowerCase() !== supplier.name.trim().toLocaleLowerCase()) return Response.json({ error: "The purchase bill does not belong to this supplier." }, { status: 400 });
+      }
       let invoice = null;
       if (invoiceId !== null) {
         [invoice] = await db.select().from(transactions).where(and(eq(transactions.id, invoiceId), eq(transactions.companyId, companyId), eq(transactions.type, "invoice"))).limit(1);
@@ -81,7 +104,9 @@ async function save(request: Request, editing: boolean) {
         }
       }
       const values = {
-        customerId, invoiceId, invoiceLineId, slipDate, problem, status,
+        customerId, invoiceId, invoiceLineId, supplierId, purchaseBillId, slipDate, problem, status,
+        supplierName: supplier?.name ?? "", purchaseNumber: purchaseBill?.number ?? "", purchaseDate: purchaseBill?.transactionDate ?? purchaseDate,
+        returnedToSupplierDate, receivedFromSupplierDate,
         contactName: clean(input.contactName, 120), contactPhone: clean(input.contactPhone, 80),
         contactEmail: clean(input.contactEmail, 160), customerReference: clean(input.customerReference, 100),
         invoiceNumber: invoice?.number ?? clean(input.invoiceNumber, 100), brand: clean(input.brand, 120),
