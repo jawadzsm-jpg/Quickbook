@@ -3,7 +3,7 @@ import { getDb, withWriteTransaction } from "@/db";
 import { auditLog, companies } from "@/db/schema";
 import { canAccessCompany, isAdministrator, isGlobalAdmin, requireApiUser } from "@/lib/auth";
 
-const imageFields = new Set(["logoData", "rightLogoData", "loginLogoData", "loginBackgroundData"]);
+const imageFields = new Set(["logoData", "rightLogoData", "loginLogoData", "loginCompanyLogoData", "loginBackgroundData"]);
 const fields = new Set([...imageFields, "loginDisplayName", "loginCopyrightYears", "loginBackgroundColor", "loginBranding"]);
 
 export async function PATCH(request: Request) {
@@ -46,6 +46,7 @@ export async function PATCH(request: Request) {
         : field === "loginBackgroundColor" ? { loginBackgroundColor: value as string }
         : field === "loginBackgroundData" ? { loginBackgroundData: value as string }
         : field === "loginLogoData" ? { loginLogoData: value as string }
+        : field === "loginCompanyLogoData" ? { loginCompanyLogoData: value as string }
         : field === "loginDisplayName" ? { loginDisplayName: (value as string).trim() }
         : field === "loginCopyrightYears" ? { loginCopyrightYears: value as string }
         : field === "rightLogoData" ? { rightLogoData: value as string }

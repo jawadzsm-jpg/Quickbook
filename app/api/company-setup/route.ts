@@ -49,6 +49,7 @@ export async function PATCH(request: Request) {
     const email = text(payload.email, 160).toLowerCase();
     const logoData = String(payload.logoData ?? "");
     const loginLogoData = String(payload.loginLogoData ?? existing.loginLogoData);
+    const loginCompanyLogoData = String(payload.loginCompanyLogoData ?? existing.loginCompanyLogoData);
     const loginDisplayName = text(payload.loginDisplayName ?? existing.loginDisplayName, 120);
     const loginCopyrightYears = text(payload.loginCopyrightYears ?? existing.loginCopyrightYears, 9);
     const loginBackgroundData = String(payload.loginBackgroundData ?? existing.loginBackgroundData);
@@ -62,6 +63,7 @@ export async function PATCH(request: Request) {
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return Response.json({ error: "Enter a valid company email address." }, { status: 400 });
     if (logoData && (!/^data:image\/(png|jpeg|webp);base64,/.test(logoData) || logoData.length > 700_000)) return Response.json({ error: "Upload a PNG, JPG, or WebP logo smaller than 500 KB." }, { status: 400 });
     if (loginLogoData && (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(loginLogoData) || loginLogoData.length > 700_000)) return Response.json({ error: "Upload a PNG, JPG, or WebP login image smaller than 500 KB." }, { status: 400 });
+    if (loginCompanyLogoData && (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(loginCompanyLogoData) || loginCompanyLogoData.length > 700_000)) return Response.json({ error: "Upload a PNG, JPG, or WebP login company logo smaller than 500 KB." }, { status: 400 });
     if (!/^(?:19|20)\d{2}(?:-(?:19|20)\d{2})?$/.test(loginCopyrightYears)) return Response.json({ error: "Enter copyright years such as 1996-2021." }, { status: 400 });
     if (loginBackgroundData && (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(loginBackgroundData) || loginBackgroundData.length > 2_700_000)) return Response.json({ error: "Upload a PNG, JPG, or WebP background smaller than 2 MB." }, { status: 400 });
     if (!/^#[0-9a-fA-F]{6}$/.test(loginBackgroundColor)) return Response.json({ error: "Choose a valid login background color." }, { status: 400 });
@@ -79,7 +81,7 @@ export async function PATCH(request: Request) {
         if (loginBranding) await db.update(companies).set({ loginBranding: false }).where(ne(companies.id, companyId));
       }
       const [updated] = await db.update(companies).set({
-        name, logoData, rightLogoData, documentDesign, stampData, email, ...(isGlobalAdmin(user) ? { loginBranding } : {}), loginLogoData, loginDisplayName, loginCopyrightYears, loginBackgroundData, loginBackgroundColor,
+        name, logoData, rightLogoData, documentDesign, stampData, email, ...(isGlobalAdmin(user) ? { loginBranding } : {}), loginLogoData, loginCompanyLogoData, loginDisplayName, loginCopyrightYears, loginBackgroundData, loginBackgroundColor,
         addressLine1: text(payload.addressLine1, 180), addressLine2: text(payload.addressLine2, 180), city: text(payload.city, 80), country: text(payload.country, 80), phone: text(payload.phone, 40), trn: text(payload.trn, 40),
         bankName: text(payload.bankName, 120), bankAccountName: text(payload.bankAccountName, 120), bankAccountNumber: text(payload.bankAccountNumber, 80), bankIban: text(payload.bankIban, 80).toUpperCase(), bankSwift: text(payload.bankSwift, 30).toUpperCase(), bankCurrency,
         documentTemplate: documentTemplate as "classic" | "modern" | "minimal", documentColor,

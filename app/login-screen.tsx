@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-type LoginBranding = { name: string; logoData: string; loginLogoData: string; loginDisplayName: string; loginCopyrightYears: string; backgroundData: string; backgroundColor: string };
+type LoginBranding = { name: string; logoData: string; loginLogoData: string; loginCompanyLogoData: string; loginDisplayName: string; loginCopyrightYears: string; backgroundData: string; backgroundColor: string };
 
 export function LoginScreen({ branding }: { branding?: LoginBranding }) {
   const [email, setEmail] = useState("");
@@ -41,18 +41,17 @@ export function LoginScreen({ branding }: { branding?: LoginBranding }) {
 
   const backgroundColor = branding && /^#[0-9a-fA-F]{6}$/.test(branding.backgroundColor) ? branding.backgroundColor : "#f3f6fa";
   const backgroundImage = branding?.backgroundData && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(branding.backgroundData) ? branding.backgroundData : "";
-  const customImage = branding?.loginLogoData && /^data:image\/(png|jpeg|webp);base64,/.test(branding.loginLogoData) ? branding.loginLogoData : "";
-  const companyLogo = branding?.logoData && /^data:image\/(png|jpeg|webp);base64,/.test(branding.logoData) ? branding.logoData : "";
+  const upperImage = branding?.loginLogoData && /^data:image\/(png|jpeg|webp);base64,/.test(branding.loginLogoData) ? branding.loginLogoData : "";
+  const companyImage = branding?.loginCompanyLogoData || branding?.logoData || "";
+  const companyLogo = /^data:image\/(png|jpeg|webp);base64,/.test(companyImage) ? companyImage : "";
   const displayName = branding?.loginDisplayName?.trim() || branding?.name || "ComNet-CNI";
   const years = branding?.loginCopyrightYears && /^(?:19|20)\d{2}(?:-(?:19|20)\d{2})?$/.test(branding.loginCopyrightYears) ? branding.loginCopyrightYears : "1996-2021";
 
   return <main className="flex min-h-screen items-center justify-center bg-cover bg-center px-4 py-10 text-slate-800" style={{ backgroundColor, ...(backgroundImage ? { backgroundImage: `linear-gradient(rgb(243 246 250 / 20%), rgb(243 246 250 / 20%)), url("${backgroundImage}")` } : {}) }}>
     <div className="w-full max-w-xl space-y-7 text-center">
-      <div className="flex min-h-36 flex-col items-center justify-center gap-2">
-        {customImage ? <Image src={customImage} alt={`${displayName} sign-in image`} width={480} height={340} unoptimized priority className="max-h-80 w-auto max-w-full object-contain" /> : <>
-          {companyLogo ? <Image src={companyLogo} alt={`${displayName} logo`} width={280} height={130} unoptimized priority className="max-h-32 w-auto max-w-full object-contain" /> : <div className="grid size-20 place-items-center rounded-2xl bg-white shadow-sm"><ShieldCheck className="size-10 text-blue-600" /></div>}
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">{displayName}</h1>
-        </>}
+      <div className="flex min-h-36 flex-col items-center justify-center gap-3">
+        {upperImage ? <Image src={upperImage} alt={`${displayName} upper login image`} width={380} height={240} unoptimized priority className="max-h-52 w-auto max-w-full object-contain" /> : null}
+        {companyLogo ? <Image src={companyLogo} alt={`${displayName} company logo`} width={420} height={130} unoptimized priority className="max-h-28 w-auto max-w-full object-contain" /> : <div className="flex flex-col items-center gap-2"><div className="grid size-20 place-items-center rounded-2xl bg-white shadow-sm"><ShieldCheck className="size-10 text-blue-600" /></div><h1 className="text-3xl font-bold tracking-tight text-slate-900">{displayName}</h1></div>}
       </div>
 
       <form onSubmit={submit} className="space-y-5 rounded-lg border border-slate-200 bg-white px-6 py-8 text-left shadow-lg sm:px-10">

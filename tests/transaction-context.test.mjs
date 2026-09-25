@@ -1522,9 +1522,10 @@ test('login branding selects one company and protects the shared sign-in page se
   const firstSetup = { ...(await original(first)), bankCurrency: 'AED' }, secondSetup = { ...(await original(second)), bankCurrency: 'AED' };
   const background = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
   try {
-    assert.equal((await save({ ...firstSetup, companyId: first, loginBranding: true, loginLogoData: background, loginDisplayName: 'ComNet International', loginCopyrightYears: '1996-2021', loginBackgroundData: background, loginBackgroundColor: '#123456' })).status, 200);
+    assert.equal((await save({ ...firstSetup, companyId: first, loginBranding: true, loginLogoData: background, loginCompanyLogoData: background, loginDisplayName: 'ComNet International', loginCopyrightYears: '1996-2021', loginBackgroundData: background, loginBackgroundColor: '#123456' })).status, 200);
     assert.equal((await original(first)).loginBackgroundData, background);
     assert.equal((await original(first)).loginLogoData, background);
+    assert.equal((await original(first)).loginCompanyLogoData, background);
     assert.equal((await original(first)).loginDisplayName, 'ComNet International');
     assert.equal((await save({ ...secondSetup, companyId: second, loginBranding: true })).status, 200);
     assert.deepEqual((await database.query('SELECT id FROM companies WHERE login_branding=true')).rows.map(row => row.id), [second]);
@@ -1546,20 +1547,22 @@ test('individual login settings save independently of unfinished company changes
   try {
     assert.equal((await save(first, 'logoData', logo)).status, 200);
     assert.equal((await save(first, 'loginLogoData', logo)).status, 200);
+    assert.equal((await save(first, 'loginCompanyLogoData', logo)).status, 200);
     assert.equal((await save(first, 'loginDisplayName', 'ComNet International L.L.C.')).status, 200);
     assert.equal((await save(first, 'loginCopyrightYears', '1996-2021')).status, 200);
     assert.equal((await save(first, 'loginBackgroundColor', '#304050')).status, 200);
     assert.equal((await save(first, 'loginBackgroundData', logo)).status, 200);
     assert.equal((await save(first, 'loginBranding', true)).status, 200);
     assert.equal((await save(second, 'loginBranding', true)).status, 200);
-    const row = (await database.query('SELECT name,bank_name,logo_data,login_logo_data,login_display_name,login_copyright_years,login_background_color,login_background_data,login_branding FROM companies WHERE id=$1', [first])).rows[0];
+    const row = (await database.query('SELECT name,bank_name,logo_data,login_logo_data,login_company_logo_data,login_display_name,login_copyright_years,login_background_color,login_background_data,login_branding FROM companies WHERE id=$1', [first])).rows[0];
     assert.equal(row.name, 'Separate Save First'); assert.equal(row.bank_name, ''); assert.equal(row.logo_data, logo);
-    assert.equal(row.login_logo_data, logo); assert.equal(row.login_display_name, 'ComNet International L.L.C.'); assert.equal(row.login_copyright_years, '1996-2021');
+    assert.equal(row.login_logo_data, logo); assert.equal(row.login_company_logo_data, logo); assert.equal(row.login_display_name, 'ComNet International L.L.C.'); assert.equal(row.login_copyright_years, '1996-2021');
     assert.equal(row.login_background_color, '#304050'); assert.equal(row.login_background_data, logo); assert.equal(row.login_branding, false);
     assert.deepEqual((await database.query('SELECT id FROM companies WHERE login_branding=true')).rows.map(row => row.id), [second]);
     assert.equal((await save(first, 'loginBackgroundData', 'data:image/svg+xml;base64,PHN2Zz4=')).status, 400);
     assert.equal((await save(first, 'loginBackgroundColor', 'url(javascript:alert(1))')).status, 400);
     assert.equal((await save(first, 'loginLogoData', 'data:image/svg+xml;base64,PHN2Zz4=')).status, 400);
+    assert.equal((await save(first, 'loginCompanyLogoData', 'data:image/svg+xml;base64,PHN2Zz4=')).status, 400);
     assert.equal((await save(first, 'loginDisplayName', 'a'.repeat(121))).status, 400);
     assert.equal((await save(first, 'loginCopyrightYears', '1996-<script>')).status, 400);
     globalThis.__transferTestUser = { id: 9, email: 'admin@test', role: 'admin', companyIds: [first] };

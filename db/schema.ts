@@ -8,6 +8,7 @@ export const companies = pgTable("companies", {
   rightLogoData: text("right_logo_data").notNull().default(""),
   loginBranding: boolean("login_branding").notNull().default(false),
   loginLogoData: text("login_logo_data").notNull().default(""),
+  loginCompanyLogoData: text("login_company_logo_data").notNull().default(""),
   loginDisplayName: text("login_display_name").notNull().default(""),
   loginCopyrightYears: text("login_copyright_years").notNull().default("1996-2021"),
   loginBackgroundData: text("login_background_data").notNull().default(""),
