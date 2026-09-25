@@ -267,6 +267,7 @@ export const transactions = pgTable("transactions", {
   chequeOffsetY: doublePrecision("cheque_offset_y").notNull().default(0),
   chequeAmountOffsetX: doublePrecision("cheque_amount_offset_x").notNull().default(0),
   chequeDateOffsetX: doublePrecision("cheque_date_offset_x").notNull().default(0),
+  chequeCrossingOffsetX: doublePrecision("cheque_crossing_offset_x").notNull().default(0),
   account: text("account").notNull().default("Accounts Receivable"),
   status: text("status").notNull().default("open"),
   comments: text("comments").notNull().default(""),

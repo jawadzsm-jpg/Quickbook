@@ -20,7 +20,7 @@ const { chequeAlignmentBounds, uaeChequeLayout, validChequeAlignment } = await s
 
 test("cheque print calibration keeps the amount and every field on the paper", () => {
   const habib = uaeChequeLayout("habib-bank-ag-zurich");
-  const original = { x: 0, y: 0, amountX: 0, dateX: 0 };
+  const original = { x: 0, y: 0, amountX: 0, dateX: 0, crossingX: 0 };
   assert.deepEqual(chequeAlignmentBounds(habib, true, original).x, { min: -7, max: 4 });
   assert.equal(validChequeAlignment(habib, true, { ...original, x: 25 }), false);
   assert.equal(validChequeAlignment(habib, true, { ...original, amountX: -25 }), true);
@@ -29,7 +29,13 @@ test("cheque print calibration keeps the amount and every field on the paper", (
   assert.equal(validChequeAlignment(habib, true, { ...original, amountX: -25, x: 9 }), false);
   assert.equal(validChequeAlignment(habib, true, { ...original, dateX: -25 }), true);
   assert.equal(validChequeAlignment(habib, true, { ...original, dateX: 25 }), true);
-  assert.equal(validChequeAlignment(habib, true, { ...original, dateX: 25, x: 8, amountX: -25 }), false);
+  assert.equal(validChequeAlignment(habib, true, { ...original, dateX: 35, x: 8, amountX: -25 }), false);
+  assert.equal(validChequeAlignment(habib, true, { ...original, dateX: 32 }), true);
+  assert.equal(validChequeAlignment(habib, true, { ...original, dateX: 38 }), false);
+  assert.equal(validChequeAlignment(habib, true, { ...original, amountX: -100 }), true);
+  assert.equal(validChequeAlignment(habib, true, { ...original, crossingX: 100 }), true);
+  assert.equal(validChequeAlignment(habib, true, { ...original, crossingX: 136 }), false);
+  assert.equal(validChequeAlignment(habib, true, { ...original, crossingX: -8 }), false);
 });
 
 test("email validation accepts ordinary addresses and rejects malformed or oversized input", () => {
@@ -179,7 +185,7 @@ test("UAE bank cheque is linked to Banking and supports save and print", () => {
   assert.match(layouts, /HABIB_CHEQUE_HEIGHT_MM = 90/);
   assert.equal((layouts.match(/widthMm: UAE_CHEQUE_WIDTH_MM, heightMm: UAE_CHEQUE_HEIGHT_MM/g) || []).length, 4);
   assert.match(layouts, /habib:[\s\S]*widthMm: HABIB_CHEQUE_WIDTH_MM, heightMm: HABIB_CHEQUE_HEIGHT_MM/);
-  assert.match(layouts, /habib:[\s\S]*date: \{ left: 105, top: 14\.5, width: 50 \}/);
+  assert.match(layouts, /habib:[\s\S]*date: \{ left: 110, top: 14\.5, width: 40 \}/);
   assert.match(layouts, /habib:[\s\S]*amount: \{ left: 136, top: 55, width: 47 \}/);
   assert.match(layouts, /"habib-bank-ag-zurich", "Habib Bank AG Zurich", "habib"/);
   assert.match(cheque, /\.amount\{[^}]*white-space:nowrap/);
