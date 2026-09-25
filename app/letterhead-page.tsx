@@ -61,13 +61,38 @@ export function LetterheadStamp({ template, company, onMove }: { template: Lette
   </div>;
 }
 
-export function LetterheadPage({ template, company, onMoveStamp }: { template: LetterheadTemplate; company: LetterheadCompany; onMoveStamp?: (left: number, top: number) => void }) {
+export function LetterheadPage({ template, company, onMoveStamp, onMoveBody }: { template: LetterheadTemplate; company: LetterheadCompany; onMoveStamp?: (left: number, top: number) => void; onMoveBody?: (left: number, top: number) => void }) {
   const address = [company.addressLine1, company.addressLine2, company.city, company.country].filter(Boolean).join(", ");
-  return <article className="letterhead-page" style={{ boxSizing: "border-box", position: "relative", width: "210mm", minHeight: "297mm", padding: "13mm", background: "#fff", color: "#24282d", fontFamily: "Arial, sans-serif", fontSize: 13, overflow: "hidden" }}>
+  const bodyLeft = template.bodyLeft ?? 13, bodyTop = template.bodyTop ?? 48, bodyWidth = Math.min(template.bodyWidth ?? 184, 210 - bodyLeft);
+  const beginBodyDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!onMoveBody || event.button !== 0) return;
+    event.preventDefault();
+    const startX = event.clientX, startY = event.clientY;
+    const page = event.currentTarget.closest<HTMLElement>(".letterhead-page");
+    const pixelsPerMm = (page?.getBoundingClientRect().width || 794) / 210;
+    const move = (next: PointerEvent) => onMoveBody(
+      Math.max(0, Math.min(170, 210 - bodyWidth, Math.round(bodyLeft + (next.clientX - startX) / pixelsPerMm))),
+      Math.max(0, Math.min(250, Math.round(bodyTop + (next.clientY - startY) / pixelsPerMm))),
+    );
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop, { once: true });
+    window.addEventListener("pointercancel", stop, { once: true });
+  };
+  return <article className="letterhead-page" style={{ boxSizing: "border-box", position: "relative", width: "210mm", height: "297mm", padding: "13mm", background: "#fff", color: "#24282d", fontFamily: "Arial, sans-serif", fontSize: 13, overflow: "hidden" }}>
     <LetterheadBrand template={template} company={company} />
-    <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", lineHeight: 1.6, minHeight: "190mm" }}>{template.body}</div>
-    {template.footer ? <footer style={{ borderTop: `1px solid ${template.color}`, paddingTop: 8, color: template.color, textAlign: "center", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{template.footer}</footer> : null}
-    {address ? <p style={{ textAlign: "center", fontSize: 11, marginTop: 10, overflowWrap: "anywhere" }}>{address}</p> : null}
+    <div style={{ position: "absolute", left: `${bodyLeft}mm`, top: `${bodyTop}mm`, width: `${bodyWidth}mm`, lineHeight: 1.5, overflowWrap: "anywhere" }}>
+      {onMoveBody && <div className="letterhead-drag-handle" onPointerDown={beginBodyDrag} style={{ cursor: "grab", touchAction: "none", border: "1px dashed #94a3b8", borderRadius: 4, padding: "3px 7px", marginBottom: 5, color: "#475569", fontSize: 11 }}>Drag here to move text</div>}
+      {template.bodyHtml ? <div className="letterhead-body-text" dangerouslySetInnerHTML={{ __html: template.bodyHtml }} /> : <div className="letterhead-body-text" style={{ whiteSpace: "pre-wrap" }}>{template.body}</div>}
+    </div>
+    <div className="letterhead-footer-area" style={{ position: "absolute", left: "13mm", right: "13mm", top: "228mm" }}>
+      {template.footer ? <footer style={{ borderTop: `1px solid ${template.color}`, paddingTop: 8, color: template.color, textAlign: "center", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{template.footer}</footer> : null}
+      {address ? <p style={{ textAlign: "center", fontSize: 11, marginTop: 10, overflowWrap: "anywhere" }}>{address}</p> : null}
+    </div>
     <LetterheadStamp template={template} company={company} onMove={onMoveStamp} />
   </article>;
 }
