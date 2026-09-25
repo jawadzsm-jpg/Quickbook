@@ -58,7 +58,7 @@ const variants: Record<LayoutVariant, Omit<UaeChequeLayout, "key" | "name">> = {
   },
   habib: {
     widthMm: HABIB_CHEQUE_WIDTH_MM, heightMm: HABIB_CHEQUE_HEIGHT_MM,
-    date: { left: 105, top: 14.5, width: 50 },
+    date: { left: 105, top: 14.5, width: 40 },
     payee: { left: 7, top: 34, width: 172 },
     words: { left: 7, top: 49.5, width: 128 },
     amount: { left: 136, top: 55, width: 47 },
@@ -104,18 +104,19 @@ export function uaeChequeLayout(key: string | undefined): UaeChequeLayout {
   return uaeChequeLayouts.find((layout) => layout.key === key) ?? uaeChequeLayouts[uaeChequeLayouts.length - 1];
 }
 
-export type ChequePrintAlignment = { x: number; y: number; amountX: number; dateX: number };
+export type ChequePrintAlignment = { x: number; y: number; amountX: number; dateX: number; crossingX: number };
 
 export function chequeAlignmentBounds(layout: UaeChequeLayout, crossed: boolean, alignment: ChequePrintAlignment) {
-  const fields = [{ ...layout.date, left: layout.date.left + alignment.dateX }, layout.payee, layout.words, ...(crossed ? [layout.crossing] : [])];
+  const fields = [{ ...layout.date, left: layout.date.left + alignment.dateX }, layout.payee, layout.words, ...(crossed ? [{ ...layout.crossing, left: layout.crossing.left + alignment.crossingX }] : [])];
   const amountLeft = layout.amount.left + alignment.amountX;
   const leftmost = Math.min(amountLeft, ...fields.map((field) => field.left));
   const rightmost = Math.max(amountLeft + layout.amount.width, ...fields.map((field) => field.left + field.width));
   return {
     x: { min: Math.max(-25, -leftmost), max: Math.min(25, layout.widthMm - rightmost) },
     y: { min: Math.max(-10, -Math.min(layout.date.top, layout.payee.top, layout.words.top, layout.amount.top, ...(crossed ? [layout.crossing.top] : []))), max: 10 },
-    amountX: { min: Math.max(-25, -layout.amount.left - alignment.x), max: Math.min(25, layout.widthMm - layout.amount.left - layout.amount.width - alignment.x) },
-    dateX: { min: Math.max(-25, -layout.date.left - alignment.x), max: Math.min(25, layout.widthMm - layout.date.left - layout.date.width - alignment.x) },
+    amountX: { min: -layout.amount.left - alignment.x, max: layout.widthMm - layout.amount.left - layout.amount.width - alignment.x },
+    dateX: { min: -layout.date.left - alignment.x, max: layout.widthMm - layout.date.left - layout.date.width - alignment.x },
+    crossingX: { min: -layout.crossing.left - alignment.x, max: layout.widthMm - layout.crossing.left - layout.crossing.width - alignment.x },
   };
 }
 

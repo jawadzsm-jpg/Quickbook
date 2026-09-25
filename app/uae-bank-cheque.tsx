@@ -9,7 +9,7 @@ import { chequeAlignmentBounds, inferUaeChequeLayout, uaeChequeLayout, uaeCheque
 
 type RecordValue = string | number | boolean;
 type ChequeRecord = Record<string, RecordValue> & { id: number };
-const initialAlignment = (record: ChequeRecord): ChequePrintAlignment => ({ x: Number(record.chequeOffsetX || 0), y: Number(record.chequeOffsetY || 0), amountX: Number(record.chequeAmountOffsetX || 0), dateX: Number(record.chequeDateOffsetX || 0) });
+const initialAlignment = (record: ChequeRecord): ChequePrintAlignment => ({ x: Number(record.chequeOffsetX || 0), y: Number(record.chequeOffsetY || 0), amountX: Number(record.chequeAmountOffsetX || 0), dateX: Number(record.chequeDateOffsetX || 0), crossingX: Number(record.chequeCrossingOffsetX || 0) });
 
 function integerWords(value: number): string {
   const ones = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
@@ -124,15 +124,16 @@ export function UaeBankCheque({ record, lines, journal, companyName, revision, c
   const [offsetY, setOffsetY] = useState(() => initialAlignment(record).y);
   const [amountOffsetX, setAmountOffsetX] = useState(() => initialAlignment(record).amountX);
   const [dateOffsetX, setDateOffsetX] = useState(() => initialAlignment(record).dateX);
+  const [crossingOffsetX, setCrossingOffsetX] = useState(() => initialAlignment(record).crossingX);
   const [chequeNumber, setChequeNumber] = useState(String(record.number));
   const [numberDraft, setNumberDraft] = useState(String(record.number));
   const [editingNumber, setEditingNumber] = useState(false);
   const [savingNumber, setSavingNumber] = useState(false);
   const [numberError, setNumberError] = useState("");
   const [alignmentMessage, setAlignmentMessage] = useState("");
-  const alignment = { x: offsetX, y: offsetY, amountX: amountOffsetX, dateX: dateOffsetX };
+  const alignment = { x: offsetX, y: offsetY, amountX: amountOffsetX, dateX: dateOffsetX, crossingX: crossingOffsetX };
   const bounds = chequeAlignmentBounds(selectedLayout, crossed, alignment);
-  const positionedLayout = { ...selectedLayout, date: { ...selectedLayout.date, left: selectedLayout.date.left + dateOffsetX }, amount: { ...selectedLayout.amount, left: selectedLayout.amount.left + amountOffsetX } };
+  const positionedLayout = { ...selectedLayout, date: { ...selectedLayout.date, left: selectedLayout.date.left + dateOffsetX }, amount: { ...selectedLayout.amount, left: selectedLayout.amount.left + amountOffsetX }, crossing: { ...selectedLayout.crossing, left: selectedLayout.crossing.left + crossingOffsetX } };
   const calibrationStyle = { "--cheque-offset-x": `${offsetX}mm`, "--cheque-offset-y": `${offsetY}mm` } as CSSProperties;
   const alignmentChanged = layoutKey !== savedLayoutKey || Object.keys(alignment).some((key) => alignment[key as keyof ChequePrintAlignment] !== savedAlignment[key as keyof ChequePrintAlignment]);
 
@@ -141,8 +142,8 @@ export function UaeBankCheque({ record, lines, journal, companyName, revision, c
     if (!Number.isFinite(requested)) return;
     const { min, max } = bounds[key];
     const value = Math.min(max, Math.max(min, requested));
-    ({ x: setOffsetX, y: setOffsetY, amountX: setAmountOffsetX, dateX: setDateOffsetX })[key](value);
-    setAlignmentMessage(value !== requested ? `${key === "amountX" ? "Amount" : key === "dateX" ? "Date" : "Whole cheque"} movement limited to ${min} to +${max} mm to keep text on the paper.` : "");
+    ({ x: setOffsetX, y: setOffsetY, amountX: setAmountOffsetX, dateX: setDateOffsetX, crossingX: setCrossingOffsetX })[key](value);
+    setAlignmentMessage(value !== requested ? `${key === "amountX" ? "Amount" : key === "dateX" ? "Date" : key === "crossingX" ? "A/C Payee Only" : "Whole cheque"} movement limited to ${min} to +${max} mm to keep text on the paper.` : "");
     setLayoutError("");
   }
 
@@ -150,7 +151,7 @@ export function UaeBankCheque({ record, lines, journal, companyName, revision, c
     setSavingLayout(true);
     setLayoutError("");
     try {
-      const response = await fetch("/api/records", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "transactions", id: record.id, companyId: Number(record.companyId), revision, editMode: "cheque-layout", chequeBankKey: layoutKey, chequeOffsetX: offsetX, chequeOffsetY: offsetY, chequeAmountOffsetX: amountOffsetX, chequeDateOffsetX: dateOffsetX }) });
+      const response = await fetch("/api/records", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "transactions", id: record.id, companyId: Number(record.companyId), revision, editMode: "cheque-layout", chequeBankKey: layoutKey, chequeOffsetX: offsetX, chequeOffsetY: offsetY, chequeAmountOffsetX: amountOffsetX, chequeDateOffsetX: dateOffsetX, chequeCrossingOffsetX: crossingOffsetX }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not save the cheque layout.");
       setSavedLayoutKey(layoutKey);
@@ -214,8 +215,8 @@ export function UaeBankCheque({ record, lines, journal, companyName, revision, c
         </div>
         {numberError && <p role="alert" className="mt-2 text-xs font-medium text-red-600">{numberError}</p>}
       </div>}
-      <div className="space-y-2"><Label htmlFor="cheque-print-layout">Cheque bank layout for this print</Label><div className="flex flex-wrap gap-2"><select id="cheque-print-layout" className="flex h-9 min-w-56 flex-1 rounded-md border border-input bg-background px-3 py-1 text-sm" value={selectedLayout.key} onChange={(event) => { setLayoutKey(event.target.value); setOffsetX(0); setOffsetY(0); setAmountOffsetX(0); setDateOffsetX(0); setAlignmentMessage(""); setLayoutError(""); }}>{uaeChequeLayouts.map((layout) => <option key={layout.key} value={layout.key}>{layout.name}</option>)}</select>{canEditNumber && <Button type="button" variant="outline" disabled={savingLayout || !alignmentChanged} onClick={() => void saveLayout()}><Check className="size-4" />{savingLayout ? "Saving…" : "Save layout & alignment"}</Button>}</div><p className="text-xs text-slate-600">Match the bank name on the physical cheque. Saved alignment applies to this cheque when opened again.</p>{layoutError && <p role="alert" className="text-xs font-medium text-red-600">{layoutError}</p>}</div>
-      <div className="space-y-2"><div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-950"><strong>Fixed paper size:</strong> {selectedLayout.widthMm} × {selectedLayout.heightMm} mm ({selectedLayout.widthMm / 10} × {selectedLayout.heightMm / 10} cm). Use 100% / Actual size and no margins.</div><div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950"><strong>Positioning:</strong> + moves right, − moves left. The whole cheque can move only {bounds.x.min} to +{bounds.x.max} mm horizontally before a field leaves the paper. Use the Amount and Date controls to move those fields separately.</div></div>
+      <div className="space-y-2"><Label htmlFor="cheque-print-layout">Cheque bank layout for this print</Label><div className="flex flex-wrap gap-2"><select id="cheque-print-layout" className="flex h-9 min-w-56 flex-1 rounded-md border border-input bg-background px-3 py-1 text-sm" value={selectedLayout.key} onChange={(event) => { setLayoutKey(event.target.value); setOffsetX(0); setOffsetY(0); setAmountOffsetX(0); setDateOffsetX(0); setCrossingOffsetX(0); setAlignmentMessage(""); setLayoutError(""); }}>{uaeChequeLayouts.map((layout) => <option key={layout.key} value={layout.key}>{layout.name}</option>)}</select>{canEditNumber && <Button type="button" variant="outline" disabled={savingLayout || !alignmentChanged} onClick={() => void saveLayout()}><Check className="size-4" />{savingLayout ? "Saving…" : "Save layout & alignment"}</Button>}</div><p className="text-xs text-slate-600">Match the bank name on the physical cheque. Saved alignment applies to this cheque when opened again.</p>{layoutError && <p role="alert" className="text-xs font-medium text-red-600">{layoutError}</p>}</div>
+      <div className="space-y-2"><div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-950"><strong>Fixed paper size:</strong> {selectedLayout.widthMm} × {selectedLayout.heightMm} mm ({selectedLayout.widthMm / 10} × {selectedLayout.heightMm / 10} cm). Use 100% / Actual size and no margins.</div><div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950"><strong>Positioning:</strong> + moves right, − moves left. The whole cheque can move only {bounds.x.min} to +{bounds.x.max} mm horizontally before a field leaves the paper. Use the Amount, Date and A/C Payee Only controls to move those fields separately.</div></div>
       <div className="grid gap-3 sm:grid-cols-2 sm:items-end">
         <div className="space-y-1"><Label htmlFor="cheque-offset-x" className="flex items-center gap-1 text-xs"><Move className="size-3" />Whole cheque: left (−) / right (+), mm</Label><Input id="cheque-offset-x" type="number" min={bounds.x.min} max={bounds.x.max} step="0.5" value={offsetX} onChange={(event) => changeAlignment("x", event.target.value)} /></div>
         <div className="space-y-1"><Label htmlFor="cheque-offset-y" className="flex items-center gap-1 text-xs"><Move className="size-3" />Whole cheque: up (−) / down (+), mm</Label><Input id="cheque-offset-y" type="number" min={bounds.y.min} max={bounds.y.max} step="0.5" value={offsetY} onChange={(event) => changeAlignment("y", event.target.value)} /></div>
@@ -223,8 +224,9 @@ export function UaeBankCheque({ record, lines, journal, companyName, revision, c
       <div className="grid gap-3 sm:grid-cols-2 sm:items-end">
         <div className="space-y-1"><Label htmlFor="cheque-amount-offset-x" className="flex items-center gap-1 text-xs"><Move className="size-3" />Amount only: left (−) / right (+), mm</Label><div className="flex gap-1"><Button type="button" variant="outline" size="sm" onClick={() => changeAlignment("amountX", String(amountOffsetX - 5))}>← 5 mm</Button><Input id="cheque-amount-offset-x" type="number" min={bounds.amountX.min} max={bounds.amountX.max} step="0.5" value={amountOffsetX} onChange={(event) => changeAlignment("amountX", event.target.value)} /><Button type="button" variant="outline" size="sm" onClick={() => changeAlignment("amountX", String(amountOffsetX + 5))}>5 mm →</Button></div></div>
         <div className="space-y-1"><Label htmlFor="cheque-date-offset-x" className="flex items-center gap-1 text-xs"><Move className="size-3" />Date only: left (−) / right (+), mm</Label><div className="flex gap-1"><Button type="button" variant="outline" size="sm" onClick={() => changeAlignment("dateX", String(dateOffsetX - 5))}>← 5 mm</Button><Input id="cheque-date-offset-x" type="number" min={bounds.dateX.min} max={bounds.dateX.max} step="0.5" value={dateOffsetX} onChange={(event) => changeAlignment("dateX", event.target.value)} /><Button type="button" variant="outline" size="sm" onClick={() => changeAlignment("dateX", String(dateOffsetX + 5))}>5 mm →</Button></div></div>
+        {crossed && <div className="space-y-1"><Label htmlFor="cheque-crossing-offset-x" className="flex items-center gap-1 text-xs"><Move className="size-3" />A/C Payee Only: left (−) / right (+), mm</Label><div className="flex gap-1"><Button type="button" variant="outline" size="sm" onClick={() => changeAlignment("crossingX", String(crossingOffsetX - 5))}>← 5 mm</Button><Input id="cheque-crossing-offset-x" type="number" min={bounds.crossingX.min} max={bounds.crossingX.max} step="0.5" value={crossingOffsetX} onChange={(event) => changeAlignment("crossingX", event.target.value)} /><Button type="button" variant="outline" size="sm" onClick={() => changeAlignment("crossingX", String(crossingOffsetX + 5))}>5 mm →</Button></div></div>}
       </div>
-      <Button type="button" variant="outline" size="sm" onClick={() => { setOffsetX(0); setOffsetY(0); setAmountOffsetX(0); setDateOffsetX(0); setAlignmentMessage("Alignment reset to 0 mm."); }}><RotateCcw className="size-4" />Reset alignment</Button>
+      <Button type="button" variant="outline" size="sm" onClick={() => { setOffsetX(0); setOffsetY(0); setAmountOffsetX(0); setDateOffsetX(0); setCrossingOffsetX(0); setAlignmentMessage("Alignment reset to 0 mm."); }}><RotateCcw className="size-4" />Reset alignment</Button>
       {alignmentMessage && <p role="status" className="text-xs font-medium text-amber-700">{alignmentMessage}</p>}
     </div>
 
