@@ -2,9 +2,9 @@ import { and, desc, eq } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { appUsers, auditLog, contacts, items, transactionLines, transactions, warrantySlips } from "@/db/schema";
 import { requireCompanyAccess } from "@/lib/auth";
+import { normalizeWarrantyStatus } from "@/lib/warranty-status";
 
 const clean = (value: unknown, max: number) => String(value ?? "").trim().slice(0, max);
-const statuses = new Set(["Under Process", "Completed", "Returned"]);
 const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
 
 async function list(companyId: number) {
@@ -36,7 +36,7 @@ export async function GET(request: Request) {
       db.select({ id: contacts.id, name: contacts.name, company: contacts.company, phone: contacts.phone, email: contacts.email }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "customer"))),
       db.select({ id: transactions.id, number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.type, "invoice"))).orderBy(desc(transactions.id)).limit(500),
     ]);
-    return Response.json({ slips: slips.map(({ slip, customerName, customerCompany, createdBy }) => ({ ...slip, customerName, customerCompany, createdBy: createdBy || "" })), customers, invoices }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ slips: slips.map(({ slip, customerName, customerCompany, createdBy }) => ({ ...slip, status: normalizeWarrantyStatus(slip.status) ?? slip.status, customerName, customerCompany, createdBy: createdBy || "" })), customers, invoices }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not load warranty slips." }, { status: 500 });
   }
@@ -56,8 +56,8 @@ async function save(request: Request, editing: boolean) {
     const problem = clean(input.problem, 2000);
     const stampLeft = Number(input.stampLeft);
     const stampTop = Number(input.stampTop);
-    const status = clean(input.status, 30);
-    if (!Number.isInteger(customerId) || customerId < 1 || !validDate(slipDate) || !problem || !statuses.has(status)
+    const status = normalizeWarrantyStatus(clean(input.status, 30));
+    if (!Number.isInteger(customerId) || customerId < 1 || !validDate(slipDate) || !problem || !status
       || (invoiceId !== null && (!Number.isInteger(invoiceId) || invoiceId < 1))
       || (invoiceLineId !== null && (!Number.isInteger(invoiceLineId) || invoiceLineId < 1))
       || (invoiceLineId !== null && invoiceId === null)

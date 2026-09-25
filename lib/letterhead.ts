@@ -6,7 +6,7 @@ export const letterheadDocuments = [
   ["refund", "Refund"], ["cash-sales", "Sales Receipt"], ["quotation", "Quotation"],
   ["delivery-note", "Delivery Note"], ["packing-list", "Packing List"],
   ["hs-code-summary", "HS Code Summary"], ["statement", "Statement"],
-  ["warranty-slip", "Warranty Slip"],
+  ["warranty-slip", "Warranty / RMA Slip"],
 ] as const;
 export type LetterheadDocument = typeof letterheadDocuments[number][0];
 export type LetterheadTemplate = {
