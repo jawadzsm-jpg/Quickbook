@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { resolveDocumentDesign } from "@/lib/document-design";
 import { documentPageRule } from "@/lib/document-print";
+import { letterheadForDocument } from "@/lib/letterhead";
+import { LetterheadBrand, LetterheadStamp } from "./letterhead-page";
 
 export type StatementData = {
   partyType?: "customer" | "vendor"; memo?: string;
@@ -34,24 +36,25 @@ export function StatementFilters({ statement, currency, currencies, loading, onA
 
 export function StatementHeading({ statement, currency, company }: {
   statement: StatementData; currency: string;
-  company: { name: string; logoData: string; rightLogoData?: string; addressLine1: string; addressLine2: string; city: string; country: string; phone: string; email: string; trn: string; documentDesign?: string };
+  company: { name: string; logoData: string; rightLogoData?: string; stampData?: string; addressLine1: string; addressLine2: string; city: string; country: string; phone: string; email: string; trn: string; documentDesign?: string; letterheadDesign?: string };
 }) {
   const date = (value: string) => value ? new Date(value + "T12:00:00Z").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }) : "Beginning";
   const money = (amount: number) => new Intl.NumberFormat("en-AE", { style: "currency", currency }).format(amount);
   const { design, savedTemplate } = resolveDocumentDesign(company.documentDesign, "Statement");
+  const letterhead = letterheadForDocument(company.letterheadDesign, "statement");
   if (!savedTemplate || savedTemplate.appliesToAll || savedTemplate.type !== "Statement") design.title = "Statement of Account";
   const printDesign = { ...design, paper: "A4" as const, printerMode: "specified" as const };
   const address = [company.addressLine1, company.addressLine2, company.city, company.country].filter(Boolean).join(", ");
   const contact = [company.phone, company.email].filter(Boolean).join(" · ");
   return <section className="statement-heading" style={{ fontFamily: design.font, fontSize: design.fontSize, position: "relative" }}>
     <style>{`${documentPageRule(printDesign)}.statement-box-print{display:none}.customer-statement .report-table{font-family:${design.font};font-size:${design.fontSize}px}.customer-statement .report-table thead th{color:${design.color}}@media print{.statement-box-screen{display:none!important}.statement-box-print{display:block!important}}`}</style>
-    <div className="statement-brand">
+    {letterhead ? <><LetterheadBrand template={letterhead} company={company} /><LetterheadStamp template={letterhead} company={company} /></> : <div className="statement-brand">
       <div className="flex min-w-0 gap-4">
         {design.leftLogo && company.logoData ? <Image unoptimized width={design.logoWidth} height={design.logoHeight} src={company.logoData} alt={company.name} className="mb-3 max-h-20 max-w-52 object-contain" /> : null}
         <div>{design.showCompany && <h2 style={{ color: design.color, fontSize: design.companySize }}>{company.name}</h2>}{design.showAddress && address ? <p>{address}</p> : null}{(design.showPhone || design.showEmail) && contact ? <p>{[design.showPhone ? company.phone : "", design.showEmail ? company.email : ""].filter(Boolean).join(" · ")}</p> : null}{company.trn && <p>TRN: {company.trn}</p>}</div>
       </div>
       <div className="statement-document-title flex items-start justify-end gap-4"><div><h2 style={{ color: design.color, fontFamily: design.font, fontSize: design.titleSize }}>{design.title.toUpperCase()}</h2><p>Statement date: {date(statement.statementDate)}</p><p>Currency: {currency}</p></div>{design.rightLogo && company.rightLogoData ? <Image unoptimized width={design.logoWidth} height={design.logoHeight} src={company.rightLogoData} alt={`${company.name} right logo`} className="max-h-20 max-w-52 object-contain" /> : null}</div>
-    </div>
+    </div>}
     <div className="statement-recipient"><div><span>Statement for</span><h3>{statement.customer || (statement.partyType === "vendor" ? "All vendors" : "All customers")}</h3></div><div><span>Statement period</span><p>{date(statement.from)} — {date(statement.to)}</p></div></div>
     <div className="statement-totals">{[["Opening balance", statement.opening], ["Period charges", statement.charges], ["Payments / credits", statement.credits], ["Closing balance", statement.closing]].map(([label, value]) => <div key={label}><span>{label}</span><strong>{money(Number(value))}</strong></div>)}</div>
     {statement.memo && <div className="statement-memo"><strong>Memo</strong><p className="whitespace-pre-wrap break-words">{statement.memo}</p></div>}

@@ -1,12 +1,16 @@
 "use client";
 
 import Image from "next/image";
+import type { CSSProperties } from "react";
+import { LetterheadBrand, LetterheadStamp } from "./letterhead-page";
+import type { LetterheadTemplate } from "@/lib/letterhead";
 
 type Data = Record<string, string | number | boolean>;
 type Branding = {
   name: string;
   logoData: string;
   rightLogoData?: string;
+  stampData?: string;
   phone: string;
   email?: string;
   trn: string;
@@ -33,11 +37,13 @@ export function DeliveryNoteTemplate({
   lines,
   contact,
   setup,
+  letterhead,
 }: {
   record: Data;
   lines: Data[];
   contact?: Data | null;
   setup: Branding;
+  letterhead?: LetterheadTemplate;
 }) {
   const customerName = String(contact?.billingName || contact?.company || record.party || "Customer");
   const customerCountry = String(contact?.country || "");
@@ -46,7 +52,7 @@ export function DeliveryNoteTemplate({
   const totalQty = lines.reduce((sum, line) => sum + qty(line.quantity), 0);
   const address = [setup.addressLine1, setup.addressLine2, setup.city, setup.country].filter(Boolean).join(", ");
 
-  return <article className="custom-invoice delivery-note-page bg-white text-black" style={{ fontFamily: "Arial, sans-serif", padding: 28, minWidth: 0, maxWidth: "100%" }}>
+  return <article className="custom-invoice delivery-note-page bg-white text-black" style={{ fontFamily: "Arial, sans-serif", padding: 28, minWidth: 0, maxWidth: "100%", position: "relative" }}>
     <style>{`
       .delivery-note-page,.delivery-note-page *{box-sizing:border-box;color:#111!important}
       .delivery-note-page{background:#fff!important;color:#111!important;line-height:1.35}
@@ -79,6 +85,7 @@ export function DeliveryNoteTemplate({
       .delivery-note-page .total-row>div:last-child{text-align:right}
       .delivery-note-page .dn-footer{margin-top:28px;border-top:1px solid #bbb;padding-top:14px;text-align:center;font-size:13px}
       .delivery-note-page .dn-footer strong{font-size:14px}
+      .delivery-note-page .letterhead-brand [dir]{color:var(--letterhead-color)!important}
       @media print{
         .delivery-note-page{padding:0!important}
         .delivery-note-page thead{display:table-header-group}
@@ -87,7 +94,7 @@ export function DeliveryNoteTemplate({
       }
     `}</style>
 
-    <div className="dn-header">
+    {letterhead ? <div style={{ "--letterhead-color": letterhead.color } as CSSProperties}><LetterheadBrand template={letterhead} company={setup} /></div> : <div className="dn-header">
       <div className="dn-logo">
         {setup.logoData ? <Image src={setup.logoData} alt="Company logo" width={340} height={110} unoptimized style={{ width: 300, maxWidth: "100%", height: 95, objectFit: "contain", objectPosition: "left top" }} /> : <strong className="text-xl">{setup.name}</strong>}
       </div>
@@ -98,7 +105,8 @@ export function DeliveryNoteTemplate({
       <div className="dn-logo right">
         {setup.rightLogoData ? <Image src={setup.rightLogoData} alt="Right company logo" width={300} height={110} unoptimized style={{ width: 280, maxWidth: "100%", height: 95, objectFit: "contain", objectPosition: "right top" }} /> : null}
       </div>
-    </div>
+    </div>}
+    {letterhead ? <LetterheadStamp template={letterhead} company={setup} /> : null}
 
     <div className="dn-contact-grid">
       <div className="dn-contact">

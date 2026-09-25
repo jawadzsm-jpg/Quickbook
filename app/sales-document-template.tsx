@@ -10,9 +10,10 @@ import { CustomInvoiceTemplate, type TemplateBranding } from "./custom-invoice-t
 import { InvoicePackingListDialog } from "./invoice-packing-list";
 import { DeliveryNoteTemplate } from "./delivery-note-template";
 import { toast } from "sonner";
+import { letterheadForDocument } from "@/lib/letterhead";
 
 type RecordData = Record<string, string | number | boolean>;
-type Branding = TemplateBranding & { documentDesign?: string };
+type Branding = TemplateBranding & { documentDesign?: string; letterheadDesign?: string };
 export const salesDocumentTitles = {
   "tax-invoice": "Tax Invoice",
   "commercial-invoice": "Commercial Invoice",
@@ -84,6 +85,7 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
   const [packingView, setPackingView] = useState<"packing" | "hs-summary">("packing");
   const connectedPackingList = String(record.type) === "invoice";
   const activeMode = selection.source === mode && outputModes.includes(selection.output) ? selection.output : mode;
+  const letterhead = letterheadForDocument(setup.letterheadDesign, activeMode);
   const requestedTemplateType = savedTemplateType[activeMode];
   const { design, savedTemplate } = resolveDocumentDesign(setup.documentDesign, requestedTemplateType);
   if (!savedTemplate || savedTemplate.appliesToAll || (requestedTemplateType && savedTemplate.type !== requestedTemplateType) || activeMode === "commercial-invoice" || activeMode === "purchase-return") design.title = salesDocumentTitles[activeMode];
@@ -232,8 +234,8 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
         </Button>
       </div>
     </div>
-    <div ref={screenPreviewRef} className="invoice-screen-only">{activeMode === "delivery-note" && connectedPackingList ? <DeliveryNoteTemplate record={record} lines={lines} contact={contact} setup={setup} /> : <CustomInvoiceTemplate design={design} record={record} lines={lines} contact={contact} setup={setup} />}</div>
-    <div className="invoice-print-only">{activeMode === "delivery-note" && connectedPackingList ? <DeliveryNoteTemplate record={record} lines={lines} contact={contact} setup={setup} /> : <CustomInvoiceTemplate design={a4Design} record={record} lines={lines} contact={contact} setup={setup} target="print" />}</div>
-    {connectedPackingList ? <InvoicePackingListDialog open={packingOpen} onOpenChange={setPackingOpen} companyId={Number(record.companyId)} companyName={String(setup.name || "Company")} invoiceId={Number(record.id)} initialView={packingView} /> : null}
+    <div ref={screenPreviewRef} className="invoice-screen-only">{activeMode === "delivery-note" && connectedPackingList ? <DeliveryNoteTemplate record={record} lines={lines} contact={contact} setup={setup} letterhead={letterhead} /> : <CustomInvoiceTemplate design={design} record={record} lines={lines} contact={contact} setup={setup} letterhead={letterhead} />}</div>
+    <div className="invoice-print-only">{activeMode === "delivery-note" && connectedPackingList ? <DeliveryNoteTemplate record={record} lines={lines} contact={contact} setup={setup} letterhead={letterhead} /> : <CustomInvoiceTemplate design={a4Design} record={record} lines={lines} contact={contact} setup={setup} letterhead={letterhead} target="print" />}</div>
+    {connectedPackingList ? <InvoicePackingListDialog open={packingOpen} onOpenChange={setPackingOpen} companyId={Number(record.companyId)} companyName={String(setup.name || "Company")} setup={setup} invoiceId={Number(record.id)} initialView={packingView} /> : null}
   </>;
 }
