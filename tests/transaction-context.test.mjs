@@ -156,6 +156,17 @@ test("warranty slips link only the selected company's customer and invoice, and 
   assert.equal(updated.status, 200, await updated.clone().text());
   assert.equal((await updated.json()).slip.stampLeft, 110);
   assert.equal((await write({ ...slip, companyId, revision: slip.updatedAt, status: 'Returned' }, true)).status, 409);
+  let current = (await (await GET(new Request(`https://app.test/api/warranty-slips?companyId=${companyId}`))).json()).slips[0];
+  for (const status of ['Returned to Supplier', 'Under Process', 'Completed', 'Returned to Customer']) {
+    const response = await write({ ...current, companyId, revision: current.updatedAt, status }, true);
+    assert.equal(response.status, 200, `${status}: ${await response.clone().text()}`);
+    current = (await response.json()).slip;
+    assert.equal(current.status, status);
+  }
+  assert.equal((await write({ ...current, companyId, revision: current.updatedAt, status: 'Missing' }, true)).status, 400);
+  await database.query("UPDATE warranty_slips SET status = 'Returned' WHERE id = $1", [current.id]);
+  const legacyList = await GET(new Request(`https://app.test/api/warranty-slips?companyId=${companyId}`));
+  assert.equal((await legacyList.json()).slips[0].status, 'Returned to Customer');
   const detail = await GET(new Request(`https://app.test/api/warranty-slips?companyId=${companyId}&invoiceId=${invoiceId}`));
   assert.equal((await detail.json()).lines[0].serialNumber, 'SN-123');
 });
