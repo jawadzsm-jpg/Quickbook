@@ -1573,6 +1573,37 @@ test('individual login settings save independently of unfinished company changes
   } finally { delete globalThis.__transferTestUser; }
 });
 
+test('login company selector includes new active companies and loads their own branding', async () => {
+  const image = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
+  const previous = (await database.query('SELECT id FROM companies WHERE login_branding=true')).rows.map((row) => row.id);
+  const first = (await database.query("INSERT INTO companies (name,login_branding,login_logo_data,login_background_color) VALUES ('Default Login Company',false,$1,'#123456') RETURNING id", [image])).rows[0].id;
+  const second = (await database.query("INSERT INTO companies (name,login_company_logo_data,login_display_name) VALUES ('New Jewellery Company',$1,'') RETURNING id", [image])).rows[0].id;
+  try {
+    await database.query('UPDATE companies SET login_branding=false');
+    await database.query('UPDATE companies SET login_branding=true WHERE id=$1', [first]);
+    const { publicLoginCompanies } = await vite.ssrLoadModule('/lib/public-login-branding.ts');
+    const { GET } = await vite.ssrLoadModule('/app/api/login-branding/route.ts');
+    const listed = await publicLoginCompanies();
+    assert.ok(listed.some((entry) => entry.id === second && entry.name === 'New Jewellery Company'));
+    const response = await GET(new Request(`https://app.test/api/login-branding?companyId=${second}`));
+    assert.equal(response.status, 200);
+    const { branding } = await response.json();
+    assert.equal(branding.name, 'New Jewellery Company');
+    assert.equal(branding.loginDisplayName, '');
+    assert.equal(branding.loginCompanyLogoData, image);
+    assert.equal(branding.loginLogoData, image);
+    assert.equal(branding.backgroundColor, '#123456');
+    assert.ok(!('bankAccountNumber' in branding));
+    assert.equal((await GET(new Request('https://app.test/api/login-branding?companyId=0'))).status, 400);
+    await database.query('UPDATE companies SET active=false WHERE id=$1', [second]);
+    assert.equal((await GET(new Request(`https://app.test/api/login-branding?companyId=${second}`))).status, 404);
+    assert.ok(!(await publicLoginCompanies()).some((entry) => entry.id === second));
+  } finally {
+    await database.query('UPDATE companies SET login_branding=false');
+    if (previous.length) await database.query('UPDATE companies SET login_branding=true WHERE id=$1', [previous[0]]);
+  }
+});
+
 test('named letterheads save per company and reject overlapping document assignments', async () => {
   const first = (await database.query("INSERT INTO companies (name) VALUES ('Letterhead Company') RETURNING id")).rows[0].id;
   const second = (await database.query("INSERT INTO companies (name) VALUES ('Other Letterhead Company') RETURNING id")).rows[0].id;
