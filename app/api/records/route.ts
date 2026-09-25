@@ -1101,6 +1101,17 @@ async function handlePATCH(request: Request) {
       return await withWriteTransaction(async () => {
         const db = getDb();
         const [existing] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId))).for("update");
+        if (existing?.type === "cheque" && payload.editMode === "cheque-layout") {
+          const allowed = new Set(["kind", "id", "companyId", "revision", "editMode", "chequeBankKey"]);
+          if (Object.keys(payload).some((field) => !allowed.has(field))) return Response.json({ error: "Only the cheque layout can be changed here." }, { status: 400 });
+          const oldLines = await db.select().from(transactionLines).where(eq(transactionLines.transactionId, id)).orderBy(asc(transactionLines.id));
+          if (payload.revision !== purchaseRevision(existing, oldLines)) return Response.json({ error: "This cheque changed. Close and reopen it before saving." }, { status: 409 });
+          const chequeBankKey = String(payload.chequeBankKey ?? "");
+          if (!uaeChequeLayouts.some((layout) => layout.key === chequeBankKey)) return Response.json({ error: "Select a valid UAE bank cheque layout." }, { status: 400 });
+          const [record] = await db.update(transactions).set({ chequeBankKey }).where(eq(transactions.id, id)).returning();
+          await db.insert(auditLog).values({ companyId, action: "updated", entityType: "transaction", entityId: id, details: JSON.stringify({ actor: { id: authorization.id, email: authorization.email }, mode: "cheque-layout", before: { chequeBankKey: existing.chequeBankKey }, after: { chequeBankKey } }) });
+          return Response.json({ record, revision: purchaseRevision(record, oldLines) });
+        }
         if (existing?.type === "cheque" && payload.editMode === "cheque-number") {
           const allowed = new Set(["kind", "id", "companyId", "revision", "editMode", "number"]);
           if (Object.keys(payload).some((field) => !allowed.has(field))) return Response.json({ error: "Only the cheque number can be changed here." }, { status: 400 });

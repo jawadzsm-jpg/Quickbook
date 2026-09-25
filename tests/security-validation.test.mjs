@@ -149,7 +149,9 @@ test("UAE bank cheque is linked to Banking and supports save and print", () => {
   assert.match(css, /data-cheque-print-mode="voucher"\][\s\S]*\.document-print-surface \{ position: static/);
   assert.match(cheque, /Move right \(\+\) \/ left \(-\), mm/);
   assert.match(cheque, /Move down \(\+\) \/ up \(-\), mm/);
-  assert.match(cheque, /MAX_ALIGNMENT_OFFSET_MM = 10/);
+  assert.match(cheque, /MAX_ALIGNMENT_OFFSET_MM = 25/);
+  assert.match(cheque, /Cheque bank layout for this print/);
+  assert.match(cheque, /uaeChequeLayouts\.map\(\(layout\) => <option/);
   assert.match(cheque, /Fixed paper size:/);
   assert.match(cheque, /Both movements were reset to 0 mm/);
   assert.match(cheque, /Alignment reset to 0 mm/);
