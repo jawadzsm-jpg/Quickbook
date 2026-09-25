@@ -11,7 +11,7 @@ import { verifyAdminPin } from "../../../lib/admin-pin";
 import { customerConflict, validInternationalPhone } from "../../../lib/customer-identity";
 import { canAccessCompany, isAdministrator, hasPermission, requireApiUser, type Permission, type SessionUser } from "@/lib/auth";
 import { normalizeComparableText, uppercaseText } from "@/lib/text-normalization";
-import { uaeChequeLayouts } from "@/lib/uae-cheque-layouts";
+import { uaeChequeLayout, uaeChequeLayouts, validChequeAlignment } from "@/lib/uae-cheque-layouts";
 
 type RecordKind = "transactions" | "contacts" | "items" | "accounts";
 type InputLine = { comments?: string; serialNumber?: string; freightCharge?: number | string; isFreightCharge?: boolean; orderLineId?: number; sourceLineId?: number; itemId?: number | string | null; description?: string; quantity?: number | string; unitPrice?: number | string; unitCost?: number | string; vatCode?: string; vatRate?: number | string };
@@ -1102,14 +1102,17 @@ async function handlePATCH(request: Request) {
         const db = getDb();
         const [existing] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId))).for("update");
         if (existing?.type === "cheque" && payload.editMode === "cheque-layout") {
-          const allowed = new Set(["kind", "id", "companyId", "revision", "editMode", "chequeBankKey"]);
-          if (Object.keys(payload).some((field) => !allowed.has(field))) return Response.json({ error: "Only the cheque layout can be changed here." }, { status: 400 });
+          const allowed = new Set(["kind", "id", "companyId", "revision", "editMode", "chequeBankKey", "chequeOffsetX", "chequeOffsetY", "chequeAmountOffsetX"]);
+          if (Object.keys(payload).some((field) => !allowed.has(field))) return Response.json({ error: "Only the cheque layout and print alignment can be changed here." }, { status: 400 });
           const oldLines = await db.select().from(transactionLines).where(eq(transactionLines.transactionId, id)).orderBy(asc(transactionLines.id));
           if (payload.revision !== purchaseRevision(existing, oldLines)) return Response.json({ error: "This cheque changed. Close and reopen it before saving." }, { status: 409 });
           const chequeBankKey = String(payload.chequeBankKey ?? "");
           if (!uaeChequeLayouts.some((layout) => layout.key === chequeBankKey)) return Response.json({ error: "Select a valid UAE bank cheque layout." }, { status: 400 });
-          const [record] = await db.update(transactions).set({ chequeBankKey }).where(eq(transactions.id, id)).returning();
-          await db.insert(auditLog).values({ companyId, action: "updated", entityType: "transaction", entityId: id, details: JSON.stringify({ actor: { id: authorization.id, email: authorization.email }, mode: "cheque-layout", before: { chequeBankKey: existing.chequeBankKey }, after: { chequeBankKey } }) });
+          const alignment = { x: Number(payload.chequeOffsetX ?? existing.chequeOffsetX), y: Number(payload.chequeOffsetY ?? existing.chequeOffsetY), amountX: Number(payload.chequeAmountOffsetX ?? existing.chequeAmountOffsetX) };
+          if (["chequeOffsetX", "chequeOffsetY", "chequeAmountOffsetX"].some((key) => payload[key] !== undefined && typeof payload[key] !== "number") || !validChequeAlignment(uaeChequeLayout(chequeBankKey), existing.terms !== "bearer", alignment)) return Response.json({ error: "The print position must fit entirely on the selected cheque paper." }, { status: 400 });
+          const updates = { chequeBankKey, chequeOffsetX: alignment.x, chequeOffsetY: alignment.y, chequeAmountOffsetX: alignment.amountX };
+          const [record] = await db.update(transactions).set(updates).where(eq(transactions.id, id)).returning();
+          await db.insert(auditLog).values({ companyId, action: "updated", entityType: "transaction", entityId: id, details: JSON.stringify({ actor: { id: authorization.id, email: authorization.email }, mode: "cheque-layout", before: { chequeBankKey: existing.chequeBankKey, chequeOffsetX: existing.chequeOffsetX, chequeOffsetY: existing.chequeOffsetY, chequeAmountOffsetX: existing.chequeAmountOffsetX }, after: updates }) });
           return Response.json({ record, revision: purchaseRevision(record, oldLines) });
         }
         if (existing?.type === "cheque" && payload.editMode === "cheque-number") {
