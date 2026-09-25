@@ -464,7 +464,7 @@ test('cheques credit the chosen currency bank and debit the selected AP or expen
   const chequeDetail = await (await GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${companyId}&id=${savedChequeIds[0]}`))).json();
   const alignCheque = (revision, chequeOffsetX, chequeAmountOffsetX, chequeDateOffsetX = 0, chequeCrossingOffsetX = 0) => PATCH(new Request('https://app.test/api/records', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'transactions', companyId, id: savedChequeIds[0], revision, editMode: 'cheque-layout', chequeBankKey: 'habib-bank-ag-zurich', chequeOffsetX, chequeOffsetY: 0, chequeAmountOffsetX, chequeDateOffsetX, chequeCrossingOffsetX }) }));
   assert.equal((await alignCheque(chequeDetail.revision, 25, 0)).status, 400);
-  assert.equal((await alignCheque(chequeDetail.revision, 0, 0, 43)).status, 400);
+  assert.equal((await alignCheque(chequeDetail.revision, 0, 0, 38)).status, 400);
   assert.equal((await alignCheque(chequeDetail.revision, 0, 0, 0, 136)).status, 400);
   const aligned = await alignCheque(chequeDetail.revision, 0, -70, 30, 50);
   assert.equal(aligned.status, 200);

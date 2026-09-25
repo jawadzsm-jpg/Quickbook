@@ -31,7 +31,7 @@ test("cheque print calibration keeps the amount and every field on the paper", (
   assert.equal(validChequeAlignment(habib, true, { ...original, dateX: 25 }), true);
   assert.equal(validChequeAlignment(habib, true, { ...original, dateX: 35, x: 8, amountX: -25 }), false);
   assert.equal(validChequeAlignment(habib, true, { ...original, dateX: 32 }), true);
-  assert.equal(validChequeAlignment(habib, true, { ...original, dateX: 43 }), false);
+  assert.equal(validChequeAlignment(habib, true, { ...original, dateX: 38 }), false);
   assert.equal(validChequeAlignment(habib, true, { ...original, amountX: -100 }), true);
   assert.equal(validChequeAlignment(habib, true, { ...original, crossingX: 100 }), true);
   assert.equal(validChequeAlignment(habib, true, { ...original, crossingX: 136 }), false);
@@ -185,7 +185,7 @@ test("UAE bank cheque is linked to Banking and supports save and print", () => {
   assert.match(layouts, /HABIB_CHEQUE_HEIGHT_MM = 90/);
   assert.equal((layouts.match(/widthMm: UAE_CHEQUE_WIDTH_MM, heightMm: UAE_CHEQUE_HEIGHT_MM/g) || []).length, 4);
   assert.match(layouts, /habib:[\s\S]*widthMm: HABIB_CHEQUE_WIDTH_MM, heightMm: HABIB_CHEQUE_HEIGHT_MM/);
-  assert.match(layouts, /habib:[\s\S]*date: \{ left: 105, top: 14\.5, width: 40 \}/);
+  assert.match(layouts, /habib:[\s\S]*date: \{ left: 110, top: 14\.5, width: 40 \}/);
   assert.match(layouts, /habib:[\s\S]*amount: \{ left: 136, top: 55, width: 47 \}/);
   assert.match(layouts, /"habib-bank-ag-zurich", "Habib Bank AG Zurich", "habib"/);
   assert.match(cheque, /\.amount\{[^}]*white-space:nowrap/);
