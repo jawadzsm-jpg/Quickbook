@@ -13,12 +13,14 @@ export type LetterheadTemplate = {
   website: string; body: string; footer: string; documents: LetterheadDocument[];
   showLogo: boolean; showRightLogo: boolean; showStamp: boolean;
   stampLeft: number; stampTop: number;
+  bodyHtml?: string; bodyLeft?: number; bodyTop?: number; bodyWidth?: number;
 };
 export type LetterheadSettings = { templates: LetterheadTemplate[] };
 export const defaultLetterhead = (): LetterheadTemplate => ({
   id: "", name: "Company letterhead", color: "#c82424", heading: "", subtitle: "",
   website: "", body: "", footer: "", documents: [], showLogo: true,
   showRightLogo: true, showStamp: false, stampLeft: 155, stampTop: 230,
+  bodyHtml: "", bodyLeft: 13, bodyTop: 48, bodyWidth: 184,
 });
 const allowedDocuments = new Set<string>(letterheadDocuments.map(([key]) => key));
 const color = (value: unknown) => typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
@@ -36,6 +38,10 @@ export function validateLetterheadSettings(value: string): LetterheadSettings {
     if (!bounded(raw.name, 80) || !raw.name.trim() || !color(raw.color)
       || !bounded(raw.heading, 120) || !bounded(raw.subtitle, 180)
       || !bounded(raw.website, 160) || !bounded(raw.body, 6000) || !bounded(raw.footer, 300)
+      || (raw.bodyHtml !== undefined && !bounded(raw.bodyHtml, 12000))
+      || (raw.bodyLeft !== undefined && (!Number.isInteger(raw.bodyLeft) || raw.bodyLeft < 0 || raw.bodyLeft > 170))
+      || (raw.bodyTop !== undefined && (!Number.isInteger(raw.bodyTop) || raw.bodyTop < 0 || raw.bodyTop > 250))
+      || (raw.bodyWidth !== undefined && (!Number.isInteger(raw.bodyWidth) || raw.bodyWidth < 20 || raw.bodyWidth > 210))
       || typeof raw.showLogo !== "boolean" || typeof raw.showRightLogo !== "boolean" || typeof raw.showStamp !== "boolean"
       || !Number.isInteger(raw.stampLeft) || raw.stampLeft < 0 || raw.stampLeft > 170
       || !Number.isInteger(raw.stampTop) || raw.stampTop < 0 || raw.stampTop > 260
@@ -48,6 +54,8 @@ export function validateLetterheadSettings(value: string): LetterheadSettings {
       subtitle: raw.subtitle, website: raw.website, body: raw.body, footer: raw.footer,
       documents: raw.documents, showLogo: raw.showLogo, showRightLogo: raw.showRightLogo,
       showStamp: raw.showStamp, stampLeft: raw.stampLeft, stampTop: raw.stampTop,
+      bodyHtml: raw.bodyHtml || "", bodyLeft: raw.bodyLeft ?? 13,
+      bodyTop: raw.bodyTop ?? 48, bodyWidth: raw.bodyWidth ?? 184,
     };
   });
   return { templates };

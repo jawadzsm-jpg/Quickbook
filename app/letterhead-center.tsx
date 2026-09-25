@@ -6,9 +6,10 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { createA4PdfBlob, downloadPdfBlob } from "@/lib/document-output";
+import { createA4LetterheadPdfBlob, downloadPdfBlob } from "@/lib/document-output";
 import { defaultLetterhead, letterheadDocuments, readLetterheads, type LetterheadTemplate } from "@/lib/letterhead";
 import { LetterheadPage, type LetterheadCompany } from "./letterhead-page";
+import { LetterheadRichEditor } from "./letterhead-rich-editor";
 
 type Company = LetterheadCompany & { id: number; letterheadDesign: string };
 
@@ -64,7 +65,7 @@ export function LetterheadCenter({ company, onSaved }: { company: Company; onSav
     const popup = window.open("", "_blank");
     if (!popup) return toast.error("Allow pop-ups to print the letterhead.");
     popup.opener = null;
-    popup.document.write(`<!doctype html><html><head><title>Letterhead</title><style>@page{size:A4 portrait;margin:0}html,body{margin:0;padding:0;background:white}.letterhead-page{width:210mm!important;min-height:297mm!important;break-after:page;print-color-adjust:exact;-webkit-print-color-adjust:exact}.letterhead-page:last-child{break-after:auto}.print-controls{padding:12px;background:#f1f5f9}@media print{.print-controls{display:none}}</style></head><body><div class="print-controls"><button onclick="window.print()">Print / Save PDF</button></div>${preview.current.innerHTML}</body></html>`);
+    popup.document.write(`<!doctype html><html><head><title>Letterhead</title><style>@page{size:A4 portrait;margin:0}html,body{margin:0;padding:0;background:white}.letterhead-page{width:210mm!important;height:297mm!important;break-after:page;print-color-adjust:exact;-webkit-print-color-adjust:exact}.letterhead-page:last-child{break-after:auto}.letterhead-drag-handle{display:none}.print-controls{padding:12px;background:#f1f5f9}@media print{.print-controls{display:none}}</style></head><body><div class="print-controls"><button onclick="window.print()">Print / Save PDF</button></div>${preview.current.innerHTML}</body></html>`);
     popup.document.close();
     void Promise.all(Array.from(popup.document.images).map((image) => image.complete ? Promise.resolve() : image.decode().catch(() => undefined)))
       .then(() => window.setTimeout(() => { if (!popup.closed) popup.print(); }, 150));
@@ -75,7 +76,7 @@ export function LetterheadCenter({ company, onSaved }: { company: Company; onSav
     try {
       const element = preview.current.querySelector<HTMLElement>(".letterhead-page");
       if (!element) throw new Error("The letterhead preview is not ready.");
-      const pdf = await createA4PdfBlob(element, { marginMm: 0, title: selected.name });
+      const pdf = await createA4LetterheadPdfBlob(element, selected.name);
       const file = selected.name.replace(/[^\p{L}\p{N}._-]+/gu, "_") || "Letterhead";
       downloadPdfBlob(pdf, `${file}.pdf`);
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not create the PDF."); }
@@ -115,7 +116,12 @@ export function LetterheadCenter({ company, onSaved }: { company: Company; onSav
           <label>Stamp top (mm)<Input type="number" min={0} max={260} value={current.stampTop} onChange={(event) => update({ stampTop: Math.min(260, Math.max(0, Number(event.target.value) || 0)) })} /></label>
           <p className="col-span-2 text-xs text-slate-500">You can also drag the stamp in the preview. Upload the image in Company Setup → Company stamp.</p>
         </div>}
-        <label className="grid gap-1 text-sm font-medium">Letter content<Textarea rows={8} maxLength={6000} value={current.body} onChange={(event) => update({ body: event.target.value })} placeholder="Type your letter here…" /></label>
+        <LetterheadRichEditor key={selected.id} template={current} onChange={(body, bodyHtml) => update({ body, bodyHtml })} />
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <label>Text left (mm)<Input type="number" min={0} max={170} value={current.bodyLeft ?? 13} onChange={(event) => update({ bodyLeft: Math.min(170, Math.max(0, Math.round(Number(event.target.value) || 0))) })} /></label>
+          <label>Text top (mm)<Input type="number" min={0} max={250} value={current.bodyTop ?? 48} onChange={(event) => update({ bodyTop: Math.min(250, Math.max(0, Math.round(Number(event.target.value) || 0))) })} /></label>
+          <label>Text width (mm)<Input type="number" min={20} max={210} value={current.bodyWidth ?? 184} onChange={(event) => update({ bodyWidth: Math.min(210, Math.max(20, Math.round(Number(event.target.value) || 20))) })} /></label>
+        </div>
         <label className="grid gap-1 text-sm font-medium">Footer<Textarea rows={2} maxLength={300} value={current.footer} onChange={(event) => update({ footer: event.target.value })} /></label>
         <fieldset className="rounded-lg border p-3"><legend className="px-1 text-sm font-bold">Use this letterhead on</legend>
           <div className="grid grid-cols-2 gap-2 text-sm">{letterheadDocuments.map(([key, label]) => <label key={key} className="flex items-center gap-2"><input type="checkbox" checked={current.documents.includes(key)} onChange={(event) => assign(key, event.target.checked)} />{label}</label>)}</div>
@@ -124,7 +130,7 @@ export function LetterheadCenter({ company, onSaved }: { company: Company; onSav
       </div>
       <div className="min-w-0 space-y-3">
         <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" onClick={print}><Printer className="size-4" />Print A4 / Save PDF</Button><Button type="button" variant="outline" disabled={pdfBusy} onClick={() => void download()}><Download className="size-4" />{pdfBusy ? "Creating PDF…" : "Download A4 PDF"}</Button></div>
-        <div className="overflow-auto rounded-xl border bg-slate-100 p-3"><div ref={preview} className="w-max shadow-lg"><LetterheadPage template={current} company={company} onMoveStamp={(stampLeft, stampTop) => update({ stampLeft, stampTop })} /></div></div>
+        <div className="overflow-auto rounded-xl border bg-slate-100 p-3"><div ref={preview} className="w-max shadow-lg"><LetterheadPage template={current} company={company} onMoveStamp={(stampLeft, stampTop) => update({ stampLeft, stampTop })} onMoveBody={(bodyLeft, bodyTop) => update({ bodyLeft, bodyTop })} /></div></div>
       </div>
     </div> : <div className="rounded-xl border border-dashed bg-white p-10 text-center text-sm text-slate-500">Choose New to create your first letterhead.</div>}
   </section>;

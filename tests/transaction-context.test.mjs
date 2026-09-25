@@ -1619,6 +1619,13 @@ test('named letterheads save per company and reject overlapping document assignm
   const template = { ...defaultLetterhead(), id: 'letter-1', name: 'Official letter', color: '#c82424', heading: 'ComNet', documents: ['tax-invoice', 'statement'], showStamp: true, stampLeft: 120, stampTop: 215 };
   try {
     assert.equal((await request(first, { templates: [template] })).status, 200);
+    const formatted = { ...template, body: 'Hello world', bodyHtml: '<div style="text-align: center"><b>Hello</b> <span style="color: #c82424">world</span><img src=x onerror=alert(1)></div>', bodyLeft: 24, bodyTop: 62, bodyWidth: 160 };
+    assert.equal((await request(first, { templates: [formatted] })).status, 200);
+    const clean = letterheadForDocument((await database.query('SELECT letterhead_design FROM companies WHERE id=$1', [first])).rows[0].letterhead_design, 'tax-invoice');
+    assert.equal(clean.bodyTop, 62);
+    assert.match(clean.bodyHtml, /<b>Hello<\/b>/);
+    assert.doesNotMatch(clean.bodyHtml, /<img|onerror/);
+    assert.equal((await request(first, { templates: [{ ...formatted, bodyLeft: 211 }] })).status, 400);
     const stored = (await database.query('SELECT letterhead_design FROM companies WHERE id=$1', [first])).rows[0].letterhead_design;
     assert.equal(letterheadForDocument(stored, 'tax-invoice').name, 'Official letter');
     assert.equal(letterheadForDocument(stored, 'statement').stampTop, 215);

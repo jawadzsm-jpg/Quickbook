@@ -248,6 +248,26 @@ export async function createA4PdfBlob(element: HTMLElement, options: PdfPageOpti
   return pdf.output("blob");
 }
 
+// Letterheads use an exact A4 canvas so the downloaded PDF has the same line
+// wrapping, logo placement, and text position as the browser print preview.
+export async function createA4LetterheadPdfBlob(element: HTMLElement, title: string) {
+  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import("html2canvas"), import("jspdf")]);
+  const body = element.querySelector<HTMLElement>(".letterhead-body-text");
+  const footerArea = element.querySelector<HTMLElement>(".letterhead-footer-area");
+  const limit = footerArea?.getBoundingClientRect().top ?? element.getBoundingClientRect().bottom - 50;
+  if (body && body.getBoundingClientRect().bottom > limit - 8) {
+    throw new Error("The letter text extends beyond the A4 content area. Move or shorten it to fit the page.");
+  }
+  const canvas = await html2canvas(element, {
+    backgroundColor: "#ffffff", scale: 2, useCORS: true, logging: false,
+    onclone: (document) => document.querySelectorAll(".letterhead-drag-handle").forEach((handle) => handle.remove()),
+  });
+  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
+  pdf.setProperties({ title });
+  pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, 210, 297);
+  return pdf.output("blob");
+}
+
 export function downloadPdfBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
