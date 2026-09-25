@@ -357,14 +357,21 @@ button, input, select { font: inherit; }
 @page report { size: A4 landscape; margin: 10mm; }
 @media print {
   body:has(.report-dialog) > :not([data-slot="dialog-content"]) { display: none !important; }
+  body:has(.report-dialog) [data-slot="dialog-overlay"] { display: none !important; }
   .report-dialog {
     page: report;
     position: static !important;
+    inset: auto !important;
     transform: none !important;
+    --tw-translate-x: 0px !important;
+    --tw-translate-y: 0px !important;
+    animation: none !important;
+    display: block !important;
     width: 100% !important;
     max-width: none !important;
     max-height: none !important;
     overflow: visible !important;
+    margin: 0 !important;
     padding: 0 !important;
     border: 0 !important;
     box-shadow: none !important;
