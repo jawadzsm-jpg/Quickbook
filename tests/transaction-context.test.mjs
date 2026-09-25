@@ -131,6 +131,35 @@ test("all migrations apply to a fresh PostgreSQL database", async () => {
   assert.ok(result.rows[0].count >= 20);
 });
 
+test("warranty slips link only the selected company's customer and invoice, and keep A4 stamp positions", async () => {
+  await database.query("INSERT INTO app_users(id,email,password_hash,role) VALUES(1,'test@example.test','test','admin') ON CONFLICT (id) DO NOTHING");
+  await database.query("SELECT setval(pg_get_serial_sequence('app_users','id'), GREATEST(1,(SELECT COALESCE(max(id),1) FROM app_users)))");
+  const companyId = (await database.query("INSERT INTO companies(name) VALUES('Warranty test company') RETURNING id")).rows[0].id;
+  const otherId = (await database.query("INSERT INTO companies(name) VALUES('Other warranty company') RETURNING id")).rows[0].id;
+  const customerId = (await database.query("INSERT INTO contacts(company_id,type,name) VALUES($1,'customer','Warranty Buyer') RETURNING id", [companyId])).rows[0].id;
+  const foreignCustomerId = (await database.query("INSERT INTO contacts(company_id,type,name) VALUES($1,'customer','Another Buyer') RETURNING id", [otherId])).rows[0].id;
+  const invoiceId = (await database.query("INSERT INTO transactions(company_id,number,type,party,transaction_date) VALUES($1,'INV-WAR','invoice','Warranty Buyer','2026-09-25') RETURNING id", [companyId])).rows[0].id;
+  const invoiceLineId = (await database.query("INSERT INTO transaction_lines(transaction_id,description,serial_number) VALUES($1,'Laptop','SN-123') RETURNING id", [invoiceId])).rows[0].id;
+  const { GET, POST, PATCH } = await vite.ssrLoadModule('/app/api/warranty-slips/route.ts');
+  const values = { companyId, customerId, invoiceId, invoiceLineId, slipDate: '2026-09-25', problem: 'Screen flickers', brand: 'HP', model: 'EliteBook', contactName: 'Buyer', status: 'Under Process', showStamp: true, stampLeft: 75, stampTop: 210 };
+  const write = (input, edit = false) => (edit ? PATCH : POST)(new Request('https://app.test/api/warranty-slips', { method: edit ? 'PATCH' : 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) }));
+  assert.equal((await write({ ...values, customerId: foreignCustomerId })).status, 400);
+  assert.equal((await write({ ...values, stampLeft: 171 })).status, 400);
+  const created = await write(values);
+  assert.equal(created.status, 201, await created.clone().text());
+  const slip = (await created.json()).slip;
+  assert.equal(slip.invoiceNumber, 'INV-WAR');
+  assert.equal(slip.stampLeft, 75);
+  const foreignList = await GET(new Request(`https://app.test/api/warranty-slips?companyId=${otherId}`));
+  assert.equal((await foreignList.json()).slips.length, 0);
+  const updated = await write({ ...slip, companyId, revision: slip.updatedAt, stampLeft: 110, status: 'Completed' }, true);
+  assert.equal(updated.status, 200, await updated.clone().text());
+  assert.equal((await updated.json()).slip.stampLeft, 110);
+  assert.equal((await write({ ...slip, companyId, revision: slip.updatedAt, status: 'Returned' }, true)).status, 409);
+  const detail = await GET(new Request(`https://app.test/api/warranty-slips?companyId=${companyId}&invoiceId=${invoiceId}`));
+  assert.equal((await detail.json()).lines[0].serialNumber, 'SN-123');
+});
+
 test("documents reject stock from another inventory or company before posting", async () => {
   const company = (await database.query("INSERT INTO companies (name) VALUES ('Inventory test') RETURNING id")).rows[0].id;
   const otherCompany = (await database.query("INSERT INTO companies (name) VALUES ('Other inventory test') RETURNING id")).rows[0].id;
