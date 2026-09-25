@@ -14,6 +14,7 @@ export const companies = pgTable("companies", {
   loginBackgroundData: text("login_background_data").notNull().default(""),
   loginBackgroundColor: text("login_background_color").notNull().default("#f3f6fa"),
   documentDesign: text("document_design").notNull().default(""),
+  letterheadDesign: text("letterhead_design").notNull().default(""),
   stampData: text("stamp_data").notNull().default(""),
   addressLine1: text("address_line_1").notNull().default(""),
   addressLine2: text("address_line_2").notNull().default(""),

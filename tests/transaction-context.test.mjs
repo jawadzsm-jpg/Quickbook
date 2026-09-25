@@ -1573,6 +1573,29 @@ test('individual login settings save independently of unfinished company changes
   } finally { delete globalThis.__transferTestUser; }
 });
 
+test('named letterheads save per company and reject overlapping document assignments', async () => {
+  const first = (await database.query("INSERT INTO companies (name) VALUES ('Letterhead Company') RETURNING id")).rows[0].id;
+  const second = (await database.query("INSERT INTO companies (name) VALUES ('Other Letterhead Company') RETURNING id")).rows[0].id;
+  const { PATCH } = await vite.ssrLoadModule('/app/api/company-setup/letterhead/route.ts');
+  const { defaultLetterhead, letterheadForDocument } = await vite.ssrLoadModule('/lib/letterhead.ts');
+  const request = (companyId, value) => PATCH(new Request('https://app.test/api/company-setup/letterhead', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ companyId, value: JSON.stringify(value) }) }));
+  const template = { ...defaultLetterhead(), id: 'letter-1', name: 'Official letter', color: '#c82424', heading: 'ComNet', documents: ['tax-invoice', 'statement'], showStamp: true, stampLeft: 120, stampTop: 215 };
+  try {
+    assert.equal((await request(first, { templates: [template] })).status, 200);
+    const stored = (await database.query('SELECT letterhead_design FROM companies WHERE id=$1', [first])).rows[0].letterhead_design;
+    assert.equal(letterheadForDocument(stored, 'tax-invoice').name, 'Official letter');
+    assert.equal(letterheadForDocument(stored, 'statement').stampTop, 215);
+    assert.equal(letterheadForDocument(stored, 'estimate'), undefined);
+    assert.equal((await database.query('SELECT letterhead_design FROM companies WHERE id=$1', [second])).rows[0].letterhead_design, '');
+    assert.equal((await request(first, { templates: [template, { ...template, id: 'letter-2', documents: ['tax-invoice'] }] })).status, 400);
+    assert.equal((await request(first, { templates: [{ ...template, heading: '<script>', color: 'red' }] })).status, 400);
+    globalThis.__transferTestUser = { id: 9, email: 'admin@test', role: 'admin', companyIds: [first] };
+    assert.equal((await request(second, { templates: [template] })).status, 403);
+    assert.equal((await request(first, { templates: [] })).status, 200);
+    assert.equal((await database.query('SELECT letterhead_design FROM companies WHERE id=$1', [first])).rows[0].letterhead_design, '{"templates":[]}');
+  } finally { delete globalThis.__transferTestUser; }
+});
+
 test('company clearing requires administrator password and company access, preserves audit and rolls back linked data', async () => {
   const { POST } = await vite.ssrLoadModule('/app/api/company-setup/clear/route.ts');
   const { hashPassword } = await vite.ssrLoadModule('/lib/password.ts');
