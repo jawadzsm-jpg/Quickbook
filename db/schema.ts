@@ -315,8 +315,15 @@ export const warrantySlips = pgTable("warranty_slips", {
   customerId: integer("customer_id").notNull().references(() => contacts.id, { onDelete: "restrict" }),
   invoiceId: integer("invoice_id").references(() => transactions.id, { onDelete: "set null" }),
   invoiceLineId: integer("invoice_line_id").references(() => transactionLines.id, { onDelete: "set null" }),
+  supplierId: integer("supplier_id").references(() => contacts.id, { onDelete: "set null" }),
+  purchaseBillId: integer("purchase_bill_id").references(() => transactions.id, { onDelete: "set null" }),
   number: text("number").notNull().default(""),
   slipDate: text("slip_date").notNull(),
+  supplierName: text("supplier_name").notNull().default(""),
+  purchaseNumber: text("purchase_number").notNull().default(""),
+  purchaseDate: text("purchase_date").notNull().default(""),
+  returnedToSupplierDate: text("returned_to_supplier_date").notNull().default(""),
+  receivedFromSupplierDate: text("received_from_supplier_date").notNull().default(""),
   contactName: text("contact_name").notNull().default(""),
   contactPhone: text("contact_phone").notNull().default(""),
   contactEmail: text("contact_email").notNull().default(""),
@@ -336,7 +343,7 @@ export const warrantySlips = pgTable("warranty_slips", {
   createdByUserId: integer("created_by_user_id").references(() => appUsers.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
-}, (table) => [index("idx_warranty_slips_company_date").on(table.companyId, table.slipDate), index("idx_warranty_slips_customer").on(table.companyId, table.customerId), index("idx_warranty_slips_invoice").on(table.companyId, table.invoiceId)]);
+}, (table) => [index("idx_warranty_slips_company_date").on(table.companyId, table.slipDate), index("idx_warranty_slips_customer").on(table.companyId, table.customerId), index("idx_warranty_slips_invoice").on(table.companyId, table.invoiceId), index("idx_warranty_slips_supplier").on(table.companyId, table.supplierId)]);
 
 export const inventoryMovements = pgTable("inventory_movements", {
   id: serial("id").primaryKey(),
