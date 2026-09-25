@@ -39,7 +39,7 @@ export function CustomerOpenBalance({ data, rows, currency, companyId, loading, 
       <div className="flex items-end gap-2"><Button type="submit" className="brand-primary-button" disabled={loading}>{loading ? "Loading…" : "Refresh"}</Button><Button type="button" variant="outline" onClick={exportCsv}>Export CSV</Button></div>
     </form>
     <div className="text-center"><p className="font-semibold">{data.customer || "All customers"} · As of {data.asOf}</p><p className="text-sm text-muted-foreground">{data.overdueOnly ? "Overdue invoices" : "All open transactions"} · {currency}</p></div>
-    <div className="report-table report-table--wide rounded-xl border"><Table><TableHeader><TableRow>{["Type", "Date", "Num", "Memo", "Due Date", "Open Balance", "Amount", "Receivable Account"].map((heading) => <TableHead key={heading} className={["Open Balance", "Amount"].includes(heading) ? "text-right" : ""}>{heading}</TableHead>)}</TableRow></TableHeader><TableBody>
+    <div data-report-columns={8} className="report-table report-table--wide rounded-xl border"><Table><TableHeader><TableRow>{["Type", "Date", "Num", "Memo", "Due Date", "Open Balance", "Amount", "Receivable Account"].map((heading) => <TableHead key={heading} className={["Open Balance", "Amount"].includes(heading) ? "text-right" : ""}>{heading}</TableHead>)}</TableRow></TableHeader><TableBody>
       {[...groups].map(([name, entries]) => <Fragment key={name}>
         <TableRow className="bg-slate-100"><TableCell colSpan={8} className="font-bold">{name}</TableCell></TableRow>
         {entries.map((row) => <TableRow key={row.transactionId}>

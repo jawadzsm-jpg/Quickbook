@@ -344,6 +344,16 @@ button, input, select { font: inherit; }
 }
 .report-table th { height: auto; padding-block: 0.75rem; }
 .report-table--compact { width: 100%; max-width: 680px; margin-inline: auto; }
+@media screen {
+  .report-dialog .report-table { max-width: 1600px; margin-inline: auto; }
+  .report-dialog .report-table--compact { max-width: 680px; }
+  .report-dialog .report-table[data-report-columns="3"] { max-width: 860px; }
+  .report-dialog .report-table[data-report-columns="4"] { max-width: 1040px; }
+  .report-dialog .report-table[data-report-columns="5"] { max-width: 1210px; }
+  .report-dialog .report-table[data-report-columns="6"] { max-width: 1380px; }
+  .report-dialog .report-table--wide table { table-layout: fixed; }
+}
+.business-final-report { max-width: 1400px; margin-inline: auto; }
 @page report { size: A4 landscape; margin: 10mm; }
 @media print {
   body:has(.report-dialog) > :not([data-slot="dialog-content"]) { display: none !important; }
@@ -380,6 +390,7 @@ button, input, select { font: inherit; }
   .report-dialog .report-table--wide td { padding: 3px 4px !important; }
   .report-table thead { display: table-header-group; }
   .report-table tr { break-inside: avoid; }
+  .business-final-report { max-width: 100%; }
   .business-final-report > section.break-inside-avoid { break-inside: auto; }
   .business-final-report > section .divide-y > div { break-inside: avoid; }
 }
