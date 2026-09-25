@@ -1535,6 +1535,32 @@ test('login branding selects one company and protects the shared sign-in page se
   } finally { delete globalThis.__transferTestUser; }
 });
 
+test('individual login settings save independently of unfinished company changes', async () => {
+  const first = (await database.query("INSERT INTO companies (name) VALUES ('Separate Save First') RETURNING id")).rows[0].id;
+  const second = (await database.query("INSERT INTO companies (name) VALUES ('Separate Save Second') RETURNING id")).rows[0].id;
+  const { PATCH } = await vite.ssrLoadModule('/app/api/company-setup/branding/route.ts');
+  const save = (companyId, field, value) => PATCH(new Request('https://app.test/api/company-setup/branding', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ companyId, field, value, name: 'Unfinished name', bankName: 'Unfinished bank' }) }));
+  const logo = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
+  try {
+    assert.equal((await save(first, 'logoData', logo)).status, 200);
+    assert.equal((await save(first, 'loginBackgroundColor', '#304050')).status, 200);
+    assert.equal((await save(first, 'loginBackgroundData', logo)).status, 200);
+    assert.equal((await save(first, 'loginBranding', true)).status, 200);
+    assert.equal((await save(second, 'loginBranding', true)).status, 200);
+    const row = (await database.query('SELECT name,bank_name,logo_data,login_background_color,login_background_data,login_branding FROM companies WHERE id=$1', [first])).rows[0];
+    assert.equal(row.name, 'Separate Save First'); assert.equal(row.bank_name, ''); assert.equal(row.logo_data, logo);
+    assert.equal(row.login_background_color, '#304050'); assert.equal(row.login_background_data, logo); assert.equal(row.login_branding, false);
+    assert.deepEqual((await database.query('SELECT id FROM companies WHERE login_branding=true')).rows.map(row => row.id), [second]);
+    assert.equal((await save(first, 'loginBackgroundData', 'data:image/svg+xml;base64,PHN2Zz4=')).status, 400);
+    assert.equal((await save(first, 'loginBackgroundColor', 'url(javascript:alert(1))')).status, 400);
+    globalThis.__transferTestUser = { id: 9, email: 'admin@test', role: 'admin', companyIds: [first] };
+    assert.equal((await save(first, 'loginBranding', true)).status, 403);
+    assert.equal((await save(second, 'logoData', logo)).status, 403);
+    assert.equal((await save(first, 'loginBackgroundColor', '#405060')).status, 200);
+    assert.equal((await database.query('SELECT login_branding FROM companies WHERE id=$1', [second])).rows[0].login_branding, true);
+  } finally { delete globalThis.__transferTestUser; }
+});
+
 test('company clearing requires administrator password and company access, preserves audit and rolls back linked data', async () => {
   const { POST } = await vite.ssrLoadModule('/app/api/company-setup/clear/route.ts');
   const { hashPassword } = await vite.ssrLoadModule('/lib/password.ts');
