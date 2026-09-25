@@ -1,7 +1,7 @@
 import { eq, ne, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { auditLog, companies } from "@/db/schema";
-import { canAccessCompany, isAdministrator, isGlobalAdmin, requireApiUser } from "@/lib/auth";
+import { canAccessCompany, isAdministrator, requireApiUser } from "@/lib/auth";
 
 const imageFields = new Set(["logoData", "rightLogoData", "loginLogoData", "loginCompanyLogoData", "loginBackgroundData"]);
 const fields = new Set([...imageFields, "loginDisplayName", "loginCopyrightYears", "loginBackgroundColor", "loginBranding"]);
@@ -19,7 +19,6 @@ export async function PATCH(request: Request) {
     }
     if (typeof field !== "string" || !fields.has(field)) return Response.json({ error: "Choose a company logo or login page setting." }, { status: 400 });
     if (field === "loginBranding") {
-      if (!isGlobalAdmin(user)) return Response.json({ error: "All Administrator access required to select the login page company." }, { status: 403 });
       if (typeof value !== "boolean") return Response.json({ error: "Choose whether to show this company on the login page." }, { status: 400 });
     } else if (typeof value !== "string") return Response.json({ error: "Choose a valid setting." }, { status: 400 });
     if (imageFields.has(field) && value && (typeof value !== "string" || !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(value) || value.length > (field === "loginBackgroundData" ? 2_700_000 : 700_000))) {

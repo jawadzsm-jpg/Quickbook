@@ -1532,9 +1532,12 @@ test('login branding selects one company and protects the shared sign-in page se
     assert.equal((await save({ ...firstSetup, companyId: first, loginBackgroundData: 'data:image/svg+xml;base64,abc' })).status, 400);
     assert.equal((await save({ ...firstSetup, companyId: first, loginBackgroundColor: 'red' })).status, 400);
     globalThis.__transferTestUser = { id: 7, email: 'admin@test', role: 'admin', companyIds: [first] };
-    assert.equal((await save({ ...firstSetup, companyId: first, loginBranding: true })).status, 403);
-    assert.equal((await save({ ...firstSetup, companyId: first, loginBackgroundColor: '#112233' })).status, 200);
-    assert.deepEqual((await database.query('SELECT id FROM companies WHERE login_branding=true')).rows.map(row => row.id), [second]);
+    assert.equal((await save({ ...firstSetup, companyId: first, loginBranding: true })).status, 200);
+    assert.equal((await save({ ...firstSetup, companyId: first, loginBranding: true, loginBackgroundColor: '#112233' })).status, 200);
+    assert.deepEqual((await database.query('SELECT id FROM companies WHERE login_branding=true')).rows.map(row => row.id), [first]);
+    assert.equal((await save({ ...secondSetup, companyId: second, loginBranding: true })).status, 403);
+    globalThis.__transferTestUser = { id: 8, email: 'sales@test', role: 'sales', companyIds: [first] };
+    assert.equal((await save({ ...firstSetup, companyId: first, loginBranding: false })).status, 403);
   } finally { delete globalThis.__transferTestUser; }
 });
 
@@ -1566,10 +1569,13 @@ test('individual login settings save independently of unfinished company changes
     assert.equal((await save(first, 'loginDisplayName', 'a'.repeat(121))).status, 400);
     assert.equal((await save(first, 'loginCopyrightYears', '1996-<script>')).status, 400);
     globalThis.__transferTestUser = { id: 9, email: 'admin@test', role: 'admin', companyIds: [first] };
-    assert.equal((await save(first, 'loginBranding', true)).status, 403);
+    assert.equal((await save(first, 'loginBranding', true)).status, 200);
+    assert.equal((await save(second, 'loginBranding', true)).status, 403);
     assert.equal((await save(second, 'logoData', logo)).status, 403);
     assert.equal((await save(first, 'loginBackgroundColor', '#405060')).status, 200);
-    assert.equal((await database.query('SELECT login_branding FROM companies WHERE id=$1', [second])).rows[0].login_branding, true);
+    assert.deepEqual((await database.query('SELECT id FROM companies WHERE login_branding=true')).rows.map(row => row.id), [first]);
+    globalThis.__transferTestUser = { id: 10, email: 'sales@test', role: 'sales', companyIds: [first] };
+    assert.equal((await save(first, 'loginBranding', false)).status, 403);
   } finally { delete globalThis.__transferTestUser; }
 });
 

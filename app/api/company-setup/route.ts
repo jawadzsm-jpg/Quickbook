@@ -2,7 +2,7 @@ import { validateDocumentDesign } from "@/lib/document-design";
 import { eq, ne, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { auditLog, companies } from "@/db/schema";
-import { canAccessCompany, isAdministrator, isGlobalAdmin, requireApiUser } from "@/lib/auth";
+import { canAccessCompany, isAdministrator, requireApiUser } from "@/lib/auth";
 
 const templates = new Set(["classic", "modern", "minimal"]);
 
@@ -68,7 +68,6 @@ export async function PATCH(request: Request) {
     if (loginBackgroundData && (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(loginBackgroundData) || loginBackgroundData.length > 2_700_000)) return Response.json({ error: "Upload a PNG, JPG, or WebP background smaller than 2 MB." }, { status: 400 });
     if (!/^#[0-9a-fA-F]{6}$/.test(loginBackgroundColor)) return Response.json({ error: "Choose a valid login background color." }, { status: 400 });
     if (typeof loginBranding !== "boolean") return Response.json({ error: "Choose whether to show this company on the login page." }, { status: 400 });
-    if (loginBranding !== existing.loginBranding && !isGlobalAdmin(user)) return Response.json({ error: "All Administrator access required to change the login page company." }, { status: 403 });
     if (rightLogoData && (!/^data:image\/(png|jpeg|webp);base64,/.test(rightLogoData) || rightLogoData.length > 700_000)) return Response.json({ error: "Upload a PNG, JPG, or WebP right logo smaller than 500 KB." }, { status: 400 });
     if (stampData && (!/^data:image\/[a-z0-9.+-]+;base64,/i.test(stampData) || stampData.length > 700_000)) return Response.json({ error: "Upload an image stamp smaller than 500 KB." }, { status: 400 });
     if (!/^[A-Z]{3}$/.test(bankCurrency)) return Response.json({ error: "Choose a valid bank account currency." }, { status: 400 });
@@ -76,12 +75,12 @@ export async function PATCH(request: Request) {
     return await withWriteTransaction(async () => {
       const db = getDb();
       // A login page is shared across companies. Serialize selection so only one can be shown.
-      if (isGlobalAdmin(user)) {
+      if (loginBranding || loginBranding !== existing.loginBranding) {
         await db.execute(sql`LOCK TABLE companies IN SHARE ROW EXCLUSIVE MODE`);
         if (loginBranding) await db.update(companies).set({ loginBranding: false }).where(ne(companies.id, companyId));
       }
       const [updated] = await db.update(companies).set({
-        name, logoData, rightLogoData, documentDesign, stampData, email, ...(isGlobalAdmin(user) ? { loginBranding } : {}), loginLogoData, loginCompanyLogoData, loginDisplayName, loginCopyrightYears, loginBackgroundData, loginBackgroundColor,
+        name, logoData, rightLogoData, documentDesign, stampData, email, loginBranding, loginLogoData, loginCompanyLogoData, loginDisplayName, loginCopyrightYears, loginBackgroundData, loginBackgroundColor,
         addressLine1: text(payload.addressLine1, 180), addressLine2: text(payload.addressLine2, 180), city: text(payload.city, 80), country: text(payload.country, 80), phone: text(payload.phone, 40), trn: text(payload.trn, 40),
         bankName: text(payload.bankName, 120), bankAccountName: text(payload.bankAccountName, 120), bankAccountNumber: text(payload.bankAccountNumber, 80), bankIban: text(payload.bankIban, 80).toUpperCase(), bankSwift: text(payload.bankSwift, 30).toUpperCase(), bankCurrency,
         documentTemplate: documentTemplate as "classic" | "modern" | "minimal", documentColor,
