@@ -309,6 +309,35 @@ export const transactionLines = pgTable("transaction_lines", {
   total: doublePrecision("total").notNull().default(0),
 }, (table) => [index("idx_transaction_lines_transaction").on(table.transactionId), index("idx_transaction_lines_item").on(table.itemId)]);
 
+export const warrantySlips = pgTable("warranty_slips", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  customerId: integer("customer_id").notNull().references(() => contacts.id, { onDelete: "restrict" }),
+  invoiceId: integer("invoice_id").references(() => transactions.id, { onDelete: "set null" }),
+  invoiceLineId: integer("invoice_line_id").references(() => transactionLines.id, { onDelete: "set null" }),
+  number: text("number").notNull().default(""),
+  slipDate: text("slip_date").notNull(),
+  contactName: text("contact_name").notNull().default(""),
+  contactPhone: text("contact_phone").notNull().default(""),
+  contactEmail: text("contact_email").notNull().default(""),
+  customerReference: text("customer_reference").notNull().default(""),
+  invoiceNumber: text("invoice_number").notNull().default(""),
+  brand: text("brand").notNull().default(""),
+  model: text("model").notNull().default(""),
+  specs: text("specs").notNull().default(""),
+  serialNumber: text("serial_number").notNull().default(""),
+  problem: text("problem").notNull(),
+  remarks: text("remarks").notNull().default(""),
+  includedItems: text("included_items").notNull().default(""),
+  status: text("status").notNull().default("Under Process"),
+  showStamp: boolean("show_stamp").notNull().default(false),
+  stampLeft: integer("stamp_left").notNull().default(156),
+  stampTop: integer("stamp_top").notNull().default(242),
+  createdByUserId: integer("created_by_user_id").references(() => appUsers.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, (table) => [index("idx_warranty_slips_company_date").on(table.companyId, table.slipDate), index("idx_warranty_slips_customer").on(table.companyId, table.customerId), index("idx_warranty_slips_invoice").on(table.companyId, table.invoiceId)]);
+
 export const inventoryMovements = pgTable("inventory_movements", {
   id: serial("id").primaryKey(),
   itemId: integer("item_id").notNull().references(() => items.id, { onDelete: "cascade" }),
