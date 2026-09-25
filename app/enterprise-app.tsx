@@ -500,6 +500,8 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   }, [view]);
 
   const activeCompany = companies.find((company) => company.id === activeCompanyId);
+  const activeCompanyName = activeCompany?.name || "Select company";
+  const activeCompanyInitials = activeCompany?.name.trim().split(/\s+/).slice(0, 2).map((word) => word[0]).join("").toLocaleUpperCase() || "CO";
   const activeLocations = useMemo(() => activeCompany?.locations ?? [], [activeCompany]);
   const baseCurrency = activeCompany?.baseCurrency ?? "AED";
 
@@ -985,9 +987,9 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
       <Sidebar collapsible="icon" className="brand-sidebar border-r border-slate-800 bg-[#0d1726] text-slate-100">
         <SidebarHeader className="border-b border-white/10 p-4">
           <div className="flex items-center gap-3 overflow-hidden">
-            <div className="brand-logo grid size-9 shrink-0 place-items-center rounded-xl text-sm font-black">CN</div>
+            <div className="brand-logo grid size-9 shrink-0 place-items-center rounded-xl text-sm font-black">{activeCompanyInitials}</div>
             <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-              <p className="truncate text-sm font-bold tracking-wide text-white">COMNET ENTERPRISE</p>
+              <p className="truncate text-sm font-bold tracking-wide text-white" title={activeCompanyName}>{activeCompanyName}</p>
               <p className="truncate text-xs text-slate-400">Accounting Suite</p>
             </div>
           </div>
