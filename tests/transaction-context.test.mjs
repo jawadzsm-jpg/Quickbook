@@ -462,13 +462,15 @@ test('cheques credit the chosen currency bank and debit the selected AP or expen
   assert.equal(listedUsdBank.balance, -655);
   assert.equal(listedUsdBank.baseBalance, -2407.13);
   const chequeDetail = await (await GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${companyId}&id=${savedChequeIds[0]}`))).json();
-  const alignCheque = (revision, chequeOffsetX, chequeAmountOffsetX) => PATCH(new Request('https://app.test/api/records', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'transactions', companyId, id: savedChequeIds[0], revision, editMode: 'cheque-layout', chequeBankKey: 'habib-bank-ag-zurich', chequeOffsetX, chequeOffsetY: 0, chequeAmountOffsetX }) }));
+  const alignCheque = (revision, chequeOffsetX, chequeAmountOffsetX, chequeDateOffsetX = 0) => PATCH(new Request('https://app.test/api/records', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'transactions', companyId, id: savedChequeIds[0], revision, editMode: 'cheque-layout', chequeBankKey: 'habib-bank-ag-zurich', chequeOffsetX, chequeOffsetY: 0, chequeAmountOffsetX, chequeDateOffsetX }) }));
   assert.equal((await alignCheque(chequeDetail.revision, 25, 0)).status, 400);
-  const aligned = await alignCheque(chequeDetail.revision, 0, -25);
+  assert.equal((await alignCheque(chequeDetail.revision, 0, 0, 26)).status, 400);
+  const aligned = await alignCheque(chequeDetail.revision, 0, -25, -15);
   assert.equal(aligned.status, 200);
   const alignedDetail = await (await GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${companyId}&id=${savedChequeIds[0]}`))).json();
   assert.equal(alignedDetail.record.chequeBankKey, 'habib-bank-ag-zurich');
   assert.equal(alignedDetail.record.chequeAmountOffsetX, -25);
+  assert.equal(alignedDetail.record.chequeDateOffsetX, -15);
   assert.equal((await alignCheque(chequeDetail.revision, 0, 0)).status, 409);
   const renameCheque = (id, revision, number) => PATCH(new Request('https://app.test/api/records', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'transactions', companyId, id, revision, editMode: 'cheque-number', number }) }));
   const renamed = await renameCheque(savedChequeIds[0], alignedDetail.revision, 'CHQ-EDITED');

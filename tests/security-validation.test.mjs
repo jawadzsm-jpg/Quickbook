@@ -20,13 +20,16 @@ const { chequeAlignmentBounds, uaeChequeLayout, validChequeAlignment } = await s
 
 test("cheque print calibration keeps the amount and every field on the paper", () => {
   const habib = uaeChequeLayout("habib-bank-ag-zurich");
-  const original = { x: 0, y: 0, amountX: 0 };
+  const original = { x: 0, y: 0, amountX: 0, dateX: 0 };
   assert.deepEqual(chequeAlignmentBounds(habib, true, original).x, { min: -7, max: 4 });
   assert.equal(validChequeAlignment(habib, true, { ...original, x: 25 }), false);
   assert.equal(validChequeAlignment(habib, true, { ...original, amountX: -25 }), true);
   assert.equal(validChequeAlignment(habib, true, { ...original, amountX: 5 }), false);
   assert.equal(validChequeAlignment(habib, true, { ...original, amountX: -25, x: 8 }), true);
   assert.equal(validChequeAlignment(habib, true, { ...original, amountX: -25, x: 9 }), false);
+  assert.equal(validChequeAlignment(habib, true, { ...original, dateX: -25 }), true);
+  assert.equal(validChequeAlignment(habib, true, { ...original, dateX: 25 }), true);
+  assert.equal(validChequeAlignment(habib, true, { ...original, dateX: 25, x: 8, amountX: -25 }), false);
 });
 
 test("email validation accepts ordinary addresses and rejects malformed or oversized input", () => {
@@ -160,6 +163,7 @@ test("UAE bank cheque is linked to Banking and supports save and print", () => {
   assert.match(css, /\[data-slot="dialog-content"\]:has\(\.document-print-surface\)/);
   assert.match(css, /data-cheque-print-mode="voucher"\][\s\S]*\.document-print-surface \{ position: static/);
   assert.match(cheque, /Amount only: left \(−\) \/ right \(\+\), mm/);
+  assert.match(cheque, /Date only: left \(−\) \/ right \(\+\), mm/);
   assert.match(cheque, /Save layout & alignment/);
   assert.match(cheque, /Cheque bank layout for this print/);
   assert.match(cheque, /uaeChequeLayouts\.map\(\(layout\) => <option/);

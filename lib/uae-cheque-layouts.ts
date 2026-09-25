@@ -104,10 +104,10 @@ export function uaeChequeLayout(key: string | undefined): UaeChequeLayout {
   return uaeChequeLayouts.find((layout) => layout.key === key) ?? uaeChequeLayouts[uaeChequeLayouts.length - 1];
 }
 
-export type ChequePrintAlignment = { x: number; y: number; amountX: number };
+export type ChequePrintAlignment = { x: number; y: number; amountX: number; dateX: number };
 
 export function chequeAlignmentBounds(layout: UaeChequeLayout, crossed: boolean, alignment: ChequePrintAlignment) {
-  const fields = [layout.date, layout.payee, layout.words, ...(crossed ? [layout.crossing] : [])];
+  const fields = [{ ...layout.date, left: layout.date.left + alignment.dateX }, layout.payee, layout.words, ...(crossed ? [layout.crossing] : [])];
   const amountLeft = layout.amount.left + alignment.amountX;
   const leftmost = Math.min(amountLeft, ...fields.map((field) => field.left));
   const rightmost = Math.max(amountLeft + layout.amount.width, ...fields.map((field) => field.left + field.width));
@@ -115,6 +115,7 @@ export function chequeAlignmentBounds(layout: UaeChequeLayout, crossed: boolean,
     x: { min: Math.max(-25, -leftmost), max: Math.min(25, layout.widthMm - rightmost) },
     y: { min: Math.max(-10, -Math.min(layout.date.top, layout.payee.top, layout.words.top, layout.amount.top, ...(crossed ? [layout.crossing.top] : []))), max: 10 },
     amountX: { min: Math.max(-25, -layout.amount.left - alignment.x), max: Math.min(25, layout.widthMm - layout.amount.left - layout.amount.width - alignment.x) },
+    dateX: { min: Math.max(-25, -layout.date.left - alignment.x), max: Math.min(25, layout.widthMm - layout.date.left - layout.date.width - alignment.x) },
   };
 }
 
