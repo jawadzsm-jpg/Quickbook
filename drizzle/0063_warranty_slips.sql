@@ -26,6 +26,9 @@ CREATE TABLE IF NOT EXISTS warranty_slips (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS idx_warranty_slips_company_date ON warranty_slips(company_id, slip_date);
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS idx_warranty_slips_customer ON warranty_slips(company_id, customer_id);
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS idx_warranty_slips_invoice ON warranty_slips(company_id, invoice_id);

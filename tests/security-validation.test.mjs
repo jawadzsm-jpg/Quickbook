@@ -18,6 +18,13 @@ const { normalizeComparableText, uppercaseText } = await sourceModule("../lib/te
 const { dueDateForPaymentTerms } = await sourceModule("../lib/payment-terms.ts");
 const { chequeAlignmentBounds, uaeChequeLayout, validChequeAlignment } = await sourceModule("../lib/uae-cheque-layouts.ts");
 
+test("warranty migration sends each SQL command separately to the production driver", () => {
+  const migration = readFileSync(new URL("../drizzle/0063_warranty_slips.sql", import.meta.url), "utf8");
+  const statements = migration.split("--> statement-breakpoint").map((part) => part.trim());
+  assert.equal(statements.length, 4);
+  assert.ok(statements.every((statement) => (statement.match(/;/g) || []).length === 1));
+});
+
 test("cheque print calibration keeps the amount and every field on the paper", () => {
   const habib = uaeChequeLayout("habib-bank-ag-zurich");
   const original = { x: 0, y: 0, amountX: 0, dateX: 0, crossingX: 0 };
