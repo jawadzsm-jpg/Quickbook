@@ -169,7 +169,7 @@ export async function reportPdf(report: ReportExportData, company: string, inven
     columnStyles: Object.fromEntries(report.columns.map((column, index) => [index, column.type === "money" ? { halign: "right" } : {}])),
     didDrawPage: drawHeader,
   });
-  if (report.key === "ap-aging-summary" && stamp?.data) {
+  if (stamp?.data) {
     const stampImage = await new Promise<{ data: string; width: number; height: number }>((resolve, reject) => {
       const image = new Image();
       image.onload = () => {
@@ -188,7 +188,7 @@ export async function reportPdf(report: ReportExportData, company: string, inven
     });
     pdf.setPage(1);
     const scale = Math.min(32 / stampImage.width, 23 / stampImage.height);
-    pdf.addImage(stampImage.data, "PNG", 10 + Math.max(0, Math.min(155, stamp.left)), 10 + Math.max(0, Math.min(250, stamp.top)), stampImage.width * scale, stampImage.height * scale);
+    pdf.addImage(stampImage.data, "PNG", 10 + Math.max(0, Math.min(pageWidth - 52, stamp.left)), 10 + Math.max(0, Math.min(pageHeight - 47, stamp.top)), stampImage.width * scale, stampImage.height * scale);
   }
   const pages = pdf.getNumberOfPages();
   for (let page = 1; page <= pages; page++) {

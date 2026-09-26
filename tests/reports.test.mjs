@@ -451,6 +451,33 @@ test("purchase order summary counts supplier statuses within the selected invent
   assert.deepEqual(dated.rows.find((row) => row.supplier === "Summary Supplier"), { supplier: "Summary Supplier", open: 0, partiallyReceived: 1, received: 0, totalOrders: 1 });
 });
 
+test("supplier centre reports stay on the selected supplier and show only open bills", async () => {
+  const created = await workspaces.POST(post({ type: "company", name: "Supplier Centre audit", baseCurrency: "AED" }));
+  const { company: centre } = await created.json();
+  const cid = centre.id, lid = centre.locations[0].id;
+  const [supplier, other] = await db.insert(schema.contacts).values([
+    { companyId: cid, name: "Centre Supplier", type: "vendor", currency: "AED" },
+    { companyId: cid, name: "Other Centre Supplier", type: "vendor", currency: "AED" },
+  ]).returning();
+  await db.insert(schema.transactions).values([
+    { companyId: cid, locationId: lid, number: "CENTRE-OPEN", type: "bill", party: supplier.name, transactionDate: "2026-09-11", currency: "AED", exchangeRate: 1, subtotal: 200, vatAmount: 10, total: 210, baseTotal: 210 },
+    { companyId: cid, locationId: lid, number: "CENTRE-OTHER", type: "bill", party: other.name, transactionDate: "2026-09-11", currency: "AED", exchangeRate: 1, subtotal: 300, vatAmount: 15, total: 315, baseTotal: 315 },
+  ]);
+  const getSelected = (type, supplierId) => GET(new Request(`https://app.test/api/reports?type=${type}&companyId=${cid}&locationId=0&supplierId=${supplierId}`));
+  const quick = await getSelected("supplier-quickreport", supplier.id);
+  assert.equal(quick.status, 200, await quick.clone().text());
+  assert.deepEqual((await quick.json()).report.rows.map((row) => row.number), ["CENTRE-OPEN"]);
+  const balance = await getSelected("supplier-open-balance", supplier.id);
+  assert.equal(balance.status, 200, await balance.clone().text());
+  assert.deepEqual((await balance.json()).report.rows.map((row) => [row.number, row.amount]), [["CENTRE-OPEN", 210]]);
+  assert.equal((await getSelected("supplier-open-balance", 99999999)).status, 404);
+  assert.equal((await getSelected("supplier-quickreport", "")).status, 400);
+  const otherCompany = await workspaces.POST(post({ type: "company", name: "Other supplier company", baseCurrency: "AED" }));
+  const { company: elsewhere } = await otherCompany.json();
+  const [outside] = await db.insert(schema.contacts).values({ companyId: elsewhere.id, name: "Outside Supplier", type: "vendor", currency: "AED" }).returning();
+  assert.equal((await getSelected("supplier-quickreport", outside.id)).status, 404);
+});
+
 test("VAT includes expense cheques and foreign card charges, subtracts credits, and scopes inventories", async () => {
   const summary = await report("vat-summary");
   assert.equal(summary.rows[1].amount, 173.375);

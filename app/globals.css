@@ -359,6 +359,8 @@ button, input, select { font: inherit; }
 @media screen {
   .report-dialog.ap-aging-dialog { width: min(100%, 210mm); }
   .report-dialog.ap-aging-dialog:has(.letterhead-stamp) { min-height: 280mm; }
+  .report-dialog.supplier-report-dialog { width: min(100%, 297mm); }
+  .report-dialog.supplier-report-dialog:has(.letterhead-stamp) { min-height: 190mm; }
 }
 @media print {
   body:has(.report-dialog) > :not([data-slot="dialog-content"]) { display: none !important; }
@@ -385,6 +387,7 @@ button, input, select { font: inherit; }
     print-color-adjust: exact;
   }
   .report-dialog.ap-aging-dialog { page: ap-aging; position: relative !important; width: 190mm !important; }
+  .report-dialog.supplier-report-dialog { position: relative !important; width: 277mm !important; min-height: 190mm !important; }
   .report-dialog [data-export-slot] { display: none !important; }
   .report-dialog .report-table {
     width: 100% !important;

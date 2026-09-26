@@ -7,6 +7,7 @@ export const letterheadDocuments = [
   ["delivery-note", "Delivery Note"], ["packing-list", "Packing List"],
   ["hs-code-summary", "HS Code Summary"], ["statement", "Statement"],
   ["ap-aging-summary", "A/P Aging Summary"],
+  ["supplier-quickreport", "Supplier QuickReport"], ["supplier-open-balance", "Supplier Open Balance"],
   ["warranty-slip", "Warranty / RMA Slip"],
 ] as const;
 export type LetterheadDocument = typeof letterheadDocuments[number][0];
