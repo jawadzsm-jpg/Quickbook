@@ -169,13 +169,23 @@ export async function GET(request: Request) {
   if (authorization instanceof Response) return authorization;
   try {
     const url = new URL(request.url);
-    const kind = url.searchParams.get("kind") as RecordKind | "vendor-history" | "unpaid-bills" | "unpaid-invoices" | "open-sales-documents" | "open-purchase-orders" | "purchase-return-bills" | "po-receiving" | "sales-invoicing" | null;
+    const kind = url.searchParams.get("kind") as RecordKind | "vendor-history" | "supplier-returns" | "unpaid-bills" | "unpaid-invoices" | "open-sales-documents" | "open-purchase-orders" | "purchase-return-bills" | "po-receiving" | "sales-invoicing" | null;
     const id = Number(url.searchParams.get("id"));
     const companyId = Number(url.searchParams.get("companyId"));
     const locationId = Number(url.searchParams.get("locationId"));
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     const db = getDb();
+    if (kind === "supplier-returns") {
+      const supplierId = Number(url.searchParams.get("supplierId"));
+      if (!Number.isSafeInteger(supplierId) || supplierId <= 0) return Response.json({ error: "Select a supplier." }, { status: 400 });
+      const [supplier] = await db.select({ name: contacts.name }).from(contacts).where(and(eq(contacts.id, supplierId), eq(contacts.companyId, companyId), eq(contacts.type, "vendor"))).limit(1);
+      if (!supplier) return Response.json({ error: "Supplier not found in this company." }, { status: 404 });
+      const returns = await db.select({ id: transactions.id, billId: transactions.billId, number: transactions.number, transactionDate: transactions.transactionDate, total: transactions.total, currency: transactions.currency }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.type, "vendor credit"), eq(transactions.party, supplier.name))).orderBy(desc(transactions.transactionDate), desc(transactions.id)).limit(50);
+      const bills = returns.some((row) => row.billId) ? await db.select({ id: transactions.id, number: transactions.number }).from(transactions).where(and(eq(transactions.companyId, companyId), inArray(transactions.id, returns.flatMap((row) => row.billId ? [row.billId] : [])))) : [];
+      const billNumbers = new Map(bills.map((bill) => [bill.id, bill.number]));
+      return Response.json({ records: returns.map((row) => ({ ...row, billNumber: billNumbers.get(row.billId ?? 0) || "" })) }, { headers: { "Cache-Control": "no-store" } });
+    }
     if (kind === "open-sales-documents") {
       if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
       const party = url.searchParams.get("party");
@@ -249,7 +259,7 @@ export async function GET(request: Request) {
       const paymentId = Number(url.searchParams.get("paymentId")) || 0;
       const [editingPayment] = paymentId ? await db.select().from(transactions).where(and(eq(transactions.id, paymentId), eq(transactions.companyId, companyId), inArray(transactions.type, ["bill payment", "cheque"]))) : [];
       const bills = await db.select({ id: transactions.id, number: transactions.number, transactionDate: transactions.transactionDate, dueDate: transactions.dueDate, status: transactions.status, total: transactions.total }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId), eq(transactions.party, party), eq(transactions.currency, currency), inArray(transactions.type, ["bill", "received item bill"]), sql`(${transactions.status} in ('open', 'overdue', 'pending', 'partially paid') or ${transactions.id} = ${editingPayment?.billId ?? 0})`)).orderBy(asc(transactions.transactionDate), asc(transactions.id));
-      const payments = await db.select({ billId: transactions.billId, total: transactions.total }).from(transactions).where(and(eq(transactions.companyId, companyId), inArray(transactions.type, ["bill payment", "cheque"]), sql`${transactions.id} <> ${editingPayment?.id ?? 0}`));
+      const payments = await db.select({ billId: transactions.billId, total: transactions.total }).from(transactions).where(and(eq(transactions.companyId, companyId), inArray(transactions.type, ["bill payment", "cheque", "vendor credit"]), sql`${transactions.id} <> ${editingPayment?.id ?? 0}`));
       const allocatedBills = await db.select({ billId: billPaymentAllocations.billId, amount: billPaymentAllocations.amount }).from(billPaymentAllocations).innerJoin(transactions, eq(transactions.id, billPaymentAllocations.paymentId)).where(and(eq(transactions.companyId, companyId), sql`${transactions.id} <> ${editingPayment?.id ?? 0}`));
       const records = bills.map((bill) => { const paid = round(payments.filter((payment) => payment.billId === bill.id).reduce((sum, payment) => sum + payment.total, 0) + allocatedBills.filter((payment) => payment.billId === bill.id).reduce((sum, payment) => sum + payment.amount, 0)); return { ...bill, paid, remaining: round(bill.total - paid) }; }).filter((bill) => bill.remaining > 0);
 
@@ -405,7 +415,7 @@ async function handlePOST(request: Request) {
     }
     return saveNewRecord(request);
   });
-  if (payload.kind === "transactions" && ["bill payment", "customer payment", "cheque"].includes(payload.type)) return withWriteTransaction(() => saveNewRecord(request));
+  if (payload.kind === "transactions" && ["bill payment", "customer payment", "cheque", "vendor credit"].includes(payload.type)) return withWriteTransaction(() => saveNewRecord(request));
   return saveNewRecord(request);
 }
 
@@ -932,7 +942,10 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     // into the wrong receivable control account. This runs inside the posting transaction.
     const postsReceivable = ["invoice", "statement charge", "finance charge", "customer payment", "credit memo"].includes(type);
     const receivable = postsReceivable ? (await ensureCurrencyControlAccount(companyId, "AR", currency)).account : null;
+    const postsPayable = ["bill", "received item bill", "vendor credit", "bill payment", "vendor payment"].includes(type);
+    const payable = postsPayable ? (await ensureCurrencyControlAccount(companyId, "AP", currency)).account : null;
     if (receivable && receivable.type !== "Accounts Receivable") return Response.json({ error: `The ${currency} receivable control account must have type Accounts Receivable. Correct it in Chart of Accounts before posting.` }, { status: 409 });
+    if (payable && payable.type !== "Accounts Payable") return Response.json({ error: `The ${currency} payable control account must have type Accounts Payable. Correct it in Chart of Accounts before posting.` }, { status: 409 });
     const linkedRows = await db.select({ id: accounts.id, name: accounts.name, type: accounts.type, systemRole: accounts.systemRole, currency: accounts.currency }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true)));
     const linkedAccounts: Record<string, string> = {};
     const [postingCompany] = await db.select({ baseCurrency: companies.baseCurrency }).from(companies).where(eq(companies.id, companyId)).limit(1);
@@ -948,7 +961,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const candidates = linkedRows.filter((account) => account.systemRole === role);
       const selected = role === "AR"
         ? candidates.find((account) => account.id === partyContact?.ledgerAccountId && account.currency === currency && account.type === "Accounts Receivable") ?? receivable ?? candidates.find((account) => account.currency === currency && account.type === "Accounts Receivable")
-        : candidates.find((account) => account.id === partyContact?.ledgerAccountId) ?? candidates.find((account) => account.currency === currency) ?? candidates[0];
+        : candidates.find((account) => account.id === partyContact?.ledgerAccountId && account.currency === currency && account.type === "Accounts Payable") ?? payable ?? candidates.find((account) => account.currency === currency && account.type === "Accounts Payable");
       if (selected) linkedAccounts[role] = selected.name;
     }
     if (chequeBankName) linkedAccounts.BANK = chequeBankName;
