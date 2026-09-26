@@ -19,7 +19,7 @@ export async function GET(request: Request) {
   const key = new URL(request.url).searchParams.get("type") ?? "profit-loss";
   const authorization = await requireApiUser(request);
   if (authorization instanceof Response) return authorization;
-  const canOpen = ["customer-statements", "customer-document-summary"].includes(key) ? hasPermission(authorization, "sales:write") || hasPermission(authorization, "reports:read") : hasPermission(authorization, "reports:read");
+  const canOpen = key === "purchase-order-summary" ? hasPermission(authorization, "purchases:write") || hasPermission(authorization, "reports:read") : ["customer-statements", "customer-document-summary"].includes(key) ? hasPermission(authorization, "sales:write") || hasPermission(authorization, "reports:read") : hasPermission(authorization, "reports:read");
   if (!canOpen) return Response.json({ error: "Your role does not allow this report." }, { status: 403 });
   try {
     const url = new URL(request.url);
@@ -762,6 +762,20 @@ export async function GET(request: Request) {
       });
       rows = [...totals].map(([customer, counts]) => ({ customer, ...counts, totalDocuments: counts.estimates + counts.proformaInvoices + counts.salesOrders })).sort((a, b) => b.totalDocuments - a.totalDocuments || a.customer.localeCompare(b.customer));
       columns = [{ key: "customer", label: "Customer" }, { key: "estimates", label: "Estimates" }, { key: "proformaInvoices", label: "Proforma Invoices" }, { key: "salesOrders", label: "Sales Orders" }, { key: "totalDocuments", label: "Total Documents" }];
+    } else if (key === "purchase-order-summary") {
+      title = "Purchase Order Summary";
+      const totals = new Map<string, { open: number; partiallyReceived: number; received: number; totalOrders: number }>();
+      allContacts.filter((contact) => contact.type === "vendor").forEach((contact) => totals.set(contact.name, { open: 0, partiallyReceived: 0, received: 0, totalOrders: 0 }));
+      scopedTransactions.filter((row) => row.type === "purchase order").forEach((row) => {
+        const current = totals.get(row.party) ?? { open: 0, partiallyReceived: 0, received: 0, totalOrders: 0 };
+        current.totalOrders += 1;
+        if (row.status === "partially received") current.partiallyReceived += 1;
+        else if (["received", "converted"].includes(row.status)) current.received += 1;
+        else if (!["cancelled", "void", "closed"].includes(row.status)) current.open += 1;
+        totals.set(row.party, current);
+      });
+      rows = [...totals].map(([supplier, counts]) => ({ supplier, ...counts })).sort((a, b) => b.totalOrders - a.totalOrders || a.supplier.localeCompare(b.supplier));
+      columns = [{ key: "supplier", label: "Supplier" }, { key: "open", label: "Open" }, { key: "partiallyReceived", label: "Partially Received" }, { key: "received", label: "Fully Received" }, { key: "totalOrders", label: "Total Orders" }];
     } else if (key === "open-invoices") {
       title = "Open Invoices";
       const invoiceAllocations = await db.select({ invoiceId: invoicePaymentAllocations.invoiceId, amount: invoicePaymentAllocations.amount }).from(invoicePaymentAllocations).innerJoin(transactions, eq(transactions.id, invoicePaymentAllocations.paymentId)).where(eq(transactions.companyId, companyId));

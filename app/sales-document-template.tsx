@@ -81,11 +81,14 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
   const outputModes = relatedDocumentOutputs[mode] ?? [mode];
   const [selection, setSelection] = useState<{ source: SalesDocumentMode; output: SalesDocumentMode }>({ source: mode, output: mode });
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [poStamp, setPoStamp] = useState<{show:boolean;left:number;top:number}|null>(null);
   const [packingOpen, setPackingOpen] = useState(false);
   const [packingView, setPackingView] = useState<"packing" | "hs-summary">("packing");
   const connectedPackingList = String(record.type) === "invoice";
   const activeMode = selection.source === mode && outputModes.includes(selection.output) ? selection.output : mode;
   const letterhead = letterheadForDocument(setup.letterheadDesign, activeMode);
+  const stamp = poStamp ?? {show: Boolean(letterhead?.showStamp), left: letterhead?.stampLeft ?? 155, top: letterhead?.stampTop ?? 230};
+  const stampOverride = activeMode === "purchase-order" ? stamp : undefined;
   const requestedTemplateType = savedTemplateType[activeMode];
   const { design, savedTemplate } = resolveDocumentDesign(setup.documentDesign, requestedTemplateType);
   if (!savedTemplate || savedTemplate.appliesToAll || (requestedTemplateType && savedTemplate.type !== requestedTemplateType) || activeMode === "commercial-invoice" || activeMode === "purchase-return") design.title = salesDocumentTitles[activeMode];
@@ -234,8 +237,9 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
         </Button>
       </div>
     </div>
-    <div ref={screenPreviewRef} className="invoice-screen-only">{activeMode === "delivery-note" && connectedPackingList ? <DeliveryNoteTemplate record={record} lines={lines} contact={contact} setup={setup} letterhead={letterhead} /> : <CustomInvoiceTemplate design={design} record={record} lines={lines} contact={contact} setup={setup} letterhead={letterhead} />}</div>
-    <div className="invoice-print-only">{activeMode === "delivery-note" && connectedPackingList ? <DeliveryNoteTemplate record={record} lines={lines} contact={contact} setup={setup} letterhead={letterhead} /> : <CustomInvoiceTemplate design={a4Design} record={record} lines={lines} contact={contact} setup={setup} letterhead={letterhead} target="print" />}</div>
+    {activeMode === "purchase-order" && <div className="document-internal-only mb-3 flex flex-wrap items-center gap-3 rounded-lg border bg-slate-50 p-3 text-sm"><label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={stamp.show} disabled={!setup.stampData} onChange={(event) => setPoStamp({...stamp,show:event.target.checked})} />Company stamp</label>{!setup.stampData && <span className="text-slate-500">Upload a stamp in Company Setup first.</span>}{stamp.show && setup.stampData && <><label className="flex items-center gap-2">Left (mm)<input type="number" min="0" max="170" className="w-20 rounded border bg-white px-2 py-1" value={stamp.left} onChange={(event) => setPoStamp({...stamp,left:Math.max(0,Math.min(170,Number(event.target.value)||0))})} /></label><label className="flex items-center gap-2">Top (mm)<input type="number" min="0" max="260" className="w-20 rounded border bg-white px-2 py-1" value={stamp.top} onChange={(event) => setPoStamp({...stamp,top:Math.max(0,Math.min(260,Number(event.target.value)||0))})} /></label><span className="text-slate-500">Drag the stamp in the preview to adjust it.</span></>}</div>}
+    <div ref={screenPreviewRef} className="invoice-screen-only">{activeMode === "delivery-note" && connectedPackingList ? <DeliveryNoteTemplate record={record} lines={lines} contact={contact} setup={setup} letterhead={letterhead} /> : <CustomInvoiceTemplate design={design} record={record} lines={lines} contact={contact} setup={setup} letterhead={letterhead} stampOverride={stampOverride} onMoveStamp={activeMode === "purchase-order" ? (left,top) => setPoStamp({...stamp,left,top}) : undefined} />}</div>
+    <div className="invoice-print-only">{activeMode === "delivery-note" && connectedPackingList ? <DeliveryNoteTemplate record={record} lines={lines} contact={contact} setup={setup} letterhead={letterhead} /> : <CustomInvoiceTemplate design={a4Design} record={record} lines={lines} contact={contact} setup={setup} letterhead={letterhead} stampOverride={stampOverride} target="print" />}</div>
     {connectedPackingList ? <InvoicePackingListDialog open={packingOpen} onOpenChange={setPackingOpen} companyId={Number(record.companyId)} companyName={String(setup.name || "Company")} setup={setup} invoiceId={Number(record.id)} initialView={packingView} /> : null}
   </>;
 }

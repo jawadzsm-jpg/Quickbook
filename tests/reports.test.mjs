@@ -427,6 +427,24 @@ test("customer document summary counts each pre-sale document and keeps zero-cou
   assert.deepEqual(result.rows.find((row) => row.customer === "No Documents Customer"), { customer: "No Documents Customer", estimates: 0, proformaInvoices: 0, salesOrders: 0, totalDocuments: 0 });
 });
 
+test("purchase order summary counts supplier statuses within the selected inventory and dates", async () => {
+  await db.insert(schema.contacts).values({ companyId, name: "No Orders Supplier", type: "vendor", currency: "AED", balance: 0 });
+  await db.insert(schema.transactions).values([
+    { companyId, locationId, number: "PO-SUM-OPEN", type: "purchase order", party: "Summary Supplier", transactionDate: "2026-09-20", status: "open" },
+    { companyId, locationId, number: "PO-SUM-PART", type: "purchase order", party: "Summary Supplier", transactionDate: "2026-09-21", status: "partially received" },
+    { companyId, locationId, number: "PO-SUM-DONE", type: "purchase order", party: "Summary Supplier", transactionDate: "2026-09-22", status: "received" },
+    { companyId, locationId: otherLocation.id, number: "PO-SUM-OTHER", type: "purchase order", party: "Summary Supplier", transactionDate: "2026-09-22", status: "open" },
+  ]);
+  const result = await report("purchase-order-summary");
+  assert.deepEqual(result.columns.map((column) => column.key), ["supplier", "open", "partiallyReceived", "received", "totalOrders"]);
+  assert.deepEqual(result.rows.find((row) => row.supplier === "Summary Supplier"), { supplier: "Summary Supplier", open: 1, partiallyReceived: 1, received: 1, totalOrders: 3 });
+  assert.deepEqual(result.rows.find((row) => row.supplier === "No Orders Supplier"), { supplier: "No Orders Supplier", open: 0, partiallyReceived: 0, received: 0, totalOrders: 0 });
+  const response = await GET(new Request(`https://app.test/api/reports?type=purchase-order-summary&companyId=${companyId}&locationId=${locationId}&periodStart=2026-09-21&periodEnd=2026-09-21`));
+  assert.equal(response.status, 200);
+  const dated = (await response.json()).report;
+  assert.deepEqual(dated.rows.find((row) => row.supplier === "Summary Supplier"), { supplier: "Summary Supplier", open: 0, partiallyReceived: 1, received: 0, totalOrders: 1 });
+});
+
 test("VAT includes expense cheques and foreign card charges, subtracts credits, and scopes inventories", async () => {
   const summary = await report("vat-summary");
   assert.equal(summary.rows[1].amount, 173.375);
