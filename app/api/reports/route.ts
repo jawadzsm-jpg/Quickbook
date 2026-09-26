@@ -19,7 +19,7 @@ export async function GET(request: Request) {
   const key = new URL(request.url).searchParams.get("type") ?? "profit-loss";
   const authorization = await requireApiUser(request);
   if (authorization instanceof Response) return authorization;
-  const canOpen = key === "ap-aging-summary" ? hasPermission(authorization, "purchases:write") || hasPermission(authorization, "vendors:manage") || hasPermission(authorization, "reports:read") : key === "purchase-order-summary" ? hasPermission(authorization, "purchases:write") || hasPermission(authorization, "reports:read") : ["customer-statements", "customer-document-summary"].includes(key) ? hasPermission(authorization, "sales:write") || hasPermission(authorization, "reports:read") : hasPermission(authorization, "reports:read");
+  const canOpen = ["ap-aging-summary", "supplier-quickreport", "supplier-open-balance"].includes(key) ? hasPermission(authorization, "purchases:write") || hasPermission(authorization, "vendors:manage") || hasPermission(authorization, "reports:read") : key === "purchase-order-summary" ? hasPermission(authorization, "purchases:write") || hasPermission(authorization, "reports:read") : ["customer-statements", "customer-document-summary"].includes(key) ? hasPermission(authorization, "sales:write") || hasPermission(authorization, "reports:read") : hasPermission(authorization, "reports:read");
   if (!canOpen) return Response.json({ error: "Your role does not allow this report." }, { status: 403 });
   try {
     const url = new URL(request.url);
@@ -40,6 +40,11 @@ export async function GET(request: Request) {
     if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     const [reportCompany] = await db.select({ baseCurrency: companies.baseCurrency }).from(companies).where(eq(companies.id, companyId)).limit(1);
     if (!reportCompany) return Response.json({ error: "Company not found." }, { status: 404 });
+    const supplierReport = ["supplier-quickreport", "supplier-open-balance"].includes(key);
+    const supplierId = Number(url.searchParams.get("supplierId"));
+    if (supplierReport && (!Number.isInteger(supplierId) || supplierId <= 0)) return Response.json({ error: "Select a supplier." }, { status: 400 });
+    const [selectedSupplier] = supplierReport ? await db.select({ name: contacts.name }).from(contacts).where(and(eq(contacts.id, supplierId), eq(contacts.companyId, companyId), eq(contacts.type, "vendor"))).limit(1) : [];
+    if (supplierReport && !selectedSupplier) return Response.json({ error: "Supplier not found in this company." }, { status: 404 });
     // Report amounts are stored/converted in home currency; never relabel them from a query parameter.
     const currency = reportCompany.baseCurrency;
     const scoped = Number.isInteger(locationId) && locationId > 0;
@@ -686,6 +691,10 @@ export async function GET(request: Request) {
       const balances = new Map<string, number>();
       rows = supplierActivities.filter((row) => !["purchase order", "item receipt"].includes(row.type)).map((row) => { const amount = supplierImpact(row); const balance = (balances.get(row.party) ?? 0) + amount; balances.set(row.party, balance); return { supplier: row.party, date: row.transactionDate, number: row.number, type: row.type, charge: amount > 0 ? amount : 0, payment: amount < 0 ? -amount : 0, balance }; });
       columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "charge", label: "Bill / Charge", ...money }, { key: "payment", label: "Payment / Credit", ...money }, { key: "balance", label: "Balance", ...money }];
+    } else if (key === "supplier-open-balance") {
+      title = `${selectedSupplier!.name} · Open Balance`;
+      rows = scopedTransactions.filter((row) => row.party === selectedSupplier!.name && ["bill", "received item bill"].includes(row.type) && !["paid", "cleared"].includes(row.status) && openBillAmount(row) > 0.005).map((row) => ({ supplier: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, status: row.status, age: row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0, amount: openBillAmount(row) }));
+      columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Bill Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "Bill No." }, { key: "status", label: "Status" }, { key: "age", label: "Days Overdue" }, { key: "amount", label: "Open Amount", ...money }];
     } else if (key === "unpaid-bills-detail") {
       title = "Unpaid Bills Detail";
       rows = scopedTransactions.filter((row) => ["bill", "received item bill"].includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => ({ supplier: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, type: row.type, status: row.status, overdueDays: row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0, currency: row.currency, amount: openBillAmount(row) }));
@@ -698,9 +707,9 @@ export async function GET(request: Request) {
       rows = [...months].sort(([a], [b]) => a.localeCompare(b)).map(([month, value]) => { balance += value.bills - value.payments; return { month, ...value, balance }; });
       columns = [{ key: "month", label: "Month" }, { key: "bills", label: "Bills / Charges", ...money }, { key: "payments", label: "Payments / Credits", ...money }, { key: "balance", label: "A/P Balance", ...money }];
       chart = { labelKey: "month", incomeKey: "bills", expenseKey: "payments" };
-    } else if (key === "supplier-transactions") {
-      title = "Transaction List by Supplier";
-      rows = supplierActivities.map((row) => ({ supplier: row.party, date: row.transactionDate, number: row.number, type: row.type, status: row.status, currency: row.currency, amount: supplierImpact(row) }));
+    } else if (key === "supplier-transactions" || key === "supplier-quickreport") {
+      title = key === "supplier-quickreport" ? `${selectedSupplier!.name} · QuickReport` : "Transaction List by Supplier";
+      rows = supplierActivities.filter((row) => !selectedSupplier || row.party === selectedSupplier.name).map((row) => ({ supplier: row.party, date: row.transactionDate, number: row.number, type: row.type, status: row.status, currency: row.currency, amount: supplierImpact(row) }));
       columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "status", label: "Status" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Net Amount", ...money }];
     } else if (key === "supplier-phone-list") {
       title = "Supplier Phone List";
@@ -843,7 +852,7 @@ export async function GET(request: Request) {
     if (key === "bank-register") rows = rows.filter(row => inPeriod(String(row.date)));
     if (["accounts-receivable-graph", "accounts-payable-graph", "net-worth-graph"].includes(key)) rows = rows.filter(row => (!periodStart || String(row.month) >= periodStart.slice(0,7)) && (!periodEnd || String(row.month) <= periodEnd.slice(0,7)));
     const linkedAccounts = linkReportAccounts(rows, columns, allAccounts);
-    return Response.json({ report: { key, period, companyId, canViewAccounts: hasPermission(authorization, "accounting:manage"), accountLinkIssues: linkedAccounts.issues, vatCodes: key === "vat-detail" ? configuredVatCodes.map(({ code, name, rate }) => ({ code, name, rate })) : undefined, title, generatedAt: new Date().toISOString(), currency, columns, rows: linkedAccounts.rows, chart, summary } }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ report: { key, period, companyId, supplierId: supplierReport ? supplierId : undefined, canViewAccounts: hasPermission(authorization, "accounting:manage"), accountLinkIssues: linkedAccounts.issues, vatCodes: key === "vat-detail" ? configuredVatCodes.map(({ code, name, rate }) => ({ code, name, rate })) : undefined, title, generatedAt: new Date().toISOString(), currency, columns, rows: linkedAccounts.rows, chart, summary } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not generate report." }, { status: 500 });
   }

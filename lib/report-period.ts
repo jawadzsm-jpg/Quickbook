@@ -43,7 +43,7 @@ export function presetDates(preset: string, today = reportToday()): { from: stri
   return {from:fmt(start),to:fmt(end)};
 }
 export function reportPeriod(key: string, from: string, to: string): ReportPeriod {
-  const current = /^(inventory-|item-price|item-listing|physical-inventory|pending-builds|stock-pricing-profit|cash-flow-forecast|bank-reconciliation|memorised-transactions|to-do-notes|account-listing|fixed-asset-listing|terms-listing|vat-code-list|employee-contact-list|other-names-|customer-phone-list|customer-contact-list|supplier-phone-list|supplier-contact-list)/.test(key);
+  const current = /^(inventory-|item-price|item-listing|physical-inventory|pending-builds|stock-pricing-profit|cash-flow-forecast|bank-reconciliation|memorised-transactions|to-do-notes|account-listing|fixed-asset-listing|terms-listing|vat-code-list|employee-contact-list|other-names-|customer-phone-list|customer-contact-list|supplier-phone-list|supplier-contact-list|supplier-open-balance)/.test(key);
   const asof = /^(balance-sheet|trial-balance|customer-balances|customer-balance-detail|vendor-balances|supplier-balance-detail|customer-open-balance|customers-overdue-invoices|active-customers|ar-aging)/.test(key);
   const mode = current ? 'current' : asof ? 'asof' : 'range';
   return {from:mode==='range'?from:'',to:current?'':to,mode,label:current?'Current data — historical snapshots are not available':asof?`As of ${to || 'latest posting'}`:from||to?`${from || 'Beginning'} — ${to || 'Latest posting'}`:'All dates'};
