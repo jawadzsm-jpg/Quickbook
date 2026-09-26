@@ -140,7 +140,8 @@ function displayValue(value: string | number | null | undefined, money: boolean)
 
 export async function reportPdf(report: ReportExportData, company: string, inventory: string, rows = report.rows, stamp?: { data: string; left: number; top: number }) {
   const [{ jsPDF }, { autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
-  const pdf = new jsPDF({ orientation: report.columns.length > 6 ? "landscape" : "portrait", format: "a4", unit: "mm" });
+  const vendorLandscapeReports = new Set(["supplier-quickreport", "supplier-open-balance", "ap-aging-detail", "vendor-balances", "supplier-balance-detail", "unpaid-bills-detail", "accounts-payable-graph", "supplier-transactions"]);
+  const pdf = new jsPDF({ orientation: vendorLandscapeReports.has(report.key || "") || report.columns.length > 6 ? "landscape" : "portrait", format: "a4", unit: "mm" });
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
   const drawHeader = () => {
@@ -155,7 +156,7 @@ export async function reportPdf(report: ReportExportData, company: string, inven
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(8);
     pdf.setTextColor(215, 226, 236);
-    pdf.text(`${inventory || "All inventories"} | ${report.period?.label || "Current report"} | ${report.currency} home currency | ${rows.length} records`, 12, 31, { maxWidth: pageWidth - 24 });
+    pdf.text(`${inventory || "All inventories"} | ${report.period?.label || "Current report"} | ${report.currency} report currency | ${rows.length} records`, 12, 31, { maxWidth: pageWidth - 24 });
   };
   autoTable(pdf, {
     startY: 44,

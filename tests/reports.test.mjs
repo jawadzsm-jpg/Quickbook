@@ -383,7 +383,7 @@ test("every Report Center entry opens its matching backend report", async () => 
   assert.equal(new Set(definitions.map((definition) => definition.name)).size, definitions.length, "Report Center titles must be unique");
 
   // Statement reports need a matching vendor as well as the customer fixture.
-  await db.insert(schema.contacts).values({ companyId, name: "USD Customer", type: "vendor", currency: "USD", balance: 0 });
+  const [reportVendor] = await db.insert(schema.contacts).values({ companyId, name: "USD Customer", type: "vendor", currency: "USD", balance: 0 }).returning();
 
   const failures = [];
   for (const definition of definitions) {
@@ -397,6 +397,7 @@ test("every Report Center entry opens its matching backend report", async () => 
       periodStart: "2026-09-01",
       periodEnd: "2026-09-30",
       memo: "Report Center smoke check",
+      supplierId: String(reportVendor.id),
     });
     const response = await GET(new Request(`https://app.test/api/reports?${params}`));
     if (response.status !== 200) {
@@ -461,15 +462,21 @@ test("supplier centre reports stay on the selected supplier and show only open b
   ]).returning();
   await db.insert(schema.transactions).values([
     { companyId: cid, locationId: lid, number: "CENTRE-OPEN", type: "bill", party: supplier.name, transactionDate: "2026-09-11", currency: "AED", exchangeRate: 1, subtotal: 200, vatAmount: 10, total: 210, baseTotal: 210 },
+    { companyId: cid, locationId: lid, number: "CENTRE-USD", type: "bill", party: supplier.name, transactionDate: "2026-09-12", currency: "USD", exchangeRate: 3.67, subtotal: 95.24, vatAmount: 4.76, total: 100, baseTotal: 367 },
     { companyId: cid, locationId: lid, number: "CENTRE-OTHER", type: "bill", party: other.name, transactionDate: "2026-09-11", currency: "AED", exchangeRate: 1, subtotal: 300, vatAmount: 15, total: 315, baseTotal: 315 },
   ]);
-  const getSelected = (type, supplierId) => GET(new Request(`https://app.test/api/reports?type=${type}&companyId=${cid}&locationId=0&supplierId=${supplierId}`));
+  const getSelected = (type, supplierId, currency = "AED") => GET(new Request(`https://app.test/api/reports?type=${type}&companyId=${cid}&locationId=0&supplierId=${supplierId}&currency=${currency}`));
   const quick = await getSelected("supplier-quickreport", supplier.id);
   assert.equal(quick.status, 200, await quick.clone().text());
   assert.deepEqual((await quick.json()).report.rows.map((row) => row.number), ["CENTRE-OPEN"]);
   const balance = await getSelected("supplier-open-balance", supplier.id);
   assert.equal(balance.status, 200, await balance.clone().text());
   assert.deepEqual((await balance.json()).report.rows.map((row) => [row.number, row.amount]), [["CENTRE-OPEN", 210]]);
+  const foreignBalance = await getSelected("supplier-open-balance", supplier.id, "USD");
+  assert.equal(foreignBalance.status, 200, await foreignBalance.clone().text());
+  const foreignReport = (await foreignBalance.json()).report;
+  assert.equal(foreignReport.currency, "USD");
+  assert.deepEqual(foreignReport.rows.map((row) => [row.number, row.amount]), [["CENTRE-USD", 100]]);
   assert.equal((await getSelected("supplier-open-balance", 99999999)).status, 404);
   assert.equal((await getSelected("supplier-quickreport", "")).status, 400);
   const otherCompany = await workspaces.POST(post({ type: "company", name: "Other supplier company", baseCurrency: "AED" }));

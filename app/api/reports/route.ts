@@ -11,6 +11,7 @@ import { linkReportAccounts } from "@/lib/report-account-links";
 
 type Row = Record<string, string | number | null>;
 const money = { type: "money" as const };
+const vendorCurrencyReportKeys = new Set(["supplier-quickreport", "supplier-open-balance", "vendor-statements", "ap-aging-summary", "ap-aging-detail", "vendor-balances", "supplier-balance-detail", "unpaid-bills-detail", "accounts-payable-graph", "supplier-transactions"]);
 const amountColumns = (first = "Account") => [
   { key: "name", label: first }, { key: "debit", label: "Debit", ...money }, { key: "credit", label: "Credit", ...money }, { key: "balance", label: "Balance", ...money },
 ];
@@ -40,6 +41,9 @@ export async function GET(request: Request) {
     if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     const [reportCompany] = await db.select({ baseCurrency: companies.baseCurrency }).from(companies).where(eq(companies.id, companyId)).limit(1);
     if (!reportCompany) return Response.json({ error: "Company not found." }, { status: 404 });
+    const requestedVendorCurrency = String(url.searchParams.get("currency") || reportCompany.baseCurrency).toUpperCase();
+    if (vendorCurrencyReportKeys.has(key) && !/^[A-Z]{3}$/.test(requestedVendorCurrency)) return Response.json({ error: "Select a valid transaction currency." }, { status: 400 });
+    const reportCurrency = vendorCurrencyReportKeys.has(key) ? requestedVendorCurrency : reportCompany.baseCurrency;
     const supplierReport = ["supplier-quickreport", "supplier-open-balance"].includes(key);
     const supplierId = Number(url.searchParams.get("supplierId"));
     if (supplierReport && (!Number.isInteger(supplierId) || supplierId <= 0)) return Response.json({ error: "Select a supplier." }, { status: 400 });
@@ -181,8 +185,9 @@ export async function GET(request: Request) {
       row.total
       - rawTransactions.filter((payment) => payment.billId === row.id).reduce((sum, payment) => sum + payment.total, 0)
       - billAllocations.filter((payment) => payment.billId === row.id).reduce((sum, payment) => sum + payment.amount, 0)
-    ) * row.exchangeRate;
-    const aged = (types: string[]) => scopedTransactions.filter((row) => types.includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => {
+    ) * (vendorCurrencyReportKeys.has(key) ? 1 : row.exchangeRate);
+    const vendorCurrencyTransactions = scopedTransactions.filter((row) => row.currency === reportCurrency);
+    const aged = (types: string[]) => (vendorCurrencyReportKeys.has(key) ? vendorCurrencyTransactions : scopedTransactions).filter((row) => types.includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => {
       const amount = openBillAmount(row);
       const age = row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0;
       return { name: row.party, current: age <= 0 ? amount : 0, days30: age > 0 && age <= 30 ? amount : 0, days60: age > 30 && age <= 60 ? amount : 0, days90: age > 60 ? amount : 0, total: amount };
@@ -215,9 +220,12 @@ export async function GET(request: Request) {
     });
     if (key.startsWith("average-days-to-pay")) { const selected = customerSettlements.filter(row => inPeriod(row.paymentDate)); customerSettlements.splice(0, customerSettlements.length, ...selected); }
     const supplierTypes = new Set(["bill", "received item bill", "expense", "cheque", "bill payment", "vendor credit", "purchase order", "item receipt"]);
-    const supplierActivities = scopedTransactions.filter((row) => supplierTypes.has(row.type));
+    const supplierActivities = (vendorCurrencyReportKeys.has(key) ? vendorCurrencyTransactions : scopedTransactions).filter((row) => supplierTypes.has(row.type));
     const payableAccounts = new Set(allAccounts.filter((account) => account.systemRole === "AP" || account.type === "Accounts Payable").map((account) => account.name));
-    const supplierImpact = (row: typeof allTransactions[number]) => ["bill payment", "vendor credit"].includes(row.type) || (row.type === "cheque" && payableAccounts.has(row.account)) ? -row.baseTotal : ["purchase order", "item receipt", "cheque"].includes(row.type) ? 0 : row.baseTotal;
+    const supplierImpact = (row: typeof allTransactions[number]) => {
+      const amount = vendorCurrencyReportKeys.has(key) ? row.total : row.baseTotal;
+      return ["bill payment", "vendor credit"].includes(row.type) || (row.type === "cheque" && payableAccounts.has(row.account)) ? -amount : ["purchase order", "item receipt", "cheque"].includes(row.type) ? 0 : amount;
+    };
     const vatDocumentTypes = new Set(["invoice", "sales receipt", "statement charge", "credit memo", "bill", "received item bill", "expense", "cheque", "credit card charge", "vendor credit"]);
     const vatLines = lines.filter((line) => vatDocumentTypes.has(line.type) && (!periodStart || line.date >= periodStart) && (!periodEnd || line.date <= periodEnd));
     const outputVat = vatLines.reduce((sum, line) => sum + (line.type === "credit memo" ? -1 : ["invoice", "sales receipt", "statement charge"].includes(line.type) ? 1 : 0) * line.vatAmount * line.exchangeRate, 0);
@@ -488,7 +496,7 @@ export async function GET(request: Request) {
       columns = agingColumns;
     } else if (key === "ap-aging-detail") {
       title = "A/P Aging Detail";
-      rows = scopedTransactions.filter((row) => ["bill", "received item bill"].includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => { const age = row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0; return { supplier: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, status: row.status, age, amount: openBillAmount(row) }; });
+      rows = vendorCurrencyTransactions.filter((row) => ["bill", "received item bill"].includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => { const age = row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0; return { supplier: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, status: row.status, age, amount: openBillAmount(row) }; });
       columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "No." }, { key: "status", label: "Status" }, { key: "age", label: "Days Overdue" }, { key: "amount", label: "Open Amount", ...money }];
     } else if (key === "customer-statements" || key === "vendor-statements") {
       const vendor = key === "vendor-statements";
@@ -693,16 +701,16 @@ export async function GET(request: Request) {
       columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "charge", label: "Bill / Charge", ...money }, { key: "payment", label: "Payment / Credit", ...money }, { key: "balance", label: "Balance", ...money }];
     } else if (key === "supplier-open-balance") {
       title = `${selectedSupplier!.name} · Open Balance`;
-      rows = scopedTransactions.filter((row) => row.party === selectedSupplier!.name && ["bill", "received item bill"].includes(row.type) && !["paid", "cleared"].includes(row.status) && openBillAmount(row) > 0.005).map((row) => ({ supplier: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, status: row.status, age: row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0, amount: openBillAmount(row) }));
+      rows = vendorCurrencyTransactions.filter((row) => row.party === selectedSupplier!.name && ["bill", "received item bill"].includes(row.type) && !["paid", "cleared"].includes(row.status) && openBillAmount(row) > 0.005).map((row) => ({ supplier: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, status: row.status, age: row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0, amount: openBillAmount(row) }));
       columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Bill Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "Bill No." }, { key: "status", label: "Status" }, { key: "age", label: "Days Overdue" }, { key: "amount", label: "Open Amount", ...money }];
     } else if (key === "unpaid-bills-detail") {
       title = "Unpaid Bills Detail";
-      rows = scopedTransactions.filter((row) => ["bill", "received item bill"].includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => ({ supplier: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, type: row.type, status: row.status, overdueDays: row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0, currency: row.currency, amount: openBillAmount(row) }));
+      rows = vendorCurrencyTransactions.filter((row) => ["bill", "received item bill"].includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => ({ supplier: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, type: row.type, status: row.status, overdueDays: row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0, currency: row.currency, amount: openBillAmount(row) }));
       columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Bill Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "Bill No." }, { key: "type", label: "Type" }, { key: "status", label: "Status" }, { key: "overdueDays", label: "Days Overdue" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Open Amount", ...money }];
     } else if (key === "accounts-payable-graph") {
       title = "Accounts Payable Graph";
       const months = new Map<string, { bills: number; payments: number }>();
-      supplierActivities.filter((row) => supplierImpact(row) !== 0).forEach((row) => { const month = row.transactionDate.slice(0, 7); const old = months.get(month) ?? { bills: 0, payments: 0 }; if (supplierImpact(row) < 0) old.payments += row.baseTotal; else old.bills += row.baseTotal; months.set(month, old); });
+      supplierActivities.filter((row) => supplierImpact(row) !== 0).forEach((row) => { const month = row.transactionDate.slice(0, 7); const old = months.get(month) ?? { bills: 0, payments: 0 }; const amount = Math.abs(supplierImpact(row)); if (supplierImpact(row) < 0) old.payments += amount; else old.bills += amount; months.set(month, old); });
       let balance = 0;
       rows = [...months].sort(([a], [b]) => a.localeCompare(b)).map(([month, value]) => { balance += value.bills - value.payments; return { month, ...value, balance }; });
       columns = [{ key: "month", label: "Month" }, { key: "bills", label: "Bills / Charges", ...money }, { key: "payments", label: "Payments / Credits", ...money }, { key: "balance", label: "A/P Balance", ...money }];
@@ -852,7 +860,7 @@ export async function GET(request: Request) {
     if (key === "bank-register") rows = rows.filter(row => inPeriod(String(row.date)));
     if (["accounts-receivable-graph", "accounts-payable-graph", "net-worth-graph"].includes(key)) rows = rows.filter(row => (!periodStart || String(row.month) >= periodStart.slice(0,7)) && (!periodEnd || String(row.month) <= periodEnd.slice(0,7)));
     const linkedAccounts = linkReportAccounts(rows, columns, allAccounts);
-    return Response.json({ report: { key, period, companyId, supplierId: supplierReport ? supplierId : undefined, canViewAccounts: hasPermission(authorization, "accounting:manage"), accountLinkIssues: linkedAccounts.issues, vatCodes: key === "vat-detail" ? configuredVatCodes.map(({ code, name, rate }) => ({ code, name, rate })) : undefined, title, generatedAt: new Date().toISOString(), currency, columns, rows: linkedAccounts.rows, chart, summary } }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ report: { key, period, companyId, supplierId: supplierReport ? supplierId : undefined, canViewAccounts: hasPermission(authorization, "accounting:manage"), accountLinkIssues: linkedAccounts.issues, vatCodes: key === "vat-detail" ? configuredVatCodes.map(({ code, name, rate }) => ({ code, name, rate })) : undefined, title, generatedAt: new Date().toISOString(), currency: reportCurrency, columns, rows: linkedAccounts.rows, chart, summary } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not generate report." }, { status: 500 });
   }

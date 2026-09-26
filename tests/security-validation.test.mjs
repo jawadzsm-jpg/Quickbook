@@ -148,6 +148,20 @@ test("memorised reports live in Report Center categories with A4 print and PDF a
   assert.match(css, /@page report \{ size: A4 landscape; margin: 10mm; \}/);
 });
 
+test("vendor report library includes selected-vendor reports, native currencies, and movable A4 stamps", () => {
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const api = readFileSync(new URL("../app/api/reports/route.ts", import.meta.url), "utf8");
+  const pdf = readFileSync(new URL("../lib/report-export.ts", import.meta.url), "utf8");
+  assert.match(app, /\["QuickReport", "Selected vendor activity in transaction currency", "Vendors", "supplier-quickreport"\]/);
+  assert.match(app, /\["Open Balance", "Selected vendor's unpaid bills in transaction currency", "Vendors", "supplier-open-balance"\]/);
+  assert.match(app, /Vendor for QuickReport \/ Open Balance/);
+  assert.match(app, /Transaction currency/);
+  assert.match(app, /const stampReport = vendorReportKeys\.has/);
+  assert.match(api, /vendorCurrencyTransactions = scopedTransactions\.filter\(\(row\) => row\.currency === reportCurrency\)/);
+  assert.match(pdf, /format: "a4"/);
+  assert.match(pdf, /report currency/);
+});
+
 test("complete business final report links executive measures to detailed report areas", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const api = readFileSync(new URL("../app/api/reports/route.ts", import.meta.url), "utf8");
