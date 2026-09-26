@@ -355,6 +355,11 @@ button, input, select { font: inherit; }
 }
 .business-final-report { max-width: 1400px; margin-inline: auto; }
 @page report { size: A4 landscape; margin: 10mm; }
+@page ap-aging { size: A4 portrait; margin: 10mm; }
+@media screen {
+  .report-dialog.ap-aging-dialog { width: min(100%, 210mm); }
+  .report-dialog.ap-aging-dialog:has(.letterhead-stamp) { min-height: 280mm; }
+}
 @media print {
   body:has(.report-dialog) > :not([data-slot="dialog-content"]) { display: none !important; }
   body:has(.report-dialog) [data-slot="dialog-overlay"] { display: none !important; }
@@ -379,6 +384,7 @@ button, input, select { font: inherit; }
     color: black !important;
     print-color-adjust: exact;
   }
+  .report-dialog.ap-aging-dialog { page: ap-aging; position: relative !important; width: 190mm !important; }
   .report-dialog [data-export-slot] { display: none !important; }
   .report-dialog .report-table {
     width: 100% !important;

@@ -138,7 +138,7 @@ function displayValue(value: string | number | null | undefined, money: boolean)
   return String(value ?? "");
 }
 
-export async function reportPdf(report: ReportExportData, company: string, inventory: string, rows = report.rows) {
+export async function reportPdf(report: ReportExportData, company: string, inventory: string, rows = report.rows, stamp?: { data: string; left: number; top: number }) {
   const [{ jsPDF }, { autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
   const pdf = new jsPDF({ orientation: report.columns.length > 6 ? "landscape" : "portrait", format: "a4", unit: "mm" });
   const pageWidth = pdf.internal.pageSize.getWidth();
@@ -169,6 +169,27 @@ export async function reportPdf(report: ReportExportData, company: string, inven
     columnStyles: Object.fromEntries(report.columns.map((column, index) => [index, column.type === "money" ? { halign: "right" } : {}])),
     didDrawPage: drawHeader,
   });
+  if (report.key === "ap-aging-summary" && stamp?.data) {
+    const stampImage = await new Promise<{ data: string; width: number; height: number }>((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = image.naturalWidth;
+          canvas.height = image.naturalHeight;
+          const context = canvas.getContext("2d");
+          if (!context) throw new Error("Could not prepare the company stamp.");
+          context.drawImage(image, 0, 0);
+          resolve({ data: canvas.toDataURL("image/png"), width: image.naturalWidth, height: image.naturalHeight });
+        } catch (error) { reject(error); }
+      };
+      image.onerror = () => reject(new Error("Could not read the company stamp."));
+      image.src = stamp.data;
+    });
+    pdf.setPage(1);
+    const scale = Math.min(32 / stampImage.width, 23 / stampImage.height);
+    pdf.addImage(stampImage.data, "PNG", 10 + Math.max(0, Math.min(155, stamp.left)), 10 + Math.max(0, Math.min(250, stamp.top)), stampImage.width * scale, stampImage.height * scale);
+  }
   const pages = pdf.getNumberOfPages();
   for (let page = 1; page <= pages; page++) {
     pdf.setPage(page);
