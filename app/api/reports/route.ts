@@ -19,7 +19,7 @@ export async function GET(request: Request) {
   const key = new URL(request.url).searchParams.get("type") ?? "profit-loss";
   const authorization = await requireApiUser(request);
   if (authorization instanceof Response) return authorization;
-  const canOpen = key === "purchase-order-summary" ? hasPermission(authorization, "purchases:write") || hasPermission(authorization, "reports:read") : ["customer-statements", "customer-document-summary"].includes(key) ? hasPermission(authorization, "sales:write") || hasPermission(authorization, "reports:read") : hasPermission(authorization, "reports:read");
+  const canOpen = key === "ap-aging-summary" ? hasPermission(authorization, "purchases:write") || hasPermission(authorization, "vendors:manage") || hasPermission(authorization, "reports:read") : key === "purchase-order-summary" ? hasPermission(authorization, "purchases:write") || hasPermission(authorization, "reports:read") : ["customer-statements", "customer-document-summary"].includes(key) ? hasPermission(authorization, "sales:write") || hasPermission(authorization, "reports:read") : hasPermission(authorization, "reports:read");
   if (!canOpen) return Response.json({ error: "Your role does not allow this report." }, { status: 403 });
   try {
     const url = new URL(request.url);

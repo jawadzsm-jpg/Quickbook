@@ -360,6 +360,12 @@ test("purchase postings hit the right accounts and purchase reports stay in sync
   assert.equal(unpaid.rows.find((row) => row.number === bill.number).amount, 100);
   const agingSummary = await reportGet("ap-aging-summary");
   assert.equal(agingSummary.rows.find((row) => row.name === "Purchase Audit Vendor").total, 100);
+  try {
+    globalThis.__reportTestUser = { id: 4, role: "purchasing", companyIds: [cid], mustChangePassword: false };
+    const supplierWorkflowReport = await GET(new Request(`https://app.test/api/reports?type=ap-aging-summary&companyId=${cid}&locationId=${lid}`));
+    assert.equal(supplierWorkflowReport.status, 200);
+    assert.equal((await supplierWorkflowReport.json()).report.rows.find((row) => row.name === "Purchase Audit Vendor").total, 100);
+  } finally { delete globalThis.__reportTestUser; }
 });
 
 test("every Report Center entry opens its matching backend report", async () => {
