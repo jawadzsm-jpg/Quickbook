@@ -510,6 +510,36 @@ test("purchase returns reduce the linked supplier bill and appear in the supplie
   const openResponse = await GET(new Request(`https://app.test/api/reports?type=supplier-open-balance&companyId=${cid}&locationId=0&supplierId=${supplier.id}`));
   assert.equal(openResponse.status, 200);
   assert.equal((await openResponse.json()).report.rows[0].amount, 105);
+
+  const detailResponse = await records.GET(new Request(`https://app.test/api/records?kind=transactions&id=${returned.id}&companyId=${cid}`));
+  assert.equal(detailResponse.status, 200, await detailResponse.clone().text());
+  const detail = await detailResponse.json();
+  assert.equal(detail.lines[0].sourceLineId, sourceLineId);
+  const editResponse = await records.PATCH(new Request("https://app.test/api/records", {
+    method: "PATCH",
+    headers: { origin: "https://app.test", "content-type": "application/json" },
+    body: JSON.stringify({
+      kind: "transactions", id: returned.id, companyId: cid, locationId: lid, revision: detail.revision,
+      type: "vendor credit", number: "RETURN-AUDIT-CREDIT-EDITED", billId: bill.id, party: supplier.name,
+      account: "Purchases", transactionDate: "2026-09-21", status: "open", currency: "AED", exchangeRate: 1,
+      lines: [{ sourceLineId, itemId: stockId, description: "Return Audit Item", quantity: 0.5, unitPrice: 100, vatCode: "STANDARD" }],
+    }),
+  }));
+  assert.equal(editResponse.status, 200, await editResponse.clone().text());
+  assert.equal((await database.query("SELECT quantity FROM items WHERE id=$1", [stockId])).rows[0].quantity, 1.5);
+  assert.equal((await database.query("SELECT balance FROM contacts WHERE id=$1", [supplier.id])).rows[0].balance, 157.5);
+
+  const deleteResponse = await records.DELETE(new Request("https://app.test/api/records", {
+    method: "DELETE",
+    headers: { origin: "https://app.test", "content-type": "application/json" },
+    body: JSON.stringify({ kind: "transactions", id: returned.id, companyId: cid }),
+  }));
+  assert.equal(deleteResponse.status, 200, await deleteResponse.clone().text());
+  assert.equal((await database.query("SELECT quantity FROM items WHERE id=$1", [stockId])).rows[0].quantity, 2);
+  assert.equal((await database.query("SELECT balance FROM contacts WHERE id=$1", [supplier.id])).rows[0].balance, 210);
+  assert.equal((await database.query("SELECT status FROM transactions WHERE id=$1", [bill.id])).rows[0].status, "open");
+  const remainingReturns = await (await getRecords("supplier-returns", `&supplierId=${supplier.id}`)).json();
+  assert.equal(remainingReturns.records.length, 0);
 });
 
 test("VAT includes expense cheques and foreign card charges, subtracts credits, and scopes inventories", async () => {

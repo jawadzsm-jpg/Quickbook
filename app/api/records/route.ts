@@ -316,6 +316,12 @@ export async function GET(request: Request) {
         heightCm: items.heightCm,
         weightKg: items.weightKg,
       }).from(transactionLines).leftJoin(items, eq(transactionLines.itemId, items.id)).where(eq(transactionLines.transactionId, id)).orderBy(asc(transactionLines.id));
+      const sourceBillLines = record.type === "vendor credit" && record.billId
+        ? await db.select({ id: transactionLines.id, itemId: transactionLines.itemId, description: transactionLines.description }).from(transactionLines).where(eq(transactionLines.transactionId, record.billId)).orderBy(asc(transactionLines.id))
+        : [];
+      const detailLines = record.type === "vendor credit"
+        ? lines.map((line) => ({ ...line, sourceLineId: sourceBillLines.find((source) => source.itemId === line.itemId && source.description.trim().toLowerCase() === line.description.trim().toLowerCase())?.id ?? null }))
+        : lines;
       const journal = await db.select({
         accountName: journalLines.accountName, debit: journalLines.debit, credit: journalLines.credit,
       }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(eq(journalEntries.transactionId, id)).orderBy(asc(journalLines.id));
@@ -325,7 +331,7 @@ export async function GET(request: Request) {
       const customerType = ["invoice", "quotation", "estimate", "proforma invoice", "sales order", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(record.type) ? "customer" : "vendor";
       const [partyContact] = await db.select().from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, customerType), eq(contacts.name, record.party))).limit(1);
       const invoiceBalance = record.type === "invoice" ? (record.status === "paid" ? 0 : round(record.total - await invoicePaidAmount(record.id))) : undefined;
-      return Response.json({ revision: purchaseRevision(record, lines), record: { ...paymentDisplayRecord(record), ...(invoiceBalance !== undefined ? { balance: invoiceBalance } : {}), sourceDocumentNumber: sourceDocument?.number ?? "", sourceDocumentType: sourceDocument?.type ?? "", convertedDocumentNumber: convertedDocument?.number ?? "", convertedDocumentType: convertedDocument?.type ?? "", convertedInvoiceNumber: convertedDocument?.type === "invoice" ? convertedDocument.number : "" }, lines, journal, partyContact: partyContact ?? null });
+      return Response.json({ revision: purchaseRevision(record, lines), record: { ...paymentDisplayRecord(record), ...(invoiceBalance !== undefined ? { balance: invoiceBalance } : {}), sourceDocumentNumber: sourceDocument?.number ?? "", sourceDocumentType: sourceDocument?.type ?? "", convertedDocumentNumber: convertedDocument?.number ?? "", convertedDocumentType: convertedDocument?.type ?? "", convertedInvoiceNumber: convertedDocument?.type === "invoice" ? convertedDocument.number : "" }, lines: detailLines, journal, partyContact: partyContact ?? null });
     }
     if (kind === "contacts") return Response.json({ records: await db.select().from(contacts).where(eq(contacts.companyId, companyId)).orderBy(asc(contacts.name)) });
     if (kind === "items") {
