@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { Download, FileDown, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { resolveDocumentDesign, type TemplateDocumentType } from "@/lib/document-design";
+import { readDocumentDesign, resolveDocumentDesign, type TemplateDocumentType } from "@/lib/document-design";
 import { documentPageRule } from "@/lib/document-print";
 import { createA4PdfBlob, documentPdfFileName, downloadPdfBlob, savePdfBlob } from "@/lib/document-output";
 import { CustomInvoiceTemplate, type TemplateBranding } from "./custom-invoice-template";
@@ -39,7 +39,7 @@ const savedTemplateType: Partial<Record<SalesDocumentMode, TemplateDocumentType>
   "proforma-invoice": "Proforma Invoice",
   "sales-order": "Sales Order",
   "purchase-order": "Purchase Order",
-  "purchase-return": "Refund",
+  "purchase-return": "Purchase Return",
   "credit-note": "Credit Note",
   refund: "Refund",
   "cash-sales": "Sales Receipt",
@@ -88,10 +88,16 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
   const activeMode = selection.source === mode && outputModes.includes(selection.output) ? selection.output : mode;
   const letterhead = letterheadForDocument(setup.letterheadDesign, activeMode);
   const stamp = poStamp ?? {show: Boolean(letterhead?.showStamp), left: letterhead?.stampLeft ?? 155, top: letterhead?.stampTop ?? 230};
-  const stampOverride = activeMode === "purchase-order" ? stamp : undefined;
+  const movableStamp = activeMode === "purchase-order" || activeMode === "purchase-return";
+  const stampOverride = movableStamp ? stamp : undefined;
   const requestedTemplateType = savedTemplateType[activeMode];
-  const { design, savedTemplate } = resolveDocumentDesign(setup.documentDesign, requestedTemplateType);
+  let { design, savedTemplate } = resolveDocumentDesign(setup.documentDesign, requestedTemplateType);
+  if (activeMode === "purchase-return" && savedTemplate && !savedTemplate.appliesToAll && savedTemplate.type !== "Purchase Return") {
+    design = readDocumentDesign(setup.documentDesign);
+    savedTemplate = null;
+  }
   if (!savedTemplate || savedTemplate.appliesToAll || (requestedTemplateType && savedTemplate.type !== requestedTemplateType) || activeMode === "commercial-invoice" || activeMode === "purchase-return") design.title = salesDocumentTitles[activeMode];
+  if (activeMode === "purchase-return") design.headers = [...design.headers.filter((field) => field.key !== "source"), { key: "source", label: "Original Supplier Bill", width: 1, screen: true, print: true }];
 
   const a4Design = { ...design, paper: "A4" as const, printerMode: "specified" as const };
   const pageRule = documentPageRule(a4Design);
@@ -237,8 +243,8 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
         </Button>
       </div>
     </div>
-    {activeMode === "purchase-order" && <div className="document-internal-only mb-3 flex flex-wrap items-center gap-3 rounded-lg border bg-slate-50 p-3 text-sm"><label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={stamp.show} disabled={!setup.stampData} onChange={(event) => setPoStamp({...stamp,show:event.target.checked})} />Company stamp</label>{!setup.stampData && <span className="text-slate-500">Upload a stamp in Company Setup first.</span>}{stamp.show && setup.stampData && <><label className="flex items-center gap-2">Left (mm)<input type="number" min="0" max="170" className="w-20 rounded border bg-white px-2 py-1" value={stamp.left} onChange={(event) => setPoStamp({...stamp,left:Math.max(0,Math.min(170,Number(event.target.value)||0))})} /></label><label className="flex items-center gap-2">Top (mm)<input type="number" min="0" max="260" className="w-20 rounded border bg-white px-2 py-1" value={stamp.top} onChange={(event) => setPoStamp({...stamp,top:Math.max(0,Math.min(260,Number(event.target.value)||0))})} /></label><span className="text-slate-500">Drag the stamp in the preview to adjust it.</span></>}</div>}
-    <div ref={screenPreviewRef} className="invoice-screen-only">{activeMode === "delivery-note" && connectedPackingList ? <DeliveryNoteTemplate record={record} lines={lines} contact={contact} setup={setup} letterhead={letterhead} /> : <CustomInvoiceTemplate design={design} record={record} lines={lines} contact={contact} setup={setup} letterhead={letterhead} stampOverride={stampOverride} onMoveStamp={activeMode === "purchase-order" ? (left,top) => setPoStamp({...stamp,left,top}) : undefined} />}</div>
+    {movableStamp && <div className="document-internal-only mb-3 flex flex-wrap items-center gap-3 rounded-lg border bg-slate-50 p-3 text-sm"><label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={stamp.show} disabled={!setup.stampData} onChange={(event) => setPoStamp({...stamp,show:event.target.checked})} />Company stamp</label>{!setup.stampData && <span className="text-slate-500">Upload a stamp in Company Setup first.</span>}{stamp.show && setup.stampData && <><label className="flex items-center gap-2">Left (mm)<input type="number" min="0" max="170" className="w-20 rounded border bg-white px-2 py-1" value={stamp.left} onChange={(event) => setPoStamp({...stamp,left:Math.max(0,Math.min(170,Number(event.target.value)||0))})} /></label><label className="flex items-center gap-2">Top (mm)<input type="number" min="0" max="260" className="w-20 rounded border bg-white px-2 py-1" value={stamp.top} onChange={(event) => setPoStamp({...stamp,top:Math.max(0,Math.min(260,Number(event.target.value)||0))})} /></label><span className="text-slate-500">Drag the stamp in the preview to adjust it.</span></>}</div>}
+    <div ref={screenPreviewRef} className="invoice-screen-only">{activeMode === "delivery-note" && connectedPackingList ? <DeliveryNoteTemplate record={record} lines={lines} contact={contact} setup={setup} letterhead={letterhead} /> : <CustomInvoiceTemplate design={design} record={record} lines={lines} contact={contact} setup={setup} letterhead={letterhead} stampOverride={stampOverride} onMoveStamp={movableStamp ? (left,top) => setPoStamp({...stamp,left,top}) : undefined} />}</div>
     <div className="invoice-print-only">{activeMode === "delivery-note" && connectedPackingList ? <DeliveryNoteTemplate record={record} lines={lines} contact={contact} setup={setup} letterhead={letterhead} /> : <CustomInvoiceTemplate design={a4Design} record={record} lines={lines} contact={contact} setup={setup} letterhead={letterhead} stampOverride={stampOverride} target="print" />}</div>
     {connectedPackingList ? <InvoicePackingListDialog open={packingOpen} onOpenChange={setPackingOpen} companyId={Number(record.companyId)} companyName={String(setup.name || "Company")} setup={setup} invoiceId={Number(record.id)} initialView={packingView} /> : null}
   </>;

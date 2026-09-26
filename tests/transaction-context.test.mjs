@@ -891,7 +891,8 @@ test('bill payments credit the selected currency bank and preserve the sales rep
   assert.equal(record.account, 'Selected USD Bank');
   assert.equal(record.salesman, 'Rep One');
   const lines = (await database.query('SELECT jl.account_name, jl.debit, jl.credit FROM journal_lines jl JOIN journal_entries je ON je.id = jl.journal_entry_id WHERE je.transaction_id = $1 ORDER BY jl.id', [record.id])).rows;
-  assert.deepEqual(lines, [{ account_name: 'Accounts Payable', debit: 367.5, credit: 0 }, { account_name: 'Selected USD Bank', debit: 0, credit: 367.5 }]);
+  assert.deepEqual(lines, [{ account_name: 'Accounts Payable - USD', debit: 367.5, credit: 0 }, { account_name: 'Selected USD Bank', debit: 0, credit: 367.5 }]);
+  assert.equal((await database.query("SELECT currency FROM accounts WHERE company_id = $1 AND system_role = 'AP' AND name = 'Accounts Payable - USD'", [companyId])).rows[0].currency, 'USD');
   assert.equal((await database.query('SELECT balance FROM contacts WHERE company_id = $1', [companyId])).rows[0].balance, 0);
 });
 

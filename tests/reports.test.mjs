@@ -478,6 +478,40 @@ test("supplier centre reports stay on the selected supplier and show only open b
   assert.equal((await getSelected("supplier-quickreport", outside.id)).status, 404);
 });
 
+test("purchase returns reduce the linked supplier bill and appear in the supplier account", async () => {
+  const created = await workspaces.POST(post({ type: "company", name: "Purchase Return account audit", baseCurrency: "AED" }));
+  const { company: workspace } = await created.json();
+  const cid = workspace.id, lid = workspace.locations[0].id;
+  const [supplier] = await db.insert(schema.contacts).values({ companyId: cid, type: "vendor", name: "Return Audit Supplier", currency: "AED" }).returning();
+  const stockId = (await database.query("INSERT INTO items(company_id,location_id,sku,name,item_type,quantity,cost) VALUES ($1,$2,'RETURN-AUDIT','Return Audit Item','stock-part',0,100) RETURNING id", [cid, lid])).rows[0].id;
+  const records = await vite.ssrLoadModule("/app/api/records/route.ts");
+  const save = (body) => records.POST(new Request("https://app.test/api/records", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "transactions", companyId: cid, locationId: lid, party: supplier.name, account: "Purchases", transactionDate: "2026-09-20", currency: "AED", exchangeRate: 1, ...body }) }));
+  const billResponse = await save({ type: "bill", number: "RETURN-AUDIT-BILL", lines: [{ itemId: stockId, description: "Return Audit Item", quantity: 2, unitPrice: 100, vatCode: "STANDARD" }] });
+  assert.equal(billResponse.status, 201, await billResponse.clone().text());
+  const bill = (await billResponse.json()).record;
+  const sourceLineId = (await database.query("SELECT id FROM transaction_lines WHERE transaction_id=$1", [bill.id])).rows[0].id;
+  const returnResponse = await save({ type: "vendor credit", number: "RETURN-AUDIT-CREDIT", billId: bill.id, lines: [{ sourceLineId, itemId: stockId, description: "Return Audit Item", quantity: 1, unitPrice: 100, vatCode: "STANDARD" }] });
+  assert.equal(returnResponse.status, 201, await returnResponse.clone().text());
+  const returned = (await returnResponse.json()).record;
+  const payable = (await database.query("SELECT jl.debit,jl.credit FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.transaction_id=$1 AND jl.account_name='Accounts Payable'", [returned.id])).rows;
+  assert.deepEqual(payable, [{ debit: 105, credit: 0 }]);
+  assert.equal((await database.query("SELECT balance FROM contacts WHERE id=$1", [supplier.id])).rows[0].balance, 105);
+  assert.equal((await database.query("SELECT status FROM transactions WHERE id=$1", [bill.id])).rows[0].status, "partially paid");
+  const getRecords = (kind, extra = "") => records.GET(new Request(`https://app.test/api/records?kind=${kind}&companyId=${cid}&locationId=${lid}&party=${encodeURIComponent(supplier.name)}&currency=AED${extra}`));
+  const unpaidResponse = await getRecords("unpaid-bills");
+  assert.equal(unpaidResponse.status, 200);
+  assert.equal((await unpaidResponse.json()).records.find((entry) => entry.id === bill.id).remaining, 105);
+  const returnsResponse = await getRecords("supplier-returns", `&supplierId=${supplier.id}`);
+  assert.equal(returnsResponse.status, 200);
+  assert.deepEqual((await returnsResponse.json()).records.map((entry) => [entry.id, entry.billNumber]), [[returned.id, bill.number]]);
+  const supplierReport = await GET(new Request(`https://app.test/api/reports?type=supplier-quickreport&companyId=${cid}&locationId=0&supplierId=${supplier.id}`));
+  assert.equal(supplierReport.status, 200);
+  assert.deepEqual((await supplierReport.json()).report.rows.map((entry) => [entry.number, entry.amount]), [[bill.number, 210], [returned.number, -105]]);
+  const openResponse = await GET(new Request(`https://app.test/api/reports?type=supplier-open-balance&companyId=${cid}&locationId=0&supplierId=${supplier.id}`));
+  assert.equal(openResponse.status, 200);
+  assert.equal((await openResponse.json()).report.rows[0].amount, 105);
+});
+
 test("VAT includes expense cheques and foreign card charges, subtracts credits, and scopes inventories", async () => {
   const summary = await report("vat-summary");
   assert.equal(summary.rows[1].amount, 173.375);
