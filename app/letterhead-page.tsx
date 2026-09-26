@@ -41,7 +41,7 @@ export function LetterheadStamp({ template, company, onMove }: { template: Lette
     event.preventDefault();
     const startX = event.clientX, startY = event.clientY;
     const page = event.currentTarget.closest<HTMLElement>(".letterhead-page");
-    const pixelsPerMm = (page?.getBoundingClientRect().width || 794) / 210;
+    const pixelsPerMm = page ? page.getBoundingClientRect().width / 210 : 96 / 25.4;
     const move = (next: PointerEvent) => onMove(
       Math.max(0, Math.min(170, Math.round(template.stampLeft + (next.clientX - startX) / pixelsPerMm))),
       Math.max(0, Math.min(260, Math.round(template.stampTop + (next.clientY - startY) / pixelsPerMm))),
