@@ -199,6 +199,24 @@ test("all 15 Financial reports share professional A4 output, movable stamps, and
   assert.match(css, /@page financial-landscape \{ size: A4 landscape; margin: 10mm; \}/);
 });
 
+test("all 3 Budget reports have summaries, one export control, A4 output, account links, and movable stamps", () => {
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const budget = readFileSync(new URL("../lib/budget-report.ts", import.meta.url), "utf8");
+  const sharedExport = readFileSync(new URL("../lib/report-export.ts", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  const definitions = [...app.matchAll(/\["[^"]+",\s*"[^"]+",\s*"Budgets",\s*"([^"]+)"\]/g)].map((match) => match[1]);
+  assert.deepEqual(definitions, ["budget-overview", "budget-actual", "budget-actual-graph"]);
+  assert.match(app, /budgetOverview && <section className="budget-summary"/);
+  assert.match(app, /isBudgetReport \? <DropdownMenu>/);
+  assert.match(app, /stampReport = [^;]+\|\| isBudgetReport/);
+  assert.match(app, /accountId > 0[\s\S]*setLinkedAccount/);
+  assert.match(budget, /Net favourable variance/);
+  assert.match(sharedExport, /budgetReportKeys\.has/);
+  assert.match(css, /@page budget-report \{ size: A4 landscape; margin: 10mm; \}/);
+  assert.match(css, /\.report-dialog\.budget-report-dialog/);
+  assert.match(css, /\[data-appearance="dark"\] \.report-dialog \.budget-summary/);
+});
+
 test("report dialogs fit the screen and attachments appear only in their named record areas", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const attachments = readFileSync(new URL("../app/attachment-capture.tsx", import.meta.url), "utf8");
