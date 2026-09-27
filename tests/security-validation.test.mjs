@@ -207,7 +207,7 @@ test("all 3 Budget reports have summaries, one export control, A4 output, accoun
   const definitions = [...app.matchAll(/\["[^"]+",\s*"[^"]+",\s*"Budgets",\s*"([^"]+)"\]/g)].map((match) => match[1]);
   assert.deepEqual(definitions, ["budget-overview", "budget-actual", "budget-actual-graph"]);
   assert.match(app, /budgetOverview && <section className="budget-summary"/);
-  assert.match(app, /isBudgetReport \|\| isSalesReport \? <DropdownMenu>/);
+  assert.match(app, /isBudgetReport \|\| isSalesReport \|\| isCustomerReport \? <DropdownMenu>/);
   assert.match(app, /stampReport = [^;]+\|\| isBudgetReport/);
   assert.match(app, /accountId > 0[\s\S]*setLinkedAccount/);
   assert.match(budget, /Net favourable variance/);
@@ -227,9 +227,9 @@ test("all 12 Sales reports have professional summaries, one export control, A4 o
   assert.equal(definitions.length, 12);
   assert.equal(new Set(definitions).size, 12);
   assert.match(app, /salesOverview && <section className="sales-summary"/);
-  assert.match(app, /isBudgetReport \|\| isSalesReport \? <DropdownMenu>/);
+  assert.match(app, /isBudgetReport \|\| isSalesReport \|\| isCustomerReport \? <DropdownMenu>/);
   assert.match(app, /stampReport = [^;]+\|\| isSalesReport/);
-  assert.match(app, /isSalesReport && \["customer", "name"\][\s\S]*onCustomer/);
+  assert.match(app, /\(isSalesReport \|\| isCustomerReport\) && \["customer", "name"\][\s\S]*onCustomer/);
   assert.match(api, /transactionId: row\.id, date: row\.transactionDate, number: row\.number/);
   assert.match(api, /sourceReferenceTransactionId: value\.sourceTransactionId/);
   assert.match(sales, /export const salesReportKeys = new Set/);
@@ -237,6 +237,31 @@ test("all 12 Sales reports have professional summaries, one export control, A4 o
   assert.match(css, /@page sales-report \{ size: A4 landscape; margin: 10mm; \}/);
   assert.match(css, /\.report-dialog\.sales-report-dialog/);
   assert.match(css, /\[data-appearance="dark"\] \.report-dialog \.sales-summary/);
+});
+
+test("all 17 Customer reports have professional summaries, one export control, A4 output, linked documents, customer links, and movable stamps", () => {
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const openBalance = readFileSync(new URL("../app/customer-open-balance.tsx", import.meta.url), "utf8");
+  const api = readFileSync(new URL("../app/api/reports/route.ts", import.meta.url), "utf8");
+  const customer = readFileSync(new URL("../lib/customer-report.ts", import.meta.url), "utf8");
+  const sharedExport = readFileSync(new URL("../lib/report-export.ts", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  const definitions = [...app.matchAll(/\["[^"]+",\s*"[^"]+",\s*"Customers",\s*"([^"]+)"\]/g)].map((match) => match[1]);
+  assert.equal(definitions.length, 17);
+  assert.equal(new Set(definitions).size, 17);
+  assert.match(app, /customerOverview && <section className="customer-summary"/);
+  assert.match(app, /isBudgetReport \|\| isSalesReport \|\| isCustomerReport \? <DropdownMenu>/);
+  assert.match(app, /stampReport = [^;]+\|\| isCustomerReport/);
+  assert.match(app, /\(isSalesReport \|\| isCustomerReport\) && \["customer", "name"\][\s\S]*onCustomer/);
+  assert.match(api, /invoiceTransactionId: invoice\.id/);
+  assert.match(api, /transactionId: row\.id, customer: row\.party/);
+  assert.doesNotMatch(openBalance, /Export CSV/);
+  assert.match(openBalance, /onCustomer\(name, currency, Boolean\(data\.overdueOnly\)\)/);
+  assert.match(customer, /export const customerReportKeys = new Set/);
+  assert.match(sharedExport, /customerReportKeys\.has/);
+  assert.match(css, /@page customer-report \{ size: A4 landscape; margin: 10mm; \}/);
+  assert.match(css, /\.report-dialog\.customer-report-dialog/);
+  assert.match(css, /\[data-appearance="dark"\] \.report-dialog \.customer-summary/);
 });
 
 test("report dialogs fit the screen and attachments appear only in their named record areas", () => {

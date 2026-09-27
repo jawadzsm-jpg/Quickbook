@@ -54,7 +54,7 @@ export async function customerOpenBalance(companyId: number, locationId: number,
   }).filter((row) => Math.abs(row.openBalance) >= 0.005 && (!overdueOnly || (row.type === "invoice" && row.openBalance > 0 && Boolean(row.dueDate) && row.dueDate < asOf))).sort((a, b) => a.customer.localeCompare(b.customer) || a.date.localeCompare(b.date) || a.transactionId - b.transactionId);
   const money = { type: "money" as const };
   if (aging) {
-    const detail = rows.map((row) => ({ customer: row.customer, date: row.date, dueDate: row.dueDate || "—", number: row.number, type: row.type, age: row.openBalance > 0 && row.dueDate ? Math.max(0, Math.floor((Date.parse(asOf) - Date.parse(row.dueDate)) / 86400000)) : 0, amount: row.homeOpenBalance, transactionId: row.transactionId, account: row.account }));
+    const detail = rows.map((row) => ({ customer: row.customer, date: row.date, dueDate: row.dueDate || "—", number: row.number, type: row.type, age: row.openBalance > 0 && row.dueDate ? Math.max(0, Math.floor((Date.parse(asOf) - Date.parse(row.dueDate)) / 86400000)) : 0, amount: row.homeOpenBalance, transactionId: row.transactionId, account: row.account, accountAccountId: row.accountId }));
     const grouped = new Map<string, { name: string; current: number; days30: number; days60: number; days90: number; total: number }>();
     for (const row of detail) {
       const group = grouped.get(row.customer) ?? { name: row.customer, current: 0, days30: 0, days60: 0, days90: 0, total: 0 };
@@ -62,7 +62,7 @@ export async function customerOpenBalance(companyId: number, locationId: number,
       group[bucket] = round(group[bucket] + row.amount); group.total = round(group.total + row.amount); grouped.set(row.customer, group);
     }
     const summary = params.get("type") === "ar-aging-summary";
-    return Response.json({ report: { key: params.get("type"), companyId, title: summary ? "A/R Aging Summary" : "A/R Aging Detail", generatedAt: new Date().toISOString(), currency: homeCurrency,
+    return Response.json({ report: { key: params.get("type"), companyId, canViewAccounts, title: summary ? "A/R Aging Summary" : "A/R Aging Detail", generatedAt: new Date().toISOString(), currency: homeCurrency,
       description: "Remaining document balances after allocated payments, converted at each document’s stored rate to home currency. Unused payments and credits appear in Current. Historical exchange differences and manual journals are available in account history.",
       columns: summary ? [{ key: "name", label: "Customer" }, { key: "current", label: "Current", ...money }, { key: "days30", label: "1–30", ...money }, { key: "days60", label: "31–60", ...money }, { key: "days90", label: "61+", ...money }, { key: "total", label: "Total", ...money }] : [{ key: "customer", label: "Customer" }, { key: "date", label: "Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "age", label: "Days Overdue" }, { key: "amount", label: "Open Amount", ...money }, { key: "account", label: "Receivable Account" }],
       rows: summary ? [...grouped.values()].sort((a, b) => b.total - a.total) : detail,

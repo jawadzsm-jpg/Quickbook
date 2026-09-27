@@ -268,18 +268,25 @@ test("customer postings hit the right accounts and customer reports stay in sync
 
   const openInvoices = await reportGet("open-invoices");
   assert.equal(openInvoices.rows.find((row) => row.number === invoice.number).amount, 65);
+  assert.equal(openInvoices.rows.find((row) => row.number === invoice.number).transactionId, invoice.id);
 
   const balance = await reportGet("customer-balances");
   assert.equal(balance.rows.find((row) => row.name === "Customer Audit").amount, 65);
 
   const detail = await reportGet("customer-balance-detail");
   assert.equal(detail.rows.filter((row) => row.customer === "Customer Audit").at(-1).balance, 65);
+  assert.equal(detail.rows.find((row) => row.number === invoice.number).transactionId, invoice.id);
 
   const sales = await reportGet("sales-by-customer");
   assert.equal(sales.rows.find((row) => row.name === "Customer Audit").amount, 100); // Net sales excludes VAT.
 
   const received = await reportGet("online-received-payments");
   assert.equal(received.rows.find((row) => row.number === payment.number).amount, 40);
+  assert.equal(received.rows.find((row) => row.number === payment.number).transactionId, payment.id);
+
+  const statement = await reportGet("customer-statements");
+  assert.equal(statement.rows.find((row) => row.number === invoice.number).transactionId, invoice.id);
+  assert.equal(statement.rows.find((row) => row.number === payment.number).transactionId, payment.id);
 
   const pnl = await reportGet("profit-loss");
   assert.equal(pnl.summary.income, 100);
@@ -698,6 +705,8 @@ test('customer open balance uses allocations, preserves unused credits, and link
   assert.equal(agingSummary.currency, 'AED');
   assert.equal(agingSummary.rows[0].total, -30.90); // AED -75 plus USD 12 at its stored rate.
   assert.equal(agingDetail.rows.find(row => row.number === 'OPEN-INV').amount, 250);
+  assert.equal(agingDetail.canViewAccounts, true);
+  assert.equal(agingDetail.rows.find(row => row.number === 'OPEN-INV').accountAccountId, ar.id);
   assert.equal(agingDetail.rows.find(row => row.number === 'OPEN-PAY').amount, -275);
   assert.equal(agingDetail.rows.find(row => row.number === 'FOREIGN').amount, 44.1);
   assert.equal(Math.round(agingDetail.rows.reduce((sum, row) => sum + row.amount, 0) * 100) / 100, agingSummary.rows[0].total);
@@ -876,6 +885,21 @@ test('sales summaries provide report-specific KPIs and export every Sales report
   const { reportPdf } = await vite.ssrLoadModule('/lib/report-export.ts');
   const report = { key: 'sales-by-customer', title: 'Sales by Customer Summary', generatedAt: '2026-09-27T10:00:00.000Z', currency: 'AED', columns: [{ key: 'name', label: 'Customer' }, { key: 'amount', label: 'Sales', type: 'money' }], rows: [{ name: 'A', amount: 100 }] };
   const pdf = Buffer.from(await reportPdf(report, 'Sales Company', 'Main Inventory')).toString('latin1');
+  const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(page);
+  assert.ok(Math.abs(Number(page[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(page[2]) - 595.28) < 0.01);
+});
+
+test('customer summaries provide receivable KPIs and export every Customer report to A4 landscape PDF', async () => {
+  const { customerReportKeys, customerSummary, customerDetailTarget } = await vite.ssrLoadModule('/lib/customer-report.ts');
+  assert.equal(customerReportKeys.size, 17);
+  const aging = customerSummary({ key: 'ar-aging-summary', rows: [{ name: 'A', current: 100, days30: 50, days60: 25, days90: 10, total: 185 }] });
+  assert.deepEqual(aging.cards.map(card => card.value), [100, 50, 25, 10, 185]);
+  assert.equal(customerDetailTarget('ar-aging-summary'), 'ar-aging-detail');
+  const collections = customerSummary({ key: 'collections-report', rows: [{ customer: 'A', balance: 500, openInvoices: 3, overdueInvoices: 2 }] });
+  assert.deepEqual(collections.cards.map(card => card.value), [500, 1, 3, 2]);
+  const { reportPdf } = await vite.ssrLoadModule('/lib/report-export.ts');
+  const report = { key: 'collections-report', title: 'Collections Report', generatedAt: '2026-09-27T10:00:00.000Z', currency: 'AED', columns: [{ key: 'customer', label: 'Customer' }, { key: 'balance', label: 'Balance', type: 'money' }], rows: [{ customer: 'A', balance: 500 }] };
+  const pdf = Buffer.from(await reportPdf(report, 'Customer Company', 'Main Inventory')).toString('latin1');
   const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(page);
   assert.ok(Math.abs(Number(page[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(page[2]) - 595.28) < 0.01);
 });
