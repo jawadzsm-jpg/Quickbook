@@ -753,11 +753,11 @@ export async function GET(request: Request) {
       columns = [{ key: "account", label: "Inventory Asset Account" }, { key: "category", label: "Category" }, { key: "items", label: "Items" }, { key: "quantity", label: "On Hand" }, { key: "value", label: "Stock Value", ...money }];
     } else if (key === "inventory-valuation-detail") {
       title = "Stock Valuation Detail";
-      rows = stockItems.map((row) => ({ account: inventoryAccountFor(row), itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, category: row.category, quantity: row.quantity, cost: inventoryCostFor(row), value: row.quantity * inventoryCostFor(row) }));
+      rows = stockItems.map((row) => ({ itemId: row.id, account: inventoryAccountFor(row), itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, category: row.category, quantity: row.quantity, cost: inventoryCostFor(row), value: row.quantity * inventoryCostFor(row) }));
       columns = [{ key: "account", label: "Inventory Asset Account" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "category", label: "Category" }, { key: "quantity", label: "On Hand" }, { key: "cost", label: "Avg. Cost", ...money }, { key: "value", label: "Stock Value", ...money }];
     } else if (key === "inventory-status") {
       title = "Stock Status by Item";
-      rows = stockItems.map((row) => ({ account: inventoryAccountFor(row), itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, quantity: row.quantity, reorder: row.reorderPoint, available: Math.max(0, row.quantity), status: row.quantity <= 0 ? "Out of Stock" : row.quantity <= row.reorderPoint ? "Low Stock" : "In Stock", value: row.quantity * inventoryCostFor(row) }));
+      rows = stockItems.map((row) => ({ itemId: row.id, account: inventoryAccountFor(row), itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, quantity: row.quantity, reorder: row.reorderPoint, available: Math.max(0, row.quantity), status: row.quantity <= 0 ? "Out of Stock" : row.quantity <= row.reorderPoint ? "Low Stock" : "In Stock", value: row.quantity * inventoryCostFor(row) }));
       columns = [{ key: "account", label: "Inventory Asset Account" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "quantity", label: "On Hand" }, { key: "available", label: "Available" }, { key: "reorder", label: "Reorder" }, { key: "status", label: "Status" }, { key: "value", label: "Stock Value", ...money }];
     } else if (key === "inventory-status-supplier") {
       title = "Stock Status by Supplier";
@@ -769,11 +769,11 @@ export async function GET(request: Request) {
       columns = [{ key: "account", label: "Inventory Asset Account" }, { key: "supplier", label: "Latest Supplier" }, { key: "items", label: "Items" }, { key: "quantity", label: "On Hand" }, { key: "lowStock", label: "Low Stock" }, { key: "outOfStock", label: "Out of Stock" }, { key: "value", label: "Stock Value", ...money }];
     } else if (key === "physical-inventory") {
       title = "Physical Stock Worksheet";
-      rows = stockItems.map((row) => ({ account: inventoryAccountFor(row), itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, category: row.category, quantity: row.quantity, count: "", difference: "" }));
+      rows = stockItems.map((row) => ({ itemId: row.id, account: inventoryAccountFor(row), itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, category: row.category, quantity: row.quantity, count: "", difference: "" }));
       columns = [{ key: "account", label: "Inventory Asset Account" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "category", label: "Category" }, { key: "quantity", label: "System Qty" }, { key: "count", label: "Physical Count" }, { key: "difference", label: "Difference" }];
     } else if (key === "pending-builds") {
       title = "Pending Builds";
-      rows = stockItems.filter((row) => row.quantity < row.reorderPoint).map((row) => ({ account: inventoryAccountFor(row), itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, category: row.category, onHand: row.quantity, buildLevel: row.reorderPoint, required: Math.max(0, row.reorderPoint - row.quantity), status: row.quantity <= 0 ? "Required" : "Below Level" }));
+      rows = stockItems.filter((row) => row.quantity < row.reorderPoint).map((row) => ({ itemId: row.id, account: inventoryAccountFor(row), itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, category: row.category, onHand: row.quantity, buildLevel: row.reorderPoint, required: Math.max(0, row.reorderPoint - row.quantity), status: row.quantity <= 0 ? "Required" : "Below Level" }));
       columns = [{ key: "account", label: "Inventory Asset Account" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item / Assembly" }, { key: "category", label: "Category" }, { key: "onHand", label: "On Hand" }, { key: "buildLevel", label: "Build Level" }, { key: "required", label: "Required Qty" }, { key: "status", label: "Status" }];
     } else if (key === "customer-document-summary") {
       title = "Customer Document Summary";

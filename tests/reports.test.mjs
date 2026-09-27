@@ -944,6 +944,21 @@ test('purchase summaries provide purchasing KPIs and export all Purchase reports
   assert.ok(Math.abs(Number(page[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(page[2]) - 595.28) < 0.01);
 });
 
+test('inventory summaries provide stock KPIs and export all Inventory reports to fitted A4 landscape PDF', async () => {
+  const { inventoryReportKeys, inventorySummary, inventoryDetailTarget } = await vite.ssrLoadModule('/lib/inventory-report.ts');
+  assert.equal(inventoryReportKeys.size, 6);
+  const valuation = inventorySummary({ key: 'inventory-valuation', rows: [{ account: 'Inventory Asset', category: 'Laptop', items: 2, quantity: 8, value: 5000 }, { account: 'Inventory Asset', category: 'Monitor', items: 1, quantity: 4, value: 1000 }] });
+  assert.deepEqual(valuation.cards.map(card => card.value), [6000, 12, 3, 2, 1]);
+  assert.equal(inventoryDetailTarget('inventory-valuation'), 'inventory-valuation-detail');
+  const status = inventorySummary({ key: 'inventory-status', rows: [{ name: 'A', available: 5, status: 'In Stock', value: 500 }, { name: 'B', available: 1, status: 'Low Stock', value: 100 }, { name: 'C', available: 0, status: 'Out of Stock', value: 0 }] });
+  assert.deepEqual(status.cards.map(card => card.value), [600, 6, 3, 1, 1]);
+  const { reportPdf } = await vite.ssrLoadModule('/lib/report-export.ts');
+  const report = { key: 'inventory-valuation', title: 'Stock Valuation Summary', generatedAt: '2026-09-27T10:00:00.000Z', currency: 'AED', columns: [{ key: 'category', label: 'Category' }, { key: 'value', label: 'Stock Value', type: 'money' }], rows: [{ category: 'Laptop', value: 5000 }] };
+  const pdf = Buffer.from(await reportPdf(report, 'Inventory Company', 'Main Inventory')).toString('latin1');
+  const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(page);
+  assert.ok(Math.abs(Number(page[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(page[2]) - 595.28) < 0.01);
+});
+
 test('report date presets handle weeks, leap days, month ends and fiscal boundaries', async () => {
   const {presetDates,reportPeriod,reportMonths,previousYearDate} = await vite.ssrLoadModule('/lib/report-period.ts');
   assert.deepEqual(reportMonths('2026-12-15','2027-01-10'),[{month:'2026-12',from:'2026-12-15',to:'2026-12-31'},{month:'2027-01',from:'2027-01-01',to:'2027-01-10'}]);
