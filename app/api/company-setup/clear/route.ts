@@ -65,6 +65,9 @@ export async function POST(request: Request) {
           LIMIT 1
         `);
         if (crossDocuments.rows.length || crossPayments.rows.length) return Response.json({ error: "Cross-company documents or payments must be resolved before clearing transaction history." }, { status: 409 });
+        // Packing-list lines use an immediate RESTRICT link to invoice lines. Remove the
+        // company packing lists first so invoice transactions can be deleted safely.
+        await db.execute(sql`DELETE FROM packing_lists WHERE company_id=${companyId}`);
         await db.execute(sql`DELETE FROM invoice_payment_allocations WHERE payment_id IN (SELECT id FROM transactions WHERE company_id=${companyId}) OR invoice_id IN (SELECT id FROM transactions WHERE company_id=${companyId})`);
         await db.execute(sql`DELETE FROM bill_payment_allocations WHERE payment_id IN (SELECT id FROM transactions WHERE company_id=${companyId}) OR bill_id IN (SELECT id FROM transactions WHERE company_id=${companyId})`);
         await db.execute(sql`DELETE FROM sales_invoice_allocations WHERE invoice_id IN (SELECT id FROM transactions WHERE company_id=${companyId})`);
@@ -94,6 +97,9 @@ export async function POST(request: Request) {
       }
 
       if (selected.has("contacts")) {
+        // Warranty/RMA records have a required customer link. They belong to the
+        // selected company's contact history and must be removed before contacts.
+        await db.execute(sql`DELETE FROM warranty_slips WHERE company_id=${companyId}`);
         await db.execute(sql`DELETE FROM record_attachments WHERE company_id=${companyId} AND entity_type='employee'`);
         await db.execute(sql`DELETE FROM contacts WHERE company_id=${companyId}`);
       }
@@ -113,6 +119,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     if (error instanceof InvalidClearRequest) return Response.json({ error: "Select a company and at least one clear option, then enter your password and confirmation." }, { status: 400 });
-    return Response.json({ error: "Could not clear the company. No changes were committed; check linked records and try again." }, { status: 500 });
+    console.error(JSON.stringify({ event: "company_clear_failed", assignedCompanyIds: user.companyIds, userId: user.id, code: error && typeof error === "object" && "code" in error ? String(error.code) : "unknown" }));
+    return Response.json({ error: "Your password was verified, but linked company records prevented clearing. No changes were made." }, { status: 500 });
   }
 }

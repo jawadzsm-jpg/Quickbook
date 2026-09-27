@@ -10,7 +10,7 @@ import { toast } from "sonner";
 const clearOptions = [
   { id: "transactions", label: "Transactions, payments and cheques", detail: "Clears sales, purchases, banking transactions, allocations, journal entries, VAT transaction history and internal stock-transfer history." },
   { id: "inventory", label: "Items and inventory data", detail: "Clears items, stock movements, inventory checks and active inventory locations. Locations required by cross-company transfers are retained as inactive." },
-  { id: "contacts", label: "Customers, vendors and employees", detail: "Clears contact records and employee attachments." },
+  { id: "contacts", label: "Customers, vendors and employees", detail: "Clears contact records, employee attachments and their linked warranty/RMA records." },
   { id: "reports", label: "Saved reports and attachments", detail: "Clears memorised reports, inventory-check reports and remaining record attachments." },
   { id: "settings", label: "VAT, currencies and company controls", detail: "Clears VAT codes, exchange rates and company-level control settings." },
   { id: "setup", label: "Company setup and templates", detail: "Clears logos, stamp, address, contact details, bank display details and document-template settings." },

@@ -1749,6 +1749,11 @@ test('company clearing requires administrator password and company access, prese
     await resetBudget();
     const invoice=await tx(company,'CLEAR-2');
     await database.query("INSERT INTO transactions (company_id,number,type,party,transaction_date,total) VALUES ($1,'CLEAR-PAY','customer payment','Customer','2026-09-13',10),($1,'CLEAR-CHQ','cheque','Vendor','2026-09-13',20)",[company]);
+    const invoiceLine=(await database.query("INSERT INTO transaction_lines (transaction_id,description) VALUES ($1,'Packed item') RETURNING id",[invoice])).rows[0].id;
+    const customer=(await database.query("INSERT INTO contacts (company_id,type,name) VALUES ($1,'customer','Clear customer') RETURNING id",[company])).rows[0].id;
+    await database.query("INSERT INTO warranty_slips (company_id,customer_id,slip_date,problem) VALUES ($1,$2,'2026-09-13','Clear test')",[company,customer]);
+    const packingList=(await database.query("INSERT INTO packing_lists (company_id,location_id,invoice_id,number,packing_date) VALUES ($1,$2,$3,'PACK-CLEAR','2026-09-13') RETURNING id",[company,source,invoice])).rows[0].id;
+    await database.query("INSERT INTO packing_list_lines (packing_list_id,invoice_line_id,description,packed_quantity,units_per_carton,carton_count) VALUES ($1,$2,'Packed item',1,1,1)",[packingList,invoiceLine]);
     const keptAccount=(await database.query("INSERT INTO accounts (company_id,code,name,type,balance) VALUES ($1,'KEEP-100','Kept main account','Bank',250) RETURNING id",[company])).rows[0].id;
     await database.query('UPDATE transactions SET sales_source_id=$1 WHERE id=$2',[first,invoice]);
     await database.query('INSERT INTO invoice_payment_allocations (payment_id,invoice_id,amount) VALUES ($1,$2,10)',[invoice,first]);
@@ -1761,6 +1766,7 @@ test('company clearing requires administrator password and company access, prese
     await database.query('DELETE FROM bill_payment_allocations WHERE payment_id=$1',[untouched]);
     assert.equal((await POST(request(['transactions','inventory','contacts','reports','settings','setup']))).status,200);
     for (const table of ['transactions','record_attachments']) assert.equal((await database.query(`SELECT * FROM ${table} WHERE company_id=$1`,[company])).rows.length,0);
+    for (const table of ['contacts','warranty_slips','packing_lists']) assert.equal((await database.query(`SELECT * FROM ${table} WHERE company_id=$1`,[company])).rows.length,0);
     assert.equal((await database.query('SELECT * FROM inventory_locations WHERE company_id=$1 AND active=true',[company])).rows.length,0);
     const preservedTransfer=(await database.query("SELECT source_location_id,destination_location_id FROM stock_transfers WHERE reference='CLEAR-X'")).rows[0];
     assert.ok(preservedTransfer);
