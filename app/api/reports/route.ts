@@ -167,7 +167,7 @@ export async function GET(request: Request) {
       journal.filter((entry) => entry.date >= start && entry.date <= end && (incomeTypes.has(entryAccountType(entry)) || expenseTypes.has(entryAccountType(entry)))).forEach((entry) => { const account = journalAccount(entry); if (account) totals.set(account.id, (totals.get(account.id) ?? 0) + pnlAmount(entry)); });
       return totals;
     };
-    const txRows = (types?: string[]) => allTransactions.filter((row) => !types || types.includes(row.type)).map((row) => ({ date: row.transactionDate, number: row.number, type: row.type, party: row.party, status: row.status, currency: row.currency, amount: row.baseTotal }));
+    const txRows = (types?: string[]) => allTransactions.filter((row) => !types || types.includes(row.type)).map((row) => ({ transactionId: row.id, date: row.transactionDate, number: row.number, type: row.type, party: row.party, status: row.status, currency: row.currency, amount: row.baseTotal }));
     const txColumns = [{ key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "party", label: "Name" }, { key: "status", label: "Status" }, { key: "amount", label: "Amount", ...money }];
     const groupTransactions = (types: string[]) => {
       const grouped = new Map<string, number>();
@@ -638,22 +638,22 @@ export async function GET(request: Request) {
       columns = [{ key: "date", label: "Date" }, { key: "documents", label: "Documents" }, { key: "quantity", label: "Quantity" }, { key: "sales", label: "Sales", ...money }, { key: "vat", label: "VAT", ...money }, { key: "total", label: "Total", ...money }];
     } else if (key === "daily-sales-detail") {
       title = "Daily Sales Detail";
-      rows = scopedTransactions.filter((row) => ["invoice", "sales receipt"].includes(row.type)).map((row) => ({ date: row.transactionDate, number: row.number, customer: row.party, type: row.type, salesman: row.salesman || "Unassigned", status: row.status, amount: row.baseTotal }));
+      rows = scopedTransactions.filter((row) => ["invoice", "sales receipt"].includes(row.type)).map((row) => ({ transactionId: row.id, date: row.transactionDate, number: row.number, customer: row.party, type: row.type, salesman: row.salesman || "Unassigned", status: row.status, amount: row.baseTotal }));
       columns = [{ key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "customer", label: "Customer" }, { key: "type", label: "Type" }, { key: "salesman", label: "Sales Rep" }, { key: "status", label: "Status" }, { key: "amount", label: "Amount", ...money }];
     } else if (key === "sales-by-customer-detail") {
       title = "Sales by Customer Detail";
-      rows = scopedTransactions.filter((row) => ["invoice", "sales receipt"].includes(row.type)).map((row) => ({ customer: row.party, date: row.transactionDate, number: row.number, type: row.type, salesman: row.salesman || "Unassigned", amount: baseSubtotal(row), vat: row.vatAmount * row.exchangeRate, total: row.baseTotal }));
+      rows = scopedTransactions.filter((row) => ["invoice", "sales receipt"].includes(row.type)).map((row) => ({ transactionId: row.id, customer: row.party, date: row.transactionDate, number: row.number, type: row.type, salesman: row.salesman || "Unassigned", amount: baseSubtotal(row), vat: row.vatAmount * row.exchangeRate, total: row.baseTotal }));
       columns = [{ key: "customer", label: "Customer" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "salesman", label: "Sales Rep" }, { key: "amount", label: "Sales", ...money }, { key: "vat", label: "VAT", ...money }, { key: "total", label: "Total", ...money }];
     } else if (key === "sales-by-item-detail") {
       title = "Sales by Item Detail";
-      rows = lines.filter((line) => ["invoice", "sales receipt"].includes(line.type)).map((line) => ({ date: line.date, number: line.number, customer: line.party, item: line.description, quantity: line.quantity, unitPrice: line.quantity ? line.subtotal * line.exchangeRate / line.quantity : 0, amount: line.subtotal * line.exchangeRate }));
+      rows = lines.filter((line) => ["invoice", "sales receipt"].includes(line.type)).map((line) => ({ transactionId: line.transactionId, date: line.date, number: line.number, customer: line.party, item: line.description, quantity: line.quantity, unitPrice: line.quantity ? line.subtotal * line.exchangeRate / line.quantity : 0, amount: line.subtotal * line.exchangeRate }));
       columns = [{ key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "customer", label: "Customer" }, { key: "item", label: "Item" }, { key: "quantity", label: "Quantity" }, { key: "unitPrice", label: "Unit Price", ...money }, { key: "amount", label: "Sales", ...money }];
     } else if (key === "sales-by-rep-summary" || key === "sales-by-rep-detail") {
       const detail = key === "sales-by-rep-detail";
       title = detail ? "Sales by Rep Detail" : "Sales by Rep Summary";
       const sales = scopedTransactions.filter((row) => ["invoice", "sales receipt"].includes(row.type));
       if (detail) {
-        rows = sales.map((row) => ({ salesman: row.salesman || "Unassigned", date: row.transactionDate, number: row.number, customer: row.party, status: row.status, amount: baseSubtotal(row) }));
+        rows = sales.map((row) => ({ transactionId: row.id, salesman: row.salesman || "Unassigned", date: row.transactionDate, number: row.number, customer: row.party, status: row.status, amount: baseSubtotal(row) }));
         columns = [{ key: "salesman", label: "Sales Rep" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "customer", label: "Customer" }, { key: "status", label: "Status" }, { key: "amount", label: "Sales", ...money }];
       } else {
         const grouped = new Map<string, { documents: number; amount: number }>();
@@ -677,7 +677,7 @@ export async function GET(request: Request) {
       chart = { labelKey: "month", incomeKey: "sales", expenseKey: "refunds" };
     } else if (key === "pending-sales") {
       title = "Pending Sales";
-      rows = scopedTransactions.filter((row) => ["quotation", "estimate", "proforma invoice", "sales order", "invoice"].includes(row.type) && !["paid", "cleared", "cancelled", "closed", "converted", "invoiced"].includes(row.status)).map((row) => ({ date: row.transactionDate, dueDate: row.dueDate, number: row.number, type: row.type, customer: row.party, salesman: row.salesman || "Unassigned", status: row.status, amount: row.baseTotal }));
+      rows = scopedTransactions.filter((row) => ["quotation", "estimate", "proforma invoice", "sales order", "invoice"].includes(row.type) && !["paid", "cleared", "cancelled", "closed", "converted", "invoiced"].includes(row.status)).map((row) => ({ transactionId: row.id, date: row.transactionDate, dueDate: row.dueDate, number: row.number, type: row.type, customer: row.party, salesman: row.salesman || "Unassigned", status: row.status, amount: row.baseTotal }));
       columns = [{ key: "date", label: "Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "customer", label: "Customer" }, { key: "salesman", label: "Sales Rep" }, { key: "status", label: "Status" }, { key: "amount", label: "Amount", ...money }];
     } else if (key === "sales-by-customer" || key === "customer-balances") {
       title = key === "sales-by-customer" ? "Sales by Customer Summary" : "Customer Balance Summary";
@@ -744,7 +744,7 @@ export async function GET(request: Request) {
     } else if (["sales-by-item", "purchases-by-item", "item-profitability"].includes(key)) {
       title = key === "sales-by-item" ? "Sales by Item Summary" : key === "purchases-by-item" ? "Purchases by Item Summary" : "Item Profitability";
       rows = groupLines(key === "purchases-by-item" ? ["bill", "received item bill"] : ["invoice", "sales receipt"]);
-      columns = [{ key: "name", label: "Item" }, { key: "quantity", label: "Quantity" }, { key: "amount", label: "Sales / Purchases", ...money }, ...(key === "item-profitability" ? [{ key: "profit", label: "Gross Profit", ...money }, { key: "sourceReference", label: "Latest source document" }] : [])];
+      columns = [{ key: "name", label: "Item" }, { key: "quantity", label: "Quantity" }, { key: "amount", label: "Sales / Purchases", ...money }, ...(key === "sales-by-item" ? [{ key: "sourceReference", label: "Latest source document" }] : key === "item-profitability" ? [{ key: "profit", label: "Gross Profit", ...money }, { key: "sourceReference", label: "Latest source document" }] : [])];
     } else if (key === "inventory-valuation") {
       title = "Stock Valuation Summary";
       const grouped = new Map<string, { account: string; category: string; items: number; quantity: number; value: number }>();
