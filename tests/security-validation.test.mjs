@@ -176,7 +176,7 @@ test("complete business final report links executive measures to detailed report
   assert.match(view, /Detailed report: \{row\.detailReport\}/);
 });
 
-test("UAE bank cheque is linked to Banking and supports save and print", () => {
+test("UAE bank cheque is linked to Banking and prints only the A4 voucher", () => {
   const app = readFileSync("app/enterprise-app.tsx", "utf8");
   const cheque = readFileSync("app/uae-bank-cheque.tsx", "utf8");
   const layouts = readFileSync("lib/uae-cheque-layouts.ts", "utf8");
@@ -185,25 +185,19 @@ test("UAE bank cheque is linked to Banking and supports save and print", () => {
   assert.match(app, /A\/C Payee Only \(recommended\)/);
   assert.match(app, /Cheque bank layout \*/);
   assert.match(app, /<UaeBankCheque record=\{record\}/);
-  assert.match(cheque, /Print on bank cheque/);
+  assert.doesNotMatch(cheque, /Print on bank cheque/);
   assert.match(cheque, /Print A4 voucher/);
   assert.match(cheque, /Edit cheque number/);
   assert.match(cheque, /editMode: "cheque-number"/);
   assert.match(cheque, /printIsolatedDocument/);
-  assert.match(cheque, /@page\{size:\$\{selectedLayout\.widthMm\}mm \$\{selectedLayout\.heightMm\}mm;margin:0\}/);
   const css = readFileSync("app/globals.css", "utf8");
-  assert.match(css, /uae-cheque-document > :not\(\.uae-cheque-print-layer\)/);
-  assert.doesNotMatch(css, /document-print-surface > :not\(\.uae-cheque-print-layer\)/);
+  assert.doesNotMatch(css, /uae-cheque-print-layer/);
+  assert.doesNotMatch(css, /data-cheque-print-mode/);
+  assert.doesNotMatch(css, /@page cheque-stock/);
   assert.match(css, /\[data-slot="dialog-content"\]:has\(\.document-print-surface\)/);
-  assert.match(css, /data-cheque-print-mode="voucher"\][\s\S]*\.document-print-surface \{ position: static/);
-  assert.match(cheque, /Amount only: left \(−\) \/ right \(\+\), mm/);
-  assert.match(cheque, /Date only: left \(−\) \/ right \(\+\), mm/);
-  assert.match(cheque, /Save layout & alignment/);
-  assert.match(cheque, /Cheque bank layout for this print/);
-  assert.match(cheque, /uaeChequeLayouts\.map\(\(layout\) => <option/);
-  assert.match(cheque, /Fixed paper size:/);
-  assert.match(cheque, /validChequeAlignment/);
-  assert.match(cheque, /Alignment reset to 0 mm/);
+  assert.doesNotMatch(cheque, /Save layout & alignment/);
+  assert.doesNotMatch(cheque, /Cheque bank layout for this print/);
+  assert.doesNotMatch(cheque, /Bank cheque alignment preview/);
   assert.match(cheque, /Amount in words/);
   assert.match(cheque, /printWindow\.print\(\)/);
   for (const bank of ["Emirates NBD", "First Abu Dhabi Bank", "ADCB", "Dubai Islamic Bank", "Mashreq", "RAKBANK", "Habib Bank AG Zurich", "Wio Business"]) assert.match(layouts, new RegExp(bank));
@@ -216,7 +210,6 @@ test("UAE bank cheque is linked to Banking and supports save and print", () => {
   assert.match(layouts, /habib:[\s\S]*date: \{ left: 110, top: 14\.5, width: 40 \}/);
   assert.match(layouts, /habib:[\s\S]*amount: \{ left: 136, top: 55, width: 47 \}/);
   assert.match(layouts, /"habib-bank-ag-zurich", "Habib Bank AG Zurich", "habib"/);
-  assert.match(cheque, /\.amount\{[^}]*white-space:nowrap/);
 });
 
 test("Escape and close controls protect editable dialogs with save, discard, and cancel choices", () => {
