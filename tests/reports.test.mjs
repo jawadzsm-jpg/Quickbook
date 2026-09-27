@@ -549,14 +549,14 @@ test("purchase returns reduce the linked supplier bill and appear in the supplie
   assert.equal(remainingReturns.records.length, 0);
 });
 
-test("VAT includes expense cheques and foreign card charges, subtracts credits, and scopes inventories", async () => {
+test("UAE VAT reports include all company inventories, expense cheques and foreign card charges", async () => {
   const summary = await report("vat-summary");
-  assert.equal(summary.rows[1].amount, 173.375);
+  assert.equal(summary.rows[1].amount, 273.375);
   const detail = await report("vat-detail");
   assert.ok(detail.rows.some(row => row.number === "CHQ-DEWA"));
   assert.ok(detail.rows.some(row => row.number === "CHQ-INTERNET"));
   assert.ok(detail.rows.some(row => row.number === "CARD-USD"));
-  assert.ok(!detail.rows.some(row => row.number === "CHQ-OTHER"));
+  assert.ok(detail.rows.some(row => row.number === "CHQ-OTHER"));
   assert.equal((await report("vat-summary", 0)).rows[1].amount, 273.375);
 });
 
@@ -939,9 +939,10 @@ test('VAT management includes every taxable document type and posts adjustments 
  const c=(await (await workspaces.POST(post({type:'company',name:'VAT management audit',baseCurrency:'AED'}))).json()).company;
  const cid=c.id,loc=c.locations[0].id;
  const [userRow]=await db.insert(schema.appUsers).values({fullName:'VAT Auditor',email:`vat-auditor-${cid}@example.test`,passwordHash:'test',role:'admin'}).returning();
- const add=async(type,number,vatAmount)=>{
-  const [record]=await db.insert(schema.transactions).values({companyId:cid,locationId:loc,type,number,party:'VAT Audit',transactionDate:'2026-09-21',currency:'AED',exchangeRate:1,subtotal:100,total:100+vatAmount,vatAmount,baseTotal:100+vatAmount}).returning();
-  await db.insert(schema.transactionLines).values({transactionId:record.id,description:number,quantity:1,subtotal:100,vatAmount,total:100+vatAmount});
+ const add=async(type,number,vatAmount,extra={})=>{
+  const subtotal=vatAmount/0.05;
+  const [record]=await db.insert(schema.transactions).values({companyId:cid,locationId:loc,type,number,party:'VAT Audit',transactionDate:'2026-09-21',currency:'AED',exchangeRate:1,subtotal,total:subtotal+vatAmount,vatAmount,baseTotal:subtotal+vatAmount,...extra}).returning();
+  await db.insert(schema.transactionLines).values({transactionId:record.id,description:number,quantity:1,subtotal,vatAmount,total:subtotal+vatAmount,vatCode:extra.vatCode||'STANDARD',vatRate:5});
  };
  for(const [type,number,vat] of [
   ['invoice','VAT-INV',5],['sales receipt','VAT-RECEIPT',5],['statement charge','VAT-STATEMENT',5],['credit memo','VAT-CREDIT',2],
@@ -951,23 +952,62 @@ test('VAT management includes every taxable document type and posts adjustments 
  const vatManagement=await vite.ssrLoadModule('/app/api/vat-management/route.ts');
  const summaryUrl=`https://app.test/api/vat-management?companyId=${cid}&locationId=${loc}&periodStart=2026-09-01&periodEnd=2026-09-30`;
  const readSummary=async()=>{const response=await vatManagement.GET(new Request(summaryUrl));assert.equal(response.status,200,await response.clone().text());return(await response.json()).summary;};
- assert.deepEqual(await readSummary(),{outputVat:13,inputVat:23,adjustments:0,netVatDue:-10,transactionLines:10});
+ const initial=await readSummary();
+ assert.equal(initial.basis,'UAE VAT — date of supply (accrual)');
+ assert.equal(initial.currency,'AED');
+ assert.equal(initial.filingDueDate,'2026-10-28');
+ assert.deepEqual({outputVat:initial.outputVat,inputVat:initial.inputVat,adjustments:initial.adjustments,netVatDue:initial.netVatDue,transactionLines:initial.transactionLines},{outputVat:13,inputVat:23,adjustments:0,netVatDue:-10,transactionLines:10});
+ assert.deepEqual(initial.boxes.box1,{amount:260,vat:13});
+ assert.deepEqual(initial.boxes.box9,{amount:460,vat:23});
+ assert.equal(initial.canRecordFiling,false); // Company TRN is a mandatory filing control.
 
  globalThis.__reportTestUser={id:userRow.id,email:userRow.email,role:'all_admin',companyIds:[],mustChangePassword:false};
  try {
   const adjust=await vatManagement.POST(post({action:'adjust',companyId:cid,locationId:loc,adjustmentDate:'2026-09-21',reference:'VAT-ADJ-1',reason:'Audit correction',direction:'increase',amount:3}));
   assert.equal(adjust.status,201,await adjust.clone().text());
-  assert.deepEqual(await readSummary(),{outputVat:13,inputVat:23,adjustments:3,netVatDue:-7,transactionLines:10});
+  const adjusted=await readSummary();
+  assert.deepEqual({outputVat:adjusted.outputVat,inputVat:adjusted.inputVat,adjustments:adjusted.adjustments,netVatDue:adjusted.netVatDue,transactionLines:adjusted.transactionLines},{outputVat:13,inputVat:23,adjustments:3,netVatDue:-7,transactionLines:10});
   const lines=(await database.query("SELECT jl.account_name,jl.debit,jl.credit FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.reference='VAT-ADJ-1' ORDER BY jl.id")).rows;
   assert.deepEqual(lines,[{account_name:'Suspense',debit:3,credit:0},{account_name:'VAT Payable',debit:0,credit:3}]);
   const duplicate=await vatManagement.POST(post({action:'adjust',companyId:cid,locationId:loc,adjustmentDate:'2026-09-21',reference:'VAT-ADJ-1',reason:'Duplicate',direction:'increase',amount:3}));
   assert.equal(duplicate.status,409);
   assert.equal((await database.query("SELECT count(*)::int AS count FROM journal_entries WHERE reference='VAT-ADJ-1'")).rows[0].count,1);
 
+  const blocked=await vatManagement.POST(post({action:'file',companyId:cid,locationId:loc,periodStart:'2026-09-01',periodEnd:'2026-09-30',reference:'VAT-RETURN-BLOCKED'}));
+  assert.equal(blocked.status,409);
+  await database.query('UPDATE companies SET trn=$1 WHERE id=$2',['100000000000003',cid]);
   const filed=await vatManagement.POST(post({action:'file',companyId:cid,locationId:loc,periodStart:'2026-09-01',periodEnd:'2026-09-30',reference:'VAT-RETURN-SEP'}));
   assert.equal(filed.status,201,await filed.clone().text());
   const filedRecord=(await filed.json()).record;
   assert.deepEqual({outputVat:filedRecord.outputVat,inputVat:filedRecord.inputVat,adjustments:filedRecord.adjustments,netVatDue:filedRecord.netVatDue},{outputVat:13,inputVat:23,adjustments:3,netVatDue:-7});
+  assert.equal(filedRecord.locationId,null);
+  const overlap=await vatManagement.POST(post({action:'file',companyId:cid,locationId:loc,periodStart:'2026-09-15',periodEnd:'2026-10-15',reference:'VAT-RETURN-OVERLAP'}));
+  assert.equal(overlap.status,409);
+
+  // UAE VAT201 classification is company-wide and does not tax a bill-payment cheque twice.
+  const [branch]=await db.insert(schema.inventoryLocations).values({companyId:cid,name:'VAT Branch',code:`VAT${cid}`,invoicePrefix:`VAT${cid}`}).returning();
+  const addUaeLine=async({type,number,subtotal,vatAmount,vatCode='STANDARD',isImport=false,locationId=loc,status='open',billId=null})=>{
+   const [record]=await db.insert(schema.transactions).values({companyId:cid,locationId,type,number,party:'UAE VAT Audit',transactionDate:'2026-10-10',currency:'AED',exchangeRate:1,subtotal,vatAmount,total:subtotal+vatAmount,baseTotal:subtotal+vatAmount,isImport,status,billId}).returning();
+   await db.insert(schema.transactionLines).values({transactionId:record.id,description:number,quantity:1,subtotal,vatAmount,total:subtotal+vatAmount,vatCode,vatRate:vatAmount?5:0});
+   return record;
+  };
+  await addUaeLine({type:'invoice',number:'UAE-STANDARD',subtotal:100,vatAmount:5,locationId:branch.id});
+  await addUaeLine({type:'invoice',number:'UAE-ZERO',subtotal:300,vatAmount:0,vatCode:'ZERO'});
+  await addUaeLine({type:'invoice',number:'UAE-EXEMPT',subtotal:400,vatAmount:0,vatCode:'EXEMPT'});
+  await addUaeLine({type:'invoice',number:'UAE-CANCELLED',subtotal:100,vatAmount:5,status:'cancelled'});
+  const imported=await addUaeLine({type:'bill',number:'UAE-IMPORT',subtotal:100,vatAmount:5,isImport:true});
+  await addUaeLine({type:'bill',number:'UAE-RCM',subtotal:200,vatAmount:10,vatCode:'REVERSE_CHARGE'});
+  await addUaeLine({type:'cheque',number:'UAE-BILL-PAYMENT',subtotal:100,vatAmount:5,billId:imported.id});
+  const octoberResponse=await vatManagement.GET(new Request(`https://app.test/api/vat-management?companyId=${cid}&locationId=${loc}&periodStart=2026-10-01&periodEnd=2026-10-31`));
+  assert.equal(octoberResponse.status,200,await octoberResponse.clone().text());
+  const october=(await octoberResponse.json()).summary;
+  assert.deepEqual(october.boxes.box1,{amount:100,vat:5});
+  assert.deepEqual(october.boxes.box3,{amount:200,vat:10});
+  assert.deepEqual(october.boxes.box4,{amount:300,vat:0});
+  assert.deepEqual(october.boxes.box5,{amount:400,vat:0});
+  assert.deepEqual(october.boxes.box6,{amount:100,vat:5});
+  assert.deepEqual(october.boxes.box10,{amount:300,vat:15});
+  assert.deepEqual({outputVat:october.outputVat,inputVat:october.inputVat,netVatDue:october.netVatDue,transactionLines:october.transactionLines},{outputVat:20,inputVat:15,netVatDue:5,transactionLines:5});
 
   const vatCodes=await vite.ssrLoadModule('/app/api/vat-codes/route.ts');
   const createdCode=await vatCodes.POST(post({companyId:cid,code:'REDUCED_75',name:'Reduced 7.5%',rate:7.5,description:'Audit code'}));

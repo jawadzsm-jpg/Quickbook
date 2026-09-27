@@ -12,6 +12,7 @@ import { linkReportAccounts } from "@/lib/report-account-links";
 type Row = Record<string, string | number | null>;
 const money = { type: "money" as const };
 const vendorCurrencyReportKeys = new Set(["supplier-quickreport", "supplier-open-balance", "vendor-statements", "ap-aging-summary", "ap-aging-detail", "vendor-balances", "supplier-balance-detail", "unpaid-bills-detail", "accounts-payable-graph", "supplier-transactions"]);
+const vatReportKeys = new Set(["vat-summary", "vat-detail", "vat-unassigned", "vat-exceptions", "vat-item-summary", "reverse-charge", "vat-code-list"]);
 const amountColumns = (first = "Account") => [
   { key: "name", label: first }, { key: "debit", label: "Debit", ...money }, { key: "credit", label: "Credit", ...money }, { key: "balance", label: "Balance", ...money },
 ];
@@ -51,7 +52,8 @@ export async function GET(request: Request) {
     if (supplierReport && !selectedSupplier) return Response.json({ error: "Supplier not found in this company." }, { status: 404 });
     // Report amounts are stored/converted in home currency; never relabel them from a query parameter.
     const currency = reportCompany.baseCurrency;
-    const scoped = Number.isInteger(locationId) && locationId > 0;
+    // UAE VAT is filed by the VAT-registered company, not separately by inventory.
+    const scoped = !vatReportKeys.has(key) && Number.isInteger(locationId) && locationId > 0;
     if (scoped) {
       const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).limit(1);
       if (!location) return Response.json({ error: "Select an inventory in this company." }, { status: 400 });
@@ -80,7 +82,7 @@ export async function GET(request: Request) {
       db.select().from(items).where(and(eq(items.companyId, companyId), scoped ? eq(items.locationId, locationId) : undefined)).orderBy(asc(items.name)),
       db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(asc(accounts.code)),
       db.select({ date: journalEntries.entryDate, reference: journalEntries.reference, description: journalEntries.description, account: journalLines.accountName, debit: journalLines.debit, credit: journalLines.credit, originalDebit: journalLines.originalDebit, originalCredit: journalLines.originalCredit, entryCurrency: journalEntries.currency, exchangeRate: journalEntries.exchangeRate }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(journalFilter).orderBy(asc(journalEntries.entryDate), asc(journalLines.id)),
-      db.select({ itemId: transactionLines.itemId, description: transactionLines.description, quantity: transactionLines.quantity, unitPrice: transactionLines.unitPrice, subtotal: transactionLines.subtotal, unitCost: transactionLines.unitCost, freightCharge: transactionLines.freightCharge, isFreightCharge: transactionLines.isFreightCharge, vatCode: transactionLines.vatCode, vatRate: transactionLines.vatRate, vatAmount: transactionLines.vatAmount, type: transactions.type, status: transactions.status, locationId: transactions.locationId, party: transactions.party, date: transactions.transactionDate, number: transactions.number, transactionCurrency: transactions.currency, exchangeRate: transactions.exchangeRate, isImport: transactions.isImport }).from(transactionLines).innerJoin(transactions, eq(transactionLines.transactionId, transactions.id)).where(and(eq(transactions.companyId, companyId), scoped ? eq(transactions.locationId, locationId) : undefined)),
+      db.select({ itemId: transactionLines.itemId, description: transactionLines.description, quantity: transactionLines.quantity, unitPrice: transactionLines.unitPrice, subtotal: transactionLines.subtotal, unitCost: transactionLines.unitCost, freightCharge: transactionLines.freightCharge, isFreightCharge: transactionLines.isFreightCharge, vatCode: transactionLines.vatCode, vatRate: transactionLines.vatRate, vatAmount: transactionLines.vatAmount, type: transactions.type, status: transactions.status, billId: transactions.billId, locationId: transactions.locationId, party: transactions.party, date: transactions.transactionDate, number: transactions.number, transactionCurrency: transactions.currency, exchangeRate: transactions.exchangeRate, isImport: transactions.isImport }).from(transactionLines).innerJoin(transactions, eq(transactionLines.transactionId, transactions.id)).where(and(eq(transactions.companyId, companyId), scoped ? eq(transactions.locationId, locationId) : undefined)),
       db.select().from(vatCodes).where(eq(vatCodes.companyId, companyId)).orderBy(asc(vatCodes.code)),
       db.select().from(exchangeRates).where(and(eq(exchangeRates.companyId, companyId), eq(exchangeRates.active, true))),
       db.select().from(inventoryLocations).where(eq(inventoryLocations.companyId, companyId)),
@@ -227,9 +229,15 @@ export async function GET(request: Request) {
       return ["bill payment", "vendor credit"].includes(row.type) || (row.type === "cheque" && payableAccounts.has(row.account)) ? -amount : ["purchase order", "item receipt", "cheque"].includes(row.type) ? 0 : amount;
     };
     const vatDocumentTypes = new Set(["invoice", "sales receipt", "statement charge", "credit memo", "bill", "received item bill", "expense", "cheque", "credit card charge", "vendor credit"]);
-    const vatLines = lines.filter((line) => vatDocumentTypes.has(line.type) && (!periodStart || line.date >= periodStart) && (!periodEnd || line.date <= periodEnd));
-    const outputVat = vatLines.reduce((sum, line) => sum + (line.type === "credit memo" ? -1 : ["invoice", "sales receipt", "statement charge"].includes(line.type) ? 1 : 0) * line.vatAmount * line.exchangeRate, 0);
-    const inputVat = vatLines.reduce((sum, line) => sum + (line.type === "vendor credit" ? -1 : ["bill", "received item bill", "expense", "cheque", "credit card charge"].includes(line.type) ? 1 : 0) * line.vatAmount * line.exchangeRate, 0);
+    const reverseCodes = new Set(["REVERSE", "REVERSE_CHARGE", "RCM"]);
+    const vatLines = lines.filter((line) => vatDocumentTypes.has(line.type) && !["cancelled", "canceled", "void", "voided", "deleted"].includes(line.status.toLowerCase()) && !(line.type === "cheque" && line.billId) && (!periodStart || line.date >= periodStart) && (!periodEnd || line.date <= periodEnd));
+    const outputVat = vatLines.reduce((sum, line) => {
+      const sign = ["credit memo", "vendor credit"].includes(line.type) ? -1 : 1;
+      const salesOutput = ["invoice", "sales receipt", "statement charge", "credit memo"].includes(line.type);
+      const reverseChargeOutput = ["bill", "received item bill", "expense", "cheque", "credit card charge", "vendor credit"].includes(line.type) && (line.isImport || reverseCodes.has(line.vatCode.toUpperCase()));
+      return sum + (salesOutput || reverseChargeOutput ? sign * line.vatAmount * line.exchangeRate : 0);
+    }, 0);
+    const inputVat = vatLines.reduce((sum, line) => sum + (["bill", "received item bill", "expense", "cheque", "credit card charge", "vendor credit"].includes(line.type) ? (line.type === "vendor credit" ? -1 : 1) * line.vatAmount * line.exchangeRate : 0), 0);
     let summary: { income: number; expenses: number; netIncome: number } | undefined;
     let title = "Transaction List by Date";
     let columns: Array<{ key: string; label: string; type?: "money" }> = txColumns;
@@ -821,7 +829,7 @@ export async function GET(request: Request) {
       columns = [{ key: "job", label: "Job / Inventory" }, { key: "orders", label: "Open Orders" }, { key: "suppliers", label: "Suppliers" }, { key: "amount", label: "Open Amount", ...money }];
     }
     else if (key === "vat-summary") {
-      title = "VAT Summary Report";
+      title = "UAE VAT201 Summary";
       rows = [{ name: "Output VAT on sales", amount: outputVat }, { name: "Recoverable input VAT", amount: inputVat }, { name: "Net VAT due", amount: outputVat - inputVat }];
       columns = [{ key: "name", label: "VAT position" }, { key: "amount", label: "Amount", ...money }];
     } else if (key === "vat-detail") {
@@ -848,8 +856,8 @@ export async function GET(request: Request) {
       rows = vatLines.filter((line) => ["invoice", "sales receipt"].includes(line.type) && line.vatRate === 0 && line.transactionCurrency !== currency).map((line) => ({ date: line.date, number: line.number, customer: line.party, currency: line.transactionCurrency, description: line.description, amount: line.subtotal * line.exchangeRate }));
       columns = [{ key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "customer", label: "Customer" }, { key: "currency", label: "Currency" }, { key: "description", label: "Item / description" }, { key: "amount", label: "Amount", ...money }];
     } else if (key === "reverse-charge") {
-      title = "Reverse Charge List";
-      rows = vatLines.filter((line) => line.type === "bill" && line.isImport).map((line) => ({ date: line.date, number: line.number, vendor: line.party, currency: line.transactionCurrency, description: line.description, taxable: line.subtotal * line.exchangeRate, vat: line.vatAmount * line.exchangeRate }));
+      title = "Reverse Charge and Import VAT List";
+      rows = vatLines.filter((line) => ["bill", "received item bill", "expense", "cheque", "credit card charge", "vendor credit"].includes(line.type) && (line.isImport || reverseCodes.has(line.vatCode.toUpperCase()))).map((line) => ({ date: line.date, number: line.number, vendor: line.party, currency: line.transactionCurrency, description: line.description, taxable: line.subtotal * line.exchangeRate, vat: line.vatAmount * line.exchangeRate }));
       columns = [{ key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "vendor", label: "Vendor" }, { key: "currency", label: "Currency" }, { key: "description", label: "Item / description" }, { key: "taxable", label: "Taxable Amount", ...money }, { key: "vat", label: "VAT", ...money }];
     } else if (key === "vat-code-list") {
       title = "VAT Code List";
