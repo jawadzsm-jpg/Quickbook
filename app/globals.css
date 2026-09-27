@@ -348,8 +348,8 @@ button, input, select { font: inherit; }
 @media screen {
   .report-dialog {
     position: fixed !important;
-    inset: 1rem auto auto 50% !important;
-    transform: translateX(-50%) !important;
+    inset: 50% auto auto 50% !important;
+    transform: translate(-50%, -50%) !important;
     width: min(1600px, calc(100vw - 2rem)) !important;
     max-width: min(1600px, calc(100vw - 2rem)) !important;
     max-height: calc(100dvh - 2rem) !important;
@@ -399,7 +399,6 @@ button, input, select { font: inherit; }
 }
 @media screen and (max-width: 640px) {
   .report-dialog {
-    inset-block-start: .5rem !important;
     width: calc(100vw - 1rem) !important;
     max-width: calc(100vw - 1rem) !important;
     max-height: calc(100dvh - 1rem) !important;
