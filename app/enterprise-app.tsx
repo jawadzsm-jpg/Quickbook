@@ -1050,7 +1050,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
       <SidebarInset className="brand-workspace min-w-0">
         <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3 border-b border-slate-200 bg-white/95 px-4 backdrop-blur lg:px-7">
           <div className="flex min-w-0 items-center gap-3"><SidebarTrigger className="text-slate-600" /><div className="hidden h-5 w-px bg-slate-200 sm:block" /><div className="min-w-0"><h1 className="truncate text-lg font-bold text-slate-900">{heading.title}</h1><p className="hidden truncate text-xs text-slate-500 sm:block">{heading.sub}</p></div></div>
-          <div className="flex items-center gap-2">
+          <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-1.5 sm:gap-2">
             <Popover>
               <PopoverTrigger asChild>
                 <Button type="button" variant="ghost" size="icon" aria-label="Appearance" title="Appearance"><Palette className="size-4" /></Button>
@@ -1069,7 +1069,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
               {appearanceMode === "light" ? <Moon className="size-4" /> : <Sun className="size-4" />}
             </Button>
             <Badge variant="outline" className="hidden sm:inline-flex">{baseCurrency}</Badge>
-            <Select value={String(activeLocationId || "")} onValueChange={(value) => { setActiveLocationId(Number(value)); setSearch(""); }}><SelectTrigger className="w-[165px]"><SelectValue placeholder="Inventory" /></SelectTrigger><SelectContent>{activeLocations.map((location) => <SelectItem key={location.id} value={String(location.id)}>{location.name}</SelectItem>)}</SelectContent></Select>
+            <Select value={String(activeLocationId || "")} onValueChange={(value) => { setActiveLocationId(Number(value)); setSearch(""); }}><SelectTrigger className="w-[min(165px,42vw)] sm:w-[165px]"><SelectValue placeholder="Inventory" /></SelectTrigger><SelectContent>{activeLocations.map((location) => <SelectItem key={location.id} value={String(location.id)}>{location.name}</SelectItem>)}</SelectContent></Select>
             <Button variant="ghost" size="icon" aria-label="Notifications"><Bell className="size-4" /></Button>
             {!managementView && view !== "purchases" && view !== "sales" && canWriteCurrentView && <Button onClick={openCreate} className="brand-primary-button font-semibold"><Plus className="size-4" /><span className="hidden sm:inline">{createLabel}</span></Button>}
           </div>

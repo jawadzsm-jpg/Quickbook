@@ -80,6 +80,27 @@ test("dark mode keeps striped report rows and darkest utility text readable", ()
   assert.match(pnl, /dark:bg-emerald-950 dark:text-emerald-100/);
 });
 
+test("the full app shares dark-mode coverage and responsive phone, tablet, and desktop layout rules", () => {
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(css, /Shared responsive contract for every application workspace and modal/);
+  assert.match(css, /@media screen and \(max-width: 767px\)/);
+  assert.match(css, /@media screen and \(min-width: 768px\) and \(max-width: 1180px\)/);
+  assert.match(css, /\[data-slot="dialog-content"\][\s\S]*width: calc\(100vw - \.75rem\) !important/);
+  assert.match(css, /\[data-slot="table-container"\][\s\S]*-webkit-overflow-scrolling: touch/);
+  for (const token of [
+    String.raw`.bg-slate-50\/70`,
+    String.raw`.bg-blue-50\/60`,
+    String.raw`.bg-emerald-50\/40`,
+    String.raw`.bg-rose-50\/70`,
+    ".bg-teal-50",
+    ".text-cyan-700",
+    ".text-indigo-700",
+  ]) assert.ok(css.includes(token));
+  assert.match(app, /ml-auto flex max-w-full flex-wrap items-center justify-end/);
+  assert.match(app, /w-\[min\(165px,42vw\)\] sm:w-\[165px\]/);
+});
+
 test("invoice edit keeps compact line comments once and offers add line at the bottom", () => {
   const editor = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const extraFields = readFileSync(new URL("../app/document-extra-fields.tsx", import.meta.url), "utf8");
