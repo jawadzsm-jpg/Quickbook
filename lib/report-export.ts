@@ -66,6 +66,8 @@ function widthFor(column: ReportExportColumn) {
   return 22;
 }
 
+const financialLandscapeReports = new Set(["business-final", "income-customer-detail", "expenses-supplier-detail", "income-expense-graph", "realised-gains-losses", "unrealised-gains-losses", "balance-sheet-detail", "balance-sheet-prev-year", "net-worth-graph", "cash-flow-forecast"]);
+
 export async function reportWorkbook(report: ReportExportData, company: string, inventory: string, rows = report.rows) {
   const { default: ExcelJS } = await import("exceljs");
   const book = new ExcelJS.Workbook();
@@ -74,7 +76,7 @@ export async function reportWorkbook(report: ReportExportData, company: string, 
   book.modified = new Date();
   const sheet = book.addWorksheet("Report", {
     views: [{ state: "frozen", ySplit: 9 }],
-    pageSetup: { paperSize: 9, orientation: report.columns.length > 6 ? "landscape" : "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 } },
+    pageSetup: { paperSize: 9, orientation: financialLandscapeReports.has(report.key || "") || report.columns.length > 6 ? "landscape" : "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 } },
   });
   const columnCount = Math.max(1, report.columns.length);
   sheet.addRow([company]);
@@ -142,7 +144,7 @@ export async function reportPdf(report: ReportExportData, company: string, inven
   const [{ jsPDF }, { autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
   const vendorLandscapeReports = new Set(["supplier-quickreport", "supplier-open-balance", "ap-aging-detail", "vendor-balances", "supplier-balance-detail", "unpaid-bills-detail", "accounts-payable-graph", "supplier-transactions"]);
   const profitLossLandscapeReports = new Set(["budget-profit-loss", "stock-pricing-profit", "item-profitability"]);
-  const pdf = new jsPDF({ orientation: vendorLandscapeReports.has(report.key || "") || profitLossLandscapeReports.has(report.key || "") || report.columns.length > 6 ? "landscape" : "portrait", format: "a4", unit: "mm" });
+  const pdf = new jsPDF({ orientation: vendorLandscapeReports.has(report.key || "") || profitLossLandscapeReports.has(report.key || "") || financialLandscapeReports.has(report.key || "") || report.columns.length > 6 ? "landscape" : "portrait", format: "a4", unit: "mm" });
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
   const drawHeader = () => {

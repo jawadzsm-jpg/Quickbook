@@ -829,10 +829,13 @@ test('shared report downloads are date-stamped, safe, styled, and include linked
   assert.equal(book.getWorksheet('Report').views[0].ySplit, 9);
   assert.equal(book.getWorksheet('Report').pageSetup.paperSize, 9);
   assert.equal(book.getWorksheet('Report').pageSetup.fitToWidth, 1);
+  assert.equal(book.getWorksheet('Report').pageSetup.orientation, 'landscape');
   assert.equal(book.getWorksheet('Account detail').getCell('C2').value, 'Inventory Asset');
   const pdf = Buffer.from(await reportPdf(report, 'Audit Company', 'Main Inventory')).toString('latin1');
   assert.ok(pdf.startsWith('%PDF-'));
-  const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(page); assert.ok(Math.abs(Number(page[1]) - 595.28) < 0.01); assert.ok(Math.abs(Number(page[2]) - 841.89) < 0.01);
+  const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(page); assert.ok(Math.abs(Number(page[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(page[2]) - 595.28) < 0.01);
+  const portraitPdf = Buffer.from(await reportPdf({ ...report, key: 'balance-sheet-summary', title: 'Balance Sheet Summary' }, 'Audit Company', 'Main Inventory')).toString('latin1');
+  const portraitPage = portraitPdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(portraitPage); assert.ok(Math.abs(Number(portraitPage[1]) - 595.28) < 0.01); assert.ok(Math.abs(Number(portraitPage[2]) - 841.89) < 0.01);
   const pnlPdf = Buffer.from(await reportPdf({ ...report, key: 'item-profitability', title: 'Item Profitability' }, 'Audit Company', 'Main Inventory')).toString('latin1');
   const pnlPage = pnlPdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(pnlPage); assert.ok(Math.abs(Number(pnlPage[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(pnlPage[2]) - 595.28) < 0.01);
 });
@@ -916,9 +919,9 @@ test('all 14 financial reports reconcile posted accounts, settlements, dates and
  const {financialKeys}=await vite.ssrLoadModule('/lib/financial-reports.ts');assert.equal(financialKeys.length,14);
  for(const key of financialKeys){const r=await get(key);assert.equal(r.companyId,cid);assert.equal(r.currency,'AED');assert.ok(r.title);for(const detail of r.financial.details){if(detail.accountId)assert.ok([bank.id,bank2.id,ar.id,ap.id,revenue.id,cost.id,asset.id,equity.id].includes(detail.accountId));}}
  const inc=await get('income-customer-summary');assert.deepEqual(inc.rows,[{name:'Audit Party',amount:270},{name:'Unallocated',amount:50}]);
- assert.equal((await get('income-customer-detail')).rows.reduce((n,r)=>n+r.amount,0),320);
+ const incomeDetail=await get('income-customer-detail');assert.equal(incomeDetail.rows.reduce((n,r)=>n+r.amount,0),320);assert.equal(incomeDetail.rows.find(r=>r.reference.includes(String(invoice.id)))?.transactionId,invoice.id);
  assert.equal((await get('expenses-supplier-summary')).rows[0].amount,300); // cheque isn't a second expense
- assert.equal((await get('expenses-supplier-detail')).rows.length,1);
+ const supplierDetail=await get('expenses-supplier-detail');assert.equal(supplierDetail.rows.length,1);assert.equal(supplierDetail.rows[0].transactionId,bill.id);
  assert.deepEqual((await get('income-expense-graph')).rows,[{month:'2026-01',income:320,expenses:300,net:20}]);
  const standard=await get('balance-sheet');assert.equal(standard.rows.find(r=>r.name==='Accumulated earnings').amount,20);
  const section=(rows,name)=>rows.filter(r=>r.section===name).reduce((n,r)=>n+r.amount,0);
@@ -929,6 +932,7 @@ test('all 14 financial reports reconcile posted accounts, settlements, dates and
  const worth=await get('net-worth-graph');assert.equal(worth.rows[0].netWorth,1020);
  const flow=await get('cash-flow');const flowAmount=name=>flow.rows.find(r=>r.name===name).amount;
  assert.equal(flowAmount('Opening cash'),1000);assert.equal(flowAmount('Operating'),130);assert.equal(flowAmount('Investing'),-200);assert.equal(flowAmount('Internal transfers'),0);assert.equal(flowAmount('Closing cash'),930);
+ assert.ok(flow.financial.details.some(r=>r.transactionId===payment.id));
  const realised=await get('realised-gains-losses');assert.deepEqual(realised.rows.map(r=>[r.reference,r.gainLoss,r.accountId]),[['AUD-PAY',40,ar.id],['AUD-CHQ',-20,ap.id]]);
  const unrealised=await get('unrealised-gains-losses');assert.deepEqual(unrealised.rows.map(r=>[r.reference,r.bookedValue,r.gainLoss]).sort(),[['AUD-BILL',-240,-160],['AUD-CREDIT',-30,-20],['AUD-INV',180,120]]);
  const forecast=await get('cash-flow-forecast');assert.equal(forecast.rows[0].projected,930);assert.equal(forecast.rows.at(-1).projected,840);

@@ -181,6 +181,24 @@ test("all 12 Profit & Loss reports share professional A4 output, movable stamps,
   assert.match(css, /@page pnl \{ size: A4 landscape; margin: 10mm; \}/);
 });
 
+test("all 15 Financial reports share professional A4 output, movable stamps, and document-area links", () => {
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const financial = readFileSync(new URL("../app/financial-report.tsx", import.meta.url), "utf8");
+  const sharedExport = readFileSync(new URL("../lib/report-export.ts", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  const definitions = [...app.matchAll(/\["[^"]+",\s*"[^"]+",\s*"Financial",\s*"([^"]+)"\]/g)].map((match) => match[1]);
+  assert.equal(definitions.length, 15);
+  assert.equal(new Set(definitions).size, 15);
+  assert.match(app, /const financialReportKeys = new Set\(\[[^\]]+"cash-flow-forecast"\]\)/);
+  assert.match(app, /const stampReport = vendorReportKeys\.has\([^)]*\) \|\| isProfitLossReport \|\| isFinancialReport/);
+  assert.match(app, /financial-dialog.*financialLandscape/);
+  assert.match(financial, /title="Open source document"[\s\S]*onOpen\(Number\(row\.transactionId\)\)/);
+  assert.match(financial, /title="Open full account history"[\s\S]*setAccount/);
+  assert.match(sharedExport, /financialLandscapeReports/);
+  assert.match(css, /@page financial-portrait \{ size: A4 portrait; margin: 10mm; \}/);
+  assert.match(css, /@page financial-landscape \{ size: A4 landscape; margin: 10mm; \}/);
+});
+
 test("complete business final report links executive measures to detailed report areas", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const api = readFileSync(new URL("../app/api/reports/route.ts", import.meta.url), "utf8");
