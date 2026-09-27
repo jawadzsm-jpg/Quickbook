@@ -207,7 +207,7 @@ test("all 3 Budget reports have summaries, one export control, A4 output, accoun
   const definitions = [...app.matchAll(/\["[^"]+",\s*"[^"]+",\s*"Budgets",\s*"([^"]+)"\]/g)].map((match) => match[1]);
   assert.deepEqual(definitions, ["budget-overview", "budget-actual", "budget-actual-graph"]);
   assert.match(app, /budgetOverview && <section className="budget-summary"/);
-  assert.match(app, /isBudgetReport \? <DropdownMenu>/);
+  assert.match(app, /isBudgetReport \|\| isSalesReport \? <DropdownMenu>/);
   assert.match(app, /stampReport = [^;]+\|\| isBudgetReport/);
   assert.match(app, /accountId > 0[\s\S]*setLinkedAccount/);
   assert.match(budget, /Net favourable variance/);
@@ -215,6 +215,28 @@ test("all 3 Budget reports have summaries, one export control, A4 output, accoun
   assert.match(css, /@page budget-report \{ size: A4 landscape; margin: 10mm; \}/);
   assert.match(css, /\.report-dialog\.budget-report-dialog/);
   assert.match(css, /\[data-appearance="dark"\] \.report-dialog \.budget-summary/);
+});
+
+test("all 12 Sales reports have professional summaries, one export control, A4 output, linked documents, customer links, and movable stamps", () => {
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const api = readFileSync(new URL("../app/api/reports/route.ts", import.meta.url), "utf8");
+  const sales = readFileSync(new URL("../lib/sales-report.ts", import.meta.url), "utf8");
+  const sharedExport = readFileSync(new URL("../lib/report-export.ts", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  const definitions = [...app.matchAll(/\["[^"]+",\s*"[^"]+",\s*"Sales",\s*"([^"]+)"\]/g)].map((match) => match[1]);
+  assert.equal(definitions.length, 12);
+  assert.equal(new Set(definitions).size, 12);
+  assert.match(app, /salesOverview && <section className="sales-summary"/);
+  assert.match(app, /isBudgetReport \|\| isSalesReport \? <DropdownMenu>/);
+  assert.match(app, /stampReport = [^;]+\|\| isSalesReport/);
+  assert.match(app, /isSalesReport && \["customer", "name"\][\s\S]*onCustomer/);
+  assert.match(api, /transactionId: row\.id, date: row\.transactionDate, number: row\.number/);
+  assert.match(api, /sourceReferenceTransactionId: value\.sourceTransactionId/);
+  assert.match(sales, /export const salesReportKeys = new Set/);
+  assert.match(sharedExport, /salesReportKeys\.has/);
+  assert.match(css, /@page sales-report \{ size: A4 landscape; margin: 10mm; \}/);
+  assert.match(css, /\.report-dialog\.sales-report-dialog/);
+  assert.match(css, /\[data-appearance="dark"\] \.report-dialog \.sales-summary/);
 });
 
 test("report dialogs fit the screen and attachments appear only in their named record areas", () => {
