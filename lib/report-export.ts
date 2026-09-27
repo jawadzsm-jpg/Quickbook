@@ -1,3 +1,5 @@
+import { budgetReportKeys, budgetSummary } from "./budget-report";
+
 export type ReportExportColumn = { key: string; label: string; type?: "money" };
 export type ReportExportRow = Record<string, string | number | null>;
 export type ReportExportData = {
@@ -76,7 +78,7 @@ export async function reportWorkbook(report: ReportExportData, company: string, 
   book.modified = new Date();
   const sheet = book.addWorksheet("Report", {
     views: [{ state: "frozen", ySplit: 9 }],
-    pageSetup: { paperSize: 9, orientation: financialLandscapeReports.has(report.key || "") || report.columns.length > 6 ? "landscape" : "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 } },
+    pageSetup: { paperSize: 9, orientation: financialLandscapeReports.has(report.key || "") || budgetReportKeys.has(report.key || "") || report.columns.length > 6 ? "landscape" : "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 } },
   });
   const columnCount = Math.max(1, report.columns.length);
   sheet.addRow([company]);
@@ -144,9 +146,10 @@ export async function reportPdf(report: ReportExportData, company: string, inven
   const [{ jsPDF }, { autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
   const vendorLandscapeReports = new Set(["supplier-quickreport", "supplier-open-balance", "ap-aging-detail", "vendor-balances", "supplier-balance-detail", "unpaid-bills-detail", "accounts-payable-graph", "supplier-transactions"]);
   const profitLossLandscapeReports = new Set(["budget-profit-loss", "stock-pricing-profit", "item-profitability"]);
-  const pdf = new jsPDF({ orientation: vendorLandscapeReports.has(report.key || "") || profitLossLandscapeReports.has(report.key || "") || financialLandscapeReports.has(report.key || "") || report.columns.length > 6 ? "landscape" : "portrait", format: "a4", unit: "mm" });
+  const pdf = new jsPDF({ orientation: vendorLandscapeReports.has(report.key || "") || profitLossLandscapeReports.has(report.key || "") || financialLandscapeReports.has(report.key || "") || budgetReportKeys.has(report.key || "") || report.columns.length > 6 ? "landscape" : "portrait", format: "a4", unit: "mm" });
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
+  const summary = budgetSummary({ key: report.key, rows });
   const drawHeader = () => {
     pdf.setFillColor(16, 32, 51);
     pdf.rect(0, 0, pageWidth, 38, "F");
@@ -161,8 +164,26 @@ export async function reportPdf(report: ReportExportData, company: string, inven
     pdf.setTextColor(215, 226, 236);
     pdf.text(`${inventory || "All inventories"} | ${report.period?.label || "Current report"} | ${report.currency} report currency | ${rows.length} records`, 12, 31, { maxWidth: pageWidth - 24 });
   };
+  if (summary) {
+    const gap = 3;
+    const cardWidth = (pageWidth - 20 - gap * (summary.cards.length - 1)) / summary.cards.length;
+    summary.cards.forEach((card, index) => {
+      const x = 10 + index * (cardWidth + gap);
+      pdf.setFillColor(244, 247, 250);
+      pdf.setDrawColor(215, 222, 231);
+      pdf.roundedRect(x, 42, cardWidth, 15, 1.5, 1.5, "FD");
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(6.5);
+      pdf.setTextColor(90, 104, 119);
+      pdf.text(card.label.toUpperCase(), x + 2.5, 47, { maxWidth: cardWidth - 5 });
+      pdf.setFontSize(9);
+      pdf.setTextColor(card.tone === "negative" ? 190 : card.tone === "positive" ? 4 : 15, card.tone === "negative" ? 24 : card.tone === "positive" ? 120 : 23, card.tone === "negative" ? 60 : card.tone === "positive" ? 87 : 42);
+      const value = card.format === "money" ? `${report.currency} ${displayValue(card.value, true)}` : card.value.toLocaleString("en-AE");
+      pdf.text(value, x + 2.5, 53.5, { maxWidth: cardWidth - 5 });
+    });
+  }
   autoTable(pdf, {
-    startY: 44,
+    startY: summary ? 62 : 44,
     margin: { top: 44, bottom: 17, left: 10, right: 10 },
     head: [report.columns.map((column) => column.label)],
     body: rows.map((row) => report.columns.map((column) => displayValue(row[column.key], column.type === "money"))),
