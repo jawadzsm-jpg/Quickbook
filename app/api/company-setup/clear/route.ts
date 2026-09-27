@@ -78,7 +78,8 @@ export async function POST(request: Request) {
         for (const table of ["transactions", "journal_entries", "vat_returns", "vat_adjustments", "idempotency_requests"]) {
           await db.execute(sql`DELETE FROM ${sql.identifier(table)} WHERE company_id=${companyId}`);
         }
-        // Keep the full Chart of Accounts, but remove balances that belonged to deleted history.
+        // Permanent protection: never delete or rebuild the Chart of Accounts. Keep every
+        // original main account and sub-account, resetting only transaction-derived balances.
         await db.execute(sql`UPDATE accounts SET balance=0 WHERE company_id=${companyId}`);
         await db.execute(sql`UPDATE contacts SET balance=0 WHERE company_id=${companyId}`);
       }
@@ -114,7 +115,7 @@ export async function POST(request: Request) {
       if (selected.has("setup")) {
         [record] = await db.update(companies).set({ logoData: "", rightLogoData: "", loginLogoData: "", loginCompanyLogoData: "", loginDisplayName: "", loginCopyrightYears: "1996-2021", loginBackgroundData: "", loginBackgroundColor: "#f3f6fa", stampData: "", documentDesign: "", letterheadDesign: "", addressLine1: "", addressLine2: "", city: "", country: "", phone: "", email: "", trn: "", bankName: "", bankAccountName: "", bankAccountNumber: "", bankIban: "", bankSwift: "", bankCurrency: company.baseCurrency, documentTemplate: "modern", documentColor: "#10b981" }).where(eq(companies.id, companyId)).returning();
       }
-      await db.insert(auditLog).values({ companyId, action: "cleared", entityType: "company_setup", entityId: companyId, details: `Selected company data (${sections.join(", ")}) cleared by assigned company Administrator ${user.id} (${user.email}) for ${company.name}; Chart of Accounts, company identity, base currency, user access, audit history and cross-company stock-transfer history retained.` });
+      await db.insert(auditLog).values({ companyId, action: "cleared", entityType: "company_setup", entityId: companyId, details: `Selected company data (${sections.join(", ")}) cleared by assigned company Administrator ${user.id} (${user.email}) for ${company.name}; original Chart of Accounts and all sub-accounts retained with transaction-derived balances reset to zero. Company identity, base currency, user access, audit history and cross-company stock-transfer history retained.` });
       return Response.json({ record, cleared: sections }, { headers: { "Cache-Control": "no-store" } });
     });
   } catch (error) {

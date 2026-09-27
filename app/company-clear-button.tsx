@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { toast } from "sonner";
 
 const clearOptions = [
-  { id: "transactions", label: "Transactions, payments and cheques", detail: "Clears sales, purchases, banking transactions, allocations, journal entries, VAT transaction history and internal stock-transfer history." },
+  { id: "transactions", label: "Transactions, payments and cheques", detail: "Clears transaction history only. The original Chart of Accounts, including every sub-account, is kept and all account balances are reset to zero." },
   { id: "inventory", label: "Items and inventory data", detail: "Clears items, stock movements, inventory checks and active inventory locations. Locations required by cross-company transfers are retained as inactive." },
   { id: "contacts", label: "Customers, vendors and employees", detail: "Clears contact records, employee attachments and their linked warranty/RMA records." },
   { id: "reports", label: "Saved reports and attachments", detail: "Clears memorised reports, inventory-check reports and remaining record attachments." },
@@ -76,7 +76,7 @@ export function CompanyClearButton({ companyId, companyName, disabled }: { compa
               <span><strong className="block">{option.label}</strong><span className="mt-1 block text-xs text-muted-foreground">{option.detail}</span></span>
             </label>)}
           </div>
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950"><strong>Always kept:</strong> the complete Chart of Accounts. If transaction history is cleared, account and contact balances are reset to zero.</div>
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950"><strong>Protected and always kept:</strong> the original Chart of Accounts and every sub-account. They cannot be cleared. Clearing transactions only resets their balances to zero.</div>
           <label className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-950">
             <Checkbox checked={confirmed} onCheckedChange={(checked) => setConfirmed(checked === true)} />
             <span>I confirm I want to permanently clear the selected data from <strong>{companyName}</strong>.</span>

@@ -1755,6 +1755,7 @@ test('company clearing requires administrator password and company access, prese
     const packingList=(await database.query("INSERT INTO packing_lists (company_id,location_id,invoice_id,number,packing_date) VALUES ($1,$2,$3,'PACK-CLEAR','2026-09-13') RETURNING id",[company,source,invoice])).rows[0].id;
     await database.query("INSERT INTO packing_list_lines (packing_list_id,invoice_line_id,description,packed_quantity,units_per_carton,carton_count) VALUES ($1,$2,'Packed item',1,1,1)",[packingList,invoiceLine]);
     const keptAccount=(await database.query("INSERT INTO accounts (company_id,code,name,type,balance) VALUES ($1,'KEEP-100','Kept main account','Bank',250) RETURNING id",[company])).rows[0].id;
+    const keptSubAccount=(await database.query("INSERT INTO accounts (company_id,code,name,type,parent_account_id,balance) VALUES ($1,'KEEP-110','Kept sub-account','Bank',$2,125) RETURNING id",[company,keptAccount])).rows[0].id;
     await database.query('UPDATE transactions SET sales_source_id=$1 WHERE id=$2',[first,invoice]);
     await database.query('INSERT INTO invoice_payment_allocations (payment_id,invoice_id,amount) VALUES ($1,$2,10)',[invoice,first]);
     await database.query("INSERT INTO record_attachments (company_id,entity_type,entity_id,file_name,file_data) VALUES ($1,'transaction',$2,'test','data')",[company,first]);
@@ -1776,6 +1777,7 @@ test('company clearing requires administrator password and company access, prese
     assert.equal((await database.query('SELECT active FROM inventory_locations WHERE id=$1',[dest])).rows[0].active,true);
     assert.equal((await database.query('SELECT id FROM transactions WHERE id=$1',[untouched])).rows.length,1);
     assert.deepEqual((await database.query('SELECT id,balance FROM accounts WHERE id=$1',[keptAccount])).rows,[{id:keptAccount,balance:0}]);
+    assert.deepEqual((await database.query('SELECT id,parent_account_id,balance FROM accounts WHERE id=$1',[keptSubAccount])).rows,[{id:keptSubAccount,parent_account_id:keptAccount,balance:0}]);
     assert.equal((await database.query('SELECT phone FROM companies WHERE id=$1',[other])).rows[0].phone,'456');
     assert.equal((await database.query('SELECT * FROM audit_log WHERE company_id=$1',[company])).rows.length,2);
     assert.equal((await database.query('SELECT * FROM app_users WHERE id=$1',[userId])).rows.length,1);
