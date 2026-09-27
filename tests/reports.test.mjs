@@ -157,18 +157,23 @@ test("sales postings hit revenue, VAT, COGS and inventory accounts and sales rep
   assert.equal(customerRow.amount, 100);
   assert.equal(customerRow.vat, 5);
   assert.equal(customerRow.total, 105);
+  assert.equal(customerRow.transactionId, invoice.id);
 
   const byItem = await reportGet("sales-by-item");
   assert.equal(byItem.rows.find((row) => row.name === "Sales Stock").amount, 100);
+  assert.equal(byItem.rows.find((row) => row.name === "Sales Stock").sourceReferenceTransactionId, invoice.id);
+  assert.ok(byItem.columns.some((column) => column.key === "sourceReference"));
 
   const itemDetail = await reportGet("sales-by-item-detail");
   assert.equal(itemDetail.rows.find((row) => row.number === invoice.number).amount, 100);
+  assert.equal(itemDetail.rows.find((row) => row.number === invoice.number).transactionId, invoice.id);
 
   const byRep = await reportGet("sales-by-rep-summary");
   assert.equal(byRep.rows.find((row) => row.salesman === "Rep Audit").amount, 100);
 
   const repDetail = await reportGet("sales-by-rep-detail");
   assert.equal(repDetail.rows.find((row) => row.number === invoice.number).amount, 100);
+  assert.equal(repDetail.rows.find((row) => row.number === invoice.number).transactionId, invoice.id);
 
   const daily = await reportGet("daily-sales-summary");
   const dailyRow = daily.rows.find((row) => row.date === "2026-09-20");
@@ -856,6 +861,21 @@ test('budget summaries calculate account and monthly performance and export to A
   const { reportPdf } = await vite.ssrLoadModule('/lib/report-export.ts');
   const report = { key: 'budget-actual-graph', title: 'Budget vs. Actual Graph', generatedAt: '2026-09-27T10:00:00.000Z', currency: 'AED', columns: [{ key: 'month', label: 'Month' }, { key: 'budget', label: 'Budget', type: 'money' }, { key: 'actual', label: 'Actual', type: 'money' }], rows: [{ month: '2026-01', budget: 100, actual: 90 }] };
   const pdf = Buffer.from(await reportPdf(report, 'Budget Company', 'Main Inventory')).toString('latin1');
+  const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(page);
+  assert.ok(Math.abs(Number(page[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(page[2]) - 595.28) < 0.01);
+});
+
+test('sales summaries provide report-specific KPIs and export every Sales report to A4 landscape PDF', async () => {
+  const { salesReportKeys, salesSummary, salesDetailTarget } = await vite.ssrLoadModule('/lib/sales-report.ts');
+  assert.equal(salesReportKeys.size, 12);
+  const customer = salesSummary({ key: 'sales-by-customer', rows: [{ name: 'A', amount: 100 }, { name: 'B', amount: 300 }] });
+  assert.deepEqual(customer.cards.map(card => card.value), [400, 2, 200, 300]);
+  assert.equal(salesDetailTarget('sales-by-customer'), 'sales-by-customer-detail');
+  const graph = salesSummary({ key: 'sales-graph', rows: [{ month: '2026-08', sales: 500, refunds: 50 }, { month: '2026-09', sales: 300, refunds: 20 }] });
+  assert.deepEqual(graph.cards.map(card => card.value), [800, 70, 730, 2]);
+  const { reportPdf } = await vite.ssrLoadModule('/lib/report-export.ts');
+  const report = { key: 'sales-by-customer', title: 'Sales by Customer Summary', generatedAt: '2026-09-27T10:00:00.000Z', currency: 'AED', columns: [{ key: 'name', label: 'Customer' }, { key: 'amount', label: 'Sales', type: 'money' }], rows: [{ name: 'A', amount: 100 }] };
+  const pdf = Buffer.from(await reportPdf(report, 'Sales Company', 'Main Inventory')).toString('latin1');
   const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(page);
   assert.ok(Math.abs(Number(page[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(page[2]) - 595.28) < 0.01);
 });
