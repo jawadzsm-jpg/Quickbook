@@ -314,6 +314,23 @@ test('Chart of Accounts system roles stay connected to their accounting purpose'
   assert.equal(good.status,201,await good.clone().text());
 });
 
+test('professional Chart of Accounts installer preserves existing records and links standard sub-accounts', async () => {
+  const companyId=(await database.query("INSERT INTO companies(name,base_currency) VALUES('COA standard installer','AED') RETURNING id")).rows[0].id;
+  const existing=(await database.query("INSERT INTO accounts(company_id,code,name,type,system_role,currency,balance) VALUES($1,'1000','Business Bank','Bank','BANK','AED',321) RETURNING id",[companyId])).rows[0];
+  const {POST}=await vite.ssrLoadModule('/app/api/records/route.ts');
+  const install=()=>POST(new Request('https://app.test/api/records',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind:'accounts',companyId,standardTemplate:true,currency:'AED'})}));
+  const first=await install();
+  assert.equal(first.status,200,await first.clone().text());
+  assert.ok((await first.json()).installed>40);
+  const second=await install();
+  assert.deepEqual(await second.json(),{installed:0,total:56});
+  const preserved=(await database.query('SELECT id,balance FROM accounts WHERE company_id=$1 AND code=$2',[companyId,'1000'])).rows[0];
+  assert.deepEqual(preserved,{id:existing.id,balance:321});
+  const child=(await database.query("SELECT child.name,parent.name AS parent FROM accounts child LEFT JOIN accounts parent ON parent.id=child.parent_account_id WHERE child.company_id=$1 AND child.code='6110'",[companyId])).rows[0];
+  assert.deepEqual(child,{name:'Rent Expense',parent:'Operating Expenses'});
+  assert.equal((await database.query("SELECT count(*)::int AS count FROM accounts WHERE company_id=$1 AND system_role IN ('INPUT_VAT','OUTPUT_VAT')",[companyId])).rows[0].count,2);
+});
+
 test('stock item links Inventory Asset and calculates average purchase cost in home currency', async () => {
   const companyId = (await database.query("INSERT INTO companies (name,base_currency) VALUES ('Item costing test','AED') RETURNING id")).rows[0].id;
   const locationId = (await database.query("INSERT INTO inventory_locations (company_id,name,code,invoice_prefix) VALUES ($1,'Main','AVG','AVG') RETURNING id",[companyId])).rows[0].id;

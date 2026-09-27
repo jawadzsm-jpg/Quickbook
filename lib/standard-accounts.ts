@@ -1,0 +1,68 @@
+export type StandardAccount = {
+  code: string;
+  name: string;
+  type: string;
+  systemRole?: string;
+  parentCode?: string;
+};
+
+// UAE-ready, enterprise-style chart. Existing codes/names are never overwritten;
+// the installer only fills gaps and then connects safe parent/sub-account links.
+export const standardAccounts: StandardAccount[] = [
+  { code: "1000", name: "Business Bank", type: "Bank", systemRole: "BANK" },
+  { code: "1010", name: "Petty Cash", type: "Bank", parentCode: "1000" },
+  { code: "1020", name: "Undeposited Funds", type: "Other Current Asset" },
+  { code: "1100", name: "Accounts Receivable", type: "Accounts Receivable", systemRole: "AR" },
+  { code: "1150", name: "Allowance for Doubtful Accounts", type: "Other Current Asset" },
+  { code: "1200", name: "Inventory Asset", type: "Other Current Asset", systemRole: "INVENTORY" },
+  { code: "1250", name: "Prepaid Expenses", type: "Other Current Asset" },
+  { code: "1300", name: "Recoverable VAT", type: "Other Current Asset", systemRole: "INPUT_VAT" },
+  { code: "1400", name: "Employee Advances", type: "Other Current Asset" },
+  { code: "1500", name: "Property and Equipment", type: "Fixed Asset" },
+  { code: "1510", name: "Furniture and Fixtures", type: "Fixed Asset", parentCode: "1500" },
+  { code: "1520", name: "Computer Equipment", type: "Fixed Asset", parentCode: "1500" },
+  { code: "1530", name: "Vehicles", type: "Fixed Asset", parentCode: "1500" },
+  { code: "1590", name: "Accumulated Depreciation", type: "Fixed Asset", parentCode: "1500" },
+  { code: "1900", name: "Other Assets", type: "Other Asset" },
+  { code: "2000", name: "Accounts Payable", type: "Accounts Payable", systemRole: "AP" },
+  { code: "2050", name: "Accrued Expenses", type: "Other Current Liability" },
+  { code: "2100", name: "VAT Payable", type: "Other Current Liability", systemRole: "OUTPUT_VAT" },
+  { code: "2200", name: "Payroll Liabilities", type: "Other Current Liability" },
+  { code: "2300", name: "Corporate Credit Card", type: "Credit Card" },
+  { code: "2400", name: "Short-term Loans", type: "Loan" },
+  { code: "2500", name: "End of Service Benefits", type: "Long Term Liability" },
+  { code: "2600", name: "Other Current Liabilities", type: "Other Current Liability" },
+  { code: "2700", name: "Long-term Liabilities", type: "Long Term Liability" },
+  { code: "3000", name: "Opening Balance Equity", type: "Equity", systemRole: "EQUITY" },
+  { code: "3100", name: "Owner Capital", type: "Equity" },
+  { code: "3200", name: "Retained Earnings", type: "Equity" },
+  { code: "3300", name: "Owner Drawings", type: "Equity" },
+  { code: "4000", name: "Sales Revenue", type: "Income", systemRole: "SALES" },
+  { code: "4010", name: "Product Sales", type: "Income", parentCode: "4000" },
+  { code: "4020", name: "Service Revenue", type: "Income", parentCode: "4000" },
+  { code: "4100", name: "Other Income", type: "Other Income", systemRole: "OTHER_INCOME" },
+  { code: "4200", name: "Sales Returns and Discounts", type: "Income" },
+  { code: "5000", name: "Cost of Goods Sold", type: "Cost of Goods Sold", systemRole: "COGS" },
+  { code: "5010", name: "Direct Material Cost", type: "Cost of Goods Sold", parentCode: "5000" },
+  { code: "5020", name: "Freight and Customs Duty", type: "Cost of Goods Sold", parentCode: "5000" },
+  { code: "5030", name: "Inventory Adjustments", type: "Cost of Goods Sold", parentCode: "5000" },
+  { code: "6000", name: "Purchases", type: "Expense", systemRole: "PURCHASES" },
+  { code: "6100", name: "Operating Expenses", type: "Expense", systemRole: "EXPENSE" },
+  { code: "6110", name: "Rent Expense", type: "Expense", parentCode: "6100" },
+  { code: "6120", name: "Utilities Expense", type: "Expense", parentCode: "6100" },
+  { code: "6130", name: "Office Supplies", type: "Expense", parentCode: "6100" },
+  { code: "6140", name: "Professional Fees", type: "Expense", parentCode: "6100" },
+  { code: "6150", name: "Advertising and Marketing", type: "Expense", parentCode: "6100" },
+  { code: "6160", name: "Travel and Entertainment", type: "Expense", parentCode: "6100" },
+  { code: "6170", name: "Insurance Expense", type: "Expense", parentCode: "6100" },
+  { code: "6180", name: "Depreciation Expense", type: "Expense", parentCode: "6100" },
+  { code: "6200", name: "Payroll Expense", type: "Expense", systemRole: "PAYROLL" },
+  { code: "6210", name: "Salaries and Wages", type: "Expense", parentCode: "6200" },
+  { code: "6220", name: "Employee Benefits", type: "Expense", parentCode: "6200" },
+  { code: "6300", name: "Bank Charges", type: "Expense" },
+  { code: "6400", name: "Bad Debt Expense", type: "Expense" },
+  { code: "6500", name: "Repairs and Maintenance", type: "Expense" },
+  { code: "6600", name: "Miscellaneous Expense", type: "Expense" },
+  { code: "7000", name: "Other Expense", type: "Other Expense" },
+  { code: "9999", name: "Suspense", type: "Other Current Asset", systemRole: "SUSPENSE" },
+];

@@ -3,16 +3,8 @@ import { getDb, withWriteTransaction } from "../../../db";
 import { accounts, auditLog, companies, exchangeRates, inventoryLocations, transactions, vatCodes } from "../../../db/schema";
 import { canAccessCompany, isAdministrator, requireApiUser } from "@/lib/auth";
 import { normalizeComparableText } from "@/lib/text-normalization";
+import { standardAccounts } from "@/lib/standard-accounts";
 
-const standardAccounts = [
-  ["1000", "Business Bank", "Bank", "BANK"], ["1100", "Accounts Receivable", "Accounts Receivable", "AR"],
-  ["1200", "Inventory Asset", "Other Current Asset", "INVENTORY"], ["1300", "Recoverable VAT", "Other Current Asset", "INPUT_VAT"],
-  ["2000", "Accounts Payable", "Accounts Payable", "AP"], ["2100", "VAT Payable", "Other Current Liability", "OUTPUT_VAT"],
-  ["3000", "Opening Balance Equity", "Equity", "EQUITY"], ["4000", "Sales Revenue", "Income", "SALES"],
-  ["4100", "Other Income", "Other Income", "OTHER_INCOME"], ["5000", "Cost of Goods Sold", "Cost of Goods Sold", "COGS"],
-  ["6000", "Purchases", "Expense", "PURCHASES"], ["6100", "Operating Expenses", "Expense", "EXPENSE"],
-  ["6200", "Payroll Expense", "Expense", "PAYROLL"], ["9999", "Suspense", "Other Current Asset", "SUSPENSE"],
-] as const;
 const standardVatCodes = [
   { code: "STANDARD", name: "Standard rated", rate: 5, description: "Standard UAE VAT rate", system: true },
   { code: "ZERO", name: "Zero rated", rate: 0, description: "Taxable supply charged at 0%", system: true },
@@ -72,8 +64,16 @@ export async function POST(request: Request) {
         const [location] = await tx.insert(inventoryLocations).values({ companyId: company.id, name: "Main Inventory", code: "MAIN", invoicePrefix: "MAIN" }).returning();
         const accountValues = sourceAccounts.length
           ? sourceAccounts.map((account) => ({ companyId: company.id, code: account.code, name: account.name, type: account.type, systemRole: account.systemRole, currency: account.currency === account.sourceBaseCurrency ? baseCurrency : account.currency, active: account.active, parentAccountId: null, balance: 0 }))
-          : standardAccounts.map(([code, accountName, accountType, systemRole]) => ({ companyId: company.id, code, name: accountName, type: accountType, systemRole, currency: baseCurrency, parentAccountId: null, balance: 0 }));
+          : standardAccounts.map(({ code, name: accountName, type: accountType, systemRole }) => ({ companyId: company.id, code, name: accountName, type: accountType, systemRole: systemRole ?? null, currency: baseCurrency, parentAccountId: null, balance: 0 }));
         await tx.insert(accounts).values(accountValues);
+        if (!sourceAccounts.length) {
+          const createdAccounts = await tx.select({ id: accounts.id, code: accounts.code }).from(accounts).where(eq(accounts.companyId, company.id));
+          const byCode = new Map(createdAccounts.map((account) => [account.code, account.id]));
+          for (const standard of standardAccounts.filter((account) => account.parentCode)) {
+            const id = byCode.get(standard.code), parentAccountId = byCode.get(standard.parentCode!);
+            if (id && parentAccountId) await tx.update(accounts).set({ parentAccountId }).where(eq(accounts.id, id));
+          }
+        }
         await tx.insert(vatCodes).values(standardVatCodes.map((vatCode) => ({ companyId: company.id, ...vatCode })));
         await tx.insert(exchangeRates).values({ companyId: company.id, currencyCode: baseCurrency, rate: 1 });
         return Response.json({ company: { ...company, locations: [location] } }, { status: 201 });

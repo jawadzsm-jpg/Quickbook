@@ -12,6 +12,7 @@ import { customerConflict, validInternationalPhone } from "../../../lib/customer
 import { canAccessCompany, isAdministrator, hasPermission, requireApiUser, type Permission, type SessionUser } from "@/lib/auth";
 import { normalizeComparableText, uppercaseText } from "@/lib/text-normalization";
 import { uaeChequeLayout, uaeChequeLayouts, validChequeAlignment } from "@/lib/uae-cheque-layouts";
+import { standardAccounts } from "@/lib/standard-accounts";
 
 type RecordKind = "transactions" | "contacts" | "items" | "accounts";
 type InputLine = { comments?: string; serialNumber?: string; freightCharge?: number | string; isFreightCharge?: boolean; orderLineId?: number; sourceLineId?: number; itemId?: number | string | null; description?: string; quantity?: number | string; unitPrice?: number | string; unitCost?: number | string; vatCode?: string; vatRate?: number | string };
@@ -584,6 +585,27 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     }
 
     if (kind === "accounts") {
+      if (payload.standardTemplate === true) {
+        const templateCurrency = String(payload.currency ?? "AED").trim().toUpperCase();
+        if (!/^[A-Z]{3}$/.test(templateCurrency)) return Response.json({ error: "Choose a valid three-letter account currency." }, { status: 400 });
+        const existing = await db.select({ id: accounts.id, code: accounts.code, name: accounts.name, systemRole: accounts.systemRole }).from(accounts).where(eq(accounts.companyId, companyId));
+        const codes = new Set(existing.map((account) => normalizeComparableText(account.code)));
+        const names = new Set(existing.map((account) => normalizeComparableText(account.name)));
+        const roles = new Set(existing.map((account) => account.systemRole).filter(Boolean));
+        const missing = standardAccounts.filter((account) => !codes.has(normalizeComparableText(account.code)) && !names.has(normalizeComparableText(account.name)));
+        if (missing.length) await db.insert(accounts).values(missing.map((account) => ({
+          companyId, code: account.code, name: account.name, type: account.type,
+          systemRole: account.systemRole && !roles.has(account.systemRole) ? account.systemRole : null,
+          currency: templateCurrency, balance: 0, active: true,
+        })));
+        const rows = await db.select({ id: accounts.id, code: accounts.code, parentAccountId: accounts.parentAccountId }).from(accounts).where(eq(accounts.companyId, companyId));
+        const byCode = new Map(rows.map((account) => [account.code, account.id]));
+        for (const standard of standardAccounts.filter((account) => account.parentCode)) {
+          const id = byCode.get(standard.code), parentAccountId = byCode.get(standard.parentCode!);
+          if (id && parentAccountId) await db.update(accounts).set({ parentAccountId }).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId), sql`${accounts.parentAccountId} IS NULL`));
+        }
+        return Response.json({ installed: missing.length, total: rows.length });
+      }
       const name = String(payload.name ?? "").trim();
       const code = uppercaseText(payload.code);
       if (!name || !code) return Response.json({ error: "Account code and name are required." }, { status: 400 });
