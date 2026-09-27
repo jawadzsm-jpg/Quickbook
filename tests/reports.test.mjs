@@ -1005,6 +1005,33 @@ test('accountant summaries provide control KPIs and export all 11 Accountant rep
   assert.ok(Math.abs(Number(page[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(page[2]) - 595.28) < 0.01);
 });
 
+test('Lists summaries provide master-data KPIs and export all 15 reports to fitted A4 landscape PDF', async () => {
+  const { listReportKeys, listSummary, listDetailTarget } = await vite.ssrLoadModule('/lib/list-report.ts');
+  assert.equal(listReportKeys.size, 15);
+  const accounts = listSummary({ key: 'account-listing', rows: [
+    { name: 'Cash', status: 'Active', parent: '—', type: 'Bank', balance: 1000 },
+    { name: 'Petty Cash', status: 'Active', parent: 'Cash', type: 'Bank', balance: 200 },
+    { name: 'Old Account', status: 'Inactive', parent: '—', type: 'Expense', balance: 0 },
+  ] });
+  assert.deepEqual(accounts.cards.map(card => card.value), [3, 2, 1, 1, 2, 1200]);
+  const items = listSummary({ key: 'item-listing', rows: [
+    { category: 'Hardware', quantity: 5, reorder: 2, cost: 100, status: 'active' },
+    { category: 'Hardware', quantity: 1, reorder: 2, cost: 50, status: 'inactive' },
+  ] });
+  assert.deepEqual(items.cards.map(card => card.value), [550, 2, 6, 1, 1, 1]);
+  const contacts = listSummary({ key: 'customer-contact-list', rows: [
+    { status: 'active', email: 'a@example.test', phone: '123', country: 'UAE' },
+    { status: 'inactive', email: '—', phone: '—', country: 'UAE' },
+  ] });
+  assert.deepEqual(contacts.cards.map(card => card.value), [2, 1, 1, 1, 1, 1]);
+  assert.equal(listDetailTarget('item-listing'), 'item-price-list');
+  const { reportPdf } = await vite.ssrLoadModule('/lib/report-export.ts');
+  const report = { key: 'item-listing', title: 'Item Listing', generatedAt: '2026-09-27T10:00:00.000Z', currency: 'AED', columns: [{ key: 'item', label: 'Item' }, { key: 'quantity', label: 'On Hand' }, { key: 'cost', label: 'Cost', type: 'money' }], rows: [{ item: 'Laptop', quantity: 5, reorder: 2, cost: 100, status: 'active' }] };
+  const pdf = Buffer.from(await reportPdf(report, 'Lists Company', 'Main Inventory')).toString('latin1');
+  const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(page);
+  assert.ok(Math.abs(Number(page[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(page[2]) - 595.28) < 0.01);
+});
+
 test('report date presets handle weeks, leap days, month ends and fiscal boundaries', async () => {
   const {presetDates,reportPeriod,reportMonths,previousYearDate} = await vite.ssrLoadModule('/lib/report-period.ts');
   assert.deepEqual(reportMonths('2026-12-15','2027-01-10'),[{month:'2026-12',from:'2026-12-15',to:'2026-12-31'},{month:'2027-01',from:'2027-01-01',to:'2027-01-10'}]);

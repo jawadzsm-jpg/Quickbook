@@ -607,15 +607,15 @@ export async function GET(request: Request) {
       columns = [{ key: "customer", label: "Customer" }, { key: "company", label: "Company" }, { key: "email", label: "Email" }, { key: "phone", label: "Phone" }, { key: "whatsapp", label: "WhatsApp" }, { key: "country", label: "Country" }, { key: "currency", label: "Currency" }, { key: "status", label: "Status" }];
     } else if (key === "item-price-list") {
       title = "Item Price List";
-      rows = allItems.filter((row) => row.status === "active").map((row) => ({ itemNumber: row.itemNumber || "—", sku: row.sku, item: row.name, category: row.category, quantity: row.quantity, price: row.salesPrice }));
+      rows = allItems.filter((row) => row.status === "active").map((row) => ({ itemId: row.id, itemNumber: row.itemNumber || "—", sku: row.sku, item: row.name, category: row.category, quantity: row.quantity, price: row.salesPrice }));
       columns = [{ key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "item", label: "Item" }, { key: "category", label: "Category" }, { key: "quantity", label: "On Hand" }, { key: "price", label: "Sales Price", ...money }];
     } else if (key === "item-price-level-list") {
       title = "Item Price List for Price Level";
-      rows = allItems.map((item) => ({ itemNumber: item.itemNumber || "—", sku: item.sku, item: item.name, level: "Default Selling Price", cost: item.cost, price: item.salesPrice, margin: item.salesPrice ? `${((item.salesPrice - item.cost) / item.salesPrice * 100).toFixed(1)}%` : "—", status: item.status }));
+      rows = allItems.map((item) => ({ itemId: item.id, itemNumber: item.itemNumber || "—", sku: item.sku, item: item.name, level: "Default Selling Price", cost: item.cost, price: item.salesPrice, margin: item.salesPrice ? `${((item.salesPrice - item.cost) / item.salesPrice * 100).toFixed(1)}%` : "—", status: item.status }));
       columns = [{ key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "item", label: "Item" }, { key: "level", label: "Price Level" }, { key: "cost", label: "Cost", ...money }, { key: "price", label: "Selling Price", ...money }, { key: "margin", label: "Margin" }, { key: "status", label: "Status" }];
     } else if (key === "item-listing") {
       title = "Item Listing";
-      rows = allItems.map((item) => ({ itemNumber: item.itemNumber || "—", sku: item.sku, item: item.name, category: item.category, quantity: item.quantity, reorder: item.reorderPoint, cost: item.cost, price: item.salesPrice, status: item.status }));
+      rows = allItems.map((item) => ({ itemId: item.id, itemNumber: item.itemNumber || "—", sku: item.sku, item: item.name, category: item.category, quantity: item.quantity, reorder: item.reorderPoint, cost: item.cost, price: item.salesPrice, status: item.status }));
       columns = [{ key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "item", label: "Item" }, { key: "category", label: "Category" }, { key: "quantity", label: "On Hand" }, { key: "reorder", label: "Reorder" }, { key: "cost", label: "Cost", ...money }, { key: "price", label: "Selling Price", ...money }, { key: "status", label: "Status" }];
     } else if (key === "employee-contact-list") {
       title = "Employee Contact List";
@@ -637,11 +637,11 @@ export async function GET(request: Request) {
       columns = [{ key: "terms", label: "Terms" }, { key: "days", label: "Due Days" }, { key: "documents", label: "Documents" }, { key: "names", label: "Customers / Suppliers" }];
     } else if (key === "to-do-notes") {
       title = "To Do Notes";
-      rows = scopedTransactions.filter((row) => row.memo.trim() && !["paid", "cleared", "closed", "cancelled"].includes(row.status)).map((row) => ({ dueDate: row.dueDate || "—", date: row.transactionDate, number: row.number, type: row.type, name: row.party || "—", note: row.memo, status: row.status }));
+      rows = scopedTransactions.filter((row) => row.memo.trim() && !["paid", "cleared", "closed", "cancelled"].includes(row.status)).map((row) => ({ transactionId: row.id, dueDate: row.dueDate || "—", date: row.transactionDate, number: row.number, numberTransactionId: row.id, type: row.type, name: row.party || "—", note: row.memo, status: row.status }));
       columns = [{ key: "dueDate", label: "Due Date" }, { key: "date", label: "Created" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "name", label: "Name" }, { key: "note", label: "Note" }, { key: "status", label: "Status" }];
     } else if (key === "memorised-transactions") {
       title = "Memorised Transaction Listing";
-      rows = scopedTransactions.filter((row) => /memorised|memorized|recurring|template/i.test(row.memo)).map((row) => ({ date: row.transactionDate, number: row.number, type: row.type, name: row.party || "—", account: row.account, memo: row.memo, currency: row.currency, amount: row.baseTotal }));
+      rows = scopedTransactions.filter((row) => /memorised|memorized|recurring|template/i.test(row.memo)).map((row) => ({ transactionId: row.id, date: row.transactionDate, number: row.number, numberTransactionId: row.id, type: row.type, name: row.party || "—", account: row.account, memo: row.memo, currency: row.currency, amount: row.baseTotal }));
       columns = [{ key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "name", label: "Name" }, { key: "account", label: "Account" }, { key: "memo", label: "Template / Frequency" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Amount", ...money }];
     } else if (key === "daily-sales-summary") {
       title = "Daily Sales Summary";

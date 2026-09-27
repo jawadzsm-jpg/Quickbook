@@ -380,6 +380,31 @@ test("all 11 Accountant reports have professional summaries, one export control,
   assert.match(css, /\[data-appearance="dark"\] \.report-dialog \.accountant-summary/);
 });
 
+test("all 15 Lists reports have professional summaries, one export control, A4 output, correct area links, and movable stamps", () => {
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const api = readFileSync(new URL("../app/api/reports/route.ts", import.meta.url), "utf8");
+  const lists = readFileSync(new URL("../lib/list-report.ts", import.meta.url), "utf8");
+  const sharedExport = readFileSync(new URL("../lib/report-export.ts", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  const definitions = [...app.matchAll(/\["[^"]+",\s*"[^"]+",\s*"Lists",\s*"([^"]+)"\]/g)].map((match) => match[1]);
+  assert.equal(definitions.length, 15);
+  assert.equal(new Set(definitions).size, 15);
+  assert.match(app, /listOverview && <section className="list-summary"/);
+  assert.match(app, /isListReport \|\| isBudgetReport[\s\S]*?isAccountantReport \? <DropdownMenu>/);
+  assert.match(app, /stampReport = [^;]+isListReport/);
+  assert.match(app, /isListReport && \["itemNumber", "sku", "item"\][\s\S]*onInventoryItem/);
+  assert.match(app, /onCustomerCenter=.*setView\("customers"\)/);
+  assert.match(app, /onEmployee=.*setView\("employees"\)/);
+  assert.match(api, /itemId: (?:row|item)\.id/);
+  assert.match(api, /numberTransactionId: row\.id/);
+  assert.match(lists, /export const listReportKeys = new Set/);
+  assert.match(sharedExport, /listReportKeys\.has/);
+  assert.match(sharedExport, /listSummary/);
+  assert.match(css, /@page list-report \{ size: A4 landscape; margin: 10mm; \}/);
+  assert.match(css, /\.report-dialog\.list-report-dialog/);
+  assert.match(css, /\[data-appearance="dark"\] \.report-dialog \.list-summary/);
+});
+
 test("report dialogs fit the screen and attachments appear only in their named record areas", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const attachments = readFileSync(new URL("../app/attachment-capture.tsx", import.meta.url), "utf8");
