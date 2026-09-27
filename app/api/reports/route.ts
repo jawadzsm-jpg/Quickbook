@@ -506,7 +506,7 @@ export async function GET(request: Request) {
       columns = agingColumns;
     } else if (key === "ap-aging-detail") {
       title = "A/P Aging Detail";
-      rows = vendorCurrencyTransactions.filter((row) => ["bill", "received item bill"].includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => { const age = row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0; return { supplier: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, status: row.status, age, amount: openBillAmount(row) }; });
+      rows = vendorCurrencyTransactions.filter((row) => ["bill", "received item bill"].includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => { const age = row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0; return { transactionId: row.id, supplier: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, status: row.status, age, amount: openBillAmount(row) }; });
       columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "No." }, { key: "status", label: "Status" }, { key: "age", label: "Days Overdue" }, { key: "amount", label: "Open Amount", ...money }];
     } else if (key === "customer-statements" || key === "vendor-statements") {
       const vendor = key === "vendor-statements";
@@ -707,15 +707,15 @@ export async function GET(request: Request) {
     } else if (key === "supplier-balance-detail") {
       title = "Supplier Balance Detail";
       const balances = new Map<string, number>();
-      rows = supplierActivities.filter((row) => !["purchase order", "item receipt"].includes(row.type)).map((row) => { const amount = supplierImpact(row); const balance = (balances.get(row.party) ?? 0) + amount; balances.set(row.party, balance); return { supplier: row.party, date: row.transactionDate, number: row.number, type: row.type, charge: amount > 0 ? amount : 0, payment: amount < 0 ? -amount : 0, balance }; });
+      rows = supplierActivities.filter((row) => !["purchase order", "item receipt"].includes(row.type)).map((row) => { const amount = supplierImpact(row); const balance = (balances.get(row.party) ?? 0) + amount; balances.set(row.party, balance); return { transactionId: row.id, supplier: row.party, date: row.transactionDate, number: row.number, type: row.type, charge: amount > 0 ? amount : 0, payment: amount < 0 ? -amount : 0, balance }; });
       columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "charge", label: "Bill / Charge", ...money }, { key: "payment", label: "Payment / Credit", ...money }, { key: "balance", label: "Balance", ...money }];
     } else if (key === "supplier-open-balance") {
       title = `${selectedSupplier!.name} · Open Balance`;
-      rows = vendorCurrencyTransactions.filter((row) => row.party === selectedSupplier!.name && ["bill", "received item bill"].includes(row.type) && !["paid", "cleared"].includes(row.status) && openBillAmount(row) > 0.005).map((row) => ({ supplier: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, status: row.status, age: row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0, amount: openBillAmount(row) }));
+      rows = vendorCurrencyTransactions.filter((row) => row.party === selectedSupplier!.name && ["bill", "received item bill"].includes(row.type) && !["paid", "cleared"].includes(row.status) && openBillAmount(row) > 0.005).map((row) => ({ transactionId: row.id, supplier: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, status: row.status, age: row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0, amount: openBillAmount(row) }));
       columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Bill Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "Bill No." }, { key: "status", label: "Status" }, { key: "age", label: "Days Overdue" }, { key: "amount", label: "Open Amount", ...money }];
     } else if (key === "unpaid-bills-detail") {
       title = "Unpaid Bills Detail";
-      rows = vendorCurrencyTransactions.filter((row) => ["bill", "received item bill"].includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => ({ supplier: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, type: row.type, status: row.status, overdueDays: row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0, currency: row.currency, amount: openBillAmount(row) }));
+      rows = vendorCurrencyTransactions.filter((row) => ["bill", "received item bill"].includes(row.type) && !["paid", "cleared"].includes(row.status)).map((row) => ({ transactionId: row.id, supplier: row.party, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, type: row.type, status: row.status, overdueDays: row.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86400000)) : 0, currency: row.currency, amount: openBillAmount(row) }));
       columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Bill Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "Bill No." }, { key: "type", label: "Type" }, { key: "status", label: "Status" }, { key: "overdueDays", label: "Days Overdue" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Open Amount", ...money }];
     } else if (key === "accounts-payable-graph") {
       title = "Accounts Payable Graph";
@@ -727,7 +727,7 @@ export async function GET(request: Request) {
       chart = { labelKey: "month", incomeKey: "bills", expenseKey: "payments" };
     } else if (key === "supplier-transactions" || key === "supplier-quickreport") {
       title = key === "supplier-quickreport" ? `${selectedSupplier!.name} · QuickReport` : "Transaction List by Supplier";
-      rows = supplierActivities.filter((row) => !selectedSupplier || row.party === selectedSupplier.name).map((row) => ({ supplier: row.party, date: row.transactionDate, number: row.number, type: row.type, status: row.status, currency: row.currency, amount: supplierImpact(row) }));
+      rows = supplierActivities.filter((row) => !selectedSupplier || row.party === selectedSupplier.name).map((row) => ({ transactionId: row.id, supplier: row.party, date: row.transactionDate, number: row.number, type: row.type, status: row.status, currency: row.currency, amount: supplierImpact(row) }));
       columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "status", label: "Status" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Net Amount", ...money }];
     } else if (key === "supplier-phone-list") {
       title = "Supplier Phone List";

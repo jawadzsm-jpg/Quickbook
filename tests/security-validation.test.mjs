@@ -156,7 +156,7 @@ test("vendor report library includes selected-vendor reports, native currencies,
   assert.match(app, /\["Open Balance", "Selected vendor's unpaid bills in transaction currency", "Vendors", "supplier-open-balance"\]/);
   assert.match(app, /Vendor for QuickReport \/ Open Balance/);
   assert.match(app, /Transaction currency/);
-  assert.match(app, /const stampReport = vendorReportKeys\.has/);
+  assert.match(app, /const stampReport = isVendorReport/);
   assert.match(api, /vendorCurrencyTransactions = scopedTransactions\.filter\(\(row\) => row\.currency === reportCurrency\)/);
   assert.match(pdf, /format: "a4"/);
   assert.match(pdf, /report currency/);
@@ -172,7 +172,7 @@ test("all 12 Profit & Loss reports share professional A4 output, movable stamps,
   assert.equal(definitions.length, 12);
   assert.equal(new Set(definitions).size, 12);
   assert.match(app, /const profitLossReportKeys = new Set\(\[[^\]]+"item-profitability"\]\)/);
-  assert.match(app, /const stampReport = vendorReportKeys\.has\([^)]*\) \|\| isProfitLossReport/);
+  assert.match(app, /const stampReport = isVendorReport \|\| isProfitLossReport/);
   assert.match(app, /sourceTransactionId > 0[\s\S]*onOpenSource\(sourceTransactionId\)/);
   assert.match(api, /sourceReferenceTransactionId: value\.sourceTransactionId/);
   assert.match(pnlExport, /orientation: "landscape", format: "a4"/);
@@ -190,7 +190,7 @@ test("all 15 Financial reports share professional A4 output, movable stamps, and
   assert.equal(definitions.length, 15);
   assert.equal(new Set(definitions).size, 15);
   assert.match(app, /const financialReportKeys = new Set\(\[[^\]]+"cash-flow-forecast"\]\)/);
-  assert.match(app, /const stampReport = vendorReportKeys\.has\([^)]*\) \|\| isProfitLossReport \|\| isFinancialReport/);
+  assert.match(app, /const stampReport = isVendorReport \|\| isProfitLossReport \|\| isFinancialReport/);
   assert.match(app, /financial-dialog.*financialLandscape/);
   assert.match(financial, /title="Open source document"[\s\S]*onOpen\(Number\(row\.transactionId\)\)/);
   assert.match(financial, /title="Open full account history"[\s\S]*setAccount/);
@@ -207,7 +207,7 @@ test("all 3 Budget reports have summaries, one export control, A4 output, accoun
   const definitions = [...app.matchAll(/\["[^"]+",\s*"[^"]+",\s*"Budgets",\s*"([^"]+)"\]/g)].map((match) => match[1]);
   assert.deepEqual(definitions, ["budget-overview", "budget-actual", "budget-actual-graph"]);
   assert.match(app, /budgetOverview && <section className="budget-summary"/);
-  assert.match(app, /isBudgetReport \|\| isSalesReport \|\| isCustomerReport \? <DropdownMenu>/);
+  assert.match(app, /isBudgetReport \|\| isSalesReport \|\| isCustomerReport \|\| isVendorReport \? <DropdownMenu>/);
   assert.match(app, /stampReport = [^;]+\|\| isBudgetReport/);
   assert.match(app, /accountId > 0[\s\S]*setLinkedAccount/);
   assert.match(budget, /Net favourable variance/);
@@ -227,7 +227,7 @@ test("all 12 Sales reports have professional summaries, one export control, A4 o
   assert.equal(definitions.length, 12);
   assert.equal(new Set(definitions).size, 12);
   assert.match(app, /salesOverview && <section className="sales-summary"/);
-  assert.match(app, /isBudgetReport \|\| isSalesReport \|\| isCustomerReport \? <DropdownMenu>/);
+  assert.match(app, /isBudgetReport \|\| isSalesReport \|\| isCustomerReport \|\| isVendorReport \? <DropdownMenu>/);
   assert.match(app, /stampReport = [^;]+\|\| isSalesReport/);
   assert.match(app, /\(isSalesReport \|\| isCustomerReport\) && \["customer", "name"\][\s\S]*onCustomer/);
   assert.match(api, /transactionId: row\.id, date: row\.transactionDate, number: row\.number/);
@@ -250,7 +250,7 @@ test("all 17 Customer reports have professional summaries, one export control, A
   assert.equal(definitions.length, 17);
   assert.equal(new Set(definitions).size, 17);
   assert.match(app, /customerOverview && <section className="customer-summary"/);
-  assert.match(app, /isBudgetReport \|\| isSalesReport \|\| isCustomerReport \? <DropdownMenu>/);
+  assert.match(app, /isBudgetReport \|\| isSalesReport \|\| isCustomerReport \|\| isVendorReport \? <DropdownMenu>/);
   assert.match(app, /stampReport = [^;]+\|\| isCustomerReport/);
   assert.match(app, /\(isSalesReport \|\| isCustomerReport\) && \["customer", "name"\][\s\S]*onCustomer/);
   assert.match(api, /invoiceTransactionId: invoice\.id/);
@@ -262,6 +262,29 @@ test("all 17 Customer reports have professional summaries, one export control, A
   assert.match(css, /@page customer-report \{ size: A4 landscape; margin: 10mm; \}/);
   assert.match(css, /\.report-dialog\.customer-report-dialog/);
   assert.match(css, /\[data-appearance="dark"\] \.report-dialog \.customer-summary/);
+});
+
+test("all 10 Vendor reports have professional summaries, one export control, A4 output, linked documents, supplier links, and movable stamps", () => {
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const api = readFileSync(new URL("../app/api/reports/route.ts", import.meta.url), "utf8");
+  const vendor = readFileSync(new URL("../lib/vendor-report.ts", import.meta.url), "utf8");
+  const sharedExport = readFileSync(new URL("../lib/report-export.ts", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  const definitions = [...app.matchAll(/\["[^"]+",\s*"[^"]+",\s*"Vendors",\s*"([^"]+)"\]/g)].map((match) => match[1]);
+  assert.equal(definitions.length, 10);
+  assert.equal(new Set(definitions).size, 10);
+  assert.match(app, /vendorOverview && <section className="vendor-summary"/);
+  assert.match(app, /isBudgetReport \|\| isSalesReport \|\| isCustomerReport \|\| isVendorReport \? <DropdownMenu>/);
+  assert.match(app, /const stampReport = isVendorReport/);
+  assert.match(app, /isVendorReport && \["supplier", "vendor", "name", "customer"\][\s\S]*onVendor/);
+  assert.match(app, /onVendor=\{\(supplier\) => \{ setReport\(null\); setSearch\(supplier\); setView\("vendors"\); \}\}/);
+  assert.match(api, /transactionId: row\.id, supplier: row\.party/);
+  assert.match(vendor, /export const vendorReportKeys = new Set/);
+  assert.match(sharedExport, /vendorReportKeys\.has/);
+  assert.match(sharedExport, /vendorSummary/);
+  assert.match(css, /@page vendor-report \{ size: A4 landscape; margin: 10mm; \}/);
+  assert.match(css, /\.report-dialog\.vendor-report-dialog/);
+  assert.match(css, /\[data-appearance="dark"\] \.report-dialog \.vendor-summary/);
 });
 
 test("report dialogs fit the screen and attachments appear only in their named record areas", () => {

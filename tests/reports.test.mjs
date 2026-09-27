@@ -370,8 +370,10 @@ test("purchase postings hit the right accounts and purchase reports stay in sync
 
   const agingDetail = await reportGet("ap-aging-detail");
   assert.equal(agingDetail.rows.find((row) => row.number === bill.number).amount, 100);
+  assert.equal(agingDetail.rows.find((row) => row.number === bill.number).transactionId, bill.id);
   const unpaid = await reportGet("unpaid-bills-detail");
   assert.equal(unpaid.rows.find((row) => row.number === bill.number).amount, 100);
+  assert.equal(unpaid.rows.find((row) => row.number === bill.number).transactionId, bill.id);
   const agingSummary = await reportGet("ap-aging-summary");
   assert.equal(agingSummary.rows.find((row) => row.name === "Purchase Audit Vendor").total, 100);
   try {
@@ -482,10 +484,14 @@ test("supplier centre reports stay on the selected supplier and show only open b
   const getSelected = (type, supplierId, currency = "AED") => GET(new Request(`https://app.test/api/reports?type=${type}&companyId=${cid}&locationId=0&supplierId=${supplierId}&currency=${currency}`));
   const quick = await getSelected("supplier-quickreport", supplier.id);
   assert.equal(quick.status, 200, await quick.clone().text());
-  assert.deepEqual((await quick.json()).report.rows.map((row) => row.number), ["CENTRE-OPEN"]);
+  const quickReport = (await quick.json()).report;
+  assert.deepEqual(quickReport.rows.map((row) => row.number), ["CENTRE-OPEN"]);
+  assert.ok(quickReport.rows[0].transactionId > 0);
   const balance = await getSelected("supplier-open-balance", supplier.id);
   assert.equal(balance.status, 200, await balance.clone().text());
-  assert.deepEqual((await balance.json()).report.rows.map((row) => [row.number, row.amount]), [["CENTRE-OPEN", 210]]);
+  const balanceReport = (await balance.json()).report;
+  assert.deepEqual(balanceReport.rows.map((row) => [row.number, row.amount]), [["CENTRE-OPEN", 210]]);
+  assert.equal(balanceReport.rows[0].transactionId, quickReport.rows[0].transactionId);
   const foreignBalance = await getSelected("supplier-open-balance", supplier.id, "USD");
   assert.equal(foreignBalance.status, 200, await foreignBalance.clone().text());
   const foreignReport = (await foreignBalance.json()).report;
@@ -902,6 +908,25 @@ test('customer summaries provide receivable KPIs and export every Customer repor
   const pdf = Buffer.from(await reportPdf(report, 'Customer Company', 'Main Inventory')).toString('latin1');
   const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(page);
   assert.ok(Math.abs(Number(page[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(page[2]) - 595.28) < 0.01);
+});
+
+test('vendor summaries provide payable KPIs and export Vendor reports to fitted A4 PDF', async () => {
+  const { vendorReportKeys, vendorSummary, vendorDetailTarget } = await vite.ssrLoadModule('/lib/vendor-report.ts');
+  assert.equal(vendorReportKeys.size, 10);
+  const aging = vendorSummary({ key: 'ap-aging-summary', rows: [{ name: 'A', current: 100, days30: 50, days60: 25, days90: 10, total: 185 }] });
+  assert.deepEqual(aging.cards.map(card => card.value), [100, 50, 25, 10, 185]);
+  assert.equal(vendorDetailTarget('ap-aging-summary'), 'ap-aging-detail');
+  const detail = vendorSummary({ key: 'unpaid-bills-detail', rows: [{ supplier: 'A', amount: 500, overdueDays: 12 }, { supplier: 'B', amount: 200, overdueDays: 0 }] });
+  assert.deepEqual(detail.cards.map(card => card.value), [700, 2, 2, 1]);
+  const { reportPdf } = await vite.ssrLoadModule('/lib/report-export.ts');
+  const landscapeReport = { key: 'vendor-balances', title: 'Supplier Balance Summary', generatedAt: '2026-09-27T10:00:00.000Z', currency: 'AED', columns: [{ key: 'name', label: 'Supplier' }, { key: 'amount', label: 'Balance', type: 'money' }], rows: [{ name: 'A', amount: 500 }] };
+  const landscape = Buffer.from(await reportPdf(landscapeReport, 'Vendor Company', 'Main Inventory')).toString('latin1');
+  const landscapePage = landscape.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(landscapePage);
+  assert.ok(Math.abs(Number(landscapePage[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(landscapePage[2]) - 595.28) < 0.01);
+  const statementReport = { key: 'vendor-statements', title: 'Vendor Statements', generatedAt: '2026-09-27T10:00:00.000Z', currency: 'AED', statement: { opening: 0, charges: 500, credits: 200, closing: 300 }, columns: [{ key: 'customer', label: 'Vendor' }, { key: 'number', label: 'Reference' }, { key: 'debit', label: 'Charges', type: 'money' }, { key: 'credit', label: 'Payments', type: 'money' }], rows: [{ customer: 'A', number: 'B-1', debit: 500, credit: 200 }] };
+  const portrait = Buffer.from(await reportPdf(statementReport, 'Vendor Company', 'Main Inventory')).toString('latin1');
+  const portraitPage = portrait.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(portraitPage);
+  assert.ok(Math.abs(Number(portraitPage[1]) - 595.28) < 0.01); assert.ok(Math.abs(Number(portraitPage[2]) - 841.89) < 0.01);
 });
 
 test('report date presets handle weeks, leap days, month ends and fiscal boundaries', async () => {
