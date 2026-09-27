@@ -203,7 +203,9 @@ test("report dialogs fit the screen and attachments appear only in their named r
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const attachments = readFileSync(new URL("../app/attachment-capture.tsx", import.meta.url), "utf8");
   const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
-  assert.match(css, /\.report-dialog \{ width: min\(1600px, calc\(100vw - 2rem\)\) !important;/);
+  assert.match(css, /\.report-dialog \{[\s\S]*?position: fixed !important;[\s\S]*?inset: 1rem auto auto 50% !important;[\s\S]*?width: min\(1600px, calc\(100vw - 2rem\)\) !important;/);
+  assert.match(css, /\[data-appearance="dark"\] \.report-dialog/);
+  assert.doesNotMatch(app, /report-dialog report-print-surface relative/);
   assert.match(app, /data-attachments-context=\{activeEditorKind === "transactions"/);
   for (const type of ["invoice", "bill", "customer payment", "bill payment", "vendor payment", "cheque", "employee"]) assert.match(app, new RegExp(`"${type}"`));
   assert.match(attachments, /\[role="dialog"\]\[data-attachments-context\]/);

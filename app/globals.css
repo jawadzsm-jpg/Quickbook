@@ -346,7 +346,46 @@ button, input, select { font: inherit; }
 @page financial-portrait { size: A4 portrait; margin: 10mm; }
 @page financial-landscape { size: A4 landscape; margin: 10mm; }
 @media screen {
-  .report-dialog { width: min(1600px, calc(100vw - 2rem)) !important; max-width: min(1600px, calc(100vw - 2rem)) !important; max-height: calc(100dvh - 2rem) !important; }
+  .report-dialog {
+    position: fixed !important;
+    inset: 1rem auto auto 50% !important;
+    transform: translateX(-50%) !important;
+    width: min(1600px, calc(100vw - 2rem)) !important;
+    max-width: min(1600px, calc(100vw - 2rem)) !important;
+    max-height: calc(100dvh - 2rem) !important;
+    margin: 0 !important;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: var(--card);
+    color: var(--card-foreground);
+    border-color: var(--border);
+    box-shadow: 0 24px 70px rgb(2 6 23 / .34);
+  }
+  [data-appearance="dark"] .report-dialog {
+    background: #0d1726 !important;
+    color: #f8fafc !important;
+    border-color: #3a4b62 !important;
+    box-shadow: 0 28px 80px rgb(0 0 0 / .72);
+  }
+  [data-appearance="dark"] .report-dialog :is(input, select) {
+    background-color: #101a2a !important;
+    color: #f8fafc !important;
+    border-color: #475569 !important;
+  }
+  [data-appearance="dark"] .report-dialog :is(input, select)::placeholder { color: #94a3b8 !important; }
+  [data-appearance="dark"] .report-dialog .financial-report-kpis > div {
+    background: linear-gradient(145deg, #152136, #101a2a) !important;
+    border-color: #3a4b62 !important;
+  }
+  [data-appearance="dark"] .report-dialog .financial-report-kpis span { color: #a8b6ca !important; }
+  [data-appearance="dark"] .report-dialog .financial-report-kpis strong { color: #f8fafc !important; }
+  [data-appearance="dark"] .report-dialog .financial-report-note {
+    background: #152136 !important;
+    color: #cbd5e1 !important;
+  }
+  [data-appearance="dark"] .report-dialog .financial-report .report-table thead { background: #16283d !important; }
+  [data-appearance="dark"] .report-dialog .financial-report .report-table tbody tr:nth-child(even) { background: #101a2a !important; }
+  [data-appearance="dark"] .report-dialog .financial-report .report-table tbody tr:hover { background: #123127 !important; }
   .report-dialog.pnl-dialog { width: min(100%, 297mm); }
   .report-dialog.pnl-dialog:has(.letterhead-stamp) { min-height: 190mm; }
   .report-dialog.ap-aging-dialog { width: min(100%, 210mm); }
@@ -357,6 +396,15 @@ button, input, select { font: inherit; }
   .report-dialog.financial-landscape:has(.letterhead-stamp) { min-height: 190mm; }
   .report-dialog.financial-portrait { width: min(1200px, calc(100vw - 2rem)) !important; max-width: min(1200px, calc(100vw - 2rem)) !important; }
   .report-dialog.financial-portrait:has(.letterhead-stamp) { min-height: 277mm; }
+}
+@media screen and (max-width: 640px) {
+  .report-dialog {
+    inset-block-start: .5rem !important;
+    width: calc(100vw - 1rem) !important;
+    max-width: calc(100vw - 1rem) !important;
+    max-height: calc(100dvh - 1rem) !important;
+    padding: 1rem !important;
+  }
 }
 .financial-report-kpis > div { border: 1px solid #d7dee7; border-radius: .75rem; background: linear-gradient(145deg, #fff, #f4f7fa); padding: .85rem 1rem; box-shadow: 0 1px 2px rgb(15 23 42 / .05); }
 .financial-report-kpis span { display: block; color: #64748b; font-size: .7rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
