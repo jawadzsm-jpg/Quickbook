@@ -344,6 +344,8 @@ button, input, select { font: inherit; }
 @page report { size: A4 landscape; margin: 10mm; }
 @page ap-aging { size: A4 portrait; margin: 10mm; }
 @media screen {
+  .report-dialog.pnl-dialog { width: min(100%, 297mm); }
+  .report-dialog.pnl-dialog:has(.letterhead-stamp) { min-height: 190mm; }
   .report-dialog.ap-aging-dialog { width: min(100%, 210mm); }
   .report-dialog.ap-aging-dialog:has(.letterhead-stamp) { min-height: 280mm; }
   .report-dialog.supplier-report-dialog { width: min(100%, 297mm); }
@@ -441,11 +443,14 @@ button, input, select { font: inherit; }
   [data-appearance="dark"] :is(svg.lucide-trash-2, svg.lucide-trash2, svg.lucide-trash) { color: #f87171 !important; }
 }
 
-@page pnl { size: A4 landscape; margin: 12mm; }
+@page pnl { size: A4 landscape; margin: 10mm; }
 @media print {
-  .pnl-dialog { page: pnl; }
+  .pnl-dialog { page: pnl; position: relative !important; width: 277mm !important; min-height: 190mm !important; }
   .pnl-dialog button:not(.pnl-report button) { display: none !important; }
   .pnl-dialog .pnl-report button { color: inherit; text-decoration: none; }
+  .pnl-dialog .report-brief { border: 0 !important; border-left: 3px solid #059669 !important; border-radius: 0 !important; background: #f4f7fa !important; color: #334155 !important; font-size: 8pt; padding: 2.5mm 3mm !important; break-inside: avoid; }
+  .pnl-dialog .pnl-kpis { break-inside: avoid; gap: 3mm; }
+  .pnl-dialog .pnl-kpis > div { border: 1px solid #d7dee7 !important; border-radius: 2mm !important; box-shadow: none !important; padding: 3mm !important; }
   .pnl-report .report-table, .pnl-report .report-table > div { overflow: visible !important; }
   .pnl-report th, .pnl-report td { white-space: normal; overflow-wrap: anywhere; }
   .pnl-report thead { print-color-adjust: exact; }

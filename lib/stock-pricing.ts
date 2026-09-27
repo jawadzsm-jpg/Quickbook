@@ -48,6 +48,7 @@ export function stockPricingRows(stock: StockItem[], lines: PurchaseLine[], loca
       margin: knownCost && item.salesPrice > 0 ? `${round(profit / item.salesPrice * 100)}%` : '—',
       stockCost: knownCost ? round(unitCost * quantity) : '—', potentialProfit: knownCost ? round(profit * quantity) : '—',
       costSource: bill ? `Bill ${bill.reference}` : enteredGrn ? "Entered GRN price" : grn ? `GRN ${grn.reference}` : knownCost ? 'Saved item cost' : 'Cost not available',
+      costSourceTransactionId: bill?.id ?? grn?.id ?? 0,
     };
   });
 }

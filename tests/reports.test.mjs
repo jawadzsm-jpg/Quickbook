@@ -184,6 +184,8 @@ test("sales postings hit revenue, VAT, COGS and inventory accounts and sales rep
   assert.equal(profitRow.amount, 100);
   assert.equal(profitRow.cost, 60);
   assert.equal(profitRow.profit, 40);
+  assert.equal(profitRow.sourceReferenceTransactionId, invoice.id);
+  assert.match(profitRow.sourceReference, new RegExp(`^${invoice.number} · 1 document$`));
 
   const pnl = await reportGet("profit-loss");
   assert.deepEqual(pnl.summary, { income: 100, expenses: 60, netIncome: 40 });
@@ -831,6 +833,8 @@ test('shared report downloads are date-stamped, safe, styled, and include linked
   const pdf = Buffer.from(await reportPdf(report, 'Audit Company', 'Main Inventory')).toString('latin1');
   assert.ok(pdf.startsWith('%PDF-'));
   const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(page); assert.ok(Math.abs(Number(page[1]) - 595.28) < 0.01); assert.ok(Math.abs(Number(page[2]) - 841.89) < 0.01);
+  const pnlPdf = Buffer.from(await reportPdf({ ...report, key: 'item-profitability', title: 'Item Profitability' }, 'Audit Company', 'Main Inventory')).toString('latin1');
+  const pnlPage = pnlPdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(pnlPage); assert.ok(Math.abs(Number(pnlPage[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(pnlPage[2]) - 595.28) < 0.01);
 });
 
 test('report date presets handle weeks, leap days, month ends and fiscal boundaries', async () => {

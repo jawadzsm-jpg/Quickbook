@@ -141,7 +141,8 @@ function displayValue(value: string | number | null | undefined, money: boolean)
 export async function reportPdf(report: ReportExportData, company: string, inventory: string, rows = report.rows, stamp?: { data: string; left: number; top: number }) {
   const [{ jsPDF }, { autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
   const vendorLandscapeReports = new Set(["supplier-quickreport", "supplier-open-balance", "ap-aging-detail", "vendor-balances", "supplier-balance-detail", "unpaid-bills-detail", "accounts-payable-graph", "supplier-transactions"]);
-  const pdf = new jsPDF({ orientation: vendorLandscapeReports.has(report.key || "") || report.columns.length > 6 ? "landscape" : "portrait", format: "a4", unit: "mm" });
+  const profitLossLandscapeReports = new Set(["budget-profit-loss", "stock-pricing-profit", "item-profitability"]);
+  const pdf = new jsPDF({ orientation: vendorLandscapeReports.has(report.key || "") || profitLossLandscapeReports.has(report.key || "") || report.columns.length > 6 ? "landscape" : "portrait", format: "a4", unit: "mm" });
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
   const drawHeader = () => {
@@ -189,7 +190,7 @@ export async function reportPdf(report: ReportExportData, company: string, inven
     });
     pdf.setPage(1);
     const scale = Math.min(32 / stampImage.width, 23 / stampImage.height);
-    pdf.addImage(stampImage.data, "PNG", 10 + Math.max(0, Math.min(pageWidth - 52, stamp.left)), 10 + Math.max(0, Math.min(pageHeight - 47, stamp.top)), stampImage.width * scale, stampImage.height * scale);
+    pdf.addImage(stampImage.data, "PNG", Math.max(0, Math.min(pageWidth - stampImage.width * scale, stamp.left)), Math.max(0, Math.min(pageHeight - stampImage.height * scale, stamp.top)), stampImage.width * scale, stampImage.height * scale);
   }
   const pages = pdf.getNumberOfPages();
   for (let page = 1; page <= pages; page++) {

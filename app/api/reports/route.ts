@@ -82,7 +82,7 @@ export async function GET(request: Request) {
       db.select().from(items).where(and(eq(items.companyId, companyId), scoped ? eq(items.locationId, locationId) : undefined)).orderBy(asc(items.name)),
       db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(asc(accounts.code)),
       db.select({ date: journalEntries.entryDate, reference: journalEntries.reference, description: journalEntries.description, account: journalLines.accountName, debit: journalLines.debit, credit: journalLines.credit, originalDebit: journalLines.originalDebit, originalCredit: journalLines.originalCredit, entryCurrency: journalEntries.currency, exchangeRate: journalEntries.exchangeRate }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(journalFilter).orderBy(asc(journalEntries.entryDate), asc(journalLines.id)),
-      db.select({ itemId: transactionLines.itemId, description: transactionLines.description, quantity: transactionLines.quantity, unitPrice: transactionLines.unitPrice, subtotal: transactionLines.subtotal, unitCost: transactionLines.unitCost, freightCharge: transactionLines.freightCharge, isFreightCharge: transactionLines.isFreightCharge, vatCode: transactionLines.vatCode, vatRate: transactionLines.vatRate, vatAmount: transactionLines.vatAmount, type: transactions.type, status: transactions.status, billId: transactions.billId, locationId: transactions.locationId, party: transactions.party, date: transactions.transactionDate, number: transactions.number, transactionCurrency: transactions.currency, exchangeRate: transactions.exchangeRate, isImport: transactions.isImport }).from(transactionLines).innerJoin(transactions, eq(transactionLines.transactionId, transactions.id)).where(and(eq(transactions.companyId, companyId), scoped ? eq(transactions.locationId, locationId) : undefined)),
+      db.select({ transactionId: transactions.id, itemId: transactionLines.itemId, description: transactionLines.description, quantity: transactionLines.quantity, unitPrice: transactionLines.unitPrice, subtotal: transactionLines.subtotal, unitCost: transactionLines.unitCost, freightCharge: transactionLines.freightCharge, isFreightCharge: transactionLines.isFreightCharge, vatCode: transactionLines.vatCode, vatRate: transactionLines.vatRate, vatAmount: transactionLines.vatAmount, type: transactions.type, status: transactions.status, billId: transactions.billId, locationId: transactions.locationId, party: transactions.party, date: transactions.transactionDate, number: transactions.number, transactionCurrency: transactions.currency, exchangeRate: transactions.exchangeRate, isImport: transactions.isImport }).from(transactionLines).innerJoin(transactions, eq(transactionLines.transactionId, transactions.id)).where(and(eq(transactions.companyId, companyId), scoped ? eq(transactions.locationId, locationId) : undefined)),
       db.select().from(vatCodes).where(eq(vatCodes.companyId, companyId)).orderBy(asc(vatCodes.code)),
       db.select().from(exchangeRates).where(and(eq(exchangeRates.companyId, companyId), eq(exchangeRates.active, true))),
       db.select().from(inventoryLocations).where(eq(inventoryLocations.companyId, companyId)),
@@ -175,12 +175,14 @@ export async function GET(request: Request) {
       return [...grouped].map(([name, amount]) => ({ name, amount })).sort((a, b) => b.amount - a.amount);
     };
     const groupLines = (types: string[]) => {
-      const grouped = new Map<string, { quantity: number; amount: number; cost: number }>();
+      const grouped = new Map<string, { name: string; quantity: number; amount: number; cost: number; sourceIds: Set<number>; sourceTransactionId: number; sourceReference: string }>();
       lines.filter((line) => types.includes(line.type)).forEach((line) => {
-        const old = grouped.get(line.description) ?? { quantity: 0, amount: 0, cost: 0 };
-        grouped.set(line.description, { quantity: old.quantity + line.quantity, amount: old.amount + line.subtotal * line.exchangeRate, cost: old.cost + line.quantity * line.unitCost * line.exchangeRate });
+        const key = line.itemId ? `item:${line.itemId}` : `description:${line.description}`;
+        const old = grouped.get(key) ?? { name: line.description, quantity: 0, amount: 0, cost: 0, sourceIds: new Set<number>(), sourceTransactionId: 0, sourceReference: "" };
+        old.sourceIds.add(line.transactionId);
+        grouped.set(key, { ...old, quantity: old.quantity + line.quantity, amount: old.amount + line.subtotal * line.exchangeRate, cost: old.cost + line.quantity * line.unitCost * line.exchangeRate, sourceTransactionId: line.transactionId, sourceReference: line.number });
       });
-      return [...grouped].map(([name, value]) => ({ name, ...value, profit: value.amount - value.cost }));
+      return [...grouped.values()].map(({ sourceIds, ...value }) => ({ ...value, sourceReference: `${value.sourceReference} · ${sourceIds.size} document${sourceIds.size === 1 ? "" : "s"}`, sourceReferenceTransactionId: value.sourceTransactionId, profit: value.amount - value.cost }));
     };
     const billAllocations = await db.select({ billId: billPaymentAllocations.billId, amount: billPaymentAllocations.amount }).from(billPaymentAllocations).innerJoin(transactions, eq(transactions.id, billPaymentAllocations.paymentId)).where(eq(transactions.companyId, companyId));
     const openBillAmount = (row: typeof scopedTransactions[number]) => Math.max(0,
@@ -742,7 +744,7 @@ export async function GET(request: Request) {
     } else if (["sales-by-item", "purchases-by-item", "item-profitability"].includes(key)) {
       title = key === "sales-by-item" ? "Sales by Item Summary" : key === "purchases-by-item" ? "Purchases by Item Summary" : "Item Profitability";
       rows = groupLines(key === "purchases-by-item" ? ["bill", "received item bill"] : ["invoice", "sales receipt"]);
-      columns = [{ key: "name", label: "Item" }, { key: "quantity", label: "Quantity" }, { key: "amount", label: "Sales / Purchases", ...money }, ...(key === "item-profitability" ? [{ key: "profit", label: "Gross Profit", ...money }] : [])];
+      columns = [{ key: "name", label: "Item" }, { key: "quantity", label: "Quantity" }, { key: "amount", label: "Sales / Purchases", ...money }, ...(key === "item-profitability" ? [{ key: "profit", label: "Gross Profit", ...money }, { key: "sourceReference", label: "Latest source document" }] : [])];
     } else if (key === "inventory-valuation") {
       title = "Stock Valuation Summary";
       const grouped = new Map<string, { account: string; category: string; items: number; quantity: number; value: number }>();

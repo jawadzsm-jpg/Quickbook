@@ -26,15 +26,31 @@ export async function pnlWorkbook(report: PnlReport, company: string) {
   detail.getRow(1).font = { bold: true };
   return book.xlsx.writeBuffer();
 }
-export async function pnlPdf(report: PnlReport, company: string) {
+export async function pnlPdf(report: PnlReport, company: string, stamp?: { data: string; left: number; top: number }) {
   const [{ jsPDF }, { autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
-  const pdf = new jsPDF({ orientation: report.columns.length > 4 ? "landscape" : "portrait", format: "a4", unit: "mm" });
+  const pdf = new jsPDF({ orientation: "landscape", format: "a4", unit: "mm" });
   const width = pdf.internal.pageSize.getWidth(); const height = pdf.internal.pageSize.getHeight();
   const number = (n: number) => n < 0 ? `(${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})` : n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const head = () => {
     pdf.setFillColor(16, 32, 51); pdf.rect(0, 0, width, 34, "F"); pdf.setTextColor(255); pdf.setFontSize(13); pdf.text(company, 12, 10, { maxWidth: width - 24 }); pdf.setFontSize(16); pdf.text(report.title, 12, 20); pdf.setFontSize(8); pdf.text(`${report.pnl.from || "Beginning"} to ${report.pnl.to || "Latest posting"} | ${report.pnl.location} | ${report.currency} | Accrual basis`, 12, 29, { maxWidth: width - 24 });
   };
   autoTable(pdf, { startY: 40, margin: { top: 40, bottom: 18, left: 12, right: 12 }, head: [report.columns.map(c => c.label)], body: report.rows.map(r => report.columns.map(c => typeof r[c.key] === "number" && c.type === "money" ? number(Number(r[c.key])) : String(r[c.key] ?? ""))), styles: { fontSize: 8, cellPadding: 2.5, overflow: "linebreak" }, headStyles: { fillColor: [16, 32, 51] }, alternateRowStyles: { fillColor: [245, 248, 250] }, columnStyles: Object.fromEntries(report.columns.map((c, i) => [i, c.type === "money" ? { halign: "right" } : {}])), didParseCell: d => { if (d.section === "body" && report.rows[d.row.index]?.kind) { d.cell.styles.fontStyle = "bold"; d.cell.styles.fillColor = report.rows[d.row.index].kind === "total" ? [209, 250, 229] : [232, 238, 242]; } }, didDrawPage: head });
+  if (stamp?.data) {
+    const image = await new Promise<{ data: string; width: number; height: number }>((resolve, reject) => {
+      const source = new Image();
+      source.onload = () => {
+        try {
+          const canvas = document.createElement("canvas"); canvas.width = source.naturalWidth; canvas.height = source.naturalHeight;
+          const context = canvas.getContext("2d"); if (!context) throw new Error("Could not prepare the company stamp.");
+          context.drawImage(source, 0, 0); resolve({ data: canvas.toDataURL("image/png"), width: source.naturalWidth, height: source.naturalHeight });
+        } catch (error) { reject(error); }
+      };
+      source.onerror = () => reject(new Error("Could not read the company stamp.")); source.src = stamp.data;
+    });
+    const scale = Math.min(32 / image.width, 23 / image.height);
+    pdf.setPage(1);
+    pdf.addImage(image.data, "PNG", Math.max(0, Math.min(width - image.width * scale, stamp.left)), Math.max(0, Math.min(height - image.height * scale, stamp.top)), image.width * scale, image.height * scale);
+  }
   for (let page = 1; page <= pdf.getNumberOfPages(); page++) { pdf.setPage(page); pdf.setTextColor(95); pdf.setFontSize(8); pdf.text(`Generated ${report.generatedAt.slice(0, 16).replace("T", " ")} UTC`, 12, height - 8); pdf.text(`Page ${page} of ${pdf.getNumberOfPages()}`, width - 12, height - 8, { align: "right" }); }
   return pdf.output("arraybuffer");
 }

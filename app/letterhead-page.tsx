@@ -34,17 +34,17 @@ export function LetterheadBrand({ template, company }: { template: LetterheadTem
   </header>;
 }
 
-export function LetterheadStamp({ template, company, onMove }: { template: LetterheadTemplate; company: LetterheadCompany; onMove?: (left: number, top: number) => void }) {
+export function LetterheadStamp({ template, company, onMove, maxLeft = 170, maxTop = 260, pageWidthMm = 210 }: { template: LetterheadTemplate; company: LetterheadCompany; onMove?: (left: number, top: number) => void; maxLeft?: number; maxTop?: number; pageWidthMm?: number }) {
   if (!template.showStamp || !company.stampData) return null;
   const begin = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!onMove || event.button !== 0) return;
     event.preventDefault();
     const startX = event.clientX, startY = event.clientY;
-    const page = event.currentTarget.closest<HTMLElement>(".letterhead-page");
-    const pixelsPerMm = page ? page.getBoundingClientRect().width / 210 : 96 / 25.4;
+    const page = event.currentTarget.closest<HTMLElement>(".letterhead-page, .report-print-surface");
+    const pixelsPerMm = page ? page.getBoundingClientRect().width / pageWidthMm : 96 / 25.4;
     const move = (next: PointerEvent) => onMove(
-      Math.max(0, Math.min(170, Math.round(template.stampLeft + (next.clientX - startX) / pixelsPerMm))),
-      Math.max(0, Math.min(260, Math.round(template.stampTop + (next.clientY - startY) / pixelsPerMm))),
+      Math.max(0, Math.min(maxLeft, Math.round(template.stampLeft + (next.clientX - startX) / pixelsPerMm))),
+      Math.max(0, Math.min(maxTop, Math.round(template.stampTop + (next.clientY - startY) / pixelsPerMm))),
     );
     const stop = () => {
       window.removeEventListener("pointermove", move);
