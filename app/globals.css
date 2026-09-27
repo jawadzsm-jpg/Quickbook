@@ -349,6 +349,7 @@ button, input, select { font: inherit; }
 @page sales-report { size: A4 landscape; margin: 10mm; }
 @page customer-report { size: A4 landscape; margin: 10mm; }
 @page vendor-report { size: A4 landscape; margin: 10mm; }
+@page purchase-report { size: A4 landscape; margin: 10mm; }
 @media screen {
   .report-dialog {
     position: fixed !important;
@@ -426,6 +427,15 @@ button, input, select { font: inherit; }
   [data-appearance="dark"] .report-dialog .vendor-summary-grid [data-tone="positive"] strong { color: #6ee7b7 !important; }
   [data-appearance="dark"] .report-dialog .vendor-summary-grid [data-tone="negative"] strong { color: #fda4af !important; }
   [data-appearance="dark"] .report-dialog .vendor-summary-grid [data-tone="accent"] strong { color: #fcd34d !important; }
+  [data-appearance="dark"] .report-dialog .purchase-report-brief { background: #102b2a !important; border-color: #286361 !important; color: #c4efea !important; }
+  [data-appearance="dark"] .report-dialog .purchase-summary { background: linear-gradient(145deg, #122b2d, #111827) !important; border-color: #356166 !important; }
+  [data-appearance="dark"] .report-dialog .purchase-summary-grid > div { background: #173033 !important; border-color: #3b666b !important; }
+  [data-appearance="dark"] .report-dialog .purchase-summary-grid span,
+  [data-appearance="dark"] .report-dialog .purchase-summary-note { color: #a9cbc9 !important; }
+  [data-appearance="dark"] .report-dialog .purchase-summary-grid strong { color: #f8fafc !important; }
+  [data-appearance="dark"] .report-dialog .purchase-summary-grid [data-tone="positive"] strong { color: #6ee7b7 !important; }
+  [data-appearance="dark"] .report-dialog .purchase-summary-grid [data-tone="negative"] strong { color: #fda4af !important; }
+  [data-appearance="dark"] .report-dialog .purchase-summary-grid [data-tone="accent"] strong { color: #5eead4 !important; }
   .report-dialog.pnl-dialog { width: min(100%, 297mm); }
   .report-dialog.pnl-dialog:has(.letterhead-stamp) { min-height: 190mm; }
   .report-dialog.ap-aging-dialog { width: min(100%, 210mm); }
@@ -444,6 +454,8 @@ button, input, select { font: inherit; }
   .report-dialog.customer-report-dialog:has(.letterhead-stamp) { min-height: 190mm; }
   .report-dialog.vendor-report-dialog { width: min(1500px, calc(100vw - 2rem)) !important; max-width: min(1500px, calc(100vw - 2rem)) !important; }
   .report-dialog.vendor-report-dialog:has(.letterhead-stamp) { min-height: 190mm; }
+  .report-dialog.purchase-report-dialog { width: min(1500px, calc(100vw - 2rem)) !important; max-width: min(1500px, calc(100vw - 2rem)) !important; }
+  .report-dialog.purchase-report-dialog:has(.letterhead-stamp) { min-height: 190mm; }
 }
 @media screen and (max-width: 640px) {
   .report-dialog {
@@ -501,6 +513,16 @@ button, input, select { font: inherit; }
 .vendor-summary-grid [data-tone="negative"] strong { color: #be123c; }
 .vendor-summary-grid [data-tone="accent"] strong { color: #a16207; }
 .vendor-summary-note { color: #756443; }
+.purchase-report-brief { background: #f0fdfa; border-color: #99f6e4; color: #315f5b; }
+.purchase-summary { border: 1px solid #d3e7e5; border-radius: .85rem; background: linear-gradient(145deg, #fff, #f0fdfa); padding: 1rem; box-shadow: 0 1px 3px rgb(15 23 42 / .06); }
+.purchase-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: .75rem; }
+.purchase-summary-grid > div { border: 1px solid #d6ebe8; border-radius: .7rem; background: #fff; padding: .8rem .9rem; }
+.purchase-summary-grid span { display: block; color: #557571; font-size: .68rem; font-weight: 750; letter-spacing: .055em; text-transform: uppercase; }
+.purchase-summary-grid strong { display: block; margin-top: .35rem; color: #0f172a; font-size: 1.08rem; font-variant-numeric: tabular-nums; }
+.purchase-summary-grid [data-tone="positive"] strong { color: #047857; }
+.purchase-summary-grid [data-tone="negative"] strong { color: #be123c; }
+.purchase-summary-grid [data-tone="accent"] strong { color: #0f766e; }
+.purchase-summary-note { color: #557571; }
 @media print {
   body:has(.report-dialog) > :not([data-slot="dialog-content"]) { display: none !important; }
   body:has(.report-dialog) [data-slot="dialog-overlay"] { display: none !important; }
@@ -534,6 +556,7 @@ button, input, select { font: inherit; }
   .report-dialog.sales-report-dialog { page: sales-report; position: relative !important; width: 277mm !important; min-height: 190mm !important; }
   .report-dialog.customer-report-dialog { page: customer-report; position: relative !important; width: 277mm !important; min-height: 190mm !important; }
   .report-dialog.vendor-report-dialog { page: vendor-report; position: relative !important; width: 277mm !important; min-height: 190mm !important; }
+  .report-dialog.purchase-report-dialog { page: purchase-report; position: relative !important; width: 277mm !important; min-height: 190mm !important; }
   .report-dialog [data-export-slot] { display: none !important; }
   .report-dialog .report-table {
     width: 100% !important;
@@ -576,6 +599,10 @@ button, input, select { font: inherit; }
   .vendor-summary { background: #fffcf5 !important; border: 1px solid #eadfc9 !important; box-shadow: none !important; padding: 3mm !important; break-inside: avoid; }
   .vendor-summary-grid { gap: 2mm; }
   .vendor-summary-grid > div { padding: 2.5mm !important; }
+  .purchase-report-brief { background: #f0fdfa !important; border-color: #99f6e4 !important; color: #315f5b !important; break-inside: avoid; }
+  .purchase-summary { background: #f8fffe !important; border: 1px solid #d3e7e5 !important; box-shadow: none !important; padding: 3mm !important; break-inside: avoid; }
+  .purchase-summary-grid { gap: 2mm; }
+  .purchase-summary-grid > div { padding: 2.5mm !important; }
   .financial-report .report-table thead { background: #102033 !important; color: white !important; print-color-adjust: exact; }
   .financial-report .report-table tbody tr:nth-child(even) { background: #f4f7fa !important; print-color-adjust: exact; }
   .financial-source-link { color: inherit !important; text-decoration: none !important; }

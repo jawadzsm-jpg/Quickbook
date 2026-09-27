@@ -929,6 +929,21 @@ test('vendor summaries provide payable KPIs and export Vendor reports to fitted 
   assert.ok(Math.abs(Number(portraitPage[1]) - 595.28) < 0.01); assert.ok(Math.abs(Number(portraitPage[2]) - 841.89) < 0.01);
 });
 
+test('purchase summaries provide purchasing KPIs and export all Purchase reports to fitted A4 landscape PDF', async () => {
+  const { purchaseReportKeys, purchaseSummary, purchaseDetailTarget } = await vite.ssrLoadModule('/lib/purchase-report.ts');
+  assert.equal(purchaseReportKeys.size, 8);
+  const suppliers = purchaseSummary({ key: 'purchases-by-vendor', rows: [{ name: 'A', amount: 100 }, { name: 'B', amount: 300 }] });
+  assert.deepEqual(suppliers.cards.map(card => card.value), [400, 2, 200, 300]);
+  assert.equal(purchaseDetailTarget('purchases-by-vendor'), 'purchases-by-supplier-detail');
+  const orders = purchaseSummary({ key: 'purchase-order-summary', rows: [{ supplier: 'A', open: 2, partiallyReceived: 1, received: 3, totalOrders: 6 }] });
+  assert.deepEqual(orders.cards.map(card => card.value), [6, 2, 1, 3, 1]);
+  const { reportPdf } = await vite.ssrLoadModule('/lib/report-export.ts');
+  const report = { key: 'purchases-by-vendor', title: 'Purchases by Supplier Summary', generatedAt: '2026-09-27T10:00:00.000Z', currency: 'AED', columns: [{ key: 'name', label: 'Supplier' }, { key: 'amount', label: 'Purchases', type: 'money' }], rows: [{ name: 'A', amount: 500 }] };
+  const pdf = Buffer.from(await reportPdf(report, 'Purchase Company', 'Main Inventory')).toString('latin1');
+  const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(page);
+  assert.ok(Math.abs(Number(page[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(page[2]) - 595.28) < 0.01);
+});
+
 test('report date presets handle weeks, leap days, month ends and fiscal boundaries', async () => {
   const {presetDates,reportPeriod,reportMonths,previousYearDate} = await vite.ssrLoadModule('/lib/report-period.ts');
   assert.deepEqual(reportMonths('2026-12-15','2027-01-10'),[{month:'2026-12',from:'2026-12-15',to:'2026-12-31'},{month:'2027-01',from:'2027-01-01',to:'2027-01-10'}]);

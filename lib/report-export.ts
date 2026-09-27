@@ -2,6 +2,7 @@ import { budgetReportKeys, budgetSummary } from "./budget-report";
 import { salesReportKeys, salesSummary } from "./sales-report";
 import { customerReportKeys, customerSummary } from "./customer-report";
 import { vendorReportKeys, vendorSummary } from "./vendor-report";
+import { purchaseReportKeys, purchaseSummary } from "./purchase-report";
 
 export type ReportExportColumn = { key: string; label: string; type?: "money" };
 export type ReportExportRow = Record<string, string | number | null>;
@@ -84,7 +85,7 @@ export async function reportWorkbook(report: ReportExportData, company: string, 
   book.modified = new Date();
   const sheet = book.addWorksheet("Report", {
     views: [{ state: "frozen", ySplit: 9 }],
-    pageSetup: { paperSize: 9, orientation: financialLandscapeReports.has(report.key || "") || budgetReportKeys.has(report.key || "") || salesReportKeys.has(report.key || "") || (customerReportKeys.has(report.key || "") && report.key !== "customer-statements") || (vendorReportKeys.has(report.key || "") && !["ap-aging-summary", "vendor-statements"].includes(report.key || "")) || (report.columns.length > 6 && !["customer-statements", "vendor-statements"].includes(report.key || "")) ? "landscape" : "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 } },
+    pageSetup: { paperSize: 9, orientation: financialLandscapeReports.has(report.key || "") || budgetReportKeys.has(report.key || "") || salesReportKeys.has(report.key || "") || purchaseReportKeys.has(report.key || "") || (customerReportKeys.has(report.key || "") && report.key !== "customer-statements") || (vendorReportKeys.has(report.key || "") && !["ap-aging-summary", "vendor-statements"].includes(report.key || "")) || (report.columns.length > 6 && !["customer-statements", "vendor-statements"].includes(report.key || "")) ? "landscape" : "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 } },
   });
   const columnCount = Math.max(1, report.columns.length);
   sheet.addRow([company]);
@@ -151,10 +152,10 @@ function displayValue(value: string | number | null | undefined, money: boolean)
 export async function reportPdf(report: ReportExportData, company: string, inventory: string, rows = report.rows, stamp?: { data: string; left: number; top: number }) {
   const [{ jsPDF }, { autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
   const profitLossLandscapeReports = new Set(["budget-profit-loss", "stock-pricing-profit", "item-profitability"]);
-  const pdf = new jsPDF({ orientation: (vendorReportKeys.has(report.key || "") && !["ap-aging-summary", "vendor-statements"].includes(report.key || "")) || profitLossLandscapeReports.has(report.key || "") || financialLandscapeReports.has(report.key || "") || budgetReportKeys.has(report.key || "") || salesReportKeys.has(report.key || "") || (customerReportKeys.has(report.key || "") && report.key !== "customer-statements") || (report.columns.length > 6 && !["customer-statements", "vendor-statements"].includes(report.key || "")) ? "landscape" : "portrait", format: "a4", unit: "mm" });
+  const pdf = new jsPDF({ orientation: (vendorReportKeys.has(report.key || "") && !["ap-aging-summary", "vendor-statements"].includes(report.key || "")) || purchaseReportKeys.has(report.key || "") || profitLossLandscapeReports.has(report.key || "") || financialLandscapeReports.has(report.key || "") || budgetReportKeys.has(report.key || "") || salesReportKeys.has(report.key || "") || (customerReportKeys.has(report.key || "") && report.key !== "customer-statements") || (report.columns.length > 6 && !["customer-statements", "vendor-statements"].includes(report.key || "")) ? "landscape" : "portrait", format: "a4", unit: "mm" });
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
-  const summary = budgetSummary({ key: report.key, rows }) ?? salesSummary({ key: report.key, rows }) ?? customerSummary({ key: report.key, rows, openBalance: report.openBalance, activeCustomers: report.activeCustomers, statement: report.statement }) ?? vendorSummary({ key: report.key, rows, statement: report.statement });
+  const summary = budgetSummary({ key: report.key, rows }) ?? salesSummary({ key: report.key, rows }) ?? customerSummary({ key: report.key, rows, openBalance: report.openBalance, activeCustomers: report.activeCustomers, statement: report.statement }) ?? vendorSummary({ key: report.key, rows, statement: report.statement }) ?? purchaseSummary({ key: report.key, rows });
   const drawHeader = () => {
     pdf.setFillColor(16, 32, 51);
     pdf.rect(0, 0, pageWidth, 38, "F");

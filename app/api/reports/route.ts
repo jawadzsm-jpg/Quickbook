@@ -693,7 +693,7 @@ export async function GET(request: Request) {
       columns = [{ key: "name", label: "Customer" }, { key: "amount", label: "Amount", ...money }];
     } else if (key === "purchases-by-supplier-detail") {
       title = "Purchases by Supplier Detail";
-      rows = scopedTransactions.filter((row) => ["bill", "received item bill", "expense"].includes(row.type)).map((row) => ({ supplier: row.party, date: row.transactionDate, number: row.number, type: row.type, status: row.status, currency: row.currency, subtotal: baseSubtotal(row), vat: row.vatAmount * row.exchangeRate, total: row.baseTotal }));
+      rows = scopedTransactions.filter((row) => ["bill", "received item bill", "expense"].includes(row.type)).map((row) => ({ transactionId: row.id, supplier: row.party, date: row.transactionDate, number: row.number, type: row.type, status: row.status, currency: row.currency, subtotal: baseSubtotal(row), vat: row.vatAmount * row.exchangeRate, total: row.baseTotal }));
       columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "status", label: "Status" }, { key: "currency", label: "Currency" }, { key: "subtotal", label: "Purchases", ...money }, { key: "vat", label: "VAT", ...money }, { key: "total", label: "Total", ...money }];
     } else if (key === "purchases-by-vendor" || key === "vendor-balances") {
       title = key === "purchases-by-vendor" ? "Purchases by Supplier Summary" : "Supplier Balance Summary";
@@ -739,12 +739,12 @@ export async function GET(request: Request) {
       columns = [{ key: "supplier", label: "Supplier" }, { key: "company", label: "Company" }, { key: "email", label: "Email" }, { key: "phone", label: "Phone" }, { key: "whatsapp", label: "WhatsApp" }, { key: "country", label: "Country" }, { key: "trn", label: "TRN" }, { key: "currency", label: "Currency" }, { key: "status", label: "Status" }];
     } else if (key === "purchases-by-item-detail") {
       title = "Purchases by Item Detail";
-      rows = lines.filter((line) => ["bill", "received item bill"].includes(line.type)).map((line) => ({ supplier: line.party, date: line.date, number: line.number, item: line.description, quantity: line.quantity, unitCost: line.quantity ? line.subtotal * line.exchangeRate / line.quantity : 0, vat: line.vatAmount * line.exchangeRate, total: (line.subtotal + line.vatAmount) * line.exchangeRate }));
+      rows = lines.filter((line) => ["bill", "received item bill"].includes(line.type)).map((line) => ({ transactionId: line.transactionId, supplier: line.party, date: line.date, number: line.number, item: line.description, quantity: line.quantity, unitCost: line.quantity ? line.subtotal * line.exchangeRate / line.quantity : 0, vat: line.vatAmount * line.exchangeRate, total: (line.subtotal + line.vatAmount) * line.exchangeRate }));
       columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "item", label: "Item" }, { key: "quantity", label: "Quantity" }, { key: "unitCost", label: "Unit Cost", ...money }, { key: "vat", label: "VAT", ...money }, { key: "total", label: "Total", ...money }];
     } else if (["sales-by-item", "purchases-by-item", "item-profitability"].includes(key)) {
       title = key === "sales-by-item" ? "Sales by Item Summary" : key === "purchases-by-item" ? "Purchases by Item Summary" : "Item Profitability";
       rows = groupLines(key === "purchases-by-item" ? ["bill", "received item bill"] : ["invoice", "sales receipt"]);
-      columns = [{ key: "name", label: "Item" }, { key: "quantity", label: "Quantity" }, { key: "amount", label: "Sales / Purchases", ...money }, ...(key === "sales-by-item" ? [{ key: "sourceReference", label: "Latest source document" }] : key === "item-profitability" ? [{ key: "profit", label: "Gross Profit", ...money }, { key: "sourceReference", label: "Latest source document" }] : [])];
+      columns = [{ key: "name", label: "Item" }, { key: "quantity", label: "Quantity" }, { key: "amount", label: "Sales / Purchases", ...money }, ...(["sales-by-item", "purchases-by-item"].includes(key) ? [{ key: "sourceReference", label: "Latest source document" }] : key === "item-profitability" ? [{ key: "profit", label: "Gross Profit", ...money }, { key: "sourceReference", label: "Latest source document" }] : [])];
     } else if (key === "inventory-valuation") {
       title = "Stock Valuation Summary";
       const grouped = new Map<string, { account: string; category: string; items: number; quantity: number; value: number }>();
@@ -816,11 +816,11 @@ export async function GET(request: Request) {
     else if (key === "sales-orders") { title = "Sales Order Fulfilment"; rows = txRows(["sales order"]); }
     else if (key === "open-purchase-orders") {
       title = "Open Purchase Orders";
-      rows = scopedTransactions.filter((row) => row.type === "purchase order" && !["paid", "closed", "received", "cancelled", "converted"].includes(row.status)).map((row) => ({ date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, supplier: row.party, status: row.status, currency: row.currency, amount: row.baseTotal }));
+      rows = scopedTransactions.filter((row) => row.type === "purchase order" && !["paid", "closed", "received", "cancelled", "converted"].includes(row.status)).map((row) => ({ transactionId: row.id, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, supplier: row.party, status: row.status, currency: row.currency, amount: row.baseTotal }));
       columns = [{ key: "date", label: "Date" }, { key: "dueDate", label: "Expected Date" }, { key: "number", label: "PO No." }, { key: "supplier", label: "Supplier" }, { key: "status", label: "Status" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Amount", ...money }];
     } else if (key === "open-purchase-orders-detail") {
       title = "Open Purchase Orders Detail";
-      rows = lines.filter((line) => line.type === "purchase order" && !["paid", "closed", "received", "cancelled", "converted"].includes(line.status)).map((line) => ({ supplier: line.party, date: line.date, number: line.number, item: line.description, quantity: line.quantity, unitCost: line.quantity ? line.subtotal * line.exchangeRate / line.quantity : 0, amount: line.subtotal * line.exchangeRate }));
+      rows = lines.filter((line) => line.type === "purchase order" && !["paid", "closed", "received", "cancelled", "converted"].includes(line.status)).map((line) => ({ transactionId: line.transactionId, supplier: line.party, date: line.date, number: line.number, item: line.description, quantity: line.quantity, unitCost: line.quantity ? line.subtotal * line.exchangeRate / line.quantity : 0, amount: line.subtotal * line.exchangeRate }));
       columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Date" }, { key: "number", label: "PO No." }, { key: "item", label: "Item" }, { key: "quantity", label: "Open Quantity" }, { key: "unitCost", label: "Unit Cost", ...money }, { key: "amount", label: "Open Amount", ...money }];
     } else if (key === "open-purchase-orders-job") {
       title = "Open Purchase Orders by Job";
