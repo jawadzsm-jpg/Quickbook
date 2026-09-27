@@ -840,6 +840,26 @@ test('shared report downloads are date-stamped, safe, styled, and include linked
   const pnlPage = pnlPdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(pnlPage); assert.ok(Math.abs(Number(pnlPage[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(pnlPage[2]) - 595.28) < 0.01);
 });
 
+test('budget summaries calculate account and monthly performance and export to A4 landscape PDF', async () => {
+  const { budgetSummary } = await vite.ssrLoadModule('/lib/budget-report.ts');
+  const accountSummary = budgetSummary({ key: 'budget-actual', rows: [
+    { section: 'Income', budget: 1000, actual: 1200 },
+    { section: 'Expenses', budget: 400, actual: 350 },
+  ] });
+  assert.deepEqual(accountSummary.cards.map(card => card.value), [1000, 1200, 400, 350, 250]);
+  assert.equal(accountSummary.cards.at(-1).tone, 'positive');
+  const monthlySummary = budgetSummary({ key: 'budget-actual-graph', rows: [
+    { month: '2026-01', budget: 100, actual: 90 },
+    { month: '2026-02', budget: 120, actual: 150 },
+  ] });
+  assert.deepEqual(monthlySummary.cards.map(card => card.value), [220, 240, 20, 2]);
+  const { reportPdf } = await vite.ssrLoadModule('/lib/report-export.ts');
+  const report = { key: 'budget-actual-graph', title: 'Budget vs. Actual Graph', generatedAt: '2026-09-27T10:00:00.000Z', currency: 'AED', columns: [{ key: 'month', label: 'Month' }, { key: 'budget', label: 'Budget', type: 'money' }, { key: 'actual', label: 'Actual', type: 'money' }], rows: [{ month: '2026-01', budget: 100, actual: 90 }] };
+  const pdf = Buffer.from(await reportPdf(report, 'Budget Company', 'Main Inventory')).toString('latin1');
+  const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(page);
+  assert.ok(Math.abs(Number(page[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(page[2]) - 595.28) < 0.01);
+});
+
 test('report date presets handle weeks, leap days, month ends and fiscal boundaries', async () => {
   const {presetDates,reportPeriod,reportMonths,previousYearDate} = await vite.ssrLoadModule('/lib/report-period.ts');
   assert.deepEqual(reportMonths('2026-12-15','2027-01-10'),[{month:'2026-12',from:'2026-12-15',to:'2026-12-31'},{month:'2027-01',from:'2027-01-01',to:'2027-01-10'}]);
