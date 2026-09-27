@@ -346,15 +346,16 @@ button, input, select { font: inherit; }
 @page financial-portrait { size: A4 portrait; margin: 10mm; }
 @page financial-landscape { size: A4 landscape; margin: 10mm; }
 @media screen {
+  .report-dialog { width: min(1600px, calc(100vw - 2rem)) !important; max-width: min(1600px, calc(100vw - 2rem)) !important; max-height: calc(100dvh - 2rem) !important; }
   .report-dialog.pnl-dialog { width: min(100%, 297mm); }
   .report-dialog.pnl-dialog:has(.letterhead-stamp) { min-height: 190mm; }
   .report-dialog.ap-aging-dialog { width: min(100%, 210mm); }
   .report-dialog.ap-aging-dialog:has(.letterhead-stamp) { min-height: 280mm; }
   .report-dialog.supplier-report-dialog { width: min(100%, 297mm); }
   .report-dialog.supplier-report-dialog:has(.letterhead-stamp) { min-height: 190mm; }
-  .report-dialog.financial-landscape { width: min(100%, 297mm); }
+  .report-dialog.financial-landscape { width: min(1600px, calc(100vw - 2rem)) !important; }
   .report-dialog.financial-landscape:has(.letterhead-stamp) { min-height: 190mm; }
-  .report-dialog.financial-portrait { width: min(100%, 210mm); }
+  .report-dialog.financial-portrait { width: min(1200px, calc(100vw - 2rem)) !important; max-width: min(1200px, calc(100vw - 2rem)) !important; }
   .report-dialog.financial-portrait:has(.letterhead-stamp) { min-height: 277mm; }
 }
 .financial-report-kpis > div { border: 1px solid #d7dee7; border-radius: .75rem; background: linear-gradient(145deg, #fff, #f4f7fa); padding: .85rem 1rem; box-shadow: 0 1px 2px rgb(15 23 42 / .05); }

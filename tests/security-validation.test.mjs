@@ -199,6 +199,17 @@ test("all 15 Financial reports share professional A4 output, movable stamps, and
   assert.match(css, /@page financial-landscape \{ size: A4 landscape; margin: 10mm; \}/);
 });
 
+test("report dialogs fit the screen and attachments appear only in their named record areas", () => {
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const attachments = readFileSync(new URL("../app/attachment-capture.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(css, /\.report-dialog \{ width: min\(1600px, calc\(100vw - 2rem\)\) !important;/);
+  assert.match(app, /data-attachments-context=\{activeEditorKind === "transactions"/);
+  for (const type of ["invoice", "bill", "customer payment", "bill payment", "vendor payment", "cheque", "employee"]) assert.match(app, new RegExp(`"${type}"`));
+  assert.match(attachments, /\[role="dialog"\]\[data-attachments-context\]/);
+  assert.doesNotMatch(attachments, /document\.body\.innerText|text\.includes\("invoice"\)|page\.includes\("employees & hr"\)/);
+});
+
 test("complete business final report links executive measures to detailed report areas", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const api = readFileSync(new URL("../app/api/reports/route.ts", import.meta.url), "utf8");
