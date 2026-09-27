@@ -959,6 +959,28 @@ test('inventory summaries provide stock KPIs and export all Inventory reports to
   assert.ok(Math.abs(Number(page[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(page[2]) - 595.28) < 0.01);
 });
 
+test('banking summaries provide cash-control KPIs and export both Banking reports to fitted A4 landscape PDF', async () => {
+  const { bankingReportKeys, bankingSummary, bankingDetailTarget } = await vite.ssrLoadModule('/lib/banking-report.ts');
+  assert.equal(bankingReportKeys.size, 2);
+  const register = bankingSummary({ key: 'bank-register', rows: [
+    { account: 'Main Bank', accountAccountId: 1, baseDebit: 1000, baseCredit: 0, baseBalance: 1000 },
+    { account: 'Main Bank', accountAccountId: 1, baseDebit: 0, baseCredit: 200, baseBalance: 800 },
+    { account: 'Savings', accountAccountId: 2, baseDebit: 500, baseCredit: 0, baseBalance: 500 },
+  ] });
+  assert.deepEqual(register.cards.map(card => card.value), [1500, 200, 1300, 1300, 3, 2]);
+  const reconciliation = bankingSummary({ key: 'bank-reconciliation', rows: [
+    { account: 'Main Bank', status: 'Cleared', absoluteAmount: 1000 },
+    { account: 'Main Bank', status: 'Uncleared', absoluteAmount: 200 },
+  ] });
+  assert.deepEqual(reconciliation.cards.map(card => card.value), [1000, 200, 1, 1, 1]);
+  assert.equal(bankingDetailTarget('bank-reconciliation'), 'bank-register');
+  const { reportPdf } = await vite.ssrLoadModule('/lib/report-export.ts');
+  const report = { key: 'bank-reconciliation', title: 'Bank Reconciliation', generatedAt: '2026-09-27T10:00:00.000Z', currency: 'AED', columns: [{ key: 'account', label: 'Bank Account' }, { key: 'amount', label: 'Net', type: 'money' }], rows: [{ account: 'Main Bank', amount: 1000, status: 'Cleared', absoluteAmount: 1000 }] };
+  const pdf = Buffer.from(await reportPdf(report, 'Banking Company', 'Main Inventory')).toString('latin1');
+  const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(page);
+  assert.ok(Math.abs(Number(page[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(page[2]) - 595.28) < 0.01);
+});
+
 test('report date presets handle weeks, leap days, month ends and fiscal boundaries', async () => {
   const {presetDates,reportPeriod,reportMonths,previousYearDate} = await vite.ssrLoadModule('/lib/report-period.ts');
   assert.deepEqual(reportMonths('2026-12-15','2027-01-10'),[{month:'2026-12',from:'2026-12-15',to:'2026-12-31'},{month:'2027-01',from:'2027-01-01',to:'2027-01-10'}]);

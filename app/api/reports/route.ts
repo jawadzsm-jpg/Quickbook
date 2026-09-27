@@ -81,7 +81,7 @@ export async function GET(request: Request) {
       db.select().from(contacts).where(eq(contacts.companyId, companyId)).orderBy(asc(contacts.name)),
       db.select().from(items).where(and(eq(items.companyId, companyId), scoped ? eq(items.locationId, locationId) : undefined)).orderBy(asc(items.name)),
       db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(asc(accounts.code)),
-      db.select({ date: journalEntries.entryDate, reference: journalEntries.reference, description: journalEntries.description, account: journalLines.accountName, debit: journalLines.debit, credit: journalLines.credit, originalDebit: journalLines.originalDebit, originalCredit: journalLines.originalCredit, entryCurrency: journalEntries.currency, exchangeRate: journalEntries.exchangeRate }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(journalFilter).orderBy(asc(journalEntries.entryDate), asc(journalLines.id)),
+      db.select({ transactionId: journalEntries.transactionId, date: journalEntries.entryDate, reference: journalEntries.reference, description: journalEntries.description, account: journalLines.accountName, debit: journalLines.debit, credit: journalLines.credit, originalDebit: journalLines.originalDebit, originalCredit: journalLines.originalCredit, entryCurrency: journalEntries.currency, exchangeRate: journalEntries.exchangeRate }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(journalFilter).orderBy(asc(journalEntries.entryDate), asc(journalLines.id)),
       db.select({ transactionId: transactions.id, itemId: transactionLines.itemId, description: transactionLines.description, quantity: transactionLines.quantity, unitPrice: transactionLines.unitPrice, subtotal: transactionLines.subtotal, unitCost: transactionLines.unitCost, freightCharge: transactionLines.freightCharge, isFreightCharge: transactionLines.isFreightCharge, vatCode: transactionLines.vatCode, vatRate: transactionLines.vatRate, vatAmount: transactionLines.vatAmount, type: transactions.type, status: transactions.status, billId: transactions.billId, locationId: transactions.locationId, party: transactions.party, date: transactions.transactionDate, number: transactions.number, transactionCurrency: transactions.currency, exchangeRate: transactions.exchangeRate, isImport: transactions.isImport }).from(transactionLines).innerJoin(transactions, eq(transactionLines.transactionId, transactions.id)).where(and(eq(transactions.companyId, companyId), scoped ? eq(transactions.locationId, locationId) : undefined)),
       db.select().from(vatCodes).where(eq(vatCodes.companyId, companyId)).orderBy(asc(vatCodes.code)),
       db.select().from(exchangeRates).where(and(eq(exchangeRates.companyId, companyId), eq(exchangeRates.active, true))),
@@ -480,6 +480,7 @@ export async function GET(request: Request) {
     } else if (key === "bank-register") {
       title = "Bank Register";
       const balances = new Map<number, number>();
+      const baseBalances = new Map<number, number>();
       rows = journal.flatMap((row) => {
         const account = journalAccount(row);
         if (!account || !(account.systemRole === "BANK" || account.type === "Bank")) return [];
@@ -490,14 +491,26 @@ export async function GET(request: Request) {
         const credit = row.originalCredit != null ? Number(row.originalCredit) : entryCurrency === bankCurrency && bankCurrency !== currency && rate > 0 ? Number(row.credit) / rate : Number(row.credit);
         const balance = (balances.get(account.id) ?? 0) + debit - credit;
         balances.set(account.id, balance);
+        const baseBalance = (baseBalances.get(account.id) ?? 0) + Number(row.debit) - Number(row.credit);
+        baseBalances.set(account.id, baseBalance);
         const duplicateName = (accountCandidates.get(account.name)?.length ?? 0) > 1;
-        return [{ account: duplicateName ? `${account.code} · ${account.name}` : account.name, accountAccountId: account.id, accountCurrency: bankCurrency, currency: bankCurrency, date: row.date, reference: row.reference, description: row.description, debit: `${debit.toFixed(2)} ${bankCurrency}`, credit: `${credit.toFixed(2)} ${bankCurrency}`, balance: `${balance.toFixed(2)} ${bankCurrency}` }];
+        return [{ transactionId: row.transactionId ?? 0, account: duplicateName ? `${account.code} · ${account.name}` : account.name, accountAccountId: account.id, accountCurrency: bankCurrency, currency: bankCurrency, date: row.date, reference: row.reference, referenceTransactionId: row.transactionId ?? 0, description: row.description, debit: `${debit.toFixed(2)} ${bankCurrency}`, credit: `${credit.toFixed(2)} ${bankCurrency}`, balance: `${balance.toFixed(2)} ${bankCurrency}`, baseDebit: Number(row.debit), baseCredit: Number(row.credit), baseBalance }];
       });
       columns = [{ key: "account", label: "Bank Account" }, { key: "currency", label: "Currency" }, { key: "date", label: "Date" }, { key: "reference", label: "Reference" }, { key: "description", label: "Description" }, { key: "debit", label: "Debit" }, { key: "credit", label: "Credit" }, { key: "balance", label: "Balance" }];
     } else if (key === "bank-reconciliation") {
       title = "Bank Reconciliation";
-      rows = allTransactions.filter((row) => (!Number.isInteger(locationId) || locationId <= 0 || row.locationId === locationId) && ["deposit", "cheque", "transfer", "credit card charge", "customer payment", "bill payment"].includes(row.type)).map((row) => ({ date: row.transactionDate, number: row.number, type: row.type, party: row.party, status: row.status === "cleared" ? "Cleared" : "Uncleared", amount: row.baseTotal }));
-      columns = [{ key: "date", label: "Date" }, { key: "number", label: "Reference" }, { key: "type", label: "Type" }, { key: "party", label: "Name / Account" }, { key: "status", label: "Reconciliation Status" }, { key: "amount", label: "Amount", ...money }];
+      const bankingTypes = new Set(["deposit", "cheque", "transfer", "credit card charge", "customer payment", "bill payment"]);
+      const transactionsById = new Map(scopedTransactions.map((row) => [row.id, row]));
+      rows = journal.flatMap((row) => {
+        const transaction = row.transactionId ? transactionsById.get(row.transactionId) : undefined;
+        const account = journalAccount(row);
+        if (!transaction || !bankingTypes.has(transaction.type) || !account || !(account.systemRole === "BANK" || account.type === "Bank")) return [];
+        const duplicateName = (accountCandidates.get(account.name)?.length ?? 0) > 1;
+        const debit = Number(row.debit);
+        const credit = Number(row.credit);
+        return [{ transactionId: transaction.id, account: duplicateName ? `${account.code} · ${account.name}` : account.name, accountAccountId: account.id, date: row.date, reference: row.reference, referenceTransactionId: transaction.id, type: transaction.type, party: transaction.party || "—", status: transaction.status === "cleared" ? "Cleared" : "Uncleared", debit, credit, amount: debit - credit, absoluteAmount: Math.abs(debit - credit) }];
+      });
+      columns = [{ key: "account", label: "Bank Account" }, { key: "date", label: "Date" }, { key: "reference", label: "Reference" }, { key: "type", label: "Type" }, { key: "party", label: "Name / Account" }, { key: "status", label: "Reconciliation Status" }, { key: "debit", label: "Money In", ...money }, { key: "credit", label: "Money Out", ...money }, { key: "amount", label: "Net", ...money }];
     } else if (key === "ap-aging-summary") {
       title = "A/P Aging Summary";
       const grouped = new Map<string, { current: number; days30: number; days60: number; days90: number; total: number }>();

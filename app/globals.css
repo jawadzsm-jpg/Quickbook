@@ -351,6 +351,7 @@ button, input, select { font: inherit; }
 @page vendor-report { size: A4 landscape; margin: 10mm; }
 @page purchase-report { size: A4 landscape; margin: 10mm; }
 @page inventory-report { size: A4 landscape; margin: 10mm; }
+@page banking-report { size: A4 landscape; margin: 10mm; }
 @media screen {
   .report-dialog {
     position: fixed !important;
@@ -446,6 +447,15 @@ button, input, select { font: inherit; }
   [data-appearance="dark"] .report-dialog .inventory-summary-grid [data-tone="positive"] strong { color: #6ee7b7 !important; }
   [data-appearance="dark"] .report-dialog .inventory-summary-grid [data-tone="negative"] strong { color: #fda4af !important; }
   [data-appearance="dark"] .report-dialog .inventory-summary-grid [data-tone="accent"] strong { color: #86efac !important; }
+  [data-appearance="dark"] .report-dialog .banking-report-brief { background: #10243a !important; border-color: #28577a !important; color: #c8e5f7 !important; }
+  [data-appearance="dark"] .report-dialog .banking-summary { background: linear-gradient(145deg, #12253b, #101827) !important; border-color: #355876 !important; }
+  [data-appearance="dark"] .report-dialog .banking-summary-grid > div { background: #172a40 !important; border-color: #3b607e !important; }
+  [data-appearance="dark"] .report-dialog .banking-summary-grid span,
+  [data-appearance="dark"] .report-dialog .banking-summary-note { color: #acc8da !important; }
+  [data-appearance="dark"] .report-dialog .banking-summary-grid strong { color: #f8fafc !important; }
+  [data-appearance="dark"] .report-dialog .banking-summary-grid [data-tone="positive"] strong { color: #6ee7b7 !important; }
+  [data-appearance="dark"] .report-dialog .banking-summary-grid [data-tone="negative"] strong { color: #fda4af !important; }
+  [data-appearance="dark"] .report-dialog .banking-summary-grid [data-tone="accent"] strong { color: #7dd3fc !important; }
   .report-dialog.pnl-dialog { width: min(100%, 297mm); }
   .report-dialog.pnl-dialog:has(.letterhead-stamp) { min-height: 190mm; }
   .report-dialog.ap-aging-dialog { width: min(100%, 210mm); }
@@ -468,6 +478,8 @@ button, input, select { font: inherit; }
   .report-dialog.purchase-report-dialog:has(.letterhead-stamp) { min-height: 190mm; }
   .report-dialog.inventory-report-dialog { width: min(1500px, calc(100vw - 2rem)) !important; max-width: min(1500px, calc(100vw - 2rem)) !important; }
   .report-dialog.inventory-report-dialog:has(.letterhead-stamp) { min-height: 190mm; }
+  .report-dialog.banking-report-dialog { width: min(1500px, calc(100vw - 2rem)) !important; max-width: min(1500px, calc(100vw - 2rem)) !important; }
+  .report-dialog.banking-report-dialog:has(.letterhead-stamp) { min-height: 190mm; }
 }
 @media screen and (max-width: 640px) {
   .report-dialog {
@@ -545,6 +557,16 @@ button, input, select { font: inherit; }
 .inventory-summary-grid [data-tone="negative"] strong { color: #be123c; }
 .inventory-summary-grid [data-tone="accent"] strong { color: #15803d; }
 .inventory-summary-note { color: #557163; }
+.banking-report-brief { background: #eff6ff; border-color: #bfdbfe; color: #365b75; }
+.banking-summary { border: 1px solid #d4e2ed; border-radius: .85rem; background: linear-gradient(145deg, #fff, #eff6ff); padding: 1rem; box-shadow: 0 1px 3px rgb(15 23 42 / .06); }
+.banking-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: .75rem; }
+.banking-summary-grid > div { border: 1px solid #d8e6f0; border-radius: .7rem; background: #fff; padding: .8rem .9rem; }
+.banking-summary-grid span { display: block; color: #567184; font-size: .68rem; font-weight: 750; letter-spacing: .055em; text-transform: uppercase; }
+.banking-summary-grid strong { display: block; margin-top: .35rem; color: #0f172a; font-size: 1.08rem; font-variant-numeric: tabular-nums; }
+.banking-summary-grid [data-tone="positive"] strong { color: #047857; }
+.banking-summary-grid [data-tone="negative"] strong { color: #be123c; }
+.banking-summary-grid [data-tone="accent"] strong { color: #0369a1; }
+.banking-summary-note { color: #567184; }
 @media print {
   body:has(.report-dialog) > :not([data-slot="dialog-content"]) { display: none !important; }
   body:has(.report-dialog) [data-slot="dialog-overlay"] { display: none !important; }
@@ -580,6 +602,7 @@ button, input, select { font: inherit; }
   .report-dialog.vendor-report-dialog { page: vendor-report; position: relative !important; width: 277mm !important; min-height: 190mm !important; }
   .report-dialog.purchase-report-dialog { page: purchase-report; position: relative !important; width: 277mm !important; min-height: 190mm !important; }
   .report-dialog.inventory-report-dialog { page: inventory-report; position: relative !important; width: 277mm !important; min-height: 190mm !important; }
+  .report-dialog.banking-report-dialog { page: banking-report; position: relative !important; width: 277mm !important; min-height: 190mm !important; }
   .report-dialog [data-export-slot] { display: none !important; }
   .report-dialog .report-table {
     width: 100% !important;
@@ -630,6 +653,10 @@ button, input, select { font: inherit; }
   .inventory-summary { background: #f8fdf9 !important; border: 1px solid #d5e7dc !important; box-shadow: none !important; padding: 3mm !important; break-inside: avoid; }
   .inventory-summary-grid { gap: 2mm; }
   .inventory-summary-grid > div { padding: 2.5mm !important; }
+  .banking-report-brief { background: #eff6ff !important; border-color: #bfdbfe !important; color: #365b75 !important; break-inside: avoid; }
+  .banking-summary { background: #f8fbff !important; border: 1px solid #d4e2ed !important; box-shadow: none !important; padding: 3mm !important; break-inside: avoid; }
+  .banking-summary-grid { gap: 2mm; }
+  .banking-summary-grid > div { padding: 2.5mm !important; }
   .financial-report .report-table thead { background: #102033 !important; color: white !important; print-color-adjust: exact; }
   .financial-report .report-table tbody tr:nth-child(even) { background: #f4f7fa !important; print-color-adjust: exact; }
   .financial-source-link { color: inherit !important; text-decoration: none !important; }
