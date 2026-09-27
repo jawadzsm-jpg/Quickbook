@@ -647,8 +647,11 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     if (!activeLocations.some((location) => location.id === activeLocationId)) setActiveLocationId(activeLocations[0]?.id ?? 0);
   }, [activeCompany, activeLocationId, activeLocations]);
   // Refresh the selected company file whenever its company or warehouse changes.
+  // Company-level records (especially Chart of Accounts) must still load when a
+  // company temporarily has no active inventory location. Location-scoped lists
+  // safely return empty rows for locationId 0, while accounts load company-wide.
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (activeCompanyId && activeLocationId) loadData(); }, [activeCompanyId, activeLocationId, loadData]);
+  useEffect(() => { if (activeCompanyId) loadData(); }, [activeCompanyId, activeLocationId, loadData]);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (activeCompanyId) loadVatCodes(); }, [activeCompanyId, loadVatCodes]);
   // eslint-disable-next-line react-hooks/set-state-in-effect

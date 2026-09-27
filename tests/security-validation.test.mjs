@@ -515,6 +515,12 @@ test("dashboard totals use linked ledger accounts without counting payments as i
   ]), { cash: 150, receivable: 200, payable: 300, inventory: 400, sales: 525, expenses: 225 });
 });
 
+test("Chart of Accounts loads even when a company has no active inventory location", () => {
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  assert.match(app, /useEffect\(\(\) => \{ if \(activeCompanyId\) loadData\(\); \}, \[activeCompanyId, activeLocationId, loadData\]\)/);
+  assert.doesNotMatch(app, /if \(activeCompanyId && activeLocationId\) loadData\(\)/);
+});
+
 test("inventory report QOH option hides only zero rows", () => {
   const rows = [{ sku: "ZERO", quantity: 0 }, { sku: "POSITIVE", quantity: 2 }, { sku: "NEGATIVE", quantity: -1 }];
   assert.equal(hasInventoryQohFilter("inventory-valuation-detail"), true);
