@@ -349,7 +349,8 @@ button, input, select { font: inherit; }
   .report-dialog {
     position: fixed !important;
     inset: 50% auto auto 50% !important;
-    transform: translate(-50%, -50%) !important;
+    translate: -50% -50% !important;
+    transform: none !important;
     width: min(1600px, calc(100vw - 2rem)) !important;
     max-width: min(1600px, calc(100vw - 2rem)) !important;
     max-height: calc(100dvh - 2rem) !important;
@@ -422,6 +423,7 @@ button, input, select { font: inherit; }
     position: static !important;
     inset: auto !important;
     transform: none !important;
+    translate: none !important;
     --tw-translate-x: 0px !important;
     --tw-translate-y: 0px !important;
     animation: none !important;
