@@ -67,7 +67,8 @@ function DialogContent({
         data-slot="dialog-content"
         data-window-state={windowState}
         className={cn(
-          "fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-xl border border-border/80 bg-background p-5 shadow-2xl shadow-slate-950/15 duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-h-[calc(100dvh-2rem)] sm:max-w-4xl sm:overflow-y-auto sm:p-6",
+          "fixed z-50 grid w-full max-w-[calc(100%-2rem)] gap-4 rounded-xl border border-border/80 bg-background p-5 shadow-2xl shadow-slate-950/15 duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-h-[calc(100dvh-2rem)] sm:max-w-4xl sm:overflow-y-auto sm:p-6",
+          windowState === "normal" && "top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%]",
           className
         )}
         onCloseAutoFocus={(event) => {

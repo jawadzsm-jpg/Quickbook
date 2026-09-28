@@ -603,6 +603,34 @@ button, input, select { font: inherit; }
     padding: 1rem !important;
   }
 }
+
+/* Window controls must win over each dialog's normal centering and sizing rules. */
+@media screen {
+  [data-slot="dialog-content"][data-window-state="maximized"] {
+    position: fixed !important;
+    inset: .5rem !important;
+    top: .5rem !important;
+    right: .5rem !important;
+    bottom: .5rem !important;
+    left: .5rem !important;
+    width: calc(100vw - 1rem) !important;
+    max-width: none !important;
+    height: calc(100dvh - 1rem) !important;
+    max-height: none !important;
+    margin: 0 !important;
+    --tw-translate-x: 0px !important;
+    --tw-translate-y: 0px !important;
+    translate: 0 0 !important;
+    transform: none !important;
+  }
+
+  [data-slot="dialog-content"][data-window-state="minimized"] {
+    --tw-translate-x: 0px !important;
+    --tw-translate-y: 0px !important;
+    translate: 0 0 !important;
+    transform: none !important;
+  }
+}
 .financial-report-kpis > div { border: 1px solid #d7dee7; border-radius: .75rem; background: linear-gradient(145deg, #fff, #f4f7fa); padding: .85rem 1rem; box-shadow: 0 1px 2px rgb(15 23 42 / .05); }
 .financial-report-kpis span { display: block; color: #64748b; font-size: .7rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .financial-report-kpis strong { display: block; margin-top: .35rem; color: #0f172a; font-size: 1.25rem; font-variant-numeric: tabular-nums; }
