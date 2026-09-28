@@ -20,6 +20,7 @@ export const salesDocumentTitles = {
   estimate: "Estimate",
   "proforma-invoice": "Proforma Invoice",
   "sales-order": "Sales Order",
+  bill: "Supplier Bill",
   "purchase-order": "Purchase Order",
   "purchase-return": "Purchase Return",
   "credit-note": "Credit Note",
@@ -38,6 +39,7 @@ const savedTemplateType: Partial<Record<SalesDocumentMode, TemplateDocumentType>
   estimate: "Estimate",
   "proforma-invoice": "Proforma Invoice",
   "sales-order": "Sales Order",
+  bill: "Bill",
   "purchase-order": "Purchase Order",
   "purchase-return": "Purchase Return",
   "credit-note": "Credit Note",
@@ -60,6 +62,7 @@ export function salesDocumentModeForTransaction(type: string): SalesDocumentMode
     case "estimate": return "estimate";
     case "proforma invoice": return "proforma-invoice";
     case "sales order": return "sales-order";
+    case "bill": return "bill";
     case "purchase order": return "purchase-order";
     case "vendor credit":
     case "purchase return": return "purchase-return";
@@ -88,7 +91,7 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
   const activeMode = selection.source === mode && outputModes.includes(selection.output) ? selection.output : mode;
   const letterhead = letterheadForDocument(setup.letterheadDesign, activeMode);
   const stamp = poStamp ?? {show: Boolean(letterhead?.showStamp), left: letterhead?.stampLeft ?? 155, top: letterhead?.stampTop ?? 230};
-  const movableStamp = activeMode === "purchase-order" || activeMode === "purchase-return";
+  const movableStamp = activeMode === "bill" || activeMode === "purchase-order" || activeMode === "purchase-return";
   const stampOverride = movableStamp ? stamp : undefined;
   const requestedTemplateType = savedTemplateType[activeMode];
   let { design, savedTemplate } = resolveDocumentDesign(setup.documentDesign, requestedTemplateType);

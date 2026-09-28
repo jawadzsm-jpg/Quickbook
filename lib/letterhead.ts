@@ -1,7 +1,7 @@
 export const letterheadDocuments = [
   ["tax-invoice", "Tax Invoice"], ["commercial-invoice", "Commercial Invoice"],
   ["estimate", "Estimate"], ["proforma-invoice", "Proforma Invoice"],
-  ["sales-order", "Sales Order"], ["purchase-order", "Purchase Order"],
+  ["sales-order", "Sales Order"], ["bill", "Supplier Bill"], ["purchase-order", "Purchase Order"],
   ["purchase-return", "Purchase Return"], ["credit-note", "Credit Note"],
   ["refund", "Refund"], ["cash-sales", "Sales Receipt"], ["quotation", "Quotation"],
   ["delivery-note", "Delivery Note"], ["packing-list", "Packing List"],

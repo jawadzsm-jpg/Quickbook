@@ -439,6 +439,21 @@ test("report dialogs fit the screen and attachments appear only in their named r
   assert.doesNotMatch(attachments, /document\.body\.innerText|text\.includes\("invoice"\)|page\.includes\("employees & hr"\)/);
 });
 
+test("supplier bills have direct attachments and A4 template output with a movable stamp", () => {
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const template = readFileSync(new URL("../app/sales-document-template.tsx", import.meta.url), "utf8");
+  const attachmentApi = readFileSync(new URL("../app/api/attachments/route.ts", import.meta.url), "utf8");
+  assert.match(app, /\["bill", "Bills"\]/);
+  assert.match(app, /title="View"[\s\S]{0,500}title="Bill attachments"/);
+  assert.match(app, /documentLabel="Bill"/);
+  assert.match(app, /"bill", "purchase order"/);
+  assert.match(template, /bill: "Supplier Bill"/);
+  assert.match(template, /case "bill": return "bill"/);
+  assert.match(template, /activeMode === "bill" \|\| activeMode === "purchase-order"/);
+  assert.match(template, /createA4PdfBlob/);
+  assert.match(attachmentApi, /transactionType === "bill" && hasPermission\(authorization, "purchases:write"\)/);
+});
+
 test("complete business final report links executive measures to detailed report areas", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const api = readFileSync(new URL("../app/api/reports/route.ts", import.meta.url), "utf8");
