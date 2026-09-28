@@ -400,19 +400,19 @@ button, input, select { font: inherit; }
   .report-dialog .report-table--wide table { table-layout: fixed; }
 }
 .business-final-report { max-width: 1400px; margin-inline: auto; }
-@page report { size: A4 landscape; margin: 10mm; }
+@page report { size: A4 portrait; margin: 10mm; }
 @page ap-aging { size: A4 portrait; margin: 10mm; }
 @page financial-portrait { size: A4 portrait; margin: 10mm; }
-@page financial-landscape { size: A4 landscape; margin: 10mm; }
-@page budget-report { size: A4 landscape; margin: 10mm; }
-@page sales-report { size: A4 landscape; margin: 10mm; }
-@page customer-report { size: A4 landscape; margin: 10mm; }
-@page vendor-report { size: A4 landscape; margin: 10mm; }
-@page purchase-report { size: A4 landscape; margin: 10mm; }
-@page inventory-report { size: A4 landscape; margin: 10mm; }
-@page banking-report { size: A4 landscape; margin: 10mm; }
-@page accountant-report { size: A4 landscape; margin: 10mm; }
-@page list-report { size: A4 landscape; margin: 10mm; }
+@page financial-landscape { size: A4 portrait; margin: 10mm; }
+@page budget-report { size: A4 portrait; margin: 10mm; }
+@page sales-report { size: A4 portrait; margin: 10mm; }
+@page customer-report { size: A4 portrait; margin: 10mm; }
+@page vendor-report { size: A4 portrait; margin: 10mm; }
+@page purchase-report { size: A4 portrait; margin: 10mm; }
+@page inventory-report { size: A4 portrait; margin: 10mm; }
+@page banking-report { size: A4 portrait; margin: 10mm; }
+@page accountant-report { size: A4 portrait; margin: 10mm; }
+@page list-report { size: A4 portrait; margin: 10mm; }
 @media screen {
   .report-dialog {
     position: fixed !important;
@@ -698,18 +698,18 @@ button, input, select { font: inherit; }
     print-color-adjust: exact;
   }
   .report-dialog.ap-aging-dialog { page: ap-aging; position: relative !important; width: 190mm !important; }
-  .report-dialog.supplier-report-dialog { position: relative !important; width: 277mm !important; min-height: 190mm !important; }
-  .report-dialog.financial-landscape { page: financial-landscape; position: relative !important; width: 277mm !important; min-height: 190mm !important; }
+  .report-dialog.supplier-report-dialog { position: relative !important; width: 190mm !important; min-height: 277mm !important; }
+  .report-dialog.financial-landscape { page: financial-landscape; position: relative !important; width: 190mm !important; min-height: 277mm !important; }
   .report-dialog.financial-portrait { page: financial-portrait; position: relative !important; width: 190mm !important; min-height: 277mm !important; }
-  .report-dialog.budget-report-dialog { page: budget-report; position: relative !important; width: 277mm !important; min-height: 190mm !important; }
-  .report-dialog.sales-report-dialog { page: sales-report; position: relative !important; width: 277mm !important; min-height: 190mm !important; }
-  .report-dialog.customer-report-dialog { page: customer-report; position: relative !important; width: 277mm !important; min-height: 190mm !important; }
-  .report-dialog.vendor-report-dialog { page: vendor-report; position: relative !important; width: 277mm !important; min-height: 190mm !important; }
-  .report-dialog.purchase-report-dialog { page: purchase-report; position: relative !important; width: 277mm !important; min-height: 190mm !important; }
-  .report-dialog.inventory-report-dialog { page: inventory-report; position: relative !important; width: 277mm !important; min-height: 190mm !important; }
-  .report-dialog.banking-report-dialog { page: banking-report; position: relative !important; width: 277mm !important; min-height: 190mm !important; }
-  .report-dialog.accountant-report-dialog { page: accountant-report; position: relative !important; width: 277mm !important; min-height: 190mm !important; }
-  .report-dialog.list-report-dialog { page: list-report; position: relative !important; width: 277mm !important; min-height: 190mm !important; }
+  .report-dialog.budget-report-dialog { page: budget-report; position: relative !important; width: 190mm !important; min-height: 277mm !important; }
+  .report-dialog.sales-report-dialog { page: sales-report; position: relative !important; width: 190mm !important; min-height: 277mm !important; }
+  .report-dialog.customer-report-dialog { page: customer-report; position: relative !important; width: 190mm !important; min-height: 277mm !important; }
+  .report-dialog.vendor-report-dialog { page: vendor-report; position: relative !important; width: 190mm !important; min-height: 277mm !important; }
+  .report-dialog.purchase-report-dialog { page: purchase-report; position: relative !important; width: 190mm !important; min-height: 277mm !important; }
+  .report-dialog.inventory-report-dialog { page: inventory-report; position: relative !important; width: 190mm !important; min-height: 277mm !important; }
+  .report-dialog.banking-report-dialog { page: banking-report; position: relative !important; width: 190mm !important; min-height: 277mm !important; }
+  .report-dialog.accountant-report-dialog { page: accountant-report; position: relative !important; width: 190mm !important; min-height: 277mm !important; }
+  .report-dialog.list-report-dialog { page: list-report; position: relative !important; width: 190mm !important; min-height: 277mm !important; }
   .report-dialog [data-export-slot] { display: none !important; }
   .report-dialog .report-table {
     width: 100% !important;
@@ -820,9 +820,9 @@ button, input, select { font: inherit; }
   [data-appearance="dark"] :is(svg.lucide-trash-2, svg.lucide-trash2, svg.lucide-trash) { color: #f87171 !important; }
 }
 
-@page pnl { size: A4 landscape; margin: 10mm; }
+@page pnl { size: A4 portrait; margin: 10mm; }
 @media print {
-  .pnl-dialog { page: pnl; position: relative !important; width: 277mm !important; min-height: 190mm !important; }
+  .pnl-dialog { page: pnl; position: relative !important; width: 190mm !important; min-height: 277mm !important; }
   .pnl-dialog button:not(.pnl-report button) { display: none !important; }
   .pnl-dialog .pnl-report button { color: inherit; text-decoration: none; }
   .pnl-dialog .report-brief { border: 0 !important; border-left: 3px solid #059669 !important; border-radius: 0 !important; background: #f4f7fa !important; color: #334155 !important; font-size: 8pt; padding: 2.5mm 3mm !important; break-inside: avoid; }
@@ -928,4 +928,22 @@ button, input, select { font: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+
+/* Printing defaults to A4 portrait. Packing Lists provide their own landscape-first rule. */
+@page { size: A4 portrait; margin: 10mm; }
+@page report-portrait { size: A4 portrait; margin: 10mm; }
+@page report-landscape { size: A4 landscape; margin: 10mm; }
+
+@media print {
+  .report-dialog.report-print-portrait {
+    page: report-portrait !important;
+    width: 190mm !important;
+    min-height: 277mm !important;
+  }
+  .report-dialog.report-print-landscape {
+    page: report-landscape !important;
+    width: 277mm !important;
+    min-height: 190mm !important;
+  }
 }

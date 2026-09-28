@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Download, FileDown, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PrintOrientationSelect, type PrintOrientation } from "@/components/print-orientation-select";
 import { readDocumentDesign, resolveDocumentDesign, type TemplateDocumentType } from "@/lib/document-design";
 import { documentPageRule } from "@/lib/document-print";
 import { createA4PdfBlob, documentPdfFileName, downloadPdfBlob, savePdfBlob } from "@/lib/document-output";
@@ -87,6 +88,7 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
   const [poStamp, setPoStamp] = useState<{show:boolean;left:number;top:number}|null>(null);
   const [packingOpen, setPackingOpen] = useState(false);
   const [packingView, setPackingView] = useState<"packing" | "hs-summary">("packing");
+  const [printOrientation, setPrintOrientation] = useState<PrintOrientation>("portrait");
   const connectedPackingList = String(record.type) === "invoice";
   const activeMode = selection.source === mode && outputModes.includes(selection.output) ? selection.output : mode;
   const letterhead = letterheadForDocument(setup.letterheadDesign, activeMode);
@@ -102,7 +104,7 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
   if (!savedTemplate || savedTemplate.appliesToAll || (requestedTemplateType && savedTemplate.type !== requestedTemplateType) || activeMode === "commercial-invoice" || activeMode === "purchase-return") design.title = salesDocumentTitles[activeMode];
   if (activeMode === "purchase-return") design.headers = [...design.headers.filter((field) => field.key !== "source"), { key: "source", label: "Original Supplier Bill", width: 1, screen: true, print: true }];
 
-  const a4Design = { ...design, paper: "A4" as const, printerMode: "specified" as const };
+  const a4Design = { ...design, paper: "A4" as const, printerMode: "specified" as const, orientation: printOrientation };
   const pageRule = documentPageRule(a4Design);
   const screenPreviewRef = useRef<HTMLDivElement>(null);
   const customerName = String(contact?.billingName || contact?.company || record.party || "Customer");
@@ -235,8 +237,9 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
         })}
       </div> : <div />}
       <div className="flex flex-wrap justify-end gap-2">
+        <PrintOrientationSelect value={printOrientation} onValueChange={setPrintOrientation} />
         <Button type="button" variant="outline" onClick={printA4}>
-          <Printer className="size-4" />Print
+          <Printer className="size-4" />Print A4
         </Button>
         <Button type="button" variant="outline" onClick={() => void savePdf()} disabled={pdfBusy}>
           <FileDown className="size-4" />{pdfBusy ? "Preparing…" : "Save as PDF"}

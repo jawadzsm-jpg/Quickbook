@@ -1,14 +1,15 @@
 import type { PnlReport } from "./profit-loss";
+import type { PrintOrientation } from "./document-print";
 
 export const csvValue = (value: string | number) => typeof value === "number" ? String(value) : `"${(/^[\s\u0000-\u001f]*[=+@-]/.test(value) ? "'" + value : value).replaceAll('"', '""')}"`;
 export function pnlCsv(report: PnlReport, company: string) {
   const records: (string | number)[][] = [[company], [report.title], [`${report.pnl.from || "Beginning"} to ${report.pnl.to || "Latest posting"}`, report.pnl.location, report.currency, "Accrual basis"], [], report.columns.map(c => c.label), ...report.rows.map(r => report.columns.map(c => r[c.key] ?? ""))];
   return "\uFEFF" + records.map(r => r.map(csvValue).join(",")).join("\r\n");
 }
-export async function pnlWorkbook(report: PnlReport, company: string) {
+export async function pnlWorkbook(report: PnlReport, company: string, orientation: PrintOrientation = "portrait") {
   const { default: ExcelJS } = await import("exceljs");
   const book = new ExcelJS.Workbook(); book.creator = "COMNET Enterprise Accounting"; book.created = new Date(report.generatedAt);
-  const sheet = book.addWorksheet("Profit and Loss", { views: [{ state: "frozen", ySplit: 5 }], pageSetup: { paperSize: 9, orientation: report.columns.length > 4 ? "landscape" : "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+  const sheet = book.addWorksheet("Profit and Loss", { views: [{ state: "frozen", ySplit: 5 }], pageSetup: { paperSize: 9, orientation, fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
   const width = report.columns.length;
   [company, report.title, `${report.pnl.from || "Beginning"} to ${report.pnl.to || "Latest posting"} · ${report.pnl.location}`, `${report.currency} · Accrual basis · Generated ${report.generatedAt}`].forEach((text, i) => { sheet.addRow([text]); sheet.mergeCells(i + 1, 1, i + 1, width); });
   sheet.getRow(1).font = { bold: true, size: 16, color: { argb: "FF102033" } };
@@ -26,9 +27,9 @@ export async function pnlWorkbook(report: PnlReport, company: string) {
   detail.getRow(1).font = { bold: true };
   return book.xlsx.writeBuffer();
 }
-export async function pnlPdf(report: PnlReport, company: string, stamp?: { data: string; left: number; top: number }) {
+export async function pnlPdf(report: PnlReport, company: string, stamp?: { data: string; left: number; top: number }, orientation: PrintOrientation = "portrait") {
   const [{ jsPDF }, { autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
-  const pdf = new jsPDF({ orientation: "landscape", format: "a4", unit: "mm" });
+  const pdf = new jsPDF({ orientation, format: "a4", unit: "mm" });
   const width = pdf.internal.pageSize.getWidth(); const height = pdf.internal.pageSize.getHeight();
   const number = (n: number) => n < 0 ? `(${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})` : n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const head = () => {

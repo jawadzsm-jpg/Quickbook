@@ -1,5 +1,7 @@
 import type { DocumentDesign } from '@/lib/document-design';
 
+export type PrintOrientation = 'portrait' | 'landscape';
+
 const PAPER_SIZES_MM = {
   A4: [210, 297],
   A3: [297, 420],

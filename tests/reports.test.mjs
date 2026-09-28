@@ -825,7 +825,9 @@ test("P&L reports reconcile item, rep, inventory and class to posted ledger with
   assert.equal(book.getWorksheet("Profit and Loss").pageSetup.paperSize, 9);
   assert.equal(book.getWorksheet("Ledger detail").rowCount, 5);
   const pdf = Buffer.from(await pnlPdf(byItem, "Company")).toString("latin1");
-  assert.ok(pdf.startsWith("%PDF-")); const box = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(box); assert.ok(Math.abs(Number(box[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(box[2]) - 595.28) < 0.01);
+  assert.ok(pdf.startsWith("%PDF-")); const box = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(box); assert.ok(Math.abs(Number(box[1]) - 595.28) < 0.01); assert.ok(Math.abs(Number(box[2]) - 841.89) < 0.01);
+  const landscapePdf = Buffer.from(await pnlPdf(byItem, "Company", undefined, "landscape")).toString("latin1");
+  const landscapeBox = landscapePdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(landscapeBox); assert.ok(Math.abs(Number(landscapeBox[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(landscapeBox[2]) - 595.28) < 0.01);
 });
 
 test('shared report downloads are date-stamped, safe, styled, and include linked account detail', async () => {
@@ -849,18 +851,18 @@ test('shared report downloads are date-stamped, safe, styled, and include linked
   assert.equal(book.getWorksheet('Report').views[0].ySplit, 9);
   assert.equal(book.getWorksheet('Report').pageSetup.paperSize, 9);
   assert.equal(book.getWorksheet('Report').pageSetup.fitToWidth, 1);
-  assert.equal(book.getWorksheet('Report').pageSetup.orientation, 'landscape');
+  assert.equal(book.getWorksheet('Report').pageSetup.orientation, 'portrait');
   assert.equal(book.getWorksheet('Account detail').getCell('C2').value, 'Inventory Asset');
   const pdf = Buffer.from(await reportPdf(report, 'Audit Company', 'Main Inventory')).toString('latin1');
   assert.ok(pdf.startsWith('%PDF-'));
-  const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(page); assert.ok(Math.abs(Number(page[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(page[2]) - 595.28) < 0.01);
+  const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(page); assert.ok(Math.abs(Number(page[1]) - 595.28) < 0.01); assert.ok(Math.abs(Number(page[2]) - 841.89) < 0.01);
   const portraitPdf = Buffer.from(await reportPdf({ ...report, key: 'balance-sheet-summary', title: 'Balance Sheet Summary' }, 'Audit Company', 'Main Inventory')).toString('latin1');
   const portraitPage = portraitPdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(portraitPage); assert.ok(Math.abs(Number(portraitPage[1]) - 595.28) < 0.01); assert.ok(Math.abs(Number(portraitPage[2]) - 841.89) < 0.01);
-  const pnlPdf = Buffer.from(await reportPdf({ ...report, key: 'item-profitability', title: 'Item Profitability' }, 'Audit Company', 'Main Inventory')).toString('latin1');
-  const pnlPage = pnlPdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(pnlPage); assert.ok(Math.abs(Number(pnlPage[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(pnlPage[2]) - 595.28) < 0.01);
+  const landscapePdf = Buffer.from(await reportPdf(report, 'Audit Company', 'Main Inventory', report.rows, undefined, 'landscape')).toString('latin1');
+  const landscapePage = landscapePdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(landscapePage); assert.ok(Math.abs(Number(landscapePage[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(landscapePage[2]) - 595.28) < 0.01);
 });
 
-test('budget summaries calculate account and monthly performance and export to A4 landscape PDF', async () => {
+test('budget summaries calculate account and monthly performance and export to selectable A4 PDF', async () => {
   const { budgetSummary } = await vite.ssrLoadModule('/lib/budget-report.ts');
   const accountSummary = budgetSummary({ key: 'budget-actual', rows: [
     { section: 'Income', budget: 1000, actual: 1200 },
@@ -877,10 +879,10 @@ test('budget summaries calculate account and monthly performance and export to A
   const report = { key: 'budget-actual-graph', title: 'Budget vs. Actual Graph', generatedAt: '2026-09-27T10:00:00.000Z', currency: 'AED', columns: [{ key: 'month', label: 'Month' }, { key: 'budget', label: 'Budget', type: 'money' }, { key: 'actual', label: 'Actual', type: 'money' }], rows: [{ month: '2026-01', budget: 100, actual: 90 }] };
   const pdf = Buffer.from(await reportPdf(report, 'Budget Company', 'Main Inventory')).toString('latin1');
   const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(page);
-  assert.ok(Math.abs(Number(page[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(page[2]) - 595.28) < 0.01);
+  assert.ok(Math.abs(Number(page[1]) - 595.28) < 0.01); assert.ok(Math.abs(Number(page[2]) - 841.89) < 0.01);
 });
 
-test('sales summaries provide report-specific KPIs and export every Sales report to A4 landscape PDF', async () => {
+test('sales summaries provide report-specific KPIs and export every Sales report to A4 portrait by default', async () => {
   const { salesReportKeys, salesSummary, salesDetailTarget } = await vite.ssrLoadModule('/lib/sales-report.ts');
   assert.equal(salesReportKeys.size, 12);
   const customer = salesSummary({ key: 'sales-by-customer', rows: [{ name: 'A', amount: 100 }, { name: 'B', amount: 300 }] });
@@ -892,10 +894,10 @@ test('sales summaries provide report-specific KPIs and export every Sales report
   const report = { key: 'sales-by-customer', title: 'Sales by Customer Summary', generatedAt: '2026-09-27T10:00:00.000Z', currency: 'AED', columns: [{ key: 'name', label: 'Customer' }, { key: 'amount', label: 'Sales', type: 'money' }], rows: [{ name: 'A', amount: 100 }] };
   const pdf = Buffer.from(await reportPdf(report, 'Sales Company', 'Main Inventory')).toString('latin1');
   const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(page);
-  assert.ok(Math.abs(Number(page[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(page[2]) - 595.28) < 0.01);
+  assert.ok(Math.abs(Number(page[1]) - 595.28) < 0.01); assert.ok(Math.abs(Number(page[2]) - 841.89) < 0.01);
 });
 
-test('customer summaries provide receivable KPIs and export every Customer report to A4 landscape PDF', async () => {
+test('customer summaries provide receivable KPIs and export every Customer report to A4 portrait by default', async () => {
   const { customerReportKeys, customerSummary, customerDetailTarget } = await vite.ssrLoadModule('/lib/customer-report.ts');
   assert.equal(customerReportKeys.size, 17);
   const aging = customerSummary({ key: 'ar-aging-summary', rows: [{ name: 'A', current: 100, days30: 50, days60: 25, days90: 10, total: 185 }] });
@@ -907,7 +909,7 @@ test('customer summaries provide receivable KPIs and export every Customer repor
   const report = { key: 'collections-report', title: 'Collections Report', generatedAt: '2026-09-27T10:00:00.000Z', currency: 'AED', columns: [{ key: 'customer', label: 'Customer' }, { key: 'balance', label: 'Balance', type: 'money' }], rows: [{ customer: 'A', balance: 500 }] };
   const pdf = Buffer.from(await reportPdf(report, 'Customer Company', 'Main Inventory')).toString('latin1');
   const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(page);
-  assert.ok(Math.abs(Number(page[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(page[2]) - 595.28) < 0.01);
+  assert.ok(Math.abs(Number(page[1]) - 595.28) < 0.01); assert.ok(Math.abs(Number(page[2]) - 841.89) < 0.01);
 });
 
 test('vendor summaries provide payable KPIs and export Vendor reports to fitted A4 PDF', async () => {
@@ -919,17 +921,17 @@ test('vendor summaries provide payable KPIs and export Vendor reports to fitted 
   const detail = vendorSummary({ key: 'unpaid-bills-detail', rows: [{ supplier: 'A', amount: 500, overdueDays: 12 }, { supplier: 'B', amount: 200, overdueDays: 0 }] });
   assert.deepEqual(detail.cards.map(card => card.value), [700, 2, 2, 1]);
   const { reportPdf } = await vite.ssrLoadModule('/lib/report-export.ts');
-  const landscapeReport = { key: 'vendor-balances', title: 'Supplier Balance Summary', generatedAt: '2026-09-27T10:00:00.000Z', currency: 'AED', columns: [{ key: 'name', label: 'Supplier' }, { key: 'amount', label: 'Balance', type: 'money' }], rows: [{ name: 'A', amount: 500 }] };
-  const landscape = Buffer.from(await reportPdf(landscapeReport, 'Vendor Company', 'Main Inventory')).toString('latin1');
-  const landscapePage = landscape.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(landscapePage);
-  assert.ok(Math.abs(Number(landscapePage[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(landscapePage[2]) - 595.28) < 0.01);
+  const defaultReport = { key: 'vendor-balances', title: 'Supplier Balance Summary', generatedAt: '2026-09-27T10:00:00.000Z', currency: 'AED', columns: [{ key: 'name', label: 'Supplier' }, { key: 'amount', label: 'Balance', type: 'money' }], rows: [{ name: 'A', amount: 500 }] };
+  const defaultPdf = Buffer.from(await reportPdf(defaultReport, 'Vendor Company', 'Main Inventory')).toString('latin1');
+  const defaultPage = defaultPdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(defaultPage);
+  assert.ok(Math.abs(Number(defaultPage[1]) - 595.28) < 0.01); assert.ok(Math.abs(Number(defaultPage[2]) - 841.89) < 0.01);
   const statementReport = { key: 'vendor-statements', title: 'Vendor Statements', generatedAt: '2026-09-27T10:00:00.000Z', currency: 'AED', statement: { opening: 0, charges: 500, credits: 200, closing: 300 }, columns: [{ key: 'customer', label: 'Vendor' }, { key: 'number', label: 'Reference' }, { key: 'debit', label: 'Charges', type: 'money' }, { key: 'credit', label: 'Payments', type: 'money' }], rows: [{ customer: 'A', number: 'B-1', debit: 500, credit: 200 }] };
   const portrait = Buffer.from(await reportPdf(statementReport, 'Vendor Company', 'Main Inventory')).toString('latin1');
   const portraitPage = portrait.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(portraitPage);
   assert.ok(Math.abs(Number(portraitPage[1]) - 595.28) < 0.01); assert.ok(Math.abs(Number(portraitPage[2]) - 841.89) < 0.01);
 });
 
-test('purchase summaries provide purchasing KPIs and export all Purchase reports to fitted A4 landscape PDF', async () => {
+test('purchase summaries provide purchasing KPIs and export all Purchase reports to fitted A4 portrait by default', async () => {
   const { purchaseReportKeys, purchaseSummary, purchaseDetailTarget } = await vite.ssrLoadModule('/lib/purchase-report.ts');
   assert.equal(purchaseReportKeys.size, 8);
   const suppliers = purchaseSummary({ key: 'purchases-by-vendor', rows: [{ name: 'A', amount: 100 }, { name: 'B', amount: 300 }] });
@@ -941,10 +943,10 @@ test('purchase summaries provide purchasing KPIs and export all Purchase reports
   const report = { key: 'purchases-by-vendor', title: 'Purchases by Supplier Summary', generatedAt: '2026-09-27T10:00:00.000Z', currency: 'AED', columns: [{ key: 'name', label: 'Supplier' }, { key: 'amount', label: 'Purchases', type: 'money' }], rows: [{ name: 'A', amount: 500 }] };
   const pdf = Buffer.from(await reportPdf(report, 'Purchase Company', 'Main Inventory')).toString('latin1');
   const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(page);
-  assert.ok(Math.abs(Number(page[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(page[2]) - 595.28) < 0.01);
+  assert.ok(Math.abs(Number(page[1]) - 595.28) < 0.01); assert.ok(Math.abs(Number(page[2]) - 841.89) < 0.01);
 });
 
-test('inventory summaries provide stock KPIs and export all Inventory reports to fitted A4 landscape PDF', async () => {
+test('inventory summaries provide stock KPIs and export all Inventory reports to fitted A4 portrait by default', async () => {
   const { inventoryReportKeys, inventorySummary, inventoryDetailTarget } = await vite.ssrLoadModule('/lib/inventory-report.ts');
   assert.equal(inventoryReportKeys.size, 6);
   const valuation = inventorySummary({ key: 'inventory-valuation', rows: [{ account: 'Inventory Asset', category: 'Laptop', items: 2, quantity: 8, value: 5000 }, { account: 'Inventory Asset', category: 'Monitor', items: 1, quantity: 4, value: 1000 }] });
@@ -956,10 +958,10 @@ test('inventory summaries provide stock KPIs and export all Inventory reports to
   const report = { key: 'inventory-valuation', title: 'Stock Valuation Summary', generatedAt: '2026-09-27T10:00:00.000Z', currency: 'AED', columns: [{ key: 'category', label: 'Category' }, { key: 'value', label: 'Stock Value', type: 'money' }], rows: [{ category: 'Laptop', value: 5000 }] };
   const pdf = Buffer.from(await reportPdf(report, 'Inventory Company', 'Main Inventory')).toString('latin1');
   const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(page);
-  assert.ok(Math.abs(Number(page[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(page[2]) - 595.28) < 0.01);
+  assert.ok(Math.abs(Number(page[1]) - 595.28) < 0.01); assert.ok(Math.abs(Number(page[2]) - 841.89) < 0.01);
 });
 
-test('banking summaries provide cash-control KPIs and export both Banking reports to fitted A4 landscape PDF', async () => {
+test('banking summaries provide cash-control KPIs and export both Banking reports to fitted A4 portrait by default', async () => {
   const { bankingReportKeys, bankingSummary, bankingDetailTarget } = await vite.ssrLoadModule('/lib/banking-report.ts');
   assert.equal(bankingReportKeys.size, 2);
   const register = bankingSummary({ key: 'bank-register', rows: [
@@ -978,10 +980,10 @@ test('banking summaries provide cash-control KPIs and export both Banking report
   const report = { key: 'bank-reconciliation', title: 'Bank Reconciliation', generatedAt: '2026-09-27T10:00:00.000Z', currency: 'AED', columns: [{ key: 'account', label: 'Bank Account' }, { key: 'amount', label: 'Net', type: 'money' }], rows: [{ account: 'Main Bank', amount: 1000, status: 'Cleared', absoluteAmount: 1000 }] };
   const pdf = Buffer.from(await reportPdf(report, 'Banking Company', 'Main Inventory')).toString('latin1');
   const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(page);
-  assert.ok(Math.abs(Number(page[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(page[2]) - 595.28) < 0.01);
+  assert.ok(Math.abs(Number(page[1]) - 595.28) < 0.01); assert.ok(Math.abs(Number(page[2]) - 841.89) < 0.01);
 });
 
-test('accountant summaries provide control KPIs and export all 11 Accountant reports to fitted A4 landscape PDF', async () => {
+test('accountant summaries provide control KPIs and export all 11 Accountant reports to fitted A4 portrait by default', async () => {
   const { accountantReportKeys, accountantSummary, accountantDetailTarget } = await vite.ssrLoadModule('/lib/accountant-report.ts');
   assert.equal(accountantReportKeys.size, 11);
   const trialBalance = accountantSummary({ key: 'trial-balance', rows: [
@@ -1002,10 +1004,10 @@ test('accountant summaries provide control KPIs and export all 11 Accountant rep
   const report = { key: 'trial-balance', title: 'Trial Balance', generatedAt: '2026-09-27T10:00:00.000Z', currency: 'AED', columns: [{ key: 'name', label: 'Account' }, { key: 'debit', label: 'Debit', type: 'money' }, { key: 'credit', label: 'Credit', type: 'money' }], rows: [{ name: 'Cash', debit: 1000, credit: 0, balance: 1000 }] };
   const pdf = Buffer.from(await reportPdf(report, 'Accountant Company', 'Main Inventory')).toString('latin1');
   const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(page);
-  assert.ok(Math.abs(Number(page[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(page[2]) - 595.28) < 0.01);
+  assert.ok(Math.abs(Number(page[1]) - 595.28) < 0.01); assert.ok(Math.abs(Number(page[2]) - 841.89) < 0.01);
 });
 
-test('Lists summaries provide master-data KPIs and export all 15 reports to fitted A4 landscape PDF', async () => {
+test('Lists summaries provide master-data KPIs and export all 15 reports to fitted A4 portrait by default', async () => {
   const { listReportKeys, listSummary, listDetailTarget } = await vite.ssrLoadModule('/lib/list-report.ts');
   assert.equal(listReportKeys.size, 15);
   const accounts = listSummary({ key: 'account-listing', rows: [
@@ -1029,7 +1031,7 @@ test('Lists summaries provide master-data KPIs and export all 15 reports to fitt
   const report = { key: 'item-listing', title: 'Item Listing', generatedAt: '2026-09-27T10:00:00.000Z', currency: 'AED', columns: [{ key: 'item', label: 'Item' }, { key: 'quantity', label: 'On Hand' }, { key: 'cost', label: 'Cost', type: 'money' }], rows: [{ item: 'Laptop', quantity: 5, reorder: 2, cost: 100, status: 'active' }] };
   const pdf = Buffer.from(await reportPdf(report, 'Lists Company', 'Main Inventory')).toString('latin1');
   const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(page);
-  assert.ok(Math.abs(Number(page[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(page[2]) - 595.28) < 0.01);
+  assert.ok(Math.abs(Number(page[1]) - 595.28) < 0.01); assert.ok(Math.abs(Number(page[2]) - 841.89) < 0.01);
 });
 
 test('employee reports keep native balances separate and export home-currency payments on A4', async () => {
@@ -1050,8 +1052,8 @@ test('employee reports keep native balances separate and export home-currency pa
   const pdf = Buffer.from(await reportPdf(report, 'Comnet', 'All inventories')).toString('latin1');
   const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/);
   assert.ok(page);
-  assert.ok(Math.abs(Number(page[1]) - 841.89) < 0.01);
-  assert.ok(Math.abs(Number(page[2]) - 595.28) < 0.01);
+  assert.ok(Math.abs(Number(page[1]) - 595.28) < 0.01);
+  assert.ok(Math.abs(Number(page[2]) - 841.89) < 0.01);
 });
 
 test('report date presets handle weeks, leap days, month ends and fiscal boundaries', async () => {

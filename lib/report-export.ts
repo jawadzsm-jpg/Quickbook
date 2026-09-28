@@ -1,13 +1,14 @@
-import { budgetReportKeys, budgetSummary } from "./budget-report";
-import { salesReportKeys, salesSummary } from "./sales-report";
-import { customerReportKeys, customerSummary } from "./customer-report";
-import { vendorReportKeys, vendorSummary } from "./vendor-report";
-import { purchaseReportKeys, purchaseSummary } from "./purchase-report";
-import { inventoryReportKeys, inventorySummary } from "./inventory-report";
-import { bankingReportKeys, bankingSummary } from "./banking-report";
-import { accountantReportKeys, accountantSummary } from "./accountant-report";
-import { listReportKeys, listSummary } from "./list-report";
-import { employeeReportKeys, employeeSummary } from "./employee-report";
+import { budgetSummary } from "./budget-report";
+import { salesSummary } from "./sales-report";
+import { customerSummary } from "./customer-report";
+import { vendorSummary } from "./vendor-report";
+import { purchaseSummary } from "./purchase-report";
+import { inventorySummary } from "./inventory-report";
+import { bankingSummary } from "./banking-report";
+import { accountantSummary } from "./accountant-report";
+import { listSummary } from "./list-report";
+import { employeeSummary } from "./employee-report";
+import type { PrintOrientation } from "./document-print";
 
 export type ReportExportColumn = { key: string; label: string; type?: "money" };
 export type ReportExportRow = Record<string, string | number | null>;
@@ -80,9 +81,7 @@ function widthFor(column: ReportExportColumn) {
   return 22;
 }
 
-const financialLandscapeReports = new Set(["business-final", "income-customer-detail", "expenses-supplier-detail", "income-expense-graph", "realised-gains-losses", "unrealised-gains-losses", "balance-sheet-detail", "balance-sheet-prev-year", "net-worth-graph", "cash-flow-forecast"]);
-
-export async function reportWorkbook(report: ReportExportData, company: string, inventory: string, rows = report.rows) {
+export async function reportWorkbook(report: ReportExportData, company: string, inventory: string, rows = report.rows, orientation: PrintOrientation = "portrait") {
   const { default: ExcelJS } = await import("exceljs");
   const book = new ExcelJS.Workbook();
   book.creator = "COMNET Enterprise Accounting";
@@ -90,7 +89,7 @@ export async function reportWorkbook(report: ReportExportData, company: string, 
   book.modified = new Date();
   const sheet = book.addWorksheet("Report", {
     views: [{ state: "frozen", ySplit: 9 }],
-    pageSetup: { paperSize: 9, orientation: financialLandscapeReports.has(report.key || "") || budgetReportKeys.has(report.key || "") || salesReportKeys.has(report.key || "") || purchaseReportKeys.has(report.key || "") || inventoryReportKeys.has(report.key || "") || bankingReportKeys.has(report.key || "") || accountantReportKeys.has(report.key || "") || listReportKeys.has(report.key || "") || employeeReportKeys.has(report.key || "") || (customerReportKeys.has(report.key || "") && report.key !== "customer-statements") || (vendorReportKeys.has(report.key || "") && !["ap-aging-summary", "vendor-statements"].includes(report.key || "")) || (report.columns.length > 6 && !["customer-statements", "vendor-statements"].includes(report.key || "")) ? "landscape" : "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 } },
+    pageSetup: { paperSize: 9, orientation, fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 } },
   });
   const columnCount = Math.max(1, report.columns.length);
   sheet.addRow([company]);
@@ -154,10 +153,9 @@ function displayValue(value: string | number | null | undefined, money: boolean)
   return String(value ?? "");
 }
 
-export async function reportPdf(report: ReportExportData, company: string, inventory: string, rows = report.rows, stamp?: { data: string; left: number; top: number }) {
+export async function reportPdf(report: ReportExportData, company: string, inventory: string, rows = report.rows, stamp?: { data: string; left: number; top: number }, orientation: PrintOrientation = "portrait") {
   const [{ jsPDF }, { autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
-  const profitLossLandscapeReports = new Set(["budget-profit-loss", "stock-pricing-profit", "item-profitability"]);
-  const pdf = new jsPDF({ orientation: (vendorReportKeys.has(report.key || "") && !["ap-aging-summary", "vendor-statements"].includes(report.key || "")) || purchaseReportKeys.has(report.key || "") || inventoryReportKeys.has(report.key || "") || bankingReportKeys.has(report.key || "") || accountantReportKeys.has(report.key || "") || listReportKeys.has(report.key || "") || employeeReportKeys.has(report.key || "") || profitLossLandscapeReports.has(report.key || "") || financialLandscapeReports.has(report.key || "") || budgetReportKeys.has(report.key || "") || salesReportKeys.has(report.key || "") || (customerReportKeys.has(report.key || "") && report.key !== "customer-statements") || (report.columns.length > 6 && !["customer-statements", "vendor-statements"].includes(report.key || "")) ? "landscape" : "portrait", format: "a4", unit: "mm" });
+  const pdf = new jsPDF({ orientation, format: "a4", unit: "mm" });
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
   const summary = budgetSummary({ key: report.key, rows }) ?? salesSummary({ key: report.key, rows }) ?? customerSummary({ key: report.key, rows, openBalance: report.openBalance, activeCustomers: report.activeCustomers, statement: report.statement }) ?? vendorSummary({ key: report.key, rows, statement: report.statement }) ?? purchaseSummary({ key: report.key, rows }) ?? inventorySummary({ key: report.key, rows }) ?? bankingSummary({ key: report.key, rows }) ?? accountantSummary({ key: report.key, rows }) ?? listSummary({ key: report.key, rows }) ?? employeeSummary({ key: report.key, rows });

@@ -82,7 +82,7 @@
 - Company letterhead builder and named A4 letterhead documents.
 - Company logos, bank details, VAT identity, extra fields, line comments, serial numbers, and payment terms.
 - Paid and company stamp overlays that can be moved before printing/export where supported.
-- A4 print styling and A4 PDF output.
+- A4 portrait print/PDF output by default, with a portrait/landscape selector; packing lists default to landscape.
 
 ## Reporting
 
@@ -111,7 +111,7 @@ Every report view supports a centered professional layout with category/search n
 - Summary cards and charts.
 - Table sorting/inspection and linked drill-down to operational areas.
 - Memorised report settings per user and company.
-- A4 print and PDF, XLSX, and CSV export.
+- Selectable A4 portrait/landscape print and PDF output, with matching XLSX page setup, plus CSV export.
 - Movable stamps on relevant print/PDF views.
 
 ## Role-visible navigation

@@ -191,7 +191,7 @@ test("inventory checks keep the checker, date and time on each completed count",
   assert.match(report, /Report date &amp; time/);
 });
 
-test("memorised reports live in Report Center categories with A4 print and PDF actions", () => {
+test("memorised reports live in Report Center categories with selectable A4 print and PDF actions", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
   assert.match(app, /\["All", "Memorised Reports", \.\.\.reportCategoryOrder\]/);
@@ -199,7 +199,8 @@ test("memorised reports live in Report Center categories with A4 print and PDF a
   assert.match(app, /definition\?\.\[1\] \|\| `Linked to \$\{category\} reports`/);
   assert.match(app, /<Printer className="size-4" \/>Print · A4/);
   assert.match(app, /kind === "pdf" \? "PDF · A4"/);
-  assert.match(css, /@page report \{ size: A4 landscape; margin: 10mm; \}/);
+  assert.match(css, /@page report-portrait \{ size: A4 portrait; margin: 10mm; \}/);
+  assert.match(css, /@page report-landscape \{ size: A4 landscape; margin: 10mm; \}/);
 });
 
 test("vendor report library includes selected-vendor reports, native currencies, and movable A4 stamps", () => {
@@ -229,10 +230,11 @@ test("all 12 Profit & Loss reports share professional A4 output, movable stamps,
   assert.match(app, /const stampReport = [^;]+isProfitLossReport/);
   assert.match(app, /sourceTransactionId > 0[\s\S]*onOpenSource\(sourceTransactionId\)/);
   assert.match(api, /sourceReferenceTransactionId: value\.sourceTransactionId/);
-  assert.match(pnlExport, /orientation: "landscape", format: "a4"/);
+  assert.match(pnlExport, /orientation: PrintOrientation = "portrait"/);
+  assert.match(pnlExport, /new jsPDF\(\{ orientation, format: "a4", unit: "mm" \}\)/);
   assert.match(pnlExport, /pdf\.addImage\(image\.data/);
-  assert.match(sharedExport, /profitLossLandscapeReports/);
-  assert.match(css, /@page pnl \{ size: A4 landscape; margin: 10mm; \}/);
+  assert.match(sharedExport, /orientation: PrintOrientation = "portrait"/);
+  assert.match(css, /@page pnl \{ size: A4 portrait; margin: 10mm; \}/);
 });
 
 test("all 15 Financial reports share professional A4 output, movable stamps, and document-area links", () => {
@@ -248,9 +250,9 @@ test("all 15 Financial reports share professional A4 output, movable stamps, and
   assert.match(app, /financial-dialog.*financialLandscape/);
   assert.match(financial, /title="Open source document"[\s\S]*onOpen\(Number\(row\.transactionId\)\)/);
   assert.match(financial, /title="Open full account history"[\s\S]*setAccount/);
-  assert.match(sharedExport, /financialLandscapeReports/);
+  assert.match(sharedExport, /orientation: PrintOrientation = "portrait"/);
   assert.match(css, /@page financial-portrait \{ size: A4 portrait; margin: 10mm; \}/);
-  assert.match(css, /@page financial-landscape \{ size: A4 landscape; margin: 10mm; \}/);
+  assert.match(css, /@page financial-landscape \{ size: A4 portrait; margin: 10mm; \}/);
 });
 
 test("all 3 Budget reports have summaries, one export control, A4 output, account links, and movable stamps", () => {
@@ -265,8 +267,8 @@ test("all 3 Budget reports have summaries, one export control, A4 output, accoun
   assert.match(app, /stampReport = [^;]+\|\| isBudgetReport/);
   assert.match(app, /accountId > 0[\s\S]*setLinkedAccount/);
   assert.match(budget, /Net favourable variance/);
-  assert.match(sharedExport, /budgetReportKeys\.has/);
-  assert.match(css, /@page budget-report \{ size: A4 landscape; margin: 10mm; \}/);
+  assert.match(sharedExport, /orientation: PrintOrientation = "portrait"/);
+  assert.match(css, /@page budget-report \{ size: A4 portrait; margin: 10mm; \}/);
   assert.match(css, /\.report-dialog\.budget-report-dialog/);
   assert.match(css, /\[data-appearance="dark"\] \.report-dialog \.budget-summary/);
 });
@@ -287,8 +289,8 @@ test("all 12 Sales reports have professional summaries, one export control, A4 o
   assert.match(api, /transactionId: row\.id, date: row\.transactionDate, number: row\.number/);
   assert.match(api, /sourceReferenceTransactionId: value\.sourceTransactionId/);
   assert.match(sales, /export const salesReportKeys = new Set/);
-  assert.match(sharedExport, /salesReportKeys\.has/);
-  assert.match(css, /@page sales-report \{ size: A4 landscape; margin: 10mm; \}/);
+  assert.match(sharedExport, /orientation: PrintOrientation = "portrait"/);
+  assert.match(css, /@page sales-report \{ size: A4 portrait; margin: 10mm; \}/);
   assert.match(css, /\.report-dialog\.sales-report-dialog/);
   assert.match(css, /\[data-appearance="dark"\] \.report-dialog \.sales-summary/);
 });
@@ -312,8 +314,8 @@ test("all 17 Customer reports have professional summaries, one export control, A
   assert.doesNotMatch(openBalance, /Export CSV/);
   assert.match(openBalance, /onCustomer\(name, currency, Boolean\(data\.overdueOnly\)\)/);
   assert.match(customer, /export const customerReportKeys = new Set/);
-  assert.match(sharedExport, /customerReportKeys\.has/);
-  assert.match(css, /@page customer-report \{ size: A4 landscape; margin: 10mm; \}/);
+  assert.match(sharedExport, /orientation: PrintOrientation = "portrait"/);
+  assert.match(css, /@page customer-report \{ size: A4 portrait; margin: 10mm; \}/);
   assert.match(css, /\.report-dialog\.customer-report-dialog/);
   assert.match(css, /\[data-appearance="dark"\] \.report-dialog \.customer-summary/);
 });
@@ -334,9 +336,9 @@ test("all 10 Vendor reports have professional summaries, one export control, A4 
   assert.match(app, /onVendor=\{\(supplier\) => \{ setReport\(null\); setSearch\(supplier\); setView\("vendors"\); \}\}/);
   assert.match(api, /transactionId: row\.id, supplier: row\.party/);
   assert.match(vendor, /export const vendorReportKeys = new Set/);
-  assert.match(sharedExport, /vendorReportKeys\.has/);
+  assert.match(sharedExport, /orientation: PrintOrientation = "portrait"/);
   assert.match(sharedExport, /vendorSummary/);
-  assert.match(css, /@page vendor-report \{ size: A4 landscape; margin: 10mm; \}/);
+  assert.match(css, /@page vendor-report \{ size: A4 portrait; margin: 10mm; \}/);
   assert.match(css, /\.report-dialog\.vendor-report-dialog/);
   assert.match(css, /\[data-appearance="dark"\] \.report-dialog \.vendor-summary/);
 });
@@ -357,9 +359,9 @@ test("all 8 Purchase reports have professional summaries, one export control, A4
   assert.match(api, /transactionId: row\.id, supplier: row\.party/);
   assert.match(api, /transactionId: line\.transactionId, supplier: line\.party/);
   assert.match(purchase, /export const purchaseReportKeys = new Set/);
-  assert.match(sharedExport, /purchaseReportKeys\.has/);
+  assert.match(sharedExport, /orientation: PrintOrientation = "portrait"/);
   assert.match(sharedExport, /purchaseSummary/);
-  assert.match(css, /@page purchase-report \{ size: A4 landscape; margin: 10mm; \}/);
+  assert.match(css, /@page purchase-report \{ size: A4 portrait; margin: 10mm; \}/);
   assert.match(css, /\.report-dialog\.purchase-report-dialog/);
   assert.match(css, /\[data-appearance="dark"\] \.report-dialog \.purchase-summary/);
 });
@@ -380,9 +382,9 @@ test("all 6 Inventory reports have professional summaries, one export control, A
   assert.match(app, /onInventoryItem=\{\(query\) => \{ setReport\(null\); setSearch\(query\); setView\("inventory"\); \}\}/);
   assert.match(api, /itemId: row\.id, account: inventoryAccountFor\(row\)/);
   assert.match(inventory, /export const inventoryReportKeys = new Set/);
-  assert.match(sharedExport, /inventoryReportKeys\.has/);
+  assert.match(sharedExport, /orientation: PrintOrientation = "portrait"/);
   assert.match(sharedExport, /inventorySummary/);
-  assert.match(css, /@page inventory-report \{ size: A4 landscape; margin: 10mm; \}/);
+  assert.match(css, /@page inventory-report \{ size: A4 portrait; margin: 10mm; \}/);
   assert.match(css, /\.report-dialog\.inventory-report-dialog/);
   assert.match(css, /\[data-appearance="dark"\] \.report-dialog \.inventory-summary/);
 });
@@ -403,9 +405,9 @@ test("all 2 Banking reports have professional summaries, one export control, A4 
   assert.match(api, /referenceTransactionId: row\.transactionId/);
   assert.match(api, /referenceTransactionId: transaction\.id/);
   assert.match(banking, /export const bankingReportKeys = new Set/);
-  assert.match(sharedExport, /bankingReportKeys\.has/);
+  assert.match(sharedExport, /orientation: PrintOrientation = "portrait"/);
   assert.match(sharedExport, /bankingSummary/);
-  assert.match(css, /@page banking-report \{ size: A4 landscape; margin: 10mm; \}/);
+  assert.match(css, /@page banking-report \{ size: A4 portrait; margin: 10mm; \}/);
   assert.match(css, /\.report-dialog\.banking-report-dialog/);
   assert.match(css, /\[data-appearance="dark"\] \.report-dialog \.banking-summary/);
 });
@@ -427,9 +429,9 @@ test("all 11 Accountant reports have professional summaries, one export control,
   assert.match(api, /numberTransactionId: row\.id/);
   assert.match(api, /referenceTransactionId: source\.id/);
   assert.match(accountant, /export const accountantReportKeys = new Set/);
-  assert.match(sharedExport, /accountantReportKeys\.has/);
+  assert.match(sharedExport, /orientation: PrintOrientation = "portrait"/);
   assert.match(sharedExport, /accountantSummary/);
-  assert.match(css, /@page accountant-report \{ size: A4 landscape; margin: 10mm; \}/);
+  assert.match(css, /@page accountant-report \{ size: A4 portrait; margin: 10mm; \}/);
   assert.match(css, /\.report-dialog\.accountant-report-dialog/);
   assert.match(css, /\[data-appearance="dark"\] \.report-dialog \.accountant-summary/);
 });
@@ -452,9 +454,9 @@ test("all 15 Lists reports have professional summaries, one export control, A4 o
   assert.match(api, /itemId: (?:row|item)\.id/);
   assert.match(api, /numberTransactionId: row\.id/);
   assert.match(lists, /export const listReportKeys = new Set/);
-  assert.match(sharedExport, /listReportKeys\.has/);
+  assert.match(sharedExport, /orientation: PrintOrientation = "portrait"/);
   assert.match(sharedExport, /listSummary/);
-  assert.match(css, /@page list-report \{ size: A4 landscape; margin: 10mm; \}/);
+  assert.match(css, /@page list-report \{ size: A4 portrait; margin: 10mm; \}/);
   assert.match(css, /\.report-dialog\.list-report-dialog/);
   assert.match(css, /\[data-appearance="dark"\] \.report-dialog \.list-summary/);
 });
@@ -470,6 +472,24 @@ test("report dialogs fit the screen and attachments appear only in their named r
   for (const type of ["invoice", "bill", "customer payment", "bill payment", "vendor payment", "cheque", "employee"]) assert.match(app, new RegExp(`"${type}"`));
   assert.match(attachments, /\[role="dialog"\]\[data-attachments-context\]/);
   assert.doesNotMatch(attachments, /document\.body\.innerText|text\.includes\("invoice"\)|page\.includes\("employees & hr"\)/);
+});
+
+test("application windows are wide and A4 output offers portrait or landscape with packing lists defaulting to landscape", () => {
+  const dialog = readFileSync(new URL("../components/ui/dialog.tsx", import.meta.url), "utf8");
+  const selector = readFileSync(new URL("../components/print-orientation-select.tsx", import.meta.url), "utf8");
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const documents = readFileSync(new URL("../app/sales-document-template.tsx", import.meta.url), "utf8");
+  const packing = readFileSync(new URL("../app/invoice-packing-list.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(dialog, /sm:max-w-4xl/);
+  assert.match(selector, /<SelectItem value="portrait">Portrait<\/SelectItem>/);
+  assert.match(selector, /<SelectItem value="landscape">Landscape<\/SelectItem>/);
+  assert.match(app, /useState<PrintOrientation>\("portrait"\)/);
+  assert.match(app, /report-print-\$\{printOrientation\}/);
+  assert.match(documents, /useState<PrintOrientation>\("portrait"\)/);
+  assert.match(packing, /useState<PrintOrientation>\("landscape"\)/);
+  assert.match(packing, /@page\{size:A4 \$\{packingOrientation\}/);
+  assert.match(css, /@page \{ size: A4 portrait; margin: 10mm; \}/);
 });
 
 test("supplier bills have direct attachments and A4 template output with a movable stamp", () => {

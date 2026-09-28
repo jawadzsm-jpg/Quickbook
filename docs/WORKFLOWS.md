@@ -86,7 +86,7 @@ When an existing posting document is edited, the server reverses its prior ledge
 
 ### Sales document output
 
-Open a saved transaction to choose its supported output: tax/commercial invoice, proforma, delivery note, packing list, or HS-code summary. Company design, logos, letterhead, bank details, VAT data, serials, line comments, attachments, and optional stamps feed the A4 print/PDF view.
+Open a saved transaction to choose its supported output: tax/commercial invoice, proforma, delivery note, packing list, or HS-code summary. Company design, logos, letterhead, bank details, VAT data, serials, line comments, attachments, and optional stamps feed the A4 print/PDF view. The output selector defaults documents to portrait and lets the user switch to landscape.
 
 ## 5. Purchasing workflow
 
@@ -186,7 +186,7 @@ Deposits, cheques, credit-card charges, account transfers, cheque orders, and op
 1. Open a sales invoice and load its lines.
 2. Create a packing list number/date and edit carton references, quantities, weights, dimensions, and serials.
 3. Save the packing list linked to invoice and invoice lines.
-4. Print the A4 packing document through the selected company design.
+4. Print the A4 packing document through the selected company design. Packing lists default to landscape, with portrait available from the output selector.
 
 ## 9. Reporting workflow
 
@@ -200,7 +200,7 @@ flowchart TD
   View --> Output["Print A4, PDF, XLSX, or CSV"]
 ```
 
-The UI groups and searches 120 report definitions. `/api/reports` validates report-specific access and filters, loads ledger/transaction/master data, and returns normalized columns and rows plus optional summary/chart/period metadata. The client can drill into linked areas, save a user/company report view, and export the same result.
+The UI groups and searches 120 report definitions. `/api/reports` validates report-specific access and filters, loads ledger/transaction/master data, and returns normalized columns and rows plus optional summary/chart/period metadata. The client can drill into linked areas, save a user/company report view, choose A4 portrait or landscape (portrait by default), and export the same result.
 
 ## 10. Administration workflow
 
