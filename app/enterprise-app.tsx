@@ -55,6 +55,7 @@ import { dueDateForPaymentTerms } from "@/lib/payment-terms";
 import { inferUaeChequeLayout, uaeChequeLayouts } from "@/lib/uae-cheque-layouts";
 import { applyContactCurrency } from "@/lib/contact-currency";
 import { countries } from "@/lib/countries";
+import { generatedItemDescription, type ItemSpecification } from "@/lib/item-description";
 import { SalesDocumentTemplate, salesDocumentModeForTransaction } from "./sales-document-template";
 import { InvoiceAttachments } from "./invoice-attachments";
 import {
@@ -456,11 +457,10 @@ const defaultPostingAccount = (type: string, accounts: DataRecord[]) => {
 };
 const itemDisplayDescription = (item: DataRecord) => {
   try {
-    const specifications = JSON.parse(String(item.specifications ?? "[]")) as Array<{ value?: string }>;
-    const values = specifications.map((specification) => specification.value?.trim()).filter((value) => value && value.toLowerCase() !== "no").join(" | ");
-    if (specifications.length) return values;
+    const specifications = JSON.parse(String(item.specifications ?? "[]")) as ItemSpecification[];
+    if (specifications.length) return generatedItemDescription(specifications, item.sku, item.itemNumber);
   } catch { /* Fall back to the saved description for older records. */ }
-  return String(item.description ?? "").split(" | ").filter((value) => value.trim().toLowerCase() !== "no").join(" | ");
+  return String(item.description ?? "").toLocaleUpperCase("en").split(" | ").filter((value) => value.trim().toLowerCase() !== "no").join(" | ");
 };
 
 export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUser }) {
@@ -750,7 +750,14 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     setDialogOpen(true);
   }
 
-  function openCreate() {
+  async function newItemIdentity() {
+    const response = await fetch(`/api/records?kind=items&companyId=${activeCompanyId}&locationId=${activeLocationId}&previewIdentity=true`, { cache: "no-store" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Could not generate the item identifiers");
+    return { sku: String(data.sku), itemNumber: String(data.itemNumber) };
+  }
+
+  async function openCreate() {
     setEditingRecordId(null);
     setEditingItemId(null);
     setEditorKind(currentKind);
@@ -764,6 +771,9 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
       setForm(type === "customer" ? { type, currency: baseCurrency, ledgerAccountId: controlAccount ? String(controlAccount.id) : "", reseller: "Reseller", planet: "No", balance: "0" } : { type, currency: baseCurrency, ledgerAccountId: controlAccount ? String(controlAccount.id) : "", balance: "0" });
     }
     else if (currentKind === "items") {
+      let identity: { sku: string; itemNumber: string };
+      try { identity = await newItemIdentity(); }
+      catch (error) { toast.error(error instanceof Error ? error.message : "Could not generate the item identifiers"); return; }
       const initialFields = specificationFields.filter((label) => label !== "Product Category").slice(0, 8);
       const defaultCogs = records.accounts.find((account) => account.active && (account.systemRole === "COGS" || account.type === "Cost of Goods Sold" || /cost of goods/i.test(String(account.name || ""))));
       const defaultIncome = records.accounts.find((account) => account.active && (account.systemRole === "SALES" || account.type === "Income" || /^income$/i.test(String(account.name || ""))));
@@ -771,7 +781,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
         ?? records.accounts.find((account) => account.active && /inventory asset/i.test(String(account.name || "")));
       const defaultVat = vatCodeOptions.find((code) => code.code === "STANDARD")?.code ?? vatCodeOptions[0]?.code ?? "ZERO";
       const itemForm: Record<string, string> = {
-        itemType: "stock-part", category: "LAPTOP", quantity: "0", reorderPoint: "0", salesPrice: "0", cost: "0",
+        itemType: "stock-part", category: "LAPTOP", sku: identity.sku, itemNumber: identity.itemNumber, quantity: "0", reorderPoint: "0", salesPrice: "0", cost: "0",
         purchaseVatCode: defaultVat, salesVatCode: defaultVat, cogsAccountId: defaultCogs ? String(defaultCogs.id) : "",
         incomeAccountId: defaultIncome ? String(defaultIncome.id) : "", assetAccountId: defaultAsset ? String(defaultAsset.id) : "",
         preferredSupplierId: "", status: "active", amountsIncludeVat: "false", specCount: String(initialFields.length),
@@ -794,7 +804,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     setDialogOpen(true);
   }
 
-  function openItemEdit(item: DataRecord) {
+  function openItemEdit(item: DataRecord, duplicateIdentity?: { sku: string; itemNumber: string }) {
     const defaultCogs = records.accounts.find((account) => account.active && (account.systemRole === "COGS" || account.type === "Cost of Goods Sold" || /cost of goods/i.test(String(account.name || ""))));
     const defaultIncome = records.accounts.find((account) => account.active && (account.systemRole === "SALES" || account.type === "Income" || /^income$/i.test(String(account.name || ""))));
     const defaultAsset = records.accounts.find((account) => account.active && account.systemRole === "INVENTORY")
@@ -804,20 +814,20 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     if (!specifications.length) specifications = specificationFields.filter((label) => label !== "Product Category").slice(0, 8).map((label) => ({ label, value: "" }));
     const itemForm: Record<string, string> = {
       itemType: itemTypeOf(item.itemType), category: String(item.category ?? "LAPTOP").toLocaleUpperCase("en"),
-      itemNumber: String(item.itemNumber ?? ""), sku: String(item.sku ?? ""), quantity: String(item.quantity ?? 0),
+      itemNumber: duplicateIdentity?.itemNumber ?? String(item.itemNumber ?? ""), sku: duplicateIdentity?.sku ?? String(item.sku ?? ""), quantity: duplicateIdentity ? "0" : String(item.quantity ?? 0),
       reorderPoint: String(item.reorderPoint ?? 0), salesPrice: String(item.salesPrice ?? 0), cost: String(item.averageCost ?? item.cost ?? 0),
       lastPurchasePrice: String(item.lastPurchasePrice ?? item.cost ?? 0), onPo: String(item.onPo ?? 0),
       purchaseVatCode: String(item.purchaseVatCode ?? "STANDARD"), salesVatCode: String(item.salesVatCode ?? "STANDARD"),
       cogsAccountId: item.cogsAccountId ? String(item.cogsAccountId) : (defaultCogs ? String(defaultCogs.id) : ""), incomeAccountId: item.incomeAccountId ? String(item.incomeAccountId) : (defaultIncome ? String(defaultIncome.id) : ""),
       assetAccountId: item.assetAccountId ? String(item.assetAccountId) : (defaultAsset ? String(defaultAsset.id) : ""), preferredSupplierId: item.preferredSupplierId ? String(item.preferredSupplierId) : "",
       status: String(item.status ?? "active"), amountsIncludeVat: item.amountsIncludeVat === true || String(item.amountsIncludeVat) === "true" ? "true" : "false",
-      specCount: String(Math.min(30, specifications.length)),
+      specCount: String(Math.min(30, specifications.length)), ...(duplicateIdentity ? { duplicateOfItemId: String(item.id) } : {}),
     };
     specifications.slice(0, 30).forEach((specification, index) => {
       itemForm[`specLabel${index}`] = specification.label;
       itemForm[`specValue${index}`] = String(specification.value ?? "").toLocaleUpperCase("en");
     });
-    setEditingItemId(item.id);
+    setEditingItemId(duplicateIdentity ? null : item.id);
     setEditorKind("items");
     setForm(itemForm);
     setDialogOpen(true);
@@ -833,6 +843,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     if (!skuLock.ready) return;
     const saveKind = activeEditorKind;
     if (saveKind === "items" && !activeLocations.some(location => location.id === activeLocationId)) return toast.error("Select a company with an active inventory before saving the item.");
+    if (saveKind === "items" && (!/^[A-Z0-9]{6}$/.test(form.sku || "") || !/^\d{5,}$/.test(form.itemNumber || ""))) return toast.error("Wait for the generated SKU and Item No. before saving.");
     if (!salesDetailsOnly && linkedInventoryDocument && !documentInventoryReady) return toast.error("Wait for the selected inventory to load before saving.");
     if (saveKind === "contacts" && form.type === "customer") {
       const required = [form.company, form.name, form.phone, form.whatsapp, form.country, form.reseller, form.planet, form.currency];
@@ -911,12 +922,11 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
 
   async function duplicateItem(id: number) {
     try {
-      const response = await fetch("/api/records", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "items", companyId: activeCompanyId, locationId: activeLocationId, duplicateItemId: id }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not duplicate item");
-      await loadData();
-      openItemEdit(data.record as DataRecord);
-      toast.success(`Duplicate ${data.record.sku} is ready to edit and save`);
+      const source = records.items.find((item) => item.id === id);
+      if (!source) throw new Error("The item to duplicate was not found.");
+      const identity = await newItemIdentity();
+      openItemEdit(source, identity);
+      toast.info(`Duplicate draft ${identity.sku} is not saved. Press Save record to create it, or Cancel to discard it.`);
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not duplicate item"); }
   }
 
@@ -1134,9 +1144,9 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
             {editingRecordId !== null && ["contacts", "accounts"].includes(activeEditorKind) && <div className="grid gap-4 sm:grid-cols-2">{(activeEditorKind === "accounts" ? [["Account code", "code"], ["Account name", "name"]] : [["Name", "name"], ["Company", "company"], ["Billing name", "billingName"], ["Email", "email"], ["Phone", "phone"], ["WhatsApp", "whatsapp"], ["Country", "country"], ["TRN", "trn"], ["Reseller", "reseller"], ["Planet", "planet"], ["Passport", "passport"], ["Description", "description"]]).map(([label, name]) => <Field key={name} label={label} name={name} form={form} setForm={setForm} required={name === "name" || name === "code"} />)}{activeEditorKind === "accounts" && <Choice label="Account type" name="type" values={accountTypesForRole(form.systemRole || "")} form={form} setForm={setForm} />}<p className="text-xs text-slate-500 sm:col-span-2">{activeEditorKind === "accounts" ? "Account type can be changed. Currency, opening balance and system link are preserved." : "Currency, balances and ledger links are preserved when editing these details."}</p></div>}
             {activeEditorKind === "items" && <>
               {editingItemId === null && <section className="grid gap-4 rounded-xl border bg-slate-50 p-4 sm:grid-cols-2">
-                <label className="grid gap-2 text-sm font-medium">Company *<select required className="h-10 w-full rounded-md border bg-background px-3" value={activeCompanyId || ""} onChange={event => { const company = companies.find(entry => entry.id === Number(event.target.value)); if (!company) return; setRecords({ transactions: [], contacts: [], items: [], accounts: [] }); setActiveCompanyId(company.id); setActiveLocationId(company.locations[0]?.id ?? 0); }}><option value="" disabled>Select company</option>{companies.map(company => <option key={company.id} value={company.id}>{company.name}</option>)}</select></label>
-                <label className="grid gap-2 text-sm font-medium">Inventory *<select required className="h-10 w-full rounded-md border bg-background px-3" value={activeLocations.some(location => location.id === activeLocationId) ? activeLocationId : ""} disabled={!activeLocations.length} onChange={event => { setRecords(current => ({ ...current, items: [] })); setActiveLocationId(Number(event.target.value)); }}><option value="" disabled>Select inventory</option>{activeLocations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
-                <p className="text-sm text-slate-500 sm:col-span-2">{activeLocations.length ? `The new item will be saved in ${activeCompany?.name || "the selected company"} · ${activeLocations.find(location => location.id === activeLocationId)?.name || "select an inventory"}.` : "This company has no active inventory. Add an inventory or select another company."}</p>
+                <label className="grid gap-2 text-sm font-medium">Company *<select required disabled={Boolean(form.duplicateOfItemId)} className="h-10 w-full rounded-md border bg-background px-3 disabled:bg-slate-100" value={activeCompanyId || ""} onChange={event => { const company = companies.find(entry => entry.id === Number(event.target.value)); if (!company) return; setRecords({ transactions: [], contacts: [], items: [], accounts: [] }); setActiveCompanyId(company.id); setActiveLocationId(company.locations[0]?.id ?? 0); }}><option value="" disabled>Select company</option>{companies.map(company => <option key={company.id} value={company.id}>{company.name}</option>)}</select></label>
+                <label className="grid gap-2 text-sm font-medium">Inventory *<select required className="h-10 w-full rounded-md border bg-background px-3 disabled:bg-slate-100" value={activeLocations.some(location => location.id === activeLocationId) ? activeLocationId : ""} disabled={!activeLocations.length || Boolean(form.duplicateOfItemId)} onChange={event => { setRecords(current => ({ ...current, items: [] })); setActiveLocationId(Number(event.target.value)); }}><option value="" disabled>Select inventory</option>{activeLocations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
+                <p className="text-sm text-slate-500 sm:col-span-2">{form.duplicateOfItemId ? `Unsaved duplicate draft for ${activeCompany?.name || "this company"} · ${activeLocations.find(location => location.id === activeLocationId)?.name || "this inventory"}. Save creates it; Cancel discards it.` : activeLocations.length ? `The new item will be saved in ${activeCompany?.name || "the selected company"} · ${activeLocations.find(location => location.id === activeLocationId)?.name || "select an inventory"}.` : "This company has no active inventory. Add an inventory or select another company."}</p>
               </section>}
               <ItemFields form={form} setForm={setForm} items={records.items} accounts={records.accounts} contacts={records.contacts} vatCodeOptions={vatCodeOptions} currency={baseCurrency} editing={editingItemId !== null} />
             </>}
@@ -2549,7 +2559,11 @@ function ItemFields({ form, setForm, items, accounts, contacts, vatCodeOptions, 
   const disabledCategories = new Set(optionData.disabledCategories.map(comparableChoice));
   const savedCategories = items.map((item) => String(item.category ?? "").trim().toLocaleUpperCase("en")).filter(Boolean);
   const categoryOptions = [...new Map([...optionData.categories, ...savedCategories].map((category) => [comparableChoice(category), category.toLocaleUpperCase("en")])).values()].filter((category) => !disabledCategories.has(comparableChoice(category)));
-  const description = Array.from({ length: count }, (_, index) => form[`specValue${index}`]?.trim() ?? "").filter((value) => value && value.toLowerCase() !== "no").join(" | ");
+  const draftSpecifications = Array.from({ length: count }, (_, index) => ({
+    label: form[`specLabel${index}`] ?? specificationFields[index],
+    value: form[`specValue${index}`] ?? "",
+  }));
+  const description = generatedItemDescription(draftSpecifications, form.sku, form.itemNumber);
   const itemType = itemTypeOf(form.itemType);
   const typeInfo = itemTypeDetails[itemType];
   const standardLineItem = documentLineItemTypes.has(itemType);
@@ -2690,6 +2704,7 @@ function ItemFields({ form, setForm, items, accounts, contacts, vatCodeOptions, 
           onRename={(oldValue, newValue) => changeOption("PATCH", { label: form[`specLabel${index}`] ?? specificationFields[index], oldValue, newValue })}
           onDelete={(value) => changeOption("DELETE", { label: form[`specLabel${index}`] ?? specificationFields[index], value })}
         />
+        {(form[`specLabel${index}`] ?? specificationFields[index]).trim().toLowerCase() === "model" && <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-xs"><span className="font-semibold uppercase tracking-wide text-violet-700">Generated SKU</span><code className="font-bold text-violet-950">{form.sku || "Generating…"}</code></div>}
         </div>
         <Button type="button" variant="ghost" size="icon" disabled={count <= 1} aria-label={`Remove ${form[`specLabel${index}`] ?? "specification"}`} title="Remove detail" onClick={() => removeSpecification(index)} className="text-slate-400 hover:text-rose-600 max-sm:col-start-2 max-sm:row-start-1"><Trash2 className="size-4" /></Button>
       </div>)}</div>

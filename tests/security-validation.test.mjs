@@ -18,6 +18,24 @@ const { normalizeComparableText, uppercaseText } = await sourceModule("../lib/te
 const { dueDateForPaymentTerms } = await sourceModule("../lib/payment-terms.ts");
 const { chequeAlignmentBounds, uaeChequeLayout, validChequeAlignment } = await sourceModule("../lib/uae-cheque-layouts.ts");
 const { countries } = await sourceModule("../lib/countries.ts");
+const { generatedItemDescription } = await sourceModule("../lib/item-description.ts");
+
+test("item drafts stay uppercase and place SKU after Model with Item No. last", () => {
+  assert.equal(generatedItemDescription([
+    { label: "Brand", value: "asus" },
+    { label: "Model", value: "vivobook 15" },
+    { label: "Touchscreen", value: "no" },
+    { label: "RAM", value: "16gb" },
+  ], "a1b2c3", "13025"), "ASUS | VIVOBOOK 15 | SKU: A1B2C3 | 16GB | ITEM NO. #13025");
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const records = readFileSync(new URL("../app/api/records/route.ts", import.meta.url), "utf8");
+  assert.match(app, /Duplicate draft .* is not saved\. Press Save record to create it, or Cancel to discard it/);
+  assert.doesNotMatch(app, /duplicateItemId: id/);
+  assert.match(app, /duplicateOfItemId/);
+  assert.match(app, /Generated SKU/);
+  assert.match(records, /previewIdentity/);
+  assert.match(records, /generatedItemDescription\(specifications, sku, itemNumber\)/);
+});
 
 test("customer and vendor forms offer every country with search", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");

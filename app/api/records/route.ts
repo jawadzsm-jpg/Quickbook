@@ -11,6 +11,7 @@ import { verifyAdminPin } from "../../../lib/admin-pin";
 import { customerConflict, validInternationalPhone } from "../../../lib/customer-identity";
 import { canAccessCompany, isAdministrator, hasPermission, requireApiUser, type Permission, type SessionUser } from "@/lib/auth";
 import { normalizeComparableText, uppercaseText } from "@/lib/text-normalization";
+import { generatedItemDescription } from "@/lib/item-description";
 import { uaeChequeLayout, uaeChequeLayouts, validChequeAlignment } from "@/lib/uae-cheque-layouts";
 import { standardAccounts } from "@/lib/standard-accounts";
 
@@ -58,14 +59,30 @@ function mayWrite(user: SessionUser, permission: Permission | "admin") {
   return permission === "admin" ? isAdministrator(user) : hasPermission(user, permission);
 }
 
-async function createUniqueItemSku() {
+async function createUniqueItemSku(requested?: unknown) {
   const db = getDb();
+  const preferred = uppercaseText(requested);
+  if (/^[A-Z0-9]{6}$/.test(preferred)) {
+    const match = await db.select({ id: items.id }).from(items).where(eq(items.sku, preferred)).limit(1);
+    if (!match.length) return preferred;
+  }
   for (let attempt = 0; attempt < 10; attempt += 1) {
     const sku = crypto.randomUUID().replaceAll("-", "").slice(0, 6).toUpperCase();
     const match = await db.select({ id: items.id }).from(items).where(eq(items.sku, sku)).limit(1);
     if (!match.length) return sku;
   }
   throw new Error("Could not generate a unique SKU. Please try again.");
+}
+
+async function createUniqueItemNumber(requested?: unknown) {
+  const db = getDb();
+  const existing = await db.select({ itemNumber: items.itemNumber }).from(items);
+  const used = new Set(existing.map((item) => String(item.itemNumber ?? "").trim()).filter(Boolean));
+  const preferred = String(requested ?? "").trim().replace(/^#/, "");
+  if (/^\d{5,}$/.test(preferred) && !used.has(preferred)) return preferred;
+  let next = Math.max(13000, ...[...used].map((value) => Number(value)).filter(Number.isSafeInteger)) + 1;
+  while (used.has(String(next))) next += 1;
+  return String(next);
 }
 
 async function ensureCurrencyControlAccount(companyId: number, role: "AR" | "AP", currency: string) {
@@ -336,6 +353,13 @@ export async function GET(request: Request) {
     }
     if (kind === "contacts") return Response.json({ records: await db.select().from(contacts).where(eq(contacts.companyId, companyId)).orderBy(asc(contacts.name)) });
     if (kind === "items") {
+      if (url.searchParams.get("previewIdentity") === "true") {
+        if (!mayWrite(authorization, "inventory:manage")) return Response.json({ error: "Your role cannot create inventory items." }, { status: 403 });
+        const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).limit(1);
+        if (!location) return Response.json({ error: "Select an inventory in this company." }, { status: 400 });
+        const [sku, itemNumber] = await Promise.all([createUniqueItemSku(), createUniqueItemNumber()]);
+        return Response.json({ sku, itemNumber }, { headers: { "Cache-Control": "no-store" } });
+      }
       const records = await db.select().from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId))).orderBy(asc(items.name));
       const purchaseCostLines = await db.select({
         itemId: transactionLines.itemId,
@@ -418,7 +442,7 @@ async function handlePOST(request: Request) {
   const payload = await request.clone().json();
   if (["contacts", "accounts", "items"].includes(payload.kind)) return withWriteTransaction(async () => {
     if (process.env.COMNET_LOCAL_DB !== "1" && Number.isInteger(Number(payload.companyId))) {
-      await getDb().execute(sql`select pg_advisory_xact_lock(731459, ${Number(payload.companyId)})`);
+      await getDb().execute(sql`select pg_advisory_xact_lock(731459, ${payload.kind === "items" ? 0 : Number(payload.companyId)})`);
     }
     return saveNewRecord(request);
   });
@@ -500,35 +524,22 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
 
     if (kind === "items") {
       if (!Number.isInteger(locationId) || locationId <= 0) return Response.json({ error: "Select an inventory location." }, { status: 400 });
-      const duplicateItemId = Number(payload.duplicateItemId);
-      if (Number.isInteger(duplicateItemId) && duplicateItemId > 0) {
-        const [source] = await db.select().from(items).where(and(eq(items.id, duplicateItemId), eq(items.companyId, companyId), eq(items.locationId, locationId)));
-        if (!source) return Response.json({ error: "The item to duplicate was not found." }, { status: 404 });
-        const sku = await createUniqueItemSku();
-        const [created] = await db.insert(items).values({
-          companyId, locationId, sku, name: source.name, category: source.category, description: source.description,
-          specifications: source.specifications, hsCode: source.hsCode, countryOfOrigin: source.countryOfOrigin, dimensionText: source.dimensionText,
-          lengthCm: source.lengthCm, widthCm: source.widthCm, heightCm: source.heightCm, weightKg: source.weightKg, quantity: 0, itemType: source.itemType, reorderPoint: source.reorderPoint,
-          salesPrice: source.salesPrice, cost: source.cost, purchaseVatCode: source.purchaseVatCode, cogsAccountId: source.cogsAccountId, preferredSupplierId: source.preferredSupplierId,
-          salesVatCode: source.salesVatCode, incomeAccountId: source.incomeAccountId, assetAccountId: source.assetAccountId, amountsIncludeVat: source.amountsIncludeVat,
-          lastPurchasePrice: source.lastPurchasePrice, status: source.status,
-        }).returning();
-        const [record] = await db.update(items).set({ itemNumber: String(13000 + created.id) }).where(eq(items.id, created.id)).returning();
-        await db.insert(auditLog).values({ companyId, action: "duplicated", entityType: "item", entityId: record.id, details: `${source.sku} duplicated as ${record.sku}; opening quantity 0` });
-        return Response.json({ record }, { status: 201 });
-      }
+      const duplicateOfItemId = Number(payload.duplicateOfItemId);
+      const [duplicateSource] = Number.isInteger(duplicateOfItemId) && duplicateOfItemId > 0
+        ? await db.select({ id: items.id, sku: items.sku }).from(items).where(and(eq(items.id, duplicateOfItemId), eq(items.companyId, companyId), eq(items.locationId, locationId))).limit(1)
+        : [];
+      if (Number.isInteger(duplicateOfItemId) && duplicateOfItemId > 0 && !duplicateSource) return Response.json({ error: "The item to duplicate was not found." }, { status: 404 });
       const specifications = Array.from({ length: 30 }, (_, index) => ({
         label: String(payload[`specLabel${index}`] ?? "").trim(),
         value: uppercaseText(payload[`specValue${index}`]),
       })).filter((specification) => specification.label && specification.value);
       const specificationValue = (label: string) => specifications.find((specification) => specification.label.toLowerCase() === label.toLowerCase())?.value ?? "";
       const category = uppercaseText(payload.category) || "GENERAL";
-      const sku = await createUniqueItemSku();
+      const [sku, itemNumber] = await Promise.all([createUniqueItemSku(payload.sku), createUniqueItemNumber(payload.itemNumber)]);
       const name = uppercaseText(payload.name) || uppercaseText([specificationValue("Brand"), specificationValue("Model") || specificationValue("Part Number")].filter(Boolean).join(" ")) || `${category} ITEM`;
       const existingItems = await db.select({ id: items.id, name: items.name }).from(items).where(eq(items.companyId, companyId));
-      if (existingItems.some((item) => normalizeComparableText(item.name) === normalizeComparableText(name))) return Response.json({ error: "An item with this name already exists." }, { status: 409 });
-      // Keep labels in structured specifications for editing/filtering; the customer-facing description contains values only.
-      const description = specifications.map((specification) => specification.value).filter((value) => value.trim().toLowerCase() !== "no").join(" | ");
+      if (!duplicateSource && existingItems.some((item) => normalizeComparableText(item.name) === normalizeComparableText(name))) return Response.json({ error: "An item with this name already exists." }, { status: 409 });
+      const description = generatedItemDescription(specifications, sku, itemNumber);
       const parsedWeight = Number.parseFloat(specificationValue("Weight"));
       const itemType = normalizedItemType(payload.itemType);
       const purchaseVatCode = String(payload.purchaseVatCode ?? "STANDARD").trim().toUpperCase();
@@ -573,15 +584,15 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const cost = Number(payload.cost ?? 0);
       if (![quantity, reorderPoint, salesPrice, cost].every((value) => Number.isFinite(value) && value >= 0)) return Response.json({ error: "Quantity, reorder point, cost and sales price must be non-negative numbers." }, { status: 400 });
       const [created] = await db.insert(items).values({
-        companyId, locationId, name, sku, category, description,
+        companyId, locationId, itemNumber, name, sku, category, description,
         specifications: JSON.stringify(specifications), countryOfOrigin: specificationValue("Country of Origin").toUpperCase(),
         dimensionText: specificationValue("Dimensions"), weightKg: Number.isFinite(parsedWeight) ? parsedWeight : 0, quantity, itemType, reorderPoint, salesPrice, cost,
         purchaseVatCode, cogsAccountId, preferredSupplierId, salesVatCode, incomeAccountId, assetAccountId,
         amountsIncludeVat: payload.amountsIncludeVat === true || String(payload.amountsIncludeVat) === "true",
         status: String(payload.status) === "inactive" ? "inactive" : "active",
       }).returning();
-      const [record] = await db.update(items).set({ itemNumber: String(13000 + created.id) }).where(eq(items.id, created.id)).returning();
-      return Response.json({ record }, { status: 201 });
+      if (duplicateSource) await db.insert(auditLog).values({ companyId, action: "duplicated", entityType: "item", entityId: created.id, details: `${duplicateSource.sku} duplicated as ${created.sku}; opening quantity 0` });
+      return Response.json({ record: created }, { status: 201 });
     }
 
     if (kind === "accounts") {
@@ -1463,8 +1474,7 @@ async function handlePATCH(request: Request) {
       itemType, reorderPoint, salesPrice, cost, purchaseVatCode, cogsAccountId, preferredSupplierId, salesVatCode, incomeAccountId, assetAccountId,
       amountsIncludeVat: payload.amountsIncludeVat === true || String(payload.amountsIncludeVat) === "true",
       status: String(payload.status ?? existing.status) === "inactive" ? "inactive" : "active",
-      // Keep labels in structured specifications for editing/filtering; the customer-facing description contains values only.
-      description: specifications.map((specification) => specification.value).filter((value) => value.trim().toLowerCase() !== "no").join(" | "),
+      description: generatedItemDescription(specifications, existing.sku, existing.itemNumber),
       specifications: JSON.stringify(specifications),
     }).where(eq(items.id, id)).returning();
     await db.insert(auditLog).values({ companyId, action: "updated", entityType: "item", entityId: id, details: `${record.sku} ${record.name}` });
