@@ -482,6 +482,12 @@ test("application windows are wide and A4 output offers portrait or landscape wi
   const packing = readFileSync(new URL("../app/invoice-packing-list.tsx", import.meta.url), "utf8");
   const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
   assert.match(dialog, /sm:max-w-4xl/);
+  assert.match(dialog, /aria-label=\{windowState === "minimized" \? "Restore window" : "Minimize window"\}/);
+  assert.match(dialog, /aria-label=\{windowState === "maximized" \? "Restore window" : "Maximize window"\}/);
+  assert.match(dialog, /data-window-state=\{windowState\}/);
+  assert.match(css, /data-record-kind="transactions"/);
+  assert.match(css, /data-window-state="maximized"/);
+  assert.match(css, /data-window-state="minimized"/);
   assert.match(selector, /<SelectItem value="portrait">Portrait<\/SelectItem>/);
   assert.match(selector, /<SelectItem value="landscape">Landscape<\/SelectItem>/);
   assert.match(app, /useState<PrintOrientation>\("portrait"\)/);

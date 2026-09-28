@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { XIcon } from "lucide-react"
+import { Maximize2Icon, Minimize2Icon, MinusIcon, XIcon } from "lucide-react"
 import { Dialog as DialogPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
@@ -51,22 +51,58 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  showWindowControls = true,
+  onCloseAutoFocus,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
+  showWindowControls?: boolean
 }) {
+  const [windowState, setWindowState] = React.useState<"normal" | "minimized" | "maximized">("normal")
+
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
       <DialogPrimitive.Content
         data-slot="dialog-content"
+        data-window-state={windowState}
         className={cn(
           "fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-xl border border-border/80 bg-background p-5 shadow-2xl shadow-slate-950/15 duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-h-[calc(100dvh-2rem)] sm:max-w-4xl sm:overflow-y-auto sm:p-6",
           className
         )}
+        onCloseAutoFocus={(event) => {
+          setWindowState("normal")
+          onCloseAutoFocus?.(event)
+        }}
         {...props}
       >
         {children}
+        {showWindowControls && (
+          <div data-slot="dialog-window-controls" className="absolute right-12 top-3 z-20 flex items-center gap-1 print:hidden">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-8 text-muted-foreground hover:text-foreground"
+              aria-label={windowState === "minimized" ? "Restore window" : "Minimize window"}
+              title={windowState === "minimized" ? "Restore" : "Minimize"}
+              onClick={() => setWindowState((current) => current === "minimized" ? "normal" : "minimized")}
+            >
+              <MinusIcon className="size-4" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-8 text-muted-foreground hover:text-foreground"
+              aria-label={windowState === "maximized" ? "Restore window" : "Maximize window"}
+              title={windowState === "maximized" ? "Restore" : "Maximize"}
+              onClick={() => setWindowState((current) => current === "maximized" ? "normal" : "maximized")}
+            >
+              {windowState === "maximized" ? <Minimize2Icon className="size-4" /> : <Maximize2Icon className="size-4" />}
+            </Button>
+          </div>
+        )}
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
@@ -85,7 +121,7 @@ function DialogHeader({ className, children, ...props }: React.ComponentProps<"d
   return (
     <div
       data-slot="dialog-header"
-      className={cn("flex flex-col gap-2 text-center sm:text-left", className)}
+      className={cn("flex flex-col gap-2 pr-28 text-center sm:text-left", className)}
       {...props}
     >
       {children}

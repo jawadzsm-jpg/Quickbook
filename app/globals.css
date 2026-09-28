@@ -294,6 +294,37 @@ button, input, select { font: inherit; }
     width: min(76rem, calc(100vw - 2rem));
     max-width: calc(100vw - 2rem);
   }
+  [data-slot="dialog-content"][data-record-kind="transactions"] {
+    width: min(72rem, calc(100vw - 2rem));
+    max-width: calc(100vw - 2rem);
+  }
+  [data-slot="dialog-content"][data-window-state="maximized"] {
+    inset: .5rem !important;
+    width: auto !important;
+    max-width: none !important;
+    height: calc(100dvh - 1rem) !important;
+    max-height: none !important;
+    translate: none !important;
+    transform: none !important;
+    border-radius: .75rem;
+  }
+  [data-slot="dialog-content"][data-window-state="minimized"] {
+    inset: auto 1rem 1rem auto !important;
+    width: min(28rem, calc(100vw - 2rem)) !important;
+    max-width: calc(100vw - 2rem) !important;
+    max-height: 5.5rem !important;
+    translate: none !important;
+    transform: none !important;
+    overflow: hidden !important;
+    padding: 1rem !important;
+  }
+  [data-slot="dialog-content"][data-window-state="minimized"] > :not([data-slot="dialog-header"]):not([data-slot="dialog-window-controls"]):not([data-slot="dialog-close"]) {
+    display: none !important;
+  }
+  [data-slot="dialog-content"][data-window-state="minimized"] [data-slot="dialog-description"],
+  [data-slot="dialog-content"][data-window-state="minimized"] [data-export-slot="dialog"] {
+    display: none !important;
+  }
 }
 
 @media screen and (max-width: 767px) {

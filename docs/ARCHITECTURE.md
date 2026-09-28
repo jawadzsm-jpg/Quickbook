@@ -66,6 +66,7 @@ Modules under `lib/` should remain deterministic where possible. Database reads 
 - Existing feature screens inherit the shared design system instead of carrying independent page themes. Focused screen styles remain appropriate for domain-specific tables, forms, reports, and document previews.
 - Screen-only presentation rules are isolated with `@media screen`; A4 reports, sales documents, letterheads, packing lists, and UAE cheque geometry remain controlled by their dedicated print rules.
 - Application dialogs use a wide landscape workspace on desktop and collapse responsively on smaller screens. Printed documents default to A4 portrait, Packing Lists default to A4 landscape, and print/PDF controls expose an explicit Portrait or Landscape override without changing saved business data.
+- Shared shadcn dialog content owns non-destructive minimize and maximize/restore state. Transaction editors opt into the wide desktop sizing contract through `data-record-kind="transactions"`; mobile sizing remains viewport-bound.
 - Responsive behavior targets phone, tablet, laptop, and wide desktop layouts. Tables remain horizontally inspectable where the business columns cannot safely collapse, while forms and action groups reflow to one column on small screens.
 
 ## Database architecture

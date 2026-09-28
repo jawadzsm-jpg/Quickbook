@@ -84,6 +84,10 @@
 - Paid and company stamp overlays that can be moved before printing/export where supported.
 - A4 portrait print/PDF output by default, with a portrait/landscape selector; packing lists default to landscape.
 
+## Window controls
+
+- Application dialogs use a responsive landscape workspace on desktop and provide minimize, maximize/restore, and close controls without discarding in-progress form data.
+
 ## Reporting
 
 The Report Center contains 120 report definitions.
