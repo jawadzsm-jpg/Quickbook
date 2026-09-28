@@ -287,6 +287,10 @@ button, input, select { font: inherit; }
   :where(img, svg, canvas) { max-width: 100%; }
   [data-slot="table-container"] { overscroll-behavior-inline: contain; -webkit-overflow-scrolling: touch; }
   [data-slot="dialog-content"] { width: min(var(--dialog-width, 42rem), calc(100vw - 2rem)); }
+  [data-slot="dialog-content"][data-record-kind="items"] {
+    width: min(76rem, calc(100vw - 2rem));
+    max-width: calc(100vw - 2rem);
+  }
 }
 
 @media screen and (max-width: 767px) {

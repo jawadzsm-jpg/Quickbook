@@ -2623,7 +2623,8 @@ function ItemFields({ form, setForm, items, accounts, contacts, vatCodeOptions, 
     /></div>
     <section className="space-y-3 rounded-xl border bg-slate-50 p-4 sm:col-span-2">
       <div className="flex flex-wrap items-center justify-between gap-3"><div><Label>Item description specifications</Label><p className="mt-1 text-xs text-slate-500">Select or type any detail, then enter its value. Add or remove up to 30 fields.</p></div><Button type="button" variant="outline" size="sm" disabled={count >= 30} onClick={addSpecification}><Plus className="size-3" />Add detail ({count}/30)</Button></div>
-      <div className="grid gap-2 md:grid-cols-2">{Array.from({ length: count }, (_, index) => <div key={index} className="grid grid-cols-[minmax(130px,.8fr)_minmax(0,1.2fr)_auto] gap-2 rounded-lg border bg-white p-2">
+      <div className="grid gap-3 xl:grid-cols-2">{Array.from({ length: count }, (_, index) => <div key={index} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2 rounded-lg border bg-white p-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)_auto]">
+        <div className="min-w-0">
         <SpecificationValuePicker
           label="Specification detail"
           placeholder="Select or type detail"
@@ -2634,6 +2635,8 @@ function ItemFields({ form, setForm, items, accounts, contacts, vatCodeOptions, 
           onRename={(oldValue, newValue) => changeOption("PATCH", { type: "label", oldValue, newValue })}
           onDelete={(value) => changeOption("DELETE", { type: "label", value })}
         />
+        </div>
+        <div className="min-w-0 max-sm:col-start-1 max-sm:row-start-2">
         <SpecificationValuePicker
           label={form[`specLabel${index}`] ?? specificationFields[index]}
           value={form[`specValue${index}`] ?? ""}
@@ -2644,7 +2647,8 @@ function ItemFields({ form, setForm, items, accounts, contacts, vatCodeOptions, 
           onRename={(oldValue, newValue) => changeOption("PATCH", { label: form[`specLabel${index}`] ?? specificationFields[index], oldValue, newValue })}
           onDelete={(value) => changeOption("DELETE", { label: form[`specLabel${index}`] ?? specificationFields[index], value })}
         />
-        <Button type="button" variant="ghost" size="icon" disabled={count <= 1} aria-label={`Remove ${form[`specLabel${index}`] ?? "specification"}`} title="Remove detail" onClick={() => removeSpecification(index)} className="text-slate-400 hover:text-rose-600"><Trash2 className="size-4" /></Button>
+        </div>
+        <Button type="button" variant="ghost" size="icon" disabled={count <= 1} aria-label={`Remove ${form[`specLabel${index}`] ?? "specification"}`} title="Remove detail" onClick={() => removeSpecification(index)} className="text-slate-400 hover:text-rose-600 max-sm:col-start-2 max-sm:row-start-1"><Trash2 className="size-4" /></Button>
       </div>)}</div>
       <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-3"><p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Generated description</p><p className="mt-2 min-h-6 text-sm leading-6 text-slate-700">{description || "Enter specification values to build the item description."}</p></div>
     </section>
