@@ -17,6 +17,17 @@ const { filterRecordListByDate, recordListReport } = await sourceModule("../lib/
 const { normalizeComparableText, uppercaseText } = await sourceModule("../lib/text-normalization.ts");
 const { dueDateForPaymentTerms } = await sourceModule("../lib/payment-terms.ts");
 const { chequeAlignmentBounds, uaeChequeLayout, validChequeAlignment } = await sourceModule("../lib/uae-cheque-layouts.ts");
+const { countries } = await sourceModule("../lib/countries.ts");
+
+test("customer and vendor forms offer every country with search", () => {
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  assert.ok(countries.length >= 250);
+  assert.deepEqual(countries[0], { code: "AE", name: "United Arab Emirates" });
+  for (const name of ["Afghanistan", "Australia", "Hong Kong", "India", "Saudi Arabia", "United Kingdom", "United States", "Zimbabwe", "Other"]) assert.ok(countries.some((country) => country.name === name));
+  assert.match(app, /function SearchableCountryChoice/);
+  assert.match(app, /Search by country name or code/);
+  assert.equal((app.match(/<SearchableCountryChoice form=\{form\} setForm=\{setForm\} \/>/g) || []).length, 2);
+});
 
 test("warranty migration sends each SQL command separately to the production driver", () => {
   const migration = readFileSync(new URL("../drizzle/0063_warranty_slips.sql", import.meta.url), "utf8");

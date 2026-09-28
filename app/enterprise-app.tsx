@@ -54,6 +54,7 @@ import { convertInvoiceLines, invoiceCurrencyAmount, validDocumentRate, type Pri
 import { dueDateForPaymentTerms } from "@/lib/payment-terms";
 import { inferUaeChequeLayout, uaeChequeLayouts } from "@/lib/uae-cheque-layouts";
 import { applyContactCurrency } from "@/lib/contact-currency";
+import { countries } from "@/lib/countries";
 import { SalesDocumentTemplate, salesDocumentModeForTransaction } from "./sales-document-template";
 import { InvoiceAttachments } from "./invoice-attachments";
 import {
@@ -2194,6 +2195,31 @@ function WorkspaceDialog({ open, companies, activeCompanyId, onClose, onChanged 
 
 function Field({ label, name, form, setForm, type = "text", required = false, placeholder }: { label: string; name: string; form: Record<string, string>; setForm: (f: Record<string, string>) => void; type?: string; required?: boolean; placeholder?: string }) { return <div className="space-y-2"><Label htmlFor={name}>{label}{required ? " *" : ""}</Label><Input id={name} name={name} type={type} required={required} placeholder={placeholder} value={form[name] ?? ""} onChange={(e) => setForm({ ...form, [name]: e.target.value })} /></div>; }
 function Choice({ label, name, values, form, setForm, placeholder }: { label: string; name: string; values: string[]; form: Record<string, string>; setForm: (f: Record<string, string>) => void; placeholder?: string }) { return <div className="space-y-2"><Label>{label}</Label><Select value={form[name]} onValueChange={(value) => setForm({ ...form, [name]: value })}><SelectTrigger className="w-full"><SelectValue placeholder={placeholder} /></SelectTrigger><SelectContent>{values.map((value) => <SelectItem key={value} value={value}><span className="capitalize">{value}</span></SelectItem>)}</SelectContent></Select></div>; }
+
+function SearchableCountryChoice({ form, setForm }: { form: Record<string, string>; setForm: (form: Record<string, string>) => void }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleCountries = countries.filter((country) => !normalizedQuery || country.name.toLowerCase().includes(normalizedQuery) || country.code.toLowerCase().includes(normalizedQuery));
+  const selectCountry = (country: string) => {
+    setForm({ ...form, country });
+    setOpen(false);
+    setQuery("");
+  };
+  return <div className="space-y-2">
+    <Label>Country *</Label>
+    <Popover modal open={open} onOpenChange={(nextOpen) => { setOpen(nextOpen); if (!nextOpen) setQuery(""); }}>
+      <PopoverTrigger asChild><Button type="button" variant="outline" role="combobox" aria-expanded={open} aria-label="Country" className="w-full justify-between bg-white font-normal dark:bg-slate-950">{form.country || "Select country"}<ChevronDown className="size-4 shrink-0 opacity-60" /></Button></PopoverTrigger>
+      <PopoverContent data-attachments-excluded="true" align="start" className="flex w-[min(32rem,calc(100vw-2rem))] max-w-[var(--radix-popover-content-available-width)] flex-col gap-2 p-3">
+        <Input autoFocus aria-label="Search countries" placeholder="Search by country name or code…" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && visibleCountries.length === 1) { event.preventDefault(); selectCountry(visibleCountries[0]!.name); } }} />
+        <div role="listbox" aria-label="Countries" className="max-h-72 overflow-y-auto overscroll-contain rounded-md border p-1">
+          {visibleCountries.length ? visibleCountries.map((country) => <button key={country.code} type="button" role="option" aria-selected={form.country === country.name} onClick={() => selectCountry(country.name)} className={`flex w-full items-center justify-between rounded px-3 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800 ${form.country === country.name ? "bg-emerald-50 font-semibold text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300" : ""}`}><span>{country.name}</span><span className="ml-4 text-xs text-slate-400">{country.code === "OTHER" ? "" : country.code}</span></button>) : <p className="p-4 text-center text-sm text-slate-500">No country found.</p>}
+        </div>
+        <p className="text-xs text-slate-500">{visibleCountries.length} matching countries and territories</p>
+      </PopoverContent>
+    </Popover>
+  </div>;
+}
 function CurrencyExchangeChoice({ form, setForm, exchangeRates, baseCurrency }: { form: Record<string, string>; setForm: (form: Record<string, string>) => void; exchangeRates: ExchangeRateRecord[]; baseCurrency: string }) {
   const selectedRate = exchangeRates.find((rate) => rate.currencyCode === form.currency)?.rate;
   return <div className="space-y-2"><Label>Currency *</Label><Select value={form.currency} onValueChange={(currency) => { const savedRate = exchangeRates.find((entry) => entry.currencyCode === currency)?.rate; setForm({ ...form, currency, exchangeRate: currency === baseCurrency ? "1" : savedRate ? String(savedRate) : "" }); }}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{currencies.map((currency) => <SelectItem key={currency} value={currency}><span className="flex w-full items-center justify-between gap-3"><span>{currency}</span><span className="text-xs text-slate-500">{currency === baseCurrency ? "Base · 1.000000" : exchangeRates.find((entry) => entry.currencyCode === currency)?.rate ? `Rate ${exchangeRates.find((entry) => entry.currencyCode === currency)?.rate}` : "Rate not set"}</span></span></SelectItem>)}</SelectContent></Select>{form.currency !== baseCurrency && selectedRate ? <p className="text-xs text-emerald-700">Saved rate applied: 1 {form.currency} = {selectedRate} {baseCurrency}</p> : form.currency !== baseCurrency ? <p className="text-xs text-amber-700">No saved rate. Enter the document rate manually.</p> : null}</div>;
@@ -2446,7 +2472,6 @@ function TransactionFields({ form, setForm, types, items, contacts, accounts, lo
   </div>;
 }
 function ContactFields({ form, setForm, accounts }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; accounts: DataRecord[] }) {
-  const countries = ["United Arab Emirates", "Saudi Arabia", "Oman", "Qatar", "Bahrain", "Kuwait", "India", "Pakistan", "China", "Hong Kong", "United Kingdom", "United States", "Other"];
   const ledgerRole = form.type === "customer" ? "AR" : form.type === "vendor" ? "AP" : null;
   const matchingAccounts = ledgerRole ? accounts.filter((account) => account.active && account.systemRole === ledgerRole && String(account.currency) === form.currency) : [];
   const currencyAndAccount = ledgerRole ? <>
@@ -2464,7 +2489,7 @@ function ContactFields({ form, setForm, accounts }: { form: Record<string, strin
       <Field label="Mobile Number" name="whatsapp" form={form} setForm={setForm} placeholder="Format +971501234567" />
       <Field label="Email Address" name="email" type="email" form={form} setForm={setForm} placeholder="Enter email address" />
       {currencyAndAccount}
-      <Choice label="Country *" name="country" values={countries} form={form} setForm={setForm} placeholder="Select country" />
+      <SearchableCountryChoice form={form} setForm={setForm} />
       <Field label="TRN" name="trn" form={form} setForm={setForm} placeholder="Enter TRN" />
     </div>
   </div>;
@@ -2477,7 +2502,7 @@ function ContactFields({ form, setForm, accounts }: { form: Record<string, strin
     </div>
     <div className="grid gap-x-5 gap-y-4 md:grid-cols-2">
       <Field label="Company Name" name="company" form={form} setForm={setForm} required placeholder="Enter company name" />
-      <Choice label="Country *" name="country" values={countries} form={form} setForm={setForm} placeholder="Select country" />
+      <SearchableCountryChoice form={form} setForm={setForm} />
       <Field label="Billing Name" name="name" form={form} setForm={(next) => setForm({ ...next, billingName: next.name })} required placeholder="Enter billing name" />
       <Field label="TRN (15 digits)" name="trn" form={form} setForm={setForm} placeholder="15 digits, if registered" />
       <Field label="Contact Number" name="phone" form={form} setForm={setForm} required placeholder="Format +9713456789" />
