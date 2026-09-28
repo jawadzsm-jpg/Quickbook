@@ -1,97 +1,186 @@
-# vinext-starter
+# ComNet Enterprise Accounting
 
-A clean full-stack starter running on [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and Drizzle support.
+ComNet Enterprise Accounting is a multi-company accounting and inventory application for UAE-oriented operations. It combines sales, purchasing, banking, inventory, VAT, warranty, employee, document, and reporting workflows in one role-controlled Next.js application.
 
-## Prerequisites
+This README is the entry point for the codebase. The focused documents under [`docs/`](docs/) are the canonical reference for architecture, endpoints, features, workflows, and source ownership.
 
-- Node.js `>=22.13.0`
-- Linux with `flock`, `curl`, and GNU `timeout`
+## What the application does
 
-## Sites Lifecycle
+- Manages separate companies and inventory locations with per-user company assignments.
+- Supports customers, vendors, employees, items, chart of accounts, exchange rates, VAT codes, and payment terms.
+- Creates sales estimates, quotations, proforma invoices, sales orders, invoices, receipts, credit memos, payments, statements, delivery notes, and packing lists.
+- Creates purchase orders, item receipts, received-item bills, bills, expenses, vendor credits, bill payments, and UAE bank cheques.
+- Posts balanced journal entries, payment allocations, inventory movements, VAT activity, contact balances, and audit history.
+- Tracks serial numbers, item specifications, HS codes, country of origin, dimensions, warehouse quantities, reordering, stock pricing, stock counts, transfers, and revaluations.
+- Provides 120 reports across Profit & Loss, Financial, Budgets, Accountant, Lists, Employees & HR, Banking, VAT, Customers, Sales, Vendors, Purchases, and Inventory.
+- Exports report data to A4 PDF, XLSX, and CSV, supports A4 printing, saved report views, summaries, drill-down, and movable document stamps.
+- Supports branded login pages, company document templates, A4 letterheads, light/dark appearance, and six accent themes.
 
-The Sites lifecycle CLI runs the locked dependency install before returning this checkout. Edit the source under `app/`, then checkpoint when a coherent milestone is ready to inspect or share. The remote Sites builder runs `npm run build` against the pushed commit. Do not repeat install or build as a normal pre-checkpoint step.
+## Technology
 
-This starter does not use `wrangler.jsonc`.
+| Layer | Implementation |
+| --- | --- |
+| Web application | Next.js 16 App Router, React 19, TypeScript 5.9 |
+| UI | Tailwind CSS 4, Base UI/shadcn components, Lucide icons, Recharts |
+| Database | PostgreSQL, Drizzle ORM, Neon serverless driver |
+| Local database | PGlite with persistent files under `.local-data/` |
+| Documents | jsPDF, jsPDF AutoTable, ExcelJS, browser print layouts |
+| Email | Nodemailer with encrypted SMTP credentials |
+| Deployment | Vercel, gated by GitHub Actions and CodeQL |
 
-`install:ci` is intentionally a single, non-retrying `npm ci`. It refuses a concurrent install for the same project, consumes a matching image-seeded npm cache with `--prefer-offline` while retaining registry fallback for a missing cache object, otherwise downloads and verifies the complete vinext tarball recorded in `package-lock.json`, limits npm to one socket, and terminates a stalled install. `build` applies a short timeout. These helpers target Linux and use GNU `timeout`; they are not native macOS scripts.
+## Architecture at a glance
 
-Scripts that need writable project-scoped home, npm, XDG, and temporary paths use `scripts/sites-env.sh`. The `dev` and `start` scripts honor the caller's runtime environment and keep Wrangler logs inside the checkout. The generated `.sites-runtime/` directory is disposable and ignored by Git.
-
-## Included Shape
-
-- edit site code under `app/`
-- `app/chatgpt-auth.ts` provides optional dispatch-owned ChatGPT sign-in helpers
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/index.ts` reads the D1 binding from the Cloudflare Worker environment
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
-## Workspace Auth Headers
-
-OpenAI workspace sites can read the current user's email from `oai-authenticated-user-email`.
-
-SIWC-authenticated workspace sites may also receive `oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty `name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by `oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```mermaid
+flowchart TD
+  Browser["Browser UI"] --> Page["App Router page and EnterpriseApp"]
+  Page --> Routes["Route handlers under app/api"]
+  Routes --> Domain["Domain and reporting modules under lib"]
+  Routes --> Auth["Session, role, and company access checks"]
+  Domain --> DB["Drizzle data access"]
+  Auth --> DB
+  DB --> Neon["Neon PostgreSQL"]
+  DB --> Local["PGlite in explicit local mode"]
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+The root server page resolves the session and renders the login screen, required password change, or the client application shell. `app/enterprise-app.tsx` owns navigation and most cross-module state. Route handlers validate identity, permission, and company scope before calling Drizzle and domain helpers. Inventory-sensitive writes are serialized with SKU reservations and database locks; related writes use database transactions.
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs optional or required ChatGPT sign-in:
+See [Architecture](docs/ARCHITECTURE.md) for the runtime, data model, security boundaries, and directory structure.
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send anonymous visitors through Sign in with ChatGPT.
-- In a Server Component, start sign-in with `<a href={chatGPTSignInPath(returnTo)} target="_top">`. The auth helper module is server-only; do not import it into a Client Component.
-- Do not use `fetch`, XHR, a client-side router, or a framework link that can prefetch the sign-in route. SIWC must start as a top-level navigation.
-- Never request the AuthAPI authorization endpoint directly. The dispatch-owned `/signin-with-chatgpt` route must start the SIWC flow.
-- Use `chatGPTSignOutPath(returnTo)` for browser sign-out links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because they depend on per-request identity headers.
+## Main application workflow
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the OAuth cookies, and identity header injection. Do not implement app routes for those reserved paths. Routes that do not import and call the helper remain anonymous-compatible.
+1. A user signs in with email and password. A successful login creates a hashed, HttpOnly, Secure, SameSite session cookie valid for 12 hours.
+2. The server checks whether the user must change a temporary password, then loads the application with the user’s role and assigned companies.
+3. The user selects a company and optionally an inventory location. These selections scope lists, entry forms, reports, numbering, currency, and stock.
+4. A business document is prepared from master data and line items. Server validation checks role permissions, company ownership, VAT, exchange rate, document totals, source allocations, and stock rules.
+5. Posting writes the document and dependent rows. Posting documents also update journals, payment allocations, inventory movements, balances, and audit data as applicable.
+6. Reports read the resulting ledger, transaction, contact, inventory, VAT, and audit data. Users can filter, inspect summaries, drill into source areas, print, or export.
 
-SIWC establishes identity only; it does not prove workspace membership. Use the Sites hosting platform's access policy controls for workspace-wide restrictions, or enforce explicit server-side membership or allowlist checks.
+See [Application workflows](docs/WORKFLOWS.md) for sales, purchasing, inventory, VAT, reporting, administration, and deployment flows.
 
-Use SIWC for account pages, user-specific dashboards, saved records, and write actions tied to the current ChatGPT user. Leave public content anonymous.
+## API overview
 
-## Diagnostic Commands
+The application exposes 34 route groups under `app/api`. They are internal JSON endpoints used by the application UI rather than a versioned public API.
 
-- `npm run install:ci`: perform the one bounded lockfile install
-- `npm run dev`: start the Vite/Vinext development server
-- `npm run build`: build the deployable Sites artifact
-- `npm run start`: start the built Vinext application
-- `npm test`: build and verify the rendered development-preview metadata
-- `npm run db:generate`: generate Drizzle migrations after schema changes
+| Area | Routes |
+| --- | --- |
+| Identity and administration | `/api/auth/session`, `/api/admin-users`, `/api/admin-settings`, `/api/user-preferences`, `/api/email-settings` |
+| Company configuration | `/api/workspaces`, `/api/company-setup`, `/api/company-setup/branding`, `/api/company-setup/letterhead`, `/api/company-setup/clear`, `/api/login-branding` |
+| Core records and accounting | `/api/records`, `/api/journal-entries`, `/api/account-history`, `/api/payment-terms`, `/api/attachments` |
+| Inventory | `/api/inventory-overview`, `/api/out-of-stock`, `/api/serial-search`, `/api/item-logistics`, `/api/inventory-check-reports`, `/api/stock-pricing`, `/api/stock-revaluation`, `/api/transfers`, `/api/shared-items`, `/api/sku-locks`, `/api/spec-options` |
+| Documents | `/api/packing-lists`, `/api/warranty-slips` |
+| Tax, currency, and reports | `/api/reports`, `/api/memorised-reports`, `/api/vat-management`, `/api/vat-codes`, `/api/exchange-rates` |
 
-Use build commands for targeted diagnosis after a remote failure, not as part of the normal checkpoint path.
+See [API reference](docs/API.md) for methods, authorization, parameters, and behavior for every route group.
 
-The timeout defaults can be overridden for a controlled canary with `SITES_INSTALL_TIMEOUT`, `SITES_INSTALL_KILL_AFTER`, `SITES_BUILD_TIMEOUT`, and `SITES_BUILD_KILL_AFTER`. A timeout fails the command; the helpers never retry an unchanged install or build.
+## Roles and access
 
-## Learn More
+| Role | Typical access |
+| --- | --- |
+| `all_admin` | Global administration and all companies; represented as Administrator in the client |
+| `admin` | Full application access for assigned companies |
+| `accountant` | Sales, purchases, banking, journals, accounts, VAT, customer/vendor areas, and reports |
+| `sales` | Sales, customer payments, customers, warranties, and read-only inventory context |
+| `purchasing` | Purchases, vendors, cheques, and read-only inventory context |
+| `inventory` | Inventory maintenance, logistics, counts, and transfers |
+| `viewer` | Dashboard, inventory views, serial search, stock checks, and reports |
 
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+API access is based on named permissions and is always narrowed by company assignment, except for `all_admin`. Mutating endpoints require a same-origin request. See [Architecture: Security model](docs/ARCHITECTURE.md#security-model).
 
-## Test Update
+## Getting started
 
-README update test pushed directly to `main` on 2026-09-17.
+### Prerequisites
+
+- Node.js 22.13 or newer
+- npm
+- A PostgreSQL/Neon connection for shared development, or PGlite for isolated local development
+
+### Install
+
+```bash
+npm ci
+cp .env.example .env.local
+```
+
+For a Neon-backed environment, set `DATABASE_URL` in `.env.local`, then run:
+
+```bash
+npm run db:migrate
+npm run db:seed
+npm run dev
+```
+
+To initialize the first global administrator, also set `ADMIN_EMAIL` and a 12–128 character `ADMIN_PASSWORD`, then run:
+
+```bash
+node scripts/bootstrap-admin.mjs
+```
+
+The bootstrap refuses to create another global administrator when an active one already exists.
+
+### Isolated local mode
+
+Run the PGlite development launcher directly:
+
+```bash
+node scripts/dev-local.mjs
+```
+
+It applies migrations, creates a local global administrator on first run, stores credentials in `.local-data/login.json`, and starts Next.js on `http://localhost:3000`. Override the directory with `COMNET_LOCAL_DATA_DIR` or the port with `PORT`.
+
+## Environment variables
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | Production/shared development | PostgreSQL connection used by the application and migration scripts |
+| `DATABASE_URL_UNPOOLED` | Migration generation only | Preferred direct URL for Drizzle Kit when available |
+| `NEXT_PUBLIC_APP_URL` | Recommended | Canonical application URL and invitation login link |
+| `SMTP_ENCRYPTION_KEY` | Recommended for email | At least 32 random characters used to encrypt stored SMTP passwords; database URL is a fallback |
+| `ADMIN_EMAIL` | Bootstrap only | Initial global administrator email |
+| `ADMIN_PASSWORD` | Bootstrap only | Initial 12–128 character temporary password |
+| `COMNET_LOCAL_DB` | Local launcher sets it | Enables PGlite only in development |
+| `COMNET_LOCAL_DATA_DIR` | Optional | PGlite and local credential directory; defaults to `.local-data` |
+| `PORT` | Optional | Local launcher port; defaults to `3000` |
+| `CI_GITHUB_TOKEN` or `GITHUB_TOKEN` | Optional deploy gate | Lets a Vercel build inspect GitHub Actions for a private repository |
+
+## Commands
+
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Start Next.js development mode using the configured database |
+| `node scripts/dev-local.mjs` | Start isolated local development with PGlite |
+| `npm run lint` | Lint the complete source with zero warnings allowed |
+| `npm test` | Run the release-gate, security, transaction, pricing, currency, report, and document tests |
+| `npm run typecheck` | Run strict TypeScript checks without emitting files |
+| `npm run build:ci` | Build without production migration or deployment gating |
+| `npm run ci` | Run lint, tests, type checking, and the CI build |
+| `npm run db:generate` | Generate a Drizzle migration from schema changes |
+| `npm run db:migrate` | Apply pending SQL migrations from `drizzle/` |
+| `npm run db:seed` | Seed the default company, inventory, and 14 standard accounts |
+| `npm run build` | Production path: verify CI, apply migrations, and build Next.js |
+| `npm start` | Serve a completed Next.js build |
+
+## Database changes
+
+`db/schema.ts` is the typed schema. Generated SQL migrations live in `drizzle/` and are applied in filename order. The shared migration runner records completed files in `__comnet_migrations`. Generate and inspect a migration whenever the schema changes; do not edit production data shape only in TypeScript.
+
+## Quality and deployment
+
+GitHub Actions runs on every push, pull request to `main`, a weekly schedule, and manual dispatch. The two required jobs are:
+
+- **Full source validation:** locked install, lint, tests, type check, and `build:ci`.
+- **CodeQL security analysis:** JavaScript/TypeScript `security-extended` analysis, with findings blocking release.
+
+Vercel installs with `npm ci --ignore-scripts` and runs `npm run build`. The production build verifies that both required jobs succeeded for the exact commit, applies pending migrations, and then builds the application. See [CI/CD](docs/ci-cd.md) for operational details.
+
+## Documentation map
+
+| Document | Use it for |
+| --- | --- |
+| [Documentation index](docs/README.md) | Canonical versus historical documentation and update rules |
+| [Architecture](docs/ARCHITECTURE.md) | Runtime layers, security, data model, transaction design, and deployment |
+| [API reference](docs/API.md) | All endpoint groups, methods, permissions, and important inputs |
+| [Features](docs/FEATURES.md) | Complete product capability map and role visibility |
+| [Application workflows](docs/WORKFLOWS.md) | Sign-in, posting, sales, purchasing, inventory, reports, and release flows |
+| [Codebase map](docs/CODEBASE-MAP.md) | Source ownership, change locations, conventions, and maintenance checklist |
+
+When behavior changes, update the affected focused document in the same change. `README.md` and the six files above are the maintained source of truth; audit files in `docs/` describe reviews at a point in time.
