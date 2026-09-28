@@ -659,6 +659,8 @@ button, input, select { font: inherit; }
 .accountant-summary-note { color: #69627f; }
 .list-report-brief { background: #ecfeff; border-color: #a5f3fc; color: #285f69; }
 .list-summary { border: 1px solid #cee7eb; border-radius: .85rem; background: linear-gradient(145deg, #fff, #ecfeff); padding: 1rem; box-shadow: 0 1px 3px rgb(15 23 42 / .06); }
+.list-summary-heading { position: relative; justify-content: center; text-align: center; }
+@media (min-width: 640px) { .list-summary-heading > button { position: absolute; right: 0; top: 50%; transform: translateY(-50%); } }
 .list-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: .75rem; }
 .list-summary-grid > div { border: 1px solid #d2e8ec; border-radius: .7rem; background: #fff; padding: .8rem .9rem; }
 .list-summary-grid span { display: block; color: #52727a; font-size: .68rem; font-weight: 750; letter-spacing: .055em; text-transform: uppercase; }

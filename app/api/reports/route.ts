@@ -21,6 +21,7 @@ export async function GET(request: Request) {
   const key = new URL(request.url).searchParams.get("type") ?? "profit-loss";
   const authorization = await requireApiUser(request);
   if (authorization instanceof Response) return authorization;
+  if (["employee-balances", "employee-payments"].includes(key) && !isAdministrator(authorization)) return Response.json({ error: "Only company administrators can open HR reports." }, { status: 403 });
   const canOpen = ["ap-aging-summary", "supplier-quickreport", "supplier-open-balance"].includes(key) ? hasPermission(authorization, "purchases:write") || hasPermission(authorization, "vendors:manage") || hasPermission(authorization, "reports:read") : key === "purchase-order-summary" ? hasPermission(authorization, "purchases:write") || hasPermission(authorization, "reports:read") : ["customer-statements", "customer-document-summary"].includes(key) ? hasPermission(authorization, "sales:write") || hasPermission(authorization, "reports:read") : hasPermission(authorization, "reports:read");
   if (!canOpen) return Response.json({ error: "Your role does not allow this report." }, { status: 403 });
   try {
@@ -619,8 +620,17 @@ export async function GET(request: Request) {
       columns = [{ key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "item", label: "Item" }, { key: "category", label: "Category" }, { key: "quantity", label: "On Hand" }, { key: "reorder", label: "Reorder" }, { key: "cost", label: "Cost", ...money }, { key: "price", label: "Selling Price", ...money }, { key: "status", label: "Status" }];
     } else if (key === "employee-contact-list") {
       title = "Employee Contact List";
-      rows = allContacts.filter((contact) => contact.type === "employee").map((contact) => ({ name: contact.name, company: contact.company || "—", phone: contact.phone || "—", whatsapp: contact.whatsapp || "—", email: contact.email || "—", country: contact.country || "—", status: contact.status }));
+      rows = allContacts.filter((contact) => contact.type === "employee").map((contact) => ({ employeeId: contact.id, name: contact.name, company: contact.company || "—", phone: contact.phone || "—", whatsapp: contact.whatsapp || "—", email: contact.email || "—", country: contact.country || "—", status: contact.status }));
       columns = [{ key: "name", label: "Employee" }, { key: "company", label: "Company" }, { key: "phone", label: "Phone" }, { key: "whatsapp", label: "WhatsApp" }, { key: "email", label: "Email" }, { key: "country", label: "Country" }, { key: "status", label: "Status" }];
+    } else if (key === "employee-balances") {
+      title = "Employee Balance Summary";
+      rows = allContacts.filter((contact) => contact.type === "employee").map((contact) => ({ employeeId: contact.id, name: contact.name, status: contact.status, currency: contact.currency, balance: Number(contact.balance) }));
+      columns = [{ key: "name", label: "Employee" }, { key: "status", label: "Status" }, { key: "currency", label: "Currency" }, { key: "balance", label: "Recorded balance" }];
+    } else if (key === "employee-payments") {
+      title = "Employee Payment Detail";
+      const employees = new Set(allContacts.filter((contact) => contact.type === "employee").map((contact) => contact.name.trim().toLocaleLowerCase()));
+      rows = scopedTransactions.filter((transaction) => transaction.type === "cheque" && employees.has(transaction.party.trim().toLocaleLowerCase())).map((transaction) => ({ transactionId: transaction.id, date: transaction.transactionDate, name: transaction.party, number: transaction.number, memo: transaction.memo || "—", originalCurrency: transaction.currency, originalAmount: Number(transaction.total), amount: Number(transaction.baseTotal) }));
+      columns = [{ key: "date", label: "Date" }, { key: "name", label: "Employee" }, { key: "number", label: "Cheque No." }, { key: "memo", label: "Memo" }, { key: "originalCurrency", label: "Paid in" }, { key: "originalAmount", label: "Original amount" }, { key: "amount", label: "Home currency", ...money }];
     } else if (key === "other-names-phone-list" || key === "other-names-contact-list") {
       const phoneOnly = key === "other-names-phone-list";
       title = phoneOnly ? "Other Names Phone List" : "Other Names Contact List";

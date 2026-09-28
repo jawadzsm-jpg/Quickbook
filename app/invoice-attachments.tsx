@@ -8,15 +8,15 @@ import { Button } from "@/components/ui/button";
 type PendingFile = { fileName: string; mimeType: string; fileData: string; fileSize: number };
 type SavedFile = { id: number; file_name: string; file_size: number };
 
-export function InvoiceAttachments({ companyId, invoiceId, pending, onPendingChange, canEdit = true, documentLabel = "Invoice" }: {
+export function InvoiceAttachments({ companyId, invoiceId, pending, onPendingChange, canEdit = true, documentLabel = "Invoice", entityType = "transaction" }: {
   companyId: number; invoiceId?: number | null; pending?: PendingFile[];
-  onPendingChange?: (files: PendingFile[]) => void; canEdit?: boolean; documentLabel?: "Invoice" | "Bill";
+  onPendingChange?: (files: PendingFile[]) => void; canEdit?: boolean; documentLabel?: "Invoice" | "Bill" | "Employee"; entityType?: "transaction" | "employee";
 }) {
   const [saved, setSaved] = useState<SavedFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
-  const url = `/api/attachments?companyId=${companyId}&entityType=transaction&entityId=${invoiceId}`;
+  const url = `/api/attachments?companyId=${companyId}&entityType=${entityType}&entityId=${invoiceId}`;
   useEffect(() => {
     if (!invoiceId) return;
     const controller = new AbortController();
@@ -41,7 +41,7 @@ export function InvoiceAttachments({ companyId, invoiceId, pending, onPendingCha
         fileData: await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file); }),
       })));
       if (invoiceId) {
-        const response = await fetch("/api/attachments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, entityType: "transaction", entityId: invoiceId, attachments: files }) });
+        const response = await fetch("/api/attachments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, entityType, entityId: invoiceId, attachments: files }) });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Could not upload attachments.");
         setRevision((value) => value + 1);

@@ -1032,6 +1032,28 @@ test('Lists summaries provide master-data KPIs and export all 15 reports to fitt
   assert.ok(Math.abs(Number(page[1]) - 841.89) < 0.01); assert.ok(Math.abs(Number(page[2]) - 595.28) < 0.01);
 });
 
+test('employee reports keep native balances separate and export home-currency payments on A4', async () => {
+  const { employeeSummary, employeeReportKeys } = await vite.ssrLoadModule('/lib/employee-report.ts');
+  assert.equal(employeeReportKeys.size, 2);
+  const balances = employeeSummary({ key: 'employee-balances', rows: [
+    { name: 'A', status: 'active', currency: 'AED', balance: 100 },
+    { name: 'B', status: 'inactive', currency: 'USD', balance: 0 },
+  ] });
+  assert.deepEqual(balances.cards.map(card => card.value), [2, 1, 1, 2]);
+  const payments = employeeSummary({ key: 'employee-payments', rows: [
+    { name: 'A', originalCurrency: 'AED', amount: 200 },
+    { name: 'B', originalCurrency: 'USD', amount: 367.25 },
+  ] });
+  assert.deepEqual(payments.cards.map(card => card.value), [567.25, 2, 2, 2]);
+  const { reportPdf } = await vite.ssrLoadModule('/lib/report-export.ts');
+  const report = { key: 'employee-payments', title: 'Employee Payment Detail', generatedAt: '2026-09-28T10:00:00.000Z', currency: 'AED', columns: [{ key: 'name', label: 'Employee' }, { key: 'amount', label: 'Home currency', type: 'money' }], rows: [{ name: 'A', amount: 200 }] };
+  const pdf = Buffer.from(await reportPdf(report, 'Comnet', 'All inventories')).toString('latin1');
+  const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/);
+  assert.ok(page);
+  assert.ok(Math.abs(Number(page[1]) - 841.89) < 0.01);
+  assert.ok(Math.abs(Number(page[2]) - 595.28) < 0.01);
+});
+
 test('report date presets handle weeks, leap days, month ends and fiscal boundaries', async () => {
   const {presetDates,reportPeriod,reportMonths,previousYearDate} = await vite.ssrLoadModule('/lib/report-period.ts');
   assert.deepEqual(reportMonths('2026-12-15','2027-01-10'),[{month:'2026-12',from:'2026-12-15',to:'2026-12-31'},{month:'2027-01',from:'2027-01-01',to:'2027-01-10'}]);
