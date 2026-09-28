@@ -7,7 +7,7 @@ import { SharedItemCatalogue } from '@/app/shared-item-catalogue';
 
 type SharedItem = { id:number; itemNumber:string; sku:string; name:string; description:string; specifications:string; category:string };
 export function SharedOutOfStock({search,refresh,companyId,locationId,canUse,onUsed}:{search:string;refresh:number;companyId?:number;locationId?:number;canUse:boolean;onUsed:()=>void}) {
- const [view,setView]=useState<'out'|'portal'>('portal');
+ const [view,setView]=useState<'out'|'portal'>('out');
  const [state,setState]=useState<{records:SharedItem[];loading:boolean;error:string}>({records:[],loading:true,error:''});
  useEffect(()=>{
   const controller=new AbortController();
