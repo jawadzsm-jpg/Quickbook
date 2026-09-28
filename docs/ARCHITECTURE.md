@@ -58,6 +58,15 @@ See [API reference](API.md).
 
 Modules under `lib/` should remain deterministic where possible. Database reads and writes belong in route handlers or narrowly scoped server-only helpers.
 
+### UI design system and responsive contract
+
+- Tailwind CSS 4 tokens in `app/globals.css` define the shared light/dark surfaces, user accent colors, typography, focus treatment, density, responsive breakpoints, and reduced-motion behavior.
+- Source-owned shadcn primitives in `components/ui/` are the default controls for buttons, inputs, selects, cards, dialogs, tables, sheets, menus, and other reusable interactions.
+- `EnterpriseApp` composes the shared responsive shell: a collapsible desktop sidebar, mobile sheet navigation, sticky page header, company and inventory context, and a constrained content workspace.
+- Existing feature screens inherit the shared design system instead of carrying independent page themes. Focused screen styles remain appropriate for domain-specific tables, forms, reports, and document previews.
+- Screen-only presentation rules are isolated with `@media screen`; A4 reports, sales documents, letterheads, packing lists, and UAE cheque geometry remain controlled by their dedicated print rules.
+- Responsive behavior targets phone, tablet, laptop, and wide desktop layouts. Tables remain horizontally inspectable where the business columns cannot safely collapse, while forms and action groups reflow to one column on small screens.
+
 ## Database architecture
 
 ### Connection modes

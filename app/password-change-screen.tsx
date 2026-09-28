@@ -23,13 +23,13 @@ export function PasswordChangeScreen({ email }: { email: string }) {
       window.location.reload();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not change password."); setLoading(false); }
   }
-  return <main className="grid min-h-screen place-items-center bg-slate-950 p-5"><form onSubmit={submit} className="w-full max-w-md space-y-5 rounded-2xl border border-white/10 bg-white p-7 shadow-2xl">
-    <div className="flex items-center gap-4"><div className="grid size-12 place-items-center rounded-xl bg-emerald-100 text-emerald-700"><KeyRound className="size-6" /></div><div><h1 className="text-xl font-bold">Create your password</h1><p className="text-sm text-slate-500">Temporary access for {email}</p></div></div>
+  return <main className="grid min-h-screen place-items-center bg-[radial-gradient(circle_at_top,#1e293b,#0b1120_60%)] p-4 sm:p-6"><form onSubmit={submit} className="w-full max-w-md space-y-5 rounded-2xl border border-white/10 bg-white p-6 shadow-2xl shadow-black/30 sm:p-8">
+    <div className="flex items-center gap-4"><div className="grid size-12 place-items-center rounded-xl bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200"><KeyRound className="size-6" /></div><div className="min-w-0"><h1 className="text-xl font-semibold tracking-tight text-slate-900">Create your password</h1><p className="truncate text-sm text-slate-500">Temporary access for {email}</p></div></div>
     <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Change your temporary password before opening the accounting system.</p>
     <div className="space-y-2"><Label htmlFor="currentPassword">Temporary password</Label><Input id="currentPassword" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></div>
     <div className="space-y-2"><Label htmlFor="newPassword">New password</Label><Input id="newPassword" type="password" autoComplete="new-password" minLength={12} maxLength={128} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required /></div>
     <div className="space-y-2"><Label htmlFor="confirmPassword">Confirm new password</Label><Input id="confirmPassword" type="password" autoComplete="new-password" minLength={12} maxLength={128} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required /></div>
     {error && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm font-medium text-rose-700">{error}</p>}
-    <Button type="submit" disabled={loading} className="w-full">{loading ? "Changing…" : "Change password"}</Button>
+    <Button type="submit" disabled={loading} className="h-11 w-full">{loading ? "Changing…" : "Change password"}</Button>
   </form></main>;
 }
