@@ -5,7 +5,7 @@ import { Paperclip, Trash2, X } from "lucide-react";
 
 type PendingAttachment = { fileName: string; mimeType: string; fileData: string; fileSize: number };
 
-const supportedTransactionTypes = new Set(["invoice", "bill", "customer payment", "bill payment", "vendor payment", "cheque"]);
+const supportedTransactionTypes = new Set(["bill", "customer payment", "bill payment", "vendor payment", "cheque"]);
 
 function detectRelevantDialog() {
   return Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"][data-attachments-context]'))
