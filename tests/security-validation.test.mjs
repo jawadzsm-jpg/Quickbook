@@ -131,11 +131,15 @@ test("payment terms update the due date from the transaction date", () => {
 
 test("purchase returns are linked, stock-posting, and available as A4 documents", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const vendorBoundary = readFileSync(new URL("../app/vendor-center-error-boundary.tsx", import.meta.url), "utf8");
   const source = readFileSync(new URL("../app/purchase-return-source.tsx", import.meta.url), "utf8");
   const api = readFileSync(new URL("../app/api/records/route.ts", import.meta.url), "utf8");
   const template = readFileSync(new URL("../app/sales-document-template.tsx", import.meta.url), "utf8");
   assert.match(app, /label: "Return Purchases"/);
-  assert.match(app, /function VendorCenter[\s\S]*label: "Return Purchases"/);
+  assert.match(app, /function VendorCenter[\s\S]*VendorCenterErrorBoundary/);
+  assert.match(app, /function VendorCenterContent[\s\S]*label: "Return Purchases"/);
+  assert.match(app, /Array\.isArray\(data\.records\) \? data\.records : \[\]/);
+  assert.match(vendorBoundary, /Vendor Center needs to reload/);
   assert.match(source, /Original supplier bill/);
   assert.match(api, /kind === "purchase-return-bills"/);
   assert.match(api, /Return quantity exceeds the quantity remaining/);

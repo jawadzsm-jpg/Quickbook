@@ -9,6 +9,7 @@ import { CompanyClearButton } from "./company-clear-button";
 import { CompanyTemplateDesigner } from "./company-template-designer";
 import { LetterheadCenter } from "./letterhead-center";
 import { WarrantyCenter } from "./warranty-center";
+import { VendorCenterErrorBoundary } from "./vendor-center-error-boundary";
 
 import { ActiveCustomersReport } from "./active-customers-report";
 import { BusinessFinalReport } from "./business-final-report";
@@ -1341,7 +1342,13 @@ function CustomerCenter({ onEdit, records, accounts, currency, loading, search, 
   </div>;
 }
 
-function VendorCenter({ companyId, onEdit, onEditPurchaseReturn, records, accounts, currency, loading, search, setSearch, onRefresh, onCreateVendor, onDelete, onDeletePurchaseReturn, onTransaction, onReport, reportLoading, onOpenDetail, canWrite, canDelete }: { companyId: number; onEdit?: (record: DataRecord) => void; onEditPurchaseReturn?: (record: DataRecord) => void; records: DataRecord[]; accounts: DataRecord[]; currency: string; loading: boolean; search: string; setSearch: (v: string) => void; onRefresh: () => void; onCreateVendor: () => void; onDelete: (id: number) => void; onDeletePurchaseReturn?: (id: number) => void; onTransaction: (type: string) => void; onReport: (key: string, period?: { start: string; end: string }, options?: { locationId: number | null; currency: string; supplierId?: number }) => void; reportLoading: boolean; onOpenDetail: (id: number) => void; canWrite: boolean; canDelete: boolean }) {
+function VendorCenter(props: Parameters<typeof VendorCenterContent>[0]) {
+  return <VendorCenterErrorBoundary resetKey={`${props.companyId}-${props.records.length}`} onRetry={props.onRefresh}>
+    <VendorCenterContent {...props} />
+  </VendorCenterErrorBoundary>;
+}
+
+function VendorCenterContent({ companyId, onEdit, onEditPurchaseReturn, records, accounts, currency, loading, search, setSearch, onRefresh, onCreateVendor, onDelete, onDeletePurchaseReturn, onTransaction, onReport, reportLoading, onOpenDetail, canWrite, canDelete }: { companyId: number; onEdit?: (record: DataRecord) => void; onEditPurchaseReturn?: (record: DataRecord) => void; records: DataRecord[]; accounts: DataRecord[]; currency: string; loading: boolean; search: string; setSearch: (v: string) => void; onRefresh: () => void; onCreateVendor: () => void; onDelete: (id: number) => void; onDeletePurchaseReturn?: (id: number) => void; onTransaction: (type: string) => void; onReport: (key: string, period?: { start: string; end: string }, options?: { locationId: number | null; currency: string; supplierId?: number }) => void; reportLoading: boolean; onOpenDetail: (id: number) => void; canWrite: boolean; canDelete: boolean }) {
   const [deletingVendor, setDeletingVendor] = useState<DataRecord | null>(null);
   const [supplierFilter, setSupplierFilter] = useState("all");
   const [customFilter, setCustomFilter] = useState("");
@@ -1359,13 +1366,13 @@ function VendorCenter({ companyId, onEdit, onEditPurchaseReturn, records, accoun
     .map((part) => part[0])
     .join("")
     .toUpperCase();
-  const supplierReturns = returnsState?.supplierId === currentSupplierId ? returnsState.rows : [];
+  const supplierReturns = returnsState?.supplierId === currentSupplierId && Array.isArray(returnsState.rows) ? returnsState.rows : [];
   const returnsLoading = Boolean(currentSupplierId && returnsState?.supplierId !== currentSupplierId);
   useEffect(() => {
     if (!currentSupplierId) return;
     const controller = new AbortController();
     fetch(`/api/records?kind=supplier-returns&companyId=${companyId}&supplierId=${currentSupplierId}`, { cache: "no-store", signal: controller.signal })
-      .then(async (response) => { const data = await response.json(); if (!response.ok) throw new Error(data.error || "Could not load purchase returns."); return data.records; })
+      .then(async (response) => { const data = await response.json(); if (!response.ok) throw new Error(data.error || "Could not load purchase returns."); return Array.isArray(data.records) ? data.records : []; })
       .then((rows) => { if (!controller.signal.aborted) setReturnsState({ supplierId: currentSupplierId, rows }); })
       .catch((error) => { if (!controller.signal.aborted) { setReturnsState({ supplierId: currentSupplierId, rows: [] }); toast.error(error instanceof Error ? error.message : "Could not load purchase returns."); } });
     return () => controller.abort();
