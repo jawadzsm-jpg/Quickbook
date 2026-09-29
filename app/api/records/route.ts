@@ -1435,6 +1435,18 @@ async function handlePATCH(request: Request) {
     if (payload.kind !== "items") return Response.json({ error: "This record cannot be edited here." }, { status: 400 });
     if (!mayWrite(authorization, "inventory:manage")) return Response.json({ error: "Your role cannot edit inventory." }, { status: 403 });
     const db = getDb();
+    if (payload.editMode === "item-status") {
+      const allowed = new Set(["kind", "id", "companyId", "editMode", "status", "expectedStatus"]);
+      if (Object.keys(payload).some((field) => !allowed.has(field)) || typeof payload.status !== "string" || !["active", "inactive"].includes(payload.status)) return Response.json({ error: "Select a valid item status." }, { status: 400 });
+      const [current] = await db.select().from(items).where(and(eq(items.id, id), eq(items.companyId, companyId))).for("update");
+      if (!current) return Response.json({ error: "Item not found." }, { status: 404 });
+      if (payload.expectedStatus !== current.status) return Response.json({ error: "This item changed. Refresh the list and try again." }, { status: 409 });
+      const status = payload.status as "active" | "inactive";
+      if (current.status === status) return Response.json({ record: current });
+      const [record] = await db.update(items).set({ status }).where(and(eq(items.id, id), eq(items.companyId, companyId))).returning();
+      await db.insert(auditLog).values({ companyId, action: "updated", entityType: "item", entityId: id, details: JSON.stringify({ actor: { id: authorization.id, email: authorization.email }, mode: "item-status", before: current.status, after: status }) });
+      return Response.json({ record });
+    }
     const [existing] = await db.select().from(items).where(and(eq(items.id, id), eq(items.companyId, companyId)));
     if (!existing) return Response.json({ error: "Item not found." }, { status: 404 });
     const specifications = Array.from({ length: 30 }, (_, index) => ({

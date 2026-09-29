@@ -55,6 +55,8 @@ The central endpoint recognizes these major transaction groups:
 
 The endpoint validates record-specific permission with `writePermission`, company assignment, location ownership, exchange rate, lines, totals, source allocations, and stock. Posting can create ledger lines, inventory movements, contact balance updates, payment allocations, receipt/invoice source allocations, and audit records. Editing reverses the old effects and applies the replacement inside the write transaction. Deletion is restricted and refuses unsafe master-data deletion where dependent activity exists.
 
+For a row-level item active/inactive change, `PATCH /api/records` accepts `kind: "items"`, `editMode: "item-status"`, `companyId`, `id`, `expectedStatus`, and `status`. It requires `inventory:manage`, checks the previous status, updates only status, and records the change in the audit log under the SKU write lock.
+
 Selected GET `kind` values beyond the four main record types are:
 
 | `kind` | Purpose | Additional inputs |
