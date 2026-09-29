@@ -1,16 +1,17 @@
-export const appRoles = ["all_admin", "admin", "accountant", "sales", "purchasing", "inventory", "viewer"] as const;
+export const appRoles = ["all_admin", "admin", "accountant", "sales", "purchasing", "inventory", "customization", "viewer"] as const;
 export type AppRole = typeof appRoles[number];
-export type Permission = "workspace:read" | "inventory:read" | "inventory:manage" | "inventory:transfer" | "reports:read" | "sales:write" | "purchases:write" | "banking:write" | "accounting:manage" | "customers:manage" | "vendors:manage";
+export type Permission = "workspace:read" | "inventory:read" | "inventory:manage" | "inventory:transfer" | "customization:manage" | "reports:read" | "sales:write" | "purchases:write" | "banking:write" | "accounting:manage" | "customers:manage" | "vendors:manage";
 export type SessionUser = { id: number; fullName: string; email: string; avatarData: string; themeColor: string; appearanceMode: "light" | "dark"; role: AppRole; mustChangePassword: boolean; companyIds: number[] };
 
-const fullPermissions: Permission[] = ["workspace:read", "inventory:read", "inventory:manage", "inventory:transfer", "reports:read", "sales:write", "purchases:write", "banking:write", "accounting:manage", "customers:manage", "vendors:manage"];
+const fullPermissions: Permission[] = ["workspace:read", "inventory:read", "inventory:manage", "inventory:transfer", "customization:manage", "reports:read", "sales:write", "purchases:write", "banking:write", "accounting:manage", "customers:manage", "vendors:manage"];
 const rolePermissions: Record<AppRole, Permission[]> = {
   all_admin: fullPermissions,
   admin: fullPermissions,
   accountant: ["workspace:read", "inventory:read", "reports:read", "sales:write", "purchases:write", "banking:write", "accounting:manage", "customers:manage", "vendors:manage"],
   sales: ["workspace:read", "inventory:read", "sales:write", "customers:manage"],
   purchasing: ["workspace:read", "inventory:read", "purchases:write", "vendors:manage"],
-  inventory: ["workspace:read", "inventory:read", "inventory:manage", "inventory:transfer"],
+  inventory: ["workspace:read", "inventory:read", "inventory:manage", "inventory:transfer", "customization:manage"],
+  customization: ["workspace:read", "inventory:read", "customization:manage"],
   viewer: ["workspace:read", "inventory:read", "reports:read"],
 };
 
