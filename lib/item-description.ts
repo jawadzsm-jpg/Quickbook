@@ -15,6 +15,17 @@ export function itemTitleWithSku(name: unknown, sku: unknown) {
   return `${title}-${code}`;
 }
 
+export function inventoryItemTitle(name: unknown) {
+  return capitalText(name);
+}
+
+export function inventoryItemDetails(description: unknown, itemNumber?: unknown) {
+  const number = capitalText(itemNumber).replace(/^#/, "");
+  const details = itemSpecificationDescription(description, undefined, undefined, number)
+    .replace(/\s*(?:\|\s*)?(?:ITEM\s*(?:NO\.?|NUMBER)\s*[:#]?\s*)?#\s*\d+\s*$/i, "").trim();
+  return [details, number ? `#${number}` : ""].filter(Boolean).join(" ");
+}
+
 export function itemSpecificationDescription(value: unknown, name?: unknown, sku?: unknown, itemNumber?: unknown) {
   const code = comparableText(sku);
   const number = comparableText(itemNumber);
