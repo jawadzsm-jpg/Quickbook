@@ -5,7 +5,7 @@ import ts from "typescript";
 
 const source = readFileSync(new URL("../lib/contact-currency.ts", import.meta.url), "utf8");
 const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } });
-const { applyContactCurrency } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString("base64")}`);
+const { applyContactCurrency, vendorPayableAccount } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString("base64")}`);
 
 const contacts = [
   { name: "Local Customer", type: "customer", currency: "AED" },
@@ -30,4 +30,16 @@ test("selecting a supplier automatically applies its currency and saved rate", (
 test("base currency uses rate one and a missing foreign rate remains editable", () => {
   assert.equal(applyContactCurrency({}, contacts, "Local Customer", "customer", rates, "AED").exchangeRate, "1");
   assert.equal(applyContactCurrency({}, [{ name: "GBP Supplier", type: "vendor", currency: "GBP" }], "GBP Supplier", "vendor", rates, "AED").exchangeRate, "");
+});
+
+test("purchase order vendor selects its linked payable account in the document currency", () => {
+  const vendors = [{ name: "Supplier A", type: "vendor", currency: "USD", ledgerAccountId: 12 }];
+  const accounts = [
+    { id: 11, name: "Default USD Payable", systemRole: "AP", currency: "USD", active: true },
+    { id: 12, name: "Supplier USD Payable", systemRole: "AP", currency: "USD", active: true },
+    { id: 13, name: "AED Payable", systemRole: "AP", currency: "AED", active: true },
+  ];
+  assert.equal(vendorPayableAccount(vendors, accounts, "Supplier A", "USD"), "Supplier USD Payable");
+  assert.equal(vendorPayableAccount(vendors, accounts, "Supplier A", "AED"), "AED Payable");
+  assert.equal(vendorPayableAccount(vendors, accounts, "Supplier A", "EUR"), "");
 });
