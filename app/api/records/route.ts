@@ -539,7 +539,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const name = uppercaseText(payload.name) || uppercaseText([specificationValue("Brand"), specificationValue("Model") || specificationValue("Part Number")].filter(Boolean).join(" ")) || `${category} ITEM`;
       const existingItems = await db.select({ id: items.id, name: items.name }).from(items).where(eq(items.companyId, companyId));
       if (!duplicateSource && existingItems.some((item) => normalizeComparableText(item.name) === normalizeComparableText(name))) return Response.json({ error: "An item with this name already exists." }, { status: 409 });
-      const description = generatedItemDescription(specifications, sku, itemNumber);
+      const description = generatedItemDescription(specifications, name, sku, itemNumber);
       const parsedWeight = Number.parseFloat(specificationValue("Weight"));
       const itemType = normalizedItemType(payload.itemType);
       const purchaseVatCode = String(payload.purchaseVatCode ?? "STANDARD").trim().toUpperCase();
@@ -1474,7 +1474,7 @@ async function handlePATCH(request: Request) {
       itemType, reorderPoint, salesPrice, cost, purchaseVatCode, cogsAccountId, preferredSupplierId, salesVatCode, incomeAccountId, assetAccountId,
       amountsIncludeVat: payload.amountsIncludeVat === true || String(payload.amountsIncludeVat) === "true",
       status: String(payload.status ?? existing.status) === "inactive" ? "inactive" : "active",
-      description: generatedItemDescription(specifications, existing.sku, existing.itemNumber),
+      description: generatedItemDescription(specifications, generatedName, existing.sku, existing.itemNumber),
       specifications: JSON.stringify(specifications),
     }).where(eq(items.id, id)).returning();
     await db.insert(auditLog).values({
