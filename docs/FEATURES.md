@@ -23,6 +23,7 @@
 
 - Vendor records with contact, company, country, TRN, currency, payable balance, and change history.
 - Purchase orders, item receipts, received-item bills, bills, expenses, vendor credits, and bill payments.
+- Bills and purchase orders default their posting-account dropdown to the selected vendor’s linked Accounts Payable account in the document currency.
 - Purchase order and bill entry forms offer Add Line below the last item row.
 - Partial purchase-order receiving with remaining quantities and receipt allocation tracking.
 - Purchase returns constrained to quantities still available from source bills.
