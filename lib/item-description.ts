@@ -2,26 +2,52 @@ export type ItemSpecification = { label?: string; value?: string };
 type DescriptionItem = { [key: string]: unknown; name?: unknown; description?: unknown; specifications?: unknown };
 
 const capitalText = (value: unknown) => String(value ?? "").normalize("NFKC").trim().toLocaleUpperCase("en");
+const comparableText = (value: unknown) => capitalText(value).replace(/[^\p{L}\p{N}]+/gu, "");
 
-export function generatedItemDescription(specifications: ItemSpecification[], sku?: unknown, itemNumber?: unknown) {
-  const generatedSku = capitalText(sku);
-  const generatedItemNumber = capitalText(itemNumber);
-  const parts: string[] = [];
-  let skuAdded = false;
+function descriptionParts(value: unknown) {
+  return capitalText(value).split("|").map((part) => part.trim()).filter(Boolean);
+}
 
-  for (const specification of specifications) {
-    const value = capitalText(specification.value);
-    if (!value || value === "NO") continue;
-    parts.push(value);
-    if (capitalText(specification.label) === "MODEL" && generatedSku) {
-      parts.push(`SKU: ${generatedSku}`);
-      skuAdded = true;
-    }
+export function itemTitleWithSku(name: unknown, sku: unknown) {
+  const title = capitalText(name);
+  const code = capitalText(sku);
+  if (!code || comparableText(title).endsWith(comparableText(code))) return title;
+  return `${title}-${code}`;
+}
+
+export function itemSpecificationDescription(value: unknown, name?: unknown, sku?: unknown, itemNumber?: unknown) {
+  const code = comparableText(sku);
+  const number = comparableText(itemNumber);
+  const title = comparableText(name);
+  const parts = descriptionParts(value).filter((part) => {
+    const comparable = comparableText(part);
+    if (/^SKU\s*:/i.test(part) || /^ITEM\s*(?:NO\.?|NUMBER)\s*[:#]?/i.test(part)) return false;
+    if (code && comparable === code) return false;
+    if (number && (comparable === number || comparable === `ITEMNO${number}` || comparable === `ITEMNUMBER${number}`)) return false;
+    return true;
+  });
+
+  let consumed = "";
+  while (title && parts.length) {
+    const candidate = comparableText(`${consumed} ${parts[0]}`);
+    if (!candidate || !title.startsWith(candidate)) break;
+    consumed = `${consumed} ${parts.shift()}`;
   }
-
-  if (generatedSku && !skuAdded) parts.push(`SKU: ${generatedSku}`);
-  if (generatedItemNumber) parts.push(`ITEM NO. #${generatedItemNumber.replace(/^#/, "")}`);
   return parts.join(" | ");
+}
+
+export function invoiceItemDescription(value: unknown, itemNumber?: unknown) {
+  const description = itemSpecificationDescription(value, undefined, undefined, itemNumber);
+  const number = capitalText(itemNumber).replace(/^#/, "");
+  return [description, number ? `ITEM NO. #${number}` : ""].filter(Boolean).join(" | ");
+}
+
+export function generatedItemDescription(specifications: ItemSpecification[], name?: unknown, sku?: unknown, itemNumber?: unknown) {
+  const values = specifications
+    .map((specification) => capitalText(specification.value))
+    .filter((value) => value && value !== "NO")
+    .join(" | ");
+  return itemSpecificationDescription(values, name, sku, itemNumber);
 }
 
 export function itemDescription(item?: DescriptionItem | null): string {
