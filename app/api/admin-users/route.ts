@@ -6,7 +6,7 @@ import { appRoles, hashPassword, isAdministrator, requireApiUser, type AppRole }
 import { sendUserInvitation } from "@/lib/smtp";
 
 const validRole = (value: string): value is AppRole => appRoles.includes(value as AppRole);
-const roleNames: Record<AppRole, string> = { all_admin: "All-Admin", admin: "Administrator", accountant: "Accountant", sales: "Sales", purchasing: "Purchasing", inventory: "Inventory Manager", viewer: "Viewer" };
+const roleNames: Record<AppRole, string> = { all_admin: "All-Admin", admin: "Administrator", accountant: "Accountant", sales: "Sales", purchasing: "Purchasing", inventory: "Inventory Manager", customization: "Product Customization", viewer: "Viewer" };
 const validAvatar = (value: string) => !value || (/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(value) && value.length <= 1_100_000);
 
 async function companyIdsForUser(userId: number) {
