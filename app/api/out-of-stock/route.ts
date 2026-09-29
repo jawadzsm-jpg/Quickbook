@@ -6,8 +6,8 @@ import { requireApiUser, canAccessCompany } from '@/lib/auth';
 export async function GET(request: Request) {
  const user = await requireApiUser(request, 'inventory:read');
  if (user instanceof Response) return user;
- // Only items with zero or negative source stock are shared across companies.
- // Source quantity, cost and prices are never exposed here.
+ // Share product identities missing from the selected inventory, regardless of
+ // source stock. Source quantity, cost and prices are never exposed here.
  try {
   const url = new URL(request.url);
   const selectedCompanyId = Number(url.searchParams.get('companyId'));
@@ -18,26 +18,26 @@ export async function GET(request: Request) {
   const records = await getDb().select({
    id: items.id, itemNumber: items.itemNumber, sku: items.sku, name: items.name,
    description: items.description, specifications: items.specifications, category: items.category,
-   companyId: items.companyId, locationId: items.locationId, quantity: items.quantity,
+   companyId: items.companyId, locationId: items.locationId,
    company: companies.name, inventory: inventoryLocations.name,
   }).from(items)
    .innerJoin(companies, eq(items.companyId, companies.id))
    .innerJoin(inventoryLocations, and(eq(items.locationId, inventoryLocations.id), eq(items.companyId, inventoryLocations.companyId)))
-   .where(and(eq(companies.active, true), eq(inventoryLocations.active, true)))
+   .where(and(eq(companies.active, true), eq(inventoryLocations.active, true), eq(items.status, 'active')))
    .orderBy(asc(items.name));
 
-  let shared = records.filter(row => row.quantity <= 0);
+  let shared = records;
   if (hasDestination) {
-   const destinationSkus = new Set(
-    records
-     .filter(row => row.companyId === selectedCompanyId && row.locationId === selectedLocationId)
-     .map(row => row.sku.trim().toLowerCase())
-     .filter(Boolean),
-   );
+   const destinationRows = records.filter(row => row.companyId === selectedCompanyId && row.locationId === selectedLocationId);
+   const destinationSkus = new Set(destinationRows.map(row => row.sku.trim().toLowerCase()).filter(Boolean));
+   const destinationItemNumbers = new Set(destinationRows.map(row => row.itemNumber?.trim().toLowerCase()).filter((value): value is string => Boolean(value)));
    shared = shared.filter(row =>
-    row.companyId !== selectedCompanyId && !destinationSkus.has(row.sku.trim().toLowerCase()),
+    row.companyId !== selectedCompanyId
+    && !destinationSkus.has(row.sku.trim().toLowerCase())
+    && !(row.itemNumber && destinationItemNumbers.has(row.itemNumber.trim().toLowerCase())),
    );
   }
+  shared = Array.from(new Map(shared.map(row => [`${row.sku.trim().toLowerCase()}\u0000${row.itemNumber?.trim().toLowerCase() ?? ''}`, row])).values());
 
   return Response.json({
    records: shared.map(row => ({

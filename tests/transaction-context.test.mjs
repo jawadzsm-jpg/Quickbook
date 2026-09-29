@@ -1847,7 +1847,7 @@ test('Chart of Accounts deletion is limited to unused sub-accounts', async () =>
   assert.equal((await database.query('SELECT id FROM accounts WHERE id=$1',[main])).rows.length,1);
 });
 
-test('shared out-of-stock catalogue crosses assignments but excludes in-stock, inactive and financial data', async () => {
+test('shared out-of-stock catalogue includes all active source identities without financial data', async () => {
   const company=(await database.query("INSERT INTO companies (name) VALUES ('Shared catalogue company') RETURNING id")).rows[0].id;
   const location=(await database.query("INSERT INTO inventory_locations (company_id,name,code,invoice_prefix) VALUES ($1,'Shared store','SHARED','SHARED') RETURNING id",[company])).rows[0].id;
   const inactive=(await database.query("INSERT INTO inventory_locations (company_id,name,code,invoice_prefix,active) VALUES ($1,'Closed store','CLOSED','CLOSED',false) RETURNING id",[company])).rows[0].id;
@@ -1859,7 +1859,7 @@ test('shared out-of-stock catalogue crosses assignments but excludes in-stock, i
     const response=await GET(new Request('https://app.test/api/out-of-stock'));
     assert.equal(response.status,200);assert.equal(response.headers.get('cache-control'),'private, no-store');
     const rows=(await response.json()).records.filter(row=>ids.includes(row.id));
-    assert.deepEqual(rows.map(row=>row.sku).sort(),['SHARED-NEGATIVE','SHARED-ZERO']);
+    assert.deepEqual(rows.map(row=>row.sku).sort(),['SHARED-NEGATIVE','SHARED-POSITIVE','SHARED-ZERO']);
     for(const row of rows){assert.equal(row.company,'Shared catalogue company');assert.equal(row.inventory,'Shared store');for(const key of ['cost','salesPrice','quantity','lastPurchasePrice','companyId'])assert.equal(key in row,false);}
     await database.query('UPDATE companies SET active=false WHERE id=$1',[company]);
     assert.equal((await (await GET(new Request('https://app.test/api/out-of-stock'))).json()).records.some(row=>ids.includes(row.id)),false);
@@ -1868,7 +1868,7 @@ test('shared out-of-stock catalogue crosses assignments but excludes in-stock, i
   } finally {delete globalThis.__transferTestUser;}
 });
 
-test('shared catalogue exposes zero values and reuses identifiers without source access or stock changes', async () => {
+test('shared catalogue lists in-stock source identities and reuses their SKU and item number', async () => {
  const sourceCompany=(await database.query("INSERT INTO companies(name) VALUES('Catalogue source') RETURNING id")).rows[0].id;
  const targetCompany=(await database.query("INSERT INTO companies(name) VALUES('Catalogue target') RETURNING id")).rows[0].id;
  const makeLocation=async id=>(await database.query("INSERT INTO inventory_locations(company_id,name,code,invoice_prefix) VALUES($1,'Store','STORE','INV') RETURNING id",[id])).rows[0].id;
@@ -1882,11 +1882,8 @@ test('shared catalogue exposes zero values and reuses identifiers without source
   const payload={sourceId,companyId:targetCompany,locationId:targetLocation,quantity:999,cost:999};
   assert.equal((await GET(new Request(`https://app.test/api/shared-items?companyId=${sourceCompany}`))).status,403);
   assert.equal((await outOfStock(new Request(`https://app.test/api/out-of-stock?companyId=${sourceCompany}&locationId=${sourceLocation}`))).status,403);
-  for(const url of ['https://app.test/api/shared-items',`https://app.test/api/shared-items?companyId=${targetCompany}`])assert.equal((await (await GET(new Request(url))).json()).records.some(row=>row.id===sourceId),false);
-  for(const suffix of ['',`?companyId=${targetCompany}&locationId=${targetLocation}`])assert.equal((await (await outOfStock(new Request(`https://app.test/api/out-of-stock${suffix}`))).json()).records.some(row=>row.id===sourceId),false);
-  assert.equal((await post(payload)).status,404);
-  assert.equal((await database.query('SELECT id FROM items WHERE company_id=$1',[targetCompany])).rows.length,0);
-  await database.query('UPDATE items SET quantity=0 WHERE id=$1',[sourceId]);
+  for(const url of ['https://app.test/api/shared-items',`https://app.test/api/shared-items?companyId=${targetCompany}`])assert.equal((await (await GET(new Request(url))).json()).records.some(row=>row.id===sourceId),true);
+  for(const suffix of ['',`?companyId=${targetCompany}&locationId=${targetLocation}`])assert.equal((await (await outOfStock(new Request(`https://app.test/api/out-of-stock${suffix}`))).json()).records.some(row=>row.id===sourceId),true);
   assert.equal((await (await outOfStock(new Request(`https://app.test/api/out-of-stock?companyId=${targetCompany}&locationId=${targetLocation}`))).json()).records.some(row=>row.id===sourceId),true);
   const rows=(await (await GET(new Request('https://app.test/api/shared-items'))).json()).records;
   const shared=rows.find(row=>row.id===sourceId);assert(shared);for(const key of ['quantity','cost','salesPrice','grnPrice'])assert.equal(shared[key],0);assert.equal('lastPurchasePrice' in shared,false);
@@ -1895,15 +1892,12 @@ test('shared catalogue exposes zero values and reuses identifiers without source
   await database.query('UPDATE items SET quantity=3,cost=50 WHERE id=$1',[created.id]);
   // Destination SKU suppression still includes its private in-stock items.
   assert.equal((await (await GET(new Request(`https://app.test/api/shared-items?companyId=${targetCompany}`))).json()).records.some(row=>row.id===sourceId),false);
-  await database.query('UPDATE items SET quantity=15 WHERE id=$1',[sourceId]);
-  assert.equal((await post(payload)).status,404); // stale listing cannot reuse restocked source
-  await database.query('UPDATE items SET quantity=0 WHERE id=$1',[sourceId]);
   const again=await post(payload);assert.equal(again.status,200);assert.equal((await again.json()).record.id,created.id);assert.equal((await database.query('SELECT quantity FROM items WHERE id=$1',[created.id])).rows[0].quantity,3);
   assert.equal((await post({...payload,companyId:sourceCompany,locationId:sourceLocation})).status,403);
   assert.equal((await post({...payload,locationId:sourceLocation})).status,400);
   await database.query("UPDATE items SET item_number='OTHER' WHERE id=$1",[created.id]);assert.equal((await post(payload)).status,409);
   globalThis.__transferTestUser={id:1,email:'viewer@test',role:'viewer',companyIds:[targetCompany]};assert.equal((await post(payload)).status,403);
-  const source=(await database.query('SELECT quantity,cost,sales_price,grn_price FROM items WHERE id=$1',[sourceId])).rows[0];assert.deepEqual(source,{quantity:0,cost:900,sales_price:1200,grn_price:950});
+  const source=(await database.query('SELECT quantity,cost,sales_price,grn_price FROM items WHERE id=$1',[sourceId])).rows[0];assert.deepEqual(source,{quantity:15,cost:900,sales_price:1200,grn_price:950});
  }finally{delete globalThis.__transferTestUser;}
 });
 
