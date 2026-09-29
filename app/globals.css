@@ -690,7 +690,7 @@ button, input, select { font: inherit; }
 .purchase-summary-grid [data-tone="accent"] strong { color: #0f766e; }
 .purchase-summary-note { color: #557571; }
 .inventory-report-brief { background: #ecfdf5; border-color: #a7f3d0; color: #315f4b; }
-.inventory-summary { border: 1px solid #d5e7dc; border-radius: .85rem; background: linear-gradient(145deg, #fff, #f0fdf4); padding: 1rem; box-shadow: 0 1px 3px rgb(15 23 42 / .06); }
+.inventory-summary { width: 100%; max-width: 1320px; margin-inline: auto; border: 1px solid #d5e7dc; border-radius: .85rem; background: linear-gradient(145deg, #fff, #f0fdf4); padding: 1rem; box-shadow: 0 1px 3px rgb(15 23 42 / .06); }
 .inventory-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: .75rem; }
 .inventory-summary-grid > div { border: 1px solid #d9eadf; border-radius: .7rem; background: #fff; padding: .8rem .9rem; }
 .inventory-summary-grid span { display: block; color: #557163; font-size: .68rem; font-weight: 750; letter-spacing: .055em; text-transform: uppercase; }

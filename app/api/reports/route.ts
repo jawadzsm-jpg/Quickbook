@@ -790,6 +790,28 @@ export async function GET(request: Request) {
       stockItems.forEach((row) => { const account = inventoryAccountFor(row); const supplier = latestSupplier.get(row.id)?.supplier ?? "Unassigned"; const groupKey = `${account}\u0000${supplier}`; const old = grouped.get(groupKey) ?? { account, supplier, items: 0, quantity: 0, lowStock: 0, outOfStock: 0, value: 0 }; grouped.set(groupKey, { ...old, items: old.items + 1, quantity: old.quantity + row.quantity, lowStock: old.lowStock + (row.quantity > 0 && row.quantity <= row.reorderPoint ? 1 : 0), outOfStock: old.outOfStock + (row.quantity <= 0 ? 1 : 0), value: old.value + row.quantity * inventoryCostFor(row) }); });
       rows = [...grouped.values()].sort((a, b) => a.account.localeCompare(b.account) || b.value - a.value);
       columns = [{ key: "account", label: "Inventory Asset Account" }, { key: "supplier", label: "Latest Supplier" }, { key: "items", label: "Items" }, { key: "quantity", label: "On Hand" }, { key: "lowStock", label: "Low Stock" }, { key: "outOfStock", label: "Out of Stock" }, { key: "value", label: "Stock Value", ...money }];
+    } else if (key === "inventory-stock-aging") {
+      title = "Inventory Stock Aging Report";
+      const latestReceipt = new Map<number, { date: string; reference: string; transactionId: number }>();
+      rawLines.filter((line) => line.itemId && Number(line.quantity) > 0 && !line.isFreightCharge && ["bill", "received item bill", "item receipt"].includes(line.type) && !["cancelled", "canceled", "void", "voided", "deleted"].includes(line.status.toLowerCase())).forEach((line) => {
+        const itemId = Number(line.itemId);
+        const previous = latestReceipt.get(itemId);
+        if (!previous || line.date > previous.date || (line.date === previous.date && line.transactionId > previous.transactionId)) latestReceipt.set(itemId, { date: line.date, reference: line.number, transactionId: line.transactionId });
+      });
+      const todayUtc = Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate());
+      const ageBand = (days: number) => days <= 30 ? "0–30 days" : days <= 60 ? "31–60 days" : days <= 90 ? "61–90 days" : days <= 180 ? "91–180 days" : days <= 365 ? "181–365 days" : "366+ days";
+      rows = stockItems.filter((row) => Number(row.quantity) > 0).map((row) => {
+        const receipt = latestReceipt.get(row.id);
+        const basisDate = receipt?.date || String(row.createdAt).slice(0, 10);
+        const basisTime = Date.parse(`${basisDate}T00:00:00Z`);
+        const ageDays = Number.isFinite(basisTime) ? Math.max(0, Math.floor((todayUtc - basisTime) / 86400000)) : 0;
+        return { itemId: row.id, account: inventoryAccountFor(row), itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, inventory: locations.find((location) => location.id === row.locationId)?.name || "—", quantity: row.quantity, value: row.quantity * inventoryCostFor(row), lastReceipt: basisDate, ageDays, ageBand: ageBand(ageDays), sourceReference: receipt?.reference || "Item created", sourceReferenceTransactionId: receipt?.transactionId || 0 };
+      }).sort((a, b) => b.ageDays - a.ageDays || b.value - a.value);
+      columns = [{ key: "account", label: "Inventory Asset Account" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "inventory", label: "Inventory" }, { key: "quantity", label: "On Hand" }, { key: "value", label: "Stock Value", ...money }, { key: "lastReceipt", label: "Latest Receipt" }, { key: "ageDays", label: "Age (Days)" }, { key: "ageBand", label: "Aging Band" }, { key: "sourceReference", label: "Age Source" }];
+    } else if (key === "negative-item-list") {
+      title = "Negative Item List";
+      rows = stockItems.filter((row) => Number(row.quantity) < 0).map((row) => ({ itemId: row.id, account: inventoryAccountFor(row), itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, category: row.category || "General", inventory: locations.find((location) => location.id === row.locationId)?.name || "—", quantity: row.quantity, shortageQuantity: Math.abs(row.quantity), shortageValue: Math.abs(row.quantity) * inventoryCostFor(row), status: "Negative stock" })).sort((a, b) => a.quantity - b.quantity || a.name.localeCompare(b.name));
+      columns = [{ key: "account", label: "Inventory Asset Account" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "category", label: "Category" }, { key: "inventory", label: "Inventory" }, { key: "quantity", label: "On Hand" }, { key: "shortageQuantity", label: "Shortage Qty" }, { key: "shortageValue", label: "Shortage Value", ...money }, { key: "status", label: "Status" }];
     } else if (key === "physical-inventory") {
       title = "Physical Stock Worksheet";
       rows = stockItems.map((row) => ({ itemId: row.id, account: inventoryAccountFor(row), itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, category: row.category, quantity: row.quantity, count: "", difference: "" }));

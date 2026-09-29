@@ -5,7 +5,7 @@ import { MAX_FILES, parseAttachment } from "@/lib/attachments";
 
 type AttachmentInput = { fileName?: string; mimeType?: string; fileData?: string; fileSize?: number };
 
-const allowedTypes = new Set(["transaction", "employee", "vat_code"]);
+const allowedTypes = new Set(["transaction", "employee", "vat_code", "report"]);
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const companyId = Number(url.searchParams.get("companyId"));
@@ -54,11 +54,14 @@ export async function POST(request: Request) {
     ? await db.execute(sql`SELECT id, type FROM transactions WHERE id = ${entityId} AND company_id = ${companyId} LIMIT 1`)
     : entityType === "employee"
       ? await db.execute(sql`SELECT id FROM contacts WHERE id = ${entityId} AND company_id = ${companyId} AND type = 'employee' LIMIT 1`)
-      : await db.execute(sql`SELECT id FROM vat_codes WHERE id = ${entityId} AND company_id = ${companyId} LIMIT 1`);
+      : entityType === "vat_code"
+        ? await db.execute(sql`SELECT id FROM vat_codes WHERE id = ${entityId} AND company_id = ${companyId} LIMIT 1`)
+        : { rows: [{ id: entityId }] };
   if (!target.rows.length) return Response.json({ error: "Record not found." }, { status: 404 });
-  const transactionType = String(target.rows[0].type ?? "");
+  const transactionType = String("type" in target.rows[0] ? target.rows[0].type ?? "" : "");
   const canChangeTransaction = entityType === "transaction" && ((transactionType === "invoice" && hasPermission(authorization, "sales:write")) || (transactionType === "bill" && hasPermission(authorization, "purchases:write")));
-  if (!canChangeTransaction && !isAdministrator(authorization)) return Response.json({ error: "You cannot change attachments on this record." }, { status: 403 });
+  const canChangeReport = entityType === "report" && hasPermission(authorization, "reports:read");
+  if (!canChangeTransaction && !canChangeReport && !isAdministrator(authorization)) return Response.json({ error: "You cannot change attachments on this record." }, { status: 403 });
   const count = await db.execute(sql`SELECT count(*)::int AS total FROM record_attachments WHERE company_id = ${companyId} AND entity_type = ${entityType} AND entity_id = ${entityId}`);
   if (Number(count.rows[0]?.total ?? 0) + files.length > MAX_FILES) return Response.json({ error: "A record can have at most 10 attachments." }, { status: 409 });
   for (const file of files) {
@@ -81,7 +84,8 @@ export async function DELETE(request: Request) {
   if (!existing.rows.length) return Response.json({ error: "Attachment not found." }, { status: 404 });
   const transactionType = String(existing.rows[0].transaction_type ?? "");
   const canChangeTransaction = (transactionType === "invoice" && hasPermission(authorization, "sales:write")) || (transactionType === "bill" && hasPermission(authorization, "purchases:write"));
-  if (!canChangeTransaction && !isAdministrator(authorization)) return Response.json({ error: "You cannot change attachments on this record." }, { status: 403 });
+  const canChangeReport = String(existing.rows[0].entity_type) === "report" && hasPermission(authorization, "reports:read");
+  if (!canChangeTransaction && !canChangeReport && !isAdministrator(authorization)) return Response.json({ error: "You cannot change attachments on this record." }, { status: 403 });
   await getDb().execute(sql`DELETE FROM record_attachments WHERE id = ${id} AND company_id = ${companyId}`);
   return Response.json({ success: true });
 }

@@ -3,6 +3,8 @@ export const inventoryReportKeys = new Set([
   "inventory-valuation-detail",
   "inventory-status",
   "inventory-status-supplier",
+  "inventory-stock-aging",
+  "negative-item-list",
   "physical-inventory",
   "pending-builds",
 ]);
@@ -29,6 +31,8 @@ export function inventoryDetailTarget(key = "") {
     "inventory-valuation": "inventory-valuation-detail",
     "inventory-status": "inventory-valuation-detail",
     "inventory-status-supplier": "inventory-status",
+    "inventory-stock-aging": "inventory-valuation-detail",
+    "negative-item-list": "inventory-status",
     "pending-builds": "physical-inventory",
   } as Record<string, string>)[key] || "";
 }
@@ -51,6 +55,12 @@ export function inventorySummary(report: InventoryReportLike): { cards: Inventor
   }
   if (key === "inventory-status-supplier") {
     return { cards: [money("Stock value", sum(rows, "value"), "accent"), number("On hand", sum(rows, "quantity")), number("Suppliers", unique(rows, "supplier")), number("Low-stock items", sum(rows, "lowStock"), "negative"), number("Out-of-stock items", sum(rows, "outOfStock"), "negative")], note: "Latest supplier is taken from the newest posted purchase receipt or bill. Select a supplier to open Vendor Center." };
+  }
+  if (key === "inventory-stock-aging") {
+    return { cards: [money("Aged stock value", sum(rows, "value"), "accent"), number("On-hand quantity", sum(rows, "quantity"), "positive"), number("Stock items", rows.length), number("Over 90 days", rows.filter((row) => Number(row.ageDays) > 90).length, "negative"), number("Over 365 days", rows.filter((row) => Number(row.ageDays) > 365).length, "negative")], note: "Age is measured from the latest posted stock receipt or supplier bill; where no receipt exists, the item creation date is used. Select an item or source document to open its linked area." };
+  }
+  if (key === "negative-item-list") {
+    return { cards: [number("Negative items", rows.length, "negative"), number("Shortage quantity", sum(rows, "shortageQuantity"), "negative"), money("Shortage value", sum(rows, "shortageValue"), "negative"), number("Categories", unique(rows, "category")), number("Inventories affected", unique(rows, "inventory"), "accent")], note: "Only active stock items below zero are included. Shortage value uses the current weighted average purchase cost. Select an item to open and correct its Inventory record." };
   }
   if (key === "physical-inventory") {
     return { cards: [number("Items to count", rows.length), number("System quantity", sum(rows, "quantity")), number("Categories", unique(rows, "category")), number("Zero / negative QOH", rows.filter((row) => Number(row.quantity) <= 0).length, "negative")], note: "Use the blank Physical Count and Difference columns during stock verification. Select an item to open its Inventory record." };

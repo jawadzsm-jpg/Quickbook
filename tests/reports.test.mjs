@@ -364,6 +364,20 @@ test("purchase postings hit the right accounts and purchase reports stay in sync
   assert.equal(supplierStock.rows[0].supplier, "Purchase Audit Vendor");
   const pendingBuilds = await reportGet("pending-builds");
   assert.equal(pendingBuilds.rows[0].required, 1);
+  const stockAging = await reportGet("inventory-stock-aging");
+  const agedStock = stockAging.rows.find((row) => row.sku === "PUR-STOCK");
+  assert.ok(agedStock);
+  assert.equal(agedStock.quantity, 1);
+  assert.equal(agedStock.sourceReference, bill.number);
+  assert.equal(agedStock.sourceReferenceTransactionId, bill.id);
+  assert.equal(agedStock.account, "1200 · Inventory Asset");
+  await database.query("INSERT INTO items(company_id,location_id,sku,item_number,name,item_type,category,quantity,cost,asset_account_id) VALUES ($1,$2,'PUR-NEG','PUR-NEG-1','Negative Stock Item','stock-part','Laptop',-3,40,$3)", [cid,lid,idFor("INVENTORY")]);
+  const negativeItems = await reportGet("negative-item-list");
+  const negative = negativeItems.rows.find((row) => row.sku === "PUR-NEG");
+  assert.ok(negative);
+  assert.equal(negative.quantity, -3);
+  assert.equal(negative.shortageQuantity, 3);
+  assert.equal(negative.shortageValue, 120);
 
   const payment = (await database.query("INSERT INTO transactions(company_id,location_id,number,type,party,transaction_date,total,base_total,currency,exchange_rate,status) VALUES ($1,$2,'PUR-PAY-1','bill payment','Purchase Audit Vendor','2026-09-21',57.5,57.5,'AED',1,'paid') RETURNING id", [cid,lid])).rows[0].id;
   await database.query("INSERT INTO bill_payment_allocations(payment_id,bill_id,amount) VALUES ($1,$2,57.5)", [payment,bill.id]);
@@ -948,12 +962,17 @@ test('purchase summaries provide purchasing KPIs and export all Purchase reports
 
 test('inventory summaries provide stock KPIs and export all Inventory reports to fitted A4 portrait by default', async () => {
   const { inventoryReportKeys, inventorySummary, inventoryDetailTarget } = await vite.ssrLoadModule('/lib/inventory-report.ts');
-  assert.equal(inventoryReportKeys.size, 6);
+  assert.equal(inventoryReportKeys.size, 8);
   const valuation = inventorySummary({ key: 'inventory-valuation', rows: [{ account: 'Inventory Asset', category: 'Laptop', items: 2, quantity: 8, value: 5000 }, { account: 'Inventory Asset', category: 'Monitor', items: 1, quantity: 4, value: 1000 }] });
   assert.deepEqual(valuation.cards.map(card => card.value), [6000, 12, 3, 2, 1]);
   assert.equal(inventoryDetailTarget('inventory-valuation'), 'inventory-valuation-detail');
   const status = inventorySummary({ key: 'inventory-status', rows: [{ name: 'A', available: 5, status: 'In Stock', value: 500 }, { name: 'B', available: 1, status: 'Low Stock', value: 100 }, { name: 'C', available: 0, status: 'Out of Stock', value: 0 }] });
   assert.deepEqual(status.cards.map(card => card.value), [600, 6, 3, 1, 1]);
+  const aging = inventorySummary({ key: 'inventory-stock-aging', rows: [{ quantity: 5, value: 500, ageDays: 45 }, { quantity: 2, value: 300, ageDays: 400 }] });
+  assert.deepEqual(aging.cards.map(card => card.value), [800, 7, 2, 1, 1]);
+  assert.equal(inventoryDetailTarget('inventory-stock-aging'), 'inventory-valuation-detail');
+  const negative = inventorySummary({ key: 'negative-item-list', rows: [{ category: 'Laptop', inventory: 'Main', shortageQuantity: 3, shortageValue: 120 }, { category: 'Monitor', inventory: 'Branch', shortageQuantity: 2, shortageValue: 80 }] });
+  assert.deepEqual(negative.cards.map(card => card.value), [2, 5, 200, 2, 2]);
   const { reportPdf } = await vite.ssrLoadModule('/lib/report-export.ts');
   const report = { key: 'inventory-valuation', title: 'Stock Valuation Summary', generatedAt: '2026-09-27T10:00:00.000Z', currency: 'AED', columns: [{ key: 'category', label: 'Category' }, { key: 'value', label: 'Stock Value', type: 'money' }], rows: [{ category: 'Laptop', value: 5000 }] };
   const pdf = Buffer.from(await reportPdf(report, 'Inventory Company', 'Main Inventory')).toString('latin1');
@@ -1245,6 +1264,12 @@ test('VAT management includes every taxable document type and posts adjustments 
   const listed=await listedCodes.json();
   assert.ok(["STANDARD","ZERO","EXEMPT","REVERSE_CHARGE","OUT_OF_SCOPE"].every((value)=>listed.codes.some((entry)=>entry.code===value&&entry.system&&entry.active)));
   const attachments=await vite.ssrLoadModule('/app/api/attachments/route.ts');
+  const {reportAttachmentId}=await vite.ssrLoadModule('/lib/report-attachments.ts');
+  const reportEntityId=reportAttachmentId('inventory-stock-aging');
+  const attachedReport=await attachments.POST(post({companyId:cid,entityType:'report',entityId:reportEntityId,attachments:[{fileName:'stock-aging-review.txt',mimeType:'text/plain',fileData:'data:text/plain;base64,QUdJTkc=',fileSize:5}]}));
+  assert.equal(attachedReport.status,201,await attachedReport.clone().text());
+  const reportFiles=await attachments.GET(new Request(`https://app.test/api/attachments?companyId=${cid}&entityType=report&entityId=${reportEntityId}`));
+  assert.equal((await reportFiles.json()).attachments[0].file_name,'stock-aging-review.txt');
   const attached=await attachments.POST(post({companyId:cid,entityType:'vat_code',entityId:code.id,attachments:[{fileName:'reduced-vat-ruling.txt',mimeType:'text/plain',fileData:'data:text/plain;base64,VkFU',fileSize:3}]}));
   assert.equal(attached.status,201,await attached.clone().text());
   const detailResponse=await vatCodes.GET(new Request(`https://app.test/api/vat-codes?companyId=${cid}&id=${code.id}`));
