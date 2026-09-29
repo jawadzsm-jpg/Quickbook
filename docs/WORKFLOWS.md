@@ -62,7 +62,7 @@ When an existing posting document is edited, the server reverses its prior ledge
 
 ### Quote/order to invoice
 
-1. Create an estimate, quotation, proforma invoice, or sales order for a customer.
+1. Create an estimate, quotation, proforma invoice, or sales order for a customer. Estimates, proforma invoices, and sales orders default the posting-account dropdown to that customer’s linked Accounts Receivable account in the document currency; invoices use the same default.
 2. These source documents remain non-posting.
 3. Open Sales Documents lists source lines with quantity still available to invoice.
 4. Choose a source, destination inventory, and partial or full quantities.
