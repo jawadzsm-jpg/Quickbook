@@ -32,7 +32,7 @@
 - Stock, non-stock, service, other charge, subtotal, group, discount, payment, VAT item, and VAT group item types.
 - Unique item numbers and SKU controls per inventory location.
 - Quantity on hand, reorder points, sales prices, unit cost, GRN cost, serial numbers, and active status.
-- Authorized inventory editors can mark each item inactive or active from its row. Inactive items have their own list filter and status label even at zero quantity; stock counts include active items only.
+- Authorized inventory editors can mark each item inactive or active from its row. Inactive items move out of All items into the Item is inactive tab, and reactivated items return to All items. The inactive status label applies even at zero quantity; active stock counts exclude inactive items.
 - Item specifications with reusable option values and generated descriptions.
 - Inventory item rows and copied item text show the saved uppercase product name, ordered specifications, and the item number as a final `#` suffix; the generated SKU stays separate from the product name.
 - HS code, country of origin, dimensions, and weight maintenance.
