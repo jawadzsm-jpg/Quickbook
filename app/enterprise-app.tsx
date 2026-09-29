@@ -470,7 +470,7 @@ const defaultPostingAccount = (type: string, accounts: DataRecord[]) => {
 const itemDisplayDescription = (item: DataRecord) => {
   try {
     const specifications = JSON.parse(String(item.specifications ?? "[]")) as ItemSpecification[];
-    if (specifications.length) return generatedItemDescription(specifications, item.sku, item.itemNumber);
+    if (specifications.length) return generatedItemDescription(specifications, item.name, item.sku, item.itemNumber);
   } catch { /* Fall back to the saved description for older records. */ }
   return String(item.description ?? "").toLocaleUpperCase("en").split(" | ").filter((value) => value.trim().toLowerCase() !== "no").join(" | ");
 };
@@ -2604,7 +2604,7 @@ function ItemFields({ form, setForm, items, accounts, contacts, vatCodeOptions, 
     label: form[`specLabel${index}`] ?? specificationFields[index],
     value: form[`specValue${index}`] ?? "",
   }));
-  const description = generatedItemDescription(draftSpecifications, form.sku, form.itemNumber);
+  const description = generatedItemDescription(draftSpecifications, form.name, form.sku, form.itemNumber);
   const itemType = itemTypeOf(form.itemType);
   const typeInfo = itemTypeDetails[itemType];
   const standardLineItem = documentLineItemTypes.has(itemType);
