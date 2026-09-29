@@ -1071,6 +1071,16 @@ test('vendor purchase orders resolve the payable account in their currency', asy
   const order = await post({ kind: 'transactions', companyId, locationId, type: 'purchase order', party: 'EUR Supplier', currency: 'EUR', exchangeRate: 4.27, transactionDate: '2026-09-29', number: 'PO-EUR', account: 'Wrong Account', lines: [{ itemId, description: 'Laptop', quantity: 1, unitPrice: 100, unitCost: 20, vatCode: 'ZERO' }] });
   assert.equal(order.status, 201);
   assert.equal((await order.json()).record.account, account.name);
+
+  await database.query("INSERT INTO accounts(company_id,code,name,type,system_role,currency) VALUES ($1,'5000','Cost of Goods Sold','Cost of Goods Sold','COGS','AED')", [companyId]);
+  const bill = await post({ kind: 'transactions', companyId, locationId, type: 'bill', party: 'EUR Supplier', currency: 'EUR', exchangeRate: 4.27, transactionDate: '2026-09-29', number: 'BILL-EUR', account: 'Wrong Account', lines: [{ description: 'Custom purchase', quantity: 1, unitPrice: 100, unitCost: 100, vatCode: 'ZERO' }] });
+  assert.equal(bill.status, 201, JSON.stringify(await bill.clone().json()));
+  const billRecord = (await bill.json()).record;
+  assert.equal(billRecord.account, account.name);
+  assert.deepEqual((await database.query("SELECT jl.account_name,jl.debit,jl.credit FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.transaction_id=$1 ORDER BY jl.debit DESC", [billRecord.id])).rows, [
+    { account_name: 'Cost of Goods Sold', debit: 427, credit: 0 },
+    { account_name: account.name, debit: 0, credit: 427 },
+  ]);
 });
 
 test('partial PO receipts retain remaining quantities, block overreceipt and reverse safely', async () => {

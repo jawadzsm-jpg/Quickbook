@@ -975,7 +975,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       unallocated = round(unallocated - amount);
     }
     if (linkedInvoiceIds.length && (total <= 0 || unallocated > 0)) return Response.json({ error: "Payment exceeds the selected invoices' remaining balance. Refresh the invoice list." }, { status: 409 });
-    if (type === "purchase order") {
+    if (["purchase order", "bill"].includes(type)) {
       const [vendor] = await db.select({ ledgerAccountId: contacts.ledgerAccountId }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "vendor"), eq(contacts.name, party))).limit(1);
       if (vendor) {
         const [linked] = vendor.ledgerAccountId ? await db.select().from(accounts).where(and(eq(accounts.id, vendor.ledgerAccountId), eq(accounts.companyId, companyId), eq(accounts.systemRole, "AP"), eq(accounts.currency, currency), eq(accounts.active, true))).limit(1) : [];
@@ -1065,7 +1065,9 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
           ...(baseVatAmount ? [{ accountName: linkedAccounts.OUTPUT_VAT ?? "VAT Payable", debit: 0, credit: baseVatAmount }] : []),
         ];
       } else if (type === "bill") {
-        const purchaseFallback = record.account || linkedAccounts.PURCHASES || "Purchases";
+        const purchaseFallback = postingAccountRole === "AP"
+          ? (linkedAccounts.COGS ?? linkedAccounts.PURCHASES ?? "Cost of Goods Sold")
+          : (record.account || linkedAccounts.PURCHASES || "Purchases");
         const inventoryFallback = linkedAccounts.INVENTORY ?? "Inventory Asset";
         const purchaseTotals = new Map<string, number>();
         for (const line of prepared) {

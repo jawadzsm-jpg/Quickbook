@@ -437,23 +437,8 @@ const accountRoleOptions = [
 ] as const;
 const controlAccountFor = (accounts: DataRecord[], role: "AR" | "AP", currency: string) => accounts.find((account) => account.active && account.systemRole === role && String(account.currency) === currency);
 const linkedAccountName = (accounts: DataRecord[], role: string, fallback: string, currency?: string) => String(accounts.find((account) => account.active && account.systemRole === role && (!currency || String(account.currency) === currency))?.name ?? accounts.find((account) => account.active && account.systemRole === role)?.name ?? fallback);
-const defaultBillPurchaseAccount = (accounts: DataRecord[]) => {
-  const eligible = accounts.filter((account) => account.active && (
-    ["PURCHASES", "EXPENSE", "COGS"].includes(String(account.systemRole))
-    || ["Expense", "Other Expense", "Cost of Goods Sold"].includes(String(account.type))
-  ));
-  return String(
-    eligible.find((account) => String(account.code) === "4000" && (account.systemRole === "COGS" || account.type === "Cost of Goods Sold" || /cost of goods/i.test(String(account.name))))?.name
-    ?? eligible.find((account) => account.systemRole === "COGS")?.name
-    ?? eligible.find((account) => account.type === "Cost of Goods Sold")?.name
-    ?? eligible.find((account) => account.systemRole === "PURCHASES")?.name
-    ?? eligible.find((account) => account.type === "Expense")?.name
-    ?? eligible[0]?.name
-    ?? "Cost of Goods Sold"
-  );
-};
 const defaultPostingAccount = (type: string, accounts: DataRecord[], currency?: string) => {
-  if (type === "bill") return defaultBillPurchaseAccount(accounts);
+  if (["bill", "purchase order"].includes(type)) return linkedAccountName(accounts, "AP", "Accounts Payable", currency);
   if (type === "bill payment") return linkedAccountName(accounts, "BANK", "Business Bank");
   if (["item receipt", "received item bill"].includes(type)) return linkedAccountName(accounts, "SUSPENSE", "Suspense");
   if (type === "cheque") return linkedAccountName(accounts, "AP", "Accounts Payable");
@@ -1008,7 +993,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     setForm(purchaseOrder ? {
       type: "bill", purchaseOrderId: String(record.id), sourceDocumentLabel: `${String(record.type)} ${String(record.number)}`,
       number: `BILL-${String(records.transactions.length + 1).padStart(4, "0")}`, party: String(record.party), salesman: String(record.salesman ?? ""),
-      transactionDate: today(), dueDate: String(record.dueDate || today()), status: "open", account: defaultPostingAccount("bill", records.accounts),
+      transactionDate: today(), dueDate: String(record.dueDate || today()), status: "open", account: defaultPostingAccount("bill", records.accounts, String(record.currency || baseCurrency)),
       vatRate: String(record.vatRate ?? "5"), currency: String(record.currency || baseCurrency), exchangeRate: String(record.exchangeRate || "1"),
       billLocationId: String(locationId), transactionLocationId: String(locationId), isImport: Number(record.vatAmount) > 0 || record.isImport ? "true" : "false", freightCharges: "0", memo: String(record.memo ?? ""),
     } : {
@@ -1154,7 +1139,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
             convertSourceDocument(data as TransactionDetail);
           }} />}
           {dialogOpen && activeEditorKind === "transactions" && form.type === "invoice" && editingRecordId === null && !form.sourceTransactionId && !form.salesSourceId && form.party && <OpenSalesDocuments key={`${activeCompanyId}:${form.party}`} companyId={activeCompanyId} party={form.party} onSelect={(id) => setForm({ ...form, salesSourceId: String(id) })} />}
-          {activeEditorKind === "transactions" && editingRecordId === null && form.type === "invoice" && form.salesSourceId ? <SalesSourceInvoicing key={form.salesSourceId} sourceId={Number(form.salesSourceId)} companyId={activeCompanyId} onSaved={() => { setDialogOpen(false); setEditorKind(null); void loadData(); }} onViewInvoice={(id) => { setDialogOpen(false); void openDetail(id); }} /> : activeEditorKind === "transactions" && form.type === "bill" && form.purchaseOrderId ? <PurchaseOrderReceiving key={`bill:${form.purchaseOrderId}`} orderId={Number(form.purchaseOrderId)} companyId={activeCompanyId} documentType="bill" account={defaultPostingAccount("bill", records.accounts)} onSaved={() => { setDialogOpen(false); setEditorKind(null); void loadData(); }} /> : <form onSubmit={saveRecord} className={activeEditorKind === "transactions" ? "flex min-h-0 flex-col gap-4 overflow-hidden" : "space-y-5"}>
+          {activeEditorKind === "transactions" && editingRecordId === null && form.type === "invoice" && form.salesSourceId ? <SalesSourceInvoicing key={form.salesSourceId} sourceId={Number(form.salesSourceId)} companyId={activeCompanyId} onSaved={() => { setDialogOpen(false); setEditorKind(null); void loadData(); }} onViewInvoice={(id) => { setDialogOpen(false); void openDetail(id); }} /> : activeEditorKind === "transactions" && form.type === "bill" && form.purchaseOrderId ? <PurchaseOrderReceiving key={`bill:${form.purchaseOrderId}`} orderId={Number(form.purchaseOrderId)} companyId={activeCompanyId} documentType="bill" account={defaultPostingAccount("bill", records.accounts, form.currency || baseCurrency)} onSaved={() => { setDialogOpen(false); setEditorKind(null); void loadData(); }} /> : <form onSubmit={saveRecord} className={activeEditorKind === "transactions" ? "flex min-h-0 flex-col gap-4 overflow-hidden" : "space-y-5"}>
             <SkuLockNotice message={skuLock.message} /><fieldset disabled={!skuLock.ready} className={activeEditorKind === "transactions" ? "min-h-0 flex-1 space-y-5 overflow-y-auto pr-1" : "space-y-5"}>
             {linkedInventoryDocument && !salesDetailsOnly && <p role="status" className="text-sm text-slate-500">{documentInventory.key === documentInventoryKey && documentInventory.error ? documentInventory.error : !documentInventoryReady ? "Loading inventory items…" : `${documentItems.length} items available in the selected inventory.`}</p>}
             {activeEditorKind === "transactions" && !salesDetailsOnly && <TransactionFields form={form} setForm={updateDocumentForm} onPayableResolved={(party, currency, account) => setForm((current) => current.type === "purchase order" && current.party === party && current.currency === currency ? { ...current, ...(account ? { account, payableAccountResolved: "true" } : {}), payableAccountPending: "" } : current)} types={["sales", "customers", "vendors", "banking"].includes(view) ? [form.type] : transactionTypes[view] ?? transactionTypes.dashboard} items={documentItems} contacts={records.contacts} accounts={records.accounts} locations={activeLocations} lines={lines} setLines={setLines} vatCodeOptions={vatCodeOptions} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />}
@@ -2330,16 +2315,23 @@ function BillFields({ form, setForm, items, vendors, salesmen, accounts, locatio
   const freightVat = [...freightByTax.values()].reduce((sum, group) => sum + Math.round(group.amount * group.rate) / 100, 0);
   const totalVat = vat + freightVat;
   const total = subtotal + freightCharges + totalVat;
-  const purchaseAccounts = accounts.filter((account) => account.active && (
-    ["PURCHASES", "EXPENSE", "COGS"].includes(String(account.systemRole))
-    || ["Expense", "Other Expense", "Cost of Goods Sold"].includes(String(account.type))
-  ));
-  const defaultPurchaseAccount = String(
-    defaultBillPurchaseAccount(purchaseAccounts)
-  );
-  useEffect(() => {
-    if (!form.account && defaultPurchaseAccount) setForm({ ...form, account: defaultPurchaseAccount });
-  }, [defaultPurchaseAccount, form, setForm]);
+  const payableAccounts = accounts.filter((account) => account.active && account.systemRole === "AP" && String(account.currency) === form.currency);
+  const resolveBillPayableAccount = (next: Record<string, string>) => {
+    const account = vendorPayableAccount(vendors, accounts, next.party, next.currency);
+    setForm({ ...next, ...(account ? { account, payableAccountResolved: "true" } : {}), payableAccountPending: account || !next.party ? "" : "true" });
+    if (account || !next.party) return;
+    void (async () => {
+      try {
+        const response = await fetch("/api/records", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "resolve-vendor-payable", companyId: locations[0]?.companyId, party: next.party, currency: next.currency }) });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not find the vendor payable account.");
+        setForm({ ...next, account: String(data.account.name), payableAccountResolved: "true", payableAccountPending: "" });
+      } catch (error) {
+        setForm({ ...next, payableAccountPending: "" });
+        toast.error(error instanceof Error ? error.message : "Could not find the vendor payable account.");
+      }
+    })();
+  };
   const purchaseItems = items.filter(itemCanBeDocumentLine);
   return <div className="space-y-5">
     <div className="grid gap-4 rounded-xl border bg-slate-50 p-4 md:grid-cols-2 xl:grid-cols-6">
@@ -2347,13 +2339,13 @@ function BillFields({ form, setForm, items, vendors, salesmen, accounts, locatio
       <Field label="Reference No." name="number" form={form} setForm={setForm} required placeholder="Enter reference no." />
       <div className="space-y-2"><Label>Inventory *</Label><Select disabled={Boolean(form.revision)} value={form.billLocationId || String(locations[0]?.id ?? "")} onValueChange={(value) => setForm({ ...form, billLocationId: value })}><SelectTrigger className="w-full"><SelectValue placeholder="Select inventory" /></SelectTrigger><SelectContent>{locations.map((location) => <SelectItem key={location.id} value={String(location.id)}>{location.name}</SelectItem>)}</SelectContent></Select></div>
       <div className="space-y-2"><Label>Import</Label><Select value={form.isImport ?? "false"} onValueChange={(value) => { const vatRate = value === "true" ? "5" : "0"; const vatCode = value === "true" ? "STANDARD" : "ZERO"; setForm({ ...form, isImport: value, vatRate }); setLines(lines.map((line) => ({ ...line, vatCode, vatRate }))); }}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="true">Yes — 5% VAT</SelectItem><SelectItem value="false">No — 0% VAT</SelectItem></SelectContent></Select></div>
-      <CurrencyExchangeChoice form={form} setForm={setForm} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />
+      <CurrencyExchangeChoice form={form} setForm={resolveBillPayableAccount} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />
       <Field label={`Exchange Rate to ${baseCurrency}`} name="exchangeRate" type="number" form={form} setForm={setForm} required placeholder="1.000000" />
     </div>
     <div className="grid gap-4 md:grid-cols-3">
-      <div className="space-y-2"><Label>Vendor *</Label><Select value={form.party} onValueChange={(value) => setForm(applyContactCurrency(form, vendors, value, "vendor", exchangeRates, baseCurrency))}><SelectTrigger className="w-full"><SelectValue placeholder="Select vendor" /></SelectTrigger><SelectContent>{vendors.length ? vendors.map((vendor) => <SelectItem key={vendor.id} value={String(vendor.name)}>{String(vendor.company || vendor.name)} · {String(vendor.currency)}</SelectItem>) : <SelectItem value="no-vendors" disabled>No vendors available</SelectItem>}</SelectContent></Select></div>
+      <div className="space-y-2"><Label>Vendor *</Label><Select value={form.party} onValueChange={(value) => resolveBillPayableAccount(applyContactCurrency(form, vendors, value, "vendor", exchangeRates, baseCurrency))}><SelectTrigger className="w-full"><SelectValue placeholder="Select vendor" /></SelectTrigger><SelectContent>{vendors.length ? vendors.map((vendor) => <SelectItem key={vendor.id} value={String(vendor.name)}>{String(vendor.company || vendor.name)} · {String(vendor.currency)}</SelectItem>) : <SelectItem value="no-vendors" disabled>No vendors available</SelectItem>}</SelectContent></Select></div>
       <Field label="Date" name="transactionDate" type="date" form={form} setForm={setForm} required />
-      <div className="space-y-2"><Label>Purchase account *</Label><Select value={form.account || defaultPurchaseAccount} onValueChange={(account) => setForm({ ...form, account })}><SelectTrigger className="w-full"><SelectValue placeholder="Select purchase / expense account" /></SelectTrigger><SelectContent>{purchaseAccounts.length ? purchaseAccounts.map((account) => <SelectItem key={account.id} value={String(account.name)}>{String(account.code || "")} · {String(account.name)} · {String(account.type)}</SelectItem>) : <SelectItem value="no-purchase-accounts" disabled>No purchase / expense accounts available</SelectItem>}</SelectContent></Select><p className="text-xs text-slate-500">Used for non-stock purchases and fallback posting. Stock items use their linked Inventory Asset account.</p></div>
+      <div className="space-y-2"><Label>Posting account (Accounts Payable) *</Label><Select value={payableAccounts.some((account) => account.name === form.account) ? form.account : ""} onValueChange={(account) => setForm({ ...form, account })}><SelectTrigger className="w-full"><SelectValue placeholder={form.payableAccountPending === "true" ? `Finding ${form.currency} Accounts Payable…` : `Select ${form.currency} Accounts Payable`} /></SelectTrigger><SelectContent>{payableAccounts.map((account) => <SelectItem key={account.id} value={String(account.name)}>{String(account.code || "")} · {String(account.name)} · {String(account.currency)}</SelectItem>)}{form.payableAccountResolved === "true" && form.account && !payableAccounts.some((account) => account.name === form.account) && <SelectItem value={form.account}>{form.account} · {form.currency}</SelectItem>}{!payableAccounts.length && !(form.payableAccountResolved === "true" && form.account) && <SelectItem value="no-payable-accounts" disabled>No {form.currency} Accounts Payable available</SelectItem>}</SelectContent></Select><p className="text-xs text-slate-500">Defaults from the selected vendor and bill currency.</p></div>
     </div>
     <div className="bill-item-table overflow-hidden rounded-lg border bg-white">
       <div className="flex items-center justify-between border-b p-3 bill-mobile-heading"><strong>Bill items</strong><Button type="button" className="bg-green-600 text-white hover:bg-green-700" size="icon" aria-label="Add bill item" onClick={addLine}><Plus className="size-4" /></Button></div>
@@ -2516,8 +2508,10 @@ function TransactionFields({ form, setForm, onPayableResolved, types, items, con
   const customerDocument = ["invoice", "sales receipt", "quotation", "estimate", "proforma invoice", "sales order", "credit memo", "statement charge", "finance charge"].includes(form.type);
   const purchaseDocument = ["bill", "purchase order", "item receipt", "received item bill", "vendor credit"].includes(form.type);
   const receivableDocument = ["invoice", "estimate", "proforma invoice", "sales order"].includes(form.type);
+  const payableDocument = form.type === "purchase order";
   const postingAccounts = accounts.filter((account) => account.active && account.systemRole && (receivableDocument
     ? account.systemRole === "AR" && String(account.currency) === form.currency
+    : payableDocument ? account.systemRole === "AP" && String(account.currency) === form.currency
     : account.systemRole !== "AP" || account.currency === form.currency));
   const resolvePurchaseOrderAccount = (next: Record<string, string>) => {
     const account = vendorPayableAccount(contacts, accounts, next.party, next.currency);
@@ -2587,7 +2581,7 @@ function TransactionFields({ form, setForm, onPayableResolved, types, items, con
       <label className="flex cursor-pointer items-start gap-3"><Checkbox checked={form.allowNegativeStock === "true"} onCheckedChange={(checked) => setForm({ ...form, allowNegativeStock: checked === true ? "true" : "false", adminOverridePin: checked === true ? form.adminOverridePin ?? "" : "" })} /><span><span className="block text-sm font-semibold text-amber-950">Admin override: allow negative stock</span><span className="mt-1 block text-xs text-amber-800">Normally blocked when stock is insufficient. Configure or change the PIN in Management &gt; Admin Controls.</span></span></label>
       {form.allowNegativeStock === "true" && <div className="mt-3 max-w-sm space-y-2"><Label htmlFor="adminOverridePin">Admin PIN</Label><Input id="adminOverridePin" name="adminOverridePin" type="password" inputMode="numeric" autoComplete="off" required value={form.adminOverridePin ?? ""} onChange={(event) => setForm({ ...form, adminOverridePin: event.target.value })} placeholder="Enter admin PIN" /></div>}
     </div>}
-    {form.revision ? <div className="space-y-2"><Label>Status</Label><Input readOnly value={form.status} /></div> : <Choice label="Status" name="status" values={["open", "paid", "overdue", "cleared"]} form={form} setForm={setForm} />}<div className="space-y-2"><Label>{receivableDocument ? "Posting account (Accounts Receivable)" : "Posting account"}</Label><Select value={form.account} onValueChange={(account) => setForm({ ...form, account })}><SelectTrigger className="w-full"><SelectValue placeholder={form.payableAccountPending === "true" ? `Finding ${form.currency} Accounts Payable…` : receivableDocument ? `Select ${form.currency} Accounts Receivable` : "Select linked account"} /></SelectTrigger><SelectContent>{postingAccounts.map((account) => <SelectItem key={account.id} value={String(account.name)}>{String(account.name)}</SelectItem>)}{form.type === "purchase order" && form.payableAccountResolved === "true" && form.account && !postingAccounts.some((account) => account.name === form.account) && <SelectItem value={form.account}>{form.account}</SelectItem>}</SelectContent></Select></div>
+    {form.revision ? <div className="space-y-2"><Label>Status</Label><Input readOnly value={form.status} /></div> : <Choice label="Status" name="status" values={["open", "paid", "overdue", "cleared"]} form={form} setForm={setForm} />}<div className="space-y-2"><Label>{receivableDocument ? "Posting account (Accounts Receivable)" : payableDocument ? "Posting account (Accounts Payable)" : "Posting account"}</Label><Select value={form.account} onValueChange={(account) => setForm({ ...form, account })}><SelectTrigger className="w-full"><SelectValue placeholder={form.payableAccountPending === "true" ? `Finding ${form.currency} Accounts Payable…` : receivableDocument ? `Select ${form.currency} Accounts Receivable` : payableDocument ? `Select ${form.currency} Accounts Payable` : "Select linked account"} /></SelectTrigger><SelectContent>{postingAccounts.map((account) => <SelectItem key={account.id} value={String(account.name)}>{String(account.name)}</SelectItem>)}{form.type === "purchase order" && form.payableAccountResolved === "true" && form.account && !postingAccounts.some((account) => account.name === form.account) && <SelectItem value={form.account}>{form.account}</SelectItem>}</SelectContent></Select></div>
     <div className="sm:col-span-2"><Field label="Memo" name="memo" form={form} setForm={setForm} /></div>
   </div>;
 }
