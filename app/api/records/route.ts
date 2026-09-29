@@ -1477,7 +1477,19 @@ async function handlePATCH(request: Request) {
       description: generatedItemDescription(specifications, existing.sku, existing.itemNumber),
       specifications: JSON.stringify(specifications),
     }).where(eq(items.id, id)).returning();
-    await db.insert(auditLog).values({ companyId, action: "updated", entityType: "item", entityId: id, details: `${record.sku} ${record.name}` });
+    await db.insert(auditLog).values({
+      companyId,
+      action: "updated",
+      entityType: "item",
+      entityId: id,
+      details: JSON.stringify({
+        reason: "Item editor",
+        sku: record.sku,
+        name: record.name,
+        before: { salesPrice: existing.salesPrice },
+        after: { salesPrice: record.salesPrice },
+      }),
+    });
     return Response.json({ record });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });

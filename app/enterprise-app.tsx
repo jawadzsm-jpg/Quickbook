@@ -934,14 +934,35 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not duplicate item"); }
   }
 
-  async function openDetail(id: number) {
+  async function openDetail(id: number, companyId = activeCompanyId, locationId = activeLocationId) {
     try {
-      const response = await fetch(`/api/records?kind=transactions&id=${id}&companyId=${activeCompanyId}&locationId=${activeLocationId}`);
+      const response = await fetch(`/api/records?kind=transactions&id=${id}&companyId=${companyId}&locationId=${locationId}`);
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not open document");
       setDetail(data);
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not open document"); }
   }
+
+  useEffect(() => {
+    const handleInventoryActivityOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{ kind?: string; id?: number; companyId?: number; locationId?: number; sku?: string }>).detail;
+      const id = Number(detail?.id);
+      if (!Number.isInteger(id) || id <= 0) return;
+      const companyId = Number(detail.companyId);
+      const locationId = Number(detail.locationId);
+      if (detail.kind === "document") void openDetail(id, Number.isInteger(companyId) && companyId > 0 ? companyId : activeCompanyId, Number.isInteger(locationId) && locationId > 0 ? locationId : activeLocationId);
+      if (detail.kind === "item") {
+        if (Number.isInteger(companyId) && companyId > 0) setActiveCompanyId(companyId);
+        if (Number.isInteger(locationId) && locationId > 0) setActiveLocationId(locationId);
+        setSearch(String(detail.sku ?? ""));
+        setView("inventory");
+      }
+    };
+    window.addEventListener("inventory-activity-open", handleInventoryActivityOpen);
+    return () => window.removeEventListener("inventory-activity-open", handleInventoryActivityOpen);
+    // This bridge keeps the Inventory Overview linked to the existing document and item dialogs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCompanyId, activeLocationId]);
 
   async function openPurchaseEdit(record: DataRecord) {
     if (currentUser.role !== "admin") return;

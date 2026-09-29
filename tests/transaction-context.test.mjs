@@ -824,6 +824,31 @@ test('stock selection capability is limited to admin and all-admin', async () =>
   } finally { delete globalThis.__transferTestUser; }
 });
 
+test('inventory overview activity links incoming, launches, price changes, and sold sales reps', async () => {
+  const company = (await database.query("INSERT INTO companies (name,base_currency) VALUES ('Inventory activity company','AED') RETURNING id")).rows[0].id;
+  const location = (await database.query("INSERT INTO inventory_locations (company_id,code,name,invoice_prefix) VALUES ($1,'ACT','Activity store','ACT') RETURNING id", [company])).rows[0].id;
+  const item = (await database.query("INSERT INTO items (company_id,location_id,item_number,sku,name,quantity,sales_price) VALUES ($1,$2,'ACT-100','ACT-SKU','Activity laptop',8,1250) RETURNING id", [company, location])).rows[0].id;
+  const purchaseOrder = (await database.query("INSERT INTO transactions (company_id,location_id,number,type,party,salesman,transaction_date,status) VALUES ($1,$2,'PO-ACT-1','purchase order','Activity supplier','Buyer one','2026-09-29','open') RETURNING id", [company, location])).rows[0].id;
+  const purchaseLine = (await database.query("INSERT INTO transaction_lines (transaction_id,item_id,description,quantity,unit_price) VALUES ($1,$2,'Activity laptop',10,900) RETURNING id", [purchaseOrder, item])).rows[0].id;
+  const receipt = (await database.query("INSERT INTO transactions (company_id,location_id,number,type,party,transaction_date,status) VALUES ($1,$2,'BILL-ACT-1','bill','Activity supplier','2026-09-29','open') RETURNING id", [company, location])).rows[0].id;
+  await database.query("INSERT INTO purchase_receipt_allocations (receipt_id,order_line_id,quantity) VALUES ($1,$2,3)", [receipt, purchaseLine]);
+  const invoice = (await database.query("INSERT INTO transactions (company_id,location_id,number,type,party,salesman,transaction_date,status,currency) VALUES ($1,$2,'INV-ACT-1','invoice','Activity customer','Rep One','2026-09-29','open','AED') RETURNING id", [company, location])).rows[0].id;
+  await database.query("INSERT INTO transaction_lines (transaction_id,item_id,description,quantity,unit_price) VALUES ($1,$2,'Activity laptop',2,1250)", [invoice, item]);
+  await database.query("INSERT INTO audit_log (company_id,action,entity_type,entity_id,details) VALUES ($1,'updated','item',$2,$3)", [company, item, JSON.stringify({ reason: 'Stock pricing', before: { salesPrice: 1200 }, after: { salesPrice: 1250 } })]);
+  const { GET } = await vite.ssrLoadModule('/app/api/inventory-overview/route.ts');
+  try {
+    globalThis.__transferTestUser = { id: 1, role: 'admin', companyIds: [company] };
+    const response = await GET(new Request('https://app.test/api/inventory-overview'));
+    assert.equal(response.status, 200);
+    const data = await response.json();
+    assert.equal(data.activity.incoming.find(row => row.itemId === item).quantity, 7);
+    assert.ok(data.activity.launched.some(row => row.itemId === item));
+    assert.deepEqual(Object.fromEntries(Object.entries(data.activity.priceChanges.find(row => row.itemId === item)).filter(([key]) => ['previousPrice', 'currentPrice'].includes(key))), { previousPrice: 1200, currentPrice: 1250 });
+    const sold = data.activity.sold.find(row => row.transactionId === invoice && row.itemId === item);
+    assert.equal(sold.salesRep, 'Rep One'); assert.equal(sold.documentNumber, 'INV-ACT-1'); assert.equal(sold.companyId, company); assert.equal(sold.locationId, location);
+  } finally { delete globalThis.__transferTestUser; }
+});
+
 test('purchase to sale inventory lifecycle blocks shortages and safely reverses stock and latest cost', async () => {
   const { POST, DELETE } = await vite.ssrLoadModule('/app/api/records/route.ts');
   const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Stock lifecycle') RETURNING id")).rows[0].id;
@@ -1903,12 +1928,13 @@ test('inventory overview and transfer reads never expose stock from unassigned c
    }
    assert.equal((await recordsApi.GET(new Request(`https://app.test/api/records?kind=transactions&id=1&companyId=${other}`))).status,403);
    const ownRecords=await get(recordsApi,`records?kind=items&companyId=${own}&locationId=${ownLoc}`);assert.deepEqual(ownRecords.records.map(r=>r.id),[ownItem]);
-   const stock=(await get(overview,'inventory-overview')).records;assert.ok(stock.some(r=>r.id===ownItem));assert.ok(stock.every(r=>r.companyId===own));
+   const overviewData=await get(overview,'inventory-overview');const stock=overviewData.records;assert.ok(stock.some(r=>r.id===ownItem));assert.ok(stock.every(r=>r.companyId===own));
+   for(const rows of Object.values(overviewData.activity))assert.ok(rows.every(r=>r.companyId===own));
    const catalogue=await get(transfers,'transfers?catalog=1');assert.ok(catalogue.records.every(r=>r.companyId===own));assert.ok(catalogue.salesmen.every(r=>r.companyId===own));
    const history=(await get(transfers,'transfers')).records;assert.ok(history.some(r=>r.id===ownTransfer));assert.ok(history.every(r=>r.sourceCompanyId===own&&r.destinationCompanyId===own));assert.ok(!history.some(r=>[otherTransfer,cross].includes(r.id)));
   }
   globalThis.__transferTestUser={id:1,role:'viewer',companyIds:[]};
-  assert.equal((await get(overview,'inventory-overview')).records.length,0);assert.deepEqual(await get(transfers,'transfers?catalog=1'),{records:[],salesmen:[]});assert.equal((await get(transfers,'transfers')).records.length,0);
+  const emptyOverview=await get(overview,'inventory-overview');assert.equal(emptyOverview.records.length,0);for(const rows of Object.values(emptyOverview.activity))assert.equal(rows.length,0);assert.deepEqual(await get(transfers,'transfers?catalog=1'),{records:[],salesmen:[]});assert.equal((await get(transfers,'transfers')).records.length,0);
   globalThis.__transferTestUser={id:1,role:'admin',companyIds:[own,other]};assert.ok((await get(transfers,'transfers')).records.some(r=>r.id===cross));
   globalThis.__transferTestUser={id:1,role:'all_admin',companyIds:[]};assert.ok((await get(overview,'inventory-overview')).records.some(r=>r.id===otherItem));assert.ok((await get(transfers,'transfers')).records.some(r=>r.id===otherTransfer));
  }finally{delete globalThis.__transferTestUser;}

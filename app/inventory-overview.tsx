@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Boxes, Download, FileSpreadsheet, Mail, MessageCircle, PackageCheck, RefreshCw, Search, Send, Warehouse } from "lucide-react";
+import { AlertTriangle, BadgeDollarSign, Boxes, Download, Eye, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PlaneLanding, RefreshCw, Rocket, Search, Send, ShoppingCart, UserRound, Warehouse } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -40,6 +40,30 @@ type ConsolidatedItem = OverviewItem & {
 
 type StockFilter = "all" | "in" | "low" | `location:${number}`;
 type ShareChannel = "whatsapp" | "telegram" | "email";
+type ActivityView = "incoming" | "launched" | "priceChanges" | "sold";
+type ActivityRecord = {
+  id: number;
+  itemId: number;
+  transactionId: number | null;
+  date: string;
+  documentNumber: string;
+  party: string;
+  salesRep: string;
+  sku: string;
+  itemNumber: string | null;
+  itemName: string;
+  companyId: number;
+  locationId: number;
+  companyName: string;
+  locationName: string;
+  currency: string;
+  quantity: number;
+  price: number;
+  previousPrice?: number;
+  currentPrice?: number;
+};
+type InventoryActivity = Record<ActivityView, ActivityRecord[]>;
+const emptyActivity: InventoryActivity = { incoming: [], launched: [], priceChanges: [], sold: [] };
 
 function money(value: number, currency: string) {
   try {
@@ -68,8 +92,16 @@ function xml(value: unknown) {
   return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&apos;");
 }
 
-export function InventoryOverview() {
+function activityDate(value: string) {
+  if (!value) return "—";
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00`) : new Date(value);
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("en-AE", { day: "2-digit", month: "short", year: "numeric" }).format(date);
+}
+
+export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocument?: (id: number) => void; onOpenItem?: (id: number) => void } = {}) {
   const [records, setRecords] = useState<OverviewItem[]>([]);
+  const [activity, setActivity] = useState<InventoryActivity>(emptyActivity);
+  const [activityView, setActivityView] = useState<ActivityView>("incoming");
   const [canSelectItems, setCanSelectItems] = useState(false);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -88,6 +120,7 @@ export function InventoryOverview() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not load inventory overview");
       setRecords(data.records as OverviewItem[]);
+      setActivity({ ...emptyActivity, ...(data.activity as Partial<InventoryActivity> | undefined) });
       setCanSelectItems(data.canSelectItems === true);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not load inventory overview");
@@ -187,6 +220,13 @@ export function InventoryOverview() {
   }, [filtered]);
 
   const selectedRecords = useMemo(() => canSelectItems ? consolidatedRecords.filter((record) => selectedIds.has(record.id)) : [], [canSelectItems, consolidatedRecords, selectedIds]);
+  const visibleActivity = activity[activityView];
+
+  const openActivityRecord = (entry: ActivityRecord, kind: "document" | "item") => {
+    if (kind === "document" && entry.transactionId && onOpenDocument) return onOpenDocument(entry.transactionId);
+    if (kind === "item" && onOpenItem) return onOpenItem(entry.itemId);
+    window.dispatchEvent(new CustomEvent("inventory-activity-open", { detail: { kind, id: kind === "document" ? entry.transactionId : entry.itemId, companyId: entry.companyId, locationId: entry.locationId, sku: entry.sku } }));
+  };
   const allVisibleSelected = filtered.length > 0 && filtered.every((record) => selectedIds.has(record.id));
   const someVisibleSelected = filtered.some((record) => selectedIds.has(record.id));
 
@@ -283,8 +323,42 @@ export function InventoryOverview() {
     ? "border-slate-950 bg-slate-950 text-white shadow-sm hover:bg-slate-800 hover:text-white"
     : "border-slate-200 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50";
   const columnCount = 2 + Number(showQuantity) + Number(showPrice);
+  const activityTabs = [
+    { id: "incoming" as const, label: "Incoming", Icon: PlaneLanding, count: activity.incoming.length, badge: "bg-amber-400 text-slate-950" },
+    { id: "launched" as const, label: "Just Launched", Icon: Rocket, count: activity.launched.length, badge: "bg-rose-500 text-white" },
+    { id: "priceChanges" as const, label: "Price Change", Icon: BadgeDollarSign, count: activity.priceChanges.length, badge: "bg-sky-500 text-white" },
+    { id: "sold" as const, label: "Just Sold", Icon: ShoppingCart, count: activity.sold.length, badge: "bg-emerald-500 text-white" },
+  ];
+  const activityEmpty = activityView === "incoming" ? "No open purchase-order quantities." : activityView === "launched" ? "No items launched in the last 30 days." : activityView === "priceChanges" ? "No audited selling-price changes in the last 30 days." : "No recent invoice or sales-receipt lines.";
 
   return <div className="space-y-5">
+    <section className="overflow-hidden rounded-2xl border bg-card text-card-foreground shadow-sm">
+      <div className="overflow-x-auto"><div className="grid min-w-[720px] grid-cols-4 border-b bg-muted/40">
+        {activityTabs.map(({ id, label, Icon, count, badge }) => <button key={id} type="button" onClick={() => setActivityView(id)} className={`flex min-h-20 items-center justify-center gap-3 border-r px-4 text-base font-semibold transition-colors last:border-r-0 sm:text-lg ${activityView === id ? "bg-card text-foreground shadow-[inset_0_-3px_0_hsl(var(--primary))]" : "text-muted-foreground hover:bg-card/70 hover:text-foreground"}`} aria-pressed={activityView === id}>
+          <Icon className="size-6 shrink-0" /><span>{label}</span><Badge className={`${badge} min-w-7 justify-center hover:opacity-90`}>{count}</Badge>
+        </button>)}
+      </div></div>
+      <div className="overflow-x-auto">
+        <Table className="min-w-[900px]">
+          <TableHeader><TableRow><TableHead className="w-32">Date</TableHead><TableHead>Item</TableHead><TableHead>Company · inventory</TableHead><TableHead>Linked area</TableHead><TableHead>Activity</TableHead><TableHead className="w-24 text-right">Open</TableHead></TableRow></TableHeader>
+          <TableBody>
+            {loading ? <TableRow><TableCell colSpan={6} className="h-28 text-center text-muted-foreground"><RefreshCw className="mx-auto mb-2 size-5 animate-spin" />Loading inventory activity…</TableCell></TableRow> : visibleActivity.length ? visibleActivity.map((entry) => {
+              const linkedDocument = activityView === "incoming" || activityView === "sold";
+              return <TableRow key={`${activityView}-${entry.id}`} className="align-top">
+                <TableCell className="whitespace-nowrap font-medium">{activityDate(entry.date)}</TableCell>
+                <TableCell><p className="font-semibold text-primary">{entry.itemName}</p><p className="mt-1 text-xs text-muted-foreground">SKU {entry.sku}{entry.itemNumber ? ` · #${entry.itemNumber}` : ""}</p></TableCell>
+                <TableCell><p className="font-medium">{entry.companyName}</p><p className="mt-1 text-xs text-muted-foreground">{entry.locationName || "All inventories"}</p></TableCell>
+                <TableCell>{linkedDocument ? <><p className="font-mono font-semibold">{entry.documentNumber}</p><p className="mt-1 text-xs text-muted-foreground">{entry.party || (activityView === "incoming" ? "Supplier" : "Customer")}</p>{activityView === "sold" ? <p className="mt-2 inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"><UserRound className="size-3" />Sales rep: {entry.salesRep || "Not assigned"}</p> : null}</> : <span className="text-sm font-medium">{activityView === "launched" ? "New inventory item" : "Selling price update"}</span>}</TableCell>
+                <TableCell>{activityView === "priceChanges" ? <><p className="font-semibold"><span className="text-muted-foreground line-through">{money(Number(entry.previousPrice), entry.currency)}</span><span className="mx-2">→</span><span className="text-emerald-600">{money(Number(entry.currentPrice), entry.currency)}</span></p></> : <><p className="font-semibold">{Number(entry.quantity).toLocaleString("en-AE")} {activityView === "sold" ? "sold" : activityView === "incoming" ? "incoming" : "on hand"}</p><p className="mt-1 text-xs text-muted-foreground">{money(Number(entry.price), entry.currency)} each</p></>}</TableCell>
+                <TableCell className="text-right">{linkedDocument && entry.transactionId ? <Button type="button" size="sm" variant="outline" onClick={() => openActivityRecord(entry, "document")}><Eye className="size-4" />View</Button> : <Button type="button" size="sm" variant="outline" onClick={() => openActivityRecord(entry, "item")}><Eye className="size-4" />Item</Button>}</TableCell>
+              </TableRow>;
+            }) : <TableRow><TableCell colSpan={6} className="h-28 text-center text-muted-foreground">{activityEmpty}</TableCell></TableRow>}
+          </TableBody>
+        </Table>
+      </div>
+      <div className="border-t bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">Incoming shows outstanding purchase-order quantities. Launched and price changes cover the last 30 days. Just Sold keeps the sales representative from the original sale.</div>
+    </section>
+
     <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
       <div className="flex gap-2 overflow-x-auto pb-1">
         <Button variant="outline" onClick={() => setFilter("all")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "all")}`}>
