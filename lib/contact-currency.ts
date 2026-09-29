@@ -36,3 +36,16 @@ export function vendorPayableAccount(
   return String(payable.find((account) => Number(account.id) === Number(vendor?.ledgerAccountId))?.name
     ?? payable[0]?.name ?? "");
 }
+
+
+export function customerReceivableAccount(
+  contacts: ContactCurrencyRecord[],
+  accounts: ContactCurrencyRecord[],
+  party: string,
+  currency: string,
+) {
+  const customer = contacts.find((entry) => entry.type === "customer" && String(entry.name) === party);
+  const receivables = accounts.filter((account) => account.active && account.systemRole === "AR" && account.currency === currency);
+  return String(receivables.find((account) => Number(account.id) === Number(customer?.ledgerAccountId))?.name
+    ?? receivables[0]?.name ?? "");
+}

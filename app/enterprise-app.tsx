@@ -54,7 +54,7 @@ import { employeeDetailTarget, employeeReportKeys, employeeSummary as employeeRe
 import { convertInvoiceLines, invoiceCurrencyAmount, validDocumentRate, type PricedInvoiceLine } from "@/lib/invoice-pricing";
 import { dueDateForPaymentTerms } from "@/lib/payment-terms";
 import { inferUaeChequeLayout, uaeChequeLayouts } from "@/lib/uae-cheque-layouts";
-import { applyContactCurrency, vendorPayableAccount } from "@/lib/contact-currency";
+import { applyContactCurrency, customerReceivableAccount, vendorPayableAccount } from "@/lib/contact-currency";
 import { countries } from "@/lib/countries";
 import { generatedItemDescription, inventoryItemDetails, inventoryItemTitle, type ItemSpecification } from "@/lib/item-description";
 import { SalesDocumentTemplate, salesDocumentModeForTransaction } from "./sales-document-template";
@@ -452,13 +452,14 @@ const defaultBillPurchaseAccount = (accounts: DataRecord[]) => {
     ?? "Cost of Goods Sold"
   );
 };
-const defaultPostingAccount = (type: string, accounts: DataRecord[]) => {
+const defaultPostingAccount = (type: string, accounts: DataRecord[], currency?: string) => {
   if (type === "bill") return defaultBillPurchaseAccount(accounts);
   if (type === "bill payment") return linkedAccountName(accounts, "BANK", "Business Bank");
   if (["item receipt", "received item bill"].includes(type)) return linkedAccountName(accounts, "SUSPENSE", "Suspense");
   if (type === "cheque") return linkedAccountName(accounts, "AP", "Accounts Payable");
   if (type === "customer payment") return String(accounts.find((account) => account.active && (account.type === "Bank" || account.systemRole === "BANK"))?.name ?? "");
-  if (["invoice", "quotation", "estimate", "proforma invoice", "sales order", "sales receipt", "statement charge", "credit memo"].includes(type)) return linkedAccountName(accounts, "SALES", "Sales Revenue");
+  if (["invoice", "estimate", "proforma invoice", "sales order"].includes(type)) return linkedAccountName(accounts, "AR", "Accounts Receivable", currency);
+  if (["quotation", "sales receipt", "statement charge", "credit memo"].includes(type)) return linkedAccountName(accounts, "SALES", "Sales Revenue");
   if (type === "finance charge") return linkedAccountName(accounts, "OTHER_INCOME", "Other Income");
   if (type === "expense") return linkedAccountName(accounts, "EXPENSE", "Operating Expenses");
   if (type === "deposit") return linkedAccountName(accounts, "OTHER_INCOME", "Other Income");
@@ -750,7 +751,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     const prefix = type === "customer payment" ? "PAY" : type === "bill payment" ? "BPY" : type === "vendor credit" ? "PRET" : type === "cheque" ? "CHQ" : type === "credit card charge" ? "CCC" : type === "cheque order" ? "CKO" : type === "transfer" ? "TRF" : type === "deposit" ? "DEP" : type === "statement charge" ? "STC" : type === "finance charge" ? "FIN" : type === "item receipt" ? "REC" : type === "received item bill" ? "RIB" : type === "proforma invoice" ? "PRO" : type === "sales order" ? "SO" : type === "quotation" ? "QUO" : type.slice(0, 3).toUpperCase();
     const taxFree = ["customer payment", "bill payment", "finance charge", "item receipt", "deposit", "transfer", "cheque order"].includes(type);
     const descriptions: Record<string, string> = { "customer payment": "Payment received", "bill payment": "Bill payment", "vendor credit": "Purchase return", cheque: "Cheque payment", "credit card charge": "Credit card charge", "cheque order": "Cheque books and envelopes", transfer: "Bank transfer", deposit: "Bank deposit", "statement charge": "Statement charge", "finance charge": "Finance charge", "credit memo": "Credit note / refund", "item receipt": "Items received", "received item bill": "Bill for received items" };
-    setForm({ type, number: `${prefix}-${String(records.transactions.length + 1).padStart(4, "0")}`, transactionDate: today(), dueDate: today(), terms: type === "cheque" ? "account-payee" : "Due on receipt", chequeBankKey: type === "cheque" ? "other-uae-bank" : "", status: "open", account: defaultPostingAccount(type, records.accounts), vatRate: taxFree ? "0" : "5", currency: baseCurrency, exchangeRate: "1", billLocationId: String(activeLocationId), transactionLocationId: String(activeLocationId), salesman: "", isImport: "false", freightCharges: "0" });
+    setForm({ type, number: `${prefix}-${String(records.transactions.length + 1).padStart(4, "0")}`, transactionDate: today(), dueDate: today(), terms: type === "cheque" ? "account-payee" : "Due on receipt", chequeBankKey: type === "cheque" ? "other-uae-bank" : "", status: "open", account: defaultPostingAccount(type, records.accounts, baseCurrency), vatRate: taxFree ? "0" : "5", currency: baseCurrency, exchangeRate: "1", billLocationId: String(activeLocationId), transactionLocationId: String(activeLocationId), salesman: "", isImport: "false", freightCharges: "0" });
     setLines([{ itemId: "", description: descriptions[type] ?? "", quantity: "1", unitPrice: "0", unitCost: "0", vatCode: taxFree ? "ZERO" : "STANDARD", vatRate: taxFree ? "0" : "5" }]);
     setDialogOpen(true);
   }
@@ -2514,7 +2515,10 @@ function TransactionFields({ form, setForm, onPayableResolved, types, items, con
   const update = (index: number, changes: Partial<LineForm>) => setLines(lines.map((line, position) => position === index ? { ...line, ...(changes.unitPrice !== undefined ? { homeUnitPrice: undefined } : {}), ...changes } : line));
   const customerDocument = ["invoice", "sales receipt", "quotation", "estimate", "proforma invoice", "sales order", "credit memo", "statement charge", "finance charge"].includes(form.type);
   const purchaseDocument = ["bill", "purchase order", "item receipt", "received item bill", "vendor credit"].includes(form.type);
-  const postingAccounts = accounts.filter((account) => account.active && account.systemRole && (account.systemRole !== "AP" || account.currency === form.currency));
+  const receivableDocument = ["invoice", "estimate", "proforma invoice", "sales order"].includes(form.type);
+  const postingAccounts = accounts.filter((account) => account.active && account.systemRole && (receivableDocument
+    ? account.systemRole === "AR" && String(account.currency) === form.currency
+    : account.systemRole !== "AP" || account.currency === form.currency));
   const resolvePurchaseOrderAccount = (next: Record<string, string>) => {
     const account = vendorPayableAccount(contacts, accounts, next.party, next.currency);
     changeInvoiceForm({ ...next, account, payableAccountResolved: "", payableAccountPending: account || !next.party ? "" : "true" });
@@ -2534,12 +2538,17 @@ function TransactionFields({ form, setForm, onPayableResolved, types, items, con
   const selectableItems = items.filter(itemCanBeDocumentLine);
   const documentRate = Math.max(Number(form.exchangeRate) || 1, Number.EPSILON);
   const changeInvoiceForm = (next: Record<string, string>) => {
-    if (!customerDocument || (next.currency === form.currency && next.exchangeRate === form.exchangeRate)) { setForm(next); return; }
+    const nextForm = receivableDocument ? {
+      ...next,
+      account: customerReceivableAccount(contacts, accounts, next.party, next.currency)
+        || linkedAccountName(accounts, "AR", "Accounts Receivable", next.currency),
+    } : next;
+    if (!customerDocument || (nextForm.currency === form.currency && nextForm.exchangeRate === form.exchangeRate)) { setForm(nextForm); return; }
     try {
       const oldRate = form.currency === baseCurrency ? 1 : validDocumentRate(form.exchangeRate);
-      const newRate = next.currency === baseCurrency ? 1 : validDocumentRate(next.exchangeRate);
+      const newRate = nextForm.currency === baseCurrency ? 1 : validDocumentRate(nextForm.exchangeRate);
       setLines(convertInvoiceLines(lines, oldRate, newRate));
-      setForm({ ...next, exchangeRate: String(newRate) });
+      setForm({ ...nextForm, exchangeRate: String(newRate) });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Set the currency exchange rate first.");
     }
@@ -2578,7 +2587,7 @@ function TransactionFields({ form, setForm, onPayableResolved, types, items, con
       <label className="flex cursor-pointer items-start gap-3"><Checkbox checked={form.allowNegativeStock === "true"} onCheckedChange={(checked) => setForm({ ...form, allowNegativeStock: checked === true ? "true" : "false", adminOverridePin: checked === true ? form.adminOverridePin ?? "" : "" })} /><span><span className="block text-sm font-semibold text-amber-950">Admin override: allow negative stock</span><span className="mt-1 block text-xs text-amber-800">Normally blocked when stock is insufficient. Configure or change the PIN in Management &gt; Admin Controls.</span></span></label>
       {form.allowNegativeStock === "true" && <div className="mt-3 max-w-sm space-y-2"><Label htmlFor="adminOverridePin">Admin PIN</Label><Input id="adminOverridePin" name="adminOverridePin" type="password" inputMode="numeric" autoComplete="off" required value={form.adminOverridePin ?? ""} onChange={(event) => setForm({ ...form, adminOverridePin: event.target.value })} placeholder="Enter admin PIN" /></div>}
     </div>}
-    {form.revision ? <div className="space-y-2"><Label>Status</Label><Input readOnly value={form.status} /></div> : <Choice label="Status" name="status" values={["open", "paid", "overdue", "cleared"]} form={form} setForm={setForm} />}<div className="space-y-2"><Label>Posting account</Label><Select value={form.account} onValueChange={(account) => setForm({ ...form, account })}><SelectTrigger className="w-full"><SelectValue placeholder={form.payableAccountPending === "true" ? `Finding ${form.currency} Accounts Payable…` : "Select linked account"} /></SelectTrigger><SelectContent>{postingAccounts.map((account) => <SelectItem key={account.id} value={String(account.name)}>{String(account.name)}</SelectItem>)}{form.type === "purchase order" && form.payableAccountResolved === "true" && form.account && !postingAccounts.some((account) => account.name === form.account) && <SelectItem value={form.account}>{form.account}</SelectItem>}</SelectContent></Select></div>
+    {form.revision ? <div className="space-y-2"><Label>Status</Label><Input readOnly value={form.status} /></div> : <Choice label="Status" name="status" values={["open", "paid", "overdue", "cleared"]} form={form} setForm={setForm} />}<div className="space-y-2"><Label>{receivableDocument ? "Posting account (Accounts Receivable)" : "Posting account"}</Label><Select value={form.account} onValueChange={(account) => setForm({ ...form, account })}><SelectTrigger className="w-full"><SelectValue placeholder={form.payableAccountPending === "true" ? `Finding ${form.currency} Accounts Payable…` : receivableDocument ? `Select ${form.currency} Accounts Receivable` : "Select linked account"} /></SelectTrigger><SelectContent>{postingAccounts.map((account) => <SelectItem key={account.id} value={String(account.name)}>{String(account.name)}</SelectItem>)}{form.type === "purchase order" && form.payableAccountResolved === "true" && form.account && !postingAccounts.some((account) => account.name === form.account) && <SelectItem value={form.account}>{form.account}</SelectItem>}</SelectContent></Select></div>
     <div className="sm:col-span-2"><Field label="Memo" name="memo" form={form} setForm={setForm} /></div>
   </div>;
 }
