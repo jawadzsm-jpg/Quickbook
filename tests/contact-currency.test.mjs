@@ -5,7 +5,7 @@ import ts from "typescript";
 
 const source = readFileSync(new URL("../lib/contact-currency.ts", import.meta.url), "utf8");
 const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } });
-const { applyContactCurrency, vendorPayableAccount } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString("base64")}`);
+const { applyContactCurrency, customerReceivableAccount, vendorPayableAccount } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString("base64")}`);
 
 const contacts = [
   { name: "Local Customer", type: "customer", currency: "AED" },
@@ -42,4 +42,17 @@ test("purchase order vendor selects its linked payable account in the document c
   assert.equal(vendorPayableAccount(vendors, accounts, "Supplier A", "USD"), "Supplier USD Payable");
   assert.equal(vendorPayableAccount(vendors, accounts, "Supplier A", "AED"), "AED Payable");
   assert.equal(vendorPayableAccount(vendors, accounts, "Supplier A", "EUR"), "");
+});
+
+
+test("customer sales documents select the linked receivable account in the document currency", () => {
+  const customers = [{ name: "Customer A", type: "customer", currency: "USD", ledgerAccountId: 22 }];
+  const accounts = [
+    { id: 21, name: "Default USD Receivable", systemRole: "AR", currency: "USD", active: true },
+    { id: 22, name: "Customer USD Receivable", systemRole: "AR", currency: "USD", active: true },
+    { id: 23, name: "AED Receivable", systemRole: "AR", currency: "AED", active: true },
+  ];
+  assert.equal(customerReceivableAccount(customers, accounts, "Customer A", "USD"), "Customer USD Receivable");
+  assert.equal(customerReceivableAccount(customers, accounts, "Customer A", "AED"), "AED Receivable");
+  assert.equal(customerReceivableAccount(customers, accounts, "Customer A", "EUR"), "");
 });
