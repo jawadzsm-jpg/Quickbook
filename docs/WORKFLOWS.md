@@ -93,7 +93,7 @@ Open a saved transaction to choose its supported output: tax/commercial invoice,
 ### Purchase order receiving
 
 1. Create a non-posting purchase order for a vendor.
-   Selecting the vendor fills the posting account from its linked Accounts Payable account in the order currency; changing the order currency refreshes that selection.
+   Selecting the vendor fills the posting account from its linked Accounts Payable account in the order currency; changing the order currency refreshes that selection. If a legacy vendor has no account in that currency, the form creates or restores the currency control account before saving and links it to the vendor when appropriate.
 2. Open Purchase Orders shows quantities not yet received.
 3. Select an order, receiving inventory, and partial/full line quantities.
 4. Save an item receipt or received-item bill.

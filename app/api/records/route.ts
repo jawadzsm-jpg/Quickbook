@@ -440,6 +440,25 @@ export async function GET(request: Request) {
 
 async function handlePOST(request: Request) {
   const payload = await request.clone().json();
+  if (payload.action === "resolve-vendor-payable") return withWriteTransaction(async () => {
+    const authorization = await requireApiUser(request, false, true);
+    if (authorization instanceof Response) return authorization;
+    if (!mayWrite(authorization, "purchases:write")) return Response.json({ error: "Your role does not allow this action." }, { status: 403 });
+    const companyId = Number(payload.companyId);
+    const party = String(payload.party ?? "").trim();
+    const currency = String(payload.currency ?? "").trim().toUpperCase();
+    if (!Number.isInteger(companyId) || companyId <= 0 || !party || !/^[A-Z]{3}$/.test(currency)) return Response.json({ error: "Select a vendor and currency." }, { status: 400 });
+    if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
+    const db = getDb();
+    if (process.env.COMNET_LOCAL_DB !== "1") await db.execute(sql`select pg_advisory_xact_lock(731459, ${companyId})`);
+    const [vendor] = await db.select().from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "vendor"), eq(contacts.name, party))).limit(1);
+    if (!vendor) return Response.json({ error: "Vendor not found in this company." }, { status: 404 });
+    const [linked] = vendor.ledgerAccountId ? await db.select().from(accounts).where(and(eq(accounts.id, vendor.ledgerAccountId), eq(accounts.companyId, companyId), eq(accounts.systemRole, "AP"), eq(accounts.currency, currency), eq(accounts.active, true))).limit(1) : [];
+    const account = linked ?? (await ensureCurrencyControlAccount(companyId, "AP", currency)).account;
+    if (account.type !== "Accounts Payable") return Response.json({ error: `The ${currency} payable account must have type Accounts Payable.` }, { status: 409 });
+    if (vendor.currency === currency && vendor.ledgerAccountId !== account.id) await db.update(contacts).set({ ledgerAccountId: account.id }).where(eq(contacts.id, vendor.id));
+    return Response.json({ account: { id: account.id, code: account.code, name: account.name, currency: account.currency } });
+  });
   if (["contacts", "accounts", "items"].includes(payload.kind)) return withWriteTransaction(async () => {
     if (process.env.COMNET_LOCAL_DB !== "1" && Number.isInteger(Number(payload.companyId))) {
       await getDb().execute(sql`select pg_advisory_xact_lock(731459, ${payload.kind === "items" ? 0 : Number(payload.companyId)})`);
@@ -956,6 +975,10 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       unallocated = round(unallocated - amount);
     }
     if (linkedInvoiceIds.length && (total <= 0 || unallocated > 0)) return Response.json({ error: "Payment exceeds the selected invoices' remaining balance. Refresh the invoice list." }, { status: 409 });
+    if (type === "purchase order") {
+      const [payableAccount] = await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.name, String(payload.account ?? "")), eq(accounts.systemRole, "AP"), eq(accounts.type, "Accounts Payable"), eq(accounts.currency, currency), eq(accounts.active, true))).limit(1);
+      if (!payableAccount) return Response.json({ error: `Select an active ${currency} Accounts Payable account for this purchase order.` }, { status: 400 });
+    }
     const values = {
       companyId, locationId: Number.isInteger(locationId) ? locationId : null, number, type, party, billId, invoiceId, purchaseOrderId, salesSourceId,
       salesman: String(payload.salesman ?? ""), isImport: payload.isImport === true || String(payload.isImport) === "true",
