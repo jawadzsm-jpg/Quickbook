@@ -1,9 +1,10 @@
 import { eq, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
-import { appUsers, auditLog, companies } from "@/db/schema";
+import { appUsers, auditLog, companies, vatCodes } from "@/db/schema";
 import { requireApiUser } from "@/lib/auth";
 import { verifyPassword } from "@/lib/password";
 import { consumeRateLimit } from "@/lib/rate-limit";
+import { standardVatCodes } from "@/lib/standard-vat-codes";
 
 const allowedSections = ["transactions", "inventory", "contacts", "reports", "settings", "setup"] as const;
 type ClearSection = typeof allowedSections[number];
@@ -109,6 +110,7 @@ export async function POST(request: Request) {
       }
       if (selected.has("settings")) {
         for (const table of ["vat_codes", "exchange_rates", "company_settings"]) await db.execute(sql`DELETE FROM ${sql.identifier(table)} WHERE company_id=${companyId}`);
+        await db.insert(vatCodes).values(standardVatCodes.map((vatCode) => ({ companyId, ...vatCode })));
       }
 
       let record = company;

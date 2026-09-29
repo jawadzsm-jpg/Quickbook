@@ -88,6 +88,10 @@
 
 - Application dialogs use a responsive landscape workspace on desktop and provide minimize, maximize/restore, and close controls without discarding in-progress form data.
 
+## VAT code register
+
+- VAT Codes always retain the five standard UAE choices and allow administrators to add, edit, deactivate, or safely delete unused custom codes. Each code shows its linked documents and item defaults, supports evidence attachments, and exports as an A4 portrait print/PDF register with an optional movable company stamp.
+
 ## Reporting
 
 The Report Center contains 120 report definitions.

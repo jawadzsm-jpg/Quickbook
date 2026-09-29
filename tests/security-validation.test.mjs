@@ -191,6 +191,27 @@ test("inventory checks keep the checker, date and time on each completed count",
   assert.match(report, /Report date &amp; time/);
 });
 
+test("VAT codes restore UAE defaults and support edit, safe delete, linked documents, attachments, and stamped A4 output", () => {
+  const center = readFileSync(new URL("../app/vat-code-center.tsx", import.meta.url), "utf8");
+  const api = readFileSync(new URL("../app/api/vat-codes/route.ts", import.meta.url), "utf8");
+  const attachments = readFileSync(new URL("../app/api/attachments/route.ts", import.meta.url), "utf8");
+  const clear = readFileSync(new URL("../app/api/company-setup/clear/route.ts", import.meta.url), "utf8");
+  const migration = readFileSync(new URL("../drizzle/0066_restore_standard_vat_codes.sql", import.meta.url), "utf8");
+  assert.match(center, /Edit VAT code/);
+  assert.match(center, /Delete VAT code/);
+  assert.match(center, /linked areas/);
+  assert.match(center, /entityType: "vat_code"/);
+  assert.match(center, /A4 portrait/);
+  assert.match(center, /<LetterheadStamp/);
+  assert.match(center, /reportPdf\(report/);
+  assert.match(api, /export async function DELETE/);
+  assert.match(api, /Deactivate it instead of deleting it/);
+  assert.match(api, /transaction_lines line[\s\S]*JOIN transactions/);
+  assert.match(attachments, /"vat_code"/);
+  assert.match(clear, /standardVatCodes\.map/);
+  assert.match(migration, /REVERSE_CHARGE/);
+});
+
 test("memorised reports live in Report Center categories with selectable A4 print and PDF actions", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");

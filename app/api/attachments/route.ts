@@ -5,7 +5,7 @@ import { MAX_FILES, parseAttachment } from "@/lib/attachments";
 
 type AttachmentInput = { fileName?: string; mimeType?: string; fileData?: string; fileSize?: number };
 
-const allowedTypes = new Set(["transaction", "employee"]);
+const allowedTypes = new Set(["transaction", "employee", "vat_code"]);
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const companyId = Number(url.searchParams.get("companyId"));
@@ -52,7 +52,9 @@ export async function POST(request: Request) {
   const db = getDb();
   const target = entityType === "transaction"
     ? await db.execute(sql`SELECT id, type FROM transactions WHERE id = ${entityId} AND company_id = ${companyId} LIMIT 1`)
-    : await db.execute(sql`SELECT id FROM contacts WHERE id = ${entityId} AND company_id = ${companyId} AND type = 'employee' LIMIT 1`);
+    : entityType === "employee"
+      ? await db.execute(sql`SELECT id FROM contacts WHERE id = ${entityId} AND company_id = ${companyId} AND type = 'employee' LIMIT 1`)
+      : await db.execute(sql`SELECT id FROM vat_codes WHERE id = ${entityId} AND company_id = ${companyId} LIMIT 1`);
   if (!target.rows.length) return Response.json({ error: "Record not found." }, { status: 404 });
   const transactionType = String(target.rows[0].type ?? "");
   const canChangeTransaction = entityType === "transaction" && ((transactionType === "invoice" && hasPermission(authorization, "sales:write")) || (transactionType === "bill" && hasPermission(authorization, "purchases:write")));
