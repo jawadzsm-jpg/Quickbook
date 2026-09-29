@@ -13,6 +13,7 @@
 
 - Customer records with company, international phone/WhatsApp validation, country, reseller/planet fields, TRN, email, credit, and currency.
 - Quotations, estimates, proforma invoices, sales orders, invoices, sales receipts, statement charges, finance charges, and credit memos.
+- Estimate, proforma invoice, sales order, and invoice entry forms offer Add Line below the last item row so long documents can grow without scrolling to the top.
 - Partial conversion of estimates, proformas, and sales orders into one or more invoices with source-line allocation tracking.
 - Customer payment entry against one or multiple open invoices, including partial allocations and refreshed invoice status.
 - Customer center with balances, activity, open balances, statements, overdue analysis, and source document drill-down.
@@ -22,6 +23,7 @@
 
 - Vendor records with contact, company, country, TRN, currency, payable balance, and change history.
 - Purchase orders, item receipts, received-item bills, bills, expenses, vendor credits, and bill payments.
+- Purchase order and bill entry forms offer Add Line below the last item row.
 - Partial purchase-order receiving with remaining quantities and receipt allocation tracking.
 - Purchase returns constrained to quantities still available from source bills.
 - Single or multi-bill vendor payment allocation and refreshed bill status.
