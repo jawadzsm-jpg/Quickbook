@@ -1056,6 +1056,23 @@ test('one customer payment allocates multiple invoices atomically and reverses e
   assert.equal((await DELETE(request('DELETE', {kind:'transactions',companyId,id:fullId}))).status, 200);
 });
 
+test('vendor purchase orders resolve the payable account in their currency', async () => {
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('EUR vendor payable') RETURNING id")).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES ($1,'EUR-PO','EUR stock','EUR') RETURNING id", [companyId])).rows[0].id;
+  const itemId = (await database.query("INSERT INTO items(company_id,location_id,sku,name,quantity,cost) VALUES ($1,$2,'EUR-ITEM','Laptop',0,20) RETURNING id", [companyId, locationId])).rows[0].id;
+  await database.query("INSERT INTO contacts(company_id,type,name,currency) VALUES ($1,'vendor','EUR Supplier','EUR')", [companyId]);
+  const { POST } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const post = (body) => POST(new Request('https://app.test/api/records', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }));
+  const resolved = await post({ action: 'resolve-vendor-payable', companyId, party: 'EUR Supplier', currency: 'EUR' });
+  assert.equal(resolved.status, 200);
+  const { account } = await resolved.json();
+  assert.equal(account.currency, 'EUR');
+  assert.equal((await database.query('SELECT ledger_account_id FROM contacts WHERE company_id=$1 AND name=$2', [companyId, 'EUR Supplier'])).rows[0].ledger_account_id, account.id);
+  const order = await post({ kind: 'transactions', companyId, locationId, type: 'purchase order', party: 'EUR Supplier', currency: 'EUR', exchangeRate: 4.27, transactionDate: '2026-09-29', number: 'PO-EUR', account: 'Wrong Account', lines: [{ itemId, description: 'Laptop', quantity: 1, unitPrice: 100, unitCost: 20, vatCode: 'ZERO' }] });
+  assert.equal(order.status, 201);
+  assert.equal((await order.json()).record.account, account.name);
+});
+
 test('partial PO receipts retain remaining quantities, block overreceipt and reverse safely', async () => {
   const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Partial receipts') RETURNING id")).rows[0].id;
   const locationId = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES ($1,'PR','Receiving','PR') RETURNING id",[companyId])).rows[0].id;

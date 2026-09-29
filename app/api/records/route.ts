@@ -465,7 +465,7 @@ async function handlePOST(request: Request) {
     }
     return saveNewRecord(request);
   });
-  if (payload.kind === "transactions" && ["bill payment", "customer payment", "cheque", "vendor credit"].includes(payload.type)) return withWriteTransaction(() => saveNewRecord(request));
+  if (payload.kind === "transactions" && ["bill payment", "customer payment", "cheque", "vendor credit", "purchase order"].includes(payload.type)) return withWriteTransaction(() => saveNewRecord(request));
   return saveNewRecord(request);
 }
 
@@ -976,8 +976,13 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     }
     if (linkedInvoiceIds.length && (total <= 0 || unallocated > 0)) return Response.json({ error: "Payment exceeds the selected invoices' remaining balance. Refresh the invoice list." }, { status: 409 });
     if (type === "purchase order") {
-      const [payableAccount] = await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.name, String(payload.account ?? "")), eq(accounts.systemRole, "AP"), eq(accounts.type, "Accounts Payable"), eq(accounts.currency, currency), eq(accounts.active, true))).limit(1);
-      if (!payableAccount) return Response.json({ error: `Select an active ${currency} Accounts Payable account for this purchase order.` }, { status: 400 });
+      const [vendor] = await db.select({ ledgerAccountId: contacts.ledgerAccountId }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "vendor"), eq(contacts.name, party))).limit(1);
+      if (vendor) {
+        const [linked] = vendor.ledgerAccountId ? await db.select().from(accounts).where(and(eq(accounts.id, vendor.ledgerAccountId), eq(accounts.companyId, companyId), eq(accounts.systemRole, "AP"), eq(accounts.currency, currency), eq(accounts.active, true))).limit(1) : [];
+        const payableAccount = linked ?? (await ensureCurrencyControlAccount(companyId, "AP", currency)).account;
+        if (payableAccount.type !== "Accounts Payable") return Response.json({ error: `The ${currency} payable account must have type Accounts Payable.` }, { status: 409 });
+        payload.account = payableAccount.name;
+      }
     }
     const values = {
       companyId, locationId: Number.isInteger(locationId) ? locationId : null, number, type, party, billId, invoiceId, purchaseOrderId, salesSourceId,
