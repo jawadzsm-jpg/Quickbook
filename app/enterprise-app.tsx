@@ -1557,13 +1557,13 @@ function RecordView({ companyId, companyName = "Company", setup, locationId, onE
   const selectedAccountCurrency = accountCurrencies.includes(accountCurrency) ? accountCurrency : "all";
   const [stockFilter, setStockFilter] = useState<"all" | "in" | "low" | "inactive" | "out">("all");
   const stockCounts = kind === "items" ? {
-    all: records.length,
+    all: records.filter((record) => record.status !== "inactive").length,
     in: records.filter((record) => record.status !== "inactive" && Number(record.quantity) > 0).length,
     low: records.filter((record) => record.status !== "inactive" && Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint)).length,
     inactive: records.filter((record) => record.status === "inactive").length,
   } : { all: 0, in: 0, low: 0, inactive: 0 };
   const currencyAccounts = records.filter((record) => selectedAccountCurrency === "all" || String(record.currency || currency) === selectedAccountCurrency);
-  const unfilteredRecords = kind === "accounts" ? currencyAccounts.filter((record) => selectedCategory === "All" || accountCategory(record.type) === selectedCategory) : kind !== "items" || stockFilter === "all" ? records : records.filter((record) => stockFilter === "inactive" ? record.status === "inactive" : record.status !== "inactive" && (stockFilter === "in" ? Number(record.quantity) > 0 : stockFilter === "low" ? Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint) : Number(record.quantity) <= 0));
+  const unfilteredRecords = kind === "accounts" ? currencyAccounts.filter((record) => selectedCategory === "All" || accountCategory(record.type) === selectedCategory) : kind !== "items" ? records : records.filter((record) => stockFilter === "inactive" ? record.status === "inactive" : record.status !== "inactive" && (stockFilter === "all" || (stockFilter === "in" ? Number(record.quantity) > 0 : stockFilter === "low" ? Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint) : Number(record.quantity) <= 0)));
   const visibleRecords = filterRecordListByDate(unfilteredRecords, kind, dateFrom, dateTo);
   const accountSummary = kind === "accounts" ? {
     active: records.filter((record) => record.active).length,
