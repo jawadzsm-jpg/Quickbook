@@ -22,6 +22,7 @@
 
 - Vendor records with contact, company, country, TRN, currency, payable balance, and change history.
 - Purchase orders, item receipts, received-item bills, bills, expenses, vendor credits, and bill payments.
+- Transaction item forms offer a Line button above and below the item rows, so long documents can be extended from the bottom.
 - Partial purchase-order receiving with remaining quantities and receipt allocation tracking.
 - Purchase returns constrained to quantities still available from source bills.
 - Single or multi-bill vendor payment allocation and refreshed bill status.
