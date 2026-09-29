@@ -18,15 +18,18 @@ const { normalizeComparableText, uppercaseText } = await sourceModule("../lib/te
 const { dueDateForPaymentTerms } = await sourceModule("../lib/payment-terms.ts");
 const { chequeAlignmentBounds, uaeChequeLayout, validChequeAlignment } = await sourceModule("../lib/uae-cheque-layouts.ts");
 const { countries } = await sourceModule("../lib/countries.ts");
-const { generatedItemDescription } = await sourceModule("../lib/item-description.ts");
+const { generatedItemDescription, invoiceItemDescription, itemSpecificationDescription, itemTitleWithSku } = await sourceModule("../lib/item-description.ts");
 
-test("item drafts stay uppercase and place SKU after Model with Item No. last", () => {
+test("item identity appears once in titles and Item No. is reserved for invoice lines", () => {
   assert.equal(generatedItemDescription([
     { label: "Brand", value: "asus" },
     { label: "Model", value: "vivobook 15" },
     { label: "Touchscreen", value: "no" },
     { label: "RAM", value: "16gb" },
-  ], "a1b2c3", "13025"), "ASUS | VIVOBOOK 15 | SKU: A1B2C3 | 16GB | ITEM NO. #13025");
+  ], "ASUS VIVOBOOK 15", "a1b2c3", "13025"), "16GB");
+  assert.equal(itemTitleWithSku("Dell Alienware 16 Aurora AC16250", "73B1DA"), "DELL ALIENWARE 16 AURORA AC16250-73B1DA");
+  assert.equal(itemSpecificationDescription("DELL ALIENWARE | 16 AURORA AC16250 | SKU: 73B1DA | BRAND NEW | ITEM NO. #13040", "DELL ALIENWARE 16 AURORA AC16250", "73B1DA", "13040"), "BRAND NEW");
+  assert.equal(invoiceItemDescription("BRAND NEW | ITEM NO. #13040", "13040"), "BRAND NEW | ITEM NO. #13040");
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const records = readFileSync(new URL("../app/api/records/route.ts", import.meta.url), "utf8");
   assert.match(app, /Duplicate draft .* is not saved\. Press Save record to create it, or Cancel to discard it/);
@@ -34,7 +37,10 @@ test("item drafts stay uppercase and place SKU after Model with Item No. last", 
   assert.match(app, /duplicateOfItemId/);
   assert.match(app, /Generated SKU/);
   assert.match(records, /previewIdentity/);
-  assert.match(records, /generatedItemDescription\(specifications, sku, itemNumber\)/);
+  assert.match(records, /generatedItemDescription\(specifications, name, sku, itemNumber\)/);
+  const salesTemplate = readFileSync(new URL("../app/sales-document-template.tsx", import.meta.url), "utf8");
+  assert.match(salesTemplate, /\["CUSTOMER COPY", "INVENTORY TEAM COPY"\]/);
+  assert.match(salesTemplate, /showItemNumberAtEnd=\{signedInvoiceCopies\}/);
 });
 
 test("customer and vendor forms offer every country with search", () => {
