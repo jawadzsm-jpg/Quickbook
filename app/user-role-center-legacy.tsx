@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-type Role = "all_admin" | "admin" | "accountant" | "sales" | "purchasing" | "inventory" | "viewer";
+type Role = "all_admin" | "admin" | "accountant" | "sales" | "purchasing" | "inventory" | "customization" | "viewer";
 type ManagedUser = {
   id: number; fullName: string; email: string; phone: string; whatsapp: string; avatarData: string; role: Role;
   active: boolean; mustChangePassword: boolean; lastLoginAt: string | null; lastLoginIp: string; lastLoginUserAgent: string; isCurrent: boolean;
@@ -26,6 +26,7 @@ const roles: Array<{ value: Role; label: string; description: string }> = [
   { value: "sales", label: "Sales", description: "Customers, invoices, receipts and stock viewing" },
   { value: "purchasing", label: "Purchasing", description: "Vendors, bills, payments and stock viewing" },
   { value: "inventory", label: "Inventory Manager", description: "Items, specifications and stock transfers" },
+  { value: "customization", label: "Product Customization", description: "RAM, storage, part numbers, serials, UPCs and product details" },
   { value: "viewer", label: "Viewer", description: "Read-only dashboards, inventory and reports" },
 ];
 const roleLabel = (role: Role) => roles.find((entry) => entry.value === role)?.label ?? role;

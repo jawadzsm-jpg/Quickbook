@@ -62,6 +62,9 @@ export function inventorySummary(report: InventoryReportLike): { cards: Inventor
   if (key === "negative-item-list") {
     return { cards: [number("Negative items", rows.length, "negative"), number("Shortage quantity", sum(rows, "shortageQuantity"), "negative"), money("Shortage value", sum(rows, "shortageValue"), "negative"), number("Categories", unique(rows, "category")), number("Inventories affected", unique(rows, "inventory"), "accent")], note: "Only active stock items below zero are included. Shortage value uses the current weighted average purchase cost. Select an item to open and correct its Inventory record." };
   }
+  if (key === "customization-details") {
+    return { cards: [number("Products", rows.length), number("Customized", sum(rows, "hasCustomization"), "positive"), number("Serial assigned", sum(rows, "hasSerial")), number("UPC assigned", sum(rows, "hasUpc")), number("Needs user details", sum(rows, "needsDetails"), "negative")], note: "Product customization data is maintained by authorized Product Customization, Inventory Manager and Administrator users." };
+  }
   if (key === "physical-inventory") {
     return { cards: [number("Items to count", rows.length), number("System quantity", sum(rows, "quantity")), number("Categories", unique(rows, "category")), number("Zero / negative QOH", rows.filter((row) => Number(row.quantity) <= 0).length, "negative")], note: "Use the blank Physical Count and Difference columns during stock verification. Select an item to open its Inventory record." };
   }

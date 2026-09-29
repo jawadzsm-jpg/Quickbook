@@ -40,7 +40,7 @@ export async function skuKeys(input: LockInput, user: SessionUser) {
       ];
       itemIds.push(...ids(sourceLines.map((l) => l.itemId)));
     }
-  } else if (["stock-pricing", "stock-revaluation", "item-logistics"].includes(input.resource)) {
+  } else if (["stock-pricing", "stock-revaluation", "item-logistics", "item-customization"].includes(input.resource)) {
     itemIds.push(...ids(objects(input.records).map((r) => r.itemId ?? r.id)));
   } else if (input.resource === "transfers") {
     if (Number(input.id) > 0) {

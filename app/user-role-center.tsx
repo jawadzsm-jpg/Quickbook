@@ -9,7 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { UserRoleCenter as LegacyUserRoleCenter } from "./user-role-center-legacy";
 
-type Role = "all_admin" | "admin" | "accountant" | "sales" | "purchasing" | "inventory" | "viewer";
+type Role = "all_admin" | "admin" | "accountant" | "sales" | "purchasing" | "inventory" | "customization" | "viewer";
 type Company = { id: number; name: string };
 type User = { id: number; fullName: string; email: string; role: Role; companyIds: number[]; active: boolean; isCurrent: boolean };
 
@@ -20,6 +20,7 @@ const roles: Array<{ value: Role; label: string; description: string }> = [
   { value: "sales", label: "Sales", description: "Sales access in assigned companies" },
   { value: "purchasing", label: "Purchasing", description: "Purchasing access in assigned companies" },
   { value: "inventory", label: "Inventory Manager", description: "Inventory access in assigned companies" },
+  { value: "customization", label: "Product Customization", description: "Edit RAM, storage, part numbers, serials, UPCs and product details" },
   { value: "viewer", label: "Viewer", description: "Read-only access in assigned companies" },
 ];
 
