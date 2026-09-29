@@ -33,6 +33,7 @@
 - Unique item numbers and SKU controls per inventory location.
 - Quantity on hand, reorder points, sales prices, unit cost, GRN cost, serial numbers, and active status.
 - Item specifications with reusable option values and generated descriptions.
+- Inventory item rows and copied item text show the saved uppercase product name, ordered specifications, and the item number as a final `#` suffix; the generated SKU stays separate from the product name.
 - HS code, country of origin, dimensions, and weight maintenance.
 - Consolidated inventory overview, out-of-stock/reorder view, and serial purchase/sales history.
 - Inventory check reports with selected in-stock items, actual counts, and cross-company quantity comparison.
