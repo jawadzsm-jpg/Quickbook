@@ -24,3 +24,15 @@ export function applyContactCurrency(
     exchangeRate: currency === baseCurrency ? "1" : savedRate ? String(savedRate) : "",
   };
 }
+
+export function vendorPayableAccount(
+  contacts: ContactCurrencyRecord[],
+  accounts: ContactCurrencyRecord[],
+  party: string,
+  currency: string,
+) {
+  const vendor = contacts.find((entry) => entry.type === "vendor" && String(entry.name) === party);
+  const payable = accounts.filter((account) => account.active && account.systemRole === "AP" && account.currency === currency);
+  return String(payable.find((account) => Number(account.id) === Number(vendor?.ledgerAccountId))?.name
+    ?? payable[0]?.name ?? "");
+}
