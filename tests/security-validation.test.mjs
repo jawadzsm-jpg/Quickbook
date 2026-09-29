@@ -413,6 +413,26 @@ test("all 8 Inventory reports have professional summaries, one export control, A
   assert.match(css, /\[data-appearance="dark"\] \.report-dialog \.inventory-summary/);
 });
 
+test("Customization Details has a dedicated role, secure writes, centered summary, one export menu, item links, and a movable details dialog", () => {
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const page = readFileSync(new URL("../app/item-customization-center.tsx", import.meta.url), "utf8");
+  const api = readFileSync(new URL("../app/api/item-customization/route.ts", import.meta.url), "utf8");
+  const auth = readFileSync(new URL("../lib/auth.ts", import.meta.url), "utf8");
+  const migration = readFileSync(new URL("../drizzle/0067_item_customization_details.sql", import.meta.url), "utf8");
+  assert.match(app, /"customization-details", label: "Customization Details"/);
+  assert.match(app, /customization: \["dashboard", "inventory-overview", "customization-details"\]/);
+  assert.match(auth, /customization: \["workspace:read", "inventory:read", "customization:manage"\]/);
+  assert.match(api, /requireCompanyAccess\(request, companyId, "customization:manage", true\)/);
+  assert.match(api, /skuWrite\("item-customization", handlePatch\)/);
+  assert.match(page, />Summary</);
+  assert.equal((page.match(/<DropdownMenu>/g) || []).length, 1);
+  assert.match(page, /A4 portrait PDF/);
+  assert.match(page, /onOpenInventory\(record\.sku\)/);
+  assert.match(page, /Drag to move product details/);
+  assert.match(page, /dark:bg-amber-950/);
+  assert.match(migration, /customization_details/);
+});
+
 test("all 2 Banking reports have professional summaries, one export control, A4 output, document and account links, and movable stamps", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const api = readFileSync(new URL("../app/api/reports/route.ts", import.meta.url), "utf8");

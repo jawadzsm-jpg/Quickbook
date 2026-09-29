@@ -815,13 +815,34 @@ test('company stock pricing lists only its inventories and saves selected prices
 test('stock selection capability is limited to admin and all-admin', async () => {
   const { GET } = await vite.ssrLoadModule('/app/api/inventory-overview/route.ts');
   try {
-    for (const role of ['all_admin', 'admin', 'accountant', 'sales', 'purchasing', 'inventory', 'viewer']) {
+    for (const role of ['all_admin', 'admin', 'accountant', 'sales', 'purchasing', 'inventory', 'customization', 'viewer']) {
       globalThis.__transferTestUser = { id: 1, role, companyIds: [] };
       const response = await GET(new Request('http://localhost/api/inventory-overview'));
       assert.equal(response.status, 200);
       assert.equal((await response.json()).canSelectItems, ['all_admin', 'admin'].includes(role));
     }
   } finally { delete globalThis.__transferTestUser; }
+});
+
+test('product customization details fall back to item specifications and save linked fields', async () => {
+  const company = (await database.query("INSERT INTO companies (name) VALUES ('Customization company') RETURNING id")).rows[0].id;
+  const location = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'CUSTOM', 'Customization store', 'CUS') RETURNING id", [company])).rows[0].id;
+  const item = (await database.query(
+    "INSERT INTO items (company_id, location_id, item_number, sku, name, specifications) VALUES ($1, $2, '14001', 'CUSTOM-1', 'Upgradeable Laptop', $3) RETURNING id",
+    [company, location, JSON.stringify([{ label: 'RAM', value: '8GB' }, { label: 'Storage', value: '512GB SSD' }, { label: 'Part Number', value: 'PN-OLD' }])],
+  )).rows[0].id;
+  const api = await vite.ssrLoadModule('/app/api/item-customization/route.ts');
+  const list = await api.GET(new Request(`https://app.test/api/item-customization?companyId=${company}&locationId=${location}`));
+  assert.equal(list.status, 200);
+  const initial = (await list.json()).records[0];
+  assert.deepEqual([initial.customizationRam, initial.customizationStorage, initial.partNumber], ['8GB', '512GB SSD', 'PN-OLD']);
+  const save = await api.PATCH(new Request('https://app.test/api/item-customization', { method: 'PATCH', headers: { origin: 'https://app.test', 'content-type': 'application/json' }, body: JSON.stringify({ companyId: company, locationId: location, records: [{ id: item, customizationRam: '16gb ddr5', customizationStorage: '1tb ssd', partNumber: 'pn-new', itemSerialNumber: 'sn-001', upcNumber: '123456789012', customizationDetails: 'User can upgrade the second RAM slot.' }] }) }));
+  assert.equal(save.status, 200, await save.clone().text());
+  const stored = (await database.query('SELECT customization_ram, customization_storage, part_number, item_serial_number, upc_number, customization_details, specifications FROM items WHERE id=$1', [item])).rows[0];
+  assert.deepEqual(Object.fromEntries(Object.entries(stored).filter(([key]) => key !== 'specifications')), { customization_ram: '16GB DDR5', customization_storage: '1TB SSD', part_number: 'PN-NEW', item_serial_number: 'SN-001', upc_number: '123456789012', customization_details: 'User can upgrade the second RAM slot.' });
+  const specs = JSON.parse(stored.specifications);
+  assert.equal(specs.find(entry => entry.label === 'RAM').value, '16GB DDR5');
+  assert.equal(specs.find(entry => entry.label === 'Part Number').value, 'PN-NEW');
 });
 
 test('inventory overview activity links incoming, launches, price changes, and sold sales reps', async () => {
