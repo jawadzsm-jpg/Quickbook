@@ -39,7 +39,7 @@
 - Item specifications with reusable option values and generated descriptions.
 - Inventory item rows and copied item text show the saved uppercase product name, ordered specifications, and the item number as a final `#` suffix; the generated SKU stays separate from the product name.
 - HS code, country of origin, dimensions, and weight maintenance.
-- Consolidated inventory overview, out-of-stock/reorder view, and serial purchase/sales history.
+- Consolidated inventory overview, out-of-stock/reorder view, and serial purchase/sales history. New Arrival lists stock received through saved Enter Bill documents for 12 hours from the bill creation timestamp, with supplier, received quantity, purchase price, and a View link to the bill. Entries expire while the overview is open.
 - Inventory check reports with selected in-stock items, actual counts, and cross-company quantity comparison.
 - Multi-line transfers between inventories or companies, with revisions and reversal.
 - Stock pricing with conflict detection and stock revaluation controls.

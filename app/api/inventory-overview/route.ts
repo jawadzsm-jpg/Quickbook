@@ -70,20 +70,26 @@ export async function GET(request: Request) {
         LIMIT 50
       `),
       db.execute(sql`
-        SELECT stock_item.id, stock_item.id AS "itemId", NULL::integer AS "transactionId",
-          stock_item.created_at AS date, ''::text AS "documentNumber", ''::text AS party, ''::text AS "salesRep",
+        SELECT bill_line.id, stock_item.id AS "itemId", bill.id AS "transactionId",
+          bill.created_at AS date, bill.number AS "documentNumber", bill.party, bill.salesman AS "salesRep",
           stock_item.sku, stock_item.item_number AS "itemNumber", stock_item.name AS "itemName",
           activity_company.id AS "companyId", inventory_location.id AS "locationId",
           activity_company.name AS "companyName", inventory_location.name AS "locationName",
-          activity_company.base_currency AS currency, stock_item.quantity::double precision AS quantity,
-          stock_item.sales_price::double precision AS price
-        FROM items stock_item
-        JOIN companies activity_company ON activity_company.id = stock_item.company_id
-        JOIN inventory_locations inventory_location ON inventory_location.id = stock_item.location_id AND inventory_location.company_id = stock_item.company_id
-        WHERE stock_item.status = 'active' AND stock_item.created_at >= now() - interval '30 days'
-          AND activity_company.active = true AND inventory_location.active = true ${companyScope}
-        ORDER BY stock_item.created_at DESC, stock_item.id DESC
-        LIMIT 50
+          bill.currency, bill_line.quantity::double precision AS quantity,
+          bill_line.unit_price::double precision AS price
+        FROM transaction_lines bill_line
+        JOIN transactions bill ON bill.id = bill_line.transaction_id
+        JOIN items stock_item ON stock_item.id = bill_line.item_id AND stock_item.company_id = bill.company_id
+        JOIN companies activity_company ON activity_company.id = bill.company_id
+        JOIN inventory_locations inventory_location ON inventory_location.id = bill.location_id AND inventory_location.company_id = bill.company_id
+        WHERE bill.type = 'bill' AND bill.status <> 'cancelled' AND bill_line.quantity > 0
+          AND bill.created_at > now() - interval '12 hours' AND bill.created_at <= now()
+          AND EXISTS (SELECT 1 FROM inventory_movements movement
+            WHERE movement.transaction_id = bill.id AND movement.item_id = stock_item.id
+              AND movement.movement_type = 'bill' AND movement.quantity > 0)
+          AND stock_item.status = 'active' AND activity_company.active = true
+          AND inventory_location.active = true ${companyScope}
+        ORDER BY bill.created_at DESC, bill.id DESC, bill_line.id DESC
       `),
       db.execute(sql`
         SELECT activity_log.id, stock_item.id AS "itemId", NULL::integer AS "transactionId",

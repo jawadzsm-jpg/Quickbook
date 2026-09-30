@@ -845,7 +845,7 @@ test('product customization details fall back to item specifications and save li
   assert.equal(specs.find(entry => entry.label === 'Part Number').value, 'PN-NEW');
 });
 
-test('inventory overview activity links incoming, launches, price changes, and sold sales reps', async () => {
+test('inventory overview activity links incoming, 12-hour bill arrivals, price changes, and sold sales reps', async () => {
   const company = (await database.query("INSERT INTO companies (name,base_currency) VALUES ('Inventory activity company','AED') RETURNING id")).rows[0].id;
   const location = (await database.query("INSERT INTO inventory_locations (company_id,code,name,invoice_prefix) VALUES ($1,'ACT','Activity store','ACT') RETURNING id", [company])).rows[0].id;
   const item = (await database.query("INSERT INTO items (company_id,location_id,item_number,sku,name,quantity,sales_price) VALUES ($1,$2,'ACT-100','ACT-SKU','Activity laptop',8,1250) RETURNING id", [company, location])).rows[0].id;
@@ -853,6 +853,10 @@ test('inventory overview activity links incoming, launches, price changes, and s
   const purchaseLine = (await database.query("INSERT INTO transaction_lines (transaction_id,item_id,description,quantity,unit_price) VALUES ($1,$2,'Activity laptop',10,900) RETURNING id", [purchaseOrder, item])).rows[0].id;
   const receipt = (await database.query("INSERT INTO transactions (company_id,location_id,number,type,party,transaction_date,status) VALUES ($1,$2,'BILL-ACT-1','bill','Activity supplier','2026-09-29','open') RETURNING id", [company, location])).rows[0].id;
   await database.query("INSERT INTO purchase_receipt_allocations (receipt_id,order_line_id,quantity) VALUES ($1,$2,3)", [receipt, purchaseLine]);
+  await database.query("INSERT INTO transaction_lines (transaction_id,item_id,description,quantity,unit_price) VALUES ($1,$2,'Activity laptop',3,900)", [receipt, item]);
+  await database.query("INSERT INTO inventory_movements (transaction_id,item_id,movement_date,movement_type,quantity,reference) VALUES ($1,$2,'2026-09-29','bill',3,'BILL-ACT-1')", [receipt, item]);
+  const unreceivedItem = (await database.query("INSERT INTO items (company_id,location_id,sku,name) VALUES ($1,$2,'ACT-UNRECEIVED','Unreceived item') RETURNING id", [company, location])).rows[0].id;
+
   const invoice = (await database.query("INSERT INTO transactions (company_id,location_id,number,type,party,salesman,transaction_date,status,currency) VALUES ($1,$2,'INV-ACT-1','invoice','Activity customer','Rep One','2026-09-29','open','AED') RETURNING id", [company, location])).rows[0].id;
   await database.query("INSERT INTO transaction_lines (transaction_id,item_id,description,quantity,unit_price) VALUES ($1,$2,'Activity laptop',2,1250)", [invoice, item]);
   await database.query("INSERT INTO audit_log (company_id,action,entity_type,entity_id,details) VALUES ($1,'updated','item',$2,$3)", [company, item, JSON.stringify({ reason: 'Stock pricing', before: { salesPrice: 1200 }, after: { salesPrice: 1250 } })]);
@@ -863,10 +867,21 @@ test('inventory overview activity links incoming, launches, price changes, and s
     assert.equal(response.status, 200);
     const data = await response.json();
     assert.equal(data.activity.incoming.find(row => row.itemId === item).quantity, 7);
-    assert.ok(data.activity.launched.some(row => row.itemId === item));
+    const arrival = data.activity.launched.find(row => row.itemId === item);
+    assert.equal(arrival.transactionId, receipt); assert.equal(arrival.documentNumber, 'BILL-ACT-1');
+    assert.equal(arrival.quantity, 3); assert.equal(arrival.price, 900); assert.equal(arrival.party, 'Activity supplier');
+    assert.ok(!data.activity.launched.some(row => row.itemId === unreceivedItem));
     assert.deepEqual(Object.fromEntries(Object.entries(data.activity.priceChanges.find(row => row.itemId === item)).filter(([key]) => ['previousPrice', 'currentPrice'].includes(key))), { previousPrice: 1200, currentPrice: 1250 });
     const sold = data.activity.sold.find(row => row.transactionId === invoice && row.itemId === item);
     assert.equal(sold.salesRep, 'Rep One'); assert.equal(sold.documentNumber, 'INV-ACT-1'); assert.equal(sold.companyId, company); assert.equal(sold.locationId, location);
+    // Business dates do not determine arrival age: use the actual bill-save timestamp.
+    await database.query("UPDATE transactions SET created_at=now()-interval '11 hours 59 minutes',transaction_date='2020-01-01' WHERE id=$1", [receipt]);
+    assert.ok((await (await GET(new Request('https://app.test/api/inventory-overview'))).json()).activity.launched.some(row => row.transactionId === receipt));
+    await database.query("UPDATE transactions SET created_at=now()-interval '12 hours' WHERE id=$1", [receipt]);
+    assert.ok(!(await (await GET(new Request('https://app.test/api/inventory-overview'))).json()).activity.launched.some(row => row.transactionId === receipt));
+    await database.query("UPDATE transactions SET created_at=now(),status='cancelled' WHERE id=$1", [receipt]);
+    assert.ok(!(await (await GET(new Request('https://app.test/api/inventory-overview'))).json()).activity.launched.some(row => row.transactionId === receipt));
+
   } finally { delete globalThis.__transferTestUser; }
 });
 

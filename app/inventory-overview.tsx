@@ -134,6 +134,17 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
 
+  // Expire bill receipts even while the overview stays open.
+  useEffect(() => {
+    if (!activity.launched.length) return;
+    const expiresAt = Math.min(...activity.launched.map((entry) => new Date(entry.date).getTime() + 12 * 60 * 60 * 1000));
+    const timer = window.setTimeout(() => {
+      const cutoff = Date.now() - 12 * 60 * 60 * 1000;
+      setActivity((current) => ({ ...current, launched: current.launched.filter((entry) => new Date(entry.date).getTime() > cutoff) }));
+    }, Math.max(0, expiresAt - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [activity.launched]);
+
   const inStockRecords = useMemo(() => records.filter((record) => Number(record.quantity) > 0), [records]);
 
   const consolidatedRecords = useMemo(() => {
@@ -327,11 +338,11 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   const columnCount = 2 + Number(showQuantity) + Number(showPrice);
   const activityTabs = [
     { id: "incoming" as const, label: "Incoming", Icon: PlaneLanding, count: activity.incoming.length, badge: "bg-amber-400 text-slate-950" },
-    { id: "launched" as const, label: "Just Launched", Icon: Rocket, count: activity.launched.length, badge: "bg-rose-500 text-white" },
+    { id: "launched" as const, label: "New Arrival", Icon: Rocket, count: activity.launched.length, badge: "bg-rose-500 text-white" },
     { id: "priceChanges" as const, label: "Price Change", Icon: BadgeDollarSign, count: activity.priceChanges.length, badge: "bg-sky-500 text-white" },
     { id: "sold" as const, label: "Just Sold", Icon: ShoppingCart, count: activity.sold.length, badge: "bg-emerald-500 text-white" },
   ];
-  const activityEmpty = activityView === "incoming" ? "No open purchase-order quantities." : activityView === "launched" ? "No items launched in the last 30 days." : activityView === "priceChanges" ? "No audited selling-price changes in the last 30 days." : "No recent invoice or sales-receipt lines.";
+  const activityEmpty = activityView === "incoming" ? "No open purchase-order quantities." : activityView === "launched" ? "No bill receipts in the last 12 hours." : activityView === "priceChanges" ? "No audited selling-price changes in the last 30 days." : "No recent invoice or sales-receipt lines.";
 
   return <div className="space-y-5">
     <section className="overflow-hidden rounded-2xl border bg-card text-card-foreground shadow-sm">
@@ -345,20 +356,20 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
           <TableHeader><TableRow><TableHead className="w-32">Date</TableHead><TableHead>Item</TableHead><TableHead>Company · inventory</TableHead><TableHead>Linked area</TableHead><TableHead>Activity</TableHead><TableHead className="w-24 text-right">Open</TableHead></TableRow></TableHeader>
           <TableBody>
             {loading ? <TableRow><TableCell colSpan={6} className="h-28 text-center text-muted-foreground"><RefreshCw className="mx-auto mb-2 size-5 animate-spin" />Loading inventory activity…</TableCell></TableRow> : visibleActivity.length ? visibleActivity.map((entry) => {
-              const linkedDocument = activityView === "incoming" || activityView === "sold";
+              const linkedDocument = activityView === "incoming" || activityView === "launched" || activityView === "sold";
               return <TableRow key={`${activityView}-${entry.id}`} className="align-top">
                 <TableCell className="whitespace-nowrap font-medium">{activityDate(entry.date)}</TableCell>
                 <TableCell><p className="font-semibold text-primary">{entry.itemName}</p><p className="mt-1 text-xs text-muted-foreground">SKU {entry.sku}{entry.itemNumber ? ` · #${entry.itemNumber}` : ""}</p></TableCell>
                 <TableCell><p className="font-medium">{entry.companyName}</p><p className="mt-1 text-xs text-muted-foreground">{entry.locationName || "All inventories"}</p></TableCell>
-                <TableCell>{linkedDocument ? <><p className="font-mono font-semibold">{entry.documentNumber}</p><p className="mt-1 text-xs text-muted-foreground">{entry.party || (activityView === "incoming" ? "Supplier" : "Customer")}</p>{activityView === "sold" ? <p className="mt-2 inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"><UserRound className="size-3" />Sales rep: {entry.salesRep || "Not assigned"}</p> : null}</> : <span className="text-sm font-medium">{activityView === "launched" ? "New inventory item" : "Selling price update"}</span>}</TableCell>
-                <TableCell>{activityView === "priceChanges" ? <><p className="font-semibold"><span className="text-muted-foreground line-through">{money(Number(entry.previousPrice), entry.currency)}</span><span className="mx-2">→</span><span className="text-emerald-600">{money(Number(entry.currentPrice), entry.currency)}</span></p></> : <><p className="font-semibold">{Number(entry.quantity).toLocaleString("en-AE")} {activityView === "sold" ? "sold" : activityView === "incoming" ? "incoming" : "on hand"}</p><p className="mt-1 text-xs text-muted-foreground">{money(Number(entry.price), entry.currency)} each</p></>}</TableCell>
+                <TableCell>{linkedDocument ? <><p className="font-mono font-semibold">{entry.documentNumber}</p><p className="mt-1 text-xs text-muted-foreground">{entry.party || (activityView === "sold" ? "Customer" : "Supplier")}</p>{activityView === "sold" ? <p className="mt-2 inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"><UserRound className="size-3" />Sales rep: {entry.salesRep || "Not assigned"}</p> : null}</> : <span className="text-sm font-medium">Selling price update</span>}</TableCell>
+                <TableCell>{activityView === "priceChanges" ? <><p className="font-semibold"><span className="text-muted-foreground line-through">{money(Number(entry.previousPrice), entry.currency)}</span><span className="mx-2">→</span><span className="text-emerald-600">{money(Number(entry.currentPrice), entry.currency)}</span></p></> : <><p className="font-semibold">{Number(entry.quantity).toLocaleString("en-AE")} {activityView === "sold" ? "sold" : activityView === "incoming" ? "incoming" : "received"}</p><p className="mt-1 text-xs text-muted-foreground">{money(Number(entry.price), entry.currency)} each</p></>}</TableCell>
                 <TableCell className="text-right">{linkedDocument && entry.transactionId ? <Button type="button" size="sm" variant="outline" onClick={() => openActivityRecord(entry, "document")}><Eye className="size-4" />View</Button> : <Button type="button" size="sm" variant="outline" onClick={() => openActivityRecord(entry, "item")}><Eye className="size-4" />Item</Button>}</TableCell>
               </TableRow>;
             }) : <TableRow><TableCell colSpan={6} className="h-28 text-center text-muted-foreground">{activityEmpty}</TableCell></TableRow>}
           </TableBody>
         </Table>
       </div>
-      <div className="border-t bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">Incoming shows outstanding purchase-order quantities. Launched and price changes cover the last 30 days. Just Sold keeps the sales representative from the original sale.</div>
+      <div className="border-t bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">Incoming shows outstanding purchase-order quantities. New Arrival shows stock received through Enter Bill for 12 hours after saving. Price changes cover the last 30 days. Just Sold keeps the sales representative from the original sale.</div>
     </section>
 
     <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
