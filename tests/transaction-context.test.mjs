@@ -859,7 +859,8 @@ test('inventory overview activity links incoming, 12-hour bill arrivals, price c
 
   const invoice = (await database.query("INSERT INTO transactions (company_id,location_id,number,type,party,salesman,transaction_date,status,currency) VALUES ($1,$2,'INV-ACT-1','invoice','Activity customer','Rep One','2026-09-29','open','AED') RETURNING id", [company, location])).rows[0].id;
   await database.query("INSERT INTO transaction_lines (transaction_id,item_id,description,quantity,unit_price) VALUES ($1,$2,'Activity laptop',2,1250)", [invoice, item]);
-  await database.query("INSERT INTO audit_log (company_id,action,entity_type,entity_id,details) VALUES ($1,'updated','item',$2,$3)", [company, item, JSON.stringify({ reason: 'Stock pricing', before: { salesPrice: 1200 }, after: { salesPrice: 1250 } })]);
+  await database.query("INSERT INTO audit_log (company_id,action,entity_type,entity_id,details,created_at) VALUES ($1,'updated','item',$2,$3,now()-interval '13 hours')", [company, item, JSON.stringify({ reason: 'Stock pricing', before: { salesPrice: 0 }, after: { salesPrice: 1200 } })]);
+  await database.query("INSERT INTO audit_log (company_id,action,entity_type,entity_id,details) VALUES ($1,'updated','item',$2,$3),($1,'updated','item',$2,$4)", [company, item, JSON.stringify({ reason: 'Stock pricing', before: { salesPrice: 1200 }, after: { salesPrice: 1250 } }), JSON.stringify({ reason: 'Stock pricing', before: { salesPrice: 1250 }, after: { salesPrice: 1300 } })]);
   const { GET } = await vite.ssrLoadModule('/app/api/inventory-overview/route.ts');
   try {
     globalThis.__transferTestUser = { id: 1, role: 'admin', companyIds: [company] };
@@ -871,7 +872,9 @@ test('inventory overview activity links incoming, 12-hour bill arrivals, price c
     assert.equal(arrival.transactionId, receipt); assert.equal(arrival.documentNumber, 'BILL-ACT-1');
     assert.equal(arrival.quantity, 3); assert.equal(arrival.price, 900); assert.equal(arrival.party, 'Activity supplier');
     assert.ok(!data.activity.launched.some(row => row.itemId === unreceivedItem));
-    assert.deepEqual(Object.fromEntries(Object.entries(data.activity.priceChanges.find(row => row.itemId === item)).filter(([key]) => ['previousPrice', 'currentPrice'].includes(key))), { previousPrice: 1200, currentPrice: 1250 });
+    const itemPriceChanges = data.activity.priceChanges.filter(row => row.itemId === item);
+    assert.equal(itemPriceChanges.length, 1);
+    assert.deepEqual(Object.fromEntries(Object.entries(itemPriceChanges[0]).filter(([key]) => ['previousPrice', 'currentPrice'].includes(key))), { previousPrice: 1250, currentPrice: 1300 });
     const sold = data.activity.sold.find(row => row.transactionId === invoice && row.itemId === item);
     assert.equal(sold.salesRep, 'Rep One'); assert.equal(sold.documentNumber, 'INV-ACT-1'); assert.equal(sold.companyId, company); assert.equal(sold.locationId, location);
     // Business dates do not determine arrival age: use the actual bill-save timestamp.
@@ -881,6 +884,8 @@ test('inventory overview activity links incoming, 12-hour bill arrivals, price c
     assert.ok(!(await (await GET(new Request('https://app.test/api/inventory-overview'))).json()).activity.launched.some(row => row.transactionId === receipt));
     await database.query("UPDATE transactions SET created_at=now(),status='cancelled' WHERE id=$1", [receipt]);
     assert.ok(!(await (await GET(new Request('https://app.test/api/inventory-overview'))).json()).activity.launched.some(row => row.transactionId === receipt));
+    await database.query("UPDATE audit_log SET created_at=now()-interval '12 hours' WHERE entity_type='item' AND entity_id=$1", [item]);
+    assert.ok(!(await (await GET(new Request('https://app.test/api/inventory-overview'))).json()).activity.priceChanges.some(row => row.itemId === item));
 
   } finally { delete globalThis.__transferTestUser; }
 });

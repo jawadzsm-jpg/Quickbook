@@ -103,7 +103,8 @@ export async function GET(request: Request) {
         JOIN items stock_item ON stock_item.id = activity_log.entity_id AND stock_item.company_id = activity_log.company_id
         JOIN companies activity_company ON activity_company.id = activity_log.company_id
         JOIN inventory_locations inventory_location ON inventory_location.id = stock_item.location_id AND inventory_location.company_id = stock_item.company_id
-        WHERE activity_log.entity_type = 'item' AND activity_log.created_at >= now() - interval '30 days'
+        WHERE activity_log.entity_type = 'item'
+          AND activity_log.created_at > now() - interval '12 hours' AND activity_log.created_at <= now()
           AND (activity_log.details LIKE '%salesPrice%' OR activity_log.details LIKE '%oldPrice%' OR activity_log.details LIKE '%newPrice%')
           AND activity_company.active = true ${companyScope}
         ORDER BY activity_log.created_at DESC, activity_log.id DESC
@@ -129,12 +130,15 @@ export async function GET(request: Request) {
       `),
     ]);
 
+    const priceChangeItemIds = new Set<number>();
     const priceChanges = priceResult.rows.flatMap((row) => {
       try {
         const detail = JSON.parse(String(row.details ?? "")) as { before?: { salesPrice?: number }; after?: { salesPrice?: number }; oldPrice?: number; newPrice?: number };
         const previousPrice = Number(detail.before?.salesPrice ?? detail.oldPrice);
         const currentPrice = Number(detail.after?.salesPrice ?? detail.newPrice);
-        if (!Number.isFinite(previousPrice) || !Number.isFinite(currentPrice) || previousPrice === currentPrice) return [];
+        const itemId = Number(row.itemId);
+        if (!Number.isFinite(previousPrice) || !Number.isFinite(currentPrice) || previousPrice === currentPrice || priceChangeItemIds.has(itemId)) return [];
+        priceChangeItemIds.add(itemId);
         return [{ ...row, previousPrice, currentPrice, details: undefined }];
       } catch { return []; }
     }).slice(0, 50);
