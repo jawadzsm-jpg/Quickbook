@@ -270,6 +270,7 @@ test("vendor report library includes selected-vendor reports, native currencies,
 
 test("all 13 Profit & Loss reports share professional A4 output, movable stamps, and source-document links", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const pnlView = readFileSync(new URL("../app/profit-loss-report.tsx", import.meta.url), "utf8");
   const api = readFileSync(new URL("../app/api/reports/route.ts", import.meta.url), "utf8");
   const pnlExport = readFileSync(new URL("../lib/pnl-export.ts", import.meta.url), "utf8");
   const sharedExport = readFileSync(new URL("../lib/report-export.ts", import.meta.url), "utf8");
@@ -280,6 +281,9 @@ test("all 13 Profit & Loss reports share professional A4 output, movable stamps,
   assert.match(app, /const profitLossReportKeys = new Set\(\[[^\]]+"item-profitability"\]\)/);
   assert.match(app, /const stampReport = [^;]+isProfitLossReport/);
   assert.match(app, /sourceTransactionId > 0[\s\S]*onOpenSource\(sourceTransactionId\)/);
+  assert.match(app, /onProfitLossArea/);
+  assert.match(pnlView, /report\.key === "profit-loss-item"[\s\S]*onOpenItem/);
+  assert.match(pnlView, /"profit-loss-rep", "profit-loss-job", "profit-loss-class"[\s\S]*onOpenArea/);
   assert.match(api, /sourceReferenceTransactionId: value\.sourceTransactionId/);
   assert.match(pnlExport, /orientation: PrintOrientation = "portrait"/);
   assert.match(pnlExport, /new jsPDF\(\{ orientation, format: "a4", unit: "mm" \}\)/);

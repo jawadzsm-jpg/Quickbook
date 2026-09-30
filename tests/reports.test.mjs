@@ -816,10 +816,21 @@ test("P&L reports reconcile item, rep, inventory and class to posted ledger with
   }
   const byItem = await get("profit-loss-item");
   assert.equal(byItem.rows.find(r => r.name.startsWith("PNL-A")).income, 317.5);
+  assert.equal(byItem.rows.find(r => r.name.startsWith("PNL-A")).itemId, first.id);
+  assert.equal(byItem.rows.find(r => r.name.startsWith("PNL-A")).sku, "PNL-A");
+  assert.equal(byItem.rows.find(r => r.name.startsWith("PNL-A")).linkArea, "inventory");
   assert.equal(byItem.rows.find(r => r.name.startsWith("PNL-A")).cost, 220.5);
   assert.equal(byItem.rows.find(r => r.name.startsWith("PNL-B")).cost, 441);
   assert.equal(byItem.rows.find(r => r.name === "Unallocated").expenses, 100);
-  assert.equal((await get("profit-loss-rep")).rows.find(r => r.name === "Rep A").income, 1052.5);
+  const byRep = await get("profit-loss-rep");
+  assert.equal(byRep.rows.find(r => r.name === "Rep A").income, 1052.5);
+  assert.equal(byRep.rows.find(r => r.name === "Rep A").linkArea, "sales");
+  const byJob = await get("profit-loss-job");
+  assert.equal(byJob.rows.find(r => r.name !== "Total").locationId, loc);
+  assert.equal(byJob.rows.find(r => r.name !== "Total").linkArea, "inventory");
+  const byClass = await get("profit-loss-class");
+  assert.equal(byClass.rows.find(r => r.name === "invoice").linkArea, "sales");
+  assert.equal(byClass.rows.find(r => r.name === "Manual journal").linkArea, "journal-entries");
   const cogs = await get("profit-loss-cost-of-goods");
   assert.equal(cogs.title, "Cost of Goods Sold Detail");
   assert.deepEqual(cogs.summary, { income: 1052.5, expenses: 661.5, netIncome: 391 });

@@ -176,10 +176,11 @@ export async function GET(request: Request) {
       return [...grouped].map(([name, amount]) => ({ name, amount })).sort((a, b) => b.amount - a.amount);
     };
     const groupLines = (types: string[]) => {
-      const grouped = new Map<string, { name: string; quantity: number; amount: number; cost: number; sourceIds: Set<number>; sourceTransactionId: number; sourceReference: string }>();
+      const grouped = new Map<string, { itemId: number; sku: string; name: string; quantity: number; amount: number; cost: number; sourceIds: Set<number>; sourceTransactionId: number; sourceReference: string }>();
       lines.filter((line) => types.includes(line.type)).forEach((line) => {
         const key = line.itemId ? `item:${line.itemId}` : `description:${line.description}`;
-        const old = grouped.get(key) ?? { name: line.description, quantity: 0, amount: 0, cost: 0, sourceIds: new Set<number>(), sourceTransactionId: 0, sourceReference: "" };
+        const item = allItems.find((candidate) => candidate.id === Number(line.itemId));
+        const old = grouped.get(key) ?? { itemId: item?.id ?? 0, sku: item?.sku ?? "", name: item?.name ?? line.description, quantity: 0, amount: 0, cost: 0, sourceIds: new Set<number>(), sourceTransactionId: 0, sourceReference: "" };
         old.sourceIds.add(line.transactionId);
         grouped.set(key, { ...old, quantity: old.quantity + line.quantity, amount: old.amount + line.subtotal * line.exchangeRate, cost: old.cost + line.quantity * line.unitCost * line.exchangeRate, sourceTransactionId: line.transactionId, sourceReference: line.number });
       });

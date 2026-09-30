@@ -68,7 +68,7 @@ export async function profitLoss(companyId: number, locationId: number, currency
     const a = accountFor(e.account, e.entryCurrency); return a && (incomeTypes.has(a.type) || expenseTypes.has(a.type));
   }).map(e => {
     const a = accountFor(e.account, e.entryCurrency)!; const d = docMap.get(e.transactionId || 0);
-    return { date: e.date, reference: e.reference, description: e.description, account: e.account, accountId: a.id, code: a.code, type: a.type, transactionId: d?.id || 0, entryId: e.entryId, location: locationMap.get(e.locationId || 0) || "Unassigned", salesman: d?.salesman || "Unallocated", documentType: d?.type || "Manual journal", income: incomeTypes.has(a.type) ? round(e.credit - e.debit) : 0, cost: a.type === "Cost of Goods Sold" ? round(e.debit - e.credit) : 0, expenses: ["Expense", "Other Expense"].includes(a.type) ? round(e.debit - e.credit) : 0, amount: round(incomeTypes.has(a.type) ? e.credit - e.debit : e.debit - e.credit) };
+    return { date: e.date, reference: e.reference, description: e.description, account: e.account, accountId: a.id, code: a.code, type: a.type, transactionId: d?.id || 0, entryId: e.entryId, locationId: e.locationId || 0, location: locationMap.get(e.locationId || 0) || "Unassigned", salesman: d?.salesman || "Unallocated", documentType: d?.type || "Manual journal", income: incomeTypes.has(a.type) ? round(e.credit - e.debit) : 0, cost: a.type === "Cost of Goods Sold" ? round(e.debit - e.credit) : 0, expenses: ["Expense", "Other Expense"].includes(a.type) ? round(e.debit - e.credit) : 0, amount: round(incomeTypes.has(a.type) ? e.credit - e.debit : e.debit - e.credit) };
   });
   const summary = details.reduce<PnlReport["summary"]>((s, r) => ({ income: round(s.income + Number(r.income)), expenses: round(s.expenses + Number(r.cost) + Number(r.expenses)), netIncome: round(s.netIncome + Number(r.income) - Number(r.cost) - Number(r.expenses)) }), { income: 0, expenses: 0, netIncome: 0 });
   const report: PnlReport = { key, companyId, title: "Profit & Loss Standard", generatedAt: new Date().toISOString(), currency, description: "Accrual basis · Posted journal entries · Home currency · VAT excluded from income and costs. Account links open ledger history; references open source documents. Unmatched accounts require review before relying on net profit.", columns: [{ key: "name", label: "Account" }, money("amount", "Amount")], rows: [], pnl: { from, to, location: locationId ? locationMap.get(locationId) || "Selected inventory" : "All inventories", canViewAccounts, warnings: [], details }, summary };
@@ -110,12 +110,17 @@ export async function profitLoss(companyId: number, locationId: number, currency
     const byItem = key === "profit-loss-item";
     report.title = { "profit-loss-item": "Profit & Loss by Item", "profit-loss-rep": "Profit & Loss by Sales Rep", "profit-loss-job": "Profit & Loss by Job / Inventory", "profit-loss-class": "Profit & Loss by Class" }[key]!;
     report.description += " Purchase cost / cost of sales is the recorded COGS for goods sold, not all supplier purchases. Item income is allocated by saved line sales value and COGS by saved quantity × unit cost. Unattributable postings and operating expenses remain Unallocated; credits affect costs only when a cost reversal was posted. Rep is taken from the saved source document.";
-    const grouped = new Map<string, { name: string; income: number; cost: number; expenses: number }>();
-    const add = (id: string, name: string, field: "income" | "cost" | "expenses", amount: number) => { const r = grouped.get(id) || { name, income: 0, cost: 0, expenses: 0 }; r[field] = round(r[field] + amount); grouped.set(id, r); };
+    const grouped = new Map<string, { name: string; income: number; cost: number; expenses: number; itemId?: number; sku?: string; locationId?: number; linkArea?: string }>();
+    const add = (id: string, name: string, field: "income" | "cost" | "expenses", amount: number, link?: { itemId?: number; sku?: string; locationId?: number; linkArea?: string }) => { const r = grouped.get(id) || { name, income: 0, cost: 0, expenses: 0, ...link }; r[field] = round(r[field] + amount); grouped.set(id, r); };
     for (const entry of details) {
       for (const field of ["income", "cost", "expenses"] as const) {
         const value = Number(entry[field]); if (!value) continue;
-        if (!byItem) { const name = String(key === "profit-loss-rep" ? entry.salesman : key === "profit-loss-job" ? entry.location : entry.documentType); add(name, name, field, value); continue; }
+        if (!byItem) {
+          const name = String(key === "profit-loss-rep" ? entry.salesman : key === "profit-loss-job" ? entry.location : entry.documentType);
+          const linkArea = key === "profit-loss-rep" ? "sales" : key === "profit-loss-job" ? "inventory" : ["invoice", "sales receipt", "credit memo", "statement charge", "finance charge"].includes(name) ? "sales" : ["bill", "received item bill", "purchase order", "item receipt", "vendor credit", "bill payment"].includes(name) ? "purchases" : "journal-entries";
+          add(name, name, field, value, { locationId: key === "profit-loss-job" ? Number(entry.locationId) : undefined, linkArea });
+          continue;
+        }
         const source = docLines.get(Number(entry.transactionId)) || [];
         const weights = source.map(l => field === "income" ? Math.abs(l.subtotal) : field === "cost" ? Math.abs(l.quantity * l.unitCost) : 0);
         const total = weights.reduce((n, w) => n + w, 0);
@@ -125,7 +130,7 @@ export async function profitLoss(companyId: number, locationId: number, currency
           weightSoFar += weights[i]; const next = round(value * weightSoFar / total); const portion = round(next - allocated); allocated = next;
           if (!weights[i]) return;
           const item = itemMap.get(l.itemId || 0);
-          add(item ? `item:${item.id}` : "unallocated", item ? `${item.sku} · ${item.name}` : "Unallocated", field, portion);
+          add(item ? `item:${item.id}` : "unallocated", item ? `${item.sku} · ${item.name}` : "Unallocated", field, portion, item ? { itemId: item.id, sku: item.sku, linkArea: "inventory" } : undefined);
         });
       }
     }
