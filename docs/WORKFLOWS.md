@@ -104,7 +104,7 @@ Open a saved transaction to choose its supported output: tax/commercial invoice,
 ### Bills and vendor payments
 
 1. Enter a bill or expense in the vendor currency and inventory context. Bills default the posting-account dropdown to the selected vendor’s linked Accounts Payable account in that currency; purchase orders use the same vendor-currency default.
-2. The posting creates payable/expense or inventory/VAT journal effects and stock additions where relevant.
+2. The posting creates payable/expense or inventory/VAT journal effects and stock additions where relevant. Stock received through Enter Bill appears in Inventory Overview → New Arrival for 12 hours from saving, regardless of the bill’s business date. View opens the original bill in its company/inventory context. Editing the bill preserves its original creation timestamp; cancelling or deleting it removes it from subsequent overview loads.
 3. The unpaid-bills view calculates remaining balance from direct and multi-bill allocations.
 4. A bill payment or supplier cheque can allocate one payment to multiple bills through `bill_payment_allocations`.
 5. Saving updates the vendor balance and each bill’s payment status.
