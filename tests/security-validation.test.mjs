@@ -445,6 +445,18 @@ test("Customization Details has a dedicated role, secure writes, centered summar
   assert.match(migration, /customization_details/);
 });
 
+test("Inventory Overview exposes read-only customization popups and received age to every inventory reader", () => {
+  const page = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
+  const api = readFileSync(new URL("../app/api/inventory-overview/route.ts", import.meta.url), "utf8");
+  assert.match(page, /Product Customization Details/);
+  assert.match(page, /View product customization details/);
+  assert.match(page, /Received \$\{days\}/);
+  assert.match(page, /Details for users/);
+  assert.match(api, /requireApiUser\(request, "inventory:read"\)/);
+  assert.match(api, /latestReceivedAt/);
+  assert.match(api, /movement\.quantity > 0/);
+});
+
 test("all 2 Banking reports have professional summaries, one export control, A4 output, document and account links, and movable stamps", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const api = readFileSync(new URL("../app/api/reports/route.ts", import.meta.url), "utf8");
