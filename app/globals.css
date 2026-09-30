@@ -989,6 +989,19 @@ button, input, select { font: inherit; }
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
 
+/* Printed business documents stay paper-white even when the application uses
+   dark mode. These explicit colors are also used by the PDF canvas fallback. */
+.rcm-page,
+[data-appearance="dark"] .rcm-page { background-color: #fff !important; color: #020617 !important; color-scheme: light; }
+.rcm-page :is(.text-slate-800, .text-slate-900, .text-slate-950),
+[data-appearance="dark"] .rcm-page :is(.text-slate-800, .text-slate-900, .text-slate-950) { color: #020617 !important; }
+.rcm-page :is(.text-slate-500, .text-slate-600, .text-slate-700),
+[data-appearance="dark"] .rcm-page :is(.text-slate-500, .text-slate-600, .text-slate-700) { color: #334155 !important; }
+.rcm-page .bg-slate-100,
+[data-appearance="dark"] .rcm-page .bg-slate-100 { background-color: #f1f5f9 !important; }
+.rcm-page :is(.border-slate-400, .border-slate-500),
+[data-appearance="dark"] .rcm-page :is(.border-slate-400, .border-slate-500) { border-color: #64748b !important; }
+
 /* Printing defaults to A4 portrait. Packing Lists provide their own landscape-first rule. */
 @page { size: A4 portrait; margin: 10mm; }
 @page report-portrait { size: A4 portrait; margin: 10mm; }

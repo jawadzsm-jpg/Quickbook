@@ -262,7 +262,10 @@ export async function createA4LetterheadPdfBlob(element: HTMLElement, title: str
     const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import("html2canvas"), import("jspdf")]);
     const canvas = await html2canvas(element, {
       backgroundColor: "#ffffff", scale: 2, useCORS: true, logging: false,
-      onclone: (document) => document.querySelectorAll(".letterhead-drag-handle").forEach((handle) => handle.remove()),
+      onclone: (document) => {
+        document.querySelectorAll(".letterhead-drag-handle").forEach((handle) => handle.remove());
+        document.querySelectorAll('[data-appearance="dark"]').forEach((node) => node.removeAttribute("data-appearance"));
+      },
     });
     if (!canvas.width || !canvas.height) throw new Error("The document could not be captured.");
     const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
