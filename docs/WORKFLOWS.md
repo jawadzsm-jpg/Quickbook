@@ -170,10 +170,11 @@ Deposits, cheques, credit-card charges, account transfers, cheque orders, and op
 ### VAT
 
 1. VAT codes drive transaction line tax calculations.
-2. The VAT center loads a company-wide period, independent of selected inventory.
-3. Accounting users review output/input tax, reverse charge, exceptions, and unassigned activity.
-4. Authorized users add adjustments and record VAT return/filing data.
-5. VAT reports and the Report Center read the same posted transaction and journal sources.
+2. Selecting `Goods imported into the UAE` on a supplier bill requires a Bill of Entry No. and Airway Bill No.; supporting customs files can be attached to the same bill.
+3. The VAT center loads a company-wide period, independent of selected inventory.
+4. Accounting users review output/input tax, reverse charge, exceptions, and unassigned activity.
+5. Authorized users add adjustments and record VAT return/filing data.
+6. VAT reports and the Report Center read the same posted transaction and journal sources.
 
 ## 8. Warranty and packing workflows
 

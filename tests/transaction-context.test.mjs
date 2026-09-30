@@ -1110,6 +1110,17 @@ test('vendor purchase orders resolve the payable account in their currency', asy
     { account_name: 'Cost of Goods Sold', debit: 427, credit: 0 },
     { account_name: account.name, debit: 0, credit: 427 },
   ]);
+
+  const importLine = [{ description: 'Imported laptop', quantity: 1, unitPrice: 200, unitCost: 200, vatCode: 'IMPORT_GOODS' }];
+  const missingImportReferences = await post({ kind: 'transactions', companyId, locationId, type: 'bill', party: 'EUR Supplier', currency: 'EUR', exchangeRate: 4.27, transactionDate: '2026-09-29', number: 'BILL-IMPORT-MISSING', account: account.name, lines: importLine });
+  assert.equal(missingImportReferences.status, 400);
+  assert.match((await missingImportReferences.json()).error, /Bill of Entry No\. and Airway Bill No\./);
+  const imported = await post({ kind: 'transactions', companyId, locationId, type: 'bill', party: 'EUR Supplier', currency: 'EUR', exchangeRate: 4.27, transactionDate: '2026-09-29', number: 'BILL-IMPORT', account: account.name, billOfEntryNumber: 'BOE-2026-001', airwayBillNumber: 'AWB-2026-009', lines: importLine });
+  assert.equal(imported.status, 201, JSON.stringify(await imported.clone().json()));
+  const importedRecord = (await imported.json()).record;
+  assert.equal(importedRecord.isImport, true);
+  assert.equal(importedRecord.billOfEntryNumber, 'BOE-2026-001');
+  assert.equal(importedRecord.airwayBillNumber, 'AWB-2026-009');
 });
 
 test('partial PO receipts retain remaining quantities, block overreceipt and reverse safely', async () => {

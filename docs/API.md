@@ -101,7 +101,7 @@ Selected GET `kind` values beyond the four main record types are:
 | `/api/reports` | `GET` | Usually `reports:read`; selected customer/vendor reports also allow their operational permissions; HR requires Administrator | Generate one of 120 report models. Main inputs: `type`, `companyId`, optional `locationId`, `periodStart`, `periodEnd`, `currency`, `supplierId`, statement fields. |
 | `/api/memorised-reports` | `GET`, `POST`, `DELETE` | `reports:read`; writes same-origin | List, save/update, or delete user-owned report configurations by company and report key. |
 | `/api/vat-management` | `GET`, `POST` | `reports:read` for review; `accounting:manage` for changes | Review company-wide VAT by period; create adjustments and VAT return/filing records. |
-| `/api/vat-codes` | `GET`, `POST`, `PATCH` | `workspace:read` for GET; Administrator for writes | List and manage company VAT codes and rates. |
+| `/api/vat-codes` | `GET`, `POST`, `PATCH` | `workspace:read` for GET; Administrator for writes | List and manage company VAT codes and rates, including the protected `IMPORT_GOODS` UAE import code. |
 | `/api/exchange-rates` | `GET`, `POST`, `PATCH` | `workspace:read` for GET; Administrator for writes | List and manage company currency rates and active status. |
 
 ## Report request notes

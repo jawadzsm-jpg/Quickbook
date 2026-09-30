@@ -1,6 +1,7 @@
 "use client";
 
 import { DocumentExtraFields, type DocumentExtra } from "./document-extra-fields";
+import { InvoiceAttachments } from "./invoice-attachments";
 import { useEffect, useState } from "react";
 import { useSkuLock, SkuLockNotice } from "./use-sku-lock";
 import { Button } from "@/components/ui/button";
@@ -8,7 +9,8 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Save } from "lucide-react";
 
-type ReceiptLine = { id: number; description: string; quantity: number; received: number; remaining: number; unitPrice: number; vatRate: number };
+type ReceiptLine = { id: number; description: string; quantity: number; received: number; remaining: number; unitPrice: number; vatCode: string; vatRate: number };
+type PendingFile = { fileName: string; mimeType: string; fileData: string; fileSize: number };
 export function PurchaseOrderReceiving({ orderId, companyId, onSaved, documentType = "item receipt", account }: { orderId: number; companyId: number; onSaved: () => void; documentType?: "item receipt" | "bill"; account?: string }) {
   const [data, setData] = useState<{ order: { locationId: number; number: string; status: string; currency: string; memo: string | null }; lines: ReceiptLine[]; locations: { id: number; name: string }[] }>();
   const [activeLines, setActiveLines] = useState<number[]>([]);
@@ -18,6 +20,9 @@ export function PurchaseOrderReceiving({ orderId, companyId, onSaved, documentTy
   const [memo, setMemo] = useState("");
   const [lineExtras, setLineExtras] = useState<Record<number, DocumentExtra>>({});
   const [extra, setExtra] = useState({ comments: "", serialNumber: "" });
+  const [billOfEntryNumber, setBillOfEntryNumber] = useState("");
+  const [airwayBillNumber, setAirwayBillNumber] = useState("");
+  const [attachments, setAttachments] = useState<PendingFile[]>([]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   useEffect(() => {
@@ -31,6 +36,7 @@ export function PurchaseOrderReceiving({ orderId, companyId, onSaved, documentTy
     return () => controller.abort();
   }, [companyId, orderId]);
   const skuLock = useSkuLock(data ? { resource: "records", kind: "transactions", companyId, locationId: locationId, purchaseOrderId: orderId, lines: data.lines.filter((line) => Number(quantities[line.id]) > 0 || activeLines.includes(line.id)).map((line) => ({ orderLineId: line.id })) } : null);
+  const usesImportGoodsVat = documentType === "bill" && Boolean(data?.lines.some((line) => line.vatCode === "IMPORT_GOODS" && Number(quantities[line.id]) > 0));
   async function save(event: React.FormEvent) {
     event.preventDefault();
     if (!skuLock.ready) return;
@@ -38,15 +44,25 @@ export function PurchaseOrderReceiving({ orderId, companyId, onSaved, documentTy
     if (!data.locations.some((location) => location.id === locationId)) return setError("Select a receiving inventory.");
     const lines = data.lines.filter((line) => Number(quantities[line.id]) > 0).map((line) => ({ orderLineId: line.id, quantity: Number(quantities[line.id]), ...(documentType === "bill" ? lineExtras[line.id] : {}) }));
     if (!lines.length) return setError("Enter the quantities received on at least one line.");
+    if (usesImportGoodsVat && (!billOfEntryNumber.trim() || !airwayBillNumber.trim())) return setError("Enter the Bill of Entry No. and Airway Bill No. for imported goods.");
     setSaving(true); setError("");
     try {
-      const response = await fetch("/api/records", { method: "POST", headers: { "Content-Type": "application/json", ...skuLock.headers }, body: JSON.stringify({ kind: "transactions", type: documentType, account, companyId, locationId, purchaseOrderId: orderId, transactionDate: date, memo, ...extra, lines }) });
+      const response = await fetch("/api/records", { method: "POST", headers: { "Content-Type": "application/json", ...skuLock.headers }, body: JSON.stringify({ kind: "transactions", type: documentType, account, companyId, locationId, purchaseOrderId: orderId, transactionDate: date, memo, ...extra, billOfEntryNumber, airwayBillNumber, lines }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Could not create item receipt.");
-      toast.success(`${documentType === "bill" ? "Bill" : "Item receipt"} saved. The PO keeps any remaining quantities.`);
+      let attachmentError = "";
+      if (usesImportGoodsVat && attachments.length) {
+        try {
+          const upload = await fetch("/api/attachments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, entityType: "transaction", entityId: result.record.id, attachments }) });
+          if (!upload.ok) attachmentError = (await upload.json()).error || "Upload failed.";
+        } catch (cause) { attachmentError = cause instanceof Error ? cause.message : "Upload failed."; }
+      }
+      if (attachmentError) toast.error(`Bill saved, but attachments failed: ${attachmentError} Open the bill to add them again.`);
+      else toast.success(`${documentType === "bill" ? "Bill" : "Item receipt"} saved. The PO keeps any remaining quantities.`);
       setActiveLines([]);
       setQuantities({});
       setLineExtras({});
+      setAttachments([]);
       onSaved();
     } catch (error) { setError(error instanceof Error ? error.message : "Could not create item receipt."); }
     finally { setSaving(false); }
@@ -63,6 +79,8 @@ export function PurchaseOrderReceiving({ orderId, companyId, onSaved, documentTy
       </div>
       <div className="overflow-auto"><table className="w-full table-fixed text-sm"><thead><tr className="border-b"><th className="w-1/2 p-2 text-left">Item</th><th>Ordered</th><th>Received</th><th>Remaining</th><th>Receive now</th></tr></thead><tbody>{data.lines.map((line) => <tr key={line.id} className="border-b"><td className="break-words p-2">{line.description}{documentType === "bill" && Number(quantities[line.id]) > 0 && <div className="mt-2"><DocumentExtraFields value={lineExtras[line.id] || { comments: "", serialNumber: "" }} onChange={value => setLineExtras(old => ({ ...old, [line.id]: value }))} disabled={saving} /></div>}</td><td className="p-2 text-right">{line.quantity}</td><td className="p-2 text-right">{line.received}</td><td className="p-2 text-right">{line.remaining}</td><td className="p-2"><Input aria-label={'Receive ' + line.description} type="number" min="0" max={line.remaining} step="any" disabled={skuLock.blocked || saving || line.remaining <= 0} onFocus={() => setActiveLines((old) => old.includes(line.id) ? old : [...old, line.id])} value={quantities[line.id] || ""} placeholder="0" onChange={(event) => setQuantities((old) => ({ ...old, [line.id]: event.target.value }))} /></td></tr>)}</tbody></table></div>
       {documentType === "bill" && <div className="rounded-md border p-3 text-sm"><p>Prices and VAT are taken from the purchase order.</p><p className="mt-2 font-bold">Bill total: {data.order.currency} {data.lines.reduce((sum, line) => sum + Number((Number(quantities[line.id] || 0) * line.unitPrice).toFixed(2)) + Number((Number((Number(quantities[line.id] || 0) * line.unitPrice).toFixed(2)) * line.vatRate / 100).toFixed(2)), 0).toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p></div>}
+      {usesImportGoodsVat && <section className="grid gap-4 rounded-xl border border-sky-200 bg-sky-50 p-4 sm:grid-cols-2 dark:border-sky-900 dark:bg-sky-950/30"><div className="sm:col-span-2"><h4 className="font-semibold">UAE import documents</h4><p className="mt-1 text-xs text-muted-foreground">These details stay linked to the bill created from this purchase order.</p></div><label className="grid gap-2 text-sm">Bill of Entry No.<Input required maxLength={120} value={billOfEntryNumber} onChange={(event) => setBillOfEntryNumber(event.target.value)} /></label><label className="grid gap-2 text-sm">Airway Bill No.<Input required maxLength={120} value={airwayBillNumber} onChange={(event) => setAirwayBillNumber(event.target.value)} /></label></section>}
+      {usesImportGoodsVat && <InvoiceAttachments companyId={companyId} pending={attachments} onPendingChange={setAttachments} documentLabel="Bill" />}
       {documentType === "bill" && <DocumentExtraFields value={extra} onChange={setExtra} disabled={saving} />}
       <label className="grid gap-2 text-sm">{documentType === "bill" ? "Additional bill notes" : "Receipt memo"}<Input disabled={saving} value={memo} onChange={(event) => setMemo(event.target.value)} /></label>
       {documentType === "bill" && <label className="grid gap-2 text-sm">Bill memo<textarea readOnly className="min-h-20 w-full rounded-md border bg-background p-3" value={[data.order.memo, memo, `Received from PO ${data.order.number}`].filter(Boolean).join(" · ")} /><span className="text-muted-foreground">The purchase order number is included automatically when you save.</span></label>}

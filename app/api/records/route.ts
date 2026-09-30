@@ -24,7 +24,7 @@ function errorMessage(error: unknown) {
 }
 
 const round = (value: number) => Math.round(value * 100) / 100;
-const fallbackVatRates: Record<string, number> = { STANDARD: 5, ZERO: 0, EXEMPT: 0, OUT_OF_SCOPE: 0 };
+const fallbackVatRates: Record<string, number> = { STANDARD: 5, ZERO: 0, EXEMPT: 0, REVERSE_CHARGE: 5, IMPORT_GOODS: 5, OUT_OF_SCOPE: 0 };
 const accountRoles = ["BANK", "AR", "AP", "INVENTORY", "INPUT_VAT", "OUTPUT_VAT", "EQUITY", "SALES", "OTHER_INCOME", "COGS", "PURCHASES", "EXPENSE", "PAYROLL", "SUSPENSE"];
 const accountTypeValues = new Set(["Income", "Expense", "Cost of Goods Sold", "Other Income", "Other Expense", "Fixed Asset", "Bank", "Loan", "Credit Card", "Equity", "Accounts Receivable", "Other Current Asset", "Other Asset", "Accounts Payable", "Other Current Liability", "Long Term Liability"]);
 const compatibleAccountTypes: Record<string, Set<string>> = {
@@ -819,6 +819,11 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     if (!party || !prepared.length || prepared.some((line) => !Number.isFinite(line.quantity) || line.quantity <= 0 || !Number.isFinite(line.unitPrice) || line.unitPrice < 0)) {
       return Response.json({ error: "Party and at least one valid document line are required." }, { status: 400 });
     }
+    const usesImportGoodsVat = prepared.some((line) => line.vatCode === "IMPORT_GOODS");
+    if (usesImportGoodsVat && !["bill", "purchase order"].includes(type)) return Response.json({ error: "Goods imported into the UAE VAT can only be used on purchase orders and supplier bills." }, { status: 400 });
+    const billOfEntryNumber = String(payload.billOfEntryNumber ?? "").trim().slice(0, 120);
+    const airwayBillNumber = String(payload.airwayBillNumber ?? "").trim().slice(0, 120);
+    if (usesImportGoodsVat && type === "bill" && (!billOfEntryNumber || !airwayBillNumber)) return Response.json({ error: "Enter the Bill of Entry No. and Airway Bill No. for imported goods." }, { status: 400 });
     if (prepared.some((line) => line.itemId !== null && (!Number.isInteger(line.itemId) || line.itemId <= 0))) {
       return Response.json({ error: "Select a valid inventory item on every stock line." }, { status: 400 });
     }
@@ -986,7 +991,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     }
     const values = {
       companyId, locationId: Number.isInteger(locationId) ? locationId : null, number, type, party, billId, invoiceId, purchaseOrderId, salesSourceId,
-      salesman: String(payload.salesman ?? ""), isImport: payload.isImport === true || String(payload.isImport) === "true",
+      salesman: String(payload.salesman ?? ""), isImport: payload.isImport === true || String(payload.isImport) === "true" || usesImportGoodsVat,
+      billOfEntryNumber: usesImportGoodsVat && type === "bill" ? billOfEntryNumber : "", airwayBillNumber: usesImportGoodsVat && type === "bill" ? airwayBillNumber : "",
       transactionDate, dueDate: String(payload.dueDate ?? ""), terms,
       chequeBankKey,
       account: String(payload.account ?? "Accounts Receivable"), status: ["customer payment", "cheque", "transfer"].includes(type) && total > 0 ? "paid" : String(payload.status ?? "open"), ...(["customer payment", "cheque", "transfer"].includes(type) && total > 0 ? { paidAt: new Date().toISOString() } : {}), memo: String(payload.memo ?? ""), comments, serialNumber,

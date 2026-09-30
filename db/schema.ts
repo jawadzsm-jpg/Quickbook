@@ -265,6 +265,8 @@ export const transactions = pgTable("transactions", {
   party: text("party").notNull(),
   salesman: text("salesman").notNull().default(""),
   isImport: boolean("is_import").notNull().default(false),
+  billOfEntryNumber: text("bill_of_entry_number").notNull().default(""),
+  airwayBillNumber: text("airway_bill_number").notNull().default(""),
   transactionDate: text("transaction_date").notNull(),
   dueDate: text("due_date").notNull().default(""),
   terms: text("terms").notNull().default(""),

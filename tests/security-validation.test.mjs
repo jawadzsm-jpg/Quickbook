@@ -224,6 +224,24 @@ test("VAT codes restore UAE defaults and support edit, safe delete, linked docum
   assert.match(migration, /REVERSE_CHARGE/);
 });
 
+test("UAE imported-goods VAT requires customs references and keeps them on the supplier bill", () => {
+  const api = readFileSync(new URL("../app/api/records/route.ts", import.meta.url), "utf8");
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const template = readFileSync(new URL("../app/custom-invoice-template.tsx", import.meta.url), "utf8");
+  const defaults = readFileSync(new URL("../lib/standard-vat-codes.ts", import.meta.url), "utf8");
+  const migration = readFileSync(new URL("../drizzle/0068_uae_import_goods_documents.sql", import.meta.url), "utf8");
+  assert.match(defaults, /IMPORT_GOODS[\s\S]*Goods imported into the UAE/);
+  assert.match(api, /usesImportGoodsVat[\s\S]*"bill", "purchase order"/);
+  assert.match(api, /Bill of Entry No\. and Airway Bill No\./);
+  assert.match(app, /name="billOfEntryNumber"/);
+  assert.match(app, /name="airwayBillNumber"/);
+  assert.match(app, /usesImportGoodsVat[\s\S]*documentLabel=\{form\.type === "bill" \? "Bill" : "Invoice"\}/);
+  assert.match(template, /Bill of Entry No\./);
+  assert.match(template, /Airway Bill No\./);
+  assert.match(migration, /bill_of_entry_number/);
+  assert.match(migration, /airway_bill_number/);
+});
+
 test("memorised reports live in Report Center categories with selectable A4 print and PDF actions", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
