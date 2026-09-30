@@ -848,7 +848,7 @@ test('product customization details fall back to item specifications and save li
 test('inventory overview activity links incoming, 12-hour bill arrivals, price changes, and sold sales reps', async () => {
   const company = (await database.query("INSERT INTO companies (name,base_currency) VALUES ('Inventory activity company','AED') RETURNING id")).rows[0].id;
   const location = (await database.query("INSERT INTO inventory_locations (company_id,code,name,invoice_prefix) VALUES ($1,'ACT','Activity store','ACT') RETURNING id", [company])).rows[0].id;
-  const item = (await database.query("INSERT INTO items (company_id,location_id,item_number,sku,name,quantity,sales_price) VALUES ($1,$2,'ACT-100','ACT-SKU','Activity laptop',8,1250) RETURNING id", [company, location])).rows[0].id;
+  const item = (await database.query("INSERT INTO items (company_id,location_id,item_number,sku,name,quantity,sales_price,customization_ram,customization_storage,part_number,customization_details) VALUES ($1,$2,'ACT-100','ACT-SKU','Activity laptop',8,1250,'16GB','1TB SSD','ACT-PN','Upgrade-ready') RETURNING id", [company, location])).rows[0].id;
   const purchaseOrder = (await database.query("INSERT INTO transactions (company_id,location_id,number,type,party,salesman,transaction_date,status) VALUES ($1,$2,'PO-ACT-1','purchase order','Activity supplier','Buyer one','2026-09-29','open') RETURNING id", [company, location])).rows[0].id;
   const purchaseLine = (await database.query("INSERT INTO transaction_lines (transaction_id,item_id,description,quantity,unit_price) VALUES ($1,$2,'Activity laptop',10,900) RETURNING id", [purchaseOrder, item])).rows[0].id;
   const receipt = (await database.query("INSERT INTO transactions (company_id,location_id,number,type,party,transaction_date,status) VALUES ($1,$2,'BILL-ACT-1','bill','Activity supplier','2026-09-29','open') RETURNING id", [company, location])).rows[0].id;
@@ -867,6 +867,9 @@ test('inventory overview activity links incoming, 12-hour bill arrivals, price c
     const response = await GET(new Request('https://app.test/api/inventory-overview'));
     assert.equal(response.status, 200);
     const data = await response.json();
+    const overviewRecord = data.records.find(row => row.id === item);
+    assert.deepEqual([overviewRecord.customizationRam, overviewRecord.customizationStorage, overviewRecord.partNumber, overviewRecord.customizationDetails], ['16GB', '1TB SSD', 'ACT-PN', 'Upgrade-ready']);
+    assert.ok(Number.isFinite(new Date(overviewRecord.latestReceivedAt).getTime()));
     const incoming = data.activity.incoming.find(row => row.itemId === item);
     assert.equal(incoming.quantity, 7);
     assert.equal(incoming.documentType, 'purchase order'); assert.equal(incoming.documentStatus, 'open');

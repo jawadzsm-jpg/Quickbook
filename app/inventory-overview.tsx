@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, BadgeDollarSign, Boxes, Download, Eye, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PlaneLanding, RefreshCw, Rocket, Search, Send, ShoppingCart, UserRound, Warehouse } from "lucide-react";
+import { AlertTriangle, BadgeDollarSign, Boxes, Download, Eye, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PackageOpen, PlaneLanding, RefreshCw, Rocket, Search, Send, ShoppingCart, UserRound, Warehouse } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -24,6 +25,13 @@ type OverviewItem = {
   salesPrice: number;
   status: string;
   createdAt: string;
+  customizationRam: string;
+  customizationStorage: string;
+  partNumber: string;
+  itemSerialNumber: string;
+  upcNumber: string;
+  customizationDetails: string;
+  latestReceivedAt: string | null;
   companyId: number;
   companyName: string;
   currency: string;
@@ -103,6 +111,22 @@ function activityDate(value: string) {
   return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("en-AE", { day: "2-digit", month: "short", year: "numeric" }).format(date);
 }
 
+function receivedAge(value: string | null) {
+  if (!value) return "Receipt date unavailable";
+  const received = new Date(value);
+  if (Number.isNaN(received.getTime())) return "Receipt date unavailable";
+  const days = Math.max(0, Math.floor((Date.now() - received.getTime()) / 86_400_000));
+  return days === 0 ? "Received today" : `Received ${days} ${days === 1 ? "day" : "days"} ago`;
+}
+
+function specificationValue(record: OverviewItem, labels: string[]) {
+  try {
+    const wanted = new Set(labels.map((label) => label.toLowerCase()));
+    const parsed = JSON.parse(record.specifications) as Array<{ label?: string; value?: string }>;
+    return parsed.find((entry) => wanted.has(String(entry.label ?? "").trim().toLowerCase()))?.value?.trim() ?? "";
+  } catch { return ""; }
+}
+
 export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocument?: (id: number) => void; onOpenItem?: (id: number) => void } = {}) {
   const [records, setRecords] = useState<OverviewItem[]>([]);
   const [activity, setActivity] = useState<InventoryActivity>(emptyActivity);
@@ -115,6 +139,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   const [showQuantity, setShowQuantity] = useState(true);
   const [showPrice, setShowPrice] = useState(true);
   const [includeVat, setIncludeVat] = useState(false);
+  const [detailRecord, setDetailRecord] = useState<ConsolidatedItem | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -179,6 +204,10 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
         existing.reorderPoint += Number(record.reorderPoint);
         existing.inventories.push(inventory);
         existing.recordIds.push(record.id);
+        if (new Date(record.latestReceivedAt ?? 0).getTime() > new Date(existing.latestReceivedAt ?? 0).getTime()) existing.latestReceivedAt = record.latestReceivedAt;
+        for (const field of ["customizationRam", "customizationStorage", "partNumber", "itemSerialNumber", "upcNumber", "customizationDetails"] as const) {
+          if (!existing[field] && record[field]) existing[field] = record[field];
+        }
       } else {
         grouped.set(key, {
           ...record,
@@ -433,7 +462,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
                 const description = inventoryItemDetails(specificationText(record), record.itemNumber);
                 return <TableRow key={record.id} data-state={selectedIds.has(record.id) ? "selected" : undefined} className="align-top data-[state=selected]:bg-sky-50 hover:bg-slate-50/80">
                   <TableCell className="py-5"><span className="inline-flex rounded-lg border bg-white p-1.5"><Checkbox disabled={!canSelectItems || loading} aria-label={`Select ${record.name}`} checked={selectedIds.has(record.id)} onCheckedChange={(checked) => toggleSelected(record.id, checked === true)} /></span></TableCell>
-                  <TableCell className="min-w-0 py-4"><div className="flex flex-wrap items-center gap-2"><span className="break-words text-base font-bold text-blue-700 underline decoration-blue-300 underline-offset-2">{inventoryItemTitle(record.name)}</span>{out ? <Badge className="bg-rose-500 text-white hover:bg-rose-500">Out of stock</Badge> : low ? <Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">Low stock</Badge> : null}<TooltipProvider>{record.inventories.map((inventory) => <Tooltip key={inventory.locationId}><TooltipTrigger asChild><Badge tabIndex={0} variant="outline" className="max-w-full cursor-help whitespace-normal border-sky-200 bg-sky-50 text-sky-800"><Warehouse className="mr-1 size-3 shrink-0" />{inventory.locationName}{inventory.locationCode ? ` · ${inventory.locationCode}` : ""}</Badge></TooltipTrigger><TooltipContent sideOffset={6}>Qty: {Number(inventory.quantity).toLocaleString()}</TooltipContent></Tooltip>)}</TooltipProvider></div>{description && <p className="mt-2 whitespace-normal break-words text-sm font-medium leading-5 text-slate-700">{description}</p>}</TableCell>
+                  <TableCell className="min-w-0 py-4"><div className="flex flex-wrap items-center gap-2"><span className="break-words text-base font-bold text-blue-700 underline decoration-blue-300 underline-offset-2">{inventoryItemTitle(record.name)}</span>{out ? <Badge className="bg-rose-500 text-white hover:bg-rose-500">Out of stock</Badge> : low ? <Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">Low stock</Badge> : null}<TooltipProvider>{record.inventories.map((inventory) => <Tooltip key={inventory.locationId}><TooltipTrigger asChild><Badge tabIndex={0} variant="outline" className="max-w-full cursor-help whitespace-normal border-sky-200 bg-sky-50 text-sky-800"><Warehouse className="mr-1 size-3 shrink-0" />{inventory.locationName}{inventory.locationCode ? ` · ${inventory.locationCode}` : ""}</Badge></TooltipTrigger><TooltipContent sideOffset={6}>Qty: {Number(inventory.quantity).toLocaleString()}</TooltipContent></Tooltip>)}</TooltipProvider></div>{description && <p className="mt-2 whitespace-normal break-words text-sm font-medium leading-5 text-slate-700">{description}</p>}<div className="mt-3 flex flex-wrap items-center gap-2"><Button type="button" size="sm" variant="outline" onClick={() => setDetailRecord(record)} aria-label={`View product customization details for ${record.name}`}><PackageOpen className="size-4" />Customization Details</Button><Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">{receivedAge(record.latestReceivedAt)}</Badge></div></TableCell>
                   {showQuantity && <TableCell className={`py-4 text-right text-base font-black ${out ? "text-rose-600" : low ? "text-amber-600" : "text-slate-900"}`}>{Number(record.quantity).toLocaleString()}</TableCell>}
                   {showPrice && <TableCell className="py-4 text-right text-base font-black text-rose-600">{money(Number(record.salesPrice) * (includeVat ? 1.05 : 1), record.currency)}{includeVat && <span className="mt-1 block text-[11px] font-semibold text-emerald-600">VAT included</span>}</TableCell>}
                 </TableRow>;
@@ -444,5 +473,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-slate-50 px-4 py-3 text-xs text-slate-500"><span>Showing {filtered.length} products</span><span>{totals.healthy} healthy · {totals.low} low stock</span></div>
     </section>
+
+    <Dialog open={Boolean(detailRecord)} onOpenChange={(open) => { if (!open) setDetailRecord(null); }}><DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl"><DialogHeader><DialogTitle>Product Customization Details</DialogTitle><DialogDescription>{detailRecord ? `${detailRecord.name} · SKU ${detailRecord.sku} · Item #${detailRecord.itemNumber || "—"}` : "Product details"}</DialogDescription></DialogHeader>{detailRecord ? <div className="space-y-5"><div className="flex flex-wrap items-center gap-2"><Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">{receivedAge(detailRecord.latestReceivedAt)}</Badge>{detailRecord.inventories.map((inventory) => <Badge key={inventory.locationId} variant="outline">{inventory.locationName} · Qty {Number(inventory.quantity).toLocaleString()}</Badge>)}</div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{[["RAM", detailRecord.customizationRam || specificationValue(detailRecord, ["RAM", "Memory"])], ["Storage", detailRecord.customizationStorage || specificationValue(detailRecord, ["Storage", "SSD", "Hard Drive"])], ["Part Number", detailRecord.partNumber || specificationValue(detailRecord, ["Part Number", "MPN"])], ["Serial", detailRecord.itemSerialNumber], ["UPC No.", detailRecord.upcNumber], ["Quantity on hand", Number(detailRecord.quantity).toLocaleString()]].map(([label, value]) => <div key={label} className="rounded-lg border bg-muted/20 p-3"><span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{label}</span><p className="mt-1 break-words font-semibold">{value || "Not entered"}</p></div>)}</div><div className="rounded-lg border p-4"><h4 className="font-semibold">Full product specifications</h4><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">{specificationText(detailRecord) || "No specifications entered."}</p></div><div className="rounded-lg border p-4"><h4 className="font-semibold">Details for users</h4><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">{detailRecord.customizationDetails || "No customization details entered."}</p></div></div> : null}</DialogContent></Dialog>
   </div>;
 }

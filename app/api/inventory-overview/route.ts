@@ -25,6 +25,20 @@ export async function GET(request: Request) {
       salesPrice: items.salesPrice,
       status: items.status,
       createdAt: items.createdAt,
+      customizationRam: items.customizationRam,
+      customizationStorage: items.customizationStorage,
+      partNumber: items.partNumber,
+      itemSerialNumber: items.itemSerialNumber,
+      upcNumber: items.upcNumber,
+      customizationDetails: items.customizationDetails,
+      latestReceivedAt: sql<string | null>`COALESCE((
+        SELECT MAX(receipt.created_at)
+        FROM inventory_movements movement
+        JOIN transactions receipt ON receipt.id = movement.transaction_id
+        WHERE movement.item_id = ${items.id}
+          AND movement.quantity > 0
+          AND receipt.status <> 'cancelled'
+      ), ${items.createdAt})`,
       companyId: companies.id,
       companyName: companies.name,
       currency: companies.baseCurrency,
