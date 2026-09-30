@@ -268,15 +268,15 @@ test("vendor report library includes selected-vendor reports, native currencies,
   assert.match(pdf, /report currency/);
 });
 
-test("all 12 Profit & Loss reports share professional A4 output, movable stamps, and source-document links", () => {
+test("all 13 Profit & Loss reports share professional A4 output, movable stamps, and source-document links", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const api = readFileSync(new URL("../app/api/reports/route.ts", import.meta.url), "utf8");
   const pnlExport = readFileSync(new URL("../lib/pnl-export.ts", import.meta.url), "utf8");
   const sharedExport = readFileSync(new URL("../lib/report-export.ts", import.meta.url), "utf8");
   const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
   const definitions = [...app.matchAll(/\["[^"]+",\s*"[^"]+",\s*"Profit & Loss",\s*"([^"]+)"\]/g)].map((match) => match[1]);
-  assert.equal(definitions.length, 12);
-  assert.equal(new Set(definitions).size, 12);
+  assert.equal(definitions.length, 13);
+  assert.equal(new Set(definitions).size, 13);
   assert.match(app, /const profitLossReportKeys = new Set\(\[[^\]]+"item-profitability"\]\)/);
   assert.match(app, /const stampReport = [^;]+isProfitLossReport/);
   assert.match(app, /sourceTransactionId > 0[\s\S]*onOpenSource\(sourceTransactionId\)/);

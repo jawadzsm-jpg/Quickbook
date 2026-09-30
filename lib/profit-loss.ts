@@ -72,7 +72,24 @@ export async function profitLoss(companyId: number, locationId: number, currency
   });
   const summary = details.reduce<PnlReport["summary"]>((s, r) => ({ income: round(s.income + Number(r.income)), expenses: round(s.expenses + Number(r.cost) + Number(r.expenses)), netIncome: round(s.netIncome + Number(r.income) - Number(r.cost) - Number(r.expenses)) }), { income: 0, expenses: 0, netIncome: 0 });
   const report: PnlReport = { key, companyId, title: "Profit & Loss Standard", generatedAt: new Date().toISOString(), currency, description: "Accrual basis · Posted journal entries · Home currency · VAT excluded from income and costs. Account links open ledger history; references open source documents. Unmatched accounts require review before relying on net profit.", columns: [{ key: "name", label: "Account" }, money("amount", "Amount")], rows: [], pnl: { from, to, location: locationId ? locationMap.get(locationId) || "Selected inventory" : "All inventories", canViewAccounts, warnings: [], details }, summary };
-  if (key === "profit-loss-detail") {
+  if (key === "profit-loss-cost-of-goods") {
+    const costRows = details.filter(row => Number(row.cost) !== 0);
+    const cost = round(costRows.reduce((total, row) => total + Number(row.cost), 0));
+    report.title = "Cost of Goods Sold Detail";
+    report.description = "Accrual basis · Posted cost-of-sales entries only · Home currency · VAT excluded. References open the source invoice or sales receipt, account names open full ledger history, and inventory and sales-rep columns preserve the originating document context.";
+    report.rows = costRows;
+    report.columns = [
+      { key: "date", label: "Date" },
+      { key: "reference", label: "Source document" },
+      { key: "account", label: "COGS account" },
+      { key: "description", label: "Posting description" },
+      { key: "location", label: "Inventory" },
+      { key: "salesman", label: "Sales rep" },
+      money("cost", "Cost of goods sold"),
+    ];
+    report.summary = { income: summary.income, expenses: cost, netIncome: round(summary.income - cost) };
+    report.pnl.details = costRows;
+  } else if (key === "profit-loss-detail") {
     report.title = "Profit & Loss Detail"; report.rows = details;
     report.columns = [{ key: "date", label: "Date" }, { key: "reference", label: "Reference" }, { key: "account", label: "Account" }, { key: "type", label: "Classification" }, money("income", "Income"), money("cost", "Cost of sales"), money("expenses", "Other expenses")];
   } else if (key === "profit-loss-unclassified") {

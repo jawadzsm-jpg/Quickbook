@@ -820,6 +820,15 @@ test("P&L reports reconcile item, rep, inventory and class to posted ledger with
   assert.equal(byItem.rows.find(r => r.name.startsWith("PNL-B")).cost, 441);
   assert.equal(byItem.rows.find(r => r.name === "Unallocated").expenses, 100);
   assert.equal((await get("profit-loss-rep")).rows.find(r => r.name === "Rep A").income, 1052.5);
+  const cogs = await get("profit-loss-cost-of-goods");
+  assert.equal(cogs.title, "Cost of Goods Sold Detail");
+  assert.deepEqual(cogs.summary, { income: 1052.5, expenses: 661.5, netIncome: 391 });
+  assert.equal(cogs.rows.length, 1);
+  assert.equal(cogs.rows[0].cost, 661.5);
+  assert.equal(cogs.rows[0].transactionId, invoice.id);
+  assert.notEqual(cogs.rows[0].location, "Unassigned");
+  assert.equal(cogs.rows[0].salesman, "Rep A");
+  assert.ok(cogs.pnl.details.every(row => row.type === "Cost of Goods Sold"));
   assert.ok(standard.pnl.details.every(r => r.accountId > 0));
   assert.ok(standard.pnl.details.every(r => !["Business Bank","Accounts Receivable","Accounts Payable","Inventory Asset","Opening Balance Equity","VAT Payable"].includes(String(r.account))));
   assert.equal(standard.pnl.details.find(r => r.reference === "J-2026-09-10").transactionId, invoice.id);
