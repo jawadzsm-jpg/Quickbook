@@ -99,6 +99,7 @@ Open a saved transaction to choose its supported output: tax/commercial invoice,
 4. Save an item receipt or received-item bill.
 5. `purchase_receipt_allocations` records quantities against each order line.
 6. Inventory is increased; a bill also posts payable, inventory/expense, and input VAT effects.
+7. Inventory Overview → Incoming links each remaining quantity to its Purchase Order. It shows whether the PO is ready to convert to a Bill or has a partial linked Bill; converted and fully received POs leave Incoming.
 7. The purchase order becomes partially received or received based on cumulative allocations.
 
 ### Bills and vendor payments
