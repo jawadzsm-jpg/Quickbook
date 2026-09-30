@@ -9,6 +9,7 @@ export const letterheadDocuments = [
   ["ap-aging-summary", "A/P Aging Summary"],
   ["supplier-quickreport", "Supplier QuickReport"], ["supplier-open-balance", "Supplier Open Balance"],
   ["warranty-slip", "Warranty / RMA Slip"],
+  ["rcm-declaration", "RCM Declaration"],
 ] as const;
 export type LetterheadDocument = typeof letterheadDocuments[number][0];
 export type LetterheadTemplate = {

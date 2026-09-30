@@ -353,6 +353,21 @@ export const warrantySlips = pgTable("warranty_slips", {
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 }, (table) => [index("idx_warranty_slips_company_date").on(table.companyId, table.slipDate), index("idx_warranty_slips_customer").on(table.companyId, table.customerId), index("idx_warranty_slips_invoice").on(table.companyId, table.invoiceId), index("idx_warranty_slips_supplier").on(table.companyId, table.supplierId)]);
 
+export const rcmDeclarations = pgTable("rcm_declarations", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  number: text("number").notNull().default(""), declarationDate: text("declaration_date").notNull(), supplyDate: text("supply_date").notNull(),
+  validFrom: text("valid_from").notNull(), validUntil: text("valid_until").notNull(), recipientCompany: text("recipient_company").notNull(),
+  recipientLicense: text("recipient_license").notNull().default(""), recipientTrn: text("recipient_trn").notNull(), recipientAddress: text("recipient_address").notNull().default(""),
+  authorizedSignatory: text("authorized_signatory").notNull(), recipientContact: text("recipient_contact").notNull().default(""), recipientTelephone: text("recipient_telephone").notNull().default(""),
+  recipientEmail: text("recipient_email").notNull().default(""), footerAddress: text("footer_address").notNull().default(""), supplierCompany: text("supplier_company").notNull(),
+  supplierLicense: text("supplier_license").notNull().default(""), supplierTrn: text("supplier_trn").notNull(), supplierAddress: text("supplier_address").notNull().default(""),
+  supplierManager: text("supplier_manager").notNull().default(""), supplierContact: text("supplier_contact").notNull().default(""), acquisitionPurpose: text("acquisition_purpose").notNull().default("resale"),
+  showStamp: boolean("show_stamp").notNull().default(false), stampLeft: integer("stamp_left").notNull().default(155), stampTop: integer("stamp_top").notNull().default(230),
+  createdByUserId: integer("created_by_user_id").references(() => appUsers.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("idx_rcm_declarations_company_number").on(table.companyId, table.number), index("idx_rcm_declarations_company_date").on(table.companyId, table.declarationDate)]);
+
 export const inventoryMovements = pgTable("inventory_movements", {
   id: serial("id").primaryKey(),
   itemId: integer("item_id").notNull().references(() => items.id, { onDelete: "cascade" }),
