@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
-import { inventoryItemDetails, inventoryItemTitle, itemSpecificationDescription } from "@/lib/item-description";
+import { inventoryItemDetails, inventoryItemTitle, inventoryShareDescription, itemSpecificationDescription } from "@/lib/item-description";
 
 type OverviewItem = {
   id: number;
@@ -276,8 +276,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
         : channel === "telegram"
           ? `🔺 ***${itemTitle}*** 🔺`
           : `***${itemTitle}***`;
-      const lines = [title, inventoryItemDetails(specificationText(record), record.itemNumber)];
-      lines.push(`Inventory: ${record.inventories.map((inventory) => inventory.locationName).join(", ")}`);
+      const lines = [title, inventoryShareDescription(specificationText(record), record.itemNumber)];
       const details: string[] = [];
       if (showQuantity) {
         const quantity = plainMoney(Number(record.quantity));

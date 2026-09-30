@@ -26,6 +26,14 @@ export function inventoryItemDetails(description: unknown, itemNumber?: unknown)
   return [details, number ? `#${number}` : ""].filter(Boolean).join(" ");
 }
 
+export function inventoryShareDescription(description: unknown, itemNumber?: unknown) {
+  const number = capitalText(itemNumber).replace(/^#/, "");
+  const details = itemSpecificationDescription(description, undefined, undefined, number)
+    .replace(/\s*(?:\|\s*)?(?:ITEM\s*(?:NO\.?|NUMBER)\s*[:#]?\s*)?#\s*[\p{L}\p{N}-]+\s*$/iu, "")
+    .trim();
+  return descriptionParts(details).filter((part) => part !== "NO").join(" | ");
+}
+
 export function itemSpecificationDescription(value: unknown, name?: unknown, sku?: unknown, itemNumber?: unknown) {
   const code = comparableText(sku);
   const number = comparableText(itemNumber);
