@@ -1,5 +1,7 @@
 ALTER TABLE "transactions" ADD COLUMN IF NOT EXISTS "bill_of_entry_number" text DEFAULT '' NOT NULL;
+--> statement-breakpoint
 ALTER TABLE "transactions" ADD COLUMN IF NOT EXISTS "airway_bill_number" text DEFAULT '' NOT NULL;
+--> statement-breakpoint
 
 INSERT INTO "vat_codes" ("company_id", "code", "name", "rate", "description", "active", "system")
 SELECT company."id", 'IMPORT_GOODS', 'Goods imported into the UAE', 5::double precision,
