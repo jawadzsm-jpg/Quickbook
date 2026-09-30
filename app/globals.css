@@ -1001,6 +1001,35 @@ button, input, select { font: inherit; }
 [data-appearance="dark"] .rcm-page .bg-slate-100 { background-color: #f1f5f9 !important; }
 .rcm-page :is(.border-slate-400, .border-slate-500),
 [data-appearance="dark"] .rcm-page :is(.border-slate-400, .border-slate-500) { border-color: #64748b !important; }
+.rcm-page .rcm-company-name { overflow-wrap: anywhere; }
+.rcm-action { border-width: 1px !important; }
+.rcm-action-saved { border-color: #c4b5fd !important; background: #f5f3ff !important; color: #6d28d9 !important; }
+.rcm-action-new { border-color: #bae6fd !important; background: #f0f9ff !important; color: #0369a1 !important; }
+.rcm-action-save { border-color: #059669 !important; background: #059669 !important; color: #fff !important; }
+.rcm-action-drag { border-color: #fcd34d !important; background: #fffbeb !important; color: #a16207 !important; }
+.rcm-action-drag.is-active { border-color: #d97706 !important; background: #d97706 !important; color: #fff !important; box-shadow: 0 0 0 3px rgb(245 158 11 / 20%); }
+.rcm-action-print { border-color: #cbd5e1 !important; background: #f8fafc !important; color: #334155 !important; }
+.rcm-action-pdf { border-color: #93c5fd !important; background: #eff6ff !important; color: #1d4ed8 !important; }
+.rcm-drag-status { background: #fef3c7; color: #92400e; }
+.rcm-preview-shell.is-dragging .letterhead-stamp { outline: 2px dashed #f59e0b; outline-offset: 4px; border-radius: 5px; cursor: grab !important; }
+.rcm-preview-shell.is-dragging .letterhead-stamp:active { cursor: grabbing !important; }
+[data-appearance="dark"] .rcm-generator .rcm-panel { background: #101a2a !important; border-color: #334155 !important; }
+[data-appearance="dark"] .rcm-generator .rcm-preview-shell { background: #1e293b !important; border-color: #475569 !important; }
+[data-appearance="dark"] .rcm-action-saved { border-color: #6d28d9 !important; background: #2e1b4b !important; color: #ddd6fe !important; }
+[data-appearance="dark"] .rcm-action-new { border-color: #075985 !important; background: #10283a !important; color: #bae6fd !important; }
+[data-appearance="dark"] .rcm-action-save { border-color: #10b981 !important; background: #047857 !important; color: #fff !important; }
+[data-appearance="dark"] .rcm-action-drag { border-color: #92400e !important; background: #33260e !important; color: #fde68a !important; }
+[data-appearance="dark"] .rcm-action-drag.is-active { border-color: #f59e0b !important; background: #b45309 !important; color: #fff !important; }
+[data-appearance="dark"] .rcm-action-print { border-color: #475569 !important; background: #1e293b !important; color: #e2e8f0 !important; }
+[data-appearance="dark"] .rcm-action-pdf { border-color: #1d4ed8 !important; background: #172554 !important; color: #bfdbfe !important; }
+[data-appearance="dark"] .rcm-drag-status { background: #422006; color: #fde68a; }
+
+@media print {
+  .rcm-page header,
+  .rcm-page .letterhead-brand { display: block !important; }
+  .rcm-page .letterhead-brand > div:first-child { display: flex !important; }
+  .rcm-preview-shell.is-dragging .letterhead-stamp { outline: none !important; }
+}
 
 /* Printing defaults to A4 portrait. Packing Lists provide their own landscape-first rule. */
 @page { size: A4 portrait; margin: 10mm; }
