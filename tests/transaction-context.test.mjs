@@ -867,7 +867,11 @@ test('inventory overview activity links incoming, 12-hour bill arrivals, price c
     const response = await GET(new Request('https://app.test/api/inventory-overview'));
     assert.equal(response.status, 200);
     const data = await response.json();
-    assert.equal(data.activity.incoming.find(row => row.itemId === item).quantity, 7);
+    const incoming = data.activity.incoming.find(row => row.itemId === item);
+    assert.equal(incoming.quantity, 7);
+    assert.equal(incoming.documentType, 'purchase order'); assert.equal(incoming.documentStatus, 'open');
+    assert.equal(incoming.transactionId, purchaseOrder); assert.equal(incoming.documentNumber, 'PO-ACT-1');
+    assert.equal(incoming.linkedBillId, receipt); assert.equal(incoming.linkedBillNumber, 'BILL-ACT-1');
     const arrival = data.activity.launched.find(row => row.itemId === item);
     assert.equal(arrival.transactionId, receipt); assert.equal(arrival.documentNumber, 'BILL-ACT-1');
     assert.equal(arrival.quantity, 3); assert.equal(arrival.price, 900); assert.equal(arrival.party, 'Activity supplier');
@@ -877,6 +881,8 @@ test('inventory overview activity links incoming, 12-hour bill arrivals, price c
     assert.deepEqual(Object.fromEntries(Object.entries(itemPriceChanges[0]).filter(([key]) => ['previousPrice', 'currentPrice'].includes(key))), { previousPrice: 1250, currentPrice: 1300 });
     const sold = data.activity.sold.find(row => row.transactionId === invoice && row.itemId === item);
     assert.equal(sold.salesRep, 'Rep One'); assert.equal(sold.documentNumber, 'INV-ACT-1'); assert.equal(sold.companyId, company); assert.equal(sold.locationId, location);
+    await database.query("UPDATE transactions SET status='converted' WHERE id=$1", [purchaseOrder]);
+    assert.ok(!(await (await GET(new Request('https://app.test/api/inventory-overview'))).json()).activity.incoming.some(row => row.transactionId === purchaseOrder));
     // Business dates do not determine arrival age: use the actual bill-save timestamp.
     await database.query("UPDATE transactions SET created_at=now()-interval '11 hours 59 minutes',transaction_date='2020-01-01' WHERE id=$1", [receipt]);
     assert.ok((await (await GET(new Request('https://app.test/api/inventory-overview'))).json()).activity.launched.some(row => row.transactionId === receipt));

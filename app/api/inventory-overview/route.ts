@@ -50,6 +50,8 @@ export async function GET(request: Request) {
         SELECT po_line.id, po_line.item_id AS "itemId", purchase_order.id AS "transactionId",
           purchase_order.transaction_date AS date, purchase_order.number AS "documentNumber",
           purchase_order.party, purchase_order.salesman AS "salesRep",
+          purchase_order.type AS "documentType", purchase_order.status AS "documentStatus",
+          linked_bill.id AS "linkedBillId", linked_bill.number AS "linkedBillNumber",
           stock_item.sku, stock_item.item_number AS "itemNumber", stock_item.name AS "itemName",
           activity_company.id AS "companyId", inventory_location.id AS "locationId",
           activity_company.name AS "companyName", inventory_location.name AS "locationName",
@@ -62,9 +64,19 @@ export async function GET(request: Request) {
         JOIN companies activity_company ON activity_company.id = purchase_order.company_id
         LEFT JOIN inventory_locations inventory_location ON inventory_location.id = purchase_order.location_id AND inventory_location.company_id = purchase_order.company_id
         LEFT JOIN purchase_receipt_allocations receipt ON receipt.order_line_id = po_line.id
-        WHERE purchase_order.type = 'purchase order' AND purchase_order.status <> 'cancelled'
+        LEFT JOIN LATERAL (
+          SELECT receipt_document.id, receipt_document.number
+          FROM purchase_receipt_allocations bill_allocation
+          JOIN transactions receipt_document ON receipt_document.id = bill_allocation.receipt_id
+          WHERE bill_allocation.order_line_id = po_line.id
+            AND receipt_document.type = 'bill' AND receipt_document.status <> 'cancelled'
+          ORDER BY receipt_document.id DESC
+          LIMIT 1
+        ) linked_bill ON true
+        WHERE purchase_order.type = 'purchase order'
+          AND purchase_order.status IN ('open', 'pending', 'overdue', 'partially received')
           AND activity_company.active = true ${companyScope}
-        GROUP BY po_line.id, purchase_order.id, stock_item.id, activity_company.id, inventory_location.id
+        GROUP BY po_line.id, purchase_order.id, stock_item.id, activity_company.id, inventory_location.id, linked_bill.id, linked_bill.number
         HAVING po_line.quantity > COALESCE(SUM(receipt.quantity), 0)
         ORDER BY purchase_order.transaction_date DESC, purchase_order.id DESC, po_line.id DESC
         LIMIT 50
