@@ -611,6 +611,24 @@ test("report dialogs fit the screen and attachments appear only in their named r
   assert.doesNotMatch(attachments, /document\.body\.innerText|text\.includes\("invoice"\)|page\.includes\("employees & hr"\)/);
 });
 
+test("customer payments use non-VAT payment details and a linked A4 receipt", () => {
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const receipt = readFileSync(new URL("../app/customer-payment-receipt.tsx", import.meta.url), "utf8");
+  const api = readFileSync(new URL("../app/api/records/route.ts", import.meta.url), "utf8");
+  const schema = readFileSync(new URL("../db/schema.ts", import.meta.url), "utf8");
+  assert.match(app, /receivePayment && <div className="space-y-2"><Label>Payment method \*<\/Label>/);
+  assert.match(app, /receivePayment && <Field label="Reference No\." name="referenceNo"/);
+  assert.match(app, /!receivePayment && <><div className="space-y-2"><Label htmlFor="cash-vat-code">VAT code<\/Label>/);
+  assert.match(receipt, /Customer Payment Receipt · A4 portrait/);
+  assert.match(receipt, /createA4LetterheadPdfBlob/);
+  assert.match(receipt, /LetterheadStamp/);
+  assert.match(receipt, /documentLabel="Customer Payment"/);
+  assert.match(api, /Customer payments must use zero VAT/);
+  assert.match(api, /paymentMethod, referenceNo/);
+  assert.match(schema, /paymentMethod: text\("payment_method"\)/);
+  assert.match(schema, /referenceNo: text\("reference_no"\)/);
+});
+
 test("application windows are wide and A4 output offers portrait or landscape with packing lists defaulting to landscape", () => {
   const dialog = readFileSync(new URL("../components/ui/dialog.tsx", import.meta.url), "utf8");
   const selector = readFileSync(new URL("../components/print-orientation-select.tsx", import.meta.url), "utf8");
@@ -645,8 +663,8 @@ test("supplier bills have direct attachments and A4 template output with a movab
   const template = readFileSync(new URL("../app/sales-document-template.tsx", import.meta.url), "utf8");
   const attachmentApi = readFileSync(new URL("../app/api/attachments/route.ts", import.meta.url), "utf8");
   assert.match(app, /\["bill", "Bills"\]/);
-  assert.match(app, /title="View"[\s\S]{0,500}title="Bill attachments"/);
-  assert.match(app, /documentLabel="Bill"/);
+  assert.match(app, /title="View"[\s\S]{0,900}Customer Payment.*attachments/);
+  assert.match(app, /documentLabel=\{attachmentRecord\.type === "customer payment" \? "Customer Payment" : "Bill"\}/);
   assert.match(app, /"bill", "purchase order"/);
   assert.match(template, /bill: "Supplier Bill"/);
   assert.match(template, /case "bill": return "bill"/);
