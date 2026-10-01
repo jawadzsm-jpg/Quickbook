@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
-import { inventoryItemDetails, inventoryItemTitle, inventoryShareDescription, itemSpecificationDescription } from "@/lib/item-description";
+import { inventoryItemLine, itemSpecificationDescription } from "@/lib/item-description";
 
 type OverviewItem = {
   id: number;
@@ -299,13 +299,13 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   const shareText = (channel: ShareChannel) => {
     if (!selectedRecords.length) return "";
     const items = selectedRecords.map((record) => {
-      const itemTitle = inventoryItemTitle(record.name);
+      const itemTitle = inventoryItemLine(record.name, record.sku, specificationText(record));
       const title = channel === "whatsapp"
         ? `🔺 _*${itemTitle}*_ 🔺`
         : channel === "telegram"
           ? `🔺 ***${itemTitle}*** 🔺`
           : `***${itemTitle}***`;
-      const lines = [title, inventoryShareDescription(specificationText(record), record.itemNumber)];
+      const lines = [title];
       const details: string[] = [];
       if (showQuantity) {
         const quantity = plainMoney(Number(record.quantity));
@@ -459,10 +459,10 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
               ...items.map((record) => {
                 const out = Number(record.quantity) <= 0;
                 const low = Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint);
-                const description = inventoryItemDetails(specificationText(record), record.itemNumber);
+                const description = inventoryItemLine(record.name, record.sku, specificationText(record), record.itemNumber);
                 return <TableRow key={record.id} data-state={selectedIds.has(record.id) ? "selected" : undefined} className="align-top data-[state=selected]:bg-sky-50 hover:bg-slate-50/80">
                   <TableCell className="py-5"><span className="inline-flex rounded-lg border bg-white p-1.5"><Checkbox disabled={!canSelectItems || loading} aria-label={`Select ${record.name}`} checked={selectedIds.has(record.id)} onCheckedChange={(checked) => toggleSelected(record.id, checked === true)} /></span></TableCell>
-                  <TableCell className="min-w-0 py-4"><div className="flex flex-wrap items-center gap-2"><span className="break-words text-base font-bold text-blue-700 underline decoration-blue-300 underline-offset-2">{inventoryItemTitle(record.name)}</span>{out ? <Badge className="bg-rose-500 text-white hover:bg-rose-500">Out of stock</Badge> : low ? <Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">Low stock</Badge> : null}<TooltipProvider>{record.inventories.map((inventory) => <Tooltip key={inventory.locationId}><TooltipTrigger asChild><Badge tabIndex={0} variant="outline" className="max-w-full cursor-help whitespace-normal border-sky-200 bg-sky-50 text-sky-800"><Warehouse className="mr-1 size-3 shrink-0" />{inventory.locationName}{inventory.locationCode ? ` · ${inventory.locationCode}` : ""}</Badge></TooltipTrigger><TooltipContent sideOffset={6}>Qty: {Number(inventory.quantity).toLocaleString()}</TooltipContent></Tooltip>)}</TooltipProvider></div>{description && <p className="mt-2 whitespace-normal break-words text-sm font-medium leading-5 text-slate-700">{description}</p>}<div className="mt-3 flex flex-wrap items-center gap-2"><Button type="button" size="sm" variant="outline" onClick={() => setDetailRecord(record)} aria-label={`View product customization details for ${record.name}`}><PackageOpen className="size-4" />Customization Details</Button><Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">{receivedAge(record.latestReceivedAt)}</Badge></div></TableCell>
+                  <TableCell className="min-w-0 py-4"><div className="flex flex-wrap items-center gap-2"><span className="break-words text-base font-bold text-blue-700 underline decoration-blue-300 underline-offset-2">{description}</span>{out ? <Badge className="bg-rose-500 text-white hover:bg-rose-500">Out of stock</Badge> : low ? <Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">Low stock</Badge> : null}<TooltipProvider>{record.inventories.map((inventory) => <Tooltip key={inventory.locationId}><TooltipTrigger asChild><Badge tabIndex={0} variant="outline" className="max-w-full cursor-help whitespace-normal border-sky-200 bg-sky-50 text-sky-800"><Warehouse className="mr-1 size-3 shrink-0" />{inventory.locationName}{inventory.locationCode ? ` · ${inventory.locationCode}` : ""}</Badge></TooltipTrigger><TooltipContent sideOffset={6}>Qty: {Number(inventory.quantity).toLocaleString()}</TooltipContent></Tooltip>)}</TooltipProvider></div><div className="mt-3 flex flex-wrap items-center gap-2"><Button type="button" size="sm" variant="outline" onClick={() => setDetailRecord(record)} aria-label={`View product customization details for ${record.name}`}><PackageOpen className="size-4" />Customization Details</Button><Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">{receivedAge(record.latestReceivedAt)}</Badge></div></TableCell>
                   {showQuantity && <TableCell className={`py-4 text-right text-base font-black ${out ? "text-rose-600" : low ? "text-amber-600" : "text-slate-900"}`}>{Number(record.quantity).toLocaleString()}</TableCell>}
                   {showPrice && <TableCell className="py-4 text-right text-base font-black text-rose-600">{money(Number(record.salesPrice) * (includeVat ? 1.05 : 1), record.currency)}{includeVat && <span className="mt-1 block text-[11px] font-semibold text-emerald-600">VAT included</span>}</TableCell>}
                 </TableRow>;

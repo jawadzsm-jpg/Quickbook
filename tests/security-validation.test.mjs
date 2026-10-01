@@ -18,7 +18,7 @@ const { normalizeComparableText, uppercaseText } = await sourceModule("../lib/te
 const { dueDateForPaymentTerms } = await sourceModule("../lib/payment-terms.ts");
 const { chequeAlignmentBounds, uaeChequeLayout, validChequeAlignment } = await sourceModule("../lib/uae-cheque-layouts.ts");
 const { countries } = await sourceModule("../lib/countries.ts");
-const { generatedItemDescription, inventoryItemDetails, inventoryItemTitle, inventoryShareDescription, invoiceItemDescription, itemSpecificationDescription, itemTitleWithSku } = await sourceModule("../lib/item-description.ts");
+const { generatedItemDescription, inventoryItemDetails, inventoryItemLine, inventoryItemTitle, inventoryShareDescription, invoiceItemDescription, itemSpecificationDescription, itemTitleWithSku } = await sourceModule("../lib/item-description.ts");
 
 test("item identity appears once in titles and Item No. is reserved for invoice lines", () => {
   assert.equal(generatedItemDescription([
@@ -29,6 +29,8 @@ test("item identity appears once in titles and Item No. is reserved for invoice 
   ], "ASUS VIVOBOOK 15", "a1b2c3", "13025"), "16GB");
   assert.equal(itemTitleWithSku("Dell Alienware 16 Aurora AC16250", "73B1DA"), "DELL ALIENWARE 16 AURORA AC16250-73B1DA");
   assert.equal(inventoryItemTitle("Dell Alienware 16 Aurora AC16250 73B1DA |Brand New"), "DELL ALIENWARE 16 AURORA AC16250 73B1DA |BRAND NEW");
+  assert.equal(inventoryItemLine("Dell Alienware 16 Aurora AC16250", "73B1DA", "BRAND NEW | CORE 7-240H | 16GB RAM", "13040"), "DELL ALIENWARE 16 AURORA AC16250 73B1DA | BRAND NEW | CORE 7-240H | 16GB RAM #13040");
+  assert.equal(inventoryItemLine("Dell Alienware 16 Aurora AC16250 73B1DA", "73B1DA", "BRAND NEW", "13040"), "DELL ALIENWARE 16 AURORA AC16250 73B1DA | BRAND NEW | #13040");
   assert.equal(inventoryItemDetails("CORE 7-240H | 16GB RAM | MANUFACTURE WARRANTY ONLY", "10754"), "CORE 7-240H | 16GB RAM | MANUFACTURE WARRANTY ONLY #10754");
   assert.equal(inventoryItemDetails("CORE 7-240H | MANUFACTURE WARRANTY ONLY #10754", "10754"), "CORE 7-240H | MANUFACTURE WARRANTY ONLY #10754");
   assert.equal(inventoryItemDetails("CORE 7-240H | ITEM NO. #10754", "10754"), "CORE 7-240H #10754");

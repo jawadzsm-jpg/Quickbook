@@ -19,6 +19,21 @@ export function inventoryItemTitle(name: unknown) {
   return capitalText(name);
 }
 
+const inventoryConditions = new Set(["BRAND NEW", "OPEN BOX", "REFURBISHED", "RENEWED", "USED"]);
+
+export function inventoryItemLine(name: unknown, sku: unknown, description: unknown, itemNumber?: unknown) {
+  const title = inventoryItemTitle(name);
+  const code = capitalText(sku);
+  const identity = code && !comparableText(title).endsWith(comparableText(code)) ? `${title} ${code}` : title;
+  const parts = descriptionParts(itemSpecificationDescription(description, name, sku, itemNumber));
+  const conditionIndex = parts.findIndex((part) => inventoryConditions.has(part));
+  const condition = conditionIndex >= 0 ? parts.splice(conditionIndex, 1)[0] : "";
+  const number = capitalText(itemNumber).replace(/^#/, "");
+  const details = parts.join(" | ");
+  const detailsWithNumber = [details, number ? `#${number}` : ""].filter(Boolean).join(" ");
+  return [identity, condition, detailsWithNumber].filter(Boolean).join(" | ");
+}
+
 export function inventoryItemDetails(description: unknown, itemNumber?: unknown) {
   const number = capitalText(itemNumber).replace(/^#/, "");
   const details = itemSpecificationDescription(description, undefined, undefined, number)

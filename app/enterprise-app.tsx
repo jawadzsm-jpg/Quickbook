@@ -56,7 +56,7 @@ import { dueDateForPaymentTerms } from "@/lib/payment-terms";
 import { inferUaeChequeLayout, uaeChequeLayouts } from "@/lib/uae-cheque-layouts";
 import { applyContactCurrency, customerReceivableAccount, vendorPayableAccount } from "@/lib/contact-currency";
 import { countries } from "@/lib/countries";
-import { generatedItemDescription, inventoryItemDetails, inventoryItemTitle, type ItemSpecification } from "@/lib/item-description";
+import { generatedItemDescription, inventoryItemLine, type ItemSpecification } from "@/lib/item-description";
 import { SalesDocumentTemplate, salesDocumentModeForTransaction } from "./sales-document-template";
 import { InvoiceAttachments } from "./invoice-attachments";
 import { PrintOrientationSelect, type PrintOrientation } from "@/components/print-orientation-select";
@@ -1698,13 +1698,13 @@ function ItemTable({ records, currency, companyId, onStatusChanged, empty, onDel
   return <Table>
     <TableHeader><TableRow><TableHead>Item No.</TableHead><TableHead>SKU</TableHead><TableHead>Item &amp; description</TableHead><TableHead>Category</TableHead><TableHead className="text-right">On hand</TableHead><TableHead className="text-right">Reorder</TableHead><TableHead className="text-right">Sales price</TableHead><TableHead className="text-right">Avg. cost</TableHead><TableHead className="w-32" /></TableRow></TableHeader>
     <TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={9} /> : records.map((r) => {
-      const description = inventoryItemDetails(itemDisplayDescription(r), r.itemNumber);
+      const description = inventoryItemLine(r.name, r.sku, itemDisplayDescription(r), r.itemNumber);
       const inactive = r.status === "inactive";
       const out = Number(r.quantity) <= 0;
       return <TableRow key={r.id}>
         <TableCell className="font-mono text-xs">{String(r.itemNumber || 13000 + r.id)}</TableCell>
         <TableCell className="font-mono text-xs">{String(r.sku)}</TableCell>
-        <TableCell><div className="flex flex-wrap items-center gap-2"><p className="font-semibold">{inventoryItemTitle(r.name)}</p>{inactive ? <Badge className="bg-slate-200 text-slate-700 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-100">Item is inactive</Badge> : out ? <Badge className="bg-rose-100 text-rose-700 hover:bg-rose-100">Out of stock</Badge> : null}</div>{description ? <p className="mt-1 min-w-64 max-w-xl whitespace-normal break-words [overflow-wrap:anywhere] text-xs leading-5 text-slate-500" title={description}>{description}</p> : null}{onEdit && <label className="mt-2 inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300"><Checkbox checked={inactive} disabled={pendingId !== null || !companyId} aria-label={`Item is inactive for ${String(r.name)}`} onCheckedChange={(checked) => void changeStatus(r, checked === true)} />Item is inactive</label>}</TableCell>
+        <TableCell><div className="flex flex-wrap items-center gap-2"><p className="min-w-64 max-w-xl whitespace-normal break-words font-semibold leading-5 [overflow-wrap:anywhere]" title={description}>{description}</p>{inactive ? <Badge className="bg-slate-200 text-slate-700 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-100">Item is inactive</Badge> : out ? <Badge className="bg-rose-100 text-rose-700 hover:bg-rose-100">Out of stock</Badge> : null}</div>{onEdit && <label className="mt-2 inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300"><Checkbox checked={inactive} disabled={pendingId !== null || !companyId} aria-label={`Item is inactive for ${String(r.name)}`} onCheckedChange={(checked) => void changeStatus(r, checked === true)} />Item is inactive</label>}</TableCell>
         <TableCell>{String(r.category)}</TableCell>
         <TableCell className={`text-right font-semibold ${!inactive && out ? "text-rose-600" : ""}`}>{String(r.quantity)}</TableCell>
         <TableCell className="text-right">{String(r.reorderPoint)}</TableCell>
@@ -2730,7 +2730,9 @@ function ItemFields({ form, setForm, items, accounts, contacts, vatCodeOptions, 
     label: form[`specLabel${index}`] ?? specificationFields[index],
     value: form[`specValue${index}`] ?? "",
   }));
-  const description = generatedItemDescription(draftSpecifications, form.name, form.sku, form.itemNumber);
+  const draftValue = (label: string) => draftSpecifications.find((specification) => specification.label.trim().toLowerCase() === label)?.value ?? "";
+  const draftName = form.name || [draftValue("brand"), draftValue("model") || draftValue("part number")].filter(Boolean).join(" ");
+  const description = generatedItemDescription(draftSpecifications, draftName, form.sku, form.itemNumber);
   const itemType = itemTypeOf(form.itemType);
   const typeInfo = itemTypeDetails[itemType];
   const standardLineItem = documentLineItemTypes.has(itemType);
@@ -2875,7 +2877,7 @@ function ItemFields({ form, setForm, items, accounts, contacts, vatCodeOptions, 
         </div>
         <Button type="button" variant="ghost" size="icon" disabled={count <= 1} aria-label={`Remove ${form[`specLabel${index}`] ?? "specification"}`} title="Remove detail" onClick={() => removeSpecification(index)} className="text-slate-400 hover:text-rose-600 max-sm:col-start-2 max-sm:row-start-1"><Trash2 className="size-4" /></Button>
       </div>)}</div>
-      <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-3"><p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Generated description</p><p className="mt-2 min-h-6 text-sm leading-6 text-slate-700">{description || "Enter specification values to build the item description."}</p></div>
+      <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-3"><p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Generated description</p><p className="mt-2 min-h-6 text-sm leading-6 text-slate-700">{inventoryItemLine(draftName, form.sku, description, form.itemNumber) || "Enter specification values to build the item description."}</p></div>
     </section>
   </div>;
 }
