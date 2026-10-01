@@ -63,8 +63,11 @@ export async function requireCI(env = process.env, fetcher = fetch, sleep = dela
       signal: AbortSignal.timeout(15000),
     });
     if (!response.ok) {
+      const responseText = typeof response.text === "function" ? await response.text() : "";
+      const rateLimitRemaining = response.headers?.get?.("x-ratelimit-remaining");
       const error = new Error(`Cannot verify CI (GitHub HTTP ${response.status}). Deployment blocked.`);
       error.status = response.status;
+      error.rateLimited = response.status === 403 && (rateLimitRemaining === "0" || /rate limit/i.test(responseText));
       throw error;
     }
     return response.json();
@@ -76,8 +79,8 @@ export async function requireCI(env = process.env, fetcher = fetch, sleep = dela
       result = await get(`/actions/workflows/ci-cd.yml/runs?head_sha=${sha}&event=push&per_page=100`);
     } catch (error) {
       const isLinkedPrivateRepo = String(env.VERCEL_GIT_REPO_ID ?? "") === repositoryId;
-      if (error?.status === 404 && !token && isLinkedPrivateRepo) {
-        console.warn("Private GitHub repository is not visible to the anonymous GitHub API; running local release checks for the linked repository instead.");
+      if ((error?.status === 404 || error?.rateLimited === true) && !token && isLinkedPrivateRepo) {
+        console.warn("The linked GitHub repository cannot be verified anonymously right now; running local release checks instead.");
         localCheck(env);
         return;
       }

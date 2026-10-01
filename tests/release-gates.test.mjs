@@ -10,6 +10,7 @@ const run = { id: 10, head_sha: sha, head_branch: "main", event: "push",
 const jobs = ["Full source validation", "CodeQL security analysis"].map((name) =>
   ({ name, status: "completed", conclusion: "success" }));
 const env = { VERCEL: "1", VERCEL_GIT_COMMIT_SHA: sha, VERCEL_GIT_COMMIT_REF: "main" };
+const linkedEnv = { ...env, VERCEL_GIT_REPO_ID: "1359351844" };
 const response = (data) => ({ ok: true, json: async () => data });
 
 test("only the matching repository, workflow, branch, event and SHA qualify", () => {
@@ -35,6 +36,15 @@ test("matching clean run allows release", async () => {
 test("API errors and failed workflows block release", async () => {
   await assert.rejects(requireCI(env, async () => ({ ok: false, status: 403 })));
   await assert.rejects(requireCI(env, async () => response({ workflow_runs: [{ ...run, conclusion: "failure" }] })));
+});
+test("linked private builds use local checks only for anonymous visibility or rate-limit failures", async () => {
+  let checks = 0;
+  const localCheck = () => { checks += 1; };
+  await requireCI(linkedEnv, async () => ({ ok: false, status: 404 }), undefined, localCheck);
+  await requireCI(linkedEnv, async () => ({ ok: false, status: 403, headers: { get: (name) => name === "x-ratelimit-remaining" ? "0" : null }, text: async () => "API rate limit exceeded" }), undefined, localCheck);
+  assert.equal(checks, 2);
+  await assert.rejects(requireCI(env, async () => ({ ok: false, status: 403, headers: { get: () => "0" }, text: async () => "API rate limit exceeded" }), undefined, localCheck));
+  await assert.rejects(requireCI(linkedEnv, async () => ({ ok: false, status: 403, headers: { get: () => "42" }, text: async () => "Resource not accessible" }), undefined, localCheck));
 });
 test("pending workflows time out without deploying", async () => {
   await assert.rejects(requireCI(env, async () => response({ workflow_runs: [] }), async () => {}), /did not finish/);
