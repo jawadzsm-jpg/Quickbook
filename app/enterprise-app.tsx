@@ -604,6 +604,28 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     } finally { setLoading(false); }
   }, [activeCompanyId, activeLocationId]);
 
+  useEffect(() => {
+    const openWarrantyFromBill = (event: Event) => {
+      const billId = Number((event as CustomEvent<{ billId?: number }>).detail?.billId);
+      if (!Number.isInteger(billId) || billId <= 0) return;
+      window.sessionStorage.setItem("comnet-warranty-source-bill", String(billId));
+      setDetail(null);
+      setView("warranties");
+    };
+    const openSupplierBill = (event: Event) => {
+      const billId = Number((event as CustomEvent<{ billId?: number }>).detail?.billId);
+      if (Number.isInteger(billId) && billId > 0) void openDetail(billId);
+    };
+    window.addEventListener("warranty-bill-open", openWarrantyFromBill);
+    window.addEventListener("warranty-purchase-bill-view", openSupplierBill);
+    return () => {
+      window.removeEventListener("warranty-bill-open", openWarrantyFromBill);
+      window.removeEventListener("warranty-purchase-bill-view", openSupplierBill);
+    };
+    // This bridge keeps saved supplier bills and Warranty/RMA slips connected.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCompanyId, activeLocationId]);
+
   const loadVatCodes = useCallback(async () => {
     if (!activeCompanyId) return;
     try {
@@ -1850,6 +1872,7 @@ function DocumentDialog({ onOpenInvoice, onReceiptSaved, onChequeNumberSaved, de
     {showsPrices ? <div className="ml-auto grid w-full max-w-sm gap-2 text-sm"><div className="flex justify-between"><span className="text-slate-500">Subtotal</span><span>{formatMoney(record.subtotal, String(record.currency))}</span></div>{documentMode === "tax-invoice" ? <div className="flex justify-between"><span className="text-slate-500">VAT</span><span>{formatMoney(record.vatAmount, String(record.currency))}</span></div> : null}<div className="flex justify-between border-t pt-3 text-lg font-bold"><span>Total</span><span>{formatMoney(record.total, String(record.currency))}</span></div></div> : null}
     </>}
     {["invoice", "bill"].includes(String(record.type)) && <InvoiceAttachments companyId={Number(record.companyId)} invoiceId={Number(record.id)} canEdit={canConvert} documentLabel={record.type === "bill" ? "Bill" : "Invoice"} />}
+    {record.type === "bill" && <div className="document-internal-only flex flex-wrap items-center justify-between gap-3 rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm dark:border-teal-500/30 dark:bg-teal-500/10"><div><p className="font-bold text-teal-950 dark:text-teal-100">Warranty / RMA connection</p><p className="text-teal-800 dark:text-teal-200">Create an RMA with this supplier bill, supplier and purchase date already selected.</p></div><Button type="button" variant="outline" onClick={() => window.dispatchEvent(new CustomEvent("warranty-bill-open", { detail: { billId: Number(record.id) } }))}><ShieldCheck className="size-4" />Open Warranty / RMA</Button></div>}
     {record.type !== "cheque" && <>{selectedBank ? <div className="rounded-xl border p-4 text-sm"><div className="mb-3 flex items-center gap-2 font-bold" style={{ color: setup.documentColor }}><Landmark className="size-4" />{selectedBank}</div>{setup.bankName && !setup.bankName.toLowerCase().includes(selectedBank.toLowerCase().replace(" bank", "")) ? <p className="text-slate-500">Configure this bank account in Company Setup to show its payment details.</p> : <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2"><p><span className="text-slate-500">Account name:</span> {setup.bankAccountName || brandedName}</p><p><span className="text-slate-500">Account number:</span> {setup.bankAccountNumber || "—"}</p><p><span className="text-slate-500">Currency:</span> {setup.bankCurrency || setup.baseCurrency}</p><p><span className="text-slate-500">IBAN:</span> {setup.bankIban || "—"}</p>{setup.bankSwift ? <p><span className="text-slate-500">SWIFT:</span> {setup.bankSwift}</p> : null}</div>}</div> : null}
     {!usesSavedTemplate && showStamp && setup.stampData ? <div className="flex justify-end"><Image src={setup.stampData} alt={`${brandedName} company stamp`} width={160} height={120} unoptimized className="max-h-30 w-auto max-w-40 object-contain" /></div> : null}
     {detail.journal.length > 0 && <div className="document-internal-only"><h3 className="mb-2 text-sm font-bold">Accounting entry ({baseCurrency})</h3><div className="overflow-hidden rounded-xl border"><Table><TableHeader><TableRow><TableHead>Account</TableHead><TableHead className="text-right">Debit</TableHead><TableHead className="text-right">Credit</TableHead></TableRow></TableHeader><TableBody>{detail.journal.map((line, index) => <TableRow key={index}><TableCell>{String(line.accountName)}</TableCell><TableCell className="text-right">{Number(line.debit) ? formatMoney(line.debit, baseCurrency) : "—"}</TableCell><TableCell className="text-right">{Number(line.credit) ? formatMoney(line.credit, baseCurrency) : "—"}</TableCell></TableRow>)}</TableBody></Table></div></div>}

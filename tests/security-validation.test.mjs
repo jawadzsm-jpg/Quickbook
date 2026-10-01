@@ -73,6 +73,22 @@ test("supplier tracking migration sends separate SQL commands to the production 
   assert.ok(statements.every((statement) => (statement.match(/;/g) || []).length === 1));
 });
 
+test("supplier bills and Warranty RMA slips are connected in both directions", () => {
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const warranty = readFileSync(new URL("../app/warranty-center.tsx", import.meta.url), "utf8");
+  const api = readFileSync(new URL("../app/api/warranty-slips/route.ts", import.meta.url), "utf8");
+  assert.match(app, /Warranty \/ RMA connection/);
+  assert.match(app, /warranty-bill-open/);
+  assert.match(app, /comnet-warranty-source-bill/);
+  assert.match(warranty, /sourcePurchaseBillId/);
+  assert.match(warranty, /purchaseBillId: bill\.id, purchaseNumber: bill\.number, purchaseDate: bill\.transactionDate/);
+  assert.match(warranty, /Supplier bill/);
+  assert.match(warranty, /View supplier bill/);
+  assert.match(warranty, /warranty-purchase-bill-view/);
+  assert.match(api, /The purchase bill does not belong to this supplier/);
+  assert.match(api, /purchaseNumber: purchaseBill\?\.number/);
+});
+
 test("cheque print calibration keeps the amount and every field on the paper", () => {
   const habib = uaeChequeLayout("habib-bank-ag-zurich");
   const original = { x: 0, y: 0, amountX: 0, dateX: 0, crossingX: 0 };

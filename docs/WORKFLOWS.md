@@ -181,8 +181,9 @@ Deposits, cheques, credit-card charges, account transfers, cheque orders, and op
 ### Warranty/RMA
 
 1. Choose a customer or invoice and load eligible invoice items.
-2. Record item, serial, issue, received date, supplier, warranty dates, condition, and service status.
-3. Save/update the slip and print the A4 service record.
+2. Optionally open Warranty / RMA directly from a saved supplier bill; the supplier, bill number, and purchase date are prefilled.
+3. Record item, serial, issue, received date, supplier return dates, condition, and service status.
+4. Save/update the slip and print the A4 service record. The RMA list and form can reopen the linked supplier bill.
 
 ### Packing list
 
