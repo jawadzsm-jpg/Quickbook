@@ -8,9 +8,23 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 
 type DialogWindowState = "normal" | "minimized" | "maximized"
+const minimizedDialogIds: string[] = []
+const minimizedDialogListeners = new Set<() => void>()
+let minimizedDialogVersion = 0
+
+function updateMinimizedDialog(id: string, minimized: boolean) {
+  const currentIndex = minimizedDialogIds.indexOf(id)
+  if (minimized && currentIndex === -1) minimizedDialogIds.push(id)
+  else if (!minimized && currentIndex !== -1) minimizedDialogIds.splice(currentIndex, 1)
+  else return
+  minimizedDialogVersion += 1
+  minimizedDialogListeners.forEach((listener) => listener())
+}
+
 const DialogWindowContext = React.createContext<{
   windowState: DialogWindowState
   setWindowState: React.Dispatch<React.SetStateAction<DialogWindowState>>
+  dockIndex: number
 } | null>(null)
 
 function Dialog({
@@ -19,8 +33,19 @@ function Dialog({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Root>) {
   const [windowState, setWindowState] = React.useState<DialogWindowState>("normal")
+  const windowId = React.useId()
+  React.useSyncExternalStore(
+    (listener) => { minimizedDialogListeners.add(listener); return () => minimizedDialogListeners.delete(listener) },
+    () => minimizedDialogVersion,
+    () => minimizedDialogVersion
+  )
+  React.useEffect(() => {
+    updateMinimizedDialog(windowId, windowState === "minimized")
+    return () => updateMinimizedDialog(windowId, false)
+  }, [windowId, windowState])
+  const dockIndex = Math.max(0, minimizedDialogIds.indexOf(windowId))
   return (
-    <DialogWindowContext.Provider value={{ windowState, setWindowState }}>
+    <DialogWindowContext.Provider value={{ windowState, setWindowState, dockIndex }}>
       <DialogPrimitive.Root
         data-slot="dialog"
         modal={windowState === "minimized" ? false : modal}
@@ -79,10 +104,13 @@ function DialogContent({
   onInteractOutside,
   onPointerDownOutside,
   onEscapeKeyDown,
+  onMinimize,
+  style,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
   showWindowControls?: boolean
+  onMinimize?: () => void
 }) {
   const window = React.useContext(DialogWindowContext)
   const windowState = window?.windowState ?? "normal"
@@ -94,6 +122,8 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         data-window-state={windowState}
+        data-window-dock-index={window?.dockIndex ?? 0}
+        style={{ ...style, "--dialog-dock-bottom": `${16 + (window?.dockIndex ?? 0) * 96}px` } as React.CSSProperties}
         className={cn(
           "fixed z-50 grid w-full max-w-[calc(100%-2rem)] gap-4 rounded-xl border border-border/80 bg-background p-5 shadow-2xl shadow-slate-950/15 duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-h-[calc(100dvh-2rem)] sm:max-w-4xl sm:overflow-y-auto sm:p-6",
           windowState === "normal" && "top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%]",
@@ -127,7 +157,11 @@ function DialogContent({
               className="size-8 text-muted-foreground hover:text-foreground"
               aria-label={windowState === "minimized" ? "Restore window" : "Minimize window"}
               title={windowState === "minimized" ? "Restore" : "Minimize"}
-              onClick={() => setWindowState?.((current) => current === "minimized" ? "normal" : "minimized")}
+              onClick={() => {
+                if (windowState === "minimized") setWindowState?.("normal")
+                else if (onMinimize) onMinimize()
+                else setWindowState?.("minimized")
+              }}
             >
               <MinusIcon className="size-4" />
             </Button>
