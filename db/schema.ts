@@ -270,6 +270,8 @@ export const transactions = pgTable("transactions", {
   transactionDate: text("transaction_date").notNull(),
   dueDate: text("due_date").notNull().default(""),
   terms: text("terms").notNull().default(""),
+  paymentMethod: text("payment_method").notNull().default(""),
+  referenceNo: text("reference_no").notNull().default(""),
   chequeBankKey: text("cheque_bank_key").notNull().default(""),
   chequeOffsetX: doublePrecision("cheque_offset_x").notNull().default(0),
   chequeOffsetY: doublePrecision("cheque_offset_y").notNull().default(0),
