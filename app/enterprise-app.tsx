@@ -64,7 +64,7 @@ import {
   AlertTriangle, ArrowRightLeft, BadgeDollarSign, BookOpen, BookOpenCheck, BookmarkPlus, Boxes, Building2, CheckCircle2, Copy,
   Check, ChevronDown, ChevronRight, CircleDollarSign, Clock3, Download, FileBarChart2, FileSpreadsheet, FileText, Landmark,
   Eye, ImageUp, KeyRound, LayoutDashboard, LogOut, PackageCheck, PackageSearch, PackageX, Palette, Paperclip, Pencil, Plus, Printer, ReceiptText, RefreshCw,
-  Search, Settings, ShieldCheck, ShoppingCart, Stamp, Sun, Moon, Table2, Trash2, Users, WalletCards, Percent,
+  Search, Settings, ShieldCheck, ShoppingCart, Stamp, Sun, Moon, Table2, Trash2, Users, WalletCards, Percent, X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -501,6 +501,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   const [themeSaving, setThemeSaving] = useState(false);
   const [appearanceMode, setAppearanceMode] = useState<AppearanceMode>(currentUser.appearanceMode === "dark" ? "dark" : "light");
   const [appearanceSaving, setAppearanceSaving] = useState(false);
+  const [minimizedWarranty, setMinimizedWarranty] = useState<{ companyId: number; label: string } | null>(null);
 
   useEffect(() => {
     document.documentElement.dataset.appearance = appearanceMode;
@@ -511,6 +512,23 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     document.documentElement.dataset.userTheme = themeColor;
     return () => { delete document.documentElement.dataset.userTheme; };
   }, [themeColor]);
+
+  useEffect(() => {
+    const clearMinimizedWarranty = () => setMinimizedWarranty(null);
+    const minimizeWarranty = (event: Event) => {
+      const detail = (event as CustomEvent<{ companyId?: number; label?: string }>).detail;
+      if (!detail?.companyId) return;
+      setMinimizedWarranty({ companyId: detail.companyId, label: detail.label || "New warranty / RMA slip" });
+      setView("dashboard");
+      toast.success("RMA slip minimized. You can continue working in the app.");
+    };
+    window.addEventListener("warranty-minimize", minimizeWarranty);
+    window.addEventListener("warranty-minimized-cleared", clearMinimizedWarranty);
+    return () => {
+      window.removeEventListener("warranty-minimize", minimizeWarranty);
+      window.removeEventListener("warranty-minimized-cleared", clearMinimizedWarranty);
+    };
+  }, []);
 
   useEffect(() => {
     if (view !== "inventory-overview") return;
@@ -1196,6 +1214,12 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
           )}
         </div>
       </SidebarInset>
+
+      {minimizedWarranty && view !== "warranties" ? <div className="fixed bottom-4 right-4 z-[80] flex max-w-[calc(100vw-2rem)] items-center gap-2 rounded-xl border bg-background p-2 shadow-2xl" role="status" aria-label="Minimized RMA slip">
+        <Button type="button" variant="ghost" className="min-w-0 justify-start" onClick={() => { if (activeCompanyId !== minimizedWarranty.companyId) setActiveCompanyId(minimizedWarranty.companyId); setView("warranties"); }}><FileText className="size-4 shrink-0" /><span className="truncate">{minimizedWarranty.label}</span></Button>
+        <Button type="button" size="sm" onClick={() => { if (activeCompanyId !== minimizedWarranty.companyId) setActiveCompanyId(minimizedWarranty.companyId); setView("warranties"); }}>Restore</Button>
+        <Button type="button" size="icon" variant="ghost" aria-label="Discard minimized RMA slip" title="Exit RMA slip" onClick={() => { if (!window.confirm("Discard unsaved warranty changes?")) return; window.sessionStorage.removeItem("comnet-warranty-minimized-draft"); setMinimizedWarranty(null); }}><X className="size-4" /></Button>
+      </div> : null}
 
       <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open && saving) { toast.info("Please wait until saving finishes."); return; } setDialogOpen(open); if (!open) { setEditingItemId(null); setEditorKind(null); } }}>
         <DialogContent showCloseButton={true} onInteractOutside={(event) => { if (["items", "transactions"].includes(activeEditorKind) || saving) event.preventDefault(); }} onEscapeKeyDown={(event) => { if (["items", "transactions"].includes(activeEditorKind) || saving) event.preventDefault(); }} data-record-kind={activeEditorKind} data-attachments-context={activeEditorKind === "transactions" && ["bill", "customer payment", "bill payment", "vendor payment", "cheque"].includes(form.type) ? "transaction" : activeEditorKind === "contacts" && form.type === "employee" ? "employee" : undefined} className={`max-h-[92dvh] ${activeEditorKind === "transactions" ? "overflow-hidden sm:max-w-6xl" : "overflow-y-auto"} ${activeEditorKind === "items" || (activeEditorKind === "contacts" && view === "customers") ? "sm:max-w-5xl" : activeEditorKind === "transactions" ? "" : "sm:max-w-xl"}`}>

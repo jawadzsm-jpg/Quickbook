@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Download, FilePlus2, Maximize2, Minus, Pencil, Printer, Save, Search, X } from "lucide-react";
+import { Download, FilePlus2, Minus, Pencil, Printer, Save, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { PrintOrientationSelect, type PrintOrientation } from "@/components/print-orientation-select";
 import { createA4LetterheadPdfBlob, downloadPdfBlob } from "@/lib/document-output";
 import { defaultLetterhead, letterheadForDocument } from "@/lib/letterhead";
 import { normalizeWarrantyStatus, warrantyStatuses, type WarrantyStatus } from "@/lib/warranty-status";
@@ -45,7 +46,22 @@ function itemSpecs(value: string | null, fallback: string) {
   } catch { return fallback; }
 }
 
-export function WarrantyCenter({ companyId, company, canWrite }: { companyId: number; company: Company; canWrite: boolean }) {
+const minimizedDraftKey = "comnet-warranty-minimized-draft";
+type MinimizedDraft = { companyId: number; form: Slip; saved: Slip | null; initialSlip: Slip; orientation: PrintOrientation };
+function readMinimizedDraft(companyId: number) {
+  if (typeof window === "undefined") return null;
+  const stored = window.sessionStorage.getItem(minimizedDraftKey);
+  if (!stored) return null;
+  try {
+    const draft = JSON.parse(stored) as MinimizedDraft;
+    return draft.companyId === companyId ? draft : null;
+  } catch {
+    window.sessionStorage.removeItem(minimizedDraftKey);
+    return null;
+  }
+}
+
+export function WarrantyCenter({ companyId, company, canWrite, onMinimize }: { companyId: number; company: Company; canWrite: boolean; onMinimize?: (label: string) => void }) {
   const letterhead = letterheadForDocument(company.letterheadDesign, "warranty-slip");
   const stampDefault = letterhead?.showStamp ?? Boolean(company.stampData);
   const [slips, setSlips] = useState<Slip[]>([]);
@@ -56,7 +72,7 @@ export function WarrantyCenter({ companyId, company, canWrite }: { companyId: nu
   const [lines, setLines] = useState<InvoiceLine[]>([]);
   const [form, setForm] = useState<Slip>(() => emptySlip(stampDefault, letterhead?.stampLeft, letterhead?.stampTop));
   const [initialSlip, setInitialSlip] = useState(form);
-  const [minimized, setMinimized] = useState(false);
+  const [orientation, setOrientation] = useState<PrintOrientation>("portrait");
   const [saved, setSaved] = useState<Slip | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState("");
@@ -85,16 +101,27 @@ export function WarrantyCenter({ companyId, company, canWrite }: { companyId: nu
         toast.error("The supplier bill is not available for this company.");
       } else {
         const draft = { ...emptySlip(stampDefault, letterhead?.stampLeft, letterhead?.stampTop), supplierId: supplier.id, supplierName: supplier.name, purchaseBillId: bill.id, purchaseNumber: bill.number, purchaseDate: bill.transactionDate };
-        setForm(draft); setInitialSlip(emptySlip(stampDefault, letterhead?.stampLeft, letterhead?.stampTop)); setMinimized(false);
+        setForm(draft); setInitialSlip(emptySlip(stampDefault, letterhead?.stampLeft, letterhead?.stampTop));
         setSaved(null); setLines([]); setActiveStatus("Under Process"); setShowForm(true);
       }
     }
   }, [companyId, letterhead?.stampLeft, letterhead?.stampTop, stampDefault]);
   useEffect(() => {
     let live = true;
+    const restoredDraft = readMinimizedDraft(companyId);
+    if (restoredDraft) {
+      window.sessionStorage.removeItem(minimizedDraftKey);
+      window.dispatchEvent(new Event("warranty-minimized-cleared"));
+      void Promise.resolve().then(() => {
+        if (!live) return;
+        setForm(restoredDraft.form); setSaved(restoredDraft.saved); setInitialSlip(restoredDraft.initialSlip);
+        setOrientation(restoredDraft.orientation === "landscape" ? "landscape" : "portrait");
+        setActiveStatus(normalizeWarrantyStatus(restoredDraft.form.status) ?? "Under Process"); setShowForm(true);
+      });
+    }
     void Promise.resolve().then(refresh).catch((error) => { if (live) toast.error(error instanceof Error ? error.message : "Could not load warranty slips."); }).finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
-  }, [refresh]);
+  }, [companyId, refresh]);
   useEffect(() => {
     const handleBill = (event: Event) => {
       const billId = Number((event as CustomEvent<{ billId?: number }>).detail?.billId);
@@ -122,18 +149,25 @@ export function WarrantyCenter({ companyId, company, canWrite }: { companyId: nu
   }
   function openSlip(slip: Slip) {
     if (dirty && showForm && !window.confirm("Discard unsaved warranty changes?")) return;
-    setMinimized(false); setForm(slip); setSaved(slip); setActiveStatus(normalizeWarrantyStatus(slip.status) ?? "Under Process"); setShowForm(true); void loadInvoice(slip.invoiceId);
+    setForm(slip); setSaved(slip); setActiveStatus(normalizeWarrantyStatus(slip.status) ?? "Under Process"); setShowForm(true); void loadInvoice(slip.invoiceId);
   }
   function createSlip() {
     if (dirty && showForm && !window.confirm("Discard unsaved warranty changes?")) return;
     const draft = emptySlip(stampDefault, letterhead?.stampLeft, letterhead?.stampTop);
-    setForm(draft); setInitialSlip(draft); setMinimized(false);
+    setForm(draft); setInitialSlip(draft);
     setSaved(null); setLines([]); setActiveStatus("Under Process"); setShowForm(true);
   }
   function backToList() {
     if (busy) return;
     if (dirty && !window.confirm("Discard unsaved warranty changes?")) return;
-    setShowForm(false); setMinimized(false); setSaved(null);
+    setShowForm(false); setSaved(null);
+  }
+  function minimize() {
+    if (busy) return;
+    window.sessionStorage.setItem(minimizedDraftKey, JSON.stringify({ companyId, form, saved, initialSlip, orientation }));
+    const label = form.number || "New warranty / RMA slip";
+    if (onMinimize) onMinimize(label);
+    else window.dispatchEvent(new CustomEvent("warranty-minimize", { detail: { companyId, label } }));
   }
   function update<K extends keyof Slip>(key: K, value: Slip[K]) { setForm((previous) => ({ ...previous, [key]: value })); }
   async function save() {
@@ -172,7 +206,8 @@ export function WarrantyCenter({ companyId, company, canWrite }: { companyId: nu
     const popup = window.open("", "_blank");
     if (!popup) return toast.error("Allow pop-ups to print the warranty slip.");
     popup.opener = null;
-    popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Warranty / RMA Slip</title><style>@page{size:A4 portrait;margin:0}html,body{margin:0;padding:0;background:#fff;font-family:Arial,sans-serif}*{box-sizing:border-box}.warranty-page{position:relative!important;width:210mm!important;height:297mm!important;margin:0!important;border:0!important;background:#fff;color:#0f172a;box-shadow:none!important;print-color-adjust:exact;-webkit-print-color-adjust:exact}.letterhead-stamp{cursor:default!important}.print-controls{padding:10px}@media print{.print-controls{display:none}}</style></head><body><div class="print-controls"><button onclick="window.print()">Print</button></div>${page.current.outerHTML}</body></html>`);
+    const pageWidth = orientation === "landscape" ? 297 : 210, pageHeight = orientation === "landscape" ? 210 : 297;
+    popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Warranty / RMA Slip</title><style>@page{size:A4 ${orientation};margin:0}html,body{margin:0;padding:0;background:#fff;font-family:Arial,sans-serif}*{box-sizing:border-box}.warranty-page{position:relative!important;width:${pageWidth}mm!important;height:${pageHeight}mm!important;margin:0!important;border:0!important;background:#fff;color:#0f172a;box-shadow:none!important;print-color-adjust:exact;-webkit-print-color-adjust:exact}.letterhead-stamp{cursor:default!important}.print-controls{padding:10px}@media print{.print-controls{display:none}}</style></head><body><div class="print-controls"><button onclick="window.print()">Print</button></div>${page.current.outerHTML}</body></html>`);
     popup.document.close();
     void Promise.all(Array.from(popup.document.images).map((image) => image.complete ? Promise.resolve() : image.decode().catch(() => undefined)))
       .then(() => window.setTimeout(() => { if (!popup.closed) popup.print(); }, 150));
@@ -180,7 +215,7 @@ export function WarrantyCenter({ companyId, company, canWrite }: { companyId: nu
   async function pdf() {
     if (!checkPage() || !page.current) return;
     setBusy(true);
-    try { downloadPdfBlob(await createA4LetterheadPdfBlob(page.current, `Warranty / RMA Slip ${form.number || "Draft"}`), `${form.number || "Warranty-Slip"}.pdf`); }
+    try { downloadPdfBlob(await createA4LetterheadPdfBlob(page.current, `Warranty / RMA Slip ${form.number || "Draft"}`, orientation), `${form.number || "Warranty-Slip"}.pdf`); }
     catch (error) { toast.error(error instanceof Error ? error.message : "Could not create the PDF."); }
     finally { setBusy(false); }
   }
@@ -198,11 +233,12 @@ export function WarrantyCenter({ companyId, company, canWrite }: { companyId: nu
       <div className="overflow-x-auto"><table className="w-full min-w-[1200px] border-collapse text-sm"><thead className="bg-slate-50 text-left"><tr>{["Date", "Slip #", "Company", "Name", "Invoice #", "Brand / Model", "Supplier", "Supplier bill", "Returned to supplier", "Received back", "Status", "Remark", "Created by", "Open"].map((heading) => <th key={heading} className="border px-3 py-2">{heading}</th>)}</tr></thead><tbody>{filtered.map((slip) => <tr key={slip.id}><td className="border px-3 py-2">{slip.slipDate}</td><td className="border px-3 py-2 font-semibold">{slip.number}</td><td className="border px-3 py-2">{slip.customerCompany || slip.customerName}</td><td className="border px-3 py-2">{slip.contactName || slip.customerName}</td><td className="border px-3 py-2">{slip.invoiceNumber || "—"}</td><td className="border px-3 py-2">{[slip.brand, slip.model].filter(Boolean).join(" · ") || "—"}</td><td className="border px-3 py-2">{slip.supplierName || "—"}</td><td className="border px-3 py-2">{slip.purchaseBillId ? <Button type="button" size="sm" variant="link" className="h-auto p-0 font-semibold" onClick={() => openPurchaseBill(slip.purchaseBillId!)}>{slip.purchaseNumber || `Bill #${slip.purchaseBillId}`}</Button> : slip.purchaseNumber || "—"}</td><td className="border px-3 py-2">{slip.returnedToSupplierDate || "—"}</td><td className="border px-3 py-2">{slip.receivedFromSupplierDate || "—"}</td><td className="border px-3 py-2"><select className={selectClass} value={inlineEdits[slip.id!]?.status ?? slip.status} disabled={!canWrite} onChange={(event) => setInlineEdits((old) => ({ ...old, [slip.id!]: { status: event.target.value, remarks: old[slip.id!]?.remarks ?? slip.remarks } }))}>{warrantyStatuses.map((status) => <option key={status}>{status}</option>)}</select></td><td className="border px-3 py-2"><Input value={inlineEdits[slip.id!]?.remarks ?? slip.remarks} disabled={!canWrite} maxLength={2000} onChange={(event) => setInlineEdits((old) => ({ ...old, [slip.id!]: { status: old[slip.id!]?.status ?? slip.status, remarks: event.target.value } }))} /></td><td className="border px-3 py-2">{slip.createdBy || "—"}</td><td className="border px-3 py-2"><div className="flex gap-1">{inlineEdits[slip.id!] && <Button type="button" size="sm" disabled={busy} onClick={() => void saveInline(slip)}><Save className="size-3" />Save</Button>}<Button type="button" size="sm" variant="outline" onClick={() => openSlip(slip)}><Pencil className="size-3" />Open / Print</Button></div></td></tr>)}</tbody></table>{!filtered.length && <p className="py-7 text-center text-sm text-slate-500">{loading ? "Loading RMA slips…" : `No ${activeStatus.toLowerCase()} slips match this search.`}</p>}</div>
     </div> : <>
       <div className="space-y-5 rounded-xl border bg-white p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-bold">{form.number || "New warranty / RMA slip"}</h3><p className="text-sm text-slate-500">Choose an invoice to link the customer and item automatically, or enter warranty details manually.</p></div><div className="flex flex-wrap items-center gap-2">
-          <div className="flex flex-wrap gap-2" hidden={minimized}>{canWrite && <Button type="button" disabled={busy} onClick={() => void save()}><Save className="size-4" />Save slip</Button>}<Button type="button" variant="outline" disabled={busy} onClick={print}><Printer className="size-4" />Print A4</Button><Button type="button" variant="outline" disabled={busy} onClick={() => void pdf()}><Download className="size-4" />PDF A4</Button></div>
-          <Button type="button" variant="outline" disabled={busy} aria-label={minimized ? "Restore RMA slip" : "Minimize RMA slip"} aria-expanded={!minimized} aria-controls="warranty-slip-fields warranty-slip-preview" title={minimized ? "Restore" : "Minimize"} onClick={() => setMinimized((value) => !value)}>{minimized ? <Maximize2 className="size-4" /> : <Minus className="size-4" />}{minimized ? "Restore" : "Minimize"}</Button>
+          <PrintOrientationSelect value={orientation} onValueChange={(next) => { setOrientation(next); setForm((old) => ({ ...old, stampLeft: Math.min(next === "landscape" ? 257 : 170, old.stampLeft), stampTop: Math.min(next === "landscape" ? 173 : 260, old.stampTop) })); }} />
+          <div className="flex flex-wrap gap-2">{canWrite && <Button type="button" disabled={busy} onClick={() => void save()}><Save className="size-4" />Save slip</Button>}<Button type="button" variant="outline" disabled={busy} onClick={print}><Printer className="size-4" />Print A4</Button><Button type="button" variant="outline" disabled={busy} onClick={() => void pdf()}><Download className="size-4" />PDF A4</Button></div>
+          <Button type="button" variant="outline" disabled={busy} aria-label="Minimize RMA slip and continue working" title="Minimize and continue working" onClick={minimize}><Minus className="size-4" />Minimize</Button>
           <Button type="button" variant="outline" disabled={busy} aria-label="Exit RMA slip" title="Exit" onClick={backToList}><X className="size-4" />Exit</Button>
         </div></div>
-        <div id="warranty-slip-fields" hidden={minimized} className="space-y-5">
+        <div id="warranty-slip-fields" className="space-y-5">
         <div className="grid gap-4 md:grid-cols-2"><label className={fieldClass}>Customer<select className={selectClass} value={form.customerId || ""} disabled={!canWrite} onChange={(event) => { const id = Number(event.target.value); const customer = customers.find((row) => row.id === id); setForm((old) => ({ ...old, customerId: id, contactName: customer?.name || "", contactPhone: customer?.phone || "", contactEmail: customer?.email || "", invoiceId: null, invoiceLineId: null, invoiceNumber: "" })); setLines([]); }}><option value="">Select customer</option>{customers.map((row) => <option key={row.id} value={row.id}>{row.name}{row.company ? ` · ${row.company}` : ""}</option>)}</select></label><label className={fieldClass}>Received date<Input type="date" value={form.slipDate} disabled={!canWrite} onChange={(event) => update("slipDate", event.target.value)} /></label>
           <label className={fieldClass}>Customer name<Input maxLength={120} value={form.contactName} disabled={!canWrite} onChange={(event) => update("contactName", event.target.value)} /></label><label className={fieldClass}>Contact phone<Input maxLength={80} value={form.contactPhone} disabled={!canWrite} onChange={(event) => update("contactPhone", event.target.value)} /></label><label className={fieldClass}>Email<Input type="email" maxLength={160} value={form.contactEmail} disabled={!canWrite} onChange={(event) => update("contactEmail", event.target.value)} /></label><label className={fieldClass}>Customer ID / reference<Input maxLength={100} value={form.customerReference} disabled={!canWrite} onChange={(event) => update("customerReference", event.target.value)} /></label>
           <label className={fieldClass}>Customer invoice<select className={selectClass} value={form.invoiceId || ""} disabled={!canWrite || !form.customerId} onChange={(event) => { const id = Number(event.target.value) || null; const invoice = customerInvoices.find((row) => row.id === id); setForm((old) => ({ ...old, invoiceId: id, invoiceLineId: null, invoiceNumber: invoice?.number || "" })); void loadInvoice(id); }}><option value="">No linked invoice</option>{customerInvoices.map((row) => <option key={row.id} value={row.id}>{row.number} · {row.transactionDate}</option>)}</select></label><label className={fieldClass}>Invoice #<Input maxLength={100} value={form.invoiceNumber} disabled={!canWrite || Boolean(form.invoiceId)} onChange={(event) => update("invoiceNumber", event.target.value)} /></label>
@@ -225,16 +261,16 @@ export function WarrantyCenter({ companyId, company, canWrite }: { companyId: nu
           <div className="mt-3 flex flex-wrap items-center gap-3"><p className="text-xs text-slate-500">Selecting a purchase bill fills its supplier, bill number and purchase date. Record both handoff dates as the unit moves to and from the supplier.</p>{form.purchaseBillId ? <Button type="button" size="sm" variant="link" className="h-auto p-0" onClick={() => openPurchaseBill(form.purchaseBillId!)}>View supplier bill {form.purchaseNumber}</Button> : null}</div>
         </fieldset>
         <div className="grid gap-4"><label className={fieldClass}>Problem <span className="text-red-600">*</span><Textarea rows={3} maxLength={2000} value={form.problem} disabled={!canWrite} onChange={(event) => update("problem", event.target.value)} /></label><label className={fieldClass}>Remarks<Textarea rows={2} maxLength={2000} value={form.remarks} disabled={!canWrite} onChange={(event) => update("remarks", event.target.value)} /></label><label className={fieldClass}>Included items / accessories<Input maxLength={1000} value={form.includedItems} disabled={!canWrite} onChange={(event) => update("includedItems", event.target.value)} /></label></div>
-        <div className="flex flex-wrap items-center gap-4 rounded-lg border bg-slate-50 p-3"><label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={form.showStamp} disabled={!canWrite || !company.stampData} onChange={(event) => update("showStamp", event.target.checked)} />Show company stamp</label>{form.showStamp && company.stampData && <><span className="text-xs text-slate-500">Drag the stamp on the A4 preview or enter its position.</span><label className={fieldClass}>Left (mm)<Input type="number" min={0} max={170} className="w-24" value={form.stampLeft} disabled={!canWrite} onChange={(event) => update("stampLeft", Math.min(170, Math.max(0, Number(event.target.value) || 0)))} /></label><label className={fieldClass}>Top (mm)<Input type="number" min={0} max={260} className="w-24" value={form.stampTop} disabled={!canWrite} onChange={(event) => update("stampTop", Math.min(260, Math.max(0, Number(event.target.value) || 0)))} /></label></>}</div>
+        <div className="flex flex-wrap items-center gap-4 rounded-lg border bg-slate-50 p-3"><label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={form.showStamp} disabled={!canWrite || !company.stampData} onChange={(event) => update("showStamp", event.target.checked)} />Show company stamp</label>{form.showStamp && company.stampData && <><span className="text-xs text-slate-500">Drag the stamp on the A4 preview or enter its position.</span><label className={fieldClass}>Left (mm)<Input type="number" min={0} max={orientation === "landscape" ? 257 : 170} className="w-24" value={form.stampLeft} disabled={!canWrite} onChange={(event) => update("stampLeft", Math.min(orientation === "landscape" ? 257 : 170, Math.max(0, Number(event.target.value) || 0)))} /></label><label className={fieldClass}>Top (mm)<Input type="number" min={0} max={orientation === "landscape" ? 173 : 260} className="w-24" value={form.stampTop} disabled={!canWrite} onChange={(event) => update("stampTop", Math.min(orientation === "landscape" ? 173 : 260, Math.max(0, Number(event.target.value) || 0)))} /></label></>}</div>
         {dirty && <p className="text-xs font-medium text-amber-700">Unsaved changes. Save the slip to keep these details and stamp position.</p>}
         </div>
       </div>
-      <div id="warranty-slip-preview" hidden={minimized}>
-      <div className="overflow-x-auto rounded-xl border bg-slate-100 p-3"><article ref={page} className="letterhead-page warranty-page relative mx-auto bg-white text-slate-900 shadow" style={{ width: "210mm", height: "297mm", padding: "13mm", boxSizing: "border-box", overflow: "hidden", fontFamily: "Arial,sans-serif", fontSize: 12, lineHeight: 1.4 }}><LetterheadBrand template={activeLetterhead} company={company} /><header style={{ display: "flex", justifyContent: "space-between", borderBottom: "2px solid", borderColor: activeLetterhead.color, paddingBottom: 10, marginBottom: 14 }}><div><h2 style={{ margin: 0, fontSize: 22, color: activeLetterhead.color }}>WARRANTY / RMA SLIP</h2><small>Customer service · Goods received</small></div><div style={{ textAlign: "right" }}><strong>{form.number || "DRAFT"}</strong><div>{form.slipDate}</div></div></header>
+      <div id="warranty-slip-preview">
+      <div className="overflow-x-auto rounded-xl border bg-slate-100 p-3"><article ref={page} className="letterhead-page warranty-page relative mx-auto bg-white text-slate-900 shadow" style={{ width: orientation === "landscape" ? "297mm" : "210mm", height: orientation === "landscape" ? "210mm" : "297mm", padding: "13mm", boxSizing: "border-box", overflow: "hidden", fontFamily: "Arial,sans-serif", fontSize: 12, lineHeight: 1.4 }}><LetterheadBrand template={activeLetterhead} company={company} /><header style={{ display: "flex", justifyContent: "space-between", borderBottom: "2px solid", borderColor: activeLetterhead.color, paddingBottom: 10, marginBottom: 14 }}><div><h2 style={{ margin: 0, fontSize: 22, color: activeLetterhead.color }}>WARRANTY / RMA SLIP</h2><small>Customer service · Goods received</small></div><div style={{ textAlign: "right" }}><strong>{form.number || "DRAFT"}</strong><div>{form.slipDate}</div></div></header>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}><div><strong>Customer</strong><p>{printable(selectedCustomer?.name || form.customerName || "")}</p></div><div><strong>Contact name</strong><p>{printable(form.contactName)}</p></div><div><strong>Phone</strong><p>{printable(form.contactPhone)}</p></div><div><strong>Email</strong><p>{printable(form.contactEmail)}</p></div><div><strong>Customer ID</strong><p>{printable(form.customerReference)}</p></div><div><strong>Invoice #</strong><p>{printable(form.invoiceNumber)}</p></div></div>
           <table style={{ borderCollapse: "collapse", width: "100%", tableLayout: "fixed", marginBottom: 16 }}><tbody>{[["Brand", form.brand], ["Model", form.model], ["Specifications", form.specs], ["Serial #", form.serialNumber], ["Problem", form.problem], ["Remarks", form.remarks], ["Included items", form.includedItems], ["Supplier", selectedSupplier?.name || form.supplierName], ["Purchase bill / date", [form.purchaseNumber, form.purchaseDate].filter(Boolean).join(" · ")], ["Returned to supplier", form.returnedToSupplierDate], ["Received back from supplier", form.receivedFromSupplierDate], ["Status", form.status]].map(([label, value]) => <tr key={label}><th style={{ width: "29%", padding: 6, border: "1px solid #cbd5e1", background: "#f8fafc", textAlign: "left", verticalAlign: "top" }}>{label}</th><td style={{ padding: 6, border: "1px solid #cbd5e1", overflowWrap: "anywhere", whiteSpace: "pre-wrap" }}>{printable(value)}</td></tr>)}</tbody></table>
           <div className="letterhead-footer-area" style={{ position: "absolute", left: "13mm", right: "13mm", bottom: "12mm", borderTop: "1px solid #cbd5e1", paddingTop: 9, color: "#475569", fontSize: 11 }}><p style={{ margin: "0 0 5px" }}>Received by: ____________________　 Customer signature: ____________________</p>{activeLetterhead.footer ? <p style={{ margin: 0 }}>{activeLetterhead.footer}</p> : <p style={{ margin: 0 }}>{company.name} · Warranty service record</p>}</div>
-          <LetterheadStamp template={activeLetterhead} company={company} onMove={canWrite ? (left, top) => setForm((old) => ({ ...old, stampLeft: left, stampTop: top })) : undefined} />
+          <LetterheadStamp template={activeLetterhead} company={company} maxLeft={orientation === "landscape" ? 257 : 170} maxTop={orientation === "landscape" ? 173 : 260} pageWidthMm={orientation === "landscape" ? 297 : 210} onMove={canWrite ? (left, top) => setForm((old) => ({ ...old, stampLeft: left, stampTop: top })) : undefined} />
         </article></div><Button type="button" variant="outline" onClick={backToList} disabled={busy}>Back to warranty list</Button>
       </div>
     </>}
