@@ -36,10 +36,24 @@ test('authenticated navigation and accounting lifecycle', async ({ page }) => {
   expect(attachments.data.attachments).toHaveLength(1);
   const shortage = await call('/api/records', 'POST', {kind:'transactions',type:'invoice',companyId,locationId,party:'Browser Customer',lines:[{itemId:item.data.record.id,quantity:10,unitPrice:100}]});
   expect(shortage.status).toBe(409);
-  const removed = await call('/api/records', 'DELETE', {kind:'transactions',id:invoice.data.record.id,companyId});
+  for (const deletionReason of [undefined, '', '   ', 123, 'x'.repeat(2001)]) {
+    const rejected = await call('/api/records', 'DELETE', {kind:'transactions',id:invoice.data.record.id,companyId,deletionReason});
+    expect(rejected.status).toBe(400);
+  }
+  const retained = await call(`/api/records?kind=transactions&id=${invoice.data.record.id}&companyId=${companyId}`, 'GET');
+  expect(retained.status).toBe(200);
+  const removed = await call('/api/records', 'DELETE', {kind:'transactions',id:invoice.data.record.id,companyId,deletionReason:'  Entered against the wrong customer  '});
   expect(removed.status).toBe(200);
   const restored = await call(`/api/records?kind=items&companyId=${companyId}&locationId=${locationId}`, 'GET');
   expect(restored.data.records[0].quantity).toBe(5);
+  const audit = await call(`/api/reports?type=audit-trail&companyId=${companyId}`, 'GET');
+  expect(audit.status).toBe(200);
+  const deletion = audit.data.report.rows.find((row) => row.action === 'deleted' && Number(row.entityId) === invoice.data.record.id && row.entity === 'transaction');
+  expect(deletion).toBeTruthy();
+  const detail = JSON.parse(deletion.details);
+  expect(detail.deletionReason).toBe('Entered against the wrong customer');
+  expect(detail.actorEmail).toBe(login.email);
+  expect(deletion.date).toBeTruthy();
   await page.screenshot({path:'.local-data/application-running.png',fullPage:true});
   expect(pageErrors).toEqual([]);
 });

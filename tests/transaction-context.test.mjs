@@ -365,7 +365,7 @@ test('vendor changes and deletion are administrator-only, scoped and audited', a
   const company = (await database.query("INSERT INTO companies (name) VALUES ('Vendor permissions') RETURNING id")).rows[0].id;
   const vendor = (await database.query("INSERT INTO contacts (company_id, type, name, currency, balance) VALUES ($1, 'vendor', 'Audit vendor', 'AED', 0) RETURNING id", [company])).rows[0].id;
   const { PATCH, DELETE, GET } = await vite.ssrLoadModule('/app/api/records/route.ts');
-  const request = (method, payload={}) => new Request('https://app.test/api/records', {method,headers:{'content-type':'application/json'},body:JSON.stringify({kind:'contacts',id:vendor,companyId:company,...payload})});
+  const request = (method, payload={}) => new Request('https://app.test/api/records', {method,headers:{'content-type':'application/json'},body:JSON.stringify({deletionReason: 'Correcting test record', kind:'contacts',id:vendor,companyId:company,...payload})});
   const history = () => GET(new Request(`https://app.test/api/records?kind=vendor-history&companyId=${company}`));
   try {
     for (const role of ['accountant','purchasing','viewer']) {
@@ -581,7 +581,7 @@ test('cheques credit the chosen currency bank and debit the selected AP or expen
   const final = await pay({billId,locationId}); assert.equal(final.status,201);
   const finalId = (await final.json()).record.id;
   assert.equal(await state(),'paid'); assert.equal((await unpaid()).length,0);
-  for (const id of [finalId,partialId]) assert.equal((await DELETE(new Request('https://app.test/api/records',{method:'DELETE',headers:{'content-type':'application/json'},body:JSON.stringify({kind:'transactions',companyId,id})}))).status,200);
+  for (const id of [finalId,partialId]) assert.equal((await DELETE(new Request('https://app.test/api/records',{method:'DELETE',headers:{'content-type':'application/json'},body:JSON.stringify({deletionReason: 'Correcting test record', kind:'transactions',companyId,id})}))).status,200);
   assert.equal((await unpaid())[0].remaining,200);
   const secondBillId = (await database.query("INSERT INTO transactions (company_id,location_id,type,number,party,account,total,subtotal,currency,exchange_rate,transaction_date,status) VALUES ($1,$2,'bill','CHQ-BILL-2','Cheque Supplier','Cheque USD AP',150,150,'USD',3.675,'2026-09-12','open') RETURNING id", [companyId,locationId])).rows[0].id;
   const multiple = (amount, extras = {}) => pay({locationId,billIds:[secondBillId,billId],memo:'Supplier settlement',lines:[{description:'Bills',quantity:1,unitPrice:amount,vatCode:'ZERO'}],...extras});
@@ -593,7 +593,7 @@ test('cheques credit the chosen currency bank and debit the selected AP or expen
   assert.equal(multiRecord.memo,'Supplier settlement · Bill references: CHQ-BILL, CHQ-BILL-2');
   assert.deepEqual((await database.query('SELECT bill_id,amount FROM bill_payment_allocations WHERE payment_id=$1 ORDER BY bill_id',[multiRecord.id])).rows,[{bill_id:billId,amount:200},{bill_id:secondBillId,amount:50}]);
   assert.equal(await state(),'paid'); assert.equal((await unpaid())[0].remaining,100);
-  const remove = (id) => DELETE(new Request('https://app.test/api/records',{method:'DELETE',headers:{'content-type':'application/json'},body:JSON.stringify({kind:'transactions',companyId,id})}));
+  const remove = (id) => DELETE(new Request('https://app.test/api/records',{method:'DELETE',headers:{'content-type':'application/json'},body:JSON.stringify({deletionReason: 'Correcting test record', kind:'transactions',companyId,id})}));
   assert.equal((await remove(secondBillId)).status,409);
   const finalBill = await pay({locationId,billIds:[secondBillId]}); assert.equal(finalBill.status,201);
   const finalBillId=(await finalBill.json()).record.id;
@@ -907,7 +907,7 @@ test('purchase to sale inventory lifecycle blocks shortages and safely reverses 
   const request = (method, body) => new Request('https://app.test/api/records', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const create = (type, quantity, extra = {}) => POST(request('POST', { kind: 'transactions', companyId, locationId, type, party: 'Lifecycle party', number: `LIFE-${type}`, transactionDate: '2026-09-12', currency: 'USD', exchangeRate: 3.675, account: type === 'bill' ? 'Purchases' : 'Sales Revenue', lines: [{ itemId, description: 'Laptop', quantity, unitPrice: 100, unitCost: 20, vatCode: 'ZERO' }], ...extra }));
   const stock = async () => (await database.query('SELECT quantity, last_purchase_price FROM items WHERE id=$1', [itemId])).rows[0];
-  const remove = id => DELETE(request('DELETE', { kind: 'transactions', companyId, id }));
+  const remove = id => DELETE(request('DELETE', { deletionReason: 'Correcting test record', kind: 'transactions', companyId, id }));
   const billResponse = await create('bill', 10); assert.equal(billResponse.status, 201);
   const bill = (await billResponse.json()).record;
   assert.deepEqual(await stock(), { quantity: 10, last_purchase_price: 367.5 });
@@ -1004,16 +1004,16 @@ test('selected bill payments track partial balances, prevent overpayment and rev
   const firstId = (await first.json()).record.id;
   assert.equal(await status(), 'partially paid'); assert.equal((await unpaid())[0].remaining, 60);
   assert.equal((await POST(request('POST', payload(61)))).status, 409);
-  assert.equal((await DELETE(request('DELETE', { kind:'transactions',companyId,id:billId }))).status, 409);
+  assert.equal((await DELETE(request('DELETE', { deletionReason: 'Correcting test record', kind:'transactions',companyId,id:billId }))).status, 409);
   const second = await POST(request('POST', payload(60))); assert.equal(second.status, 201);
   const secondId = (await second.json()).record.id;
   assert.equal(await status(), 'paid'); assert.equal((await unpaid()).length, 0);
   const detail = await (await GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${companyId}&id=${firstId}`))).json();
   const edited = await PATCH(request('PATCH', payload(20, { id:firstId, revision:detail.revision }))); assert.equal(edited.status, 200);
   assert.equal(await status(), 'partially paid'); assert.equal((await unpaid())[0].remaining, 20);
-  assert.equal((await DELETE(request('DELETE', { kind:'transactions',companyId,id:secondId }))).status, 200);
+  assert.equal((await DELETE(request('DELETE', { deletionReason: 'Correcting test record', kind:'transactions',companyId,id:secondId }))).status, 200);
   assert.equal((await unpaid())[0].remaining, 80);
-  assert.equal((await DELETE(request('DELETE', { kind:'transactions',companyId,id:firstId }))).status, 200);
+  assert.equal((await DELETE(request('DELETE', { deletionReason: 'Correcting test record', kind:'transactions',companyId,id:firstId }))).status, 200);
   assert.equal((await unpaid())[0].remaining, 100);
   assert.equal((await database.query('SELECT balance FROM contacts WHERE company_id=$1', [companyId])).rows[0].balance, 100);
 });
@@ -1037,17 +1037,17 @@ test('selected customer payments track partial balances and timestamp full settl
   assert.ok(firstRecord.paidAt);
   assert.equal(await status(), 'partially paid'); assert.equal((await unpaid())[0].remaining, 60);
   assert.equal((await POST(request('POST', payload(61)))).status, 409);
-  assert.equal((await DELETE(request('DELETE', { kind:'transactions',companyId,id:invoiceId }))).status, 409);
+  assert.equal((await DELETE(request('DELETE', { deletionReason: 'Correcting test record', kind:'transactions',companyId,id:invoiceId }))).status, 409);
   const second = await POST(request('POST', payload(60))); assert.equal(second.status, 201);
   const secondId = (await second.json()).record.id;
   assert.equal(await status(), 'paid'); assert.equal((await unpaid()).length, 0);
   const paidAt = (await database.query('SELECT paid_at FROM transactions WHERE id=$1', [invoiceId])).rows[0].paid_at;
   assert.ok(paidAt);
   assert.ok(Math.abs(Date.now() - new Date(paidAt).getTime()) < 60000);
-  assert.equal((await DELETE(request('DELETE', { kind:'transactions',companyId,id:secondId }))).status, 200);
+  assert.equal((await DELETE(request('DELETE', { deletionReason: 'Correcting test record', kind:'transactions',companyId,id:secondId }))).status, 200);
   assert.equal((await unpaid())[0].remaining, 60);
   assert.equal((await database.query('SELECT paid_at FROM transactions WHERE id=$1', [invoiceId])).rows[0].paid_at, null);
-  assert.equal((await DELETE(request('DELETE', { kind:'transactions',companyId,id:firstId }))).status, 200);
+  assert.equal((await DELETE(request('DELETE', { deletionReason: 'Correcting test record', kind:'transactions',companyId,id:firstId }))).status, 200);
   assert.equal((await unpaid())[0].remaining, 100);
   assert.equal((await database.query('SELECT balance FROM contacts WHERE company_id=$1', [companyId])).rows[0].balance, 100);
 });
@@ -1075,14 +1075,14 @@ test('one customer payment allocates multiple invoices atomically and reverses e
   assert.equal((await states())[0].status, 'partially paid');
   assert.equal((await states())[1].status, 'paid');
   assert.ok((await states())[1].paid_at);
-  assert.equal((await DELETE(request('DELETE', {kind:'transactions',companyId,id:older}))).status, 409);
+  assert.equal((await DELETE(request('DELETE', {deletionReason: 'Correcting test record', kind:'transactions',companyId,id:older}))).status, 409);
   const full = await pay(150, [newer]); assert.equal(full.status, 201);
   const fullId = (await full.json()).record.id;
   assert.equal((await states())[0].status, 'paid');
-  assert.equal((await DELETE(request('DELETE', {kind:'transactions',companyId,id:paymentId}))).status, 200);
+  assert.equal((await DELETE(request('DELETE', {deletionReason: 'Correcting test record', kind:'transactions',companyId,id:paymentId}))).status, 200);
   assert.ok((await states()).every((row) => row.status !== 'paid' && row.paid_at === null));
   assert.equal((await database.query('SELECT balance FROM contacts WHERE company_id=$1', [companyId])).rows[0].balance, 150);
-  assert.equal((await DELETE(request('DELETE', {kind:'transactions',companyId,id:fullId}))).status, 200);
+  assert.equal((await DELETE(request('DELETE', {deletionReason: 'Correcting test record', kind:'transactions',companyId,id:fullId}))).status, 200);
 });
 
 test('vendor purchase orders resolve the payable account in their currency', async () => {
@@ -1154,19 +1154,19 @@ test('partial PO receipts retain remaining quantities, block overreceipt and rev
   assert.equal((await receive(31)).status,409);
   assert.equal((await receive(1,{lines:[{orderLineId:line.id,quantity:1},{orderLineId:line.id,quantity:1}]})).status,400);
   assert.equal((await POST(request('POST',{...base,type:'bill',sourceTransactionId:po.id}))).status,409);
-  assert.equal((await DELETE(request('DELETE',{kind:'transactions',companyId,id:po.id}))).status,409);
+  assert.equal((await DELETE(request('DELETE',{deletionReason: 'Correcting test record', kind:'transactions',companyId,id:po.id}))).status,409);
   const last = await receive(30); assert.equal(last.status,201); const lastRecord = (await last.json()).record;
   assert.equal(await stock(),50);
   assert.equal((await read()).order.status,'received');
   assert.equal((await openOrders()).length, 0);
   assert.equal((await read()).lines[0].remaining,0);
   assert.equal((await receive(1)).status,409);
-  assert.equal((await DELETE(request('DELETE',{kind:'transactions',companyId,id:lastRecord.id}))).status,200);
+  assert.equal((await DELETE(request('DELETE',{deletionReason: 'Correcting test record', kind:'transactions',companyId,id:lastRecord.id}))).status,200);
   assert.equal((await read()).order.status,'partially received');
   assert.deepEqual((await openOrders()).map((order) => order.id), [po.id]);
   assert.equal((await read()).lines[0].remaining,30);
   assert.equal(await stock(),20);
-  assert.equal((await DELETE(request('DELETE',{kind:'transactions',companyId,id:firstRecord.id}))).status,200);
+  assert.equal((await DELETE(request('DELETE',{deletionReason: 'Correcting test record', kind:'transactions',companyId,id:firstRecord.id}))).status,200);
   assert.equal((await read()).order.status,'open');
   assert.equal((await read()).lines[0].remaining,50);
 });
@@ -1203,19 +1203,19 @@ test('partial PO bills keep orders open until fully received and restore quantit
   assert.equal((await receive(31)).status,409);
   assert.equal((await receive(1,{lines:[{orderLineId:line.id,quantity:1},{orderLineId:line.id,quantity:1}]})).status,400);
   assert.equal((await POST(request('POST',{...base,type:'bill',sourceTransactionId:po.id}))).status,409);
-  assert.equal((await DELETE(request('DELETE',{kind:'transactions',companyId,id:po.id}))).status,409);
+  assert.equal((await DELETE(request('DELETE',{deletionReason: 'Correcting test record', kind:'transactions',companyId,id:po.id}))).status,409);
   const last = await receive(30); assert.equal(last.status,201); const lastRecord = (await last.json()).record;
   assert.equal(await stock(),50);
   assert.equal((await read()).order.status,'received');
   assert.equal((await openOrders()).length, 0);
   assert.equal((await read()).lines[0].remaining,0);
   assert.equal((await receive(1)).status,409);
-  assert.equal((await DELETE(request('DELETE',{kind:'transactions',companyId,id:lastRecord.id}))).status,200);
+  assert.equal((await DELETE(request('DELETE',{deletionReason: 'Correcting test record', kind:'transactions',companyId,id:lastRecord.id}))).status,200);
   assert.equal((await read()).order.status,'partially received');
   assert.deepEqual((await openOrders()).map((order) => order.id), [po.id]);
   assert.equal((await read()).lines[0].remaining,30);
   assert.equal(await stock(),20);
-  assert.equal((await DELETE(request('DELETE',{kind:'transactions',companyId,id:firstRecord.id}))).status,200);
+  assert.equal((await DELETE(request('DELETE',{deletionReason: 'Correcting test record', kind:'transactions',companyId,id:firstRecord.id}))).status,200);
   assert.equal((await read()).order.status,'open');
   assert.equal((await read()).lines[0].remaining,50);
 });
@@ -1247,7 +1247,7 @@ test('PO receipts target selected inventory, reuse SKU and reverse only destinat
   assert.equal((await receive(source,5)).status,201);
   assert.equal((await read()).order.status,'received');
   rows=await stock(); assert.equal(rows.length,2); assert.equal(rows.find(r=>r.location_id===destination).quantity,5); assert.equal(rows.find(r=>r.location_id===source).quantity,10);
-  assert.equal((await DELETE(request('DELETE',{kind:'transactions',companyId,id:firstRecord.id}))).status,200);
+  assert.equal((await DELETE(request('DELETE',{deletionReason: 'Correcting test record', kind:'transactions',companyId,id:firstRecord.id}))).status,200);
   assert.equal((await read()).lines[0].remaining,3); assert.equal((await read()).order.status,'partially received');
   rows=await stock(); assert.equal(rows.find(r=>r.location_id===destination).quantity,2); assert.equal(rows.find(r=>r.location_id===source).quantity,10);
 });
@@ -1296,7 +1296,7 @@ for (const sourceType of ['estimate', 'proforma invoice', 'sales order']) test(`
   assert.equal((await database.query('SELECT location_id FROM journal_entries WHERE transaction_id=$1',[first.id])).rows[0].location_id,destination);
   assert.equal((await database.query('SELECT unit_cost FROM transaction_lines WHERE transaction_id=$1',[first.id])).rows[0].unit_cost,20);
   assert.equal((await POST(request('POST',{...base,type:'invoice',sourceTransactionId:source.id}))).status,409);
-  assert.equal((await DELETE(request('DELETE',{kind:'transactions',companyId,id:source.id}))).status,409);
+  assert.equal((await DELETE(request('DELETE',{deletionReason: 'Correcting test record', kind:'transactions',companyId,id:source.id}))).status,409);
   let current=await detail();
   assert.equal((await PATCH(request('PATCH',{...base,id:source.id,type:sourceType,number:'CHANGED',revision:current.revision,lines:[originalLine]}))).status,409);
   await database.query('UPDATE items SET quantity=10 WHERE id=$1',[destinationItem]);
@@ -1304,10 +1304,10 @@ for (const sourceType of ['estimate', 'proforma invoice', 'sales order']) test(`
   response=await invoice(7);assert.equal(response.status,201);const last=(await response.json()).record;
   assert.notEqual(last.number,first.number);assert.equal((await available()).length,0);assert.equal((await read()).source.status,'invoiced');assert.equal((await read()).lines[0].remaining,0);assert.equal((await read()).invoices.length,2);
   assert.equal((await invoice(1)).status,409);
-  assert.equal((await DELETE(request('DELETE',{kind:'transactions',companyId,id:last.id}))).status,200);
+  assert.equal((await DELETE(request('DELETE',{deletionReason: 'Correcting test record', kind:'transactions',companyId,id:last.id}))).status,200);
   assert.deepEqual((await available()).map((row) => row.id), [source.id]);
   assert.equal((await read()).lines[0].remaining,7);assert.equal(await stock(destinationItem),10);
-  assert.equal((await DELETE(request('DELETE',{kind:'transactions',companyId,id:first.id}))).status,200);
+  assert.equal((await DELETE(request('DELETE',{deletionReason: 'Correcting test record', kind:'transactions',companyId,id:first.id}))).status,200);
   assert.equal((await read()).source.status,'open');assert.equal((await read()).lines[0].remaining,10);assert.equal(await stock(sourceItem),5);assert.equal(await stock(destinationItem),13);
   assert.equal((await database.query("SELECT balance FROM contacts WHERE company_id=$1 AND name='Partial customer'",[companyId])).rows[0].balance,0);
   current=await detail();
@@ -1320,7 +1320,7 @@ for (const sourceType of ['estimate', 'proforma invoice', 'sales order']) test(`
     assert.equal((await invoice(1)).status,403);
   } finally {delete globalThis.__transferTestUser;}
   assert.equal((await PATCH(request('PATCH',edited))).status,200);
-  assert.equal((await DELETE(request('DELETE',{kind:'transactions',companyId,id:source.id}))).status,200);
+  assert.equal((await DELETE(request('DELETE',{deletionReason: 'Correcting test record', kind:'transactions',companyId,id:source.id}))).status,200);
 });
 
 test("SKU reservations exclude other users across workflows only in the same inventory, and release/expiry are enforced", async () => {
@@ -1353,7 +1353,7 @@ test("SKU reservations exclude other users across workflows only in the same inv
     assert.equal((await reserve(first, tokenB)).status, 409);
     assert.equal((await price(first)).status, 409, 'direct API save cannot bypass a lease');
     assert.equal((await price(first, tokenA)).status, 409, 'another user cannot impersonate the owner token');
-    assert.equal((await records.DELETE(request('records', 'DELETE', { kind: 'items', id: first, companyId: company }))).status, 409);
+    assert.equal((await records.DELETE(request('records', 'DELETE', { deletionReason: 'Correcting test record', kind: 'items', id: first, companyId: company }))).status, 409);
     assert.equal((await records.POST(request('records', 'POST', { kind: 'transactions', type: 'estimate', companyId: company, locationId: main, lines: [{ itemId: first, quantity: 1 }] }))).status, 409);
     assert.equal((await transfers.POST(request('transfers', 'POST', { lines: [{ itemId: second, sourceLocationId: other, destinationLocationId: main, quantity: 1 }] }))).status, 409, 'destination SKU is protected');
     assert.equal((await release(tokenA)).status, 200);
@@ -1927,7 +1927,7 @@ test('Chart of Accounts deletion is limited to unused sub-accounts', async () =>
   const sub=(await database.query("INSERT INTO accounts (company_id,code,name,type,parent_account_id) VALUES ($1,'SUB-110','Deletable sub-account','Bank',$2) RETURNING id",[company,main])).rows[0].id;
   const child=(await database.query("INSERT INTO accounts (company_id,code,name,type,parent_account_id) VALUES ($1,'SUB-111','Nested sub-account','Bank',$2) RETURNING id",[company,sub])).rows[0].id;
   const {DELETE}=await vite.ssrLoadModule('/app/api/records/route.ts');
-  const remove=(id)=>DELETE(new Request('https://app.test/api/records',{method:'DELETE',headers:{'content-type':'application/json'},body:JSON.stringify({kind:'accounts',companyId:company,id})}));
+  const remove=(id)=>DELETE(new Request('https://app.test/api/records',{method:'DELETE',headers:{'content-type':'application/json'},body:JSON.stringify({deletionReason: 'Correcting test record', kind:'accounts',companyId:company,id})}));
   assert.equal((await remove(main)).status,409);
   assert.equal((await remove(sub)).status,409);
   assert.equal((await remove(child)).status,200);
@@ -2063,4 +2063,32 @@ test('invoice packing lists preserve logistics, calculate cartons and expose onl
   const refreshed=await GET(new Request(`https://app.test/api/packing-lists?companyId=${company}&invoiceId=${invoice}`));
   assert.equal(refreshed.status,200);
   assert.equal((await refreshed.json()).lines[0].remainingQuantity,0);
+});
+
+
+test('record deletion requires a memo and preserves the actor and memo atomically', async () => {
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Delete memo test') RETURNING id")).rows[0].id;
+  const id = (await database.query("INSERT INTO transactions (company_id,type,number,party,transaction_date) VALUES ($1,'estimate','MEMO-001','Memo customer','2026-10-01') RETURNING id", [companyId])).rows[0].id;
+  const { DELETE } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const remove = deletionReason => DELETE(new Request('https://app.test/api/records', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'transactions', id, companyId, deletionReason }) }));
+  for (const reason of [undefined, '', '  ', 123, 'x'.repeat(2001)]) {
+    assert.equal((await remove(reason)).status, 400);
+  }
+  assert.equal((await database.query('SELECT id FROM transactions WHERE id=$1', [id])).rows.length, 1);
+  assert.equal((await database.query('SELECT id FROM audit_log WHERE company_id=$1', [companyId])).rows.length, 0);
+  await database.exec("CREATE FUNCTION reject_memo_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.details LIKE '%Force rollback%' THEN RAISE EXCEPTION 'test audit failure'; END IF; RETURN NEW; END; $$; CREATE TRIGGER reject_memo_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_memo_audit();");
+  try {
+    assert.equal((await remove('Force rollback')).status, 500);
+    assert.equal((await database.query('SELECT id FROM transactions WHERE id=$1', [id])).rows.length, 1);
+  } finally {
+    await database.exec('DROP TRIGGER reject_memo_audit ON audit_log; DROP FUNCTION reject_memo_audit();');
+  }
+  assert.equal((await remove('  Wrong customer selected  ')).status, 200);
+  const [audit] = (await database.query("SELECT * FROM audit_log WHERE company_id=$1 AND action='deleted'", [companyId])).rows;
+  const details = JSON.parse(audit.details);
+  assert.equal(details.deletionReason, 'Wrong customer selected');
+  assert.equal(details.actorId, 1);
+  assert.equal(details.number, 'MEMO-001');
+  assert.ok(audit.created_at);
+  assert.equal((await database.query('SELECT id FROM transactions WHERE id=$1', [id])).rows.length, 0);
 });

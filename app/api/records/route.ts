@@ -1617,8 +1617,11 @@ async function handleDELETE(request: Request) {
   const authorization = await requireApiUser(request, true, true);
   if (authorization instanceof Response) return authorization;
   try {
-    const { kind, id, companyId } = (await request.json()) as { kind: RecordKind; id: number; companyId: number };
-    const db = getDb();
+    const { kind, id, companyId, deletionReason: reasonInput } = (await request.json()) as { kind: RecordKind; id: number; companyId: number; deletionReason?: unknown };
+    const deletionReason = typeof reasonInput === "string" ? reasonInput.trim() : "";
+    if (!deletionReason || deletionReason.length > 2000) return Response.json({ error: "Write a reason for deletion (maximum 2000 characters)." }, { status: 400 });
+    if (!["transactions", "contacts", "items", "accounts"].includes(kind)) return Response.json({ error: "Select a valid record type." }, { status: 400 });
+    const actor = { actorId: authorization.id, actorName: authorization.fullName || authorization.email, actorEmail: authorization.email, deletionReason };
     if (!Number.isInteger(id) || id <= 0 || !Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a valid record and company." }, { status: 400 });
     if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     if (kind === "contacts") return await withWriteTransaction(async () => {
@@ -1629,13 +1632,21 @@ async function handleDELETE(request: Request) {
         if (!isAdministrator(authorization)) return Response.json({ error: "Only All-Admin and Admin can delete vendors." }, { status: 403 });
         const [activity] = await tx.select({ id: transactions.id }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.party, vendor.name))).limit(1);
         if (Number(vendor.balance) !== 0 || activity) return Response.json({ error: "This vendor has a balance or transaction history and cannot be deleted." }, { status: 409 });
-        await tx.insert(auditLog).values({ companyId, action: "deleted", entityType: "vendor", entityId: id, details: JSON.stringify({ actorId: authorization.id, actorName: authorization.fullName || authorization.email, actorEmail: authorization.email, vendorName: vendor.name, changes: [] }) });
+        await tx.insert(auditLog).values({ companyId, action: "deleted", entityType: "vendor", entityId: id, details: JSON.stringify({ actorId: authorization.id, actorName: authorization.fullName || authorization.email, actorEmail: authorization.email, vendorName: vendor.name, deletionReason, changes: [] }) });
       }
+      if (vendor.type !== "vendor") await tx.insert(auditLog).values({ companyId, action: "deleted", entityType: "contact", entityId: id, details: JSON.stringify({ ...actor, name: vendor.name }) });
       await tx.delete(contacts).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId)));
       return Response.json({ ok: true });
     });
-    else if (kind === "items") await db.delete(items).where(and(eq(items.id, id), eq(items.companyId, companyId)));
-    else if (kind === "accounts") {
+    else if (kind === "items") return await withWriteTransaction(async () => {
+      const tx = getDb();
+      const [item] = await tx.delete(items).where(and(eq(items.id, id), eq(items.companyId, companyId))).returning();
+      if (!item) return Response.json({ error: "Item not found." }, { status: 404 });
+      await tx.insert(auditLog).values({ companyId, action: "deleted", entityType: "item", entityId: id, details: JSON.stringify({ ...actor, name: item.name, sku: item.sku }) });
+      return Response.json({ ok: true });
+    });
+    else if (kind === "accounts") return await withWriteTransaction(async () => {
+      const db = getDb();
       const [account] = await db.select({ name: accounts.name, systemRole: accounts.systemRole, parentAccountId: accounts.parentAccountId }).from(accounts).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId))).limit(1);
       if (!account) return Response.json({ error: "Account not found." }, { status: 404 });
       if (!account.parentAccountId) return Response.json({ error: "Only sub-accounts can be deleted. Main Chart of Accounts entries must be kept." }, { status: 409 });
@@ -1645,10 +1656,13 @@ async function handleDELETE(request: Request) {
       const [activity] = await db.select({ id: journalLines.id }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(and(eq(journalEntries.companyId, companyId), eq(journalLines.accountName, account.name))).limit(1);
       if (activity) return Response.json({ error: "Sub-accounts with journal activity cannot be deleted." }, { status: 409 });
       await db.delete(accounts).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId)));
-    }
+      await db.insert(auditLog).values({ companyId, action: "deleted", entityType: "account", entityId: id, details: JSON.stringify({ ...actor, name: account.name }) });
+      return Response.json({ ok: true });
+    });
     else return await withWriteTransaction(async () => {
       const db = getDb();
       const [record] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId))).for("update");
+      if (!record) return Response.json({ error: "Transaction not found." }, { status: 404 });
       if (record) {
         const [salesChild] = await db.select({ id: transactions.id }).from(transactions).where(sql`${transactions.salesSourceId} = ${id} or ${transactions.sourceTransactionId} = ${id}`).limit(1);
         if (salesChild) return Response.json({ error: "Remove linked invoices before editing or deleting this source document." }, { status: 409 });
@@ -1687,7 +1701,7 @@ async function handleDELETE(request: Request) {
           const [latest] = await db.select({ price: transactionLines.unitPrice, rate: transactions.exchangeRate }).from(transactionLines).innerJoin(transactions, eq(transactionLines.transactionId, transactions.id)).where(and(eq(transactionLines.itemId, item.id), inArray(transactions.type, ["bill", "item receipt"]))).orderBy(desc(transactions.transactionDate), desc(transactions.id), desc(transactionLines.id)).limit(1);
           await db.update(items).set({ lastPurchasePrice: latest ? round(latest.price * latest.rate) : item.cost }).where(eq(items.id, item.id));
         }
-        await db.insert(auditLog).values({ companyId, action: "deleted", entityType: "transaction", entityId: id, details: `${record.number} reversed` });
+        await db.insert(auditLog).values({ companyId, action: "deleted", entityType: "transaction", entityId: id, details: JSON.stringify({ ...actor, number: record.number, type: record.type, effect: "reversed" }) });
       }
       return Response.json({ ok: true });
     });

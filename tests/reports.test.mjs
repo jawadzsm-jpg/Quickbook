@@ -573,7 +573,7 @@ test("purchase returns reduce the linked supplier bill and appear in the supplie
   const deleteResponse = await records.DELETE(new Request("https://app.test/api/records", {
     method: "DELETE",
     headers: { origin: "https://app.test", "content-type": "application/json" },
-    body: JSON.stringify({ kind: "transactions", id: returned.id, companyId: cid }),
+    body: JSON.stringify({ kind: "transactions", id: returned.id, companyId: cid, deletionReason: "Incorrect purchase return" }),
   }));
   assert.equal(deleteResponse.status, 200, await deleteResponse.clone().text());
   assert.equal((await database.query("SELECT quantity FROM items WHERE id=$1", [stockId])).rows[0].quantity, 2);

@@ -123,3 +123,7 @@ When adding or changing a handler:
 5. Return stable error status codes and avoid exposing internal exception data.
 6. Add or update focused tests where the behavior changes a financial, security, concurrency, or release invariant.
 7. Update this file and the README endpoint summary.
+
+### Record deletion memo
+
+`DELETE /api/records` requires `deletionReason`, a nonblank string of at most 2000 characters, for transactions, contacts, items and sub-accounts. Successful deletion records the reason and authenticated actor in the company audit log, whose timestamp retains the deletion time. Audit writes commit with the deletion. Existing role, dependency and posting-reversal rules still apply.

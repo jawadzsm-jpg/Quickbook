@@ -56,7 +56,7 @@ Posting documents share these invariants:
 - Negative stock is blocked unless the protected company override flow is valid.
 - A failed dependent write or non-success response rolls back the transaction.
 
-When an existing posting document is edited, the server reverses its prior ledger, stock, allocations, and balance effects before applying the replacement. Destructive deletion is Administrator-only and master data with dependent activity is protected.
+When an existing posting document is edited, the server reverses its prior ledger, stock, allocations, and balance effects before applying the replacement. Destructive deletion is Administrator-only and master data with dependent activity is protected. The delete dialog requires a written reason and offers Cancel or Delete record. The reason, authenticated user and deletion time are retained in audit history; failed deletion keeps the dialog and memo available for correction.
 
 ## 4. Sales workflow
 
