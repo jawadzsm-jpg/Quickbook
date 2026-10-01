@@ -921,7 +921,7 @@ button, input, select { font: inherit; }
   ::selection { background: color-mix(in srgb, var(--primary) 22%, transparent); color: var(--foreground); }
   :where(a, button, input, textarea, select, [role="button"]):focus-visible { outline: none; }
 
-  .app-shell { isolation: isolate; }
+  .app-shell { isolation: auto; }
   .brand-sidebar [data-slot="sidebar-inner"] { background: linear-gradient(180deg, #0d1726 0%, #0a1320 100%); }
   .brand-sidebar [data-slot="sidebar-content"] { padding-bottom: .75rem; }
   .brand-sidebar [data-slot="sidebar-group"] { padding-block: .3rem; }
@@ -991,6 +991,10 @@ button, input, select { font: inherit; }
 
 /* Sonner notifications use solid, high-contrast colors in both appearances.
    Keep these global because the toaster is rendered in a body-level portal. */
+[data-sonner-toaster] {
+  z-index: 2147483647 !important;
+  isolation: isolate;
+}
 [data-sonner-toaster] [data-sonner-toast] {
   border-width: 1px !important;
   background: #fff !important;

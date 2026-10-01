@@ -141,6 +141,8 @@ test("dark mode keeps striped report rows and darkest utility text readable", ()
 
 test("notification errors stay readable in light and dark mode", () => {
   const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(css, /\.app-shell \{ isolation: auto; \}/);
+  assert.match(css, /\[data-sonner-toaster\]\s*\{[^}]*z-index: 2147483647 !important;[^}]*isolation: isolate;/s);
   assert.match(css, /\[data-sonner-toast\]\[data-type="error"\][^{]*\{[^}]*background: #fff1f2 !important;[^}]*color: #881337 !important;/s);
   assert.match(css, /\[data-sonner-toaster\]\[data-theme="dark"\] \[data-sonner-toast\]\[data-type="error"\][^{]*\{[^}]*background: #4c0519 !important;[^}]*color: #ffe4e6 !important;/s);
   assert.match(css, /\[data-sonner-toast\] \[data-title\][^{]*\{[^}]*font-weight: 750 !important;/s);
