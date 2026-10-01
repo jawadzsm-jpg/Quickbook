@@ -5,7 +5,7 @@ const capitalText = (value: unknown) => String(value ?? "").normalize("NFKC").tr
 const comparableText = (value: unknown) => capitalText(value).replace(/[^\p{L}\p{N}]+/gu, "");
 
 function descriptionParts(value: unknown) {
-  return capitalText(value).split("|").map((part) => part.trim()).filter(Boolean);
+  return capitalText(value).split("|").map((part) => part.trim()).filter((part) => part && part !== "NO");
 }
 
 export function itemTitleWithSku(name: unknown, sku: unknown) {
@@ -21,17 +21,28 @@ export function inventoryItemTitle(name: unknown) {
 
 const inventoryConditions = new Set(["BRAND NEW", "OPEN BOX", "REFURBISHED", "RENEWED", "USED"]);
 
-export function inventoryItemLine(name: unknown, sku: unknown, description: unknown, itemNumber?: unknown) {
+function inventoryLineParts(name: unknown, sku: unknown, description: unknown, itemNumber?: unknown) {
   const title = inventoryItemTitle(name);
   const code = capitalText(sku);
   const identity = code && !comparableText(title).endsWith(comparableText(code)) ? `${title} ${code}` : title;
   const parts = descriptionParts(itemSpecificationDescription(description, name, sku, itemNumber));
   const conditionIndex = parts.findIndex((part) => inventoryConditions.has(part));
   const condition = conditionIndex >= 0 ? parts.splice(conditionIndex, 1)[0] : "";
+  return { identity, condition, details: parts.join(" | ") };
+}
+
+export function inventoryItemLine(name: unknown, sku: unknown, description: unknown, itemNumber?: unknown) {
+  const { identity, condition, details } = inventoryLineParts(name, sku, description, itemNumber);
   const number = capitalText(itemNumber).replace(/^#/, "");
-  const details = parts.join(" | ");
   const detailsWithNumber = [details, number ? `#${number}` : ""].filter(Boolean).join(" ");
   return [identity, condition, detailsWithNumber].filter(Boolean).join(" | ");
+}
+
+export function inventorySocialShareText(name: unknown, sku: unknown, description: unknown, channel: "whatsapp" | "telegram") {
+  const { identity, condition, details } = inventoryLineParts(name, sku, description);
+  const bold = (value: string) => channel === "whatsapp" ? `*${value}*` : `**${value}**`;
+  const heading = [`🔺 ${bold(identity)} 🔺`, condition ? `⚡ ${bold(condition)} ⚡` : ""].filter(Boolean).join(" | ");
+  return [condition ? `${heading} |` : heading, details ? bold(details) : ""].filter(Boolean).join("\n");
 }
 
 export function inventoryItemDetails(description: unknown, itemNumber?: unknown) {
@@ -89,7 +100,7 @@ export function itemDescription(item?: DescriptionItem | null): string {
   try {
     const specs: unknown = JSON.parse(String(item.specifications ?? "[]"));
     if (Array.isArray(specs)) {
-      const values = specs.map((specification) => typeof specification?.value === "string" ? specification.value.trim() : "").filter(Boolean).join(" | ");
+      const values = specs.map((specification) => typeof specification?.value === "string" ? specification.value.trim() : "").filter((value) => value && capitalText(value) !== "NO").join(" | ");
       if (values) return values;
     }
   } catch { /* Older items may only have a plain-text description. */ }
