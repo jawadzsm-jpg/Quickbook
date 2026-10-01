@@ -115,6 +115,19 @@ type CurrentUser = { isAllAdmin?: boolean; id: number; fullName: string; email: 
 type Kind = "transactions" | "contacts" | "items" | "accounts";
 type DataRecord = Record<string, string | number | boolean> & { id: number };
 type LineForm = PricedInvoiceLine & { id?: number; sourceLineId?: number; comments?: string; serialNumber?: string; freightCharge?: string; itemId: string; description: string; quantity: string; unitPrice: string; unitCost: string; vatCode: string; vatRate: string };
+type MinimizedEditorWindow = {
+  id: string;
+  label: string;
+  view: View;
+  companyId: number;
+  locationId: number;
+  editorKind: Kind;
+  editingRecordId: number | null;
+  editingItemId: number | null;
+  form: Record<string, string>;
+  lines: LineForm[];
+  invoiceFiles: { fileName: string; mimeType: string; fileData: string; fileSize: number }[];
+};
 type InventoryLocation = { id: number; companyId: number; name: string; code: string; invoicePrefix: string; nextInvoiceNumber: number; receivable?: number; payable?: number };
 type CompanyWorkspace = { id: number; name: string; baseCurrency: string; locations: InventoryLocation[] };
 type CompanySetup = { id: number; name: string; baseCurrency: string; logoData: string; rightLogoData: string; loginBranding: boolean; loginLogoData: string; loginCompanyLogoData: string; loginDisplayName: string; loginCopyrightYears: string; loginBackgroundData: string; loginBackgroundColor: string; documentDesign: string; letterheadDesign: string; stampData: string; addressLine1: string; addressLine2: string; city: string; country: string; phone: string; email: string; trn: string; bankName: string; bankAccountName: string; bankAccountNumber: string; bankIban: string; bankSwift: string; bankCurrency: string; documentTemplate: "classic" | "modern" | "minimal"; documentColor: string };
@@ -503,6 +516,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   const [appearanceMode, setAppearanceMode] = useState<AppearanceMode>(currentUser.appearanceMode === "dark" ? "dark" : "light");
   const [appearanceSaving, setAppearanceSaving] = useState(false);
   const [minimizedWarranty, setMinimizedWarranty] = useState<{ companyId: number; label: string } | null>(null);
+  const [minimizedEditors, setMinimizedEditors] = useState<MinimizedEditorWindow[]>([]);
 
   useEffect(() => {
     document.documentElement.dataset.appearance = appearanceMode;
@@ -907,6 +921,36 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     setLines((current) => [...current, { itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatCode: "STANDARD", vatRate: "5", comments: "", serialNumber: "" }]);
   }
 
+  function minimizeEditor() {
+    if (saving) return toast.info("Please wait until saving finishes.");
+    const kindLabel = activeEditorKind === "transactions" ? form.type || "transaction" : activeEditorKind === "items" ? "item" : activeEditorKind === "accounts" ? "account" : form.type || "contact";
+    const reference = form.number || form.itemNumber || form.company || form.name || "Unsaved draft";
+    const label = `${editingRecordId !== null || editingItemId !== null ? "Edit" : "New"} ${kindLabel} · ${reference}`;
+    const draft: MinimizedEditorWindow = {
+      id: window.crypto.randomUUID(), label, view, companyId: activeCompanyId, locationId: activeLocationId,
+      editorKind: activeEditorKind, editingRecordId, editingItemId,
+      form: { ...form }, lines: lines.map((line) => ({ ...line })), invoiceFiles: invoiceFiles.map((file) => ({ ...file })),
+    };
+    setMinimizedEditors((current) => [...current, draft]);
+    setDialogOpen(false);
+    setEditorKind(null);
+    toast.success(`${label} minimized. You can open and minimize another window.`);
+  }
+
+  function restoreEditor(draft: MinimizedEditorWindow) {
+    setMinimizedEditors((current) => current.filter((windowDraft) => windowDraft.id !== draft.id));
+    setView(draft.view);
+    setActiveCompanyId(draft.companyId);
+    setActiveLocationId(draft.locationId);
+    setEditorKind(draft.editorKind);
+    setEditingRecordId(draft.editingRecordId);
+    setEditingItemId(draft.editingItemId);
+    setForm({ ...draft.form });
+    setLines(draft.lines.map((line) => ({ ...line })));
+    setInvoiceFiles(draft.invoiceFiles.map((file) => ({ ...file })));
+    setDialogOpen(true);
+  }
+
   async function saveRecord(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const saveAndPrint = (event.nativeEvent as SubmitEvent).submitter instanceof HTMLButtonElement && (event.nativeEvent as SubmitEvent).submitter?.dataset.action === "save-print";
@@ -1217,14 +1261,21 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
         </div>
       </SidebarInset>
 
-      {minimizedWarranty && view !== "warranties" ? <div className="fixed bottom-4 right-4 z-[80] flex max-w-[calc(100vw-2rem)] items-center gap-2 rounded-xl border bg-background p-2 shadow-2xl" role="status" aria-label="Minimized RMA slip">
-        <Button type="button" variant="ghost" className="min-w-0 justify-start" onClick={() => { if (activeCompanyId !== minimizedWarranty.companyId) setActiveCompanyId(minimizedWarranty.companyId); setView("warranties"); }}><FileText className="size-4 shrink-0" /><span className="truncate">{minimizedWarranty.label}</span></Button>
-        <Button type="button" size="sm" onClick={() => { if (activeCompanyId !== minimizedWarranty.companyId) setActiveCompanyId(minimizedWarranty.companyId); setView("warranties"); }}>Restore</Button>
-        <Button type="button" size="icon" variant="ghost" aria-label="Discard minimized RMA slip" title="Exit RMA slip" onClick={() => { if (!window.confirm("Discard unsaved warranty changes?")) return; window.sessionStorage.removeItem("comnet-warranty-minimized-draft"); setMinimizedWarranty(null); }}><X className="size-4" /></Button>
+      {(minimizedEditors.length > 0 || minimizedWarranty && view !== "warranties") ? <div className="fixed bottom-4 right-4 z-[80] flex max-h-[calc(100dvh-2rem)] w-[min(30rem,calc(100vw-2rem))] flex-col gap-2 overflow-y-auto" role="region" aria-label="Minimized application windows">
+        {minimizedEditors.map((draft) => <div key={draft.id} className="flex min-w-0 items-center gap-2 rounded-xl border bg-background p-2 shadow-2xl" role="status">
+          <Button type="button" variant="ghost" className="min-w-0 flex-1 justify-start" onClick={() => restoreEditor(draft)}><FileText className="size-4 shrink-0" /><span className="truncate">{draft.label}</span></Button>
+          <Button type="button" size="sm" onClick={() => restoreEditor(draft)}>Restore</Button>
+          <Button type="button" size="icon" variant="ghost" aria-label={`Discard ${draft.label}`} title="Exit window" onClick={() => { if (!window.confirm(`Discard changes in ${draft.label}?`)) return; setMinimizedEditors((current) => current.filter((windowDraft) => windowDraft.id !== draft.id)); }}><X className="size-4" /></Button>
+        </div>)}
+        {minimizedWarranty && view !== "warranties" ? <div className="flex min-w-0 items-center gap-2 rounded-xl border bg-background p-2 shadow-2xl" role="status" aria-label="Minimized RMA slip">
+          <Button type="button" variant="ghost" className="min-w-0 flex-1 justify-start" onClick={() => { if (activeCompanyId !== minimizedWarranty.companyId) setActiveCompanyId(minimizedWarranty.companyId); setView("warranties"); }}><FileText className="size-4 shrink-0" /><span className="truncate">{minimizedWarranty.label}</span></Button>
+          <Button type="button" size="sm" onClick={() => { if (activeCompanyId !== minimizedWarranty.companyId) setActiveCompanyId(minimizedWarranty.companyId); setView("warranties"); }}>Restore</Button>
+          <Button type="button" size="icon" variant="ghost" aria-label="Discard minimized RMA slip" title="Exit RMA slip" onClick={() => { if (!window.confirm("Discard unsaved warranty changes?")) return; window.sessionStorage.removeItem("comnet-warranty-minimized-draft"); setMinimizedWarranty(null); }}><X className="size-4" /></Button>
+        </div> : null}
       </div> : null}
 
       <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open && saving) { toast.info("Please wait until saving finishes."); return; } setDialogOpen(open); if (!open) { setEditingItemId(null); setEditorKind(null); } }}>
-        <DialogContent showCloseButton={true} onInteractOutside={(event) => { if (["items", "transactions"].includes(activeEditorKind) || saving) event.preventDefault(); }} onEscapeKeyDown={(event) => { if (["items", "transactions"].includes(activeEditorKind) || saving) event.preventDefault(); }} data-record-kind={activeEditorKind} data-attachments-context={activeEditorKind === "transactions" && ["bill", "customer payment", "bill payment", "vendor payment", "cheque"].includes(form.type) ? "transaction" : activeEditorKind === "contacts" && form.type === "employee" ? "employee" : undefined} className={`max-h-[92dvh] ${activeEditorKind === "transactions" ? "overflow-hidden sm:max-w-6xl" : "overflow-y-auto"} ${activeEditorKind === "items" || (activeEditorKind === "contacts" && view === "customers") ? "sm:max-w-5xl" : activeEditorKind === "transactions" ? "" : "sm:max-w-xl"}`}>
+        <DialogContent showCloseButton={true} onMinimize={minimizeEditor} onInteractOutside={(event) => { if (["items", "transactions"].includes(activeEditorKind) || saving) event.preventDefault(); }} onEscapeKeyDown={(event) => { if (["items", "transactions"].includes(activeEditorKind) || saving) event.preventDefault(); }} data-record-kind={activeEditorKind} data-attachments-context={activeEditorKind === "transactions" && ["bill", "customer payment", "bill payment", "vendor payment", "cheque"].includes(form.type) ? "transaction" : activeEditorKind === "contacts" && form.type === "employee" ? "employee" : undefined} className={`max-h-[92dvh] ${activeEditorKind === "transactions" ? "overflow-hidden sm:max-w-6xl" : "overflow-y-auto"} ${activeEditorKind === "items" || (activeEditorKind === "contacts" && view === "customers") ? "sm:max-w-5xl" : activeEditorKind === "transactions" ? "" : "sm:max-w-xl"}`}>
           <DialogHeader><DialogTitle>{editingItemId !== null && activeEditorKind === "items" ? "Edit Item" : editingRecordId !== null ? `Edit ${activeEditorKind === "transactions" ? form.type : activeEditorKind === "accounts" ? "Account" : form.type === "vendor" ? "Vendor" : "Customer"}` : editorLabel}</DialogTitle><DialogDescription>{editingItemId !== null && activeEditorKind === "items" ? "Update the category and item description details." : activeEditorKind === "transactions" && form.type === "bill" ? "Select the vendor and enter the bill items below." : "Enter the record details below. Required fields are marked."}</DialogDescription></DialogHeader>
           {dialogOpen && activeEditorKind === "transactions" && form.type === "item receipt" && editingRecordId === null && form.party && <OpenPurchaseOrders key={`${activeCompanyId}:${form.party}`} companyId={activeCompanyId} party={form.party} onComplete={() => { setDialogOpen(false); void loadData(); }} onSaved={() => { void loadData(); }} />}
           {dialogOpen && activeEditorKind === "transactions" && form.type === "bill" && editingRecordId === null && !form.sourceTransactionId && !form.purchaseOrderId && form.party && <OpenPurchaseOrders key={`bill:${activeCompanyId}:${form.party}`} companyId={activeCompanyId} party={form.party} onSaved={() => { void loadData(); }} onComplete={() => {}} onSelectBill={async (id) => {
