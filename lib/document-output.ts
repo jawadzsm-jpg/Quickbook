@@ -251,7 +251,9 @@ export async function createA4PdfBlob(element: HTMLElement, options: PdfPageOpti
 
 // Letterheads use an exact A4 canvas so the downloaded PDF has the same line
 // wrapping, logo placement, and text position as the browser print preview.
-export async function createA4LetterheadPdfBlob(element: HTMLElement, title: string) {
+export async function createA4LetterheadPdfBlob(element: HTMLElement, title: string, orientation: "portrait" | "landscape" = "portrait") {
+  const pageWidth = orientation === "landscape" ? 297 : 210;
+  const pageHeight = orientation === "landscape" ? 210 : 297;
   const body = element.querySelector<HTMLElement>(".letterhead-body-text");
   const footerArea = element.querySelector<HTMLElement>(".letterhead-footer-area");
   const limit = footerArea?.getBoundingClientRect().top ?? element.getBoundingClientRect().bottom - 50;
@@ -268,14 +270,14 @@ export async function createA4LetterheadPdfBlob(element: HTMLElement, title: str
       },
     });
     if (!canvas.width || !canvas.height) throw new Error("The document could not be captured.");
-    const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
+    const pdf = new jsPDF({ orientation, unit: "mm", format: "a4", compress: true });
     pdf.setProperties({ title });
-    pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, 210, 297);
+    pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, pageWidth, pageHeight);
     return pdf.output("blob");
   } catch {
     // Canvas rendering can reject newer CSS colors or images in the live app.
     // Draw the same A4 preview directly into a PDF so download still works.
-    return createA4PdfBlob(element, { orientation: "portrait", marginMm: 0, title });
+    return createA4PdfBlob(element, { orientation, marginMm: 0, title });
   }
 }
 
