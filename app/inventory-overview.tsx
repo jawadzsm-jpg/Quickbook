@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
-import { inventoryItemLine, itemSpecificationDescription } from "@/lib/item-description";
+import { inventoryItemLine, inventorySocialShareText, itemSpecificationDescription } from "@/lib/item-description";
 
 type OverviewItem = {
   id: number;
@@ -299,12 +299,10 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   const shareText = (channel: ShareChannel) => {
     if (!selectedRecords.length) return "";
     const items = selectedRecords.map((record) => {
-      const itemTitle = inventoryItemLine(record.name, record.sku, specificationText(record));
-      const title = channel === "whatsapp"
-        ? `🔺 _*${itemTitle}*_ 🔺`
-        : channel === "telegram"
-          ? `🔺 ***${itemTitle}*** 🔺`
-          : `***${itemTitle}***`;
+      const description = specificationText(record);
+      const title = channel === "email"
+        ? `***${inventoryItemLine(record.name, record.sku, description)}***`
+        : inventorySocialShareText(record.name, record.sku, description, channel);
       const lines = [title];
       const details: string[] = [];
       if (showQuantity) {
