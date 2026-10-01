@@ -10,7 +10,7 @@ type SavedFile = { id: number; file_name: string; file_size: number };
 
 export function InvoiceAttachments({ companyId, invoiceId, pending, onPendingChange, canEdit = true, documentLabel = "Invoice", entityType = "transaction" }: {
   companyId: number; invoiceId?: number | null; pending?: PendingFile[];
-  onPendingChange?: (files: PendingFile[]) => void; canEdit?: boolean; documentLabel?: "Invoice" | "Bill" | "Employee" | "Report" | "RCM Declaration"; entityType?: "transaction" | "employee" | "report" | "rcm_declaration";
+  onPendingChange?: (files: PendingFile[]) => void; canEdit?: boolean; documentLabel?: "Invoice" | "Bill" | "Customer Payment" | "Employee" | "Report" | "RCM Declaration"; entityType?: "transaction" | "employee" | "report" | "rcm_declaration";
 }) {
   const [saved, setSaved] = useState<SavedFile[]>([]);
   const [loading, setLoading] = useState(false);
