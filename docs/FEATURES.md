@@ -93,6 +93,7 @@
 ## Window controls
 
 - Application dialogs use a responsive landscape workspace on desktop and provide minimize, maximize/restore, and close controls without discarding in-progress form data.
+- Success, warning, information, and error notifications use solid high-contrast colors that remain readable in light and dark mode.
 
 ## VAT code register
 
