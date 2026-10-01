@@ -99,6 +99,7 @@
 ## VAT code register
 
 - VAT Codes always retain six standard UAE choices, including `Goods imported into the UAE`, and allow administrators to add, edit, deactivate, or safely delete unused custom codes. Each code shows its linked documents and item defaults, supports evidence attachments, and exports as an A4 portrait print/PDF register with an optional movable company stamp.
+- Customer Payments are non-VAT receipts: the entry screen hides VAT Code and VAT Amount, saves a payment method and separate reference number, links supporting attachments, and opens a fitted A4 portrait print/PDF receipt with an optional movable company stamp.
 
 ## Reporting
 
