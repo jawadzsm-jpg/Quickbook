@@ -360,13 +360,12 @@ export async function GET(request: Request) {
         const [sku, itemNumber] = await Promise.all([createUniqueItemSku(), createUniqueItemNumber()]);
         return Response.json({ sku, itemNumber }, { headers: { "Cache-Control": "no-store" } });
       }
-      const records = await db.select().from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId))).orderBy(asc(items.name));
-      const purchaseCostLines = await db.select({
+      const [records, purchaseCosts, openPurchaseOrders] = await Promise.all([
+        db.select().from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId))).orderBy(asc(items.name)),
+        db.select({
         itemId: transactionLines.itemId,
-        quantity: transactionLines.quantity,
-        unitPrice: transactionLines.unitPrice,
-        freightCharge: transactionLines.freightCharge,
-        exchangeRate: transactions.exchangeRate,
+        quantity: sql<number>`coalesce(sum(${transactionLines.quantity}), 0)`,
+        value: sql<number>`coalesce(sum((${transactionLines.quantity} * ${transactionLines.unitPrice} + ${transactionLines.freightCharge}) * ${transactions.exchangeRate}), 0)`,
       }).from(transactionLines)
         .innerJoin(transactions, eq(transactionLines.transactionId, transactions.id))
         .where(and(
@@ -374,25 +373,17 @@ export async function GET(request: Request) {
           eq(transactions.locationId, locationId),
           inArray(transactions.type, ["bill", "item receipt"]),
           sql`${transactionLines.itemId} IS NOT NULL`,
-        ));
-      const weightedCosts = new Map<number, { quantity: number; value: number }>();
-      for (const line of purchaseCostLines) {
-        if (!line.itemId || Number(line.quantity) <= 0) continue;
-        const old = weightedCosts.get(line.itemId) ?? { quantity: 0, value: 0 };
-        const quantity = Number(line.quantity);
-        weightedCosts.set(line.itemId, {
-          quantity: old.quantity + quantity,
-          value: old.value + (quantity * Number(line.unitPrice) + Number(line.freightCharge || 0)) * Number(line.exchangeRate),
-        });
-      }
-      const openPoLines = await db.select({ id: transactionLines.id, itemId: transactionLines.itemId, quantity: transactionLines.quantity }).from(transactionLines)
+        )).groupBy(transactionLines.itemId),
+        db.select({
+          itemId: transactionLines.itemId,
+          onPo: sql<number>`coalesce(sum(greatest(0, ${transactionLines.quantity} - coalesce((select sum(pra.quantity) from purchase_receipt_allocations pra where pra.order_line_id = ${transactionLines.id}), 0))), 0)`,
+        }).from(transactionLines)
         .innerJoin(transactions, eq(transactionLines.transactionId, transactions.id))
-        .where(and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId), eq(transactions.type, "purchase order"), inArray(transactions.status, ["open", "pending", "overdue", "partially received"]), sql`${transactionLines.itemId} IS NOT NULL`));
-      const allocations = openPoLines.length ? await db.select({ orderLineId: purchaseReceiptAllocations.orderLineId, quantity: purchaseReceiptAllocations.quantity }).from(purchaseReceiptAllocations).where(inArray(purchaseReceiptAllocations.orderLineId, openPoLines.map((line) => line.id))) : [];
-      const receivedByLine = new Map<number, number>();
-      for (const allocation of allocations) receivedByLine.set(allocation.orderLineId, (receivedByLine.get(allocation.orderLineId) ?? 0) + Number(allocation.quantity));
-      const onPoByItem = new Map<number, number>();
-      for (const line of openPoLines) if (line.itemId) onPoByItem.set(line.itemId, (onPoByItem.get(line.itemId) ?? 0) + Math.max(0, Number(line.quantity) - (receivedByLine.get(line.id) ?? 0)));
+        .where(and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId), eq(transactions.type, "purchase order"), inArray(transactions.status, ["open", "pending", "overdue", "partially received"]), sql`${transactionLines.itemId} IS NOT NULL`))
+        .groupBy(transactionLines.itemId),
+      ]);
+      const weightedCosts = new Map(purchaseCosts.flatMap((row) => row.itemId ? [[row.itemId, { quantity: Number(row.quantity), value: Number(row.value) }] as const] : []));
+      const onPoByItem = new Map(openPurchaseOrders.flatMap((row) => row.itemId ? [[row.itemId, Number(row.onPo)] as const] : []));
       return Response.json({ records: records.map((item) => {
         const weighted = weightedCosts.get(item.id);
         const averageCost = weighted && weighted.quantity > 0 ? round(weighted.value / weighted.quantity) : round(Number(item.lastPurchasePrice) || Number(item.cost) || 0);

@@ -296,7 +296,7 @@ export const transactions = pgTable("transactions", {
   sourceTransactionId: integer("source_transaction_id"),
   convertedInvoiceId: integer("converted_invoice_id"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
-}, (table) => [index("idx_transactions_sales_source").on(table.salesSourceId), index("idx_transactions_purchase_order").on(table.purchaseOrderId), index("idx_transactions_invoice_id").on(table.invoiceId), index("idx_transactions_bill_id").on(table.billId), index("idx_transactions_company_date").on(table.companyId, table.transactionDate), index("idx_transactions_company_type_status").on(table.companyId, table.type, table.status), uniqueIndex("idx_transactions_source_conversion").on(table.sourceTransactionId)]);
+}, (table) => [index("idx_transactions_sales_source").on(table.salesSourceId), index("idx_transactions_purchase_order").on(table.purchaseOrderId), index("idx_transactions_invoice_id").on(table.invoiceId), index("idx_transactions_bill_id").on(table.billId), index("idx_transactions_company_date").on(table.companyId, table.transactionDate), index("idx_transactions_company_type_status").on(table.companyId, table.type, table.status), index("idx_transactions_company_location_type_status").on(table.companyId, table.locationId, table.type, table.status), uniqueIndex("idx_transactions_source_conversion").on(table.sourceTransactionId)]);
 
 export const transactionLines = pgTable("transaction_lines", {
   id: serial("id").primaryKey(),

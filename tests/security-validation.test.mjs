@@ -149,6 +149,21 @@ test("notification errors stay readable in light and dark mode", () => {
   assert.match(css, /backdrop-filter: none !important/);
 });
 
+test("inventory loads independently, aggregates history in SQL, and paginates long lists", () => {
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const recordsRoute = readFileSync(new URL("../app/api/records/route.ts", import.meta.url), "utf8");
+  assert.match(app, /setRecords\(\(current\) => \(\{ \.\.\.current, \[kind\]: data\.records \}\)\)/);
+  assert.match(app, /onRefresh=\{currentKind === "items" \? refreshItems : loadData\}/);
+  assert.match(app, /const inventoryPageSize = 100;/);
+  assert.match(app, /Showing \{\(visibleItemPage - 1\) \* inventoryPageSize \+ 1\}/);
+  assert.match(recordsRoute, /value: sql<number>`coalesce\(sum\(/);
+  assert.match(recordsRoute, /onPo: sql<number>`coalesce\(sum\(greatest\(0,/);
+  assert.equal((recordsRoute.match(/\.groupBy\(transactionLines\.itemId\)/g) || []).length >= 2, true);
+  assert.match(readFileSync(new URL("../drizzle/0070_inventory_read_indexes.sql", import.meta.url), "utf8"), /idx_transactions_company_location_type_status/);
+  assert.doesNotMatch(recordsRoute, /const purchaseCostLines = await/);
+  assert.doesNotMatch(recordsRoute, /const openPoLines = await/);
+});
+
 test("the full app shares dark-mode coverage and responsive phone, tablet, and desktop layout rules", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");

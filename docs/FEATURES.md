@@ -36,6 +36,7 @@
 - Stock, non-stock, service, other charge, subtotal, group, discount, payment, VAT item, and VAT group item types.
 - Unique item numbers and SKU controls per inventory location.
 - Quantity on hand, reorder points, sales prices, unit cost, GRN cost, serial numbers, and active status.
+- Inventory items load independently from transactions, contacts, and account balances; historical average cost and open-PO quantities are aggregated in PostgreSQL, and long item lists are paginated for responsive browsing.
 - Authorized inventory editors can mark each item inactive or active from its row. Inactive items move out of All items into the Item is inactive tab, and reactivated items return to All items. The inactive status label applies even at zero quantity; active stock counts exclude inactive items.
 - Item specifications with reusable option values and generated descriptions.
 - Inventory item rows show one uppercase line ordered as brand/model, generated SKU, condition such as `BRAND NEW`, remaining specifications, and the item number as a final `#` suffix. Inventory Overview copies for WhatsApp, Telegram, and Email omit standalone `NO` specifications, item numbers, and inventory-location lines.
