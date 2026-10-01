@@ -623,6 +623,9 @@ test("application windows are wide and A4 output offers portrait or landscape wi
   assert.match(dialog, /aria-label=\{windowState === "maximized" \? "Restore window" : "Maximize window"\}/);
   assert.match(dialog, /data-window-state=\{windowState\}/);
   assert.match(dialog, /windowState === "normal" && "top-\[50%\] left-\[50%\] translate-x-\[-50%\] translate-y-\[-50%\]"/);
+  assert.match(dialog, /modal=\{windowState === "minimized" \? false : modal\}/);
+  assert.match(dialog, /window\?\.windowState === "minimized"\) return null/);
+  assert.match(dialog, /if \(windowState === "minimized"\) event\.preventDefault\(\)/);
   assert.match(css, /data-record-kind="transactions"/);
   assert.match(css, /data-window-state="maximized"/);
   assert.match(css, /data-window-state="maximized"\][\s\S]*?top: \.5rem !important;[\s\S]*?right: \.5rem !important;[\s\S]*?bottom: \.5rem !important;[\s\S]*?left: \.5rem !important;[\s\S]*?--tw-translate-x: 0px !important;[\s\S]*?--tw-translate-y: 0px !important;/);

@@ -7,10 +7,31 @@ import { Dialog as DialogPrimitive } from "radix-ui"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 
+type DialogWindowState = "normal" | "minimized" | "maximized"
+const DialogWindowContext = React.createContext<{
+  windowState: DialogWindowState
+  setWindowState: React.Dispatch<React.SetStateAction<DialogWindowState>>
+} | null>(null)
+
 function Dialog({
+  modal = true,
+  onOpenChange,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Root>) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />
+  const [windowState, setWindowState] = React.useState<DialogWindowState>("normal")
+  return (
+    <DialogWindowContext.Provider value={{ windowState, setWindowState }}>
+      <DialogPrimitive.Root
+        data-slot="dialog"
+        modal={windowState === "minimized" ? false : modal}
+        onOpenChange={(open) => {
+          if (!open) setWindowState("normal")
+          onOpenChange?.(open)
+        }}
+        {...props}
+      />
+    </DialogWindowContext.Provider>
+  )
 }
 
 function DialogTrigger({
@@ -35,6 +56,8 @@ function DialogOverlay({
   className,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Overlay>) {
+  const window = React.useContext(DialogWindowContext)
+  if (window?.windowState === "minimized") return null
   return (
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
@@ -53,12 +76,17 @@ function DialogContent({
   showCloseButton = true,
   showWindowControls = true,
   onCloseAutoFocus,
+  onInteractOutside,
+  onPointerDownOutside,
+  onEscapeKeyDown,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
   showWindowControls?: boolean
 }) {
-  const [windowState, setWindowState] = React.useState<"normal" | "minimized" | "maximized">("normal")
+  const window = React.useContext(DialogWindowContext)
+  const windowState = window?.windowState ?? "normal"
+  const setWindowState = window?.setWindowState
 
   return (
     <DialogPortal data-slot="dialog-portal">
@@ -72,8 +100,20 @@ function DialogContent({
           className
         )}
         onCloseAutoFocus={(event) => {
-          setWindowState("normal")
+          setWindowState?.("normal")
           onCloseAutoFocus?.(event)
+        }}
+        onInteractOutside={(event) => {
+          if (windowState === "minimized") event.preventDefault()
+          onInteractOutside?.(event)
+        }}
+        onPointerDownOutside={(event) => {
+          if (windowState === "minimized") event.preventDefault()
+          onPointerDownOutside?.(event)
+        }}
+        onEscapeKeyDown={(event) => {
+          if (windowState === "minimized") event.preventDefault()
+          onEscapeKeyDown?.(event)
         }}
         {...props}
       >
@@ -87,7 +127,7 @@ function DialogContent({
               className="size-8 text-muted-foreground hover:text-foreground"
               aria-label={windowState === "minimized" ? "Restore window" : "Minimize window"}
               title={windowState === "minimized" ? "Restore" : "Minimize"}
-              onClick={() => setWindowState((current) => current === "minimized" ? "normal" : "minimized")}
+              onClick={() => setWindowState?.((current) => current === "minimized" ? "normal" : "minimized")}
             >
               <MinusIcon className="size-4" />
             </Button>
@@ -98,7 +138,7 @@ function DialogContent({
               className="size-8 text-muted-foreground hover:text-foreground"
               aria-label={windowState === "maximized" ? "Restore window" : "Maximize window"}
               title={windowState === "maximized" ? "Restore" : "Maximize"}
-              onClick={() => setWindowState((current) => current === "maximized" ? "normal" : "maximized")}
+              onClick={() => setWindowState?.((current) => current === "maximized" ? "normal" : "maximized")}
             >
               {windowState === "maximized" ? <Minimize2Icon className="size-4" /> : <Maximize2Icon className="size-4" />}
             </Button>

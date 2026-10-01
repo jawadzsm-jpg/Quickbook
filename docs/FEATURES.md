@@ -93,7 +93,7 @@
 
 ## Window controls
 
-- Application dialogs use a responsive landscape workspace on desktop and provide minimize, maximize/restore, and close controls without discarding in-progress form data.
+- Application dialogs use a responsive landscape workspace on desktop and provide minimize, maximize/restore, and close controls without discarding in-progress form data. Minimizing removes the blocking overlay and focus lock, leaves a compact Restore bar, and allows users to continue working elsewhere in the application while supported root-level entry/edit windows remain mounted.
 - Success, warning, information, and error notifications use solid high-contrast colors that remain readable in light and dark mode, including while a dialog is open.
 
 ## VAT code register
