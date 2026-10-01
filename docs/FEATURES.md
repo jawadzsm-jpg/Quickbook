@@ -23,7 +23,7 @@
 
 - Vendor records with contact, company, country, TRN, currency, payable balance, and change history.
 - Purchase orders, item receipts, received-item bills, bills, expenses, vendor credits, and bill payments.
-- Supplier bills using the `Goods imported into the UAE` VAT code require Bill of Entry and Airway Bill references, support customs-document attachments, and keep those references on the saved and printed bill.
+- Supplier bills using the `Goods imported into the UAE` VAT code require Bill of Entry and Airway Bill references, support customs-document attachments, and keep those references on the saved and printed bill. When converting an import-coded Purchase Order, the UAE import document fields are shown immediately and become required as soon as an import line is included in the Bill.
 - Bills and purchase orders default their posting-account dropdown to the selected vendor’s linked Accounts Payable account in the document currency.
 - Purchase order and bill entry forms offer Add Line below the last item row.
 - Partial purchase-order receiving with remaining quantities and receipt allocation tracking.

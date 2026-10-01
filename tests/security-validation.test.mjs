@@ -270,6 +270,7 @@ test("VAT codes restore UAE defaults and support edit, safe delete, linked docum
 test("UAE imported-goods VAT requires customs references and keeps them on the supplier bill", () => {
   const api = readFileSync(new URL("../app/api/records/route.ts", import.meta.url), "utf8");
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const poReceiving = readFileSync(new URL("../app/purchase-order-receiving.tsx", import.meta.url), "utf8");
   const template = readFileSync(new URL("../app/custom-invoice-template.tsx", import.meta.url), "utf8");
   const defaults = readFileSync(new URL("../lib/standard-vat-codes.ts", import.meta.url), "utf8");
   const migration = readFileSync(new URL("../drizzle/0068_uae_import_goods_documents.sql", import.meta.url), "utf8");
@@ -279,6 +280,9 @@ test("UAE imported-goods VAT requires customs references and keeps them on the s
   assert.match(app, /name="billOfEntryNumber"/);
   assert.match(app, /name="airwayBillNumber"/);
   assert.match(app, /usesImportGoodsVat[\s\S]*documentLabel=\{form\.type === "bill" \? "Bill" : "Invoice"\}/);
+  assert.match(poReceiving, /hasImportGoodsVat[\s\S]*line\.vatCode === "IMPORT_GOODS"[\s\S]*line\.remaining > 0/);
+  assert.match(poReceiving, /\{hasImportGoodsVat && <section[\s\S]*Bill of Entry No\.[\s\S]*Airway Bill No\./);
+  assert.match(poReceiving, /required=\{usesImportGoodsVat\}/);
   assert.match(template, /Bill of Entry No\./);
   assert.match(template, /Airway Bill No\./);
   assert.match(migration, /bill_of_entry_number/);
