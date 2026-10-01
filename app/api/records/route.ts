@@ -659,6 +659,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const type = String(payload.type ?? "invoice");
     const terms = String(payload.terms ?? "").trim();
     if (terms.length > 200) return Response.json({ error: "Payment terms must be no more than 200 characters." }, { status: 400 });
+    let paymentMethod = type === "customer payment" ? String(payload.paymentMethod ?? "Bank transfer").trim().slice(0, 80) : "";
+    let referenceNo = type === "customer payment" ? String(payload.referenceNo ?? payload.number ?? "").trim().slice(0, 120) : "";
     const chequeBankKey = type === "cheque" ? String(payload.chequeBankKey ?? "other-uae-bank").trim() : "";
     if (type === "cheque" && !uaeChequeLayouts.some((layout) => layout.key === chequeBankKey)) return Response.json({ error: "Select a valid UAE bank cheque layout." }, { status: 400 });
     const comments = ["invoice", "bill"].includes(type) ? String(payload.comments ?? replacing?.comments ?? "") : "";
@@ -880,6 +882,10 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const baseTotal = round(total * exchangeRate);
     const transactionDate = String(payload.transactionDate ?? new Date().toISOString().slice(0, 10));
     let number = String(payload.number ?? `${purchaseOrderId ? type === "bill" ? "BILL" : "REC" : "TX"}-${Date.now()}`);
+    if (type === "customer payment") {
+      paymentMethod ||= "Bank transfer";
+      referenceNo ||= number;
+    }
     if (type === "invoice") {
       if (!Number.isInteger(locationId) || locationId <= 0) return Response.json({ error: "Select an inventory before creating the invoice." }, { status: 400 });
       const [sequence] = await db.update(inventoryLocations).set({ nextInvoiceNumber: sql`${inventoryLocations.nextInvoiceNumber} + 1` }).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).returning();
@@ -899,6 +905,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const [bank] = await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true), eq(accounts.name, String(payload.account ?? "")), eq(accounts.currency, currency), sql`(${accounts.type} = 'Bank' OR ${accounts.systemRole} = 'BANK')`)).limit(1);
       if (!bank) return Response.json({ error: "Select an active Deposit To bank in this company matching the payment currency." }, { status: 400 });
       if (vatAmount !== 0) return Response.json({ error: "Customer payments must use zero VAT." }, { status: 400 });
+      if (!paymentMethod || !referenceNo) return Response.json({ error: "Select a payment method and enter the payment reference number." }, { status: 400 });
     }
     if (type === "bill payment") {
       const [bank] = await db.select().from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true), eq(accounts.name, String(payload.account ?? "")), eq(accounts.currency, currency), sql`(${accounts.type} = 'Bank' OR ${accounts.systemRole} = 'BANK')`)).limit(1);
@@ -984,7 +991,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       companyId, locationId: Number.isInteger(locationId) ? locationId : null, number, type, party, billId, invoiceId, purchaseOrderId, salesSourceId,
       salesman: String(payload.salesman ?? ""), isImport: payload.isImport === true || String(payload.isImport) === "true" || usesImportGoodsVat,
       billOfEntryNumber: usesImportGoodsVat && type === "bill" ? billOfEntryNumber : "", airwayBillNumber: usesImportGoodsVat && type === "bill" ? airwayBillNumber : "",
-      transactionDate, dueDate: String(payload.dueDate ?? ""), terms,
+      transactionDate, dueDate: String(payload.dueDate ?? ""), terms, paymentMethod, referenceNo,
       chequeBankKey,
       account: String(payload.account ?? "Accounts Receivable"), status: ["customer payment", "cheque", "transfer"].includes(type) && total > 0 ? "paid" : String(payload.status ?? "open"), ...(["customer payment", "cheque", "transfer"].includes(type) && total > 0 ? { paidAt: new Date().toISOString() } : {}), memo: String(payload.memo ?? ""), comments, serialNumber,
       subtotal, vatRate: Number(payload.vatRate ?? 5), vatAmount, total, currency, exchangeRate, baseTotal,
@@ -1211,6 +1218,7 @@ async function handlePATCH(request: Request) {
         if (existing && ["invoice", "customer payment"].includes(existing.type)) {
           if (payload.editMode !== "details") return Response.json({ error: "Use Edit details for invoices and customer payments. Posted amounts and allocations are protected." }, { status: 400 });
           const allowed = new Set(["kind", "id", "companyId", "revision", "editMode", "number", "transactionDate", "dueDate", "terms", "salesman", "memo"]);
+          if (existing.type === "customer payment") { allowed.add("paymentMethod"); allowed.add("referenceNo"); }
           if (existing.type === "invoice") { allowed.add("comments"); allowed.add("serialNumber"); allowed.add("lineDetails"); allowed.add("appendLines"); }
           if (Object.keys(payload).some((field) => !allowed.has(field))) return Response.json({ error: "Only reference, dates, sales rep, memo and invoice comments/serial numbers can be changed here." }, { status: 400 });
           const oldLines = await db.select().from(transactionLines).where(eq(transactionLines.transactionId, id)).orderBy(asc(transactionLines.id));
@@ -1253,10 +1261,12 @@ async function handlePATCH(request: Request) {
           const terms = String(payload.terms ?? "").trim();
           const salesman = String(payload.salesman ?? "").trim();
           const memo = String(payload.memo ?? "");
+          const paymentMethod = existing.type === "customer payment" ? String((payload.paymentMethod ?? existing.paymentMethod) || "Bank transfer").trim().slice(0, 80) : existing.paymentMethod;
+          const referenceNo = existing.type === "customer payment" ? String((payload.referenceNo ?? existing.referenceNo) || number).trim().slice(0, 120) : existing.referenceNo;
           const comments = existing.type === "invoice" ? String(payload.comments ?? existing.comments) : existing.comments;
           const serialNumber = existing.type === "invoice" ? String(payload.serialNumber ?? existing.serialNumber) : existing.serialNumber;
           const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
-          if (!number || number.length > 100 || !validDate(transactionDate) || (dueDate && !validDate(dueDate)) || terms.length > 200 || memo.length > 5000 || salesman.length > 200) return Response.json({ error: "Enter a reference and valid dates. Payment terms must be no more than 200 characters and memo no more than 5,000 characters." }, { status: 400 });
+          if (!number || number.length > 100 || !validDate(transactionDate) || (dueDate && !validDate(dueDate)) || terms.length > 200 || memo.length > 5000 || salesman.length > 200 || (existing.type === "customer payment" && (!paymentMethod || !referenceNo))) return Response.json({ error: "Enter valid document details, including the payment method and reference number." }, { status: 400 });
           if (salesman && salesman !== existing.salesman) {
             const [rep] = await db.select({ id: contacts.id }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "employee"), eq(contacts.status, "active"), eq(contacts.name, salesman))).limit(1);
             if (!rep) return Response.json({ error: "Select an active sales rep in this company." }, { status: 400 });
@@ -1336,7 +1346,7 @@ async function handlePATCH(request: Request) {
           }
 
           const [record] = await db.update(transactions).set({
-            number, transactionDate, dueDate, terms, salesman, memo, comments, serialNumber,
+            number, transactionDate, dueDate, terms, salesman, memo, comments, serialNumber, paymentMethod, referenceNo,
             ...(appendedSummary ? {
               subtotal: round(Number(existing.subtotal) + appendedSummary.subtotal),
               vatAmount: round(Number(existing.vatAmount) + appendedSummary.vatAmount),
