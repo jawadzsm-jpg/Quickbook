@@ -51,6 +51,10 @@ test("item identity appears once in titles and Item No. is reserved for invoice 
   assert.match(records, /previewIdentity/);
   assert.match(records, /generatedItemDescription\(specifications, name, sku, itemNumber\)/);
   assert.match(overview, /inventorySocialShareText\(record\.name, record\.sku, description, channel\)/);
+  assert.match(overview, /useState<PrintOrientation>\("portrait"\)/);
+  assert.match(overview, /reportPdf\(report, company, inventory, report\.rows, undefined, printOrientation\)/);
+  assert.match(overview, /"Print A4"/);
+  assert.match(overview, /"PDF A4"/);
   const salesTemplate = readFileSync(new URL("../app/sales-document-template.tsx", import.meta.url), "utf8");
   assert.match(salesTemplate, /\["CUSTOMER COPY", "INVENTORY TEAM COPY"\]/);
   assert.match(salesTemplate, /showItemNumberAtEnd=\{signedInvoiceCopies\}/);
