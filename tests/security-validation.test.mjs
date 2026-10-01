@@ -644,10 +644,17 @@ test("application windows are wide and A4 output offers portrait or landscape wi
   assert.match(dialog, /modal=\{windowState === "minimized" \? false : modal\}/);
   assert.match(dialog, /window\?\.windowState === "minimized"\) return null/);
   assert.match(dialog, /if \(windowState === "minimized"\) event\.preventDefault\(\)/);
+  assert.match(dialog, /data-window-dock-index=\{window\?\.dockIndex \?\? 0\}/);
+  assert.match(dialog, /else if \(onMinimize\) onMinimize\(\)/);
+  assert.match(app, /useState<MinimizedEditorWindow\[]>\(\[\]\)/);
+  assert.match(app, /setMinimizedEditors\(\(current\) => \[\.\.\.current, draft\]\)/);
+  assert.match(app, /aria-label="Minimized application windows"/);
+  assert.match(app, /onMinimize=\{minimizeEditor\}/);
   assert.match(css, /data-record-kind="transactions"/);
   assert.match(css, /data-window-state="maximized"/);
   assert.match(css, /data-window-state="maximized"\][\s\S]*?top: \.5rem !important;[\s\S]*?right: \.5rem !important;[\s\S]*?bottom: \.5rem !important;[\s\S]*?left: \.5rem !important;[\s\S]*?--tw-translate-x: 0px !important;[\s\S]*?--tw-translate-y: 0px !important;/);
   assert.match(css, /data-window-state="minimized"/);
+  assert.match(css, /var\(--dialog-dock-bottom, 1rem\)/);
   assert.match(selector, /<SelectItem value="portrait">Portrait<\/SelectItem>/);
   assert.match(selector, /<SelectItem value="landscape">Landscape<\/SelectItem>/);
   assert.match(app, /useState<PrintOrientation>\("portrait"\)/);
