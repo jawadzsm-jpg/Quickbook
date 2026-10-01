@@ -18,7 +18,7 @@ const { normalizeComparableText, uppercaseText } = await sourceModule("../lib/te
 const { dueDateForPaymentTerms } = await sourceModule("../lib/payment-terms.ts");
 const { chequeAlignmentBounds, uaeChequeLayout, validChequeAlignment } = await sourceModule("../lib/uae-cheque-layouts.ts");
 const { countries } = await sourceModule("../lib/countries.ts");
-const { generatedItemDescription, inventoryItemDetails, inventoryItemLine, inventoryItemTitle, inventoryShareDescription, invoiceItemDescription, itemSpecificationDescription, itemTitleWithSku } = await sourceModule("../lib/item-description.ts");
+const { generatedItemDescription, inventoryItemDetails, inventoryItemLine, inventoryItemTitle, inventoryShareDescription, inventorySocialShareText, invoiceItemDescription, itemSpecificationDescription, itemTitleWithSku } = await sourceModule("../lib/item-description.ts");
 
 test("item identity appears once in titles and Item No. is reserved for invoice lines", () => {
   assert.equal(generatedItemDescription([
@@ -36,9 +36,13 @@ test("item identity appears once in titles and Item No. is reserved for invoice 
   assert.equal(inventoryItemDetails("CORE 7-240H | ITEM NO. #10754", "10754"), "CORE 7-240H #10754");
   assert.equal(inventoryShareDescription("BRAND NEW | NO | DOS | NO #13041", "13041"), "BRAND NEW | DOS");
   assert.equal(inventoryShareDescription("BRAND NEW | 16GB RAM | ITEM NO. #13041", "13041"), "BRAND NEW | 16GB RAM");
+  assert.equal(inventoryItemLine("Dell Alienware 16 Aurora AC16250", "73B1DA", "BRAND NEW | CORE 7-240H | NO | 16GB RAM"), "DELL ALIENWARE 16 AURORA AC16250 73B1DA | BRAND NEW | CORE 7-240H | 16GB RAM");
+  assert.equal(inventorySocialShareText("Dell Alienware 16 Aurora AC16250", "73B1DA", "BRAND NEW | CORE 7-240H | NO | 16GB RAM", "whatsapp"), "🔺 *DELL ALIENWARE 16 AURORA AC16250 73B1DA* 🔺 | ⚡ *BRAND NEW* ⚡ |\n*CORE 7-240H | 16GB RAM*");
+  for (const condition of ["BRAND NEW", "OPEN BOX", "REFURBISHED", "USED"]) assert.match(inventorySocialShareText("Test model", "ABC123", `${condition} | NO | 16GB RAM`, "telegram"), new RegExp(`🔺 \\*\\*TEST MODEL ABC123\\*\\* 🔺 \\| ⚡ \\*\\*${condition}\\*\\* ⚡ \\|\\n\\*\\*16GB RAM\\*\\*`));
   assert.equal(itemSpecificationDescription("DELL ALIENWARE | 16 AURORA AC16250 | SKU: 73B1DA | BRAND NEW | ITEM NO. #13040", "DELL ALIENWARE 16 AURORA AC16250", "73B1DA", "13040"), "BRAND NEW");
   assert.equal(invoiceItemDescription("BRAND NEW | ITEM NO. #13040", "13040"), "BRAND NEW | ITEM NO. #13040");
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const overview = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
   const records = readFileSync(new URL("../app/api/records/route.ts", import.meta.url), "utf8");
   assert.match(app, /Duplicate draft .* is not saved\. Press Save record to create it, or Cancel to discard it/);
   assert.doesNotMatch(app, /duplicateItemId: id/);
@@ -46,6 +50,7 @@ test("item identity appears once in titles and Item No. is reserved for invoice 
   assert.match(app, /Generated SKU/);
   assert.match(records, /previewIdentity/);
   assert.match(records, /generatedItemDescription\(specifications, name, sku, itemNumber\)/);
+  assert.match(overview, /inventorySocialShareText\(record\.name, record\.sku, description, channel\)/);
   const salesTemplate = readFileSync(new URL("../app/sales-document-template.tsx", import.meta.url), "utf8");
   assert.match(salesTemplate, /\["CUSTOMER COPY", "INVENTORY TEAM COPY"\]/);
   assert.match(salesTemplate, /showItemNumberAtEnd=\{signedInvoiceCopies\}/);
