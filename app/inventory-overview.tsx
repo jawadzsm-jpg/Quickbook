@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, BadgeDollarSign, Boxes, Download, Eye, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PackageOpen, PlaneLanding, RefreshCw, Rocket, Search, Send, ShoppingCart, UserRound, Warehouse } from "lucide-react";
+import { AlertTriangle, BadgeDollarSign, Boxes, Download, Eye, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PackageOpen, PlaneLanding, Printer, RefreshCw, Rocket, Search, Send, ShoppingCart, UserRound, Warehouse } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -11,6 +11,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { inventoryItemLine, inventorySocialShareText, itemSpecificationDescription } from "@/lib/item-description";
+import { PrintOrientationSelect, type PrintOrientation } from "@/components/print-orientation-select";
+import { reportPdf, type ReportExportData } from "@/lib/report-export";
 
 type OverviewItem = {
   id: number;
@@ -140,6 +142,8 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   const [showPrice, setShowPrice] = useState(true);
   const [includeVat, setIncludeVat] = useState(false);
   const [detailRecord, setDetailRecord] = useState<ConsolidatedItem | null>(null);
+  const [printOrientation, setPrintOrientation] = useState<PrintOrientation>("portrait");
+  const [a4Busy, setA4Busy] = useState<"print" | "pdf" | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -367,6 +371,66 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     toast.success(`${selectedRecords.length} items exported for Excel`);
   };
 
+  const inventoryA4Report = (): { report: ReportExportData; company: string; inventory: string } => {
+    const columns: ReportExportData["columns"] = [
+      { key: "company", label: "Company" }, { key: "inventory", label: "Inventory" }, { key: "item", label: "Product specifications" },
+    ];
+    if (showQuantity) columns.push({ key: "quantity", label: "Qty" });
+    if (showPrice) columns.push({ key: "price", label: includeVat ? "Price incl. VAT" : "Price excl. VAT", type: "money" }, { key: "currency", label: "Currency" });
+    const rows = selectedRecords.map((record) => ({
+      company: record.companyName,
+      inventory: record.inventories.map((entry) => entry.locationName).join(", "),
+      item: inventoryItemLine(record.name, record.sku, specificationText(record), record.itemNumber),
+      ...(showQuantity ? { quantity: Number(record.quantity) } : {}),
+      ...(showPrice ? { price: Number(record.salesPrice) * (includeVat ? 1.05 : 1), currency: record.currency } : {}),
+    }));
+    const companies = [...new Set(selectedRecords.map((record) => record.companyName))];
+    const inventories = [...new Set(selectedRecords.flatMap((record) => record.inventories.map((entry) => entry.locationName)))];
+    const currencies = [...new Set(selectedRecords.map((record) => record.currency))];
+    return {
+      report: { key: "inventory-overview-a4", title: "Inventory Overview", generatedAt: new Date().toISOString(), currency: currencies.length === 1 ? currencies[0] : "Mixed currencies", columns, rows },
+      company: companies.length === 1 ? companies[0] : "All selected companies",
+      inventory: inventories.length === 1 ? inventories[0] : "Selected inventories",
+    };
+  };
+
+  const createInventoryA4Pdf = async () => {
+    const { report, company, inventory } = inventoryA4Report();
+    return reportPdf(report, company, inventory, report.rows, undefined, printOrientation);
+  };
+
+  const downloadA4Pdf = async () => {
+    if (!selectedRecords.length) return toast.error("Select at least one item for the A4 PDF.");
+    setA4Busy("pdf");
+    try {
+      const buffer = await createInventoryA4Pdf();
+      const url = URL.createObjectURL(new Blob([buffer], { type: "application/pdf" }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `inventory-overview-${new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" }).format(new Date())}.pdf`;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast.success(`A4 PDF created for ${selectedRecords.length} selected ${selectedRecords.length === 1 ? "item" : "items"}.`);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not create the A4 PDF."); }
+    finally { setA4Busy(null); }
+  };
+
+  const printA4 = async () => {
+    if (!selectedRecords.length) return toast.error("Select at least one item to print.");
+    const popup = window.open("", "_blank");
+    if (!popup) return toast.error("Allow pop-ups to print the Inventory Overview.");
+    popup.document.write("<!doctype html><title>Preparing Inventory Overview…</title><p style='font:16px Arial;padding:24px'>Preparing fitted A4 document…</p>");
+    setA4Busy("print");
+    try {
+      const buffer = await createInventoryA4Pdf();
+      const url = URL.createObjectURL(new Blob([buffer], { type: "application/pdf" }));
+      popup.location.replace(url);
+      window.setTimeout(() => { if (!popup.closed) { popup.focus(); popup.print(); } }, 900);
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (error) { popup.close(); toast.error(error instanceof Error ? error.message : "Could not prepare A4 printing."); }
+    finally { setA4Busy(null); }
+  };
+
   const summaryButton = (active: boolean) => active
     ? "border-slate-950 bg-slate-950 text-white shadow-sm hover:bg-slate-800 hover:text-white"
     : "border-slate-200 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50";
@@ -440,6 +504,9 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          <PrintOrientationSelect value={printOrientation} onValueChange={setPrintOrientation} />
+          <div className="flex rounded-lg border bg-white p-1"><Button size="sm" variant="outline" disabled={loading || !selectedRecords.length || Boolean(a4Busy)} onClick={() => void printA4()}><Printer />{a4Busy === "print" ? "Preparing…" : "Print A4"}</Button></div>
+          <div className="flex rounded-lg border bg-white p-1"><Button size="sm" variant="outline" disabled={loading || !selectedRecords.length || Boolean(a4Busy)} onClick={() => void downloadA4Pdf()}><Download />{a4Busy === "pdf" ? "Creating…" : "PDF A4"}</Button></div>
           <div className="flex rounded-lg border bg-white p-1"><Button size="sm" disabled={!canSelectItems || loading || !selectedRecords.length} onClick={() => copyForChannel("whatsapp")} title="Copy WhatsApp format" className="bg-[#25D366] text-white hover:bg-[#1fb558]"><MessageCircle />WhatsApp</Button></div>
           <div className="flex rounded-lg border bg-white p-1"><Button size="sm" disabled={!canSelectItems || loading || !selectedRecords.length} onClick={() => copyForChannel("telegram")} title="Copy Telegram format" className="bg-[#229ED9] text-white hover:bg-[#1987bb]"><Send />Telegram</Button></div>
           <div className="flex rounded-lg border bg-white p-1"><Button size="sm" variant="outline" disabled={!canSelectItems || loading || !selectedRecords.length} onClick={() => copyForChannel("email")} title="Copy email format"><Mail />Email</Button></div>
