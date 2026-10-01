@@ -309,7 +309,7 @@ button, input, select { font: inherit; }
     border-radius: .75rem;
   }
   [data-slot="dialog-content"][data-window-state="minimized"] {
-    inset: auto 1rem 1rem auto !important;
+    inset: auto 1rem var(--dialog-dock-bottom, 1rem) auto !important;
     width: min(28rem, calc(100vw - 2rem)) !important;
     max-width: calc(100vw - 2rem) !important;
     max-height: 5.5rem !important;
