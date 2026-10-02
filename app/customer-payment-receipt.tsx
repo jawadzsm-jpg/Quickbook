@@ -22,6 +22,29 @@ const money = (value: unknown, currency: string) => new Intl.NumberFormat("en-AE
 const cleanFilePart = (value: unknown, fallback: string) => String(value ?? "").trim().replace(/[^\p{L}\p{N}._-]+/gu, "_").replace(/_+/g, "_").replace(/^[_.-]+|[_.-]+$/g, "") || fallback;
 const a4PreviewFallback = { width: 210 * 96 / 25.4, height: 297 * 96 / 25.4 };
 
+function withoutPreviewScale(page: HTMLElement) {
+  const clone = page.cloneNode(true) as HTMLElement;
+  clone.style.removeProperty("transform");
+  clone.style.removeProperty("transform-origin");
+  clone.style.removeProperty("box-shadow");
+  return clone;
+}
+
+async function withUnscaledPage<T>(page: HTMLElement, task: (printablePage: HTMLElement) => Promise<T>) {
+  const printablePage = withoutPreviewScale(page);
+  printablePage.style.position = "fixed";
+  printablePage.style.left = "-10000px";
+  printablePage.style.top = "0";
+  printablePage.style.zIndex = "-1";
+  document.body.appendChild(printablePage);
+  try {
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+    return await task(printablePage);
+  } finally {
+    printablePage.remove();
+  }
+}
+
 export function CustomerPaymentReceipt({ record, lines, company, canEditAttachments }: { record: RecordData; lines: RecordData[]; company: PaymentCompany; canEditAttachments: boolean }) {
   const assigned = letterheadForDocument(company.letterheadDesign, "customer-payment");
   const template = assigned ?? { ...defaultLetterhead(), color: company.documentColor || "#059669" };
@@ -63,7 +86,9 @@ export function CustomerPaymentReceipt({ record, lines, company, canEditAttachme
     const popup = window.open("", "_blank");
     if (!popup) return toast.error("Allow pop-ups to print the payment receipt.");
     popup.opener = null;
-    popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${fileName}</title><style>@page{size:A4 portrait;margin:0}html,body{margin:0;padding:0;background:#fff;color:#0f172a;font-family:Arial,sans-serif}*{box-sizing:border-box}.payment-receipt-page{width:210mm!important;height:297mm!important;overflow:hidden!important;margin:0!important;background:#fff!important;color:#0f172a!important}.letterhead-stamp{cursor:default!important}.print-controls{padding:10px;background:#0f172a}@media print{.print-controls{display:none!important}}</style></head><body><div class="print-controls"><button onclick="window.print()">Print / Save PDF</button></div>${page.outerHTML}</body></html>`);
+    const appStyles = Array.from(document.querySelectorAll<HTMLLinkElement | HTMLStyleElement>('link[rel="stylesheet"], style')).map((node) => node.outerHTML).join("");
+    const printablePage = withoutPreviewScale(page);
+    popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${fileName}</title>${appStyles}<style>@page{size:A4 portrait;margin:0}html,body{margin:0!important;padding:0!important;background:#fff!important;color:#0f172a!important;font-family:Arial,sans-serif}.payment-receipt-page{width:210mm!important;height:297mm!important;overflow:hidden!important;margin:0!important;transform:none!important;box-shadow:none!important;background:#fff!important;color:#0f172a!important}.letterhead-stamp{cursor:default!important}.print-controls{padding:10px;background:#0f172a}@media print{.print-controls{display:none!important}}</style></head><body><div class="print-controls"><button onclick="window.print()">Print / Save PDF</button></div>${printablePage.outerHTML}</body></html>`);
     popup.document.close();
   };
 
@@ -71,7 +96,7 @@ export function CustomerPaymentReceipt({ record, lines, company, canEditAttachme
     if (!pageRef.current) return toast.error("Payment receipt preview is not ready.");
     setPdfBusy(true);
     try {
-      const blob = await createA4LetterheadPdfBlob(pageRef.current, `Customer Payment ${String(record.number || "")}`);
+      const blob = await withUnscaledPage(pageRef.current, (printablePage) => createA4LetterheadPdfBlob(printablePage, `Customer Payment ${String(record.number || "")}`));
       downloadPdfBlob(blob, fileName);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not create the customer payment PDF.");
