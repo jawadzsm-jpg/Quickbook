@@ -99,7 +99,10 @@ test("supplier bills and Warranty RMA slips are connected in both directions", (
   assert.match(app, /Warranty \/ RMA connection/);
   assert.match(app, /warranty-bill-open/);
   assert.match(app, /comnet-warranty-source-bill/);
+  assert.match(app, /setWarrantySourceBillId\(billId\)/);
+  assert.match(app, /initialPurchaseBillId=\{warrantySourceBillId\}/);
   assert.match(warranty, /sourcePurchaseBillId/);
+  assert.match(warranty, /purchaseBillId=\$\{sourcePurchaseBillId\}/);
   assert.match(warranty, /purchaseBillId: bill\.id, purchaseNumber: bill\.number, purchaseDate: bill\.transactionDate/);
   assert.match(warranty, /Supplier bill/);
   assert.match(warranty, /Linked purchase bill/);

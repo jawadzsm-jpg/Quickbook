@@ -14,7 +14,7 @@ import { toast } from "sonner";
 
 type Company = LetterheadCompany & { letterheadDesign?: string; documentColor?: string };
 type Customer = { id: number; name: string; company: string; phone: string; email: string };
-type Invoice = { id: number; number: string; party: string; transactionDate: string };
+type Invoice = { id: number; number: string; party: string; transactionDate: string; supplierId?: number | null };
 type Supplier = { id: number; name: string; company: string };
 type InvoiceLine = { id: number; description: string; serialNumber: string; itemName: string | null; specifications: string | null };
 type Slip = {
@@ -61,7 +61,7 @@ function readMinimizedDraft(companyId: number) {
   }
 }
 
-export function WarrantyCenter({ companyId, company, canWrite, onMinimize }: { companyId: number; company: Company; canWrite: boolean; onMinimize?: (label: string) => void }) {
+export function WarrantyCenter({ companyId, company, canWrite, onMinimize, initialPurchaseBillId = null, onInitialPurchaseBillHandled }: { companyId: number; company: Company; canWrite: boolean; onMinimize?: (label: string) => void; initialPurchaseBillId?: number | null; onInitialPurchaseBillHandled?: () => void }) {
   const letterhead = letterheadForDocument(company.letterheadDesign, "warranty-slip");
   const stampDefault = letterhead?.showStamp ?? Boolean(company.stampData);
   const [slips, setSlips] = useState<Slip[]>([]);
@@ -87,16 +87,18 @@ export function WarrantyCenter({ companyId, company, canWrite, onMinimize }: { c
   const dirty = JSON.stringify(form) !== JSON.stringify(saved ?? initialSlip);
 
   const refresh = useCallback(async () => {
-    const response = await fetch(`/api/warranty-slips?companyId=${companyId}`, { cache: "no-store" });
+    const storedPurchaseBillId = Number(window.sessionStorage.getItem("comnet-warranty-source-bill"));
+    const sourcePurchaseBillId = initialPurchaseBillId || (Number.isInteger(storedPurchaseBillId) && storedPurchaseBillId > 0 ? storedPurchaseBillId : null);
+    const response = await fetch(`/api/warranty-slips?companyId=${companyId}${sourcePurchaseBillId ? `&purchaseBillId=${sourcePurchaseBillId}` : ""}`, { cache: "no-store" });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Could not load warranty slips.");
     setSlips(result.slips); setCustomers(result.customers); setInvoices(result.invoices);
     setSuppliers(result.suppliers); setPurchaseBills(result.purchaseBills);
-    const sourcePurchaseBillId = Number(window.sessionStorage.getItem("comnet-warranty-source-bill"));
-    if (Number.isInteger(sourcePurchaseBillId) && sourcePurchaseBillId > 0) {
+    if (sourcePurchaseBillId) {
       const bill = result.purchaseBills.find((row: Invoice) => row.id === sourcePurchaseBillId);
-      const supplier = bill ? result.suppliers.find((row: Supplier) => row.name.trim().toLocaleLowerCase() === bill.party.trim().toLocaleLowerCase()) : undefined;
+      const supplier = bill ? result.suppliers.find((row: Supplier) => row.id === bill.supplierId) : undefined;
       window.sessionStorage.removeItem("comnet-warranty-source-bill");
+      onInitialPurchaseBillHandled?.();
       if (!bill || !supplier) {
         toast.error("The supplier bill is not available for this company.");
       } else {
@@ -105,7 +107,7 @@ export function WarrantyCenter({ companyId, company, canWrite, onMinimize }: { c
         setSaved(null); setLines([]); setActiveStatus("Under Process"); setShowForm(true);
       }
     }
-  }, [companyId, letterhead?.stampLeft, letterhead?.stampTop, stampDefault]);
+  }, [companyId, initialPurchaseBillId, letterhead?.stampLeft, letterhead?.stampTop, onInitialPurchaseBillHandled, stampDefault]);
   useEffect(() => {
     let live = true;
     const restoredDraft = readMinimizedDraft(companyId);
@@ -122,18 +124,6 @@ export function WarrantyCenter({ companyId, company, canWrite, onMinimize }: { c
     void Promise.resolve().then(refresh).catch((error) => { if (live) toast.error(error instanceof Error ? error.message : "Could not load warranty slips."); }).finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
   }, [companyId, refresh]);
-  useEffect(() => {
-    const handleBill = (event: Event) => {
-      const billId = Number((event as CustomEvent<{ billId?: number }>).detail?.billId);
-      if (Number.isInteger(billId) && billId > 0) {
-        window.sessionStorage.setItem("comnet-warranty-source-bill", String(billId));
-        void refresh().catch((error) => toast.error(error instanceof Error ? error.message : "Could not load the supplier bill."));
-      }
-    };
-    window.addEventListener("warranty-bill-open", handleBill);
-    return () => window.removeEventListener("warranty-bill-open", handleBill);
-  }, [refresh]);
-
   function openPurchaseBill(id: number) {
     window.dispatchEvent(new CustomEvent("warranty-purchase-bill-view", { detail: { billId: id } }));
   }
