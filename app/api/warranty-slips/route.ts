@@ -2,10 +2,15 @@ import { and, desc, eq } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { appUsers, auditLog, contacts, items, transactionLines, transactions, warrantySlips } from "@/db/schema";
 import { requireCompanyAccess } from "@/lib/auth";
+import { normalizeComparableText } from "@/lib/text-normalization";
 import { normalizeWarrantyStatus } from "@/lib/warranty-status";
 
 const clean = (value: unknown, max: number) => String(value ?? "").trim().slice(0, max);
 const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+const supplierMatchesBill = (supplier: { name: string; company: string; billingName: string }, party: string) => {
+  const billParty = normalizeComparableText(party);
+  return Boolean(billParty) && [supplier.name, supplier.company, supplier.billingName].some((value) => normalizeComparableText(value) === billParty);
+};
 
 async function list(companyId: number) {
   return getDb().select({
@@ -31,14 +36,20 @@ export async function GET(request: Request) {
         .from(transactionLines).leftJoin(items, eq(transactionLines.itemId, items.id)).where(eq(transactionLines.transactionId, invoiceId));
       return Response.json({ invoice, lines }, { headers: { "Cache-Control": "no-store" } });
     }
-    const [slips, customers, invoices, suppliers, purchaseBills] = await Promise.all([
+    const requestedPurchaseBillId = Number(url.searchParams.get("purchaseBillId"));
+    const [slips, customers, invoices, suppliers, purchaseBills, selectedPurchaseBill] = await Promise.all([
       list(companyId),
       db.select({ id: contacts.id, name: contacts.name, company: contacts.company, phone: contacts.phone, email: contacts.email }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "customer"))),
       db.select({ id: transactions.id, number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.type, "invoice"))).orderBy(desc(transactions.id)).limit(500),
-      db.select({ id: contacts.id, name: contacts.name, company: contacts.company }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "vendor"))),
+      db.select({ id: contacts.id, name: contacts.name, company: contacts.company, billingName: contacts.billingName }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "vendor"))),
       db.select({ id: transactions.id, number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.type, "bill"))).orderBy(desc(transactions.id)).limit(500),
+      Number.isInteger(requestedPurchaseBillId) && requestedPurchaseBillId > 0
+        ? db.select({ id: transactions.id, number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate }).from(transactions).where(and(eq(transactions.id, requestedPurchaseBillId), eq(transactions.companyId, companyId), eq(transactions.type, "bill"))).limit(1).then((rows) => rows[0] ?? null)
+        : Promise.resolve(null),
     ]);
-    return Response.json({ slips: slips.map(({ slip, customerName, customerCompany, createdBy }) => ({ ...slip, status: normalizeWarrantyStatus(slip.status) ?? slip.status, customerName, customerCompany, createdBy: createdBy || "" })), customers, invoices, suppliers, purchaseBills }, { headers: { "Cache-Control": "no-store" } });
+    const availablePurchaseBills = selectedPurchaseBill && !purchaseBills.some((bill) => bill.id === selectedPurchaseBill.id) ? [selectedPurchaseBill, ...purchaseBills] : purchaseBills;
+    const linkedPurchaseBills = availablePurchaseBills.map((bill) => ({ ...bill, supplierId: suppliers.find((supplier) => supplierMatchesBill(supplier, bill.party))?.id ?? null }));
+    return Response.json({ slips: slips.map(({ slip, customerName, customerCompany, createdBy }) => ({ ...slip, status: normalizeWarrantyStatus(slip.status) ?? slip.status, customerName, customerCompany, createdBy: createdBy || "" })), customers, invoices, suppliers, purchaseBills: linkedPurchaseBills }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not load warranty slips." }, { status: 500 });
   }
@@ -86,13 +97,13 @@ async function save(request: Request, editing: boolean) {
       if (!customer) return Response.json({ error: "Select a customer from this company." }, { status: 400 });
       let supplier = null;
       if (supplierId !== null) {
-        [supplier] = await db.select({ id: contacts.id, name: contacts.name }).from(contacts).where(and(eq(contacts.id, supplierId), eq(contacts.companyId, companyId), eq(contacts.type, "vendor"))).limit(1);
+        [supplier] = await db.select({ id: contacts.id, name: contacts.name, company: contacts.company, billingName: contacts.billingName }).from(contacts).where(and(eq(contacts.id, supplierId), eq(contacts.companyId, companyId), eq(contacts.type, "vendor"))).limit(1);
         if (!supplier) return Response.json({ error: "Select a supplier from this company." }, { status: 400 });
       }
       let purchaseBill = null;
       if (purchaseBillId !== null && supplier) {
         [purchaseBill] = await db.select({ number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate }).from(transactions).where(and(eq(transactions.id, purchaseBillId), eq(transactions.companyId, companyId), eq(transactions.type, "bill"))).limit(1);
-        if (!purchaseBill || purchaseBill.party.trim().toLocaleLowerCase() !== supplier.name.trim().toLocaleLowerCase()) return Response.json({ error: "The purchase bill does not belong to this supplier." }, { status: 400 });
+        if (!purchaseBill || !supplierMatchesBill(supplier, purchaseBill.party)) return Response.json({ error: "The purchase bill does not belong to this supplier." }, { status: 400 });
       }
       let invoice = null;
       if (invoiceId !== null) {

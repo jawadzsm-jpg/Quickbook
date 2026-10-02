@@ -138,11 +138,11 @@ test("warranty slips link only the selected company's customer and invoice, and 
   const otherId = (await database.query("INSERT INTO companies(name) VALUES('Other warranty company') RETURNING id")).rows[0].id;
   const customerId = (await database.query("INSERT INTO contacts(company_id,type,name) VALUES($1,'customer','Warranty Buyer') RETURNING id", [companyId])).rows[0].id;
   const foreignCustomerId = (await database.query("INSERT INTO contacts(company_id,type,name) VALUES($1,'customer','Another Buyer') RETURNING id", [otherId])).rows[0].id;
-  const supplierId = (await database.query("INSERT INTO contacts(company_id,type,name) VALUES($1,'vendor','Warranty Supplier') RETURNING id", [companyId])).rows[0].id;
+  const supplierId = (await database.query("INSERT INTO contacts(company_id,type,name,company,billing_name) VALUES($1,'vendor','Warranty Supplier','Warranty Supplier LLC','Warranty Billing') RETURNING id", [companyId])).rows[0].id;
   const otherSupplierId = (await database.query("INSERT INTO contacts(company_id,type,name) VALUES($1,'vendor','Other Supplier') RETURNING id", [companyId])).rows[0].id;
   const foreignSupplierId = (await database.query("INSERT INTO contacts(company_id,type,name) VALUES($1,'vendor','Foreign Supplier') RETURNING id", [otherId])).rows[0].id;
   const invoiceId = (await database.query("INSERT INTO transactions(company_id,number,type,party,transaction_date) VALUES($1,'INV-WAR','invoice','Warranty Buyer','2026-09-25') RETURNING id", [companyId])).rows[0].id;
-  const purchaseBillId = (await database.query("INSERT INTO transactions(company_id,number,type,party,transaction_date) VALUES($1,'BILL-WAR','bill','Warranty Supplier','2026-07-01') RETURNING id", [companyId])).rows[0].id;
+  const purchaseBillId = (await database.query("INSERT INTO transactions(company_id,number,type,party,transaction_date) VALUES($1,'BILL-WAR','bill','Warranty Supplier LLC','2026-07-01') RETURNING id", [companyId])).rows[0].id;
   const otherBillId = (await database.query("INSERT INTO transactions(company_id,number,type,party,transaction_date) VALUES($1,'BILL-OTHER','bill','Other Supplier','2026-07-01') RETURNING id", [companyId])).rows[0].id;
   const foreignBillId = (await database.query("INSERT INTO transactions(company_id,number,type,party,transaction_date) VALUES($1,'BILL-FOREIGN','bill','Warranty Supplier','2026-07-01') RETURNING id", [otherId])).rows[0].id;
   const invoiceLineId = (await database.query("INSERT INTO transaction_lines(transaction_id,description,serial_number) VALUES($1,'Laptop','SN-123') RETURNING id", [invoiceId])).rows[0].id;
@@ -171,6 +171,7 @@ test("warranty slips link only the selected company's customer and invoice, and 
   const linked = await companyList.json();
   assert.ok(linked.suppliers.some((supplier) => supplier.id === supplierId));
   assert.equal(linked.purchaseBills.find((bill) => bill.id === purchaseBillId).transactionDate, '2026-07-01');
+  assert.equal(linked.purchaseBills.find((bill) => bill.id === purchaseBillId).supplierId, supplierId);
   const foreignList = await GET(new Request(`https://app.test/api/warranty-slips?companyId=${otherId}`));
   assert.equal((await foreignList.json()).slips.length, 0);
   const updated = await write({ ...slip, companyId, revision: slip.updatedAt, stampLeft: 110, status: 'Completed' }, true);
