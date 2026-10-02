@@ -46,9 +46,10 @@ export function inventorySummary(report: InventoryReportLike): { cards: Inventor
     return { cards: [money("Stock value", sum(rows, "value"), "accent"), number("On hand", sum(rows, "quantity")), number("Stock items", sum(rows, "items")), number("Categories", unique(rows, "category")), number("Asset accounts", unique(rows, "account"))], note: "Stock value uses the current on-hand quantity and weighted average purchase cost in home currency. Account names open their ledger history." };
   }
   if (key === "inventory-valuation-detail") {
-    const quantity = sum(rows, "quantity");
-    const value = sum(rows, "value");
-    return { cards: [money("Stock value", value, "accent"), number("On hand", quantity), number("Stock items", rows.length), money("Average value per item", rows.length ? value / rows.length : 0), number("Zero / negative QOH", rows.filter((row) => Number(row.quantity) <= 0).length, "negative")], note: "Select an item name to open it in Inventory. Asset accounts open the linked Chart of Accounts history." };
+    const positiveRows = rows.filter((row) => Number(row.quantity) > 0);
+    const quantity = sum(positiveRows, "quantity");
+    const value = sum(positiveRows, "value");
+    return { cards: [money("Stock value", value, "accent"), number("On hand", quantity), number("Stock items", rows.length), money("Average value per item", quantity ? value / quantity : 0), number("Zero / negative QOH", rows.filter((row) => Number(row.quantity) <= 0).length, "negative")], note: "Stock value includes positive quantity on hand at weighted average purchase cost. Average value per item is the stock value divided by positive units on hand; zero and negative quantities are excluded and shown separately. Select an item name to open it in Inventory. Asset accounts open the linked Chart of Accounts history." };
   }
   if (key === "inventory-status") {
     return { cards: [money("Stock value", sum(rows, "value"), "accent"), number("Available quantity", sum(rows, "available"), "positive"), number("Items", rows.length), number("Low stock", rows.filter((row) => String(row.status) === "Low Stock").length, "negative"), number("Out of stock", rows.filter((row) => String(row.status) === "Out of Stock").length, "negative")], note: "Select an item to open its Inventory record. Status compares quantity on hand with the saved reorder point." };
