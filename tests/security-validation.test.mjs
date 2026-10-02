@@ -173,11 +173,27 @@ test("inventory loads independently, aggregates history in SQL, and paginates lo
 test("the full app shares dark-mode coverage and responsive phone, tablet, and desktop layout rules", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  const table = readFileSync(new URL("../components/ui/table.tsx", import.meta.url), "utf8");
+  const overview = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
+  const pricing = readFileSync(new URL("../app/stock-pricing.tsx", import.meta.url), "utf8");
+  const revaluation = readFileSync(new URL("../app/stock-revaluation.tsx", import.meta.url), "utf8");
+  const catalogue = readFileSync(new URL("../app/shared-item-catalogue.tsx", import.meta.url), "utf8");
   assert.match(css, /Shared responsive contract for every application workspace and modal/);
   assert.match(css, /@media screen and \(max-width: 767px\)/);
   assert.match(css, /@media screen and \(min-width: 768px\) and \(max-width: 1180px\)/);
   assert.match(css, /\[data-slot="dialog-content"\][\s\S]*width: calc\(100vw - \.75rem\) !important/);
   assert.match(css, /\[data-slot="table-container"\][\s\S]*-webkit-overflow-scrolling: touch/);
+  assert.match(table, /type ResponsiveColumn = "quantity" \| "price" \| "amount"/);
+  assert.match(table, /data-responsive-column=\{responsiveColumn\}/);
+  assert.match(css, /\[data-responsive-column="quantity"\][\s\S]*clamp\(4\.5rem, 10cqi, 7rem\)/);
+  assert.match(css, /\[data-responsive-column="price"\],[\s\S]*\[data-responsive-column="amount"\][\s\S]*clamp\(6\.5rem, 16cqi, 10rem\)/);
+  assert.match(css, /@container \(min-width: 520px\)[\s\S]*\.transaction-line/);
+  assert.match(css, /@container \(min-width: 520px\)[\s\S]*\.bill-item-row/);
+  assert.match(overview, /responsiveColumn="quantity"[\s\S]*responsiveColumn="price"/);
+  assert.match(app, /responsiveColumn="quantity">On hand[\s\S]*responsiveColumn="price">Sales price/);
+  assert.match(pricing, /responsiveColumn="quantity">QTY[\s\S]*responsiveColumn="price">SELLING PRICE/);
+  assert.match(revaluation, /responsiveColumn="quantity">QTY[\s\S]*responsiveColumn="price">PRICE/);
+  assert.match(catalogue, /label==='Qty'\?'quantity'/);
   for (const token of [
     String.raw`.bg-slate-50\/70`,
     String.raw`.bg-blue-50\/60`,
