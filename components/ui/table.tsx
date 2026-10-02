@@ -65,12 +65,16 @@ function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
   )
 }
 
-function TableHead({ className, ...props }: React.ComponentProps<"th">) {
+type ResponsiveColumn = "quantity" | "price" | "amount";
+
+function TableHead({ className, responsiveColumn, ...props }: React.ComponentProps<"th"> & { responsiveColumn?: ResponsiveColumn }) {
   return (
     <th
       data-slot="table-head"
+      data-responsive-column={responsiveColumn}
       className={cn(
         "h-10 px-3 text-left align-middle text-xs font-semibold tracking-wide whitespace-nowrap text-muted-foreground [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
+        responsiveColumn && "text-right tabular-nums",
         className
       )}
       {...props}
@@ -78,12 +82,14 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
   )
 }
 
-function TableCell({ className, ...props }: React.ComponentProps<"td">) {
+function TableCell({ className, responsiveColumn, ...props }: React.ComponentProps<"td"> & { responsiveColumn?: ResponsiveColumn }) {
   return (
     <td
       data-slot="table-cell"
+      data-responsive-column={responsiveColumn}
       className={cn(
-        "px-3 py-2.5 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
+        "px-3 py-2.5 align-middle whitespace-normal break-words [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
+        responsiveColumn && "text-right tabular-nums whitespace-nowrap",
         className
       )}
       {...props}
