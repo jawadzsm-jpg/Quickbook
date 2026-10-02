@@ -102,7 +102,8 @@ test("supplier bills and Warranty RMA slips are connected in both directions", (
   assert.match(warranty, /sourcePurchaseBillId/);
   assert.match(warranty, /purchaseBillId: bill\.id, purchaseNumber: bill\.number, purchaseDate: bill\.transactionDate/);
   assert.match(warranty, /Supplier bill/);
-  assert.match(warranty, /View supplier bill/);
+  assert.match(warranty, /Linked purchase bill/);
+  assert.match(warranty, /Open purchase bill/);
   assert.match(warranty, /Delete warranty receipt/);
   assert.match(api, /export async function DELETE/);
   assert.match(warranty, /warranty-purchase-bill-view/);
