@@ -2155,3 +2155,35 @@ test('invoice prices and customer edits reconcile VAT, journals and balances whi
   assert.equal((await database.query('SELECT quantity FROM items WHERE id=$1',[itemId])).rows[0].quantity,7);
   assert.equal((await database.query('SELECT count(*)::int AS n FROM audit_log WHERE entity_id=$1 AND entity_type=\'transaction\' AND action=\'updated\'',[record.id])).rows[0].n,7);
 });
+
+test('invoice edit allows quantity, VAT code and description while reconciling stock and accounting', async () => {
+  const companyId=(await database.query("INSERT INTO companies(name) VALUES ('Invoice full line edit') RETURNING id")).rows[0].id;
+  const locationId=(await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES ($1,'IFLE','IFLE','IFLE') RETURNING id",[companyId])).rows[0].id;
+  const itemId=(await database.query("INSERT INTO items(company_id,location_id,sku,name,quantity,cost,item_type) VALUES ($1,$2,'IFLE-STOCK','Laptop',10,40,'stock-part') RETURNING id",[companyId,locationId])).rows[0].id;
+  await database.query("INSERT INTO contacts(company_id,type,name,currency,status) VALUES ($1,'customer','Editable Customer','AED','active')",[companyId]);
+  const {POST,GET,PATCH}=await vite.ssrLoadModule('/app/api/records/route.ts');
+  const req=(method,body)=>new Request('https://app.test/api/records',{method,headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+  const created=await POST(req('POST',{kind:'transactions',companyId,locationId,type:'invoice',number:'IFLE-1',party:'Editable Customer',transactionDate:'2026-10-02',dueDate:'2026-10-09',currency:'AED',exchangeRate:1,account:'Sales Revenue',lines:[{itemId,description:'Laptop',quantity:2,unitPrice:100,unitCost:40,vatCode:'STANDARD'}]}));
+  assert.equal(created.status,201,JSON.stringify(await created.clone().json()));
+  const invoice=(await created.json()).record;
+  const read=async()=>await (await GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${companyId}&id=${invoice.id}`))).json();
+  let detail=await read();
+  const edit=(changes)=>PATCH(req('PATCH',{kind:'transactions',companyId,id:invoice.id,editMode:'details',revision:detail.revision,number:'IFLE-1',transactionDate:'2026-10-02',dueDate:'2026-10-09',lineDetails:[{id:detail.lines[0].id,description:detail.lines[0].description,quantity:detail.lines[0].quantity,unitPrice:detail.lines[0].unitPrice,vatCode:detail.lines[0].vatCode,comments:'',serialNumber:'',...changes}]}));
+  const stock=async()=>Number((await database.query('SELECT quantity FROM items WHERE id=$1',[itemId])).rows[0].quantity);
+  const movement=async()=>Number((await database.query('SELECT coalesce(sum(quantity),0) AS quantity FROM inventory_movements WHERE transaction_id=$1',[invoice.id])).rows[0].quantity);
+  const ledger=async()=>Object.fromEntries((await database.query('SELECT jl.account_name,round(sum(jl.debit-jl.credit)::numeric,2) AS net FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.transaction_id=$1 GROUP BY jl.account_name',[invoice.id])).rows.map(row=>[row.account_name,Number(row.net)]));
+  assert.equal(await stock(),8); assert.equal(await movement(),-2);
+  let response=await edit({description:'Updated laptop description',quantity:3,unitPrice:90,vatCode:'ZERO'});
+  assert.equal(response.status,200,JSON.stringify(await response.clone().json())); detail=await read();
+  assert.equal(detail.record.total,270); assert.equal(detail.record.vatAmount,0); assert.equal(detail.lines[0].description,'Updated laptop description'); assert.equal(detail.lines[0].quantity,3); assert.equal(detail.lines[0].vatCode,'ZERO'); assert.equal(detail.lines[0].vatRate,0); assert.equal(await stock(),7); assert.equal(await movement(),-3);
+  let accounts=await ledger(); assert.equal(Object.entries(accounts).find(([name])=>name.startsWith('Accounts Receivable'))?.[1],270); assert.equal(accounts['Sales Revenue'],-270); assert.equal(accounts['Cost of Goods Sold'],120); assert.equal(accounts['Inventory Asset'],-120); assert.equal(Math.round(Object.values(accounts).reduce((sum,value)=>sum+value,0)*100),0);
+  response=await edit({quantity:1,vatCode:'STANDARD'}); assert.equal(response.status,200,JSON.stringify(await response.clone().json())); detail=await read();
+  assert.equal(detail.record.subtotal,90); assert.equal(detail.record.vatAmount,4.5); assert.equal(detail.record.total,94.5); assert.equal(await stock(),9); assert.equal(await movement(),-1);
+  accounts=await ledger(); assert.equal(Object.entries(accounts).find(([name])=>name.startsWith('Accounts Receivable'))?.[1],94.5); assert.equal(accounts['Sales Revenue'],-90); assert.equal(accounts['VAT Payable'],-4.5); assert.equal(accounts['Cost of Goods Sold'],40); assert.equal(accounts['Inventory Asset'],-40); assert.equal(Math.round(Object.values(accounts).reduce((sum,value)=>sum+value,0)*100),0);
+  assert.equal((await edit({vatCode:'NOT_ACTIVE'})).status,400); assert.equal((await edit({quantity:20})).status,409); assert.equal(await stock(),9);
+  const listId=(await database.query("INSERT INTO packing_lists(company_id,location_id,invoice_id,number,packing_date) VALUES($1,$2,$3,'IFLE-PL','2026-10-02') RETURNING id",[companyId,locationId,invoice.id])).rows[0].id;
+  await database.query("INSERT INTO packing_list_lines(packing_list_id,invoice_line_id,description,packed_quantity,units_per_carton,carton_count) VALUES($1,$2,'Packed',1,1,1)",[listId,detail.lines[0].id]);
+  assert.equal((await edit({quantity:.5})).status,409); assert.equal(await stock(),9);
+  await database.query('UPDATE transactions SET sales_source_id=$1 WHERE id=$1',[invoice.id]); detail=await read();
+  assert.equal((await edit({quantity:2})).status,409); assert.equal(await stock(),9);
+});
