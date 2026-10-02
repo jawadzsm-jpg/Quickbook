@@ -1101,7 +1101,7 @@ test('vendor purchase orders resolve the payable account in their currency', asy
   const locationId = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES ($1,'EUR-PO','EUR stock','EUR') RETURNING id", [companyId])).rows[0].id;
   const itemId = (await database.query("INSERT INTO items(company_id,location_id,sku,name,quantity,cost) VALUES ($1,$2,'EUR-ITEM','Laptop',0,20) RETURNING id", [companyId, locationId])).rows[0].id;
   await database.query("INSERT INTO contacts(company_id,type,name,currency) VALUES ($1,'vendor','EUR Supplier','EUR')", [companyId]);
-  const { POST } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const { GET, POST } = await vite.ssrLoadModule('/app/api/records/route.ts');
   const post = (body) => POST(new Request('https://app.test/api/records', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }));
   const resolved = await post({ action: 'resolve-vendor-payable', companyId, party: 'EUR Supplier', currency: 'EUR' });
   assert.equal(resolved.status, 200);
@@ -1132,6 +1132,12 @@ test('vendor purchase orders resolve the payable account in their currency', asy
   assert.equal(importedRecord.isImport, true);
   assert.equal(importedRecord.billOfEntryNumber, 'BOE-2026-001');
   assert.equal(importedRecord.airwayBillNumber, 'AWB-2026-009');
+  const billOfEntrySearch = await GET(new Request(`https://app.test/api/records?kind=bill-of-entry-search&companyId=${companyId}&locationId=${locationId}&q=2026-001`));
+  assert.equal(billOfEntrySearch.status, 200);
+  const billOfEntryResults = (await billOfEntrySearch.json()).records;
+  assert.equal(billOfEntryResults.length, 1);
+  assert.equal(billOfEntryResults[0].id, importedRecord.id);
+  assert.equal(billOfEntryResults[0].billOfEntryNumber, 'BOE-2026-001');
 });
 
 test('partial PO receipts retain remaining quantities, block overreceipt and reverse safely', async () => {

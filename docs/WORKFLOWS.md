@@ -175,7 +175,7 @@ Deposits, cheques, credit-card charges, account transfers, cheque orders, and op
 ### VAT
 
 1. VAT codes drive transaction line tax calculations.
-2. Selecting `Goods imported into the UAE` on a supplier bill requires a Bill of Entry No. and Airway Bill No.; supporting customs files can be attached to the same bill.
+2. Selecting `Goods imported into the UAE` on a supplier bill requires a Bill of Entry No. and Airway Bill No.; supporting customs files can be attached to the same bill. In Purchases, search by Bill of Entry No. to find and open the linked supplier bill in the selected company and inventory.
 3. The VAT center loads a company-wide period, independent of selected inventory.
 4. Accounting users review output/input tax, reverse charge, exceptions, and unassigned activity.
 5. Authorized users add adjustments and record VAT return/filing data.

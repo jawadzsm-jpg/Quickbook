@@ -318,6 +318,10 @@ test("UAE imported-goods VAT requires customs references and keeps them on the s
   assert.match(api, /Bill of Entry No\. and Airway Bill No\./);
   assert.match(app, /name="billOfEntryNumber"/);
   assert.match(app, /name="airwayBillNumber"/);
+  assert.match(app, /Search Bill of Entry No\./);
+  assert.match(app, /kind=bill-of-entry-search/);
+  assert.match(api, /kind === "bill-of-entry-search"/);
+  assert.match(api, /eq\(transactions\.companyId, companyId\)[\s\S]*eq\(transactions\.type, "bill"\)[\s\S]*billOfEntryNumber/);
   assert.match(app, /usesImportGoodsVat[\s\S]*documentLabel=\{form\.type === "bill" \? "Bill" : "Invoice"\}/);
   assert.match(poReceiving, /hasImportGoodsVat[\s\S]*line\.vatCode === "IMPORT_GOODS"[\s\S]*line\.remaining > 0/);
   assert.match(poReceiving, /\{hasImportGoodsVat && <section[\s\S]*Bill of Entry No\.[\s\S]*Airway Bill No\./);
