@@ -19,6 +19,17 @@ const { dueDateForPaymentTerms } = await sourceModule("../lib/payment-terms.ts")
 const { chequeAlignmentBounds, uaeChequeLayout, validChequeAlignment } = await sourceModule("../lib/uae-cheque-layouts.ts");
 const { countries } = await sourceModule("../lib/countries.ts");
 const { generatedItemDescription, inventoryItemDetails, inventoryItemLine, inventoryItemTitle, inventoryShareDescription, inventorySocialShareText, invoiceItemDescription, itemSpecificationDescription, itemTitleWithSku } = await sourceModule("../lib/item-description.ts");
+const { isInvoiceItemSelectable } = await sourceModule("../lib/invoice-item-filter.ts");
+
+test("invoice item choices hide out-of-stock tracked items", () => {
+  assert.equal(isInvoiceItemSelectable({ itemType: "stock-part", quantity: 2, status: "active" }), true);
+  assert.equal(isInvoiceItemSelectable({ itemType: "stock-part", quantity: 0, status: "active" }), false);
+  assert.equal(isInvoiceItemSelectable({ itemType: "stock-part", quantity: -1, status: "active" }), false);
+  assert.equal(isInvoiceItemSelectable({ itemType: "service", quantity: 0, status: "active" }), true);
+  assert.equal(isInvoiceItemSelectable({ itemType: "non-stock-part", quantity: 0, status: "active" }), true);
+  assert.equal(isInvoiceItemSelectable({ itemType: "stock-part", quantity: 4, status: "inactive" }), false);
+  assert.equal(isInvoiceItemSelectable({ itemType: "subtotal", quantity: 4, status: "active" }), false);
+});
 
 test("item identity appears once in titles and Item No. is reserved for invoice lines", () => {
   assert.equal(generatedItemDescription([
