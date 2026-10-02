@@ -507,7 +507,9 @@ test("all 8 Inventory reports have professional summaries, one export control, A
   assert.match(app, /reportAttachmentId\(report\.key\)/);
   assert.match(app, /entityType="report" documentLabel="Report"/);
   assert.match(app, /relative flex flex-col items-center gap-3 text-center/);
-  assert.match(api, /itemId: row\.id, account: inventoryAccountFor\(row\)/);
+  assert.match(api, /inventoryAccountLinkFor/);
+  assert.match(api, /accountAccountId: linked\?\.id \?\? 0/);
+  assert.match(api, /itemId: row\.id, \.\.\.inventoryAccountLinkFor\(row\)/);
   assert.match(inventory, /export const inventoryReportKeys = new Set/);
   assert.match(sharedExport, /orientation: PrintOrientation = "portrait"/);
   assert.match(sharedExport, /inventorySummary/);
