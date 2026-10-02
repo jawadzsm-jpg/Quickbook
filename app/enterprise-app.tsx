@@ -52,6 +52,7 @@ import { accountantDetailTarget, accountantReportKeys, accountantSummary } from 
 import { listDetailTarget, listReportKeys, listSummary } from "@/lib/list-report";
 import { employeeDetailTarget, employeeReportKeys, employeeSummary as employeeReportSummary } from "@/lib/employee-report";
 import { convertInvoiceLines, invoiceCurrencyAmount, validDocumentRate, type PricedInvoiceLine } from "@/lib/invoice-pricing";
+import { isInvoiceItemSelectable } from "@/lib/invoice-item-filter";
 import { dueDateForPaymentTerms } from "@/lib/payment-terms";
 import { inferUaeChequeLayout, uaeChequeLayouts } from "@/lib/uae-cheque-layouts";
 import { applyContactCurrency, customerReceivableAccount, vendorPayableAccount } from "@/lib/contact-currency";
@@ -764,7 +765,8 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   const skuLock = useSkuLock(dialogOpen && !(form.type === "bill" && form.purchaseOrderId) && !(editingRecordId === null && form.type === "invoice" && form.salesSourceId) && ["items", "transactions"].includes(activeEditorKind) ? { resource: "records", kind: activeEditorKind, companyId: activeCompanyId, locationId: activeEditorKind === "items" ? activeLocationId : documentLocationId, id: activeEditorKind === "items" ? editingItemId : editingRecordId, ...(activeEditorKind === "items" ? { sku: form.sku || "" } : { lines: lines.map((line) => ({ itemId: line.itemId })) }) } : null);
   const documentInventoryKey = `${activeCompanyId}:${documentLocationId}`;
   const documentInventoryReady = documentInventory.key === documentInventoryKey && !documentInventory.error;
-  const documentItems = linkedInventoryDocument ? documentInventoryReady ? documentInventory.items : [] : records.items;
+  const inventoryDocumentItems = linkedInventoryDocument ? documentInventoryReady ? documentInventory.items : [] : records.items;
+  const documentItems = form.type === "invoice" ? inventoryDocumentItems.filter(isInvoiceItemSelectable) : inventoryDocumentItems;
   useEffect(() => {
     if (!dialogOpen || !linkedInventoryDocument || !activeCompanyId || !documentLocationId) return;
     const controller = new AbortController();
