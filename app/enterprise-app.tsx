@@ -1944,7 +1944,7 @@ function DocumentDialog({ onOpenInvoice, onReceiptSaved, onChequeNumberSaved, de
   if (!detail) return null;
   const record = detail.record;
   const brandedName = setup.name || companyName;
-  if (record.type === "customer payment") return <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}><DialogContent className="max-h-[94dvh] overflow-y-auto sm:max-w-[1180px]"><DialogTitle className="sr-only">Customer Payment {String(record.number)}</DialogTitle><DialogDescription className="sr-only">A4 customer payment receipt for {String(record.party)}</DialogDescription><CustomerPaymentReceipt record={record} lines={detail.lines} company={{ ...setup, name: brandedName }} canEditAttachments={canConvert} /></DialogContent></Dialog>;
+  if (record.type === "customer payment") return <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}><DialogContent className="max-h-[94dvh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-x-hidden overflow-y-auto px-3 sm:max-w-[1180px] sm:px-6"><DialogTitle className="sr-only">Customer Payment {String(record.number)}</DialogTitle><DialogDescription className="sr-only">A4 customer payment receipt for {String(record.party)}</DialogDescription><CustomerPaymentReceipt record={record} lines={detail.lines} company={{ ...setup, name: brandedName }} canEditAttachments={canConvert} /></DialogContent></Dialog>;
   const contact = detail.partyContact;
   const purchaseOrder = record.type === "purchase order";
   const savedTemplateMode = record.type === "credit memo" ? creditPresentation : salesDocumentModeForTransaction(String(record.type));
