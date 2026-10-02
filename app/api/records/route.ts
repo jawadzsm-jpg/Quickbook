@@ -187,13 +187,28 @@ export async function GET(request: Request) {
   if (authorization instanceof Response) return authorization;
   try {
     const url = new URL(request.url);
-    const kind = url.searchParams.get("kind") as RecordKind | "vendor-history" | "supplier-returns" | "unpaid-bills" | "unpaid-invoices" | "open-sales-documents" | "open-purchase-orders" | "purchase-return-bills" | "po-receiving" | "sales-invoicing" | null;
+    const kind = url.searchParams.get("kind") as RecordKind | "vendor-history" | "supplier-returns" | "unpaid-bills" | "unpaid-invoices" | "open-sales-documents" | "open-purchase-orders" | "purchase-return-bills" | "po-receiving" | "sales-invoicing" | "bill-of-entry-search" | null;
     const id = Number(url.searchParams.get("id"));
     const companyId = Number(url.searchParams.get("companyId"));
     const locationId = Number(url.searchParams.get("locationId"));
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     const db = getDb();
+    if (kind === "bill-of-entry-search") {
+      const query = String(url.searchParams.get("q") || "").trim();
+      if (!query || query.length > 120) return Response.json({ error: "Enter a Bill of Entry No. of 1–120 characters." }, { status: 400 });
+      const locationFilter = Number.isSafeInteger(locationId) && locationId > 0 ? eq(transactions.locationId, locationId) : undefined;
+      const records = await db.select({
+        id: transactions.id, companyId: transactions.companyId, locationId: transactions.locationId,
+        number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate,
+        dueDate: transactions.dueDate, status: transactions.status, total: transactions.total, currency: transactions.currency,
+        billOfEntryNumber: transactions.billOfEntryNumber, airwayBillNumber: transactions.airwayBillNumber,
+        inventoryName: inventoryLocations.name,
+      }).from(transactions).leftJoin(inventoryLocations, eq(transactions.locationId, inventoryLocations.id))
+        .where(and(eq(transactions.companyId, companyId), locationFilter, eq(transactions.type, "bill"), sql`strpos(lower(${transactions.billOfEntryNumber}), lower(${query})) > 0`))
+        .orderBy(desc(transactions.transactionDate), desc(transactions.id)).limit(50);
+      return Response.json({ records }, { headers: { "Cache-Control": "no-store" } });
+    }
     if (kind === "supplier-returns") {
       const supplierId = Number(url.searchParams.get("supplierId"));
       if (!Number.isSafeInteger(supplierId) || supplierId <= 0) return Response.json({ error: "Select a supplier." }, { status: 400 });
