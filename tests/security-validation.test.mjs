@@ -629,6 +629,9 @@ test("customer payments use non-VAT payment details and a linked A4 receipt", ()
   assert.match(receipt, /createA4LetterheadPdfBlob/);
   assert.match(receipt, /LetterheadStamp/);
   assert.match(receipt, /documentLabel="Customer Payment"/);
+  assert.match(receipt, /new ResizeObserver\(fitPreview\)/);
+  assert.match(receipt, /transform: `scale\(\$\{preview\.scale\}\)`/);
+  assert.match(app, /customer payment.*overflow-x-hidden overflow-y-auto px-3 sm:max-w-\[1180px\]/s);
   assert.match(api, /Customer payments must use zero VAT/);
   assert.match(api, /paymentMethod, referenceNo/);
   assert.match(schema, /paymentMethod: text\("payment_method"\)/);
