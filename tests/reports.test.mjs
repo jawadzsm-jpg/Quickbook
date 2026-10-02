@@ -988,6 +988,8 @@ test('inventory summaries provide stock KPIs and export all Inventory reports to
   const valuation = inventorySummary({ key: 'inventory-valuation', rows: [{ account: 'Inventory Asset', category: 'Laptop', items: 2, quantity: 8, value: 5000 }, { account: 'Inventory Asset', category: 'Monitor', items: 1, quantity: 4, value: 1000 }] });
   assert.deepEqual(valuation.cards.map(card => card.value), [6000, 12, 3, 2, 1]);
   assert.equal(inventoryDetailTarget('inventory-valuation'), 'inventory-valuation-detail');
+  const valuationDetail = inventorySummary({ key: 'inventory-valuation-detail', rows: [{ quantity: 100, value: 422050 }, { quantity: 0, value: 0 }, { quantity: -2, value: -5000 }] });
+  assert.deepEqual(valuationDetail.cards.map(card => card.value), [422050, 100, 3, 4220.5, 2]);
   const status = inventorySummary({ key: 'inventory-status', rows: [{ name: 'A', available: 5, status: 'In Stock', value: 500 }, { name: 'B', available: 1, status: 'Low Stock', value: 100 }, { name: 'C', available: 0, status: 'Out of Stock', value: 0 }] });
   assert.deepEqual(status.cards.map(card => card.value), [600, 6, 3, 1, 1]);
   const aging = inventorySummary({ key: 'inventory-stock-aging', rows: [{ quantity: 5, value: 500, ageDays: 45 }, { quantity: 2, value: 300, ageDays: 400 }] });
