@@ -185,7 +185,7 @@ Deposits, cheques, credit-card charges, account transfers, cheque orders, and op
 
 ### Warranty/RMA
 
-1. Choose a customer or invoice and load eligible invoice items.
+1. Choose a customer or invoice and load eligible invoice items. Selecting an item automatically fills its supplier, purchase bill, and purchase date when the serial identifies a source bill; an item-only match is used only when one purchase bill is unambiguous.
 2. Optionally open Warranty / RMA directly from a saved supplier bill; the supplier, bill number, and purchase date are prefilled.
 3. Record item, serial, issue, received date, supplier return dates, condition, and service status.
 4. Save/update the slip and print the A4 service record. The RMA list and form can reopen the linked supplier bill.
