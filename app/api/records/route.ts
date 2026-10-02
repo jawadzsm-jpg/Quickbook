@@ -337,9 +337,14 @@ export async function GET(request: Request) {
       const sourceBillLines = record.type === "vendor credit" && record.billId
         ? await db.select({ id: transactionLines.id, itemId: transactionLines.itemId, description: transactionLines.description }).from(transactionLines).where(eq(transactionLines.transactionId, record.billId)).orderBy(asc(transactionLines.id))
         : [];
+      const receiptAllocations = record.purchaseOrderId
+        ? await db.select({ orderLineId: purchaseReceiptAllocations.orderLineId }).from(purchaseReceiptAllocations).where(eq(purchaseReceiptAllocations.receiptId, record.id)).orderBy(asc(purchaseReceiptAllocations.id))
+        : [];
       const detailLines = record.type === "vendor credit"
         ? lines.map((line) => ({ ...line, sourceLineId: sourceBillLines.find((source) => source.itemId === line.itemId && source.description.trim().toLowerCase() === line.description.trim().toLowerCase())?.id ?? null }))
-        : lines;
+        : record.purchaseOrderId
+          ? lines.map((line, index) => ({ ...line, orderLineId: line.isFreightCharge ? null : receiptAllocations[index]?.orderLineId ?? null }))
+          : lines;
       const journal = await db.select({
         accountName: journalLines.accountName, debit: journalLines.debit, credit: journalLines.credit,
       }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(eq(journalEntries.transactionId, id)).orderBy(asc(journalLines.id));
@@ -719,13 +724,14 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const purchaseOrderId = payload.purchaseOrderId ? Number(payload.purchaseOrderId) : null;
     const receiptAllocations: { orderLineId: number; quantity: number }[] = [];
     if (purchaseOrderId !== null) {
-      if (!["item receipt", "bill"].includes(type) || payload.sourceTransactionId || replacing || !Number.isSafeInteger(purchaseOrderId) || purchaseOrderId <= 0) return Response.json({ error: "Select a valid purchase order for this item receipt." }, { status: 400 });
+      const editingLinkedBill = replacing?.type === "bill" && replacing.purchaseOrderId === purchaseOrderId;
+      if (!["item receipt", "bill"].includes(type) || payload.sourceTransactionId || (replacing && !editingLinkedBill) || !Number.isSafeInteger(purchaseOrderId) || purchaseOrderId <= 0) return Response.json({ error: "Select a valid purchase order for this item receipt." }, { status: 400 });
       const [order] = await db.select().from(transactions).where(and(eq(transactions.id, purchaseOrderId), eq(transactions.companyId, companyId))).for("update");
       if (!order || order.type !== "purchase order") return Response.json({ error: "Select a purchase order from this company." }, { status: 400 });
       if (!Number.isSafeInteger(locationId) || locationId <= 0) return Response.json({ error: "Select a receiving inventory." }, { status: 400 });
       const [receivingLocation] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId)));
       if (!receivingLocation) return Response.json({ error: "Select a receiving inventory from this company." }, { status: 400 });
-      if (order.convertedInvoiceId || !["open", "pending", "overdue", "partially received"].includes(order.status)) return Response.json({ error: "This purchase order is not open for receiving." }, { status: 409 });
+      if (order.convertedInvoiceId || !["open", "pending", "overdue", "partially received", ...(editingLinkedBill ? ["received"] : [])].includes(order.status)) return Response.json({ error: "This purchase order is not open for receiving." }, { status: 409 });
       const orderLines = await purchaseReceiptLines(order.id);
       const ids = rawLines.map((line) => Number(line.orderLineId));
       if (!ids.length || new Set(ids).size !== ids.length) return Response.json({ error: "Select unique purchase order lines to receive." }, { status: 400 });
@@ -744,7 +750,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
           if (!destinationItem) throw new Error("Could not prepare the item in the receiving inventory.");
           receiptItemId = destinationItem.id;
         }
-        receivedLines.push({ ...line, comments: input.comments, serialNumber: input.serialNumber, itemId: receiptItemId, quantity });
+        receivedLines.push({ ...line, comments: input.comments, serialNumber: input.serialNumber, itemId: receiptItemId, quantity, ...(editingLinkedBill ? { description: String(input.description ?? line.description), unitPrice: input.unitPrice ?? line.unitPrice, unitCost: input.unitCost ?? line.unitCost, freightCharge: input.freightCharge ?? 0, vatCode: input.vatCode ?? line.vatCode, vatRate: input.vatRate ?? line.vatRate } : {}) });
       }
       rawLines = receivedLines;
       payload.party = order.party; payload.currency = order.currency; payload.exchangeRate = order.exchangeRate;
@@ -1495,7 +1501,7 @@ async function handlePATCH(request: Request) {
           const [updatedRecord] = await db.select().from(transactions).where(eq(transactions.id, id));
           return Response.json({ record: updatedRecord });
         }
-        if (existing?.purchaseOrderId) return Response.json({ error: "Remove and recreate this linked receipt to change received quantities." }, { status: 409 });
+        if (existing?.purchaseOrderId && existing.type !== "bill") return Response.json({ error: "Remove and recreate this linked receipt to change received quantities." }, { status: 409 });
         if (!existing) return Response.json({ error: "Purchase not found." }, { status: 404 });
         if (!["estimate", "proforma invoice", "sales order", "bill", "purchase order", "item receipt", "received item bill", "expense", "bill payment", "vendor payment", "vendor credit"].includes(existing.type)) return Response.json({ error: "This document is not an editable purchase." }, { status: 400 });
         const [salesChild] = await db.select({ id: transactions.id }).from(transactions).where(sql`${transactions.salesSourceId} = ${id} or ${transactions.sourceTransactionId} = ${id}`).limit(1);
@@ -1514,6 +1520,10 @@ async function handlePATCH(request: Request) {
         if (!newLines.length || newLines.some((line) => !String(line.description ?? "").trim() || !Number.isFinite(Number(line.quantity)) || Number(line.quantity) <= 0 || !Number.isFinite(Number(line.unitPrice)) || Number(line.unitPrice) < 0 || !Number.isFinite(Number(line.unitCost ?? 0)))) return Response.json({ error: "Complete every line with a description, positive quantity and valid price." }, { status: 400 });
         const date = String(payload.transactionDate ?? "");
         if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date || !String(payload.number ?? "").trim()) return Response.json({ error: "Enter a valid date and reference number." }, { status: 400 });
+        if (existing.purchaseOrderId) {
+          const linkedAllocations = await db.select({ orderLineId: purchaseReceiptAllocations.orderLineId }).from(purchaseReceiptAllocations).where(eq(purchaseReceiptAllocations.receiptId, id)).orderBy(asc(purchaseReceiptAllocations.id));
+          if (newLines.length !== linkedAllocations.length || newLines.some((line, index) => Number(line.orderLineId) !== linkedAllocations[index]?.orderLineId)) return Response.json({ error: "Keep every original purchase order line when editing this bill." }, { status: 400 });
+        }
 
         const movements = await db.select().from(inventoryMovements).where(eq(inventoryMovements.transactionId, id));
         const affectedIds = [...new Set([...movements.map((movement) => movement.itemId), ...newLines.flatMap((line) => line.itemId ? [Number(line.itemId)] : [])])].sort((a, b) => a - b);
@@ -1530,6 +1540,7 @@ async function handlePATCH(request: Request) {
         if (balance) await db.update(contacts).set({ balance: sql`${contacts.balance} - ${balance}` }).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "vendor"), eq(contacts.name, existing.party)));
         await db.delete(inventoryMovements).where(eq(inventoryMovements.transactionId, id));
         await db.delete(journalEntries).where(eq(journalEntries.transactionId, id));
+        if (existing.purchaseOrderId) await db.delete(purchaseReceiptAllocations).where(eq(purchaseReceiptAllocations.receiptId, id));
         await db.delete(transactionLines).where(eq(transactionLines.transactionId, id));
         const response = await saveNewRecord(new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify({ ...payload, sourceTransactionId: null, status: existing.status, total: undefined }) }), existing);
         if (!response.ok) return response;
