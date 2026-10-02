@@ -207,10 +207,10 @@ test("the full app shares dark-mode coverage and responsive phone, tablet, and d
   assert.match(app, /w-\[min\(165px,42vw\)\] sm:w-\[165px\]/);
 });
 
-test("invoice edit keeps compact line comments once and offers add line at the bottom", () => {
+test("invoice and bill edits keep compact line comments once and invoice offers add line at the bottom", () => {
   const editor = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const extraFields = readFileSync(new URL("../app/document-extra-fields.tsx", import.meta.url), "utf8");
-  assert.doesNotMatch(editor, /\["invoice", "bill"\]\.includes\(form\.type\).*<DocumentExtraFields/);
+  assert.match(editor, /\["invoice", "bill"\]\.includes\(form\.type\).*<DocumentExtraFields/);
   assert.match(editor, />Add Another Line<\/Button>/);
   assert.match(extraFields, /rows=\{2\}/);
   assert.match(extraFields, /min-h-12/);

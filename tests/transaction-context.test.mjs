@@ -1178,7 +1178,7 @@ test('partial PO bills keep orders open until fully received and restore quantit
   const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Partial bills') RETURNING id")).rows[0].id;
   const locationId = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES ($1,'PR','Receiving','PR') RETURNING id",[companyId])).rows[0].id;
   const itemId = (await database.query("INSERT INTO items(company_id,location_id,sku,name,quantity,cost) VALUES ($1,$2,'PR','Laptop',0,20) RETURNING id",[companyId,locationId])).rows[0].id;
-  const { POST, GET, DELETE } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const { POST, GET, PATCH, DELETE } = await vite.ssrLoadModule('/app/api/records/route.ts');
   const request = (method, body) => new Request('https://app.test/api/records',{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const base = {kind:'transactions',companyId,locationId,party:'Receiving vendor',currency:'USD',exchangeRate:3.675,transactionDate:'2026-09-12'};
   const poResponse = await POST(request('POST',{...base,type:'purchase order',number:'PO-PART',lines:[{itemId,description:'Laptop',quantity:50,unitPrice:100,unitCost:20,vatCode:'ZERO'}]}));
@@ -1200,6 +1200,15 @@ test('partial PO bills keep orders open until fully received and restore quantit
   assert.equal(firstRecord.total,2000);
   assert.deepEqual((await database.query("SELECT comments,serial_number FROM transaction_lines WHERE transaction_id=$1",[firstRecord.id])).rows[0],{comments:"PO bill comment",serial_number:"PO-SN-1\nPO-SN-2"});
   assert.equal(await stock(),20);
+  const billDetail = async () => (await (await GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${companyId}&id=${firstRecord.id}`))).json());
+  let editable = await billDetail();
+  const editBill = (lineChanges) => PATCH(request('PATCH',{kind:'transactions',companyId,id:firstRecord.id,locationId,type:'bill',revision:editable.revision,number:firstRecord.number,party:base.party,currency:'USD',exchangeRate:3.675,transactionDate:'2026-09-12',status:'open',account:firstRecord.account,purchaseOrderId:po.id,lines:[{orderLineId:editable.lines[0].orderLineId,itemId,description:editable.lines[0].description,quantity:editable.lines[0].quantity,unitPrice:editable.lines[0].unitPrice,unitCost:editable.lines[0].unitCost,vatCode:editable.lines[0].vatCode,vatRate:editable.lines[0].vatRate,comments:editable.lines[0].comments,serialNumber:editable.lines[0].serialNumber,...lineChanges}]}));
+  let edited = await editBill({description:'Edited PO bill laptop',quantity:25,unitPrice:110,vatCode:'STANDARD',vatRate:5,comments:'Edited comment',serialNumber:'EDITED-SN'});
+  assert.equal(edited.status,200,JSON.stringify(await edited.clone().json())); editable=await billDetail();
+  assert.equal(editable.record.total,2887.5); assert.equal(editable.lines[0].description,'Edited PO bill laptop'); assert.equal(editable.lines[0].comments,'Edited comment'); assert.equal(editable.lines[0].serialNumber,'EDITED-SN'); assert.equal(editable.lines[0].orderLineId,line.id); assert.equal(await stock(),25); assert.equal((await read()).lines[0].remaining,25);
+  assert.equal((await editBill({quantity:51})).status,409); assert.equal(await stock(),25); assert.equal((await read()).lines[0].remaining,25);
+  edited=await editBill({description:'Laptop',quantity:20,unitPrice:100,vatCode:'ZERO',vatRate:0,comments:'PO bill comment',serialNumber:'PO-SN-1\nPO-SN-2'}); assert.equal(edited.status,200,JSON.stringify(await edited.clone().json())); editable=await billDetail();
+  assert.equal(editable.record.total,2000); assert.equal(await stock(),20); assert.equal((await read()).lines[0].remaining,30);
   assert.equal((await read()).order.status,'partially received');
   assert.deepEqual((await openOrders()).map((order) => order.id), [po.id]);
   assert.equal((await read()).lines[0].remaining,30);
@@ -1212,6 +1221,10 @@ test('partial PO bills keep orders open until fully received and restore quantit
   assert.equal((await read()).order.status,'received');
   assert.equal((await openOrders()).length, 0);
   assert.equal((await read()).lines[0].remaining,0);
+  let fullBill=await (await GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${companyId}&id=${lastRecord.id}`))).json();
+  const fullEdit=await PATCH(request('PATCH',{kind:'transactions',companyId,id:lastRecord.id,locationId,type:'bill',revision:fullBill.revision,number:lastRecord.number,party:base.party,currency:'USD',exchangeRate:3.675,transactionDate:'2026-09-12',status:'open',account:lastRecord.account,purchaseOrderId:po.id,lines:[{orderLineId:fullBill.lines[0].orderLineId,itemId,description:'Final received laptops',quantity:30,unitPrice:120,unitCost:120,vatCode:'ZERO',vatRate:0,comments:'Final bill edited',serialNumber:'FINAL-SN'}]}));
+  assert.equal(fullEdit.status,200,JSON.stringify(await fullEdit.clone().json())); fullBill=await (await GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${companyId}&id=${lastRecord.id}`))).json();
+  assert.equal(fullBill.record.total,3600); assert.equal(fullBill.lines[0].description,'Final received laptops'); assert.equal(fullBill.lines[0].serialNumber,'FINAL-SN'); assert.equal(await stock(),50); assert.equal((await read()).order.status,'received');
   assert.equal((await receive(1)).status,409);
   assert.equal((await DELETE(request('DELETE',{deletionReason: 'Correcting test record', kind:'transactions',companyId,id:lastRecord.id}))).status,200);
   assert.equal((await read()).order.status,'partially received');
