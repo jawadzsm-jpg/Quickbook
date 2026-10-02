@@ -92,7 +92,7 @@ Selected GET `kind` values beyond the four main record types are:
 | Endpoint | Methods | Authorization | Purpose and important inputs |
 | --- | --- | --- | --- |
 | `/api/packing-lists` | `GET`, `POST`, `PATCH` | `inventory:read` for GET; `sales:write` for writes | Read invoice data and existing lists, then create/update packing lists with cartons, weights, dimensions, serials, and invoice-line links. Uses `companyId`, `invoiceId`. |
-| `/api/warranty-slips` | `GET`, `POST`, `PATCH` | `workspace:read` for GET; `sales:write` for writes | Find invoice items and create/update A4 warranty/RMA service records with customer, supplier, status, serial, and issue details. |
+| `/api/warranty-slips` | `GET`, `POST`, `PATCH` | `workspace:read` for GET; `sales:write` for writes | Find invoice items with their serial-matched source supplier bill and create/update A4 warranty/RMA service records with customer, supplier, status, serial, and issue details. |
 
 ## Reports, VAT, and currency
 

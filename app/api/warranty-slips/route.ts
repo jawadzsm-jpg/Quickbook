@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, lte } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { appUsers, auditLog, contacts, items, transactionLines, transactions, warrantySlips } from "@/db/schema";
 import { requireCompanyAccess } from "@/lib/auth";
@@ -11,6 +11,7 @@ const supplierMatchesBill = (supplier: { name: string; company: string; billingN
   const billParty = normalizeComparableText(party);
   return Boolean(billParty) && [supplier.name, supplier.company, supplier.billingName].some((value) => normalizeComparableText(value) === billParty);
 };
+const serialParts = (value: string) => value.split(/[\n,;]+/).map(normalizeComparableText).filter(Boolean);
 
 async function list(companyId: number) {
   return getDb().select({
@@ -32,9 +33,32 @@ export async function GET(request: Request) {
     if (url.searchParams.has("invoiceId")) {
       const [invoice] = await db.select().from(transactions).where(and(eq(transactions.id, invoiceId), eq(transactions.companyId, companyId), eq(transactions.type, "invoice"))).limit(1);
       if (!invoice) return Response.json({ error: "Customer invoice not found in this company." }, { status: 404 });
-      const lines = await db.select({ id: transactionLines.id, description: transactionLines.description, serialNumber: transactionLines.serialNumber, itemName: items.name, specifications: items.specifications })
+      const lines = await db.select({ id: transactionLines.id, itemId: transactionLines.itemId, description: transactionLines.description, serialNumber: transactionLines.serialNumber, itemName: items.name, specifications: items.specifications })
         .from(transactionLines).leftJoin(items, eq(transactionLines.itemId, items.id)).where(eq(transactionLines.transactionId, invoiceId));
-      return Response.json({ invoice, lines }, { headers: { "Cache-Control": "no-store" } });
+      const itemIds = [...new Set(lines.flatMap((line) => line.itemId ? [line.itemId] : []))];
+      const [suppliers, purchaseLines] = await Promise.all([
+        db.select({ id: contacts.id, name: contacts.name, company: contacts.company, billingName: contacts.billingName }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "vendor"))),
+        itemIds.length
+          ? db.select({ itemId: transactionLines.itemId, serialNumber: transactionLines.serialNumber, id: transactions.id, number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate })
+            .from(transactionLines).innerJoin(transactions, eq(transactionLines.transactionId, transactions.id))
+            .where(and(eq(transactions.companyId, companyId), eq(transactions.type, "bill"), lte(transactions.transactionDate, invoice.transactionDate), inArray(transactionLines.itemId, itemIds)))
+            .orderBy(desc(transactions.transactionDate), desc(transactions.id))
+          : Promise.resolve([]),
+      ]);
+      const linkedLines = lines.map((line) => {
+        const candidates = purchaseLines.filter((purchaseLine) => purchaseLine.itemId === line.itemId);
+        const invoiceSerials = serialParts(line.serialNumber);
+        const serialMatch = invoiceSerials.length
+          ? candidates.find((candidate) => serialParts(candidate.serialNumber).some((serial) => invoiceSerials.includes(serial)))
+          : undefined;
+        const uniqueBillIds = [...new Set(candidates.map((candidate) => candidate.id))];
+        const purchaseBill = serialMatch ?? (uniqueBillIds.length === 1 ? candidates[0] : undefined);
+        if (!purchaseBill) return { ...line, purchaseBillId: null, purchaseNumber: "", purchaseDate: "", supplierId: null, supplierName: "" };
+        const supplier = suppliers.find((entry) => supplierMatchesBill(entry, purchaseBill.party));
+        if (!supplier) return { ...line, purchaseBillId: null, purchaseNumber: "", purchaseDate: "", supplierId: null, supplierName: "" };
+        return { ...line, purchaseBillId: purchaseBill.id, purchaseNumber: purchaseBill.number, purchaseDate: purchaseBill.transactionDate, supplierId: supplier.id, supplierName: supplier.name };
+      });
+      return Response.json({ invoice, lines: linkedLines }, { headers: { "Cache-Control": "no-store" } });
     }
     const requestedPurchaseBillId = Number(url.searchParams.get("purchaseBillId"));
     const [slips, customers, invoices, suppliers, purchaseBills, selectedPurchaseBill] = await Promise.all([

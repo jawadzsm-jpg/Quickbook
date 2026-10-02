@@ -77,7 +77,7 @@
 
 ## Warranty, packing, and attachments
 
-- Warranty/RMA slips linked to customers, invoices, invoice items, suppliers, supplier bills, serials, dates, and service status. Supplier bills open a prefilled RMA draft, while the RMA list and form link back to the saved bill.
+- Warranty/RMA slips linked to customers, invoices, invoice items, suppliers, supplier bills, serials, dates, and service status. Supplier bills open a prefilled RMA draft; selecting an invoiced item automatically links its serial-matched supplier bill; and the RMA list and form link back to the saved bill.
 - A4 warranty service records with working portrait/landscape preview, print, and PDF output. Minimizing a draft returns the user to the application while preserving every entered field in a floating Restore bar; closing that bar prompts before discarding the draft.
 - Packing lists generated from invoice lines with editable cartons, references, weights, dimensions, quantities, and serial details.
 - Transaction and employee attachment upload, listing, download, and deletion with company/entity access checks.
