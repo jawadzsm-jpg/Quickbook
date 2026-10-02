@@ -127,3 +127,7 @@ When adding or changing a handler:
 ### Record deletion memo
 
 `DELETE /api/records` requires `deletionReason`, a nonblank string of at most 2000 characters, for transactions, contacts, items and sub-accounts. Successful deletion records the reason and authenticated actor in the company audit log, whose timestamp retains the deletion time. Audit writes commit with the deletion. Existing role, dependency and posting-reversal rules still apply.
+
+### Invoice editing
+
+`PATCH /api/records` with `kind: "transactions"`, `editMode: "details"`, `id`, `companyId` and the current `revision` allows administrators to submit invoice `party`, `salesman`, `dueDate`, and `lineDetails` containing each existing line's `id`, optional `unitPrice`, `comments` and `serialNumber`. Existing metadata and `appendLines` remain supported. Prices must be finite and non-negative. Customer changes require an active customer in the original invoice currency without linked payments. Totals below allocated payments are rejected. Totals, VAT, customer balances and journal adjustments commit together, without changing existing stock quantities or source allocations.

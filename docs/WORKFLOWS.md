@@ -77,6 +77,10 @@ When an existing posting document is edited, the server reverses its prior ledge
 - A credit memo reverses the applicable sales and inventory effects.
 - Statement and finance charges post customer balance and revenue effects without normal stock lines.
 
+### Edit an invoice
+
+Administrators can edit the customer, existing line unit prices, sales rep, due date, terms, reference, memo, comments and serials, and append new lines. Save Changes validates the current revision and updates line VAT/totals, home-currency journals and customer balances atomically. Price changes retain stock quantities, costs, packing/source allocations and payment allocations. Totals cannot fall below allocated payments. Customer changes require an active customer in the same company and invoice currency and no linked payments; the receivable moves to the new customer's account. Due-date or amount changes refresh open/overdue/payment status. Currency, inventory and existing item/quantity selections remain fixed.
+
 ### Customer payment
 
 1. Select company, inventory, customer, and transaction currency.
