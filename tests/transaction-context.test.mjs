@@ -146,7 +146,7 @@ test("warranty slips link only the selected company's customer and invoice, and 
   const otherBillId = (await database.query("INSERT INTO transactions(company_id,number,type,party,transaction_date) VALUES($1,'BILL-OTHER','bill','Other Supplier','2026-07-01') RETURNING id", [companyId])).rows[0].id;
   const foreignBillId = (await database.query("INSERT INTO transactions(company_id,number,type,party,transaction_date) VALUES($1,'BILL-FOREIGN','bill','Warranty Supplier','2026-07-01') RETURNING id", [otherId])).rows[0].id;
   const invoiceLineId = (await database.query("INSERT INTO transaction_lines(transaction_id,description,serial_number) VALUES($1,'Laptop','SN-123') RETURNING id", [invoiceId])).rows[0].id;
-  const { GET, POST, PATCH } = await vite.ssrLoadModule('/app/api/warranty-slips/route.ts');
+  const { GET, POST, PATCH, DELETE } = await vite.ssrLoadModule('/app/api/warranty-slips/route.ts');
   const values = { companyId, customerId, invoiceId, invoiceLineId, supplierId, purchaseBillId, slipDate: '2026-09-25', problem: 'Screen flickers', brand: 'HP', model: 'EliteBook', contactName: 'Buyer', status: 'Under Process', showStamp: true, stampLeft: 75, stampTop: 210 };
   const write = (input, edit = false) => (edit ? PATCH : POST)(new Request('https://app.test/api/warranty-slips', { method: edit ? 'PATCH' : 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) }));
   assert.equal((await write({ ...values, customerId: foreignCustomerId })).status, 400);
@@ -190,6 +190,13 @@ test("warranty slips link only the selected company's customer and invoice, and 
   assert.equal((await legacyList.json()).slips[0].status, 'Returned to Customer');
   const detail = await GET(new Request(`https://app.test/api/warranty-slips?companyId=${companyId}&invoiceId=${invoiceId}`));
   assert.equal((await detail.json()).lines[0].serialNumber, 'SN-123');
+  const latest = (await (await GET(new Request(`https://app.test/api/warranty-slips?companyId=${companyId}`))).json()).slips[0];
+  const remove = (body) => DELETE(new Request('https://app.test/api/warranty-slips', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }));
+  assert.equal((await remove({ companyId: otherId, id: latest.id, revision: latest.updatedAt })).status, 404);
+  assert.equal((await remove({ companyId, id: latest.id, revision: 'stale' })).status, 409);
+  assert.equal((await remove({ companyId, id: latest.id, revision: latest.updatedAt })).status, 200);
+  assert.equal((await (await GET(new Request(`https://app.test/api/warranty-slips?companyId=${companyId}`))).json()).slips.length, 0);
+  assert.equal((await database.query("SELECT action FROM audit_log WHERE company_id=$1 AND entity_type='warranty_slip' AND entity_id=$2 ORDER BY id DESC LIMIT 1", [companyId, latest.id])).rows[0].action, 'deleted');
 });
 
 test("documents reject stock from another inventory or company before posting", async () => {

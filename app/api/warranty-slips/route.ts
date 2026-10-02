@@ -137,3 +137,26 @@ async function save(request: Request, editing: boolean) {
 
 export async function POST(request: Request) { return save(request, false); }
 export async function PATCH(request: Request) { return save(request, true); }
+export async function DELETE(request: Request) {
+  try {
+    const input = await request.json() as Record<string, unknown>;
+    const companyId = Number(input.companyId);
+    const id = Number(input.id);
+    const revision = typeof input.revision === "string" ? input.revision : "";
+    const user = await requireCompanyAccess(request, companyId, "sales:write", true);
+    if (user instanceof Response) return user;
+    if (!Number.isInteger(id) || id < 1 || !revision) return Response.json({ error: "Select a valid warranty receipt to delete." }, { status: 400 });
+    return await withWriteTransaction(async () => {
+      const db = getDb();
+      const [previous] = await db.select().from(warrantySlips).where(and(eq(warrantySlips.id, id), eq(warrantySlips.companyId, companyId))).limit(1);
+      if (!previous) return Response.json({ error: "Warranty receipt not found." }, { status: 404 });
+      if (previous.updatedAt !== revision) return Response.json({ error: "This receipt changed in another window. Refresh before deleting." }, { status: 409 });
+      const [deleted] = await db.delete(warrantySlips).where(and(eq(warrantySlips.id, id), eq(warrantySlips.companyId, companyId), eq(warrantySlips.updatedAt, revision))).returning();
+      if (!deleted) return Response.json({ error: "This receipt changed in another window. Refresh before deleting." }, { status: 409 });
+      await db.insert(auditLog).values({ companyId, action: "deleted", entityType: "warranty_slip", entityId: id, details: JSON.stringify({ actor: user.email, number: previous.number, before: previous }) });
+      return Response.json({ deleted: true, id });
+    });
+  } catch (error) {
+    return Response.json({ error: error instanceof Error ? error.message : "Could not delete the warranty receipt." }, { status: 500 });
+  }
+}
