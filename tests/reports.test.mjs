@@ -356,6 +356,7 @@ test("purchase postings hit the right accounts and purchase reports stay in sync
     assert.ok(inventoryReport.columns.some((column) => column.key === "account" && column.label === "Inventory Asset Account"));
     assert.ok(inventoryReport.rows.length > 0, `${type} should include the stock item`);
     assert.ok(inventoryReport.rows.every((row) => row.account === "1200 · Inventory Asset"));
+    assert.ok(inventoryReport.rows.every((row) => row.accountAccountId === idFor("INVENTORY")), `${type} should link its Inventory Asset account`);
     assert.ok(inventoryReport.rows.every((row) => row.sku !== "PUR-SERVICE"), `${type} must exclude non-stock items`);
   }
   const valuationDetail = await reportGet("inventory-valuation-detail");
@@ -371,6 +372,7 @@ test("purchase postings hit the right accounts and purchase reports stay in sync
   assert.equal(agedStock.sourceReference, bill.number);
   assert.equal(agedStock.sourceReferenceTransactionId, bill.id);
   assert.equal(agedStock.account, "1200 · Inventory Asset");
+  assert.equal(agedStock.accountAccountId, idFor("INVENTORY"));
   await database.query("INSERT INTO items(company_id,location_id,sku,item_number,name,item_type,category,quantity,cost,asset_account_id) VALUES ($1,$2,'PUR-NEG','PUR-NEG-1','Negative Stock Item','stock-part','Laptop',-3,40,$3)", [cid,lid,idFor("INVENTORY")]);
   const negativeItems = await reportGet("negative-item-list");
   const negative = negativeItems.rows.find((row) => row.sku === "PUR-NEG");
