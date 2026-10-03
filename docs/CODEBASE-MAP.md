@@ -61,7 +61,7 @@ Use this file to locate implementation ownership without rescanning the whole re
 | Inventory write locking | `lib/sku-locks.ts` and `app/use-sku-lock.tsx` |
 | Invoice pricing and dates | `lib/invoice-pricing.ts`, `lib/payment-terms.ts`, `lib/contact-currency.ts` |
 | Account links and defaults | `lib/standard-accounts.ts`, `lib/report-account-links.ts` |
-| Profit & Loss/financial | `lib/profit-loss.ts`, `lib/financial-reports.ts`, `lib/pnl-export.ts`, `lib/pnl-presentation.ts`; P&L UI in `app/profit-loss-report.tsx` and `app/profit-loss-library.tsx` |
+| Profit & Loss/financial | `lib/profit-loss.ts`, `lib/financial-reports.ts`, `lib/pnl-export.ts`, `lib/pnl-presentation.ts`; P&L UI in `app/profit-loss-report.tsx` and `app/profit-loss-library.tsx`; Financial UI/summary in `app/financial-report.tsx`, `app/financial-report-library.tsx`, `lib/financial-presentation.ts` |
 | Sales report presentation/stamp | `app/sales-report-library.tsx`, `app/sales-report-table.tsx`, `app/sales-report-filters.tsx`, `app/sales-report-stamp.tsx`, `lib/report-stamp.ts` |
 | Vendors report presentation | `app/vendor-report-library.tsx`, `app/vendor-report-table.tsx`, `app/vendor-report-filters.tsx`, domain/filter/account helpers in `lib/vendor-report.ts`; shared stamp preview in `app/sales-report-stamp.tsx` |
 | Purchases report presentation | `app/purchase-report-library.tsx`, `app/purchase-report-table.tsx`, `app/purchase-report-filters.tsx` |

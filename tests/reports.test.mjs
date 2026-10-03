@@ -1614,3 +1614,27 @@ test("P&L statements and comparisons reconcile resolved account IDs without repe
   const pdf = Buffer.from(await pnlPdf(standard, "Identity")).toString("latin1");
   assert.match(pdf, /Reporting notes & review/);
 });
+
+test("financial summaries distinguish movements, snapshots, missing rates and qualified account links", async () => {
+  const { financialSummary, financialAccountId } = await vite.ssrLoadModule("/lib/financial-presentation.ts");
+  const values = result => result.cards.map(card => card.value);
+  assert.deepEqual(values(financialSummary({ key: "balance-sheet-prev-year", rows: [{ section: "Assets", current: 150, previous: 100 }, { section: "Liabilities", current: 50 }, { section: "Equity", current: 100 }] })), [150, 50, 100, 0]);
+  assert.deepEqual(values(financialSummary({ key: "cash-flow", rows: [{ name: "Opening cash", amount: 100 }, { name: "Operating", amount: 20 }, { name: "Net cash movement", amount: 20 }, { name: "Closing cash", amount: 120 }] })), [100, 20, 120]);
+  assert.deepEqual(values(financialSummary({ key: "net-worth-graph", rows: [{ month: "2026-01", assets: 100, liabilities: 20, netWorth: 80 }, { month: "2026-02", assets: 150, liabilities: 30, netWorth: 120 }] })), [150, 30, 120]);
+  assert.deepEqual(values(financialSummary({ key: "cash-flow-forecast", rows: [{ month: "Opening cash", inflow: 0, outflow: 0, projected: 100 }, { month: "2026-10", inflow: 50, outflow: 20, projected: 130 }] })), [100, 50, 20, 130]);
+  assert.deepEqual(values(financialSummary({ key: "unrealised-gains-losses", rows: [{ gainLoss: 20 }, { gainLoss: -5 }, { gainLoss: "" }] })), [20, -5, 15, 1]);
+  const row = { name: "Bank (USD)", account: "Bank", accountId: 42 };
+  assert.equal(financialAccountId(row, { key: "name", label: "Account" }, true), 42);
+  assert.equal(financialAccountId(row, { key: "name", label: "Account" }, false), null);
+  assert.equal(financialAccountId({ ...row, name: "Customer A" }, { key: "name", label: "Name" }, true), null);
+  const { reportCsv, reportWorkbook, reportPdf } = await vite.ssrLoadModule("/lib/report-export.ts");
+  const report = { key: "balance-sheet-summary", title: "Balance Sheet Summary", currency: "AED", generatedAt: "2026-10-03T12:00:00Z", rows: [{ section: "Assets", amount: 150 }, { section: "Liabilities", amount: 50 }, { section: "Equity", amount: 100 }], columns: [{ key: "section", label: "Section" }, { key: "amount", label: "Balance", type: "money" }], financial: { details: [], issues: ["Account Legacy has no match in Chart of Accounts."] } };
+  assert.match(reportCsv(report, "Company", "All inventories"), /Balance check difference/);
+  assert.match(reportCsv(report, "Company", "All inventories"), /Account Legacy/);
+  const { default: ExcelJS } = await import("exceljs"); const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(await reportWorkbook(report, "Company", "All inventories"));
+  assert.equal(workbook.getWorksheet("Summary").getCell("B10").value, 0);
+  assert.equal(workbook.getWorksheet("Account review").getCell("A3").value, report.financial.issues[0]);
+  const pdf = Buffer.from(await reportPdf(report, "Company", "All inventories")).toString("latin1");
+  assert.match(pdf, /Account Legacy/);
+  assert.match(pdf, /BALANCE CHECK DIFFERENCE/);
+});

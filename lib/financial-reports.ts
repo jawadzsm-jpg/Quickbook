@@ -12,7 +12,7 @@ const liabilities = new Set(['Accounts Payable','Other Current Liability','Long 
 const round = (n:number) => Math.round((n + Number.EPSILON)*100)/100;
 const col = (key:string,label:string,type?:'money') => ({key,label,...(type?{type}:{})});
 const money = (key:string,label:string) => col(key,label,'money');
-export type FinancialReportData = { companyId:number; currency:string; title:string; columns:ReturnType<typeof col>[]; rows:Row[]; financial:{canViewAccounts:boolean;details:Row[];issues:string[];note:string} };
+export type FinancialReportData = { key?:string; companyId:number; currency:string; title:string; columns:ReturnType<typeof col>[]; rows:Row[]; financial:{canViewAccounts:boolean;details:Row[];issues:string[];note:string} };
 
 export async function financialReport(companyId:number,locationId:number,currency:string,params:URLSearchParams,canViewAccounts:boolean) {
  const key=params.get('type')!; const from=params.get('periodStart')||''; const to=params.get('periodEnd')||'';

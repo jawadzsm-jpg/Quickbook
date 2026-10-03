@@ -10,6 +10,7 @@ import { bankingSummary } from "./banking-report";
 import { accountantSummary } from "./accountant-report";
 import { listSummary } from "./list-report";
 import { employeeSummary } from "./employee-report";
+import { financialSummary } from "./financial-presentation";
 import type { PrintOrientation } from "./document-print";
 
 export type ReportExportColumn = { key: string; label: string; type?: "money" };
@@ -22,14 +23,14 @@ export type ReportExportData = {
   period?: { label: string };
   columns: ReportExportColumn[];
   rows: ReportExportRow[];
-  financial?: { details: ReportExportRow[] };
+  financial?: { details: ReportExportRow[]; note?: string; issues?: string[] };
   openBalance?: { totalOpen: number; totalAmount: number; overdueOnly?: boolean };
   activeCustomers?: { count: number };
   statement?: { opening: number; charges: number; credits: number; closing: number };
 };
 
 function reportOverview(report: ReportExportData, rows: ReportExportRow[]) {
-  return vatSummary({ key: report.key, rows }) ?? budgetSummary({ key: report.key, rows }) ?? salesSummary({ key: report.key, rows }) ?? customerSummary({ key: report.key, rows, openBalance: report.openBalance, activeCustomers: report.activeCustomers, statement: report.statement }) ?? vendorSummary({ key: report.key, rows, statement: report.statement }) ?? purchaseSummary({ key: report.key, rows }) ?? inventorySummary({ key: report.key, rows }) ?? bankingSummary({ key: report.key, rows }) ?? accountantSummary({ key: report.key, rows }) ?? listSummary({ key: report.key, rows }) ?? employeeSummary({ key: report.key, rows });
+  return financialSummary({ key: report.key, rows, financial: report.financial }) ?? vatSummary({ key: report.key, rows }) ?? budgetSummary({ key: report.key, rows }) ?? salesSummary({ key: report.key, rows }) ?? customerSummary({ key: report.key, rows, openBalance: report.openBalance, activeCustomers: report.activeCustomers, statement: report.statement }) ?? vendorSummary({ key: report.key, rows, statement: report.statement }) ?? purchaseSummary({ key: report.key, rows }) ?? inventorySummary({ key: report.key, rows }) ?? bankingSummary({ key: report.key, rows }) ?? accountantSummary({ key: report.key, rows }) ?? listSummary({ key: report.key, rows }) ?? employeeSummary({ key: report.key, rows });
 }
 
 const navy = "FF102033";
@@ -84,6 +85,7 @@ export function reportCsv(report: ReportExportData, company: string, inventory: 
   }
   const overview = reportOverview(report, rows);
   if (overview) records.push([], ["Summary"], ...overview.cards.map((card) => [card.label, card.value, card.format === "money" ? report.currency : ""]), ["Basis", overview.note]);
+  if (report.financial?.issues?.length) records.push([], ["Account review"], ...report.financial.issues.map(issue => [issue]));
   return "\uFEFF" + records.map((record) => record.map(safeCsv).join(",")).join("\r\n");
 }
 
@@ -172,11 +174,12 @@ export async function reportWorkbook(report: ReportExportData, company: string, 
   if (report.financial?.details?.length) {
     const detailKeys = ["date", "reference", "name", "account", "section", "currency", "amount"].filter((key) => report.financial!.details.some((row) => row[key] !== undefined));
     const detailLabels: Record<string, string> = { date: "Date", reference: "Reference", name: "Name", account: "Account", section: "Classification", currency: "Currency", amount: "Amount" };
-    const detail = book.addWorksheet("Account detail", { views: [{ state: "frozen", ySplit: 1 }] });
+    const detail = book.addWorksheet("Account detail", { views: [{ state: "frozen", ySplit: 1 }], pageSetup: { paperSize: 9, orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, printTitlesRow: "1:1" } });
     const detailHeader = detail.addRow(detailKeys.map((key) => detailLabels[key]));
     detailHeader.eachCell((cell) => { cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: navy } }; cell.font = { bold: true, color: { argb: "FFFFFFFF" } }; });
     report.financial.details.forEach((record) => detail.addRow(detailKeys.map((key) => cellValue(record[key]))));
     detailKeys.forEach((key, index) => { detail.getColumn(index + 1).width = /name|account/.test(key) ? 36 : 20; if (key === "amount") detail.getColumn(index + 1).numFmt = '#,##0.00;[Red](#,##0.00);"-"'; });
+    detail.eachRow(row => { row.alignment = { wrapText: true, vertical: "top" }; });
     detail.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: Math.max(1, detailKeys.length) } };
   }
   if (isOperational) {
@@ -199,6 +202,13 @@ export async function reportWorkbook(report: ReportExportData, company: string, 
     summarySheet.mergeCells(note.number, 1, note.number, 3); note.height = 65; note.alignment = { wrapText: true, vertical: "top" };
     summarySheet.getRow(1).font = { bold: true, size: 15 };
     summarySheet.getRow(6).eachCell((cell) => { cell.font = { bold: true, color: { argb: "FFFFFFFF" } }; cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: navy } }; });
+  }
+  if (report.financial?.issues?.length) {
+    const review = book.addWorksheet("Account review", { pageSetup: { paperSize: 9, orientation, fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+    review.getColumn(1).width = 100;
+    review.addRow([`${company} · ${report.title}`]).font = { bold: true, size: 13 };
+    review.addRow(["Review account mapping before relying on classified totals."]).font = { bold: true };
+    report.financial.issues.forEach(issue => { const row = review.addRow([issue]); row.alignment = { wrapText: true, vertical: "top" }; row.height = Math.max(30, Math.ceil(issue.length / 95) * 16); });
   }
   return book.xlsx.writeBuffer();
 }
@@ -296,6 +306,10 @@ export async function reportPdf(report: ReportExportData, company: string, inven
     },
     didDrawPage: drawHeader,
   });
+  if (report.financial?.issues?.length) {
+    const lastY = (pdf as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
+    autoTable(pdf, { startY: lastY + 7, margin: { top: 44, bottom: 17, left: 10, right: 10 }, head: [["Account review - review before relying on classified totals"]], body: report.financial.issues.map(issue => [issue]), styles: { font: "helvetica", fontSize: 8, cellPadding: 3, overflow: "linebreak" }, headStyles: { fillColor: [120, 75, 20] }, rowPageBreak: "avoid", didDrawPage: drawHeader });
+  }
   if (stamp?.data) {
     const stampImage = await new Promise<{ data: string; width: number; height: number }>((resolve, reject) => {
       const image = new Image();
