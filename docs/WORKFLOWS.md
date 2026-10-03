@@ -250,3 +250,6 @@ In Employees & HR, create or edit an employee to record monthly salary, salary e
 
 
 To pay an employee loan, open Banking → Write Cheque, choose Employee loan, select the employee, Pay From bank and employee loan/advance asset account, then save. Posting debits that asset and credits the selected bank; HR reads the saved transactions directly. Deleting a payment through the existing authorized transaction workflow removes it from HR totals. These are disbursement totals, not repayment-adjusted loan balances; keep manually recorded amounts separate. Employee form outside clicks do not dismiss it; Minimize preserves the draft in the window dock.
+
+
+In New/Edit Employee, choose Loan / advance account and save the profile before creating a Banking employee loan payment. Selecting the saved employee selects that account, and the server enforces it. If no eligible account exists, the HR form explains how to create an Other Current Asset account in Chart of Accounts. Saving the profile never posts the manual loan amount or assigns existing transactions.
