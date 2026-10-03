@@ -99,10 +99,10 @@ export async function profitLoss(companyId: number, locationId: number, currency
   } else if (comparison) {
     report.title = key === "profit-loss-ytd" ? "Profit & Loss YTD Comparison" : "Profit & Loss Previous Year Comparison";
     report.columns = [{ key: "name", label: "Account" }, money("previous", `${prior(from)} – ${prior(to)}`), money("amount", `${from} – ${to}`), money("change", "Change")];
-    report.rows = chart.filter(a => accountFor(a.name) && (incomeTypes.has(a.type) || expenseTypes.has(a.type))).map(a => {
-      const total = (start: string, end: string) => round(entries.filter(e => e.account === a.name && inPeriod(e.date, start, end)).reduce((n, e) => n + (incomeTypes.has(a.type) ? e.credit - e.debit : e.debit - e.credit), 0));
+    report.rows = chart.filter(a => incomeTypes.has(a.type) || expenseTypes.has(a.type)).map(a => {
+      const total = (start: string, end: string) => round(entries.filter(e => accountFor(e.account, e.entryCurrency)?.id === a.id && inPeriod(e.date, start, end)).reduce((n, e) => n + (incomeTypes.has(a.type) ? e.credit - e.debit : e.debit - e.credit), 0));
       const amount = total(from, to); const previous = total(prior(from), prior(to));
-      return { name: a.name, account: a.name, accountId: a.id, type: a.type, amount, previous, change: round(amount - previous) };
+      return { name: `${a.code} · ${a.name}`, account: a.name, accountId: a.id, type: a.type, amount, previous, change: round(amount - previous) };
     });
     const previous = round(report.rows.reduce((n, r) => n + (incomeTypes.has(String(r.type)) ? 1 : -1) * Number(r.previous), 0));
     report.rows.push({ name: "Net income", kind: "total", amount: summary.netIncome, previous, change: round(summary.netIncome - previous) });
@@ -141,7 +141,7 @@ export async function profitLoss(companyId: number, locationId: number, currency
   } else {
     let operating = 0;
     for (const type of ["Income", "Cost of Goods Sold", "Expense", "Other Income", "Other Expense"]) {
-      const matching = chart.filter(a => a.type === type && accountFor(a.name));
+      const matching = chart.filter(a => a.type === type);
       const section = matching.map(a => ({ name: `${a.code} · ${a.name}`, account: a.name, accountId: a.id, type, amount: round(details.filter(r => r.accountId === a.id).reduce((n, r) => n + Number(r.amount), 0)) })).filter(r => r.amount !== 0);
       report.rows.push({ name: type === "Cost of Goods Sold" ? "Purchase cost / cost of sales" : type, kind: "section" }, ...section);
       const total = round(section.reduce((n, r) => n + r.amount, 0));

@@ -158,8 +158,9 @@ test("dark mode keeps striped report rows and darkest utility text readable", ()
   const pnl = readFileSync(new URL("../app/profit-loss-report.tsx", import.meta.url), "utf8");
   assert.match(css, /even\\:bg-slate-50:nth-child\(even\).*background-color: #152136/);
   for (const token of ["text-slate-950", "text-emerald-950", "text-sky-950", "text-amber-950", "text-red-950"]) assert.match(css, new RegExp(`\\.${token}`));
-  assert.match(pnl, /dark:even:bg-slate-900/);
-  assert.match(pnl, /dark:bg-emerald-950 dark:text-emerald-100/);
+  assert.match(pnl, /pnl-table-desktop report-table/);
+  assert.match(css, /\[data-appearance="dark"\] \.pnl-table-desktop tr:nth-child\(even\) \{ background: #14241f;/);
+  assert.match(css, /\[data-appearance="dark"\] \.pnl-table-desktop tr\[data-kind="total"\][^{]*\{ background: #123c2e; color: #d1fae5;/);
 });
 
 test("notification errors stay readable in light and dark mode", () => {

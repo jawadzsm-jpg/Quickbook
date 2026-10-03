@@ -1565,3 +1565,52 @@ test("Shared exports include the same banking summary and preserve unambiguous a
   const book = new ExcelJS.Workbook(); await book.xlsx.load(await reportWorkbook(report,'Company','Main'));
   assert.ok(book.getWorksheet('Summary'));
 });
+
+test("P&L statements and comparisons reconcile resolved account IDs without repeating same-name postings", async () => {
+  const created = await workspaces.POST(post({ type: "company", name: "P&L account identity", baseCurrency: "AED" }));
+  const { company: c } = await created.json();
+  const chart = await db.insert(schema.accounts).values([
+    { companyId: c.id, code: "4901", name: "Shared income", type: "Income", currency: "AED" },
+    { companyId: c.id, code: "4902", name: "Shared income", type: "Income", currency: "USD" },
+    { companyId: c.id, code: "5901", name: "Foreign expense", type: "Expense", currency: "USD" },
+    { companyId: c.id, code: "5902", name: "Foreign expense", type: "Expense", currency: "EUR" },
+    { companyId: c.id, code: "4903", name: "Ambiguous income", type: "Income", currency: "USD" },
+    { companyId: c.id, code: "4904", name: "Ambiguous income", type: "Income", currency: "USD" },
+  ]).returning();
+  for (const [date, currency, rows] of [
+    ["2026-09-01", "USD", [{ accountName: "Shared income", credit: 100 }, { accountName: "Foreign expense", debit: 20 }, { accountName: "Ambiguous income", credit: 7 }]],
+    ["2026-09-02", "EUR", [{ accountName: "Foreign expense", debit: 10 }]],
+    ["2025-09-01", "USD", [{ accountName: "Shared income", credit: 60 }, { accountName: "Foreign expense", debit: 5 }]],
+  ]) {
+    const [entry] = await db.insert(schema.journalEntries).values({ companyId: c.id, locationId: c.locations[0].id, entryDate: date, currency, reference: "IDENTITY" }).returning();
+    await db.insert(schema.journalLines).values(rows.map(row => ({ journalEntryId: entry.id, debit: 0, credit: 0, ...row })));
+  }
+  const get = async key => {
+    const response = await GET(new Request(`https://app.test/api/reports?type=${key}&companyId=${c.id}&periodStart=2026-01-01&periodEnd=2026-12-31`));
+    assert.equal(response.status, 200);
+    return (await response.json()).report;
+  };
+  const standard = await get("profit-loss");
+  assert.deepEqual(standard.summary, { income: 100, expenses: 30, netIncome: 70 });
+  assert.equal(standard.rows.find(row => row.accountId === chart[2].id).amount, 20);
+  assert.equal(standard.rows.find(row => row.accountId === chart[3].id).amount, 10);
+  assert.ok(standard.pnl.warnings.some(warning => warning.includes("Ambiguous income")));
+  const comparison = await get("profit-loss-ytd");
+  assert.equal(comparison.rows.find(row => row.accountId === chart[0].id).amount, 100);
+  assert.equal(comparison.rows.find(row => row.accountId === chart[1].id).amount, 0);
+  const sum = key => comparison.rows.filter(row => row.accountId).reduce((value, row) => value + (["Income", "Other Income"].includes(row.type) ? 1 : -1) * row[key], 0);
+  assert.equal(sum("amount"), 70);
+  assert.equal(sum("previous"), 55);
+  assert.equal(comparison.rows.at(-1).previous, 55);
+  assert.equal(comparison.rows.at(-1).change, 15);
+  const { pnlCsv, pnlWorkbook, pnlPdf } = await vite.ssrLoadModule("/lib/pnl-export.ts");
+  assert.match(pnlCsv(standard, "Identity"), /Ambiguous income/);
+  assert.match(pnlCsv(standard, "Identity"), /"Net profit \/ loss",70/);
+  const { default: ExcelJS } = await import("exceljs");
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(await pnlWorkbook(standard, "Identity", "landscape"));
+  assert.equal(workbook.getWorksheet("Summary & review").getCell("B7").value, 70);
+  assert.equal(workbook.getWorksheet("Ledger detail").pageSetup.orientation, "landscape");
+  const pdf = Buffer.from(await pnlPdf(standard, "Identity")).toString("latin1");
+  assert.match(pdf, /Reporting notes & review/);
+});
