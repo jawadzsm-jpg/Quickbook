@@ -344,6 +344,9 @@ test("purchase postings hit the right accounts and purchase reports stay in sync
   assert.equal(purchaseRow.subtotal, 150);
   assert.equal(purchaseRow.vat, 7.5);
   assert.equal(purchaseRow.total, 157.5);
+  assert.equal(purchaseRow.accountAccountId, idFor("AP"));
+  const supplierSummary = await reportGet("purchases-by-vendor");
+  assert.equal(supplierSummary.rows.find((row) => row.name === "Purchase Audit Vendor").amount, 150);
 
   const itemSummary = await reportGet("purchases-by-item");
   assert.equal(Math.round(itemSummary.rows.reduce((sum, row) => sum + Number(row.amount), 0) * 100) / 100, 150);
@@ -475,13 +478,13 @@ test("purchase order summary counts supplier statuses within the selected invent
     { companyId, locationId: otherLocation.id, number: "PO-SUM-OTHER", type: "purchase order", party: "Summary Supplier", transactionDate: "2026-09-22", status: "open" },
   ]);
   const result = await report("purchase-order-summary");
-  assert.deepEqual(result.columns.map((column) => column.key), ["supplier", "open", "partiallyReceived", "received", "totalOrders"]);
-  assert.deepEqual(result.rows.find((row) => row.supplier === "Summary Supplier"), { supplier: "Summary Supplier", open: 1, partiallyReceived: 1, received: 1, totalOrders: 3 });
-  assert.deepEqual(result.rows.find((row) => row.supplier === "No Orders Supplier"), { supplier: "No Orders Supplier", open: 0, partiallyReceived: 0, received: 0, totalOrders: 0 });
+  assert.deepEqual(result.columns.map((column) => column.key), ["supplier", "open", "partiallyReceived", "received", "closed", "totalOrders"]);
+  assert.deepEqual(result.rows.find((row) => row.supplier === "Summary Supplier"), { supplier: "Summary Supplier", open: 1, partiallyReceived: 1, received: 1, closed: 0, totalOrders: 3 });
+  assert.deepEqual(result.rows.find((row) => row.supplier === "No Orders Supplier"), { supplier: "No Orders Supplier", open: 0, partiallyReceived: 0, received: 0, closed: 0, totalOrders: 0 });
   const response = await GET(new Request(`https://app.test/api/reports?type=purchase-order-summary&companyId=${companyId}&locationId=${locationId}&periodStart=2026-09-21&periodEnd=2026-09-21`));
   assert.equal(response.status, 200);
   const dated = (await response.json()).report;
-  assert.deepEqual(dated.rows.find((row) => row.supplier === "Summary Supplier"), { supplier: "Summary Supplier", open: 0, partiallyReceived: 1, received: 0, totalOrders: 1 });
+  assert.deepEqual(dated.rows.find((row) => row.supplier === "Summary Supplier"), { supplier: "Summary Supplier", open: 0, partiallyReceived: 1, received: 0, closed: 0, totalOrders: 1 });
 });
 
 test("supplier centre reports stay on the selected supplier and show only open bills", async () => {
@@ -1336,4 +1339,44 @@ test('inventory filters keep quantities, summaries and downloads on the same row
     assert.ok(Math.abs(Number(box[1]) - (orientation === 'portrait' ? 595.28 : 841.89)) < 0.01);
     assert.ok(pdf.includes('Summary'));
   }
+});
+
+
+test("purchase receiving reports show outstanding allocations and consistent commitments", async () => {
+  const result = await workspaces.POST(post({ type: "company", name: "PO reporting allocations", baseCurrency: "AED" }));
+  const { company: c } = await result.json(); const cid = c.id, lid = c.locations[0].id;
+  const ap = (await database.query("SELECT name FROM accounts WHERE company_id=$1 AND system_role='AP'", [cid])).rows[0].name;
+  const po = (await database.query("INSERT INTO transactions(company_id,location_id,number,type,party,account,transaction_date,status,subtotal,vat_amount,total,base_total) VALUES ($1,$2,'PO-REMAIN','purchase order','Allocation Supplier',$3,'2026-09-20','partially received',1000,50,1050,1050) RETURNING id", [cid,lid,ap])).rows[0].id;
+  const line = (await database.query("INSERT INTO transaction_lines(transaction_id,description,quantity,unit_price,subtotal,vat_amount,total) VALUES ($1,'Allocation Laptop',10,100,1000,50,1050) RETURNING id", [po])).rows[0].id;
+  const receipt = (await database.query("INSERT INTO transactions(company_id,location_id,number,type,party,transaction_date,purchase_order_id) VALUES ($1,$2,'AFTER-PERIOD-RECEIPT','bill','Allocation Supplier','2026-10-01',$3) RETURNING id", [cid,lid,po])).rows[0].id;
+  await database.query("INSERT INTO purchase_receipt_allocations(receipt_id,order_line_id,quantity) VALUES ($1,$2,4.25)", [receipt,line]);
+  const get = async (key) => {const response = await GET(new Request(`https://app.test/api/reports?type=${key}&companyId=${cid}&locationId=${lid}&periodStart=2026-09-01&periodEnd=2026-09-30`));assert.equal(response.status,200);return (await response.json()).report;};
+  const detail = await get("open-purchase-orders-detail");
+  assert.equal(detail.rows[0].quantity,5.75); assert.equal(detail.rows[0].amount,575); assert.equal(detail.rows[0].receivedQuantity,4.25);
+  assert.equal(detail.rows[0].orderedQuantity,10); assert.equal(detail.rows[0].unitCost,100); assert.ok(detail.rows[0].accountAccountId > 0);
+  assert.equal((await get("open-purchase-orders")).rows[0].amount,575);
+  assert.equal((await get("open-purchase-orders-job")).rows[0].amount,575);
+  await database.query("UPDATE transactions SET status='void' WHERE id=$1",[po]);
+  assert.equal((await get("open-purchase-orders-detail")).rows.length,0);
+  const counts=(await get("purchase-order-summary")).rows.find(row=>row.supplier==='Allocation Supplier'); assert.equal(counts.closed,1);assert.equal(counts.totalOrders,1);assert.equal(counts.open,0);
+});
+
+test("purchase filters and exports preserve fractions, totals and account identity", async () => {
+  const {emptyPurchaseFilters,filterPurchaseReportRows,purchaseColumnTotal,purchaseDocumentAccount,purchaseSummary} = await vite.ssrLoadModule('/lib/purchase-report.ts');
+  const {reportCsv,reportWorkbook,reportPdf}=await vite.ssrLoadModule('/lib/report-export.ts');
+  const columns=[{key:'supplier',label:'Supplier'},{key:'number',label:'Bill No.'},{key:'item',label:'Item'},{key:'account',label:'Payable account'},{key:'quantity',label:'Quantity'},{key:'unitCost',label:'Unit cost',type:'money'},{key:'total',label:'Total',type:'money'}];
+  const rows=[{supplier:'Selected Supplier',number:'B-001',item:'Fractional Laptop',account:'2100 · USD Payable',quantity:2.5,unitCost:100,total:250,status:'open'},{supplier:'Other Supplier',number:'B-002',item:'Other Laptop',account:'2100 · AED Payable',quantity:1,unitCost:300,total:300,status:'paid'}];
+  const report={key:'purchases-by-item-detail',title:'Purchases by Item Detail',generatedAt:'2026-10-03T08:00:00Z',currency:'AED',columns,rows};
+  const selected=filterPurchaseReportRows(rows,columns,{...emptyPurchaseFilters,query:'laptop',supplier:'Selected Supplier',account:'2100 · USD Payable',status:'open'},report.key);
+  assert.equal(selected.length,1);assert.equal(purchaseSummary({...report,rows:selected}).cards[0].value,250);
+  assert.equal(purchaseColumnTotal(selected,columns[4]),2.5);assert.equal(purchaseColumnTotal(selected,columns[5]),null);
+  assert.equal(filterPurchaseReportRows(rows,columns,{...emptyPurchaseFilters,sort:'amount'})[0].number,'B-002');assert.equal(rows[0].number,'B-001');
+  const accounts=[{id:1,code:'2100',name:'Payable',currency:'AED',systemRole:'AP'},{id:2,code:'2101',name:'Payable',currency:'USD',systemRole:'AP'}];
+  assert.equal(purchaseDocumentAccount({id:4,type:'bill',account:'Wrong saved default',currency:'USD'},[{transactionId:4,account:'Payable',credit:250}],accounts).accountAccountId,2);
+  assert.equal(purchaseDocumentAccount({id:4,type:'bill',account:'Payable',currency:'USD'},[],accounts).accountAccountId,0);
+  assert.equal(purchaseDocumentAccount({id:4,type:'purchase order',account:'Removed Account',currency:'USD'},[],accounts).accountAccountId,0);
+  const csv=reportCsv(report,'Test Company','Main',selected);assert.match(csv,/Summary/);assert.match(csv,/Report total/);assert.doesNotMatch(csv,/Other Supplier/);
+  const ExcelJS=(await import('exceljs')).default;const book=new ExcelJS.Workbook();await book.xlsx.load(await reportWorkbook(report,'Test Company','Main',selected));
+  assert.equal(book.getWorksheet('Report').getCell('E10').value,2.5);assert.equal(book.getWorksheet('Report').getCell('F11').value,'');assert.equal(book.getWorksheet('Purchases summary').getCell('B7').value,250);
+  for(const orientation of ['portrait','landscape']) {const pdf=Buffer.from(await reportPdf(report,'Test Company','Main',selected,undefined,orientation)).toString('latin1');assert.match(pdf,/Summary/);assert.match(pdf,/Report total/);const page=pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/);assert.ok(page);assert.ok(orientation==='portrait'?Number(page[1])<Number(page[2]):Number(page[1])>Number(page[2]));}
 });
