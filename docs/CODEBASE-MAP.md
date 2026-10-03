@@ -42,6 +42,7 @@ Use this file to locate implementation ownership without rescanning the whole re
 | Shared item catalog | `shared-item-catalogue.tsx` | `shared-items` |
 | Journals/accounts | `journal-entry-center.tsx`, account UI in `enterprise-app.tsx`, `account-history.tsx` | `journal-entries`, `account-history`, `records` |
 | VAT | `vat-code-center.tsx`, `vat-management-center.tsx` | `vat-codes`, `vat-management` |
+| VAT reports | `vat-report-library.tsx`, `vat-report-table.tsx`, `vat-report-filters.tsx`, `lib/vat-report.ts`; exports in `lib/report-export.ts`, stamp in `sales-report-stamp.tsx` and `lib/report-stamp.ts` | `reports` |
 | Currency | `currency-rate-center.tsx` | `exchange-rates` |
 | Warranty/RMA | `warranty-center.tsx` | `warranty-slips` |
 | Packing lists | `invoice-packing-list.tsx` | `packing-lists` |

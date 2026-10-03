@@ -216,6 +216,8 @@ Purchases reports can be searched or filtered by supplier, payable/payment accou
 
 Sales reports support customer, representative, receivable/receipt, revenue-account and status filters. Displayed rows determine summaries, graphs and every output. Sales exclude VAT; credit memo returns are shown separately in Sales Graph. Pending Sales uses document face values, not an open AR balance or a revenue forecast. Sales-order quantities include all saved fulfilment allocations, even invoices after the selected order dates. To position a Sales stamp, enable it and drag on the A4 preview, use arrow keys (Shift for 5 mm), or edit millimetre offsets. Print and PDF use the same selected page coordinates.
 
+For VAT reporting, select the company and period; inventory selection is ignored and outputs identify company-wide scope. Filter by saved VAT code, tax direction, posted account or code status; summaries and downloads follow the displayed rows. Code links open a filtered current register, with authorized navigation to VAT Codes or VAT Management. Credit notes reduce taxable values and VAT. Both report exception review and filing review include per-line freight in the taxable base. Missing/ambiguous posted VAT links remain review labels. VAT Position Summary excludes manual adjustments; VAT Management retains the filing review workflow. The optional VAT stamp uses the same A4 drag, keyboard and millimetre placement controls as Sales.
+
 ## 10. Administration workflow
 
 - **Companies and inventories:** create/edit workspace records, bank/company metadata, currency, invoice series, and locations.

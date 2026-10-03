@@ -114,6 +114,8 @@ Selected GET `kind` values beyond the four main record types are:
 - Responses use a normalized `report` object consumed by the client’s table, summary, chart, print, PDF, XLSX, CSV, and drill-down features.
 - Purchase document detail includes a company-scoped payable/payment account link from posted journal credits. Open PO reports retain the saved planned account and subtract all current receiving allocations to calculate remaining quantities and home-currency commitments before VAT. PO status counts include a closed/cancelled column. Supplier purchase summaries and details both exclude VAT from purchase spend.
 
+VAT report models include saved code/rate, signed values, document IDs and verified posted VAT account IDs. Detail lines include quantity/unit price and freight in taxable value. Item summaries group by item identity, saved code/rate and tax direction. VAT exception review includes unknown/missing codes, saved calculation differences and differences from current configured rates. All seven VAT reports return code metadata and ignore inventory scope; VAT Code List remains a current snapshot. `/api/vat-management` includes line freight in taxable amounts and saved-rate validation without changing posting or filing authorization.
+
 ## Safe endpoint changes
 
 When adding or changing a handler:

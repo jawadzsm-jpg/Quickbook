@@ -1,3 +1,4 @@
+import { buildVatReport, vatReportKeys } from "@/lib/vat-report";
 import { financialKeys, financialReport } from "@/lib/financial-reports";
 import { reportPeriod, validReportDate, reportMonths, previousYearDate } from "@/lib/report-period";
 import { profitLoss } from "@/lib/profit-loss";
@@ -15,7 +16,7 @@ import { linkReportAccounts } from "@/lib/report-account-links";
 type Row = Record<string, string | number | null>;
 const money = { type: "money" as const };
 const vendorCurrencyReportKeys = new Set(["supplier-quickreport", "supplier-open-balance", "vendor-statements", "ap-aging-summary", "ap-aging-detail", "vendor-balances", "supplier-balance-detail", "unpaid-bills-detail", "accounts-payable-graph", "supplier-transactions"]);
-const vatReportKeys = new Set(["vat-summary", "vat-detail", "vat-unassigned", "vat-exceptions", "vat-item-summary", "reverse-charge", "vat-code-list"]);
+
 const amountColumns = (first = "Account") => [
   { key: "name", label: first }, { key: "debit", label: "Debit", ...money }, { key: "credit", label: "Credit", ...money }, { key: "balance", label: "Balance", ...money },
 ];
@@ -915,47 +916,21 @@ export async function GET(request: Request) {
       rows = [...grouped].map(([job, value]) => ({ job, orders: value.orders, suppliers: value.suppliers.size, amount: value.amount })).sort((a, b) => b.amount - a.amount);
       columns = [{ key: "job", label: "Job / Inventory" }, { key: "orders", label: "Open Orders" }, { key: "suppliers", label: "Suppliers" }, { key: "amount", label: "Open Amount ex VAT", ...money }];
     }
-    else if (key === "vat-summary") {
-      title = "UAE VAT201 Summary";
-      rows = [{ name: "Output VAT on sales", amount: outputVat }, { name: "Recoverable input VAT", amount: inputVat }, { name: "Net VAT due", amount: outputVat - inputVat }];
-      columns = [{ key: "name", label: "VAT position" }, { key: "amount", label: "Amount", ...money }];
-    } else if (key === "vat-detail") {
-      title = "VAT Detail Report";
-      rows = vatLines.map((line) => ({ date: line.date, number: line.number, type: line.type, party: line.party, code: line.vatCode, rate: `${line.vatRate}%`, taxable: line.subtotal * line.exchangeRate, vat: line.vatAmount * line.exchangeRate }));
-      columns = [{ key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "party", label: "Name" }, { key: "code", label: "VAT Code" }, { key: "rate", label: "Rate" }, { key: "taxable", label: "Taxable Amount", ...money }, { key: "vat", label: "VAT", ...money }];
-    } else if (key === "vat-unassigned") {
-      title = "Unassigned VAT Amounts Detail Report";
-      const knownCodes = new Set(configuredVatCodes.map((code) => code.code));
-      rows = vatLines.filter((line) => !line.vatCode || !knownCodes.has(line.vatCode)).map((line) => ({ date: line.date, number: line.number, type: line.type, party: line.party, description: line.description, taxable: line.subtotal * line.exchangeRate, vat: line.vatAmount * line.exchangeRate }));
-      columns = [{ key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "party", label: "Name" }, { key: "description", label: "Item / description" }, { key: "taxable", label: "Taxable Amount", ...money }, { key: "vat", label: "VAT", ...money }];
-    } else if (key === "vat-exceptions") {
-      title = "VAT Exception Report";
-      rows = vatLines.filter((line) => Math.abs(line.vatAmount - line.subtotal * line.vatRate / 100) > 0.01).map((line) => ({ date: line.date, number: line.number, description: line.description, code: line.vatCode, expected: line.subtotal * line.vatRate / 100 * line.exchangeRate, posted: line.vatAmount * line.exchangeRate, difference: (line.vatAmount - line.subtotal * line.vatRate / 100) * line.exchangeRate }));
-      columns = [{ key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "description", label: "Item / description" }, { key: "code", label: "VAT Code" }, { key: "expected", label: "Expected VAT", ...money }, { key: "posted", label: "Posted VAT", ...money }, { key: "difference", label: "Difference", ...money }];
-    } else if (key === "vat-item-summary") {
-      title = "VAT Item Summary";
-      const grouped = new Map<string, { taxable: number; vat: number }>();
-      vatLines.forEach((line) => { const old = grouped.get(line.description) ?? { taxable: 0, vat: 0 }; grouped.set(line.description, { taxable: old.taxable + line.subtotal * line.exchangeRate, vat: old.vat + line.vatAmount * line.exchangeRate }); });
-      rows = [...grouped].map(([name, totals]) => ({ name, ...totals })).sort((a, b) => b.vat - a.vat);
-      columns = [{ key: "name", label: "Item / description" }, { key: "taxable", label: "Taxable Amount", ...money }, { key: "vat", label: "VAT", ...money }];
-    } else if (key === "ec-sales") {
+    else if (vatReportKeys.has(key)) {
+      const vatReport = buildVatReport(key, vatLines, allAccounts, rawJournal, configuredVatCodes, outputVat, inputVat);
+      title = vatReport.title; rows = vatReport.rows; columns = vatReport.columns;
+    }
+
+    else if (key === "ec-sales") {
       title = "EC Sales List";
       rows = vatLines.filter((line) => ["invoice", "sales receipt"].includes(line.type) && line.vatRate === 0 && line.transactionCurrency !== currency).map((line) => ({ date: line.date, number: line.number, customer: line.party, currency: line.transactionCurrency, description: line.description, amount: line.subtotal * line.exchangeRate }));
       columns = [{ key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "customer", label: "Customer" }, { key: "currency", label: "Currency" }, { key: "description", label: "Item / description" }, { key: "amount", label: "Amount", ...money }];
-    } else if (key === "reverse-charge") {
-      title = "Reverse Charge and Import VAT List";
-      rows = vatLines.filter((line) => ["bill", "received item bill", "expense", "cheque", "credit card charge", "vendor credit"].includes(line.type) && (line.isImport || reverseCodes.has(line.vatCode.toUpperCase()))).map((line) => ({ date: line.date, number: line.number, vendor: line.party, currency: line.transactionCurrency, description: line.description, taxable: line.subtotal * line.exchangeRate, vat: line.vatAmount * line.exchangeRate }));
-      columns = [{ key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "vendor", label: "Vendor" }, { key: "currency", label: "Currency" }, { key: "description", label: "Item / description" }, { key: "taxable", label: "Taxable Amount", ...money }, { key: "vat", label: "VAT", ...money }];
-    } else if (key === "vat-code-list") {
-      title = "VAT Code List";
-      rows = configuredVatCodes.map((code) => ({ code: code.code, name: code.name, rate: `${code.rate}%`, description: code.description, status: code.active ? "Active" : "Inactive" }));
-      columns = [{ key: "code", label: "Code" }, { key: "name", label: "Name" }, { key: "rate", label: "Rate" }, { key: "description", label: "Details" }, { key: "status", label: "Status" }];
     }
 
     if (key === "bank-register") rows = rows.filter(row => inPeriod(String(row.date)));
     if (["accounts-receivable-graph", "accounts-payable-graph", "net-worth-graph"].includes(key)) rows = rows.filter(row => (!periodStart || String(row.month) >= periodStart.slice(0,7)) && (!periodEnd || String(row.month) <= periodEnd.slice(0,7)));
     const linkedAccounts = linkReportAccounts(rows, columns, allAccounts);
-    return Response.json({ report: { key, period, companyId, supplierId: supplierReport ? supplierId : undefined, canViewAccounts: hasPermission(authorization, "accounting:manage"), accountLinkIssues: linkedAccounts.issues, vatCodes: key === "vat-detail" ? configuredVatCodes.map(({ code, name, rate }) => ({ code, name, rate })) : undefined, title, generatedAt: new Date().toISOString(), currency: reportCurrency, columns, rows: linkedAccounts.rows, chart, summary } }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ report: { key, period, companyId, supplierId: supplierReport ? supplierId : undefined, canViewAccounts: hasPermission(authorization, "accounting:manage"), accountLinkIssues: linkedAccounts.issues, vatCodes: vatReportKeys.has(key) ? configuredVatCodes.map(({ code, name, rate }) => ({ code, name, rate })) : undefined, title, generatedAt: new Date().toISOString(), currency: reportCurrency, columns, rows: linkedAccounts.rows, chart, summary } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not generate report." }, { status: 500 });
   }
