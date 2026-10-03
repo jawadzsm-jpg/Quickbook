@@ -158,6 +158,11 @@ test("sales postings hit revenue, VAT, COGS and inventory accounts and sales rep
   assert.equal(customerRow.vat, 5);
   assert.equal(customerRow.total, 105);
   assert.equal(customerRow.transactionId, invoice.id);
+  assert.equal(customerRow.accountAccountId, idFor("AR"));
+  assert.equal(customerRow.revenueAccountAccountId, idFor("SALES"));
+  const dailyDetail = await reportGet("daily-sales-detail");
+  const dailyDocument = dailyDetail.rows.find((row) => row.number === invoice.number);
+  assert.equal(dailyDocument.amount, 100); assert.equal(dailyDocument.vat, 5); assert.equal(dailyDocument.total, 105);
 
   const byItem = await reportGet("sales-by-item");
   assert.equal(byItem.rows.find((row) => row.name === "Sales Stock").amount, 100);
@@ -1379,4 +1384,61 @@ test("purchase filters and exports preserve fractions, totals and account identi
   const ExcelJS=(await import('exceljs')).default;const book=new ExcelJS.Workbook();await book.xlsx.load(await reportWorkbook(report,'Test Company','Main',selected));
   assert.equal(book.getWorksheet('Report').getCell('E10').value,2.5);assert.equal(book.getWorksheet('Report').getCell('F11').value,'');assert.equal(book.getWorksheet('Purchases summary').getCell('B7').value,250);
   for(const orientation of ['portrait','landscape']) {const pdf=Buffer.from(await reportPdf(report,'Test Company','Main',selected,undefined,orientation)).toString('latin1');assert.match(pdf,/Summary/);assert.match(pdf,/Report total/);const page=pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/);assert.ok(page);assert.ok(orientation==='portrait'?Number(page[1])<Number(page[2]):Number(page[1])>Number(page[2]));}
+});
+
+
+test("Sales daily headers and order allocations reconcile without duplicate document numbers", async () => {
+  const created=await workspaces.POST(post({type:'company',name:'Sales report allocation audit',baseCurrency:'AED'}));const {company:c}=await created.json();const cid=c.id,lid=c.locations[0].id;
+  const ids=[];
+  for(const subtotal of [100,200]){ids.push((await database.query("INSERT INTO transactions(company_id,location_id,number,type,party,transaction_date,subtotal,vat_amount,total,base_total) VALUES ($1,$2,'SAME-NUMBER','invoice','Daily Customer','2026-09-20',$3,$4,$5,$5) RETURNING id",[cid,lid,subtotal,subtotal*.05,subtotal*1.05])).rows[0].id);}
+  await database.query("INSERT INTO transaction_lines(transaction_id,description,quantity,subtotal,vat_amount,total,is_freight_charge) VALUES ($1,'Freight only',1,100,5,105,true)",[ids[0]]);
+  const get=async key=>{const response=await GET(new Request(`https://app.test/api/reports?type=${key}&companyId=${cid}&locationId=${lid}&periodStart=2026-09-01&periodEnd=2026-09-30`));assert.equal(response.status,200);return (await response.json()).report;};
+  const daily=(await get('daily-sales-summary')).rows[0];assert.equal(daily.documents,2);assert.equal(daily.sales,300);assert.equal(daily.vat,15);assert.equal(daily.total,315);assert.equal(daily.quantity,0);
+  assert.equal((await get('daily-sales-detail')).rows.reduce((total,row)=>total+row.amount,0),300);
+  const order=(await database.query("INSERT INTO transactions(company_id,location_id,number,type,party,transaction_date,status,total,base_total,account) VALUES ($1,$2,'SO-REMAIN','sales order','Order Customer','2026-09-22','partially invoiced',1000,1000,'Accounts Receivable') RETURNING id",[cid,lid])).rows[0].id;
+  const source=(await database.query("INSERT INTO transaction_lines(transaction_id,description,quantity,subtotal) VALUES ($1,'Order Laptop',10,1000) RETURNING id",[order])).rows[0].id;
+  const invoice=(await database.query("INSERT INTO transactions(company_id,location_id,number,type,party,transaction_date,sales_source_id) VALUES ($1,$2,'AFTER-PERIOD-SALE','invoice','Order Customer','2026-10-01',$3) RETURNING id",[cid,lid,order])).rows[0].id;
+  await database.query("INSERT INTO sales_invoice_allocations(invoice_id,source_line_id,quantity) VALUES ($1,$2,4.25)",[invoice,source]);
+  const row=(await get('sales-orders')).rows.find(row=>row.number==='SO-REMAIN');assert.equal(row.quantity,10);assert.equal(row.fulfilledQuantity,4.25);assert.equal(row.remainingQuantity,5.75);assert.ok(row.accountAccountId>0);
+});
+
+test("Sales filters, duplicate removal, account identities and downloads remain consistent", async()=>{
+ const {salesReportKeys,salesReportGroups,uniqueSalesReports,emptySalesFilters,filterSalesReportRows,salesColumnTotal,salesDocumentAccounts,salesSummary}=await vite.ssrLoadModule('/lib/sales-report.ts');
+ assert.deepEqual(new Set(salesReportGroups.flatMap(group=>group.keys)),salesReportKeys);assert.equal(salesReportGroups.flatMap(group=>group.keys).length,12);assert.equal(uniqueSalesReports([{key:'sales-by-item'},{key:'sales-by-item'},{key:'sales-orders'}]).length,2);
+ const columns=[{key:'customer',label:'Customer'},{key:'number',label:'Invoice'},{key:'item',label:'Item'},{key:'account',label:'Receivable Account'},{key:'quantity',label:'Quantity'},{key:'unitPrice',label:'Unit Price',type:'money'},{key:'amount',label:'Sales ex VAT',type:'money'}];
+ const rows=[{customer:'Selected Customer',number:'INV-A',item:'Fractional Laptop',salesman:'Rep A',account:'1100 · USD Receivable',status:'open',quantity:2.5,unitPrice:100,amount:250},{customer:'Other Customer',number:'INV-B',item:'Other Laptop',salesman:'Rep B',account:'1100 · AED Receivable',status:'paid',quantity:1,unitPrice:300,amount:300}];
+ const report={key:'sales-by-item-detail',title:'Sales by Item Detail',generatedAt:'2026-10-03T08:00:00Z',currency:'AED',columns,rows};const selected=filterSalesReportRows(rows,columns,{...emptySalesFilters,query:'laptop',customer:'Selected Customer',salesman:'Rep A',account:'1100 · USD Receivable',status:'open'},report.key);
+ assert.equal(selected.length,1);assert.equal(salesSummary({...report,rows:selected}).cards[0].value,250);assert.equal(salesColumnTotal(selected,columns[4]),2.5);assert.equal(salesColumnTotal(selected,columns[5]),null);assert.equal(filterSalesReportRows(rows,columns,{...emptySalesFilters,sort:'amount'})[0].number,'INV-B');assert.equal(rows[0].number,'INV-A');
+ const accounts=[{id:1,code:'1100',name:'Receivable',currency:'AED',systemRole:'AR',type:'Accounts Receivable'},{id:2,code:'1101',name:'Receivable',currency:'USD',systemRole:'AR',type:'Accounts Receivable'},{id:3,code:'3000',name:'Sales',currency:'AED',systemRole:'SALES',type:'Income'},{id:4,code:'1200',name:'Inventory Asset',currency:'AED',systemRole:'INVENTORY',type:'Other Current Asset'},{id:5,code:'4000',name:'Cost of Goods Sold',currency:'AED',systemRole:'COGS',type:'Cost of Goods Sold'}];
+ const tx={id:7,type:'invoice',account:'Wrong current default',currency:'USD'};const linked=salesDocumentAccounts(tx,[{transactionId:7,account:'Receivable',debit:250,credit:0},{transactionId:7,account:'Sales',debit:0,credit:250},{transactionId:7,account:'Cost of Goods Sold',debit:100,credit:0},{transactionId:7,account:'Inventory Asset',debit:0,credit:100}],accounts);assert.equal(linked.accountAccountId,2);assert.equal(linked.revenueAccountAccountId,3);assert.equal(salesDocumentAccounts(tx,[],accounts).accountAccountId,0);
+ const {reportCsv,reportWorkbook,reportPdf}=await vite.ssrLoadModule('/lib/report-export.ts');const csv=reportCsv(report,'Test Company','Main',selected);assert.match(csv,/Summary/);assert.match(csv,/Report total/);assert.doesNotMatch(csv,/Other Customer/);
+ const ExcelJS=(await import('exceljs')).default;const book=new ExcelJS.Workbook();await book.xlsx.load(await reportWorkbook(report,'Test Company','Main',selected));assert.equal(book.getWorksheet('Report').getCell('E10').value,2.5);assert.equal(book.getWorksheet('Report').getCell('F11').value,'');assert.equal(book.getWorksheet('Sales summary').getCell('B7').value,250);
+ for(const orientation of ['portrait','landscape']){const pdf=Buffer.from(await reportPdf(report,'Test Company','Main',selected,undefined,orientation)).toString('latin1');assert.match(pdf,/Report total/);const page=pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/);assert.ok(page);assert.ok(orientation==='portrait'?Number(page[1])<Number(page[2]):Number(page[1])>Number(page[2]));}
+ assert.equal(salesSummary({key:'pending-sales',rows:[{customer:'A',dueDate:'',amount:1},{customer:'B',dueDate:'2000-01-01',amount:2}]}).cards[3].value,1);
+});
+
+test("Sales stamp dragging uses A4 scaling and clamps portrait/landscape positions",async()=>{
+ const {moveReportStamp,reportStampPage}=await vite.ssrLoadModule('/lib/report-stamp.ts');
+ assert.deepEqual(moveReportStamp('portrait',50,60,21,29.7,210),{left:71,top:90});
+ assert.deepEqual(moveReportStamp('portrait',50,60,42,59.4,420),{left:71,top:90});
+ assert.deepEqual(moveReportStamp('landscape',240,159,100,100,297),{left:242,top:160});
+ assert.deepEqual(moveReportStamp('portrait',1,1,-100,-100,210),{left:0,top:0});assert.equal(reportStampPage('landscape').width,297);
+});
+
+
+test("Sales PDF uses the selected movable stamp coordinates on both A4 orientations",async()=>{
+ const {reportPdf}=await vite.ssrLoadModule('/lib/report-export.ts');
+ const png='data:image/png;base64,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';
+ const previousImage=globalThis.Image,previousDocument=globalThis.document;
+ globalThis.Image=class {naturalWidth=160;naturalHeight=115;set src(_value){queueMicrotask(()=>this.onload());}};
+ globalThis.document={createElement:()=>({getContext:()=>({drawImage(){}}),toDataURL:()=>png})};
+ try {
+  const report={key:'sales-by-customer',title:'Sales by Customer',generatedAt:'2026-10-03T08:00:00Z',currency:'AED',columns:[{key:'name',label:'Customer'},{key:'amount',label:'Sales',type:'money'}],rows:[{name:'A',amount:100}]};
+  for(const orientation of ['portrait','landscape']){
+   const pdf=Buffer.from(await reportPdf(report,'Company','Inventory',report.rows,{data:png,left:40,top:50},orientation)).toString('latin1');
+   const matrices=[...pdf.matchAll(/([\d.]+) 0 0 ([\d.]+) ([\d.]+) ([\d.]+) cm\n\/I\d+ Do/g)];assert.equal(matrices.length,1);
+   const matrix=matrices[0],point=72/25.4,height=orientation==='portrait'?297:210;
+   assert.ok(Math.abs(Number(matrix[1])-32*point)<.01);assert.ok(Math.abs(Number(matrix[2])-23*point)<.01);assert.ok(Math.abs(Number(matrix[3])-40*point)<.01);assert.ok(Math.abs(Number(matrix[4])-(height-50-23)*point)<.02);
+  }
+ } finally {if(previousImage===undefined)delete globalThis.Image;else globalThis.Image=previousImage;if(previousDocument===undefined)delete globalThis.document;else globalThis.document=previousDocument;}
 });

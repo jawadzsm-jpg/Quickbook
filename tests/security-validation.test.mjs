@@ -430,7 +430,7 @@ test("all 12 Sales reports have professional summaries, one export control, A4 o
   assert.match(app, /salesOverview && <section className="sales-summary"/);
   assert.match(app, /isBudgetReport \|\| isSalesReport \|\| isCustomerReport \|\| isVendorReport \|\| isPurchaseReport \|\| isInventoryReport \|\| isBankingReport \|\| isAccountantReport \? <DropdownMenu>/);
   assert.match(app, /stampReport = [^;]+\|\| isSalesReport/);
-  assert.match(app, /\(isSalesReport \|\| isCustomerReport\) && \["customer", "name"\][\s\S]*onCustomer/);
+  assert.match(app, /\(isSalesReport \|\| isCustomerReport\) && \["customer", "name", "party"\][\s\S]*onCustomer/);
   assert.match(api, /transactionId: row\.id, date: row\.transactionDate, number: row\.number/);
   assert.match(api, /sourceReferenceTransactionId: value\.sourceTransactionId/);
   assert.match(sales, /export const salesReportKeys = new Set/);
@@ -453,7 +453,7 @@ test("all 17 Customer reports have professional summaries, one export control, A
   assert.match(app, /customerOverview && <section className="customer-summary"/);
   assert.match(app, /isBudgetReport \|\| isSalesReport \|\| isCustomerReport \|\| isVendorReport \|\| isPurchaseReport \|\| isInventoryReport \|\| isBankingReport \|\| isAccountantReport \? <DropdownMenu>/);
   assert.match(app, /stampReport = [^;]+\|\| isCustomerReport/);
-  assert.match(app, /\(isSalesReport \|\| isCustomerReport\) && \["customer", "name"\][\s\S]*onCustomer/);
+  assert.match(app, /\(isSalesReport \|\| isCustomerReport\) && \["customer", "name", "party"\][\s\S]*onCustomer/);
   assert.match(api, /invoiceTransactionId: invoice\.id/);
   assert.match(api, /transactionId: row\.id, customer: row\.party/);
   assert.doesNotMatch(openBalance, /Export CSV/);

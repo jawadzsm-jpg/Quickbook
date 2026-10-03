@@ -214,6 +214,8 @@ The UI groups and searches 120 report definitions. `/api/reports` validates repo
 
 Purchases reports can be searched or filtered by supplier, payable/payment account and status. Summaries, totals, print and downloads follow the displayed rows. Bill/expense account links come from posted credit accounts; PO links show planned accounts. Open commitments subtract all current receiving allocations, including receipts saved after the selected PO date range, and exclude VAT. Use the original PO links to open receiving and the supplier links to open Vendor Center.
 
+Sales reports support customer, representative, receivable/receipt, revenue-account and status filters. Displayed rows determine summaries, graphs and every output. Sales exclude VAT; credit memo returns are shown separately in Sales Graph. Pending Sales uses document face values, not an open AR balance or a revenue forecast. Sales-order quantities include all saved fulfilment allocations, even invoices after the selected order dates. To position a Sales stamp, enable it and drag on the A4 preview, use arrow keys (Shift for 5 mm), or edit millimetre offsets. Print and PDF use the same selected page coordinates.
+
 ## 10. Administration workflow
 
 - **Companies and inventories:** create/edit workspace records, bank/company metadata, currency, invoice series, and locations.
