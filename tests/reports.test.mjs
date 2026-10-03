@@ -1829,7 +1829,6 @@ test("staff salary sheets save, edit, isolate companies, preserve letterhead and
   const { staffSalaryPdf } = await vite.ssrLoadModule("/lib/staff-salary-pdf.ts");
   const pdf = await staffSalaryPdf(updated); const bytes = Buffer.from(await pdf.arrayBuffer()); assert.equal(bytes.subarray(0, 5).toString(), "%PDF-");
   const mediaBox = bytes.toString("latin1").match(/\/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(mediaBox); assert.ok(Math.abs(Number(mediaBox[1]) - 841.89) < 0.02); assert.ok(Math.abs(Number(mediaBox[2]) - 595.28) < 0.02);
-  if (process.env.STAFF_PDF_REVIEW) { const { writeFile } = await import("node:fs/promises"); await writeFile("/tmp/staff-salary-preview.pdf", Buffer.from(await (await staffSalaryPdf({ ...updated, data: { ...data, lines: Array.from({ length: 10 }, (_, i) => ({ ...data.lines[0], name: `TEST EMPLOYEE WITH A LONG FULL NAME NUMBER ${i+1}`, salary: 3000 + i * 100 })) } })).arrayBuffer())); await writeFile("/tmp/staff-salary-many.pdf", Buffer.from(await (await staffSalaryPdf({ ...updated, data: { ...data, lines: Array.from({ length: 60 }, (_, i) => ({ ...data.lines[0], name: `TEST EMPLOYEE ${i+1}` })) } })).arrayBuffer())); }
   assert.equal((await route.DELETE(request("DELETE", { companyId: c.id, id: record.id, revision: 1 }))).status, 409);
   assert.equal((await route.DELETE(request("DELETE", { companyId: c.id, id: record.id, revision: 2 }))).status, 200);
   assert.equal((await (await route.GET(new Request(`https://app.test/api/staff-salary-sheets?companyId=${c.id}`))).json()).records.length, 0);
