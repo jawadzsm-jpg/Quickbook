@@ -1,4 +1,4 @@
-import { employeeHrValues, redactEmployeeHr } from "@/lib/employee-hr";
+import { employeeHrValues, employeeLoanAccount, redactEmployeeHr } from "@/lib/employee-hr";
 import { RequestError } from "@/lib/errors";
 import { skuWrite } from "@/lib/sku-locks";
 import { refreshSalesSource, salesSourceLines, salesInventoryLines } from "@/lib/sales-invoicing";
@@ -820,6 +820,10 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const [employee] = await db.select().from(contacts).where(and(eq(contacts.id, employeeId), eq(contacts.companyId, companyId), eq(contacts.type, "employee"))).limit(1).for("update");
       if (!employee || employee.status !== "active" || employee.currency !== String(payload.currency ?? "AED").trim().toUpperCase() || employee.name !== requestedParty) return Response.json({ error: "Select an active employee in this company matching the loan currency and payee." }, { status: 400 });
       employeeLoanContactId = employee.id;
+      if (employee.loanAccountId) {
+        const linked = employeeLoanAccount(employee.loanAccountId, companyId, employee.currency, await db.select().from(accounts).where(eq(accounts.companyId, companyId)));
+        payload.account = linked!.name;
+      }
     } else if (payload.employeeLoanContactId) return Response.json({ error: "Employee loan links require the Employee loan cheque type." }, { status: 400 });
     const party = type === "cheque" && !requestedParty && ["expense", "salary"].includes(chequeType) ? "General expense" : requestedParty;
     if (type === "cheque" && chequeType === "salary" && requestedParty) {

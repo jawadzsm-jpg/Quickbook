@@ -1790,15 +1790,20 @@ test("bank employee loans retain identity, post asset/bank entries and appear pr
   for (const changes of [{ employeeLoanContactId: 9999999 }, { employeeLoanContactId: "" }, { account: bank.name }, { account: "Operating Expenses" }, { party: "Other employee" }, { lines: [{ description: "Taxable loan", quantity: 1, unitPrice: 1000, vatCode: "STANDARD", vatRate: 5 }] }]) {
     const invalid = await records.POST(post({ ...payload, ...changes })); assert.equal(invalid.status, 400, await invalid.clone().text());
   }
-  const paid = await records.POST(post(payload)); assert.equal(paid.status, 201, await paid.clone().text()); const payment = (await paid.json()).record;
+  const updateLoanAccount = (changes) => records.PATCH(new Request("https://app.test/api/records", { method: "PATCH", headers: { origin: "https://app.test", "content-type": "application/json" }, body: JSON.stringify({ kind: "contacts", companyId: c.id, id: employee.id, ...changes }) }));
+  for (const loanAccountId of [bank.id, 9999999, -1, "invalid"]) assert.equal((await updateLoanAccount({ loanAccountId })).status, 400);
+  const linked = await updateLoanAccount({ loanAccountId: asset.id }); assert.equal(linked.status, 200, await linked.clone().text()); assert.equal((await linked.json()).record.loanAccountId, asset.id);
+  const paid = await records.POST(post({ ...payload, account: "Operating Expenses" })); assert.equal(paid.status, 201, await paid.clone().text()); const payment = (await paid.json()).record;
+  assert.equal(payment.account, asset.name);
+
   assert.equal(payment.employeeLoanContactId, employee.id);
   const detail = await (await records.GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${c.id}&id=${payment.id}`))).json();
   assert.ok(detail.journal.some(row => row.accountName === asset.name && Number(row.debit) === 1000));
   assert.ok(detail.journal.some(row => row.accountName === bank.name && Number(row.credit) === 1000));
   const rename = await records.PATCH(new Request("https://app.test/api/records", { method: "PATCH", headers: { origin: "https://app.test", "content-type": "application/json" }, body: JSON.stringify({ kind: "contacts", companyId: c.id, id: employee.id, name: "Renamed employee" }) })); assert.equal(rename.status, 200);
   const list = await (await records.GET(new Request(`https://app.test/api/records?kind=contacts&companyId=${c.id}`))).json();
-  const profile = list.records.find(record => record.id === employee.id); assert.equal(profile.loanBalance, 75); assert.equal(JSON.parse(profile.bankLoanPayments)[0].id, payment.id);
-  const report = await (await GET(new Request(`https://app.test/api/reports?type=employee-balances&companyId=${c.id}`))).json(); assert.equal(report.report.rows[0].bankLoansPaid, 1000);
+  const profile = list.records.find(record => record.id === employee.id); assert.equal(profile.loanAccountId, asset.id); assert.equal(profile.loanBalance, 75); assert.equal(JSON.parse(profile.bankLoanPayments)[0].id, payment.id);
+  const report = await (await GET(new Request(`https://app.test/api/reports?type=employee-balances&companyId=${c.id}`))).json(); assert.equal(report.report.rows[0].bankLoansPaid, 1000); assert.equal(report.report.rows[0].loanAccountAccountId, asset.id);
   globalThis.__reportTestUser = { id: 2, email: "viewer@example.test", role: "viewer", companyIds: [c.id], mustChangePassword: false };
-  try { const privateList = await (await records.GET(new Request(`https://app.test/api/records?kind=contacts&companyId=${c.id}`))).json(); assert.equal(privateList.records.find(record => record.id === employee.id).bankLoanPayments, undefined); } finally { delete globalThis.__reportTestUser; }
+  try { const privateList = await (await records.GET(new Request(`https://app.test/api/records?kind=contacts&companyId=${c.id}`))).json(); assert.equal(privateList.records.find(record => record.id === employee.id).bankLoanPayments, undefined); assert.equal(privateList.records.find(record => record.id === employee.id).loanAccountId, undefined); } finally { delete globalThis.__reportTestUser; }
 });

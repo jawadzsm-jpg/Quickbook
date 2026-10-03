@@ -162,3 +162,6 @@ Employee HR profile fields live on `contacts` (`0072_employee_hr_profile.sql`). 
 
 
 Employee loan payments use `transactions.employeeLoanContactId` (migration 0073); validation/posting and administrator-only history are in `app/api/records/route.ts`, with presentation in `app/employee-hr-fields.tsx` and Banking controls in `app/enterprise-app.tsx`.
+
+
+HR Loan / advance account selection is in `app/employee-hr-fields.tsx`; `lib/employee-hr.ts` validates `contacts.loanAccountId` (migration 0074), and record APIs enforce it during employee-loan posting.

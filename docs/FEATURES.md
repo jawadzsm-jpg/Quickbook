@@ -204,3 +204,6 @@ Selecting an employee for a salary cheque prefills the saved salary amount when 
 
 
 Employee record windows ignore outside clicks and have an explicit Minimize button; restoring from the dock retains the draft. Banking → Write Cheque → Employee loan requires an employee and an active, same-currency Other Current Asset account without a system role. Posted payments appear automatically in the employee HR form/list with payment number, date, currency, amount and account. Totals are loan amounts paid, not remaining balances: repayments and payroll deductions are not included. Existing manual loan figures remain separate to avoid double counting. Historical unlinked transactions are not assigned by name automatically.
+
+
+The HR employee form now exposes a Loan / advance account selector directly below Salary expense account. It lists active, same-currency Other Current Asset accounts without system roles. The saved link is shown in HR and Employee Balance Summary; Banking employee loan payments select it automatically. This is an employee loan receivable account, not a company borrowing liability or bank account.

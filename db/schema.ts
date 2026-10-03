@@ -186,6 +186,7 @@ export const contacts = pgTable("contacts", {
   ledgerAccountId: integer("ledger_account_id"),
   salaryAmount: doublePrecision("salary_amount").notNull().default(0),
   salaryExpenseAccountId: integer("salary_expense_account_id"),
+  loanAccountId: integer("loan_account_id"),
   loanBalance: doublePrecision("loan_balance").notNull().default(0),
   vacationDeparture: text("vacation_departure").notNull().default(""),
   vacationReturn: text("vacation_return").notNull().default(""),

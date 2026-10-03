@@ -148,3 +148,6 @@ Employee contact POST/PATCH accepts `salaryAmount`, `salaryExpenseAccountId`, `l
 
 
 Employee loan cheques use `chequeType: "employee-loan"` and a required `employeeLoanContactId`. The server validates company, active employee, payee, currency, asset account, positive total, zero VAT and absence of bill allocations. The persisted employee ID survives renames. Administrator contact GET responses include serialized `bankLoanPayments`; other roles do not receive this HR history. Employee Balance Summary adds all-date bank loan payments within the selected inventory scope. Employees with linked payments cannot be deleted.
+
+
+Employee POST/PATCH accepts nullable `loanAccountId`. Validation requires an active uniquely named Other Current Asset account with no system role in the employee company/currency. Omitted fields retain the link, and an empty value clears it. Non-admin contact GET redacts it. Employee loan cheques validate and enforce the saved loan account server-side, rejecting an invalid/inactive link before posting.

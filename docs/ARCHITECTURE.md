@@ -201,3 +201,6 @@ Employee profile data on `contacts` includes monthly salary, salary expense-acco
 
 
 Migration `0073_employee_bank_loans.sql` adds nullable `transactions.employee_loan_contact_id` and a company/employee index. Record APIs validate this stable employee reference and block deletion of employees with linked loans. No backfill guesses employee identity from transaction names; HR payment history derives from transactions, without copying or incrementing contact balances.
+
+
+Migration 0074 adds nullable `contacts.loan_account_id`. Loan-account validation lives in `employeeLoanAccount` in `lib/employee-hr.ts`; it is reused by employee profile writes and bank loan posting.
