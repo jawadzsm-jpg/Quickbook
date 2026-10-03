@@ -153,3 +153,9 @@ Every report view supports a centered professional layout with category/search n
 | Viewer | Home, serial search, inventory overview/check reports, and Report Center |
 
 The API permission model is authoritative; navigation visibility is a matching user experience layer.
+
+### Shared Professional Report Center
+
+The Report Center shows company/inventory context, accurate available-category counts, saved views and export formats. Report definitions are deduplicated by report key, retaining distinct reports with similar names. Desktop has a category sidebar; tablet/mobile have a compact category selector. Generic library cards use one open indicator. Supplier/currency options remain available when vendor reports appear in All Reports or search. Unknown or inaccessible saved report definitions are hidden.
+
+Shared report tables use weighted desktop columns and labeled mobile/tablet cards with readable quantities and prices. Generic quantities retain up to six decimal places. Account links continue to use server-resolved account IDs and permission checks; ambiguous matches remain explicit review issues. Every report can use the optional A4 stamp preview with mouse, touch, keyboard or millimetre positioning; a single print stamp matches PDF coordinates. CSV and Excel now include available category summaries consistently with PDF. Generic exports use right-aligned numeric fields, wrapped Excel descriptions and A4 portrait/landscape tables. Employee balance amounts use the recorded employee currency on screen.

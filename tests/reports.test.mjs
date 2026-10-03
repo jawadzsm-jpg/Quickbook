@@ -1517,3 +1517,51 @@ test("vendor API links posted currency controls, excludes void activity and keep
  for(const type of ['ap-aging-summary','ap-aging-detail','unpaid-bills-detail','supplier-open-balance']){const report=await get(type);assert.equal(report.rows.length,type==='supplier-open-balance'?2:1);assert.equal(report.rows.reduce((sum,row)=>sum+Number(row.total ?? row.amount),0),type==='supplier-open-balance'?110:70);assert.ok(report.columns.some(column=>column.key==='account'));}
  globalThis.__reportTestUser={id:10,email:'viewer@example.test',role:'viewer',companyIds:[cid],mustChangePassword:false};try{assert.equal((await get('supplier-transactions')).canViewAccounts,false);assert.equal((await get('vendor-statements',`&statementDate=2026-10-03`)).canViewAccounts,false);}finally{delete globalThis.__reportTestUser;}
 });
+
+test("Shared Report Center deduplicates keys and preserves numeric precision across outputs", async () => {
+  const { uniqueReportDefinitions, reportColumnKind, reportColumnWeight } = await vite.ssrLoadModule('/lib/report-presentation.ts');
+  const definitions = [['One','First','Lists','one'],['One alias','Duplicate','Lists','one'],['One','Different report','Lists','two']];
+  assert.deepEqual(uniqueReportDefinitions(definitions).map(row => row[3]), ['one','two']);
+  const columns = [{ key:'name', label:'Item description' }, { key:'quantity', label:'Quantity' }, { key:'unitPrice', label:'Unit price', type:'money' }, { key:'amount', label:'Amount', type:'money' }];
+  const rows = [{ name:'A long inventory description with a linked source document', quantity:2.123456, unitPrice:12345.67, amount:26215.49 }];
+  assert.equal(reportColumnKind(columns[1], rows), 'quantity');
+  assert.equal(reportColumnKind(columns[2], rows), 'price');
+  assert.equal(reportColumnKind(columns[3], rows), 'amount');
+  assert.ok(reportColumnWeight(columns[0], rows) > reportColumnWeight(columns[1], rows));
+  const report = { key:'stock-pricing-profit', title:'Pricing review', currency:'AED', generatedAt:'2026-10-03T10:00:00Z', columns, rows };
+  const { reportCsv, reportWorkbook, reportPdf } = await vite.ssrLoadModule('/lib/report-export.ts');
+  assert.match(reportCsv(report,'Company','Main'), /2.123456/);
+  const ExcelJS = (await import('exceljs')).default;
+  const book = new ExcelJS.Workbook();
+  await book.xlsx.load(await reportWorkbook(report,'Company','Main'));
+  const sheet = book.getWorksheet('Report');
+  assert.equal(sheet.getCell('B10').value, 2.123456);
+  assert.equal(sheet.getCell('C10').value, 12345.67);
+  assert.equal(sheet.getColumn(2).alignment.horizontal, 'right');
+  assert.match(sheet.getColumn(2).numFmt, /######/);
+  assert.ok(sheet.getRow(10).height > 21);
+  for (const orientation of ['portrait','landscape']) {
+    const pdf = Buffer.from(await reportPdf(report,'Company','Main',rows,undefined,orientation)).toString('latin1');
+    assert.match(pdf, /2.123456/);
+    assert.match(pdf, /12,345.67/);
+    assert.doesNotMatch(pdf, /Report total|Net total/);
+    const page = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/);
+    assert.ok(orientation === 'portrait' ? Number(page[1]) < Number(page[2]) : Number(page[1]) > Number(page[2]));
+  }
+});
+
+test("Shared exports include the same banking summary and preserve unambiguous account links", async () => {
+  const { reportCsv, reportWorkbook } = await vite.ssrLoadModule('/lib/report-export.ts');
+  const { linkReportAccounts } = await vite.ssrLoadModule('/lib/report-account-links.ts');
+  const accounts = [{id:1,code:'1000',name:'Bank',currency:'AED'}, {id:2,code:'1001',name:'Bank',currency:'USD'}];
+  const columns = [{key:'account',label:'Account'}, {key:'debit',label:'Debit',type:'money'}, {key:'credit',label:'Credit',type:'money'}];
+  const linked = linkReportAccounts([{account:'Bank',currency:'USD',debit:500,credit:50}, {account:'Bank',debit:0,credit:0}],columns,accounts);
+  assert.equal(linked.rows[0].accountAccountId, 2);
+  assert.equal(linked.rows[1].accountAccountId, undefined);
+  assert.equal(linked.issues.length, 1);
+  const report = {key:'bank-register',title:'Bank register',currency:'AED',generatedAt:'2026-10-03T10:00:00Z',columns,rows:linked.rows};
+  assert.match(reportCsv(report,'Company','Main'), /Summary/);
+  const ExcelJS = (await import('exceljs')).default;
+  const book = new ExcelJS.Workbook(); await book.xlsx.load(await reportWorkbook(report,'Company','Main'));
+  assert.ok(book.getWorksheet('Summary'));
+});

@@ -335,7 +335,7 @@ test("UAE imported-goods VAT requires customs references and keeps them on the s
 test("memorised reports live in Report Center categories with selectable A4 print and PDF actions", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
-  assert.match(app, /\["All", "Memorised Reports", \.\.\.reportCategoryOrder\]/);
+  assert.match(app, /\["All", "Memorised Reports", \.\.\.availableCategories\]/);
   assert.match(app, /onOpenMemorised\(savedReport\)/);
   assert.match(app, /definition\?\.\[1\] \|\| `Linked to \$\{category\} reports`/);
   assert.match(app, /<Printer className="size-4" \/>Print · A4/);
