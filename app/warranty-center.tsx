@@ -47,7 +47,7 @@ function itemSpecs(value: string | null, fallback: string) {
 }
 
 const minimizedDraftKey = "comnet-warranty-minimized-draft";
-type MinimizedDraft = { companyId: number; form: Slip; saved: Slip | null; initialSlip: Slip; orientation: PrintOrientation };
+type MinimizedDraft = { companyId: number; form: Slip; saved: Slip | null; initialSlip: Slip; orientation: PrintOrientation; supplierReceiptRequested?: boolean };
 function readMinimizedDraft(companyId: number) {
   if (typeof window === "undefined") return null;
   const stored = window.sessionStorage.getItem(minimizedDraftKey);
@@ -72,6 +72,7 @@ export function WarrantyCenter({ companyId, company, canWrite, onMinimize, initi
   const [lines, setLines] = useState<InvoiceLine[]>([]);
   const [form, setForm] = useState<Slip>(() => emptySlip(stampDefault, letterhead?.stampLeft, letterhead?.stampTop));
   const [initialSlip, setInitialSlip] = useState(form);
+  const [supplierReceiptRequested, setSupplierReceiptRequested] = useState(false);
   const [orientation, setOrientation] = useState<PrintOrientation>("portrait");
   const [saved, setSaved] = useState<Slip | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -85,6 +86,13 @@ export function WarrantyCenter({ companyId, company, canWrite, onMinimize, initi
   const selectedCustomer = customers.find((row) => row.id === form.customerId);
   const selectedSupplier = suppliers.find((row) => row.id === form.supplierId);
   const dirty = JSON.stringify(form) !== JSON.stringify(saved ?? initialSlip);
+  const hasSupplierReturn = Boolean(form.supplierId && (form.returnedToSupplierDate || form.status === "Returned to Supplier"));
+  const supplierReceipt = supplierReceiptRequested && hasSupplierReturn;
+  const documentTitle = supplierReceipt ? "Supplier Return Receipt" : "Warranty / RMA Slip";
+  const receiptNumber = form.number ? `SR-${form.number}` : "DRAFT";
+  const documentRows = supplierReceipt
+    ? [["Supplier bill no.", form.purchaseNumber], ["Purchase date", form.purchaseDate], ["Serial number", form.serialNumber], ["Problem", form.problem], ["Brand", form.brand], ["Model", form.model], ["Specifications", form.specs], ["Included items", form.includedItems], ["Remarks", form.remarks]]
+    : [["Brand", form.brand], ["Model", form.model], ["Specifications", form.specs], ["Serial #", form.serialNumber], ["Problem", form.problem], ["Remarks", form.remarks], ["Included items", form.includedItems], ["Supplier", selectedSupplier?.name || form.supplierName], ["Linked purchase bill", form.purchaseNumber], ["Purchase date", form.purchaseDate], ["Returned to supplier", form.returnedToSupplierDate], ["Received back from supplier", form.receivedFromSupplierDate], ["Status", form.status]];
 
   const refresh = useCallback(async () => {
     const storedPurchaseBillId = Number(window.sessionStorage.getItem("comnet-warranty-source-bill"));
@@ -104,7 +112,7 @@ export function WarrantyCenter({ companyId, company, canWrite, onMinimize, initi
       } else {
         const draft = { ...emptySlip(stampDefault, letterhead?.stampLeft, letterhead?.stampTop), supplierId: supplier.id, supplierName: supplier.name, purchaseBillId: bill.id, purchaseNumber: bill.number, purchaseDate: bill.transactionDate };
         setForm(draft); setInitialSlip(emptySlip(stampDefault, letterhead?.stampLeft, letterhead?.stampTop));
-        setSaved(null); setLines([]); setActiveStatus("Under Process"); setShowForm(true);
+        setSaved(null); setSupplierReceiptRequested(false); setLines([]); setActiveStatus("Under Process"); setShowForm(true);
       }
     }
   }, [companyId, initialPurchaseBillId, letterhead?.stampLeft, letterhead?.stampTop, onInitialPurchaseBillHandled, stampDefault]);
@@ -117,6 +125,7 @@ export function WarrantyCenter({ companyId, company, canWrite, onMinimize, initi
       void Promise.resolve().then(() => {
         if (!live) return;
         setForm(restoredDraft.form); setSaved(restoredDraft.saved); setInitialSlip(restoredDraft.initialSlip);
+        setSupplierReceiptRequested(restoredDraft.supplierReceiptRequested ?? restoredDraft.form.status === "Returned to Supplier");
         setOrientation(restoredDraft.orientation === "landscape" ? "landscape" : "portrait");
         setActiveStatus(normalizeWarrantyStatus(restoredDraft.form.status) ?? "Under Process"); setShowForm(true);
       });
@@ -139,13 +148,13 @@ export function WarrantyCenter({ companyId, company, canWrite, onMinimize, initi
   }
   function openSlip(slip: Slip) {
     if (dirty && showForm && !window.confirm("Discard unsaved warranty changes?")) return;
-    setForm(slip); setSaved(slip); setActiveStatus(normalizeWarrantyStatus(slip.status) ?? "Under Process"); setShowForm(true); void loadInvoice(slip.invoiceId);
+    setForm(slip); setSaved(slip); setSupplierReceiptRequested(slip.status === "Returned to Supplier"); setActiveStatus(normalizeWarrantyStatus(slip.status) ?? "Under Process"); setShowForm(true); void loadInvoice(slip.invoiceId);
   }
   function createSlip() {
     if (dirty && showForm && !window.confirm("Discard unsaved warranty changes?")) return;
     const draft = emptySlip(stampDefault, letterhead?.stampLeft, letterhead?.stampTop);
     setForm(draft); setInitialSlip(draft);
-    setSaved(null); setLines([]); setActiveStatus("Under Process"); setShowForm(true);
+    setSaved(null); setSupplierReceiptRequested(false); setLines([]); setActiveStatus("Under Process"); setShowForm(true);
   }
   function backToList() {
     if (busy) return;
@@ -154,7 +163,7 @@ export function WarrantyCenter({ companyId, company, canWrite, onMinimize, initi
   }
   function minimize() {
     if (busy) return;
-    window.sessionStorage.setItem(minimizedDraftKey, JSON.stringify({ companyId, form, saved, initialSlip, orientation }));
+    window.sessionStorage.setItem(minimizedDraftKey, JSON.stringify({ companyId, form, saved, initialSlip, orientation, supplierReceiptRequested }));
     const label = form.number || "New warranty / RMA slip";
     if (onMinimize) onMinimize(label);
     else window.dispatchEvent(new CustomEvent("warranty-minimize", { detail: { companyId, label } }));
@@ -163,24 +172,26 @@ export function WarrantyCenter({ companyId, company, canWrite, onMinimize, initi
   async function save() {
     if (!form.customerId || !form.slipDate || !form.problem.trim()) return toast.error("Select a customer, date and problem.");
     setBusy(true);
+    const returnDate = form.returnedToSupplierDate || (form.status === "Returned to Supplier" ? new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Dubai" }) : "");
     try {
-      const response = await fetch("/api/warranty-slips", { method: form.id ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, companyId, revision: saved?.updatedAt }) });
+      const response = await fetch("/api/warranty-slips", { method: form.id ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, returnedToSupplierDate: returnDate, companyId, revision: saved?.updatedAt }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Could not save the warranty slip.");
-      setForm(result.slip); setSaved(result.slip); setActiveStatus(normalizeWarrantyStatus(result.slip.status) ?? "Under Process"); await refresh();
+      setForm(result.slip); setSaved(result.slip); if (result.slip.status === "Returned to Supplier") setSupplierReceiptRequested(true); setActiveStatus(normalizeWarrantyStatus(result.slip.status) ?? "Under Process"); await refresh();
       toast.success(`${result.slip.number} saved`);
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save the warranty slip."); }
     finally { setBusy(false); }
   }
   async function saveInline(slip: Slip) {
     if (!slip.id || !inlineEdits[slip.id]) return;
+    const returnDate = slip.returnedToSupplierDate || (inlineEdits[slip.id].status === "Returned to Supplier" ? new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Dubai" }) : "");
     setBusy(true);
     try {
-      const response = await fetch("/api/warranty-slips", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...slip, ...inlineEdits[slip.id], companyId, id: slip.id, revision: slip.updatedAt }) });
+      const response = await fetch("/api/warranty-slips", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...slip, ...inlineEdits[slip.id], returnedToSupplierDate: returnDate, companyId, id: slip.id, revision: slip.updatedAt }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Could not update warranty status.");
       setInlineEdits((previous) => { const next = { ...previous }; delete next[slip.id!]; return next; });
-      await refresh(); toast.success("Warranty status saved");
+      await refresh(); if (result.slip.status === "Returned to Supplier") openSlip(result.slip); toast.success("Warranty status saved");
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not update warranty status."); }
     finally { setBusy(false); }
   }
@@ -198,6 +209,12 @@ export function WarrantyCenter({ companyId, company, canWrite, onMinimize, initi
     finally { setBusy(false); }
   }
   function checkPage() {
+    if (supplierReceipt) {
+      if (!saved?.id || dirty) { toast.error("Save the RMA slip before printing the supplier return receipt."); return false; }
+      if (!form.purchaseBillId || !form.purchaseNumber || !form.purchaseDate || !form.serialNumber.trim() || !form.problem.trim() || !form.returnedToSupplierDate) {
+        toast.error("Add the supplier bill, purchase date, serial number, problem and supplier return date, then save the slip."); return false;
+      }
+    }
     if (!page.current || page.current.scrollHeight > page.current.clientHeight + 2) { toast.error("The slip exceeds one A4 page. Shorten the text before printing."); return false; }
     const table = page.current.querySelector("table");
     const footer = page.current.querySelector(".letterhead-footer-area");
@@ -210,7 +227,7 @@ export function WarrantyCenter({ companyId, company, canWrite, onMinimize, initi
     if (!popup) return toast.error("Allow pop-ups to print the warranty slip.");
     popup.opener = null;
     const pageWidth = orientation === "landscape" ? 297 : 210, pageHeight = orientation === "landscape" ? 210 : 297;
-    popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Warranty / RMA Slip</title><style>@page{size:A4 ${orientation};margin:0}html,body{margin:0;padding:0;background:#fff;font-family:Arial,sans-serif}*{box-sizing:border-box}.warranty-page{position:relative!important;width:${pageWidth}mm!important;height:${pageHeight}mm!important;margin:0!important;border:0!important;background:#fff;color:#0f172a;box-shadow:none!important;print-color-adjust:exact;-webkit-print-color-adjust:exact}.letterhead-stamp{cursor:default!important}.print-controls{padding:10px}@media print{.print-controls{display:none}}</style></head><body><div class="print-controls"><button onclick="window.print()">Print</button></div>${page.current.outerHTML}</body></html>`);
+    popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${documentTitle}</title><style>@page{size:A4 ${orientation};margin:0}html,body{margin:0;padding:0;background:#fff;font-family:Arial,sans-serif}*{box-sizing:border-box}.warranty-page{position:relative!important;width:${pageWidth}mm!important;height:${pageHeight}mm!important;margin:0!important;border:0!important;background:#fff;color:#0f172a;box-shadow:none!important;print-color-adjust:exact;-webkit-print-color-adjust:exact}.letterhead-stamp{cursor:default!important}.print-controls{padding:10px}@media print{.print-controls{display:none}}</style></head><body><div class="print-controls"><button onclick="window.print()">Print</button></div>${page.current.outerHTML}</body></html>`);
     popup.document.close();
     void Promise.all(Array.from(popup.document.images).map((image) => image.complete ? Promise.resolve() : image.decode().catch(() => undefined)))
       .then(() => window.setTimeout(() => { if (!popup.closed) popup.print(); }, 150));
@@ -218,7 +235,7 @@ export function WarrantyCenter({ companyId, company, canWrite, onMinimize, initi
   async function pdf() {
     if (!checkPage() || !page.current) return;
     setBusy(true);
-    try { downloadPdfBlob(await createA4LetterheadPdfBlob(page.current, `Warranty / RMA Slip ${form.number || "Draft"}`, orientation), `${form.number || "Warranty-Slip"}.pdf`); }
+    try { downloadPdfBlob(await createA4LetterheadPdfBlob(page.current, `${documentTitle} ${form.number || "Draft"}`, orientation), `${supplierReceipt ? receiptNumber : form.number || "Warranty-Slip"}.pdf`); }
     catch (error) { toast.error(error instanceof Error ? error.message : "Could not create the PDF."); }
     finally { setBusy(false); }
   }
@@ -236,6 +253,7 @@ export function WarrantyCenter({ companyId, company, canWrite, onMinimize, initi
       <div className="overflow-x-auto"><table className="w-full min-w-[1200px] border-collapse text-sm"><thead className="bg-slate-50 text-left"><tr>{["Date", "Slip #", "Company", "Name", "Invoice #", "Brand / Model", "Supplier", "Supplier bill", "Returned to supplier", "Received back", "Status", "Remark", "Created by", "Actions"].map((heading) => <th key={heading} className="border px-3 py-2">{heading}</th>)}</tr></thead><tbody>{filtered.map((slip) => <tr key={slip.id}><td className="border px-3 py-2">{slip.slipDate}</td><td className="border px-3 py-2 font-semibold">{slip.number}</td><td className="border px-3 py-2">{slip.customerCompany || slip.customerName}</td><td className="border px-3 py-2">{slip.contactName || slip.customerName}</td><td className="border px-3 py-2">{slip.invoiceNumber || "—"}</td><td className="border px-3 py-2">{[slip.brand, slip.model].filter(Boolean).join(" · ") || "—"}</td><td className="border px-3 py-2">{slip.supplierName || "—"}</td><td className="border px-3 py-2">{slip.purchaseBillId ? <Button type="button" size="sm" variant="link" className="h-auto p-0 font-semibold" onClick={() => openPurchaseBill(slip.purchaseBillId!)}>{slip.purchaseNumber || `Bill #${slip.purchaseBillId}`}</Button> : slip.purchaseNumber || "—"}</td><td className="border px-3 py-2">{slip.returnedToSupplierDate || "—"}</td><td className="border px-3 py-2">{slip.receivedFromSupplierDate || "—"}</td><td className="border px-3 py-2"><select className={selectClass} value={inlineEdits[slip.id!]?.status ?? slip.status} disabled={!canWrite} onChange={(event) => setInlineEdits((old) => ({ ...old, [slip.id!]: { status: event.target.value, remarks: old[slip.id!]?.remarks ?? slip.remarks } }))}>{warrantyStatuses.map((status) => <option key={status}>{status}</option>)}</select></td><td className="border px-3 py-2"><Input value={inlineEdits[slip.id!]?.remarks ?? slip.remarks} disabled={!canWrite} maxLength={2000} onChange={(event) => setInlineEdits((old) => ({ ...old, [slip.id!]: { status: old[slip.id!]?.status ?? slip.status, remarks: event.target.value } }))} /></td><td className="border px-3 py-2">{slip.createdBy || "—"}</td><td className="border px-3 py-2"><div className="flex gap-1">{inlineEdits[slip.id!] && <Button type="button" size="sm" disabled={busy} onClick={() => void saveInline(slip)}><Save className="size-3" />Save</Button>}<Button type="button" size="sm" variant="outline" onClick={() => openSlip(slip)}><Pencil className="size-3" />Open / Print</Button>{canWrite && <Button type="button" size="icon" variant="ghost" disabled={busy} className="text-rose-600 hover:bg-rose-50 hover:text-rose-700" aria-label={`Delete warranty receipt ${slip.number || slip.id}`} title="Delete warranty receipt" onClick={() => void deleteSlip(slip)}><Trash2 className="size-4" /></Button>}</div></td></tr>)}</tbody></table>{!filtered.length && <p className="py-7 text-center text-sm text-slate-500">{loading ? "Loading RMA slips…" : `No ${activeStatus.toLowerCase()} slips match this search.`}</p>}</div>
     </div> : <>
       <div className="space-y-5 rounded-xl border bg-white p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-bold">{form.number || "New warranty / RMA slip"}</h3><p className="text-sm text-slate-500">Choose an invoice to link the customer and item automatically, or enter warranty details manually.</p></div><div className="flex flex-wrap items-center gap-2">
+          <label className={fieldClass}>Document<select className={selectClass} value={supplierReceipt ? "supplier" : "customer"} onChange={(event) => setSupplierReceiptRequested(event.target.value === "supplier")}><option value="customer">Warranty / RMA slip</option><option value="supplier" disabled={!hasSupplierReturn}>Supplier return receipt</option></select></label>
           <PrintOrientationSelect value={orientation} onValueChange={(next) => { setOrientation(next); setForm((old) => ({ ...old, stampLeft: Math.min(next === "landscape" ? 257 : 170, old.stampLeft), stampTop: Math.min(next === "landscape" ? 173 : 260, old.stampTop) })); }} />
           <div className="flex flex-wrap gap-2">{canWrite && <Button type="button" disabled={busy} onClick={() => void save()}><Save className="size-4" />Save slip</Button>}<Button type="button" variant="outline" disabled={busy} onClick={print}><Printer className="size-4" />Print A4</Button><Button type="button" variant="outline" disabled={busy} onClick={() => void pdf()}><Download className="size-4" />PDF A4</Button></div>
           <Button type="button" variant="outline" disabled={busy} aria-label="Minimize RMA slip and continue working" title="Minimize and continue working" onClick={minimize}><Minus className="size-4" />Minimize</Button>
@@ -247,7 +265,7 @@ export function WarrantyCenter({ companyId, company, canWrite, onMinimize, initi
           <label className={fieldClass}>Customer invoice<select className={selectClass} value={form.invoiceId || ""} disabled={!canWrite || !form.customerId} onChange={(event) => { const id = Number(event.target.value) || null; const invoice = customerInvoices.find((row) => row.id === id); setForm((old) => ({ ...old, invoiceId: id, invoiceLineId: null, invoiceNumber: invoice?.number || "", supplierId: null, supplierName: "", purchaseBillId: null, purchaseNumber: "", purchaseDate: "" })); void loadInvoice(id); }}><option value="">No linked invoice</option>{customerInvoices.map((row) => <option key={row.id} value={row.id}>{row.number} · {row.transactionDate}</option>)}</select></label><label className={fieldClass}>Invoice #<Input maxLength={100} value={form.invoiceNumber} disabled={!canWrite || Boolean(form.invoiceId)} onChange={(event) => update("invoiceNumber", event.target.value)} /></label>
           {form.invoiceId && <label className={fieldClass}>Invoice item<select className={selectClass} value={form.invoiceLineId || ""} disabled={!canWrite} onChange={(event) => { const id = Number(event.target.value) || null; const line = lines.find((row) => row.id === id); if (line?.purchaseBillId && !purchaseBills.some((bill) => bill.id === line.purchaseBillId)) setPurchaseBills((old) => [...old, { id: line.purchaseBillId!, number: line.purchaseNumber, party: line.supplierName, transactionDate: line.purchaseDate, supplierId: line.supplierId }]); setForm((old) => ({ ...old, invoiceLineId: id, model: line?.itemName || line?.description || old.model, serialNumber: line?.serialNumber || old.serialNumber, specs: line ? itemSpecs(line.specifications, line.description) : old.specs, supplierId: line?.supplierId ?? null, supplierName: line?.supplierName ?? "", purchaseBillId: line?.purchaseBillId ?? null, purchaseNumber: line?.purchaseNumber ?? "", purchaseDate: line?.purchaseDate ?? "" })); }}><option value="">Select an invoiced item</option>{lines.map((line) => <option key={line.id} value={line.id}>{line.itemName || line.description}{line.serialNumber ? ` · SN ${line.serialNumber}` : ""}</option>)}</select></label>}
           <label className={fieldClass}>Brand<Input maxLength={120} value={form.brand} disabled={!canWrite} onChange={(event) => update("brand", event.target.value)} /></label><label className={fieldClass}>Model<Input maxLength={200} value={form.model} disabled={!canWrite} onChange={(event) => update("model", event.target.value)} /></label><label className={fieldClass}>Specifications<Input maxLength={1000} value={form.specs} disabled={!canWrite} onChange={(event) => update("specs", event.target.value)} /></label><label className={fieldClass}>Serial number<Input maxLength={200} value={form.serialNumber} disabled={!canWrite} onChange={(event) => update("serialNumber", event.target.value)} /></label>
-          <label className={fieldClass}>RMA status<select className={selectClass} value={form.status} disabled={!canWrite} onChange={(event) => update("status", event.target.value)}>{warrantyStatuses.map((status) => <option key={status}>{status}</option>)}</select></label>
+          <label className={fieldClass}>RMA status<select className={selectClass} value={form.status} disabled={!canWrite} onChange={(event) => { update("status", event.target.value); if (event.target.value === "Returned to Supplier") setSupplierReceiptRequested(true); }}>{warrantyStatuses.map((status) => <option key={status}>{status}</option>)}</select></label>
         </div>
         <fieldset className="rounded-lg border border-slate-200 p-4"><legend className="px-2 text-sm font-bold text-slate-800">Supplier and purchase</legend>
           {form.purchaseBillId ? <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-teal-200 bg-teal-50 px-4 py-3"><div className="flex items-center gap-3"><span className="rounded-full bg-white p-2 text-teal-700"><Link2 className="size-4" /></span><div><p className="text-sm font-bold text-teal-950">Linked purchase bill</p><p className="text-sm text-teal-800">{form.purchaseNumber || `Bill #${form.purchaseBillId}`} · {selectedSupplier?.name || form.supplierName || "Supplier"}{form.purchaseDate ? ` · ${form.purchaseDate}` : ""}</p></div></div><Button type="button" size="sm" variant="outline" className="border-teal-300 bg-white text-teal-900 hover:bg-teal-100" onClick={() => openPurchaseBill(form.purchaseBillId!)}>Open purchase bill</Button></div> : null}
@@ -259,7 +277,7 @@ export function WarrantyCenter({ companyId, company, canWrite, onMinimize, initi
             <label className={fieldClass}>Received back from supplier on<Input type="date" min={form.returnedToSupplierDate || undefined} value={form.receivedFromSupplierDate} disabled={!canWrite || !form.returnedToSupplierDate} onChange={(event) => update("receivedFromSupplierDate", event.target.value)} /></label>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
-            <Button type="button" size="sm" variant="outline" disabled={!canWrite || !form.supplierId || Boolean(form.returnedToSupplierDate)} onClick={() => setForm((old) => ({ ...old, returnedToSupplierDate: new Date().toLocaleDateString("en-CA"), status: "Returned to Supplier" }))}>Mark returned to supplier today</Button>
+            <Button type="button" size="sm" variant="outline" disabled={!canWrite || !form.supplierId || Boolean(form.returnedToSupplierDate)} onClick={() => { setForm((old) => ({ ...old, returnedToSupplierDate: new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Dubai" }), status: "Returned to Supplier" })); setSupplierReceiptRequested(true); }}>Mark returned to supplier today</Button>
             <Button type="button" size="sm" variant="outline" disabled={!canWrite || !form.returnedToSupplierDate || Boolean(form.receivedFromSupplierDate) || form.returnedToSupplierDate > new Date().toLocaleDateString("en-CA")} onClick={() => setForm((old) => ({ ...old, receivedFromSupplierDate: new Date().toLocaleDateString("en-CA"), status: "Under Process" }))}>Mark received back today</Button>
           </div>
           <p className="mt-3 text-xs text-slate-500">Selecting a purchase bill links its supplier, bill number and purchase date to this warranty receipt. Record both handoff dates as the unit moves to and from the supplier.</p>
@@ -270,10 +288,11 @@ export function WarrantyCenter({ companyId, company, canWrite, onMinimize, initi
         </div>
       </div>
       <div id="warranty-slip-preview">
-      <div className="overflow-x-auto rounded-xl border bg-slate-100 p-3"><article ref={page} className="letterhead-page warranty-page relative mx-auto bg-white text-slate-900 shadow" style={{ width: orientation === "landscape" ? "297mm" : "210mm", height: orientation === "landscape" ? "210mm" : "297mm", padding: "13mm", boxSizing: "border-box", overflow: "hidden", fontFamily: "Arial,sans-serif", fontSize: 12, lineHeight: 1.4 }}><LetterheadBrand template={activeLetterhead} company={company} /><header style={{ display: "flex", justifyContent: "space-between", borderBottom: "2px solid", borderColor: activeLetterhead.color, paddingBottom: 10, marginBottom: 14 }}><div><h2 style={{ margin: 0, fontSize: 22, color: activeLetterhead.color }}>WARRANTY / RMA SLIP</h2><small>Customer service · Goods received</small></div><div style={{ textAlign: "right" }}><strong>{form.number || "DRAFT"}</strong><div>{form.slipDate}</div></div></header>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}><div><strong>Customer</strong><p>{printable(selectedCustomer?.name || form.customerName || "")}</p></div><div><strong>Contact name</strong><p>{printable(form.contactName)}</p></div><div><strong>Phone</strong><p>{printable(form.contactPhone)}</p></div><div><strong>Email</strong><p>{printable(form.contactEmail)}</p></div><div><strong>Customer ID</strong><p>{printable(form.customerReference)}</p></div><div><strong>Invoice #</strong><p>{printable(form.invoiceNumber)}</p></div></div>
-          <table style={{ borderCollapse: "collapse", width: "100%", tableLayout: "fixed", marginBottom: 16 }}><tbody>{[["Brand", form.brand], ["Model", form.model], ["Specifications", form.specs], ["Serial #", form.serialNumber], ["Problem", form.problem], ["Remarks", form.remarks], ["Included items", form.includedItems], ["Supplier", selectedSupplier?.name || form.supplierName], ["Linked purchase bill", form.purchaseNumber], ["Purchase date", form.purchaseDate], ["Returned to supplier", form.returnedToSupplierDate], ["Received back from supplier", form.receivedFromSupplierDate], ["Status", form.status]].map(([label, value]) => <tr key={label}><th style={{ width: "29%", padding: 6, border: "1px solid #cbd5e1", background: "#f8fafc", textAlign: "left", verticalAlign: "top" }}>{label}</th><td style={{ padding: 6, border: "1px solid #cbd5e1", overflowWrap: "anywhere", whiteSpace: "pre-wrap" }}>{printable(value)}</td></tr>)}</tbody></table>
-          <div className="letterhead-footer-area" style={{ position: "absolute", left: "13mm", right: "13mm", bottom: "12mm", borderTop: "1px solid #cbd5e1", paddingTop: 9, color: "#475569", fontSize: 11 }}><p style={{ margin: "0 0 5px" }}>Received by: ____________________　 Customer signature: ____________________</p>{activeLetterhead.footer ? <p style={{ margin: 0 }}>{activeLetterhead.footer}</p> : <p style={{ margin: 0 }}>{company.name} · Warranty service record</p>}</div>
+      {hasSupplierReturn && <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-teal-200 bg-teal-50 p-4 text-teal-950 dark:border-teal-800 dark:bg-teal-950 dark:text-teal-100"><p className="text-sm">Supplier return receipt includes the linked bill number, purchase date, serial number and problem. Save before printing or downloading.</p><Button type="button" variant="outline" onClick={() => setSupplierReceiptRequested(!supplierReceipt)}>{supplierReceipt ? "View warranty slip" : "View supplier return receipt"}</Button></div>}
+      <div className="overflow-x-auto rounded-xl border bg-slate-100 p-3"><article ref={page} className="letterhead-page warranty-page relative mx-auto bg-white text-slate-900 shadow" style={{ width: orientation === "landscape" ? "297mm" : "210mm", height: orientation === "landscape" ? "210mm" : "297mm", padding: "13mm", boxSizing: "border-box", overflow: "hidden", fontFamily: "Arial,sans-serif", fontSize: 12, lineHeight: 1.4 }}><LetterheadBrand template={activeLetterhead} company={company} /><header style={{ display: "flex", justifyContent: "space-between", borderBottom: "2px solid", borderColor: activeLetterhead.color, paddingBottom: 10, marginBottom: 14 }}><div><h2 style={{ margin: 0, fontSize: 22, color: activeLetterhead.color }}>{documentTitle.toUpperCase()}</h2><small>{supplierReceipt ? "Goods returned to supplier for warranty / repair" : "Customer service · Goods received"}</small></div><div style={{ textAlign: "right" }}><strong>{supplierReceipt ? receiptNumber : form.number || "DRAFT"}</strong><div>{supplierReceipt ? form.returnedToSupplierDate || "Return date required" : form.slipDate}</div></div></header>
+          {supplierReceipt ? <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}><div><strong>Returned to supplier</strong><p>{printable(selectedSupplier?.name || form.supplierName)}</p></div><div><strong>RMA reference</strong><p>{form.number || "DRAFT"}</p></div><div><strong>Returned by</strong><p>{company.name}</p></div><div><strong>Return date</strong><p>{printable(form.returnedToSupplierDate)}</p></div></div> : <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}><div><strong>Customer</strong><p>{printable(selectedCustomer?.name || form.customerName || "")}</p></div><div><strong>Contact name</strong><p>{printable(form.contactName)}</p></div><div><strong>Phone</strong><p>{printable(form.contactPhone)}</p></div><div><strong>Email</strong><p>{printable(form.contactEmail)}</p></div><div><strong>Customer ID</strong><p>{printable(form.customerReference)}</p></div><div><strong>Invoice #</strong><p>{printable(form.invoiceNumber)}</p></div></div>}
+          <table style={{ borderCollapse: "collapse", width: "100%", tableLayout: "fixed", marginBottom: 16 }}><tbody>{documentRows.map(([label, value]) => <tr key={label}><th style={{ width: "29%", padding: 6, border: "1px solid #cbd5e1", background: "#f8fafc", textAlign: "left", verticalAlign: "top" }}>{label}</th><td style={{ padding: 6, border: "1px solid #cbd5e1", overflowWrap: "anywhere", whiteSpace: "pre-wrap" }}>{printable(value)}</td></tr>)}</tbody></table>
+          <div className="letterhead-footer-area" style={{ position: "absolute", left: "13mm", right: "13mm", bottom: "12mm", borderTop: "1px solid #cbd5e1", paddingTop: 9, color: "#475569", fontSize: 11 }}><p style={{ margin: "0 0 5px" }}>{supplierReceipt ? "Supplier received by: ____________________　 Signature / stamp: ____________________" : "Received by: ____________________　 Customer signature: ____________________"}</p>{activeLetterhead.footer ? <p style={{ margin: 0 }}>{activeLetterhead.footer}</p> : <p style={{ margin: 0 }}>{company.name} · {supplierReceipt ? "Supplier return receipt" : "Warranty service record"}</p>}</div>
           <LetterheadStamp template={activeLetterhead} company={company} maxLeft={orientation === "landscape" ? 257 : 170} maxTop={orientation === "landscape" ? 173 : 260} pageWidthMm={orientation === "landscape" ? 297 : 210} onMove={canWrite ? (left, top) => setForm((old) => ({ ...old, stampLeft: left, stampTop: top })) : undefined} />
         </article></div><Button type="button" variant="outline" onClick={backToList} disabled={busy}>Back to warranty list</Button>
       </div>

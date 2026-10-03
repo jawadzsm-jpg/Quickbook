@@ -189,6 +189,7 @@ Deposits, cheques, credit-card charges, account transfers, cheque orders, and op
 2. Optionally open Warranty / RMA directly from a saved supplier bill; the supplier, bill number, and purchase date are prefilled.
 3. Record item, serial, issue, received date, supplier return dates, condition, and service status.
 4. Save/update the slip and print the A4 service record. The RMA list and form can reopen the linked supplier bill.
+5. Mark the item returned to its supplier, or save the Returned to Supplier status in the list. The supplier return receipt preview opens automatically; saving the return status fills a missing return date with today in UAE time. Check the return date and ensure the supplier bill, purchase date, serial number, and problem are present, then save. Print or download the receipt as A4 PDF for the supplier to acknowledge. Use the Document selector to switch between the customer warranty slip and supplier receipt; the receipt remains available after subsequent status changes when a supplier return date is recorded.
 
 ### Packing list
 
