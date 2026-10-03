@@ -171,7 +171,9 @@ export function DataExportToolbar() {
   useEffect(() => {
     const check = () => {
       const dialog = activeDialog();
-      setHasTables(!dialog?.classList.contains("pnl-dialog") && extractVisibleTables().length > 0);
+      // Report dialogs own structured exports, summaries, A4 layout and stamps.
+      // Do not add the generic DOM-table exporter beside those controls.
+      setHasTables(!dialog?.matches(".report-dialog, .pnl-dialog") && extractVisibleTables().length > 0);
       setTarget(dialog ? dialog.querySelector<HTMLElement>('[data-export-slot="dialog"]') : document.querySelector<HTMLElement>('[data-export-slot="page"]'));
     };
     check();
