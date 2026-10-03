@@ -1742,3 +1742,35 @@ test("Lists item directories link stock assets without inventing inventory accou
     assert.deepEqual(result.report.accountLinkIssues, []);
   }
 });
+
+test("HR profile validates amounts and dates, protects private fields and links salary postings", async () => {
+  const records = await vite.ssrLoadModule("/app/api/records/route.ts");
+  const { company: c } = await (await workspaces.POST(post({ type: "company", name: "HR profile audit", baseCurrency: "AED" }))).json();
+  const accountRows = (await database.query("SELECT id, name, system_role FROM accounts WHERE company_id = $1", [c.id])).rows;
+  const payroll = accountRows.find(account => account.system_role === "PAYROLL"), bank = accountRows.find(account => account.system_role === "BANK");
+  const payload = { kind: "contacts", companyId: c.id, type: "employee", name: "HR employee", currency: "AED", salaryAmount: 4500, loanBalance: 1250, salaryExpenseAccountId: payroll.id, vacationDeparture: "2026-11-01", vacationReturn: "2026-11-21" };
+  const created = await records.POST(post(payload)); assert.equal(created.status, 201, await created.clone().text());
+  const employee = (await created.json()).record; assert.equal(employee.salaryAmount, 4500); assert.equal(employee.loanBalance, 1250);
+  const update = async changes => records.PATCH(new Request("https://app.test/api/records", { method: "PATCH", headers: { origin: "https://app.test", "content-type": "application/json" }, body: JSON.stringify({ kind: "contacts", companyId: c.id, id: employee.id, ...changes }) }));
+  assert.equal((await update({ loanBalance: -1 })).status, 400);
+  assert.equal((await update({ vacationReturn: "2026-10-31" })).status, 400);
+  assert.equal((await update({ vacationDeparture: "2026-02-30" })).status, 400);
+  assert.equal((await update({ salaryExpenseAccountId: bank.id })).status, 400);
+  assert.equal((await update({ salaryExpenseAccountId: 9999999 })).status, 400);
+  const saved = await update({ loanBalance: 1000, vacationReturn: "2026-11-22" }); assert.equal(saved.status, 200); const updated = (await saved.json()).record;
+  assert.equal(updated.loanBalance, 1000); assert.equal(updated.salaryAmount, 4500); assert.equal(updated.vacationReturn, "2026-11-22");
+  globalThis.__reportTestUser = { id: 2, email: "viewer@example.test", role: "viewer", companyIds: [c.id], mustChangePassword: false };
+  try {
+    const list = await records.GET(new Request(`https://app.test/api/records?kind=contacts&companyId=${c.id}`));
+    assert.equal(list.status, 200); const contact = (await list.json()).records.find(record => record.id === employee.id);
+    for (const field of ["salaryAmount", "loanBalance", "salaryExpenseAccountId", "vacationDeparture", "vacationReturn"]) assert.equal(contact[field], undefined);
+    assert.equal((await update({ salaryAmount: 1 })).status, 403);
+  } finally { delete globalThis.__reportTestUser; }
+  const paid = await records.POST(post({ kind: "transactions", companyId: c.id, locationId: c.locations[0].id, type: "cheque", chequeType: "salary", number: "HR-SALARY-01", party: employee.name, account: "Operating Expenses", bankAccountId: bank.id, currency: "AED", exchangeRate: 1, transactionDate: "2026-10-03", lines: [{ description: "October salary", quantity: 1, unitPrice: 4500, vatCode: "ZERO", vatRate: 0 }] }));
+  assert.equal(paid.status, 201, await paid.clone().text()); const payment = (await paid.json()).record; assert.equal(payment.account, payroll.name);
+  const detail = await (await records.GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${c.id}&id=${payment.id}`))).json();
+  assert.ok(detail.journal.some(row => row.accountName === payroll.name && Number(row.debit) === 4500));
+  assert.ok(detail.journal.some(row => row.accountName === bank.name && Number(row.credit) === 4500));
+  const result = await (await GET(new Request(`https://app.test/api/reports?type=employee-balances&companyId=${c.id}`))).json();
+  assert.equal(result.report.rows[0].salaryAmount, 4500); assert.equal(result.report.rows[0].loanBalance, 1000); assert.equal(result.report.rows[0].accountAccountId, payroll.id);
+});

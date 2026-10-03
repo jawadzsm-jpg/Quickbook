@@ -195,3 +195,9 @@ The three item lists include verified inventory asset-account links for stock it
 ## Home workflow dashboard
 
 Home groups tasks into Suppliers, Customers, Banking and Company & reports with readable independent cards, light/dark colors, keyboard focus and one/two/four-column layouts. Deposits are grouped under Banking. Redundant Inventory/Add Item and Bank Register/Reconcile navigation shortcuts are consolidated into Inventory Center and Banking Center. Users with report access have a Report Center shortcut describing its existing A4/PDF/Excel/CSV and movable-stamp capabilities. Transaction-entry routes and account-posting rules remain unchanged; Home itself is a navigation screen.
+
+## Employee salary, loan and vacation profile
+
+Administrators can save/edit monthly salary, a salary Expense account, a manually recorded employee loan balance, vacation departure and return dates. Amounts use the employee currency. The list displays these details, and Employee Balance Summary includes them with a link to the salary account in A4 print/PDF, CSV and Excel output. Non-admin contact-list responses omit these private HR fields.
+
+Selecting an employee for a salary cheque prefills the saved salary amount when visible and selects its expense account. The server validates and enforces the employee's configured salary account when posting salary cheques; existing bank-credit posting applies. Only active, uniquely named Expense accounts in the same company may be selected. Profile saves do not post journals, disburse loans, deduct repayments or create payroll schedules. The recorded loan balance is maintained manually and is separate from the employee's existing accounting balance. Vacation return cannot precede departure.

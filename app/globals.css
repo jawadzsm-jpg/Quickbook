@@ -1934,3 +1934,19 @@ button, input, select { font: inherit; }
   [data-appearance="dark"] .workflow-home-heading p { color: #6ee7b7; }
   [data-appearance="dark"] .workflow-home-heading > div > span, [data-appearance="dark"] .workflow-section header p, [data-appearance="dark"] .workflow-action-copy > span, [data-appearance="dark"] .workflow-action-arrow { color: #b4c3d5; }
 }
+
+.employee-hr-fields { border: 1px solid #cbd5e1; border-radius: .75rem; padding: 1rem; background: #f8fafc; }
+.employee-hr-fields h3 { font-size: .95rem; font-weight: 700; }
+.employee-hr-fields p { font-size: .75rem; line-height: 1.6; color: #64748b; margin: .5rem 0 1rem; }
+.employee-hr-fields label { display: grid; gap: .4rem; min-width: 0; font-size: .8rem; font-weight: 600; }
+.employee-hr-fields :is(input,select) { width: 100%; min-width: 0; min-height: 42px; background: #fff; color: #0f172a; border: 1px solid #cbd5e1; border-radius: .4rem; padding: .5rem; }
+.employee-hr-fields :is(input,select):focus-visible { outline: 2px solid #059669; outline-offset: 2px; }
+.employee-hr-details { display: grid; gap: .3rem; margin-top: .75rem; font-size: .72rem; min-width: 220px; }
+.employee-hr-details > div { display: flex; flex-wrap: wrap; gap: .4rem; }
+.employee-hr-details dt { color: #64748b; font-weight: 500; }
+.employee-hr-details dd { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+@media screen {
+  [data-appearance="dark"] .employee-hr-fields { background: #142436; border-color: #334155; }
+  [data-appearance="dark"] .employee-hr-fields :is(input,select) { background: #0f172a; color: #f1f5f9; border-color: #475569; }
+  [data-appearance="dark"] .employee-hr-fields p, [data-appearance="dark"] .employee-hr-details dt { color: #b4c3d5; }
+}
