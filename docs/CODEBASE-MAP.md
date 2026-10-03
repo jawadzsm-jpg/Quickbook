@@ -159,3 +159,6 @@ Accountant library and filters are in `app/accountant-report-library.tsx`; filte
 Lists presentation is in `app/list-report-library.tsx`; grouping, filters, numeric sorting and summaries are in `lib/list-report.ts`. Item directories attach inventory asset-account links in `app/api/reports/route.ts`; shared exports include unresolved-link warnings.
 
 Employee HR profile fields live on `contacts` (`0072_employee_hr_profile.sql`). `lib/employee-hr.ts` validates profile amounts/dates/account links and redacts private fields. `app/employee-hr-fields.tsx` owns profile fields and inline details; record APIs persist and enforce salary-account selection, and employee balance reports expose the admin-only summary.
+
+
+Employee loan payments use `transactions.employeeLoanContactId` (migration 0073); validation/posting and administrator-only history are in `app/api/records/route.ts`, with presentation in `app/employee-hr-fields.tsx` and Banking controls in `app/enterprise-app.tsx`.
