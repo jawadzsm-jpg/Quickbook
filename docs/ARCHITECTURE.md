@@ -196,3 +196,5 @@ Vercel runs `npm run build`. `scripts/require-ci.mjs` verifies both named GitHub
 - Preserve source/allocation links when converting or partially fulfilling documents.
 - Add a migration when persisted structure changes.
 - Update the canonical documentation listed in [`docs/README.md`](README.md) with behavior changes.
+
+Employee profile data on `contacts` includes monthly salary, salary expense-account ID, manual loan balance and vacation dates. These fields are validated on admin-only employee writes and removed from non-admin contact-list responses. They are informational until a separate salary cheque is posted; salary-account IDs are resolved within the active company and validated before ledger posting.

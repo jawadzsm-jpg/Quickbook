@@ -157,3 +157,5 @@ Shared Report Center presentation is in `app/enterprise-app.tsx`, with generic r
 Accountant library and filters are in `app/accountant-report-library.tsx`; filter identities, summaries and unresolved-link warnings are in `lib/accountant-report.ts`. The report API returns those warnings without dropping original amounts; shared exports preserve them.
 
 Lists presentation is in `app/list-report-library.tsx`; grouping, filters, numeric sorting and summaries are in `lib/list-report.ts`. Item directories attach inventory asset-account links in `app/api/reports/route.ts`; shared exports include unresolved-link warnings.
+
+Employee HR profile fields live on `contacts` (`0072_employee_hr_profile.sql`). `lib/employee-hr.ts` validates profile amounts/dates/account links and redacts private fields. `app/employee-hr-fields.tsx` owns profile fields and inline details; record APIs persist and enforce salary-account selection, and employee balance reports expose the admin-only summary.

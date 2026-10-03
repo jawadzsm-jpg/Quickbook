@@ -243,3 +243,7 @@ For Vendors, select company, inventory, currency and optionally a supplier. Quic
 Choose a category from the sidebar on desktop or the category selector on tablet/mobile, or search the full library. Verify the company/inventory context and report-specific scope before opening a report. The supplier and transaction-currency selectors are also shown when vendor reports appear in search or All Reports. Saved views are offered only for currently available report definitions.
 
 All report categories expose the same optional company stamp preview. Enable the stamp, drag it on the A4 preview (or use arrows / millimetre inputs), then print or export PDF using the selected orientation. Report-specific account/document links and calculations remain authoritative. Shared tables use mobile cards and restore the detailed table when printing. CSV, Excel and PDF include each category summary where defined; generic running balances and unit prices are never automatically totaled.
+
+### Employee salary and vacation setup
+
+In Employees & HR, create or edit an employee to record monthly salary, salary expense account, manual loan balance and vacation departure/return. Saving updates the profile only. For payment, use Write Cheque → Salary and select the employee: the saved amount/account prefill, and posting debits the configured salary expense account and credits the chosen bank. Loan disbursement/repayment and vacation pay calculations are not automated by the profile fields.

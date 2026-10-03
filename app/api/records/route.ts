@@ -1,3 +1,5 @@
+import { employeeHrValues, redactEmployeeHr } from "@/lib/employee-hr";
+import { RequestError } from "@/lib/errors";
 import { skuWrite } from "@/lib/sku-locks";
 import { refreshSalesSource, salesSourceLines, salesInventoryLines } from "@/lib/sales-invoicing";
 import { createHash } from "node:crypto";
@@ -371,7 +373,7 @@ export async function GET(request: Request) {
       const invoiceBalance = record.type === "invoice" ? (record.status === "paid" ? 0 : round(record.total - await invoicePaidAmount(record.id))) : undefined;
       return Response.json({ revision: purchaseRevision(record, lines), record: { ...paymentDisplayRecord(record), ...(invoiceBalance !== undefined ? { balance: invoiceBalance } : {}), sourceDocumentNumber: sourceDocument?.number ?? "", sourceDocumentType: sourceDocument?.type ?? "", convertedDocumentNumber: convertedDocument?.number ?? "", convertedDocumentType: convertedDocument?.type ?? "", convertedInvoiceNumber: convertedDocument?.type === "invoice" ? convertedDocument.number : "" }, lines: detailLines, journal, partyContact: partyContact ?? null });
     }
-    if (kind === "contacts") return Response.json({ records: await db.select().from(contacts).where(eq(contacts.companyId, companyId)).orderBy(asc(contacts.name)) });
+    if (kind === "contacts") return Response.json({ records: (await db.select().from(contacts).where(eq(contacts.companyId, companyId)).orderBy(asc(contacts.name))).map(record => redactEmployeeHr(record, isAdministrator(authorization))) });
     if (kind === "items") {
       if (url.searchParams.get("previewIdentity") === "true") {
         if (!mayWrite(authorization, "inventory:manage")) return Response.json({ error: "Your role cannot create inventory items." }, { status: 403 });
@@ -445,7 +447,7 @@ export async function GET(request: Request) {
     const transactionFilter = Number.isInteger(locationId) && locationId > 0 ? and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId)) : eq(transactions.companyId, companyId);
     return Response.json({ records: (await db.select().from(transactions).where(transactionFilter).orderBy(desc(transactions.transactionDate), desc(transactions.id)).limit(500)).map(paymentDisplayRecord) });
   } catch (error) {
-    return Response.json({ error: errorMessage(error) }, { status: 500 });
+    return Response.json({ error: errorMessage(error) }, { status: error instanceof RequestError ? error.status : 500 });
   }
 }
 
@@ -543,6 +545,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       }
       const [record] = await db.insert(contacts).values({
         companyId, type: contactType, name,
+        ...(contactType === "employee" ? employeeHrValues(payload, companyId, await db.select().from(accounts).where(eq(accounts.companyId, companyId))) : {}),
         company: String(payload.company ?? ""), billingName: String(payload.billingName ?? name),
         email: String(payload.email ?? ""), phone: String(payload.phone ?? "").trim(), whatsapp: String(payload.whatsapp ?? "").trim(),
         country: String(payload.country ?? ""), trn: String(payload.trn ?? "").trim(), reseller: String(payload.reseller ?? "Reseller"),
@@ -807,6 +810,14 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const requestedParty = String(payload.party ?? "").trim();
     const chequeType = String(payload.chequeType ?? "").trim();
     const party = type === "cheque" && !requestedParty && ["expense", "salary"].includes(chequeType) ? "General expense" : requestedParty;
+    if (type === "cheque" && chequeType === "salary" && requestedParty) {
+      const [employee] = await db.select().from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "employee"), eq(contacts.name, requestedParty))).limit(1);
+      if (employee?.salaryExpenseAccountId) {
+        const companyAccounts = await db.select().from(accounts).where(eq(accounts.companyId, companyId));
+        const hr = employeeHrValues({}, companyId, companyAccounts, employee);
+        payload.account = companyAccounts.find(account => account.id === hr.salaryExpenseAccountId)!.name;
+      }
+    }
     const configuredVatCodes = await db.select({ code: vatCodes.code, rate: vatCodes.rate }).from(vatCodes).where(and(eq(vatCodes.companyId, companyId), eq(vatCodes.active, true)));
     const vatRates = configuredVatCodes.length ? Object.fromEntries(configuredVatCodes.map((vatCode) => [vatCode.code, Number(vatCode.rate)])) : fallbackVatRates;
     if (type === "bill") rawLines = rawLines.filter(line => !line.isFreightCharge);
@@ -1190,7 +1201,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     if (salesSourceId) await refreshSalesSource(salesSourceId);
     return Response.json({ record }, { status: replacing ? 200 : 201 });
   } catch (error) {
-    return Response.json({ error: errorMessage(error) }, { status: 500 });
+    return Response.json({ error: errorMessage(error) }, { status: error instanceof RequestError ? error.status : 500 });
   }
 }
 
@@ -1624,7 +1635,7 @@ async function handlePATCH(request: Request) {
       for (const field of ["company", "billingName", "email", "phone", "whatsapp", "country", "trn", "reseller", "planet", "passport", "description"] as const) {
         if (payload[field] !== undefined) changes[field] = String(payload[field]).trim();
       }
-      const [record] = await db.update(contacts).set(changes).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId))).returning();
+      const [record] = await db.update(contacts).set({ ...changes, ...(existing.type === "employee" ? employeeHrValues(payload, companyId, await db.select().from(accounts).where(eq(accounts.companyId, companyId)), existing) : {}) }).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId))).returning();
       if (name !== existing.name) await db.update(transactions).set({ party: name }).where(and(eq(transactions.companyId, companyId), eq(transactions.party, existing.name)));
       await db.insert(auditLog).values({ companyId, action: "updated", entityType: existing.type === "vendor" ? "vendor" : "contact", entityId: id, details: existing.type === "vendor" ? JSON.stringify({ actorId: authorization.id, actorName: authorization.fullName || authorization.email, actorEmail: authorization.email, vendorName: name, changes: Object.entries(changes).filter(([field, value]) => String((existing as Record<string, unknown>)[field] ?? "") !== value).map(([field, value]) => ({ field, before: (existing as Record<string, unknown>)[field] ?? "", after: value })) }) : `${existing.name} → ${name}` });
       return Response.json({ record });
@@ -1701,7 +1712,7 @@ async function handlePATCH(request: Request) {
     });
     return Response.json({ record });
   } catch (error) {
-    return Response.json({ error: errorMessage(error) }, { status: 500 });
+    return Response.json({ error: errorMessage(error) }, { status: error instanceof RequestError ? error.status : 500 });
   }
 }
 
@@ -1868,7 +1879,7 @@ async function handleDELETE(request: Request) {
     });
     return Response.json({ ok: true });
   } catch (error) {
-    return Response.json({ error: errorMessage(error) }, { status: 500 });
+    return Response.json({ error: errorMessage(error) }, { status: error instanceof RequestError ? error.status : 500 });
   }
 }
 
