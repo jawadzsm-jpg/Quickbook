@@ -447,7 +447,7 @@ export async function GET(request: Request) {
       const budget = budgetAccountTotals(priorBudgetStart, priorBudgetEnd);
       const actual = budgetAccountTotals(budgetStart, budgetEnd);
       rows = allAccounts.filter((account) => incomeTypes.has(account.type) || expenseTypes.has(account.type)).map((account) => { const budgetAmount = budget.get(account.id) ?? 0; const actualAmount = actual.get(account.id) ?? 0; return { code: account.code, account: account.name, accountAccountId: account.id, section: incomeTypes.has(account.type) ? "Income" : "Expenses", budget: budgetAmount, actual: actualAmount, variance: incomeTypes.has(account.type) ? actualAmount - budgetAmount : budgetAmount - actualAmount, performance: budgetAmount ? `${(actualAmount / budgetAmount * 100).toFixed(1)}%` : "—" }; });
-      columns = [{ key: "code", label: "Code" }, { key: "account", label: "Account" }, { key: "section", label: "Section" }, { key: "budget", label: "Budget", ...money }, { key: "actual", label: "Actual", ...money }, { key: "variance", label: "Favourable Variance", ...money }, { key: "performance", label: "Performance" }];
+      columns = [{ key: "code", label: "Code" }, { key: "account", label: "Account" }, { key: "section", label: "Section" }, { key: "budget", label: "Prior-year baseline", ...money }, { key: "actual", label: "Actual", ...money }, { key: "variance", label: "Favourable Variance", ...money }, { key: "performance", label: "Actual / baseline" }];
     } else if (key === "budget-profit-loss") {
       title = "Profit & Loss Budget Performance";
       const budget = budgetAccountTotals(priorBudgetStart, priorBudgetEnd);
@@ -459,15 +459,15 @@ export async function GET(request: Request) {
         { section: "Expenses", budget: budgetExpenses, actual: actualExpenses, variance: budgetExpenses - actualExpenses },
         { section: "Net Profit", budget: budgetIncome - budgetExpenses, actual: actualIncome - actualExpenses, variance: (actualIncome - actualExpenses) - (budgetIncome - budgetExpenses) },
       ].map((row) => ({ ...row, performance: row.budget ? `${(row.actual / row.budget * 100).toFixed(1)}%` : "—" }));
-      columns = [{ key: "section", label: "Profit & Loss" }, { key: "budget", label: "Budget", ...money }, { key: "actual", label: "Actual", ...money }, { key: "variance", label: "Favourable Variance", ...money }, { key: "performance", label: "Performance" }];
+      columns = [{ key: "section", label: "Profit & Loss" }, { key: "budget", label: "Prior-year baseline", ...money }, { key: "actual", label: "Actual", ...money }, { key: "variance", label: "Favourable Variance", ...money }, { key: "performance", label: "Actual / baseline" }];
     } else if (key === "budget-actual-graph") {
       title = "Budget vs. Actual Graph";
       rows = reportMonths(budgetStart, budgetEnd).map(({month,from,to}) => {
         const budget = periodProfit(previousYearDate(from), previousYearDate(to)), actual = periodProfit(from,to);
         return {month,budget,actual,variance:actual-budget};
       });
-      columns = [{ key: "month", label: "Month" }, { key: "budget", label: "Budget", ...money }, { key: "actual", label: "Actual", ...money }, { key: "variance", label: "Variance", ...money }];
-      chart = { labelKey: "month", incomeKey: "actual", expenseKey: "budget", incomeLabel: "Actual", expenseLabel: "Budget" };
+      columns = [{ key: "month", label: "Month" }, { key: "budget", label: "Prior-year baseline", ...money }, { key: "actual", label: "Actual", ...money }, { key: "variance", label: "Variance", ...money }];
+      chart = { labelKey: "month", incomeKey: "actual", expenseKey: "budget", incomeLabel: "Actual", expenseLabel: "Prior-year baseline" };
     } else if (key === "trial-balance") {
       title = "Trial Balance"; rows = ledgerRows; columns = amountColumns();
     } else if (key === "general-ledger" || key === "journal") {
@@ -966,7 +966,10 @@ export async function GET(request: Request) {
     if (["accounts-receivable-graph", "accounts-payable-graph", "net-worth-graph"].includes(key)) rows = rows.filter(row => (!periodStart || String(row.month) >= periodStart.slice(0,7)) && (!periodEnd || String(row.month) <= periodEnd.slice(0,7)));
     if (vendorReportKeys.has(key) && key !== "accounts-payable-graph") addVendorAccounts();
     const linkedAccounts = linkReportAccounts(rows, columns, allAccounts);
-    return Response.json({ report: { key, period, companyId, supplierId: supplierReport ? supplierId : undefined, canViewAccounts: hasPermission(authorization, "accounting:manage"), accountLinkIssues: linkedAccounts.issues, vatCodes: vatReportKeys.has(key) ? configuredVatCodes.map(({ code, name, rate }) => ({ code, name, rate })) : undefined, title, generatedAt: new Date().toISOString(), currency: reportCurrency, columns, rows: linkedAccounts.rows, chart, summary } }, { headers: { "Cache-Control": "no-store" } });
+    const budget = key.startsWith("budget-") ? { from: budgetStart, to: budgetEnd, baselineFrom: priorBudgetStart, baselineTo: priorBudgetEnd } : undefined;
+    const budgetIssues = budget ? [...new Set(journal.filter(entry => ((entry.date >= budgetStart && entry.date <= budgetEnd) || (entry.date >= priorBudgetStart && entry.date <= priorBudgetEnd)) && !journalAccount(entry)).map(entry => `Account “${entry.account}” has no unique Chart of Accounts match. Its postings are excluded from baseline and actual totals; review the account mapping.`))] : [];
+
+    return Response.json({ report: { key, period, companyId, supplierId: supplierReport ? supplierId : undefined, canViewAccounts: hasPermission(authorization, "accounting:manage"), budget, accountLinkIssues: [...linkedAccounts.issues, ...budgetIssues], vatCodes: vatReportKeys.has(key) ? configuredVatCodes.map(({ code, name, rate }) => ({ code, name, rate })) : undefined, title, generatedAt: new Date().toISOString(), currency: reportCurrency, columns, rows: linkedAccounts.rows, chart, summary } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not generate report." }, { status: 500 });
   }

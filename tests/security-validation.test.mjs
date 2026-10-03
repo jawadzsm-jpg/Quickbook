@@ -359,7 +359,7 @@ test("vendor report library includes selected-vendor reports, native currencies,
   assert.match(pdf, /report currency/);
 });
 
-test("all 13 Profit & Loss reports share professional A4 output, movable stamps, and source-document links", () => {
+test("all 12 Profit & Loss reports share professional A4 output, movable stamps, and source-document links", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const pnlView = readFileSync(new URL("../app/profit-loss-report.tsx", import.meta.url), "utf8");
   const api = readFileSync(new URL("../app/api/reports/route.ts", import.meta.url), "utf8");
@@ -367,8 +367,8 @@ test("all 13 Profit & Loss reports share professional A4 output, movable stamps,
   const sharedExport = readFileSync(new URL("../lib/report-export.ts", import.meta.url), "utf8");
   const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
   const definitions = [...app.matchAll(/\["[^"]+",\s*"[^"]+",\s*"Profit & Loss",\s*"([^"]+)"\]/g)].map((match) => match[1]);
-  assert.equal(definitions.length, 13);
-  assert.equal(new Set(definitions).size, 13);
+  assert.equal(definitions.length, 12);
+  assert.equal(new Set(definitions).size, 12);
   assert.match(app, /const profitLossReportKeys = new Set\(\[[^\]]+"item-profitability"\]\)/);
   assert.match(app, /const stampReport = [^;]+isProfitLossReport/);
   assert.match(app, /sourceTransactionId > 0[\s\S]*onOpenSource\(sourceTransactionId\)/);
@@ -401,13 +401,13 @@ test("all 15 Financial reports share professional A4 output, movable stamps, and
   assert.match(css, /@page financial-landscape \{ size: A4 portrait; margin: 10mm; \}/);
 });
 
-test("all 3 Budget reports have summaries, one export control, A4 output, account links, and movable stamps", () => {
+test("all 4 Budget reports have summaries, one export control, A4 output, account links, and movable stamps", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const budget = readFileSync(new URL("../lib/budget-report.ts", import.meta.url), "utf8");
   const sharedExport = readFileSync(new URL("../lib/report-export.ts", import.meta.url), "utf8");
   const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
   const definitions = [...app.matchAll(/\["[^"]+",\s*"[^"]+",\s*"Budgets",\s*"([^"]+)"\]/g)].map((match) => match[1]);
-  assert.deepEqual(definitions, ["budget-overview", "budget-actual", "budget-actual-graph"]);
+  assert.deepEqual(definitions, ["budget-overview", "budget-actual", "budget-profit-loss", "budget-actual-graph"]);
   assert.match(app, /budgetOverview && <section className="budget-summary"/);
   assert.match(app, /isBudgetReport \|\| isSalesReport \|\| isCustomerReport \|\| isVendorReport \|\| isPurchaseReport \|\| isInventoryReport \|\| isBankingReport \|\| isAccountantReport \? <DropdownMenu>/);
   assert.match(app, /stampReport = [^;]+\|\| isBudgetReport/);
