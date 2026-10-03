@@ -210,7 +210,7 @@ flowchart TD
   View --> Output["Print A4, PDF, XLSX, or CSV"]
 ```
 
-The UI groups and searches 120 report definitions. `/api/reports` validates report-specific access and filters, loads ledger/transaction/master data, and returns normalized columns and rows plus optional summary/chart/period metadata. The client can drill into linked areas, save a user/company report view, choose A4 portrait or landscape (portrait by default), and export the same result.
+The UI groups and searches 120 report definitions. `/api/reports` validates report-specific access and filters, loads ledger/transaction/master data, and returns normalized columns and rows plus optional summary/chart/period metadata. The client can drill into linked areas, save a user/company report view, choose A4 portrait or landscape (portrait by default), and export the same result. In Inventory reports, search or filter by asset account and status/aging, sort stock quantities or values, and optionally hide zero QOH. The summary, net totals, printed rows and downloads all follow the current filtered rows. Desktop uses a detailed table; tablet/mobile use stock cards with labeled quantities and prices. Asset-account links open the saved account history; stock valuation is a current quantity/cost snapshot, not a reconciliation to the posted ledger.
 
 ## 10. Administration workflow
 

@@ -1105,3 +1105,95 @@ button, input, select { font: inherit; }
     min-height: 190mm !important;
   }
 }
+
+/* Inventory reporting: readable stock data without squeezing numeric columns. */
+.inventory-eyebrow { font-size: .68rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: #047857; }
+.inventory-library-intro { display: flex; justify-content: space-between; align-items: center; gap: 1.5rem; border: 1px solid #cbded7; border-radius: 1rem; padding: 1.4rem; background: linear-gradient(120deg, #f0fdf4, #fff); }
+.inventory-library-intro h4 { margin: .45rem 0; color: #142b25; font-size: 1.25rem; font-weight: 750; }
+.inventory-library-intro p:not(.inventory-eyebrow), .inventory-library-group-heading p { color: #64748b; font-size: .83rem; line-height: 1.6; }
+.inventory-library-formats { display: flex; flex-wrap: wrap; gap: .4rem; max-width: 14rem; }
+.inventory-library-formats span { background: #fff; border: 1px solid #cbded7; border-radius: .4rem; padding: .35rem .6rem; font-size: .68rem; font-weight: 650; color: #31594a; }
+.inventory-library-group { margin-top: 1.7rem; }
+.inventory-library-group-heading h4 { color: #172d27; font-size: .95rem; font-weight: 750; }
+.inventory-library-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; margin-top: .8rem; }
+.inventory-library-card { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; text-align: left; background: #fff; border: 1px solid #d7e0e7; border-radius: .8rem; padding: 1.25rem; color: #047857; transition: border-color .15s, box-shadow .15s; }
+.inventory-library-card:hover { border-color: #059669; box-shadow: 0 4px 16px rgb(15 23 42 / .06); }
+.inventory-library-card:focus-visible { outline: 2px solid #059669; outline-offset: 3px; }
+.inventory-library-card:disabled { opacity: .6; cursor: wait; }
+.inventory-library-card-copy { min-width: 0; }
+.inventory-library-card-copy strong { display: block; color: #0f172a; font-size: .9rem; line-height: 1.4; }
+.inventory-library-card-copy span { display: block; margin-top: .5rem; color: #64748b; font-size: .78rem; line-height: 1.6; }
+.inventory-library-card-copy small { display: block; margin-top: 1rem; font-size: .65rem; font-weight: 750; text-transform: uppercase; letter-spacing: .06em; }
+.inventory-report-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .8rem; padding: 1rem; border: 1px solid #d7e0e7; border-radius: .8rem; background: #f8fafc; }
+.inventory-report-filters label { display: grid; gap: .4rem; flex: 1 1 10rem; min-width: 0; font-size: .75rem; font-weight: 650; color: #475569; }
+.inventory-report-filters label.inventory-report-search { flex-basis: 18rem; }
+.inventory-report-filters select { width: 100%; min-width: 0; height: 2.5rem; border: 1px solid #cbd5e1; border-radius: .4rem; background: #fff; color: #0f172a; padding: 0 .6rem; font-size: .8rem; }
+.inventory-report-filter-count { display: flex; justify-content: space-between; align-items: center; gap: .5rem; width: 100%; color: #64748b; font-size: .75rem; }
+.inventory-report-data { min-width: 0; width: 100%; }
+.inventory-report-dialog .inventory-report-table-desktop { overflow: hidden; border-color: #d7e0e7; }
+.inventory-report-dialog .inventory-report-table-desktop [data-slot="table-container"] { overflow-x: auto; }
+.inventory-report-dialog .inventory-report-table-desktop table { min-width: 1080px; font-size: .8rem; }
+.inventory-report-dialog .inventory-report-table-desktop th { background: #edf3f1; color: #36564b; vertical-align: bottom; white-space: normal; padding: .9rem .7rem; font-size: .69rem; }
+.inventory-report-dialog .inventory-report-table-desktop td { padding: .85rem .7rem; line-height: 1.55; vertical-align: top; }
+.inventory-report-dialog .inventory-report-table-desktop td[data-inventory-kind="text"] { overflow-wrap: anywhere; }
+.inventory-report-dialog .inventory-report-table-desktop [data-responsive-column] { text-align: right; white-space: nowrap; word-break: normal; overflow-wrap: normal; font-variant-numeric: tabular-nums; }
+.inventory-report-dialog .inventory-report-table-desktop th[data-responsive-column] { white-space: normal; }
+.inventory-report-dialog .inventory-report-table-desktop tbody tr:nth-child(even) { background: #f8fafc; }
+.inventory-report-dialog .inventory-report-table-desktop tbody tr:hover { background: #edf8f3; }
+.inventory-report-dialog .inventory-report-table-desktop tfoot { background: #edf3f1; color: #0f172a; font-weight: 750; }
+.inventory-column-currency { display: block; margin-top: .25rem; opacity: .7; font-size: .62rem; }
+.inventory-report-mobile { display: none; }
+.inventory-report-empty { text-align: center; border: 1px dashed #cbd5e1; border-radius: .8rem; padding: 3rem 1rem; color: #64748b; }
+.inventory-report-empty strong { color: #334155; display: block; margin-bottom: .5rem; }
+.inventory-stock-card, .inventory-mobile-totals { border: 1px solid #d7e0e7; border-radius: .8rem; overflow: hidden; background: #fff; }
+.inventory-stock-card header { padding: 1rem; background: #f6f9f8; border-bottom: 1px solid #e2e8f0; }
+.inventory-stock-card h3 { font-size: .9rem; font-weight: 700; line-height: 1.6; overflow-wrap: anywhere; }
+.inventory-stock-identities { display: flex; flex-wrap: wrap; gap: .4rem 1rem; margin-top: .5rem; font-size: .72rem; color: #64748b; }
+.inventory-stock-card dl, .inventory-mobile-totals dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; padding: 1rem; }
+.inventory-stock-card dl > div[data-inventory-kind="text"] { grid-column: 1 / -1; }
+.inventory-stock-card dt, .inventory-mobile-totals dt { font-size: .66rem; font-weight: 650; color: #64748b; margin-bottom: .3rem; }
+.inventory-stock-card dd, .inventory-mobile-totals dd { color: #0f172a; font-size: .85rem; font-weight: 650; line-height: 1.5; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.inventory-mobile-totals { background: #edf8f3; }
+.inventory-mobile-totals > strong { display: block; padding: 1rem 1rem 0; font-size: .8rem; color: #31594a; }
+[data-appearance="dark"] .inventory-library-intro { background: linear-gradient(120deg, #112a24, #101a2a) !important; border-color: #35594c !important; }
+[data-appearance="dark"] :is(.inventory-library-card, .inventory-stock-card, .inventory-report-filters) { background: #101a2a !important; border-color: #334155 !important; }
+[data-appearance="dark"] :is(.inventory-library-intro h4, .inventory-library-group-heading h4, .inventory-library-card-copy strong, .inventory-stock-card dd, .inventory-mobile-totals dd, .inventory-report-empty strong) { color: #f1f5f9 !important; }
+[data-appearance="dark"] :is(.inventory-library-intro p:not(.inventory-eyebrow), .inventory-library-group-heading p, .inventory-library-card-copy span, .inventory-stock-card dt, .inventory-stock-identities, .inventory-mobile-totals dt, .inventory-report-filters label, .inventory-report-filter-count) { color: #b2c0d1 !important; }
+[data-appearance="dark"] :is(.inventory-library-card, .inventory-eyebrow) { color: #6ee7b7 !important; }
+[data-appearance="dark"] .inventory-library-formats span { background: #193025 !important; border-color: #35594c !important; color: #c7edda !important; }
+[data-appearance="dark"] .inventory-stock-card header { background: #152538 !important; border-color: #334155 !important; }
+[data-appearance="dark"] .inventory-report-dialog .inventory-report-table-desktop :is(th, tfoot) { background: #152b25 !important; color: #d1fae5 !important; }
+[data-appearance="dark"] .inventory-report-dialog .inventory-report-table-desktop tbody tr:nth-child(even) { background: #142034 !important; }
+[data-appearance="dark"] .inventory-report-dialog .inventory-report-table-desktop tbody tr:hover { background: #19392d !important; }
+[data-appearance="dark"] .inventory-report-dialog :is(.inventory-report-data button, .inventory-stock-identities button) { color: #6ee7b7 !important; }
+[data-appearance="dark"] .inventory-mobile-totals { background: #152b25 !important; border-color: #35594c !important; }
+[data-appearance="dark"] .inventory-mobile-totals > strong { color: #d1fae5 !important; }
+@media screen and (max-width: 900px) {
+  .inventory-report-table-desktop { display: none; }
+  .inventory-report-mobile { display: grid; gap: 1rem; }
+  .inventory-library-intro { flex-direction: column; align-items: flex-start; padding: 1rem; }
+  .inventory-library-formats { max-width: none; }
+  .inventory-library-cards { grid-template-columns: minmax(0, 1fr); }
+  .inventory-report-filters { padding: .8rem; }
+}
+@media print {
+  .inventory-report-mobile, .inventory-report-filters { display: none !important; }
+  .inventory-report-dialog .inventory-report-table-desktop { display: block !important; overflow: visible !important; border-color: #cbd5e1 !important; }
+  .inventory-report-dialog .inventory-report-table-desktop table { min-width: 0 !important; width: 100% !important; font-size: 7pt !important; }
+  .inventory-report-dialog .inventory-report-table-desktop th, .inventory-report-dialog .inventory-report-table-desktop td { color: #0f172a !important; background: #fff !important; padding: 2mm 1mm !important; }
+  .inventory-report-dialog .inventory-report-table-desktop [data-responsive-column] { white-space: normal !important; overflow-wrap: anywhere !important; }
+  .inventory-report-dialog .inventory-report-table-desktop thead { display: table-header-group; }
+  .inventory-report-dialog .inventory-report-table-desktop tfoot { display: table-row-group; }
+  .inventory-report-dialog .inventory-report-table-desktop tr { break-inside: avoid; }
+  .inventory-report-dialog .inventory-report-table-desktop button { color: #0f172a !important; text-decoration: none; }
+}
+
+@media print {
+  [data-appearance="dark"] .inventory-report-dialog .inventory-report-table-desktop :is(th, td, tfoot),
+  [data-appearance="dark"] .inventory-report-dialog .inventory-report-table-desktop tbody tr:nth-child(even),
+  [data-appearance="dark"] .inventory-report-dialog .inventory-summary,
+  [data-appearance="dark"] .inventory-report-dialog .inventory-summary-grid > div { background: #fff !important; color: #0f172a !important; }
+  [data-appearance="dark"] .inventory-report-dialog .inventory-summary-grid :is(span, strong),
+  [data-appearance="dark"] .inventory-report-dialog .inventory-summary-note,
+  [data-appearance="dark"] .inventory-report-dialog .inventory-report-data button { color: #0f172a !important; }
+}
