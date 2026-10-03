@@ -253,3 +253,6 @@ To pay an employee loan, open Banking → Write Cheque, choose Employee loan, se
 
 
 In New/Edit Employee, choose Loan / advance account and save the profile before creating a Banking employee loan payment. Selecting the saved employee selects that account, and the server enforces it. If no eligible account exists, the HR form explains how to create an Other Current Asset account in Chart of Accounts. Saving the profile never posts the manual loan amount or assigns existing transactions.
+
+
+In Employees & HR, open Salary sheets, create a monthly sheet, choose the period and company code, select HR employees or enter manual rows, then supply the personal/card/bank/IBAN details and salaries. Enter charges or use count × fee as a starting value; charges can include the service provider’s tax/other fees. Save to view, edit, delete, Print A4 or download PDF. Print opens the generated A4 landscape PDF with a print action. Assign Staff Salary Sheet in the company letterhead editor before creating a sheet to use its design. Saved sheets retain that branding. Creating a sheet is document preparation; salary payments continue through Banking.

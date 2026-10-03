@@ -1807,3 +1807,30 @@ test("bank employee loans retain identity, post asset/bank entries and appear pr
   globalThis.__reportTestUser = { id: 2, email: "viewer@example.test", role: "viewer", companyIds: [c.id], mustChangePassword: false };
   try { const privateList = await (await records.GET(new Request(`https://app.test/api/records?kind=contacts&companyId=${c.id}`))).json(); assert.equal(privateList.records.find(record => record.id === employee.id).bankLoanPayments, undefined); assert.equal(privateList.records.find(record => record.id === employee.id).loanAccountId, undefined); } finally { delete globalThis.__reportTestUser; }
 });
+
+test("staff salary sheets save, edit, isolate companies, preserve letterhead and delete with revisions", async () => {
+  const route = await vite.ssrLoadModule("/app/api/staff-salary-sheets/route.ts");
+  const domain = await vite.ssrLoadModule("/lib/staff-salary-sheet.ts");
+  const { company: c } = await (await workspaces.POST(post({ type: "company", name: "Salary sheet company", baseCurrency: "AED" }))).json();
+  const data = { title: "Staff Salary Sheet", month: "2026-09", startDate: "2026-09-01", endDate: "2026-09-30", companyCode: "TEST-100", phone: "", currency: "AED", serviceFee: 5, charges: 10.50, notes: "Prepared for review", lines: [ { employeeId: null, name: "Test Employee A", personalNumber: "00001234567890", cardDetails: "00123456", bankName: "Test Bank", iban: "AE000000000000000000000", salary: 3000.25 }, { employeeId: null, name: "Test Employee B", personalNumber: "", cardDetails: "", bankName: "", iban: "", salary: 4000 } ] };
+  const request = (method, body) => new Request("https://app.test/api/staff-salary-sheets", { method, headers: { origin: "https://app.test", "content-type": "application/json" }, body: JSON.stringify(body) });
+  const invalid = await route.POST(request("POST", { companyId: c.id, data: { ...data, endDate: "2026-08-30" } })); assert.equal(invalid.status, 400);
+  assert.equal((await route.POST(request("POST", { companyId: c.id, data: { ...data, lines: [{ ...data.lines[0], employeeId: 9999999 }] } }))).status, 400);
+  const created = await route.POST(request("POST", { companyId: c.id, data })); assert.equal(created.status, 201, await created.clone().text()); const record = (await created.json()).record;
+  assert.equal(record.data.lines[0].personalNumber, "00001234567890"); assert.equal(record.letterhead.name, c.name); assert.deepEqual(domain.staffSalaryTotals(record.data), { salary: 7000.25, charges: 10.5, grandTotal: 7010.75 });
+  await database.query("UPDATE companies SET name = $1 WHERE id = $2", ["Changed company branding", c.id]);
+  const changed = await route.PATCH(request("PATCH", { companyId: c.id, id: record.id, revision: 1, data: { ...data, charges: 20 } })); assert.equal(changed.status, 200); const updated = (await changed.json()).record; assert.equal(updated.revision, 2); assert.equal(updated.letterhead.name, c.name);
+  assert.equal((await route.PATCH(request("PATCH", { companyId: c.id, id: record.id, revision: 1, data }))).status, 409);
+  globalThis.__reportTestUser = { id: 2, email: "viewer@example.test", role: "viewer", companyIds: [c.id], mustChangePassword: false };
+  try { assert.equal((await route.GET(new Request(`https://app.test/api/staff-salary-sheets?companyId=${c.id}`))).status, 403); assert.equal((await route.POST(request("POST", { companyId: c.id, data }))).status, 403); } finally { delete globalThis.__reportTestUser; }
+  globalThis.__reportTestUser = { id: 3, email: "admin@example.test", role: "admin", companyIds: [c.id + 999], mustChangePassword: false };
+  try { assert.equal((await route.GET(new Request(`https://app.test/api/staff-salary-sheets?companyId=${c.id}`))).status, 403); } finally { delete globalThis.__reportTestUser; }
+  const list = await (await route.GET(new Request(`https://app.test/api/staff-salary-sheets?companyId=${c.id}`))).json(); assert.equal(list.records.length, 1); assert.equal(list.records[0].data.charges, 20);
+  const { staffSalaryPdf } = await vite.ssrLoadModule("/lib/staff-salary-pdf.ts");
+  const pdf = await staffSalaryPdf(updated); const bytes = Buffer.from(await pdf.arrayBuffer()); assert.equal(bytes.subarray(0, 5).toString(), "%PDF-");
+  const mediaBox = bytes.toString("latin1").match(/\/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(mediaBox); assert.ok(Math.abs(Number(mediaBox[1]) - 841.89) < 0.02); assert.ok(Math.abs(Number(mediaBox[2]) - 595.28) < 0.02);
+  if (process.env.STAFF_PDF_REVIEW) { const { writeFile } = await import("node:fs/promises"); await writeFile("/tmp/staff-salary-preview.pdf", Buffer.from(await (await staffSalaryPdf({ ...updated, data: { ...data, lines: Array.from({ length: 10 }, (_, i) => ({ ...data.lines[0], name: `TEST EMPLOYEE WITH A LONG FULL NAME NUMBER ${i+1}`, salary: 3000 + i * 100 })) } })).arrayBuffer())); await writeFile("/tmp/staff-salary-many.pdf", Buffer.from(await (await staffSalaryPdf({ ...updated, data: { ...data, lines: Array.from({ length: 60 }, (_, i) => ({ ...data.lines[0], name: `TEST EMPLOYEE ${i+1}` })) } })).arrayBuffer())); }
+  assert.equal((await route.DELETE(request("DELETE", { companyId: c.id, id: record.id, revision: 1 }))).status, 409);
+  assert.equal((await route.DELETE(request("DELETE", { companyId: c.id, id: record.id, revision: 2 }))).status, 200);
+  assert.equal((await (await route.GET(new Request(`https://app.test/api/staff-salary-sheets?companyId=${c.id}`))).json()).records.length, 0);
+});

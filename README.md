@@ -59,7 +59,7 @@ See [Application workflows](docs/WORKFLOWS.md) for sales, purchasing, inventory,
 
 ## API overview
 
-The application exposes 34 route groups under `app/api`. They are internal JSON endpoints used by the application UI rather than a versioned public API.
+The application exposes 35 route groups under `app/api`. They are internal JSON endpoints used by the application UI rather than a versioned public API.
 
 | Area | Routes |
 | --- | --- |
@@ -67,7 +67,7 @@ The application exposes 34 route groups under `app/api`. They are internal JSON 
 | Company configuration | `/api/workspaces`, `/api/company-setup`, `/api/company-setup/branding`, `/api/company-setup/letterhead`, `/api/company-setup/clear`, `/api/login-branding` |
 | Core records and accounting | `/api/records`, `/api/journal-entries`, `/api/account-history`, `/api/payment-terms`, `/api/attachments` |
 | Inventory | `/api/inventory-overview`, `/api/out-of-stock`, `/api/serial-search`, `/api/item-logistics`, `/api/inventory-check-reports`, `/api/stock-pricing`, `/api/stock-revaluation`, `/api/transfers`, `/api/shared-items`, `/api/sku-locks`, `/api/spec-options` |
-| Documents | `/api/packing-lists`, `/api/warranty-slips` |
+| Documents | `/api/packing-lists`, `/api/warranty-slips`, `/api/staff-salary-sheets` |
 | Tax, currency, and reports | `/api/reports`, `/api/memorised-reports`, `/api/vat-management`, `/api/vat-codes`, `/api/exchange-rates` |
 
 See [API reference](docs/API.md) for methods, authorization, parameters, and behavior for every route group.

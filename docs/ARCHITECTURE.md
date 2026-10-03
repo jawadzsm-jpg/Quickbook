@@ -204,3 +204,6 @@ Migration `0073_employee_bank_loans.sql` adds nullable `transactions.employee_lo
 
 
 Migration 0074 adds nullable `contacts.loan_account_id`. Loan-account validation lives in `employeeLoanAccount` in `lib/employee-hr.ts`; it is reused by employee profile writes and bank loan posting.
+
+
+Staff salary documents persist in `staff_salary_sheets` (migration 0075), with company ownership, serialized validated data, server-captured letterhead, revision and timestamps. Company access and administrator authorization apply to all operations; row locking and revisions prevent lost edits. Snapshots preserve historical document identity. Company deletion cascades, and the authorized saved-reports clear option includes these documents.

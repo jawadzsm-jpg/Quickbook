@@ -531,3 +531,13 @@ export const billPaymentAllocations = pgTable("bill_payment_allocations", {
   billId: integer("bill_id").notNull().references(() => transactions.id, { onDelete: "restrict" }),
   amount: doublePrecision("amount").notNull(),
 }, (table) => [uniqueIndex("idx_bill_payment_pair").on(table.paymentId, table.billId), index("idx_bill_allocation_bill").on(table.billId)]);
+
+export const staffSalarySheets = pgTable("staff_salary_sheets", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  revision: integer("revision").notNull().default(1),
+  data: text("data").notNull(),
+  letterhead: text("letterhead").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, table => [index("staff_salary_sheets_company_idx").on(table.companyId)]);
