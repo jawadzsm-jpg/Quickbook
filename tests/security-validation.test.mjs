@@ -502,7 +502,7 @@ test("all 8 Purchase reports have professional summaries, one export control, A4
   assert.match(app, /const stampReport = isVendorReport \|\| isPurchaseReport/);
   assert.match(app, /const vendorLink = isVendorReport[\s\S]*isPurchaseReport[\s\S]*purchases-by-vendor[\s\S]*onVendor/);
   assert.match(api, /transactionId: row\.id, supplier: row\.party/);
-  assert.match(api, /transactionId: line\.transactionId, supplier: line\.party/);
+  assert.match(api, /transactionId: line\.transactionId, \.\.\.purchaseAccountFor\(line\.transactionId\), supplier: line\.party/);
   assert.match(purchase, /export const purchaseReportKeys = new Set/);
   assert.match(sharedExport, /orientation: PrintOrientation = "portrait"/);
   assert.match(sharedExport, /purchaseSummary/);

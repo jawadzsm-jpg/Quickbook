@@ -105,6 +105,8 @@
 
 ## Reporting
 
+Purchases reports are grouped by supplier spending, item purchasing and orders/receiving. Views include search, supplier/account/status filters, numeric sorting, matching summaries and report totals, desktop tables and tablet/mobile cards. A4 print/PDF, CSV and Excel use the displayed rows; Excel includes a Purchases summary sheet. Supplier spend excludes VAT consistently with detail. Outstanding purchase orders subtract saved receiving allocations, show commitments before VAT in home currency, and separate closed/cancelled orders in status counts. Detail account links use actual posted journal credits for bills/expenses; purchase orders show their saved planned account because they do not post. Missing or ambiguous historical account links are shown for review.
+
 The Report Center contains 120 report definitions. Inventory reports are grouped into valuation, availability/purchasing, and stock health/verification. Their views provide search, asset-account and status/aging filters, numeric sorting, summaries and totals for the displayed row set, desktop tables and tablet/mobile stock cards. A4 portrait/landscape PDF, CSV and Excel exports share the displayed filters; Excel includes a separate Inventory summary sheet. Saved asset-account IDs remain authoritative even after account renaming or deactivation, and a missing saved link is shown explicitly instead of silently using the default.
 
 | Category | Count | Coverage examples |
@@ -120,7 +122,7 @@ The Report Center contains 120 report definitions. Inventory reports are grouped
 | Customers | 17 | Open balance, aging, statements, income, payments, invoices |
 | Sales | 12 | Sales by customer, item, rep, transaction detail, pending documents |
 | Vendors | 10 | Balances, statements, aging, supplier detail and quick reports |
-| Purchases | 8 | Purchase detail, order summary, unpaid bills, returns, expense analysis |
+| Purchases | 8 | Supplier/item purchasing, order status, outstanding quantities and commitments |
 | Inventory | 6 | Valuation, quantity, stock status, transaction detail, pricing/profit |
 
 Every report view supports a centered professional layout with category/search navigation and contextual actions. Depending on the report, features include:

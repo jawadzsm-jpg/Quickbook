@@ -2,7 +2,7 @@ import { budgetSummary } from "./budget-report";
 import { salesSummary } from "./sales-report";
 import { customerSummary } from "./customer-report";
 import { vendorSummary } from "./vendor-report";
-import { purchaseSummary } from "./purchase-report";
+import { purchaseColumnKind, purchaseColumnTotal, purchaseColumnWeight, purchaseReportKeys, purchaseSummary } from "./purchase-report";
 import { inventoryColumnKind, inventoryColumnTotal, inventoryColumnWeight, inventoryReportKeys, inventorySummary } from "./inventory-report";
 import { bankingSummary } from "./banking-report";
 import { accountantSummary } from "./accountant-report";
@@ -67,9 +67,11 @@ export function reportCsv(report: ReportExportData, company: string, inventory: 
     report.columns.map((column) => column.label),
     ...rows.map((row) => report.columns.map((column) => row[column.key] ?? "")),
   ];
-  if (inventoryReportKeys.has(report.key || "")) {
-    records.push(report.columns.map((column, index) => index === 0 ? "Net total" : inventoryColumnTotal(rows, column) ?? ""));
-    const overview = inventorySummary({ key: report.key, rows });
+  if (inventoryReportKeys.has(report.key || "") || purchaseReportKeys.has(report.key || "")) {
+    const isPurchase = purchaseReportKeys.has(report.key || "");
+    const columnTotal = isPurchase ? purchaseColumnTotal : inventoryColumnTotal;
+    records.push(report.columns.map((column, index) => index === 0 ? (isPurchase ? "Report total" : "Net total") : columnTotal(rows, column) ?? ""));
+    const overview = isPurchase ? purchaseSummary({ key: report.key, rows }) : inventorySummary({ key: report.key, rows });
     if (overview) records.push([], ["Summary"], ...overview.cards.map((card) => [card.label, card.value, card.format === "money" ? report.currency : ""]), ["Basis", overview.note]);
   }
   return "\uFEFF" + records.map((record) => record.map(safeCsv).join(",")).join("\r\n");
@@ -98,10 +100,14 @@ export async function reportWorkbook(report: ReportExportData, company: string, 
   });
   const columnCount = Math.max(1, report.columns.length);
   const isInventory = inventoryReportKeys.has(report.key || "");
+  const isPurchase = purchaseReportKeys.has(report.key || "");
+  const isOperational = isInventory || isPurchase;
+  const columnKind = isPurchase ? purchaseColumnKind : inventoryColumnKind;
+  const columnTotal = isPurchase ? purchaseColumnTotal : inventoryColumnTotal;
   sheet.addRow([company]);
   sheet.addRow([report.title]);
   sheet.addRow([`${inventory || "All inventories"} | ${report.period?.label || "Current report"}`]);
-  sheet.addRow([`${report.currency} home currency | Accrual basis`]);
+  sheet.addRow([`${report.currency} home currency | ${isPurchase && report.key?.includes("order") ? "Unposted commitments" : "Accrual basis"}`]);
   sheet.addRow([`Generated ${new Date(report.generatedAt).toLocaleString("en-AE")}`]);
   sheet.addRow([]);
   sheet.addRow([`${rows.length.toLocaleString("en-US")} record${rows.length === 1 ? "" : "s"}`]);
@@ -126,7 +132,7 @@ export async function reportWorkbook(report: ReportExportData, company: string, 
   });
   rows.forEach((record, index) => {
     const row = sheet.addRow(report.columns.map((column) => cellValue(record[column.key])));
-    row.height = isInventory ? Math.max(24, ...report.columns.map((column) => {
+    row.height = isOperational ? Math.max(24, ...report.columns.map((column) => {
       const width = widthFor(column);
       return Math.ceil(String(record[column.key] ?? "").length / Math.max(10, width - 5)) * 15 + 8;
     })) : 21;
@@ -137,9 +143,9 @@ export async function reportWorkbook(report: ReportExportData, company: string, 
   report.columns.forEach((column, index) => {
     const excelColumn = sheet.getColumn(index + 1);
     excelColumn.width = widthFor(column);
-    if (isInventory && inventoryColumnKind(column) !== "text") {
+    if (isOperational && columnKind(column) !== "text") {
       excelColumn.alignment = { horizontal: "right", vertical: "top", wrapText: true };
-      if (column.type !== "money") excelColumn.numFmt = '#,##0.##;[Red](#,##0.##);"0"';
+      if (column.type !== "money") excelColumn.numFmt = isPurchase ? '#,##0.######;[Red](#,##0.######);"0"' : '#,##0.##;[Red](#,##0.##);"0"';
     }
     if (column.type === "money") excelColumn.numFmt = '#,##0.00;[Red](#,##0.00);"-"';
   });
@@ -158,14 +164,14 @@ export async function reportWorkbook(report: ReportExportData, company: string, 
     detailKeys.forEach((key, index) => { detail.getColumn(index + 1).width = /name|account/.test(key) ? 36 : 20; if (key === "amount") detail.getColumn(index + 1).numFmt = '#,##0.00;[Red](#,##0.00);"-"'; });
     detail.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: Math.max(1, detailKeys.length) } };
   }
-  if (isInventory) {
-    const total = sheet.addRow(report.columns.map((column, index) => index === 0 ? "Net total" : inventoryColumnTotal(rows, column) ?? ""));
+  if (isOperational) {
+    const total = sheet.addRow(report.columns.map((column, index) => index === 0 ? (isPurchase ? "Report total" : "Net total") : columnTotal(rows, column) ?? ""));
     total.eachCell((cell) => { cell.font = { bold: true, color: { argb: navy } }; cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE5F4EC" } }; });
-    const overview = inventorySummary({ key: report.key, rows });
+    const overview = isPurchase ? purchaseSummary({ key: report.key, rows }) : inventorySummary({ key: report.key, rows });
     if (overview) {
-      const summarySheet = book.addWorksheet("Inventory summary", { pageSetup: { paperSize: 9, orientation, fitToPage: true, fitToWidth: 1, fitToHeight: 1 } });
+      const summarySheet = book.addWorksheet(isPurchase ? "Purchases summary" : "Inventory summary", { pageSetup: { paperSize: 9, orientation, fitToPage: true, fitToWidth: 1, fitToHeight: 1 } });
       summarySheet.columns = [{ width: 34 }, { width: 26 }, { width: 20 }];
-      summarySheet.addRows([[company], [report.title], [inventory || "All inventories"], ["Current stock snapshot", report.currency], [], ["Metric", "Value", "Currency / units"]]);
+      summarySheet.addRows([[company], [report.title], [inventory || "All inventories"], [isPurchase ? (report.period?.label || "Purchases and commitments") : "Current stock snapshot", report.currency], [], ["Metric", "Value", "Currency / units"]]);
       overview.cards.forEach((card) => {
         const row = summarySheet.addRow([card.label, card.value, card.format === "money" ? report.currency : ""]);
         if (card.format === "money") row.getCell(2).numFmt = '#,##0.00;[Red](#,##0.00)';
@@ -206,6 +212,11 @@ export async function reportPdf(report: ReportExportData, company: string, inven
     pdf.text(`${inventory || "All inventories"} | ${report.period?.label || "Current report"} | ${report.key === "employee-balances" ? "Employee currencies" : `${report.currency} report currency`} | ${rows.length} records`, 12, 31, { maxWidth: pageWidth - 24 });
   };
   const isInventory = inventoryReportKeys.has(report.key || "");
+  const isPurchase = purchaseReportKeys.has(report.key || "");
+  const isOperational = isInventory || isPurchase;
+  const columnKind = isPurchase ? purchaseColumnKind : inventoryColumnKind;
+  const columnTotal = isPurchase ? purchaseColumnTotal : inventoryColumnTotal;
+  const columnWeight = isPurchase ? purchaseColumnWeight : inventoryColumnWeight;
   let tableStart = summary ? 67 : 44;
   if (summary) {
     pdf.setFont("helvetica", "bold");
@@ -213,7 +224,7 @@ export async function reportPdf(report: ReportExportData, company: string, inven
     pdf.setTextColor(16, 32, 51);
     pdf.text("Summary", pageWidth / 2, 43, { align: "center" });
     const gap = 3;
-    const summaryColumns = isInventory ? Math.min(3, summary.cards.length) : summary.cards.length;
+    const summaryColumns = isOperational ? Math.min(3, summary.cards.length) : summary.cards.length;
     const cardWidth = (pageWidth - 20 - gap * (summaryColumns - 1)) / summaryColumns;
     summary.cards.forEach((card, index) => {
       const x = 10 + (index % summaryColumns) * (cardWidth + gap);
@@ -227,17 +238,17 @@ export async function reportPdf(report: ReportExportData, company: string, inven
       pdf.text(card.label.toUpperCase(), x + 2.5, y + 5, { maxWidth: cardWidth - 5 });
       pdf.setFontSize(9);
       pdf.setTextColor(card.tone === "negative" ? 190 : card.tone === "positive" ? 4 : 15, card.tone === "negative" ? 24 : card.tone === "positive" ? 120 : 23, card.tone === "negative" ? 60 : card.tone === "positive" ? 87 : 42);
-      const value = card.format === "money" ? `${report.currency} ${displayValue(card.value, true)}` : card.value.toLocaleString("en-AE");
+      const value = card.format === "money" ? `${report.currency} ${displayValue(card.value, true)}` : typeof card.value === "number" ? card.value.toLocaleString("en-AE", { maximumFractionDigits: isPurchase ? 6 : 3 }) : card.value;
       pdf.text(value, x + 2.5, y + 11.5, { maxWidth: cardWidth - 5 });
     });
-    if (isInventory) {
+    if (isOperational) {
       tableStart = 47 + Math.ceil(summary.cards.length / summaryColumns) * 18 + 3;
       pdf.setFont("helvetica", "normal"); pdf.setFontSize(7); pdf.setTextColor(90, 104, 119);
       const note = pdf.splitTextToSize(summary.note, pageWidth - 20);
       pdf.text(note, 10, tableStart); tableStart += note.length * 3.2 + 4;
     }
   }
-  const inventoryWeight = report.columns.reduce((total, column) => total + inventoryColumnWeight(column), 0);
+  const inventoryWeight = report.columns.reduce((total, column) => total + columnWeight(column), 0);
   autoTable(pdf, {
     startY: tableStart,
     margin: { top: 44, bottom: 17, left: 10, right: 10 },
@@ -247,12 +258,12 @@ export async function reportPdf(report: ReportExportData, company: string, inven
     styles: { font: "helvetica", fontSize: report.columns.length > 8 ? 6.5 : 8, cellPadding: 2.2, overflow: "linebreak", lineColor: [215, 222, 231], lineWidth: 0.15, textColor: [28, 43, 58] },
     headStyles: { fillColor: [16, 32, 51], textColor: [255, 255, 255], fontStyle: "bold", valign: "middle" },
     alternateRowStyles: { fillColor: [244, 247, 250] },
-    columnStyles: Object.fromEntries(report.columns.map((column, index) => [index, isInventory
-      ? { halign: inventoryColumnKind(column) === "text" ? "left" : "right", cellWidth: (pageWidth - 20) * inventoryColumnWeight(column) / inventoryWeight }
+    columnStyles: Object.fromEntries(report.columns.map((column, index) => [index, isOperational
+      ? { halign: columnKind(column) === "text" ? "left" : "right", cellWidth: (pageWidth - 20) * columnWeight(column) / inventoryWeight }
       : column.type === "money" ? { halign: "right" } : {}])),
-    foot: isInventory && rows.length ? [report.columns.map((column, index) => index === 0 ? "Net total" : displayValue(inventoryColumnTotal(rows, column), column.type === "money"))] : undefined,
+    foot: isOperational && rows.length ? [report.columns.map((column, index) => index === 0 ? (isPurchase ? "Report total" : "Net total") : displayValue(columnTotal(rows, column), column.type === "money"))] : undefined,
     showFoot: "lastPage",
-    rowPageBreak: isInventory ? "avoid" : "auto",
+    rowPageBreak: isOperational ? "avoid" : "auto",
     footStyles: { fillColor: [229, 244, 236], textColor: [16, 32, 51], fontStyle: "bold" },
     didDrawPage: drawHeader,
   });
