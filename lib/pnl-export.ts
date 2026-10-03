@@ -1,9 +1,10 @@
 import type { PnlReport } from "./profit-loss";
 import type { PrintOrientation } from "./document-print";
+import { pnlAmount, pnlSummary } from "./pnl-presentation";
 
 export const csvValue = (value: string | number) => typeof value === "number" ? String(value) : `"${(/^[\s\u0000-\u001f]*[=+@-]/.test(value) ? "'" + value : value).replaceAll('"', '""')}"`;
 export function pnlCsv(report: PnlReport, company: string) {
-  const records: (string | number)[][] = [[company], [report.title], [`${report.pnl.from || "Beginning"} to ${report.pnl.to || "Latest posting"}`, report.pnl.location, report.currency, "Accrual basis"], [], report.columns.map(c => c.label), ...report.rows.map(r => report.columns.map(c => r[c.key] ?? ""))];
+  const records: (string | number)[][] = [[company], [report.title], [`${report.pnl.from || "Beginning"} to ${report.pnl.to || "Latest posting"}`, report.pnl.location, report.currency, "Accrual basis"], [], report.columns.map(c => c.label), ...report.rows.map(r => report.columns.map(c => r[c.key] ?? "")), [], ["Classified ledger summary", report.currency], ...pnlSummary(report).map(card => [card.label, card.value]), [], ["Reporting notes"], [report.description], ...report.pnl.warnings.map(warning => ["Review", warning])];
   return "\uFEFF" + records.map(r => r.map(csvValue).join(",")).join("\r\n");
 }
 export async function pnlWorkbook(report: PnlReport, company: string, orientation: PrintOrientation = "portrait") {
@@ -19,23 +20,43 @@ export async function pnlWorkbook(report: PnlReport, company: string, orientatio
   report.rows.forEach(r => { const row = sheet.addRow(report.columns.map(c => r[c.key] ?? "")); row.alignment = { wrapText: true, vertical: "top" }; if (r.kind) row.font = { bold: true }; if (r.kind === "total") row.eachCell(c => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD1FAE5" } }; }); });
   report.columns.forEach((c, i) => { sheet.getColumn(i + 1).width = i === 0 ? 46 : c.type === "money" ? 21 : 24; if (c.type === "money") sheet.getColumn(i + 1).numFmt = '#,##0.00;[Red](#,##0.00);"–"'; });
   sheet.pageSetup.printTitlesRow = "1:5";
+  sheet.pageSetup.printArea = `A1:${sheet.getColumn(width).letter}${sheet.rowCount}`;
+  report.columns.forEach((column, index) => { if (column.type === "money") sheet.getColumn(index + 1).alignment = { horizontal: "right", vertical: "top", wrapText: true }; });
   sheet.headerFooter.oddFooter = "&L" + company.replaceAll("&", "&&") + "&RPage &P of &N";
-  const detail = book.addWorksheet("Ledger detail");
+  const detail = book.addWorksheet("Ledger detail", { views: [{ state: "frozen", ySplit: 1 }], pageSetup: { paperSize: 9, orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, printTitlesRow: "1:1" } });
   detail.addRow(["Date", "Reference", "Account", "Classification", "Inventory", "Sales rep", "Income", "Cost of sales", "Other expenses"]);
   report.pnl.details.forEach(r => detail.addRow([r.date, r.reference, r.account, r.type, r.location, r.salesman, r.income, r.cost, r.expenses]));
   detail.columns.forEach((c, i) => { c.width = i === 2 ? 40 : 23; if (i >= 6) c.numFmt = "#,##0.00;[Red](#,##0.00)"; });
   detail.getRow(1).font = { bold: true };
+  detail.eachRow(row => { row.alignment = { wrapText: true, vertical: "top" }; });
+  detail.autoFilter = { from: { row: 1, column: 1 }, to: { row: Math.max(1, detail.rowCount), column: 9 } };
+  const summary = book.addWorksheet("Summary & review", { pageSetup: { paperSize: 9, orientation, fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+  summary.columns = [{ width: 32 }, { width: 72 }];
+  summary.addRow([company, report.title]);
+  summary.addRow(["Reporting period", `${report.pnl.from || "Beginning"} to ${report.pnl.to || "Latest posting"}`]);
+  summary.addRow(["Scope", `${report.pnl.location} · ${report.currency} · Accrual basis`]);
+  summary.addRow([]);
+  pnlSummary(report).forEach(card => { const row = summary.addRow([card.label, card.value]); row.font = { bold: true }; row.getCell(2).numFmt = '#,##0.00;[Red](#,##0.00)'; });
+  summary.addRow([]);
+  summary.addRow(["Reporting basis", report.description]);
+  report.pnl.warnings.forEach(warning => summary.addRow(["Review", warning]));
+  summary.eachRow(row => { row.alignment = { wrapText: true, vertical: "top" }; row.height = Math.max(25, Math.ceil(String(row.getCell(2).value ?? "").length / 65) * 16); });
+  summary.getRow(1).font = { bold: true, size: 13 };
+  summary.headerFooter.oddFooter = "&L" + company.replaceAll("&", "&&") + "&RPage &P of &N";
   return book.xlsx.writeBuffer();
 }
 export async function pnlPdf(report: PnlReport, company: string, stamp?: { data: string; left: number; top: number }, orientation: PrintOrientation = "portrait") {
   const [{ jsPDF }, { autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
   const pdf = new jsPDF({ orientation, format: "a4", unit: "mm" });
   const width = pdf.internal.pageSize.getWidth(); const height = pdf.internal.pageSize.getHeight();
-  const number = (n: number) => n < 0 ? `(${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})` : n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const number = pnlAmount;
   const head = () => {
     pdf.setFillColor(16, 32, 51); pdf.rect(0, 0, width, 34, "F"); pdf.setTextColor(255); pdf.setFontSize(13); pdf.text(company, 12, 10, { maxWidth: width - 24 }); pdf.setFontSize(16); pdf.text(report.title, 12, 20); pdf.setFontSize(8); pdf.text(`${report.pnl.from || "Beginning"} to ${report.pnl.to || "Latest posting"} | ${report.pnl.location} | ${report.currency} | Accrual basis`, 12, 29, { maxWidth: width - 24 });
   };
-  autoTable(pdf, { startY: 40, margin: { top: 40, bottom: 18, left: 12, right: 12 }, head: [report.columns.map(c => c.label)], body: report.rows.map(r => report.columns.map(c => typeof r[c.key] === "number" && c.type === "money" ? number(Number(r[c.key])) : String(r[c.key] ?? ""))), styles: { fontSize: 8, cellPadding: 2.5, overflow: "linebreak" }, headStyles: { fillColor: [16, 32, 51] }, alternateRowStyles: { fillColor: [245, 248, 250] }, columnStyles: Object.fromEntries(report.columns.map((c, i) => [i, c.type === "money" ? { halign: "right" } : {}])), didParseCell: d => { if (d.section === "body" && report.rows[d.row.index]?.kind) { d.cell.styles.fontStyle = "bold"; d.cell.styles.fillColor = report.rows[d.row.index].kind === "total" ? [209, 250, 229] : [232, 238, 242]; } }, didDrawPage: head });
+  autoTable(pdf, { startY: 40, margin: { top: 40, bottom: 18, left: 12, right: 12 }, head: [pnlSummary(report).map(card => card.label)], body: [pnlSummary(report).map(card => `${number(card.value)} ${report.currency}`)], theme: "grid", styles: { fontSize: 10, cellPadding: 3, halign: "right" }, headStyles: { fillColor: [235, 245, 240], textColor: [30, 70, 55], fontSize: 8 }, didDrawPage: head });
+  const lastY = () => (pdf as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
+  autoTable(pdf, { startY: lastY() + 7, margin: { top: 40, bottom: 18, left: 12, right: 12 }, head: [report.columns.map(c => c.label)], body: report.rows.map(r => report.columns.map(c => typeof r[c.key] === "number" && c.type === "money" ? number(Number(r[c.key])) : String(r[c.key] ?? ""))), styles: { fontSize: 8, cellPadding: 2.5, overflow: "linebreak" }, headStyles: { fillColor: [16, 32, 51] }, alternateRowStyles: { fillColor: [245, 248, 250] }, columnStyles: Object.fromEntries(report.columns.map((c, i) => [i, c.type === "money" ? { halign: "right" } : {}])), didParseCell: d => { if (d.section === "body" && report.rows[d.row.index]?.kind) { d.cell.styles.fontStyle = "bold"; d.cell.styles.fillColor = report.rows[d.row.index].kind === "total" ? [209, 250, 229] : [232, 238, 242]; } }, didDrawPage: head });
+  autoTable(pdf, { startY: lastY() + 7, margin: { top: 40, bottom: 18, left: 12, right: 12 }, head: [["Reporting notes & review"]], body: [[report.description], ...report.pnl.warnings.map(warning => [warning])], styles: { fontSize: 8, cellPadding: 3, overflow: "linebreak" }, headStyles: { fillColor: [235, 245, 240], textColor: [30, 70, 55] }, bodyStyles: { textColor: [60, 70, 65] }, didDrawPage: head });
   if (stamp?.data) {
     const image = await new Promise<{ data: string; width: number; height: number }>((resolve, reject) => {
       const source = new Image();
