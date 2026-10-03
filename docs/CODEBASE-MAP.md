@@ -150,3 +150,5 @@ The complete repository gate is `npm run ci`.
 - Setup, command, environment, or top-level overview changed: `README.md`.
 
 Historical audit documents should remain historical. Record current behavior in the canonical set instead of treating an old audit snapshot as the active design.
+
+Shared Report Center presentation is in `app/enterprise-app.tsx`, with generic responsive tables in `app/report-data-table.tsx`. `lib/report-presentation.ts` owns report-key deduplication and numeric column presentation; `lib/report-export.ts` shares category summaries across CSV/XLSX/PDF. All report categories use `app/sales-report-stamp.tsx` for the common A4 stamp preview.

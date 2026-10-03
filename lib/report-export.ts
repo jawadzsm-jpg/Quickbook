@@ -1,3 +1,4 @@
+import { reportColumnKind, reportColumnWeight } from "./report-presentation";
 import { vatColumnKind, vatColumnTotal, vatColumnWeight, vatReportKeys, vatSummary } from "./vat-report";
 import { budgetSummary } from "./budget-report";
 import { salesColumnKind, salesColumnTotal, salesColumnWeight, salesReportKeys, salesSummary } from "./sales-report";
@@ -26,6 +27,10 @@ export type ReportExportData = {
   activeCustomers?: { count: number };
   statement?: { opening: number; charges: number; credits: number; closing: number };
 };
+
+function reportOverview(report: ReportExportData, rows: ReportExportRow[]) {
+  return vatSummary({ key: report.key, rows }) ?? budgetSummary({ key: report.key, rows }) ?? salesSummary({ key: report.key, rows }) ?? customerSummary({ key: report.key, rows, openBalance: report.openBalance, activeCustomers: report.activeCustomers, statement: report.statement }) ?? vendorSummary({ key: report.key, rows, statement: report.statement }) ?? purchaseSummary({ key: report.key, rows }) ?? inventorySummary({ key: report.key, rows }) ?? bankingSummary({ key: report.key, rows }) ?? accountantSummary({ key: report.key, rows }) ?? listSummary({ key: report.key, rows }) ?? employeeSummary({ key: report.key, rows });
+}
 
 const navy = "FF102033";
 const emerald = "FF059669";
@@ -76,9 +81,9 @@ export function reportCsv(report: ReportExportData, company: string, inventory: 
     const isVat = vatReportKeys.has(report.key || "");
     const columnTotal = isVendor ? vendorColumnTotal : isVat ? vatColumnTotal : isSales ? salesColumnTotal : isPurchase ? purchaseColumnTotal : inventoryColumnTotal;
     if (!isVat || report.columns.some((column) => columnTotal(rows, column) !== null)) records.push(report.columns.map((column, index) => index === 0 ? (isPurchase || isSales || isVat || isVendor ? "Report total" : "Net total") : columnTotal(rows, column) ?? ""));
-    const overview = isVendor ? vendorSummary({ ...report, rows }) : isVat ? vatSummary({ key: report.key, rows }) : isSales ? salesSummary({ key: report.key, rows }) : isPurchase ? purchaseSummary({ key: report.key, rows }) : inventorySummary({ key: report.key, rows });
-    if (overview) records.push([], ["Summary"], ...overview.cards.map((card) => [card.label, card.value, card.format === "money" ? report.currency : ""]), ["Basis", overview.note]);
   }
+  const overview = reportOverview(report, rows);
+  if (overview) records.push([], ["Summary"], ...overview.cards.map((card) => [card.label, card.value, card.format === "money" ? report.currency : ""]), ["Basis", overview.note]);
   return "\uFEFF" + records.map((record) => record.map(safeCsv).join(",")).join("\r\n");
 }
 
@@ -111,12 +116,13 @@ export async function reportWorkbook(report: ReportExportData, company: string, 
   const isSales = salesReportKeys.has(report.key || "");
   const isVat = vatReportKeys.has(report.key || "");
   const isOperational = isInventory || isPurchase || isSales || isVat || isVendor;
-  const columnKind = isVendor ? vendorColumnKind : isVat ? vatColumnKind : isSales ? salesColumnKind : isPurchase ? purchaseColumnKind : inventoryColumnKind;
+  const genericKinds = new Map(report.columns.map(column => [column.key, reportColumnKind(column, rows)]));
+  const columnKind = isVendor ? vendorColumnKind : isVat ? vatColumnKind : isSales ? salesColumnKind : isPurchase ? purchaseColumnKind : isInventory ? inventoryColumnKind : (column: ReportExportColumn) => genericKinds.get(column.key) ?? "text";
   const columnTotal = isVendor ? vendorColumnTotal : isVat ? vatColumnTotal : isSales ? salesColumnTotal : isPurchase ? purchaseColumnTotal : inventoryColumnTotal;
   sheet.addRow([company]);
   sheet.addRow([report.title]);
   sheet.addRow([`${inventory || "All inventories"} | ${report.period?.label || "Current report"}`]);
-  sheet.addRow([`${report.currency} ${isVendor ? "transaction currency" : "home currency"} | ${isVat && report.key === "vat-code-list" ? "Current VAT code register" : isSales && ["pending-sales", "sales-orders"].includes(report.key || "") ? "Document face values including VAT" : isPurchase && report.key?.includes("order") ? "Unposted commitments" : isVendor ? "Supplier document activity" : "Accrual basis"}`]);
+  sheet.addRow([`${report.key === "employee-balances" ? "Per employee (recorded currency)" : report.currency} ${isVendor ? "transaction currency" : "report currency"} | ${isVat && report.key === "vat-code-list" ? "Current VAT code register" : isSales && ["pending-sales", "sales-orders"].includes(report.key || "") ? "Document face values including VAT" : isPurchase && report.key?.includes("order") ? "Unposted commitments" : isVendor ? "Supplier document activity" : "Accrual basis"}`]);
   sheet.addRow([`Generated ${new Date(report.generatedAt).toLocaleString("en-AE")}`]);
   sheet.addRow([]);
   sheet.addRow([`${rows.length.toLocaleString("en-US")} record${rows.length === 1 ? "" : "s"}`]);
@@ -141,10 +147,10 @@ export async function reportWorkbook(report: ReportExportData, company: string, 
   });
   rows.forEach((record, index) => {
     const row = sheet.addRow(report.columns.map((column) => cellValue(record[column.key])));
-    row.height = isOperational ? Math.max(24, ...report.columns.map((column) => {
+    row.height = Math.max(24, ...report.columns.map((column) => {
       const width = widthFor(column);
       return Math.ceil(String(record[column.key] ?? "").length / Math.max(10, width - 5)) * 15 + 8;
-    })) : 21;
+    }));
     row.alignment = { vertical: "top", wrapText: true };
     if (index % 2 === 1) row.eachCell((cell) => { cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: pale } }; });
     row.eachCell((cell) => { cell.border = { bottom: { style: "hair", color: { argb: border } } }; });
@@ -152,9 +158,9 @@ export async function reportWorkbook(report: ReportExportData, company: string, 
   report.columns.forEach((column, index) => {
     const excelColumn = sheet.getColumn(index + 1);
     excelColumn.width = widthFor(column);
-    if (isOperational && columnKind(column) !== "text") {
+    if (columnKind(column) !== "text") {
       excelColumn.alignment = { horizontal: "right", vertical: "top", wrapText: true };
-      if (column.type !== "money") excelColumn.numFmt = isPurchase || isSales || isVat || isVendor ? '#,##0.######;[Red](#,##0.######);"0"' : '#,##0.##;[Red](#,##0.##);"0"';
+      if (column.type !== "money") excelColumn.numFmt = !isInventory ? '#,##0.######;[Red](#,##0.######);"0"' : '#,##0.##;[Red](#,##0.##);"0"';
     }
     if (column.type === "money") excelColumn.numFmt = '#,##0.00;[Red](#,##0.00);"-"';
   });
@@ -178,21 +184,21 @@ export async function reportWorkbook(report: ReportExportData, company: string, 
       const total = sheet.addRow(report.columns.map((column, index) => index === 0 ? (isPurchase || isSales || isVat || isVendor ? "Report total" : "Net total") : columnTotal(rows, column) ?? ""));
       total.eachCell((cell) => { cell.font = { bold: true, color: { argb: navy } }; cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE5F4EC" } }; });
     }
-    const overview = isVendor ? vendorSummary({ ...report, rows }) : isVat ? vatSummary({ key: report.key, rows }) : isSales ? salesSummary({ key: report.key, rows }) : isPurchase ? purchaseSummary({ key: report.key, rows }) : inventorySummary({ key: report.key, rows });
-    if (overview) {
-      const summarySheet = book.addWorksheet(isVendor ? "Vendors summary" : isVat ? "VAT summary" : isSales ? "Sales summary" : isPurchase ? "Purchases summary" : "Inventory summary", { pageSetup: { paperSize: 9, orientation, fitToPage: true, fitToWidth: 1, fitToHeight: 1 } });
-      summarySheet.columns = [{ width: 34 }, { width: 26 }, { width: 20 }];
-      summarySheet.addRows([[company], [report.title], [inventory || "All inventories"], [isPurchase || isSales || isVat || isVendor ? (report.period?.label || "Selected reporting period") : "Current stock snapshot", report.currency], [], ["Metric", "Value", "Currency / units"]]);
-      overview.cards.forEach((card) => {
-        const row = summarySheet.addRow([card.label, card.value, card.format === "money" ? report.currency : ""]);
-        if (card.format === "money") row.getCell(2).numFmt = '#,##0.00;[Red](#,##0.00)';
-      });
-      summarySheet.addRow([]);
-      const note = summarySheet.addRow([overview.note]);
-      summarySheet.mergeCells(note.number, 1, note.number, 3); note.height = 65; note.alignment = { wrapText: true, vertical: "top" };
-      summarySheet.getRow(1).font = { bold: true, size: 15 };
-      summarySheet.getRow(6).eachCell((cell) => { cell.font = { bold: true, color: { argb: "FFFFFFFF" } }; cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: navy } }; });
-    }
+  }
+  const overview = reportOverview(report, rows);
+  if (overview) {
+    const summarySheet = book.addWorksheet(isVendor ? "Vendors summary" : isVat ? "VAT summary" : isSales ? "Sales summary" : isPurchase ? "Purchases summary" : isInventory ? "Inventory summary" : "Summary", { pageSetup: { paperSize: 9, orientation, fitToPage: true, fitToWidth: 1, fitToHeight: 1 } });
+    summarySheet.columns = [{ width: 34 }, { width: 26 }, { width: 20 }];
+    summarySheet.addRows([[company], [report.title], [inventory || "All inventories"], [!isInventory ? (report.period?.label || "Selected reporting period") : "Current stock snapshot", report.currency], [], ["Metric", "Value", "Currency / units"]]);
+    overview.cards.forEach((card) => {
+      const row = summarySheet.addRow([card.label, card.value, card.format === "money" ? report.currency : ""]);
+      if (card.format === "money") row.getCell(2).numFmt = '#,##0.00;[Red](#,##0.00)';
+    });
+    summarySheet.addRow([]);
+    const note = summarySheet.addRow([overview.note]);
+    summarySheet.mergeCells(note.number, 1, note.number, 3); note.height = 65; note.alignment = { wrapText: true, vertical: "top" };
+    summarySheet.getRow(1).font = { bold: true, size: 15 };
+    summarySheet.getRow(6).eachCell((cell) => { cell.font = { bold: true, color: { argb: "FFFFFFFF" } }; cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: navy } }; });
   }
   return book.xlsx.writeBuffer();
 }
@@ -208,7 +214,7 @@ export async function reportPdf(report: ReportExportData, company: string, inven
   const pdf = new jsPDF({ orientation, format: "a4", unit: "mm" });
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
-  const summary = vatSummary({ key: report.key, rows }) ?? budgetSummary({ key: report.key, rows }) ?? salesSummary({ key: report.key, rows }) ?? customerSummary({ key: report.key, rows, openBalance: report.openBalance, activeCustomers: report.activeCustomers, statement: report.statement }) ?? vendorSummary({ key: report.key, rows, statement: report.statement }) ?? purchaseSummary({ key: report.key, rows }) ?? inventorySummary({ key: report.key, rows }) ?? bankingSummary({ key: report.key, rows }) ?? accountantSummary({ key: report.key, rows }) ?? listSummary({ key: report.key, rows }) ?? employeeSummary({ key: report.key, rows });
+  const summary = reportOverview(report, rows);
   const drawHeader = () => {
     pdf.setFillColor(16, 32, 51);
     pdf.rect(0, 0, pageWidth, 38, "F");
@@ -229,9 +235,10 @@ export async function reportPdf(report: ReportExportData, company: string, inven
   const isSales = salesReportKeys.has(report.key || "");
   const isVat = vatReportKeys.has(report.key || "");
   const isOperational = isInventory || isPurchase || isSales || isVat || isVendor;
-  const columnKind = isVendor ? vendorColumnKind : isVat ? vatColumnKind : isSales ? salesColumnKind : isPurchase ? purchaseColumnKind : inventoryColumnKind;
+  const genericKinds = new Map(report.columns.map(column => [column.key, reportColumnKind(column, rows)]));
+  const columnKind = isVendor ? vendorColumnKind : isVat ? vatColumnKind : isSales ? salesColumnKind : isPurchase ? purchaseColumnKind : isInventory ? inventoryColumnKind : (column: ReportExportColumn) => genericKinds.get(column.key) ?? "text";
   const columnTotal = isVendor ? vendorColumnTotal : isVat ? vatColumnTotal : isSales ? salesColumnTotal : isPurchase ? purchaseColumnTotal : inventoryColumnTotal;
-  const columnWeight = isVendor ? vendorColumnWeight : isVat ? vatColumnWeight : isSales ? salesColumnWeight : isPurchase ? purchaseColumnWeight : inventoryColumnWeight;
+  const columnWeight = isVendor ? vendorColumnWeight : isVat ? vatColumnWeight : isSales ? salesColumnWeight : isPurchase ? purchaseColumnWeight : isInventory ? inventoryColumnWeight : (column: ReportExportColumn) => genericKinds.get(column.key) !== "text" ? 1.6 : reportColumnWeight(column);
   let tableStart = summary ? 67 : 44;
   if (summary) {
     pdf.setFont("helvetica", "bold");
@@ -239,7 +246,7 @@ export async function reportPdf(report: ReportExportData, company: string, inven
     pdf.setTextColor(16, 32, 51);
     pdf.text("Summary", pageWidth / 2, 43, { align: "center" });
     const gap = 3;
-    const summaryColumns = isOperational ? Math.min(3, summary.cards.length) : summary.cards.length;
+    const summaryColumns = Math.max(1, Math.min(3, summary.cards.length));
     const cardWidth = (pageWidth - 20 - gap * (summaryColumns - 1)) / summaryColumns;
     summary.cards.forEach((card, index) => {
       const x = 10 + (index % summaryColumns) * (cardWidth + gap);
@@ -256,32 +263,28 @@ export async function reportPdf(report: ReportExportData, company: string, inven
       const value = card.format === "money" ? `${report.currency} ${displayValue(card.value, true)}` : typeof card.value === "number" ? card.value.toLocaleString("en-AE", { maximumFractionDigits: isPurchase || isSales || isVat || isVendor ? 6 : 3 }) : card.value;
       pdf.text(value, x + 2.5, y + 11.5, { maxWidth: cardWidth - 5 });
     });
-    if (isOperational) {
-      tableStart = 47 + Math.ceil(summary.cards.length / summaryColumns) * 18 + 3;
-      pdf.setFont("helvetica", "normal"); pdf.setFontSize(7); pdf.setTextColor(90, 104, 119);
-      const note = pdf.splitTextToSize(summary.note, pageWidth - 20);
-      pdf.text(note, 10, tableStart); tableStart += note.length * 3.2 + 4;
-    }
+    tableStart = 47 + Math.ceil(summary.cards.length / summaryColumns) * 18 + 3;
+    pdf.setFont("helvetica", "normal"); pdf.setFontSize(7); pdf.setTextColor(90, 104, 119);
+    const note = pdf.splitTextToSize(summary.note, pageWidth - 20);
+    pdf.text(note, 10, tableStart); tableStart += note.length * 3.2 + 4;
   }
   const inventoryWeight = report.columns.reduce((total, column) => total + columnWeight(column), 0);
   autoTable(pdf, {
     startY: tableStart,
     margin: { top: 44, bottom: 17, left: 10, right: 10 },
     head: [report.columns.map((column) => column.label)],
-    body: rows.map((row) => report.columns.map((column) => (isSales || isVat || isVendor) && columnKind(column) === "quantity" && typeof row[column.key] === "number" ? Number(row[column.key]).toLocaleString("en-US", { maximumFractionDigits: 6 }) : displayValue(row[column.key], column.type === "money"))),
+    body: rows.map((row) => report.columns.map((column) => columnKind(column) === "quantity" && typeof row[column.key] === "number" ? Number(row[column.key]).toLocaleString("en-US", { maximumFractionDigits: 6 }) : displayValue(row[column.key], column.type === "money"))),
     theme: "grid",
     styles: { font: "helvetica", fontSize: report.columns.length > 8 ? 6.5 : 8, cellPadding: 2.2, overflow: "linebreak", lineColor: [215, 222, 231], lineWidth: 0.15, textColor: [28, 43, 58] },
     headStyles: { fillColor: [16, 32, 51], textColor: [255, 255, 255], fontStyle: "bold", valign: "middle", ...(isVat || isVendor ? { cellPadding: 1 } : {}) },
     alternateRowStyles: { fillColor: [244, 247, 250] },
-    columnStyles: Object.fromEntries(report.columns.map((column, index) => [index, isOperational
-      ? { halign: columnKind(column) === "text" ? "left" : "right", cellWidth: (pageWidth - 20) * columnWeight(column) / inventoryWeight }
-      : column.type === "money" ? { halign: "right" } : {}])),
+    columnStyles: Object.fromEntries(report.columns.map((column, index) => [index, { halign: columnKind(column) === "text" ? "left" : "right", cellWidth: (pageWidth - 20) * columnWeight(column) / inventoryWeight }])),
     foot: isOperational && rows.length && (!isVat || report.columns.some((column) => columnTotal(rows, column) !== null)) ? [report.columns.map((column, index) => index === 0 ? (isPurchase || isSales || isVat || isVendor ? "Report total" : "Net total") : displayValue(columnTotal(rows, column), column.type === "money"))] : undefined,
     showFoot: "lastPage",
-    rowPageBreak: isOperational ? "avoid" : "auto",
+    rowPageBreak: "avoid",
     footStyles: { fillColor: [229, 244, 236], textColor: [16, 32, 51], fontStyle: "bold" },
     didParseCell: (cell) => {
-      if (!(isSales || isVat || isVendor) || cell.section === "head") return;
+      if (cell.section === "head") return;
       const column = report.columns[cell.column.index];
       if (!column || (columnKind(column) === "text" && !["date", "dueDate"].includes(column.key) && !(isVat && column.key === "code"))) return;
       cell.cell.styles.cellPadding = 1;

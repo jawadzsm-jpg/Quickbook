@@ -237,3 +237,9 @@ For Vendors, select company, inventory, currency and optionally a supplier. Quic
 5. Push the commit. GitHub Actions runs full source validation and CodeQL.
 6. Vercel begins the Git-linked build and waits for both required jobs for the exact SHA.
 7. The production build applies pending migrations, builds Next.js, and deploys only after the release gate succeeds.
+
+### Shared report output controls
+
+Choose a category from the sidebar on desktop or the category selector on tablet/mobile, or search the full library. Verify the company/inventory context and report-specific scope before opening a report. The supplier and transaction-currency selectors are also shown when vendor reports appear in search or All Reports. Saved views are offered only for currently available report definitions.
+
+All report categories expose the same optional company stamp preview. Enable the stamp, drag it on the A4 preview (or use arrows / millimetre inputs), then print or export PDF using the selected orientation. Report-specific account/document links and calculations remain authoritative. Shared tables use mobile cards and restore the detailed table when printing. CSV, Excel and PDF include each category summary where defined; generic running balances and unit prices are never automatically totaled.
