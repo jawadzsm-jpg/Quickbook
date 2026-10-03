@@ -110,6 +110,7 @@ Selected GET `kind` values beyond the four main record types are:
 - Dates use ISO `YYYY-MM-DD`; the server rejects invalid or inverted ranges.
 - Most reports can be scoped to an inventory location. VAT report keys are deliberately company-wide.
 - Accounting values are reported in the company home currency. The supported vendor currency reports validate a requested three-letter transaction currency.
+- Sales detail includes actual company-scoped journal receivable/receipt and revenue links; unposted sales documents show planned accounts. Daily totals use invoice/receipt headers and unique document IDs. Sales Order Fulfilment includes ordered, invoiced and remaining quantities using all current source-line allocations.
 - Responses use a normalized `report` object consumed by the client’s table, summary, chart, print, PDF, XLSX, CSV, and drill-down features.
 - Purchase document detail includes a company-scoped payable/payment account link from posted journal credits. Open PO reports retain the saved planned account and subtract all current receiving allocations to calculate remaining quantities and home-currency commitments before VAT. PO status counts include a closed/cancelled column. Supplier purchase summaries and details both exclude VAT from purchase spend.
 
