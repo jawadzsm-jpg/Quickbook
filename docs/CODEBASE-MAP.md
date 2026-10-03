@@ -61,6 +61,7 @@ Use this file to locate implementation ownership without rescanning the whole re
 | Invoice pricing and dates | `lib/invoice-pricing.ts`, `lib/payment-terms.ts`, `lib/contact-currency.ts` |
 | Account links and defaults | `lib/standard-accounts.ts`, `lib/report-account-links.ts` |
 | Profit & Loss/financial | `lib/profit-loss.ts`, `lib/financial-reports.ts`, `lib/pnl-export.ts` |
+| Inventory report presentation | `app/inventory-report-library.tsx`, `app/inventory-report-table.tsx`, filters in `app/enterprise-app.tsx` |
 | Operational report summaries | `lib/sales-report.ts`, `customer-report.ts`, `vendor-report.ts`, `purchase-report.ts`, `inventory-report.ts`, `banking-report.ts`, `accountant-report.ts`, `employee-report.ts`, `list-report.ts`, `budget-report.ts` |
 | Report period/export | `lib/report-period.ts`, `lib/report-export.ts`, `lib/record-list-export.ts`, `lib/export.ts` |
 | Documents and printing | `lib/document-design.ts`, `lib/document-output.ts`, `lib/document-print.ts`, `lib/letterhead.ts`, `lib/uae-cheque-layouts.ts` |

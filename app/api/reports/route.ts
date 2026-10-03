@@ -7,6 +7,7 @@ import { getDb } from "../../../db";
 import { accounts, auditLog, billPaymentAllocations, companies, contacts, exchangeRates, inventoryLocations, invoicePaymentAllocations, items, journalEntries, journalLines, transactionLines, transactions, vatCodes } from "../../../db/schema";
 import { stockPricingRows } from "@/lib/stock-pricing";
 import { canAccessCompany, hasPermission, isAdministrator, requireApiUser } from "@/lib/auth";
+import { inventoryAssetAccountLink } from "@/lib/inventory-report";
 import { linkReportAccounts } from "@/lib/report-account-links";
 
 type Row = Record<string, string | number | null>;
@@ -133,12 +134,7 @@ export async function GET(request: Request) {
     const purchaseSubtotal = (row: typeof allTransactions[number]) => (row.type === "vendor credit" ? -1 : 1) * baseSubtotal(row);
     const rateMap = new Map(currentRates.map((rate) => [rate.currencyCode, Number(rate.rate)]));
     const entryAccountType = (entry: typeof journal[number]) => journalAccount(entry)?.type ?? "Unclassified";
-    const activeInventoryAccounts = allAccounts.filter((account) => account.active && (account.systemRole === "INVENTORY" || /inventory asset/i.test(account.name)));
-    const defaultInventoryAccount = activeInventoryAccounts.find((account) => account.currency === currency) ?? activeInventoryAccounts[0];
-    const inventoryAccountLinkFor = (item: typeof allItems[number]) => {
-      const linked = activeInventoryAccounts.find((account) => account.id === item.assetAccountId) ?? defaultInventoryAccount;
-      return { account: linked ? `${linked.code} · ${linked.name}` : "Inventory Asset not configured", accountAccountId: linked?.id ?? 0 };
-    };
+    const inventoryAccountLinkFor = (item: typeof allItems[number]) => inventoryAssetAccountLink(item, allAccounts, currency);
     const weightedInventoryCosts = new Map<number, { quantity: number; value: number }>();
     for (const line of rawLines.filter((entry) => entry.itemId && !entry.isFreightCharge && ["bill", "item receipt"].includes(entry.type))) {
       const quantity = Number(line.quantity);

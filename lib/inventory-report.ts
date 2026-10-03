@@ -16,6 +16,57 @@ export type InventorySummaryCard = {
   tone?: "positive" | "negative" | "neutral" | "accent";
 };
 
+export type InventoryReportRow = Record<string, string | number | null>;
+export type InventoryReportColumn = { key: string; label: string; type?: "money" };
+export type InventoryReportFilters = { query: string; account: string; status: string; sort: string };
+const quantityKeys = new Set(["quantity", "onHand", "available", "reorder", "required", "buildLevel", "shortageQuantity", "items", "lowStock", "outOfStock", "ageDays", "count", "difference"]);
+const additiveKeys = new Set(["quantity", "onHand", "available", "required", "shortageQuantity", "items", "lowStock", "outOfStock", "value", "shortageValue"]);
+
+export function inventoryColumnKind(column: InventoryReportColumn): "text" | "quantity" | "price" | "amount" {
+  if (column.type === "money") return column.key === "cost" ? "price" : "amount";
+  return quantityKeys.has(column.key) ? "quantity" : "text";
+}
+
+export function inventoryColumnWeight(column: InventoryReportColumn) {
+  if (["name", "item"].includes(column.key)) return 4.5;
+  if (["account", "supplier"].includes(column.key)) return 3;
+  if (column.key === "cost") return 1.8;
+  if (column.type === "money") return 2.2;
+  if (inventoryColumnKind(column) === "quantity") return 1.2;
+  return 1.8;
+}
+
+export function inventoryColumnTotal(rows: InventoryReportRow[], column: InventoryReportColumn) {
+  return additiveKeys.has(column.key) ? rows.reduce((total, row) => total + Number(row[column.key] || 0), 0) : null;
+}
+
+export function filterInventoryReportRows<T extends InventoryReportRow>(rows: T[], columns: InventoryReportColumn[], filters: InventoryReportFilters): T[] {
+  const query = filters.query.trim().toLocaleLowerCase();
+  const selected = rows.filter((row) => (!query || columns.some((column) => String(row[column.key] ?? "").toLocaleLowerCase().includes(query)))
+    && (!filters.account || String(row.account ?? "") === filters.account)
+    && (!filters.status || String(row.status ?? row.ageBand ?? "") === filters.status));
+  if (filters.sort === "value") return selected.sort((a, b) => Number(b.value ?? b.shortageValue ?? 0) - Number(a.value ?? a.shortageValue ?? 0));
+  if (filters.sort === "quantity") return selected.sort((a, b) => Number(a.quantity ?? a.onHand ?? 0) - Number(b.quantity ?? b.onHand ?? 0));
+  if (filters.sort === "name") return selected.sort((a, b) => String(a.name ?? a.supplier ?? a.category ?? "").localeCompare(String(b.name ?? b.supplier ?? b.category ?? "")));
+  return selected;
+}
+
+type InventoryAccount = { id: number; code: string; name: string; active: boolean; systemRole: string | null; currency: string };
+export function inventoryAssetAccountLink(item: { assetAccountId: number | null }, accounts: InventoryAccount[], currency: string) {
+  const defaults = accounts.filter((account) => account.active && (account.systemRole === "INVENTORY" || /inventory asset/i.test(account.name)));
+  // A saved ID remains authoritative after an account is renamed or deactivated.
+  const account = item.assetAccountId
+    ? accounts.find((entry) => entry.id === item.assetAccountId)
+    : defaults.find((entry) => entry.currency === currency) ?? defaults[0];
+  return { account: account ? `${account.code} · ${account.name}` : item.assetAccountId ? "Inventory asset account link missing" : "Inventory Asset not configured", accountAccountId: account?.id ?? 0 };
+}
+
+export const inventoryReportGroups = [
+  { title: "Stock valuation", description: "Understand your inventory investment and linked asset accounts.", keys: ["inventory-valuation", "inventory-valuation-detail"] },
+  { title: "Availability & purchasing", description: "Find available stock, supplier exposure and replenishment needs.", keys: ["inventory-status", "inventory-status-supplier", "pending-builds"] },
+  { title: "Stock health & verification", description: "Identify aging stock, shortages and items to count.", keys: ["inventory-stock-aging", "negative-item-list", "physical-inventory"] },
+];
+
 type InventoryReportLike = {
   key?: string;
   rows: Array<Record<string, string | number | null>>;

@@ -1305,3 +1305,35 @@ test('VAT management includes every taxable document type and posts adjustments 
   assert.equal((await removedAttachments.json()).attachments.length,0);
  } finally { delete globalThis.__reportTestUser; }
 });
+
+test('inventory filters keep quantities, summaries and downloads on the same row set', async () => {
+  const { filterInventoryReportRows, inventorySummary, inventoryColumnTotal, inventoryAssetAccountLink } = await vite.ssrLoadModule('/lib/inventory-report.ts');
+  const rows = [{ name: 'Laptop A', sku: 'A1', account: 'Stock A', status: 'Low Stock', quantity: 2.5, cost: 100, value: 250 }, { name: 'Laptop B', sku: 'B1', account: 'Stock B', status: 'In Stock', quantity: 10, cost: 200, value: 2000 }, { name: 'Monitor', sku: 'M1', account: 'Stock A', status: 'Low Stock', quantity: 1, cost: 50, value: 50 }];
+  const columns = [{ key: 'name', label: 'Item' }, { key: 'sku', label: 'SKU' }, { key: 'account', label: 'Account' }, { key: 'quantity', label: 'Quantity' }, { key: 'cost', label: 'Average cost', type: 'money' }, { key: 'value', label: 'Value', type: 'money' }];
+  const filtered = filterInventoryReportRows(rows, columns, { query: 'laptop', account: 'Stock A', status: 'Low Stock', sort: 'value' });
+  assert.deepEqual(filtered, [rows[0]]);
+  assert.equal(inventorySummary({ key: 'inventory-valuation-detail', rows: filtered }).cards[0].value, 250);
+  assert.equal(inventoryColumnTotal(filtered, columns[3]), 2.5);
+  assert.equal(inventoryColumnTotal(filtered, columns[4]), null); // Unit costs must never be added together.
+  assert.equal(filterInventoryReportRows(rows, columns, { query: '', account: '', status: '', sort: 'quantity' })[0].name, 'Monitor');
+  assert.equal(rows[0].name, 'Laptop A'); // Sorting must not mutate the API result.
+  const accounts = [{ id: 1, code: '1200', name: 'Inventory Asset', systemRole: 'INVENTORY', currency: 'AED', active: true }, { id: 2, code: '1201', name: 'Warehouse Stock', systemRole: '', currency: 'AED', active: false }];
+  assert.deepEqual(inventoryAssetAccountLink({ assetAccountId: 2 }, accounts, 'AED'), { account: '1201 · Warehouse Stock', accountAccountId: 2 });
+  assert.equal(inventoryAssetAccountLink({ assetAccountId: 999 }, accounts, 'AED').accountAccountId, 0);
+  assert.equal(inventoryAssetAccountLink({ assetAccountId: null }, accounts, 'AED').accountAccountId, 1);
+  const { reportCsv, reportWorkbook, reportPdf } = await vite.ssrLoadModule('/lib/report-export.ts');
+  const report = { key: 'inventory-valuation-detail', title: 'Stock Valuation Detail', generatedAt: '2026-10-03T08:00:00.000Z', currency: 'AED', columns, rows };
+  const csv = reportCsv(report, 'QA Company', 'Main', filtered);
+  assert.ok(csv.includes('Laptop A')); assert.ok(!csv.includes('Laptop B')); assert.ok(csv.includes('Summary')); assert.ok(csv.includes('250'));
+  const { default: ExcelJS } = await import('exceljs');
+  const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(await reportWorkbook(report, 'QA Company', 'Main', filtered));
+  assert.equal(workbook.getWorksheet('Report').getCell('D10').value, 2.5);
+  assert.equal(workbook.getWorksheet('Report').getCell('E11').value, '');
+  assert.equal(workbook.getWorksheet('Inventory summary').getCell('B7').value, 250);
+  for (const orientation of ['portrait', 'landscape']) {
+    const pdf = Buffer.from(await reportPdf(report, 'QA Company', 'Main', filtered, undefined, orientation)).toString('latin1');
+    const box = pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(box);
+    assert.ok(Math.abs(Number(box[1]) - (orientation === 'portrait' ? 595.28 : 841.89)) < 0.01);
+    assert.ok(pdf.includes('Summary'));
+  }
+});

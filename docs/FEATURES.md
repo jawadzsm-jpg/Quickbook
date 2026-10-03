@@ -105,7 +105,7 @@
 
 ## Reporting
 
-The Report Center contains 120 report definitions.
+The Report Center contains 120 report definitions. Inventory reports are grouped into valuation, availability/purchasing, and stock health/verification. Their views provide search, asset-account and status/aging filters, numeric sorting, summaries and totals for the displayed row set, desktop tables and tablet/mobile stock cards. A4 portrait/landscape PDF, CSV and Excel exports share the displayed filters; Excel includes a separate Inventory summary sheet. Saved asset-account IDs remain authoritative even after account renaming or deactivation, and a missing saved link is shown explicitly instead of silently using the default.
 
 | Category | Count | Coverage examples |
 | --- | ---: | --- |

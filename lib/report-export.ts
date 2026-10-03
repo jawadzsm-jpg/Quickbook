@@ -3,7 +3,7 @@ import { salesSummary } from "./sales-report";
 import { customerSummary } from "./customer-report";
 import { vendorSummary } from "./vendor-report";
 import { purchaseSummary } from "./purchase-report";
-import { inventorySummary } from "./inventory-report";
+import { inventoryColumnKind, inventoryColumnTotal, inventoryColumnWeight, inventoryReportKeys, inventorySummary } from "./inventory-report";
 import { bankingSummary } from "./banking-report";
 import { accountantSummary } from "./accountant-report";
 import { listSummary } from "./list-report";
@@ -67,6 +67,11 @@ export function reportCsv(report: ReportExportData, company: string, inventory: 
     report.columns.map((column) => column.label),
     ...rows.map((row) => report.columns.map((column) => row[column.key] ?? "")),
   ];
+  if (inventoryReportKeys.has(report.key || "")) {
+    records.push(report.columns.map((column, index) => index === 0 ? "Net total" : inventoryColumnTotal(rows, column) ?? ""));
+    const overview = inventorySummary({ key: report.key, rows });
+    if (overview) records.push([], ["Summary"], ...overview.cards.map((card) => [card.label, card.value, card.format === "money" ? report.currency : ""]), ["Basis", overview.note]);
+  }
   return "\uFEFF" + records.map((record) => record.map(safeCsv).join(",")).join("\r\n");
 }
 
@@ -92,6 +97,7 @@ export async function reportWorkbook(report: ReportExportData, company: string, 
     pageSetup: { paperSize: 9, orientation, fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 } },
   });
   const columnCount = Math.max(1, report.columns.length);
+  const isInventory = inventoryReportKeys.has(report.key || "");
   sheet.addRow([company]);
   sheet.addRow([report.title]);
   sheet.addRow([`${inventory || "All inventories"} | ${report.period?.label || "Current report"}`]);
@@ -120,7 +126,10 @@ export async function reportWorkbook(report: ReportExportData, company: string, 
   });
   rows.forEach((record, index) => {
     const row = sheet.addRow(report.columns.map((column) => cellValue(record[column.key])));
-    row.height = 21;
+    row.height = isInventory ? Math.max(24, ...report.columns.map((column) => {
+      const width = widthFor(column);
+      return Math.ceil(String(record[column.key] ?? "").length / Math.max(10, width - 5)) * 15 + 8;
+    })) : 21;
     row.alignment = { vertical: "top", wrapText: true };
     if (index % 2 === 1) row.eachCell((cell) => { cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: pale } }; });
     row.eachCell((cell) => { cell.border = { bottom: { style: "hair", color: { argb: border } } }; });
@@ -128,6 +137,10 @@ export async function reportWorkbook(report: ReportExportData, company: string, 
   report.columns.forEach((column, index) => {
     const excelColumn = sheet.getColumn(index + 1);
     excelColumn.width = widthFor(column);
+    if (isInventory && inventoryColumnKind(column) !== "text") {
+      excelColumn.alignment = { horizontal: "right", vertical: "top", wrapText: true };
+      if (column.type !== "money") excelColumn.numFmt = '#,##0.##;[Red](#,##0.##);"0"';
+    }
     if (column.type === "money") excelColumn.numFmt = '#,##0.00;[Red](#,##0.00);"-"';
   });
   sheet.autoFilter = { from: { row: 9, column: 1 }, to: { row: 9, column: columnCount } };
@@ -144,6 +157,25 @@ export async function reportWorkbook(report: ReportExportData, company: string, 
     report.financial.details.forEach((record) => detail.addRow(detailKeys.map((key) => cellValue(record[key]))));
     detailKeys.forEach((key, index) => { detail.getColumn(index + 1).width = /name|account/.test(key) ? 36 : 20; if (key === "amount") detail.getColumn(index + 1).numFmt = '#,##0.00;[Red](#,##0.00);"-"'; });
     detail.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: Math.max(1, detailKeys.length) } };
+  }
+  if (isInventory) {
+    const total = sheet.addRow(report.columns.map((column, index) => index === 0 ? "Net total" : inventoryColumnTotal(rows, column) ?? ""));
+    total.eachCell((cell) => { cell.font = { bold: true, color: { argb: navy } }; cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE5F4EC" } }; });
+    const overview = inventorySummary({ key: report.key, rows });
+    if (overview) {
+      const summarySheet = book.addWorksheet("Inventory summary", { pageSetup: { paperSize: 9, orientation, fitToPage: true, fitToWidth: 1, fitToHeight: 1 } });
+      summarySheet.columns = [{ width: 34 }, { width: 26 }, { width: 20 }];
+      summarySheet.addRows([[company], [report.title], [inventory || "All inventories"], ["Current stock snapshot", report.currency], [], ["Metric", "Value", "Currency / units"]]);
+      overview.cards.forEach((card) => {
+        const row = summarySheet.addRow([card.label, card.value, card.format === "money" ? report.currency : ""]);
+        if (card.format === "money") row.getCell(2).numFmt = '#,##0.00;[Red](#,##0.00)';
+      });
+      summarySheet.addRow([]);
+      const note = summarySheet.addRow([overview.note]);
+      summarySheet.mergeCells(note.number, 1, note.number, 3); note.height = 65; note.alignment = { wrapText: true, vertical: "top" };
+      summarySheet.getRow(1).font = { bold: true, size: 15 };
+      summarySheet.getRow(6).eachCell((cell) => { cell.font = { bold: true, color: { argb: "FFFFFFFF" } }; cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: navy } }; });
+    }
   }
   return book.xlsx.writeBuffer();
 }
@@ -173,30 +205,41 @@ export async function reportPdf(report: ReportExportData, company: string, inven
     pdf.setTextColor(215, 226, 236);
     pdf.text(`${inventory || "All inventories"} | ${report.period?.label || "Current report"} | ${report.key === "employee-balances" ? "Employee currencies" : `${report.currency} report currency`} | ${rows.length} records`, 12, 31, { maxWidth: pageWidth - 24 });
   };
+  const isInventory = inventoryReportKeys.has(report.key || "");
+  let tableStart = summary ? 67 : 44;
   if (summary) {
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(10);
     pdf.setTextColor(16, 32, 51);
     pdf.text("Summary", pageWidth / 2, 43, { align: "center" });
     const gap = 3;
-    const cardWidth = (pageWidth - 20 - gap * (summary.cards.length - 1)) / summary.cards.length;
+    const summaryColumns = isInventory ? Math.min(3, summary.cards.length) : summary.cards.length;
+    const cardWidth = (pageWidth - 20 - gap * (summaryColumns - 1)) / summaryColumns;
     summary.cards.forEach((card, index) => {
-      const x = 10 + index * (cardWidth + gap);
+      const x = 10 + (index % summaryColumns) * (cardWidth + gap);
+      const y = 47 + Math.floor(index / summaryColumns) * 18;
       pdf.setFillColor(244, 247, 250);
       pdf.setDrawColor(215, 222, 231);
-      pdf.roundedRect(x, 47, cardWidth, 15, 1.5, 1.5, "FD");
+      pdf.roundedRect(x, y, cardWidth, 15, 1.5, 1.5, "FD");
       pdf.setFont("helvetica", "bold");
       pdf.setFontSize(6.5);
       pdf.setTextColor(90, 104, 119);
-      pdf.text(card.label.toUpperCase(), x + 2.5, 52, { maxWidth: cardWidth - 5 });
+      pdf.text(card.label.toUpperCase(), x + 2.5, y + 5, { maxWidth: cardWidth - 5 });
       pdf.setFontSize(9);
       pdf.setTextColor(card.tone === "negative" ? 190 : card.tone === "positive" ? 4 : 15, card.tone === "negative" ? 24 : card.tone === "positive" ? 120 : 23, card.tone === "negative" ? 60 : card.tone === "positive" ? 87 : 42);
       const value = card.format === "money" ? `${report.currency} ${displayValue(card.value, true)}` : card.value.toLocaleString("en-AE");
-      pdf.text(value, x + 2.5, 58.5, { maxWidth: cardWidth - 5 });
+      pdf.text(value, x + 2.5, y + 11.5, { maxWidth: cardWidth - 5 });
     });
+    if (isInventory) {
+      tableStart = 47 + Math.ceil(summary.cards.length / summaryColumns) * 18 + 3;
+      pdf.setFont("helvetica", "normal"); pdf.setFontSize(7); pdf.setTextColor(90, 104, 119);
+      const note = pdf.splitTextToSize(summary.note, pageWidth - 20);
+      pdf.text(note, 10, tableStart); tableStart += note.length * 3.2 + 4;
+    }
   }
+  const inventoryWeight = report.columns.reduce((total, column) => total + inventoryColumnWeight(column), 0);
   autoTable(pdf, {
-    startY: summary ? 67 : 44,
+    startY: tableStart,
     margin: { top: 44, bottom: 17, left: 10, right: 10 },
     head: [report.columns.map((column) => column.label)],
     body: rows.map((row) => report.columns.map((column) => displayValue(row[column.key], column.type === "money"))),
@@ -204,7 +247,13 @@ export async function reportPdf(report: ReportExportData, company: string, inven
     styles: { font: "helvetica", fontSize: report.columns.length > 8 ? 6.5 : 8, cellPadding: 2.2, overflow: "linebreak", lineColor: [215, 222, 231], lineWidth: 0.15, textColor: [28, 43, 58] },
     headStyles: { fillColor: [16, 32, 51], textColor: [255, 255, 255], fontStyle: "bold", valign: "middle" },
     alternateRowStyles: { fillColor: [244, 247, 250] },
-    columnStyles: Object.fromEntries(report.columns.map((column, index) => [index, column.type === "money" ? { halign: "right" } : {}])),
+    columnStyles: Object.fromEntries(report.columns.map((column, index) => [index, isInventory
+      ? { halign: inventoryColumnKind(column) === "text" ? "left" : "right", cellWidth: (pageWidth - 20) * inventoryColumnWeight(column) / inventoryWeight }
+      : column.type === "money" ? { halign: "right" } : {}])),
+    foot: isInventory && rows.length ? [report.columns.map((column, index) => index === 0 ? "Net total" : displayValue(inventoryColumnTotal(rows, column), column.type === "money"))] : undefined,
+    showFoot: "lastPage",
+    rowPageBreak: isInventory ? "avoid" : "auto",
+    footStyles: { fillColor: [229, 244, 236], textColor: [16, 32, 51], fontStyle: "bold" },
     didDrawPage: drawHeader,
   });
   if (stamp?.data) {
