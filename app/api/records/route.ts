@@ -373,7 +373,11 @@ export async function GET(request: Request) {
       const invoiceBalance = record.type === "invoice" ? (record.status === "paid" ? 0 : round(record.total - await invoicePaidAmount(record.id))) : undefined;
       return Response.json({ revision: purchaseRevision(record, lines), record: { ...paymentDisplayRecord(record), ...(invoiceBalance !== undefined ? { balance: invoiceBalance } : {}), sourceDocumentNumber: sourceDocument?.number ?? "", sourceDocumentType: sourceDocument?.type ?? "", convertedDocumentNumber: convertedDocument?.number ?? "", convertedDocumentType: convertedDocument?.type ?? "", convertedInvoiceNumber: convertedDocument?.type === "invoice" ? convertedDocument.number : "" }, lines: detailLines, journal, partyContact: partyContact ?? null });
     }
-    if (kind === "contacts") return Response.json({ records: (await db.select().from(contacts).where(eq(contacts.companyId, companyId)).orderBy(asc(contacts.name))).map(record => redactEmployeeHr(record, isAdministrator(authorization))) });
+    if (kind === "contacts") {
+      const contactRows = await db.select().from(contacts).where(eq(contacts.companyId, companyId)).orderBy(asc(contacts.name));
+      const loans = isAdministrator(authorization) ? await db.select().from(transactions).where(and(eq(transactions.companyId, companyId), sql`${transactions.employeeLoanContactId} IS NOT NULL`)).orderBy(desc(transactions.transactionDate), desc(transactions.id)) : [];
+      return Response.json({ records: contactRows.map(record => redactEmployeeHr({ ...record, ...(record.type === "employee" && isAdministrator(authorization) ? { bankLoanPayments: JSON.stringify(loans.filter(loan => loan.employeeLoanContactId === record.id).map(loan => ({ id: loan.id, number: loan.number, date: loan.transactionDate, currency: loan.currency, amount: loan.total, account: loan.account }))) } : {}) }, isAdministrator(authorization))) });
+    }
     if (kind === "items") {
       if (url.searchParams.get("previewIdentity") === "true") {
         if (!mayWrite(authorization, "inventory:manage")) return Response.json({ error: "Your role cannot create inventory items." }, { status: 403 });
@@ -809,6 +813,14 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     }
     const requestedParty = String(payload.party ?? "").trim();
     const chequeType = String(payload.chequeType ?? "").trim();
+    let employeeLoanContactId: number | null = null;
+    if (chequeType === "employee-loan") {
+      const employeeId = Number(payload.employeeLoanContactId);
+      if (type !== "cheque" || !Number.isInteger(employeeId) || employeeId <= 0) return Response.json({ error: "Select an employee for this loan payment." }, { status: 400 });
+      const [employee] = await db.select().from(contacts).where(and(eq(contacts.id, employeeId), eq(contacts.companyId, companyId), eq(contacts.type, "employee"))).limit(1).for("update");
+      if (!employee || employee.status !== "active" || employee.currency !== String(payload.currency ?? "AED").trim().toUpperCase() || employee.name !== requestedParty) return Response.json({ error: "Select an active employee in this company matching the loan currency and payee." }, { status: 400 });
+      employeeLoanContactId = employee.id;
+    } else if (payload.employeeLoanContactId) return Response.json({ error: "Employee loan links require the Employee loan cheque type." }, { status: 400 });
     const party = type === "cheque" && !requestedParty && ["expense", "salary"].includes(chequeType) ? "General expense" : requestedParty;
     if (type === "cheque" && chequeType === "salary" && requestedParty) {
       const [employee] = await db.select().from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "employee"), eq(contacts.name, requestedParty))).limit(1);
@@ -952,7 +964,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       if (!bank || (bank.type !== "Bank" && bank.systemRole !== "BANK") || bank.currency !== currency) return Response.json({ error: "Select an active bank in this company matching the cheque currency." }, { status: 400 });
       const [posting] = await db.select().from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.name, String(payload.account ?? "")), eq(accounts.active, true))).limit(1);
       const expensePosting = posting && (["EXPENSE", "PURCHASES", "COGS", "PAYROLL"].includes(posting.systemRole ?? "") || ["Expense", "Other Expense", "Cost of Goods Sold"].includes(posting.type));
-      if (!posting || (!expensePosting && posting.systemRole !== "AP") || (posting.systemRole === "AP" && posting.currency !== currency)) return Response.json({ error: "Select an expense account or Accounts Payable in the cheque currency." }, { status: 400 });
+      if (employeeLoanContactId && (!posting || posting.type !== "Other Current Asset" || posting.currency !== currency || posting.systemRole || vatAmount !== 0 || total <= 0 || payload.billId)) return Response.json({ error: "Employee loans require a positive amount, zero VAT and a same-currency employee advance asset account, without bill links." }, { status: 400 });
+      if (!posting || (!employeeLoanContactId && !expensePosting && posting.systemRole !== "AP") || (posting.systemRole === "AP" && posting.currency !== currency)) return Response.json({ error: "Select an expense account or Accounts Payable in the cheque currency." }, { status: 400 });
       if (payload.billId && posting.systemRole !== "AP") return Response.json({ error: "Use Accounts Payable to pay a selected bill." }, { status: 400 });
       if (posting.systemRole === "AP" && vatAmount !== 0) return Response.json({ error: "A cheque against Accounts Payable must use zero VAT." }, { status: 400 });
       if (posting.systemRole === "AP") {
@@ -965,6 +978,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     if (typeof requestedBillIds === "string") { try { requestedBillIds = JSON.parse(requestedBillIds); } catch { return Response.json({ error: "Select valid bills." }, { status: 400 }); } }
     if (!Array.isArray(requestedBillIds) || requestedBillIds.some((id) => !Number.isSafeInteger(id) || id <= 0) || new Set(requestedBillIds).size !== requestedBillIds.length) return Response.json({ error: "Select valid bills." }, { status: 400 });
     const selectedBillIds: number[] = ["bill payment", "cheque"].includes(type) ? requestedBillIds : [];
+    if (employeeLoanContactId && selectedBillIds.length) return Response.json({ error: "Employee loans cannot settle supplier bills." }, { status: 400 });
     if (selectedBillIds.length > 1 && type !== "cheque") return Response.json({ error: "Select one bill for Bill Payment." }, { status: 400 });
     const billId = type === "vendor credit" ? purchaseReturnBillId : selectedBillIds.length === 1 ? selectedBillIds[0] : null;
     const linkedBillIds = [...new Set([...selectedBillIds, ...[billId, replacing?.billId].filter((id): id is number => Boolean(id))])].sort((a, b) => a - b);
@@ -1020,7 +1034,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       }
     }
     const values = {
-      companyId, locationId: Number.isInteger(locationId) ? locationId : null, number, type, party, billId, invoiceId, purchaseOrderId, salesSourceId,
+      companyId, locationId: Number.isInteger(locationId) ? locationId : null, number, type, party, employeeLoanContactId, billId, invoiceId, purchaseOrderId, salesSourceId,
       salesman: String(payload.salesman ?? ""), isImport: payload.isImport === true || String(payload.isImport) === "true" || usesImportGoodsVat,
       billOfEntryNumber: usesImportGoodsVat && type === "bill" ? billOfEntryNumber : "", airwayBillNumber: usesImportGoodsVat && type === "bill" ? airwayBillNumber : "",
       transactionDate, dueDate: String(payload.dueDate ?? ""), terms, paymentMethod, referenceNo,
@@ -1039,7 +1053,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     await db.insert(transactionLines).values(prepared.map((line) => ({ ...line, transactionId: record.id })));
 
     const nonPosting = ["quotation", "estimate", "proforma invoice", "sales order", "purchase order", "cheque order"].includes(type);
-    const partyContactType = ["invoice", "quotation", "estimate", "proforma invoice", "sales order", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(type) ? "customer" : ["bill", "purchase order", "item receipt", "received item bill", "vendor credit", "bill payment", "vendor payment", "cheque", "credit card charge", "cheque order"].includes(type) ? "vendor" : null;
+    const partyContactType = employeeLoanContactId ? "employee" : ["invoice", "quotation", "estimate", "proforma invoice", "sales order", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(type) ? "customer" : ["bill", "purchase order", "item receipt", "received item bill", "vendor credit", "bill payment", "vendor payment", "cheque", "credit card charge", "cheque order"].includes(type) ? "vendor" : null;
     const [partyContact] = partyContactType ? await db.select({ ledgerAccountId: contacts.ledgerAccountId }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.name, party), eq(contacts.type, partyContactType))).limit(1) : [];
     // A customer's default currency must not route a foreign-currency document
     // into the wrong receivable control account. This runs inside the posting transaction.
@@ -1800,6 +1814,10 @@ async function handleDELETE(request: Request) {
       const tx = getDb();
       const [vendor] = await tx.select().from(contacts).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId))).for("update");
       if (!vendor) return Response.json({ error: "Contact not found." }, { status: 404 });
+      if (vendor.type === "employee") {
+        const [loan] = await tx.select({ id: transactions.id }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.employeeLoanContactId, id))).limit(1);
+        if (loan) return Response.json({ error: "This employee has linked bank loan payments and cannot be deleted." }, { status: 409 });
+      }
       if (vendor.type === "vendor") {
         if (!isAdministrator(authorization)) return Response.json({ error: "Only All-Admin and Admin can delete vendors." }, { status: 403 });
         const [activity] = await tx.select({ id: transactions.id }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.party, vendor.name))).limit(1);

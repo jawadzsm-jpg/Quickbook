@@ -247,3 +247,6 @@ All report categories expose the same optional company stamp preview. Enable the
 ### Employee salary and vacation setup
 
 In Employees & HR, create or edit an employee to record monthly salary, salary expense account, manual loan balance and vacation departure/return. Saving updates the profile only. For payment, use Write Cheque → Salary and select the employee: the saved amount/account prefill, and posting debits the configured salary expense account and credits the chosen bank. Loan disbursement/repayment and vacation pay calculations are not automated by the profile fields.
+
+
+To pay an employee loan, open Banking → Write Cheque, choose Employee loan, select the employee, Pay From bank and employee loan/advance asset account, then save. Posting debits that asset and credits the selected bank; HR reads the saved transactions directly. Deleting a payment through the existing authorized transaction workflow removes it from HR totals. These are disbursement totals, not repayment-adjusted loan balances; keep manually recorded amounts separate. Employee form outside clicks do not dismiss it; Minimize preserves the draft in the window dock.

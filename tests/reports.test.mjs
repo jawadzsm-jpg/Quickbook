@@ -1774,3 +1774,31 @@ test("HR profile validates amounts and dates, protects private fields and links 
   const result = await (await GET(new Request(`https://app.test/api/reports?type=employee-balances&companyId=${c.id}`))).json();
   assert.equal(result.report.rows[0].salaryAmount, 4500); assert.equal(result.report.rows[0].loanBalance, 1000); assert.equal(result.report.rows[0].accountAccountId, payroll.id);
 });
+
+
+test("bank employee loans retain identity, post asset/bank entries and appear privately in HR", async () => {
+  const records = await vite.ssrLoadModule("/app/api/records/route.ts");
+  const { company: c } = await (await workspaces.POST(post({ type: "company", name: "Bank HR loans", baseCurrency: "AED" }))).json();
+  const accountRows = (await database.query("SELECT * FROM accounts WHERE company_id = $1", [c.id])).rows;
+  const bank = accountRows.find(account => account.system_role === "BANK");
+  const assetResponse = await records.POST(post({ kind: "accounts", companyId: c.id, code: "1491", name: "Staff loan receivable", type: "Other Current Asset", currency: "AED" }));
+  assert.equal(assetResponse.status, 201, await assetResponse.clone().text());
+  const asset = (await assetResponse.json()).record;
+  const created = await records.POST(post({ kind: "contacts", companyId: c.id, type: "employee", name: "Loan employee", currency: "AED", loanBalance: 75 }));
+  assert.equal(created.status, 201, await created.clone().text()); const employee = (await created.json()).record;
+  const payload = { kind: "transactions", companyId: c.id, locationId: c.locations[0].id, type: "cheque", chequeType: "employee-loan", employeeLoanContactId: employee.id, party: employee.name, number: "STAFF-LOAN-1", account: asset.name, bankAccountId: bank.id, currency: "AED", exchangeRate: 1, transactionDate: "2026-10-03", lines: [{ description: "Employee loan", quantity: 1, unitPrice: 1000, vatCode: "ZERO", vatRate: 0 }] };
+  for (const changes of [{ employeeLoanContactId: 9999999 }, { employeeLoanContactId: "" }, { account: bank.name }, { account: "Operating Expenses" }, { party: "Other employee" }, { lines: [{ description: "Taxable loan", quantity: 1, unitPrice: 1000, vatCode: "STANDARD", vatRate: 5 }] }]) {
+    const invalid = await records.POST(post({ ...payload, ...changes })); assert.equal(invalid.status, 400, await invalid.clone().text());
+  }
+  const paid = await records.POST(post(payload)); assert.equal(paid.status, 201, await paid.clone().text()); const payment = (await paid.json()).record;
+  assert.equal(payment.employeeLoanContactId, employee.id);
+  const detail = await (await records.GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${c.id}&id=${payment.id}`))).json();
+  assert.ok(detail.journal.some(row => row.accountName === asset.name && Number(row.debit) === 1000));
+  assert.ok(detail.journal.some(row => row.accountName === bank.name && Number(row.credit) === 1000));
+  const rename = await records.PATCH(new Request("https://app.test/api/records", { method: "PATCH", headers: { origin: "https://app.test", "content-type": "application/json" }, body: JSON.stringify({ kind: "contacts", companyId: c.id, id: employee.id, name: "Renamed employee" }) })); assert.equal(rename.status, 200);
+  const list = await (await records.GET(new Request(`https://app.test/api/records?kind=contacts&companyId=${c.id}`))).json();
+  const profile = list.records.find(record => record.id === employee.id); assert.equal(profile.loanBalance, 75); assert.equal(JSON.parse(profile.bankLoanPayments)[0].id, payment.id);
+  const report = await (await GET(new Request(`https://app.test/api/reports?type=employee-balances&companyId=${c.id}`))).json(); assert.equal(report.report.rows[0].bankLoansPaid, 1000);
+  globalThis.__reportTestUser = { id: 2, email: "viewer@example.test", role: "viewer", companyIds: [c.id], mustChangePassword: false };
+  try { const privateList = await (await records.GET(new Request(`https://app.test/api/records?kind=contacts&companyId=${c.id}`))).json(); assert.equal(privateList.records.find(record => record.id === employee.id).bankLoanPayments, undefined); } finally { delete globalThis.__reportTestUser; }
+});

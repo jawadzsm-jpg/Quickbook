@@ -262,6 +262,7 @@ export const specificationOptions = pgTable("specification_options", {
 }, (table) => [uniqueIndex("idx_specification_options_label_value").on(table.label, table.value)]);
 
 export const transactions = pgTable("transactions", {
+  employeeLoanContactId: integer("employee_loan_contact_id"),
   id: serial("id").primaryKey(),
   companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   locationId: integer("location_id").references(() => inventoryLocations.id, { onDelete: "set null" }),

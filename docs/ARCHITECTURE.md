@@ -198,3 +198,6 @@ Vercel runs `npm run build`. `scripts/require-ci.mjs` verifies both named GitHub
 - Update the canonical documentation listed in [`docs/README.md`](README.md) with behavior changes.
 
 Employee profile data on `contacts` includes monthly salary, salary expense-account ID, manual loan balance and vacation dates. These fields are validated on admin-only employee writes and removed from non-admin contact-list responses. They are informational until a separate salary cheque is posted; salary-account IDs are resolved within the active company and validated before ledger posting.
+
+
+Migration `0073_employee_bank_loans.sql` adds nullable `transactions.employee_loan_contact_id` and a company/employee index. Record APIs validate this stable employee reference and block deletion of employees with linked loans. No backfill guesses employee identity from transaction names; HR payment history derives from transactions, without copying or incrementing contact balances.

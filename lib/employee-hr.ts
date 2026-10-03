@@ -1,7 +1,7 @@
 import { isIsoDate } from "./validation";
 import { RequestError } from "./errors";
 
-export const employeeHrFields = ["salaryAmount", "salaryExpenseAccountId", "loanBalance", "vacationDeparture", "vacationReturn"] as const;
+export const employeeHrFields = ["salaryAmount", "salaryExpenseAccountId", "loanBalance", "vacationDeparture", "vacationReturn", "bankLoanPayments"] as const;
 type HrAccount = { id: number; companyId: number; name: string; type: string; active: boolean; systemRole: string | null };
 
 export function employeeHrValues(payload: Record<string, unknown>, companyId: number, accounts: HrAccount[], existing: Record<string, unknown> = {}) {
