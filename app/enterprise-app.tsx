@@ -1394,7 +1394,7 @@ function Dashboard({ metrics, records, companyName, currency, themeColor, themeS
   const max = Math.max(metrics.sales, metrics.expenses, 1);
   return <div className="space-y-6">
     <div className="flex w-fit rounded-xl border border-slate-200 bg-white p-1 shadow-sm" role="tablist" aria-label="Overview sections"><button type="button" role="tab" aria-selected={dashboardTab === "home"} onClick={() => setDashboardTab("home")} className={`rounded-lg px-5 py-2 text-sm font-bold transition ${dashboardTab === "home" ? "brand-primary-button shadow-sm" : "text-slate-500 hover:bg-slate-100"}`}>Home Page</button><button type="button" role="tab" aria-selected={dashboardTab === "insights"} onClick={() => setDashboardTab("insights")} className={`rounded-lg px-5 py-2 text-sm font-bold transition ${dashboardTab === "insights" ? "brand-primary-button shadow-sm" : "text-slate-500 hover:bg-slate-100"}`}>Insights</button></div>
-    {dashboardTab === "home" ? <WorkflowHome onNavigate={onNavigate} onWorkflow={onWorkflow} /> : <>
+    {dashboardTab === "home" ? <WorkflowHome canViewReports={canViewReports} onNavigate={onNavigate} onWorkflow={onWorkflow} /> : <>
     <section className="brand-hero rounded-2xl p-6 text-white shadow-sm lg:flex lg:items-center lg:justify-between">
       <div><div className="brand-hero-signal mb-3 flex items-center gap-2 text-xs font-semibold tracking-[.15em]"><span className="brand-hero-dot size-2 rounded-full" /> COMPANY FILE ACTIVE</div><h2 className="text-2xl font-bold">{companyName}</h2><p className="mt-1 text-sm text-slate-300">Post transactions, control stock and close your books from one workspace.</p></div>
       <div className="mt-5 flex flex-wrap gap-2 lg:mt-0">{canViewReports && <Button variant="outline" onClick={() => onNavigate("reports")} className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white"><FileBarChart2 />View reports</Button>}{canCreate && <Button onClick={onCreate} className="brand-primary-button"><Plus />Record transaction</Button>}</div>
@@ -1415,7 +1415,7 @@ function Dashboard({ metrics, records, companyName, currency, themeColor, themeS
 
 type OverviewWorkflowAction = { label: string; detail: string; icon: typeof ReceiptText; view: View; transaction?: string };
 
-function WorkflowHome({ onNavigate, onWorkflow }: { onNavigate: (view: View) => void; onWorkflow: (type: string, target: View) => void }) {
+function WorkflowHome({ canViewReports, onNavigate, onWorkflow }: { canViewReports: boolean; onNavigate: (view: View) => void; onWorkflow: (type: string, target: View) => void }) {
   const supplierActions: OverviewWorkflowAction[] = [
     { label: "Purchase Orders", detail: "Order supplier stock", icon: FileBarChart2, view: "purchases", transaction: "purchase order" },
     { label: "Receive Stock", detail: "Receive before billing", icon: PackageCheck, view: "purchases", transaction: "item receipt" },
@@ -1428,7 +1428,6 @@ function WorkflowHome({ onNavigate, onWorkflow }: { onNavigate: (view: View) => 
     { label: "Create Invoices", detail: "Post customer sales", icon: ReceiptText, view: "sales", transaction: "invoice" },
     { label: "Warranty / RMA", detail: "Receive and track customer returns", icon: ShieldCheck, view: "warranties" },
     { label: "Receive Payments", detail: "Reduce receivables", icon: CircleDollarSign, view: "receive-payment", transaction: "customer payment" },
-    { label: "Record Deposits", detail: "Post bank deposits", icon: Landmark, view: "banking", transaction: "deposit" },
     { label: "Sales Receipts", detail: "Immediate paid sales", icon: BadgeDollarSign, view: "sales", transaction: "sales receipt" },
     { label: "Statement Charges", detail: "Charge customer account", icon: Plus, view: "sales", transaction: "statement charge" },
     { label: "Refunds & Credits", detail: "Issue customer credits", icon: RefreshCw, view: "sales", transaction: "credit memo" },
@@ -1439,30 +1438,30 @@ function WorkflowHome({ onNavigate, onWorkflow }: { onNavigate: (view: View) => 
     { label: "Manage VAT", detail: "VAT codes and returns", icon: Percent, view: "vat-management" },
     { label: "Chart of Accounts", detail: "Manage ledger accounts", icon: BookOpen, view: "accounts" },
     { label: "Inventory Center", detail: "Products and stock", icon: Boxes, view: "inventory" },
-    { label: "Add Item", detail: "Add and manage inventory items", icon: PackageSearch, view: "inventory" },
   ];
+  if (canViewReports) companyActions.push({ label: "Report Center", detail: "A4 print, PDF, Excel, CSV and movable stamps", icon: FileBarChart2, view: "reports" });
   const bankingActions: OverviewWorkflowAction[] = [
     { label: "Write Cheques", detail: "Pay by cheque", icon: WalletCards, view: "write-cheque", transaction: "cheque" },
     { label: "Transfer Funds", detail: "Move bank balances", icon: ArrowRightLeft, view: "banking", transaction: "transfer" },
-    { label: "Bank Register", detail: "Review bank activity", icon: Landmark, view: "banking" },
-    { label: "Reconcile", detail: "Match cleared entries", icon: CheckCircle2, view: "banking" },
+    { label: "Banking Center", detail: "Review the register and reconcile entries", icon: Landmark, view: "banking" },
+    { label: "Record Deposits", detail: "Post bank deposits", icon: Landmark, view: "banking", transaction: "deposit" },
   ];
 
-  return <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+  return <div className="workflow-home"><header className="workflow-home-heading"><div><p>DAILY WORKSPACE</p><h2>What would you like to do?</h2><span>Choose a task to open its entry screen or workspace.</span></div></header><div className="workflow-home-layout">
     <div className="space-y-5">
-      <WorkflowSection title="SUPPLIERS" tone="blue" actions={supplierActions} onNavigate={onNavigate} onWorkflow={onWorkflow} />
-      <WorkflowSection title="CUSTOMERS" tone="emerald" actions={customerActions} onNavigate={onNavigate} onWorkflow={onWorkflow} />
-      <WorkflowSection title="BANKING" tone="sky" actions={bankingActions} onNavigate={onNavigate} onWorkflow={onWorkflow} />
+      <WorkflowSection title="Suppliers" tone="blue" actions={supplierActions} onNavigate={onNavigate} onWorkflow={onWorkflow} />
+      <WorkflowSection title="Customers" tone="emerald" actions={customerActions} onNavigate={onNavigate} onWorkflow={onWorkflow} />
+      <WorkflowSection title="Banking" tone="sky" actions={bankingActions} onNavigate={onNavigate} onWorkflow={onWorkflow} />
     </div>
     <div className="space-y-5">
-      <WorkflowSection title="COMPANY" tone="amber" actions={companyActions} onNavigate={onNavigate} onWorkflow={onWorkflow} compact />
+      <WorkflowSection title="Company & reports" tone="amber" actions={companyActions} onNavigate={onNavigate} onWorkflow={onWorkflow} compact />
     </div>
-  </div>;
+  </div></div>;
 }
 
 function WorkflowSection({ title, tone, actions, onNavigate, onWorkflow, compact = false }: { title: string; tone: "blue" | "emerald" | "violet" | "amber" | "sky"; actions: OverviewWorkflowAction[]; onNavigate: (view: View) => void; onWorkflow: (type: string, target: View) => void; compact?: boolean }) {
-  const toneClasses = { blue: "bg-blue-100 text-blue-700", emerald: "bg-emerald-100 text-emerald-700", violet: "bg-violet-100 text-violet-700", amber: "bg-amber-100 text-amber-800", sky: "bg-sky-100 text-sky-700" } as const;
-  return <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="flex items-center gap-3 border-b bg-slate-50 px-5 py-3"><span className={`rounded-md px-3 py-1 text-xs font-black tracking-[.12em] ${toneClasses[tone]}`}>{title}</span><div className="h-px flex-1 bg-slate-200" /></div><div className={`grid gap-px bg-slate-200 ${compact ? "sm:grid-cols-2 xl:grid-cols-1" : "sm:grid-cols-2 lg:grid-cols-4"}`}>{actions.map((action, index) => <button key={action.label} type="button" onClick={() => action.transaction ? onWorkflow(action.transaction, action.view) : onNavigate(action.view)} className="group relative min-h-32 bg-white p-5 text-left transition hover:z-10 hover:bg-emerald-50 focus-visible:z-10"><div className="flex items-start justify-between gap-3"><span className={`grid size-11 place-items-center rounded-xl ${toneClasses[tone]}`}><action.icon className="size-5" /></span>{index < actions.length - 1 ? <ChevronRight className="mt-3 size-4 text-slate-300 group-hover:text-emerald-500" /> : null}</div><p className="mt-4 text-sm font-bold text-slate-900">{action.label}</p><p className="mt-1 text-xs leading-5 text-slate-500">{action.detail}</p></button>)}</div></section>;
+  const descriptions: Record<string, string> = { Suppliers: "Order, receive and settle supplier purchases.", Customers: "Prepare sales and manage customer activity.", Banking: "Record movements and review bank activity.", "Company & reports": "Maintain your company, accounts and reference records." };
+  return <section className={`workflow-section ${compact ? "workflow-section-compact" : ""}`} data-tone={tone} aria-label={title}><header><div><h3>{title}</h3><p>{descriptions[title]}</p></div><span>{actions.length} tasks</span></header><div className="workflow-action-grid">{actions.map(action => <button key={`${action.view}:${action.transaction || "navigate"}`} type="button" onClick={() => action.transaction ? onWorkflow(action.transaction, action.view) : onNavigate(action.view)} className="workflow-action"><span className="workflow-action-icon"><action.icon className="size-5" aria-hidden="true" /></span><span className="workflow-action-copy"><strong>{action.label}</strong><span>{action.detail}</span></span><ChevronRight className="workflow-action-arrow size-4" aria-hidden="true" /></button>)}</div></section>;
 }
 
 function StatusLine({ label, value, action }: { label: string; value: number; action: () => void }) { return <button onClick={action} className="brand-status-line flex w-full items-center justify-between rounded-lg border border-slate-100 p-3 text-left"><span className="text-sm text-slate-600">{label}</span><span className="flex items-center gap-2 font-bold text-slate-900">{value}<ChevronRight className="size-4 text-slate-400" /></span></button>; }
