@@ -1791,3 +1791,33 @@ button, input, select { font: inherit; }
   .pnl-review li { break-inside: avoid; }
   .pnl-report { color: #172b25; }
 }
+
+/* Financial statements: shared responsive tables with report-specific metrics. */
+.financial-overview-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: .75rem; }
+.financial-overview-heading h2 { font-size: 1.05rem; font-weight: 750; margin-top: .3rem; }
+.financial-overview-heading > p { font-size: .75rem; color: #64748b; }
+.financial-metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: .8rem; }
+.financial-metric-grid > div { min-width: 0; }
+.financial-metric-grid strong { font-size: clamp(1.1rem, 1.8vw, 1.5rem); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.financial-metric-grid small { display: block; margin-top: .35rem; font-size: .7rem; color: #64748b; }
+.financial-metric-grid [data-tone="negative"] strong, .financial-report [data-negative="true"] { color: #be123c; }
+.financial-metric-grid [data-tone="positive"] strong { color: #047857; }
+.financial-report .report-data-desktop { max-width: none; }
+.financial-report .report-data-card dd { font-weight: 600; }
+@media screen {
+  [data-appearance="dark"] .financial-overview-heading > p, [data-appearance="dark"] .financial-metric-grid small { color: #b4c8bf; }
+  [data-appearance="dark"] .report-dialog .financial-metric-grid [data-tone="negative"] strong, [data-appearance="dark"] .financial-report [data-negative="true"] { color: #fda4af !important; }
+  [data-appearance="dark"] .report-dialog .financial-metric-grid [data-tone="positive"] strong { color: #6ee7b7 !important; }
+  [data-appearance="dark"] .financial-report-brief { background: #14241f !important; color: #b4c8bf !important; border-color: #365149; }
+  [data-appearance="dark"] .financial-report-brief span { color: #e2eee8 !important; }
+}
+@media screen and (max-width: 639px) {
+  .financial-metric-grid { grid-template-columns: 1fr; }
+}
+@media print {
+  .financial-metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2mm; }
+  .financial-metric-grid > div { break-inside: avoid; }
+  .financial-metric-grid strong { font-size: 11pt !important; }
+  .financial-report .report-data-desktop table { table-layout: fixed; }
+  .financial-report .report-data-desktop td[data-responsive-column] { font-size: 6pt !important; }
+}
