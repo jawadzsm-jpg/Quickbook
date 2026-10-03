@@ -12,7 +12,7 @@ Use this file to locate implementation ownership without rescanning the whole re
 | `app/api/**/route.ts` | Internal JSON API, access checks, validation, database reads/writes |
 | `components/ui/` | Shared Base UI/shadcn-style design primitives |
 | `lib/` | Auth, domain calculations, report transforms, validation, exports, print/document helpers, concurrency |
-| `db/schema.ts` | Drizzle PostgreSQL schema for 32 mapped tables; four infrastructure tables are migration-managed and accessed with parameterized SQL |
+| `db/schema.ts` | Drizzle PostgreSQL schema for 33 mapped tables; four infrastructure tables are migration-managed and accessed with parameterized SQL |
 | `db/index.ts` | Neon/PGlite selection and write transaction context |
 | `db/local.ts` | Persistent PGlite adapter restricted to development |
 | `drizzle/` | Ordered SQL migrations |
@@ -165,3 +165,6 @@ Employee loan payments use `transactions.employeeLoanContactId` (migration 0073)
 
 
 HR Loan / advance account selection is in `app/employee-hr-fields.tsx`; `lib/employee-hr.ts` validates `contacts.loanAccountId` (migration 0074), and record APIs enforce it during employee-loan posting.
+
+
+Staff salary sheets: `app/staff-salary-sheets.tsx` owns HR list/editor/view/actions; `app/api/staff-salary-sheets/route.ts` owns company-scoped administrator CRUD; `lib/staff-salary-sheet.ts` owns validation/totals/types; `lib/staff-salary-pdf.ts` owns A4 landscape output. Storage is `staffSalarySheets` in `db/schema.ts` and migration 0075. The letterhead document assignment is `staff-salary-sheet`.

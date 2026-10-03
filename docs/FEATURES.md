@@ -207,3 +207,8 @@ Employee record windows ignore outside clicks and have an explicit Minimize butt
 
 
 The HR employee form now exposes a Loan / advance account selector directly below Salary expense account. It lists active, same-currency Other Current Asset accounts without system roles. The saved link is shown in HR and Employee Balance Summary; Banking employee loan payments select it automatically. This is an employee loan receivable account, not a company borrowing liability or bank account.
+
+
+## Staff salary sheets
+
+Employees & HR provides a Salary sheets control for administrators. Its monthly staff template follows the supplied STAF layout: serial number, employee name, personal number, card details, bank, IBAN, salary, service-fee count/rate, salary total, editable charges and grand total. Users can create, save, view, edit and delete company-scoped sheets. HR employee selection prefills name/salary, while personal/bank identifiers remain text. A4 landscape PDF and print share the same paginated output, with company letterhead and page numbers. Saved sheets retain their company branding snapshot. Documents do not post payroll or adjust balances.

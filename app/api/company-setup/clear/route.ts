@@ -106,7 +106,7 @@ export async function POST(request: Request) {
         await db.execute(sql`DELETE FROM contacts WHERE company_id=${companyId}`);
       }
       if (selected.has("reports")) {
-        for (const table of ["record_attachments", "memorised_reports", "inventory_check_reports"]) await db.execute(sql`DELETE FROM ${sql.identifier(table)} WHERE company_id=${companyId}`);
+        for (const table of ["record_attachments", "memorised_reports", "inventory_check_reports", "staff_salary_sheets"]) await db.execute(sql`DELETE FROM ${sql.identifier(table)} WHERE company_id=${companyId}`);
       }
       if (selected.has("settings")) {
         for (const table of ["vat_codes", "exchange_rates", "company_settings"]) await db.execute(sql`DELETE FROM ${sql.identifier(table)} WHERE company_id=${companyId}`);

@@ -151,3 +151,8 @@ Employee loan cheques use `chequeType: "employee-loan"` and a required `employee
 
 
 Employee POST/PATCH accepts nullable `loanAccountId`. Validation requires an active uniquely named Other Current Asset account with no system role in the employee company/currency. Omitted fields retain the link, and an empty value clears it. Non-admin contact GET redacts it. Employee loan cheques validate and enforce the saved loan account server-side, rejecting an invalid/inactive link before posting.
+
+
+## `/api/staff-salary-sheets`
+
+GET lists saved sheets for `companyId`. POST creates from validated `data`; PATCH and DELETE require `companyId`, `id`, and the current integer `revision`. All methods require administrator access to the company. Mutations require same-origin JSON and run transactionally with audit entries. Stale updates/deletions return 409. Data accepts 1–200 rows and validates month/date range, bounded strings, non-negative amounts, unique employee IDs and same-company/currency employee links. Personal numbers/cards/IBANs are strings. The server snapshots only public company letterhead fields on creation, preserving them on edit. No accounting journals are posted.
