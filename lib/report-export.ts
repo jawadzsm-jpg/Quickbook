@@ -1,6 +1,6 @@
 import { reportColumnKind, reportColumnWeight } from "./report-presentation";
 import { vatColumnKind, vatColumnTotal, vatColumnWeight, vatReportKeys, vatSummary } from "./vat-report";
-import { budgetSummary } from "./budget-report";
+import { budgetSummary, budgetReportKeys, type BudgetBasis } from "./budget-report";
 import { salesColumnKind, salesColumnTotal, salesColumnWeight, salesReportKeys, salesSummary } from "./sales-report";
 import { customerSummary } from "./customer-report";
 import { vendorSummary, vendorReportKeys, vendorColumnKind, vendorColumnTotal, vendorColumnWeight } from "./vendor-report";
@@ -17,6 +17,8 @@ export type ReportExportColumn = { key: string; label: string; type?: "money" };
 export type ReportExportRow = Record<string, string | number | null>;
 export type ReportExportData = {
   key?: string;
+  budget?: BudgetBasis;
+  accountLinkIssues?: string[];
   title: string;
   generatedAt: string;
   currency: string;
@@ -30,7 +32,11 @@ export type ReportExportData = {
 };
 
 function reportOverview(report: ReportExportData, rows: ReportExportRow[]) {
-  return financialSummary({ key: report.key, rows, financial: report.financial }) ?? vatSummary({ key: report.key, rows }) ?? budgetSummary({ key: report.key, rows }) ?? salesSummary({ key: report.key, rows }) ?? customerSummary({ key: report.key, rows, openBalance: report.openBalance, activeCustomers: report.activeCustomers, statement: report.statement }) ?? vendorSummary({ key: report.key, rows, statement: report.statement }) ?? purchaseSummary({ key: report.key, rows }) ?? inventorySummary({ key: report.key, rows }) ?? bankingSummary({ key: report.key, rows }) ?? accountantSummary({ key: report.key, rows }) ?? listSummary({ key: report.key, rows }) ?? employeeSummary({ key: report.key, rows });
+  return financialSummary({ key: report.key, rows, financial: report.financial }) ?? vatSummary({ key: report.key, rows }) ?? budgetSummary({ key: report.key, rows, budget: report.budget }) ?? salesSummary({ key: report.key, rows }) ?? customerSummary({ key: report.key, rows, openBalance: report.openBalance, activeCustomers: report.activeCustomers, statement: report.statement }) ?? vendorSummary({ key: report.key, rows, statement: report.statement }) ?? purchaseSummary({ key: report.key, rows }) ?? inventorySummary({ key: report.key, rows }) ?? bankingSummary({ key: report.key, rows }) ?? accountantSummary({ key: report.key, rows }) ?? listSummary({ key: report.key, rows }) ?? employeeSummary({ key: report.key, rows });
+}
+
+function reportReviewIssues(report: ReportExportData) {
+  return [...new Set([...(report.financial?.issues ?? []), ...(budgetReportKeys.has(report.key || "") ? report.accountLinkIssues ?? [] : [])])];
 }
 
 const navy = "FF102033";
@@ -85,7 +91,7 @@ export function reportCsv(report: ReportExportData, company: string, inventory: 
   }
   const overview = reportOverview(report, rows);
   if (overview) records.push([], ["Summary"], ...overview.cards.map((card) => [card.label, card.value, card.format === "money" ? report.currency : ""]), ["Basis", overview.note]);
-  if (report.financial?.issues?.length) records.push([], ["Account review"], ...report.financial.issues.map(issue => [issue]));
+  if (reportReviewIssues(report).length) records.push([], ["Account review"], ...reportReviewIssues(report).map(issue => [issue]));
   return "\uFEFF" + records.map((record) => record.map(safeCsv).join(",")).join("\r\n");
 }
 
@@ -203,12 +209,12 @@ export async function reportWorkbook(report: ReportExportData, company: string, 
     summarySheet.getRow(1).font = { bold: true, size: 15 };
     summarySheet.getRow(6).eachCell((cell) => { cell.font = { bold: true, color: { argb: "FFFFFFFF" } }; cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: navy } }; });
   }
-  if (report.financial?.issues?.length) {
+  if (reportReviewIssues(report).length) {
     const review = book.addWorksheet("Account review", { pageSetup: { paperSize: 9, orientation, fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
     review.getColumn(1).width = 100;
     review.addRow([`${company} · ${report.title}`]).font = { bold: true, size: 13 };
     review.addRow(["Review account mapping before relying on classified totals."]).font = { bold: true };
-    report.financial.issues.forEach(issue => { const row = review.addRow([issue]); row.alignment = { wrapText: true, vertical: "top" }; row.height = Math.max(30, Math.ceil(issue.length / 95) * 16); });
+    reportReviewIssues(report).forEach(issue => { const row = review.addRow([issue]); row.alignment = { wrapText: true, vertical: "top" }; row.height = Math.max(30, Math.ceil(issue.length / 95) * 16); });
   }
   return book.xlsx.writeBuffer();
 }
@@ -306,9 +312,9 @@ export async function reportPdf(report: ReportExportData, company: string, inven
     },
     didDrawPage: drawHeader,
   });
-  if (report.financial?.issues?.length) {
+  if (reportReviewIssues(report).length) {
     const lastY = (pdf as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
-    autoTable(pdf, { startY: lastY + 7, margin: { top: 44, bottom: 17, left: 10, right: 10 }, head: [["Account review - review before relying on classified totals"]], body: report.financial.issues.map(issue => [issue]), styles: { font: "helvetica", fontSize: 8, cellPadding: 3, overflow: "linebreak" }, headStyles: { fillColor: [120, 75, 20] }, rowPageBreak: "avoid", didDrawPage: drawHeader });
+    autoTable(pdf, { startY: lastY + 7, margin: { top: 44, bottom: 17, left: 10, right: 10 }, head: [["Account review - review before relying on classified totals"]], body: reportReviewIssues(report).map(issue => [issue]), styles: { font: "helvetica", fontSize: 8, cellPadding: 3, overflow: "linebreak" }, headStyles: { fillColor: [120, 75, 20] }, rowPageBreak: "avoid", didDrawPage: drawHeader });
   }
   if (stamp?.data) {
     const stampImage = await new Promise<{ data: string; width: number; height: number }>((resolve, reject) => {

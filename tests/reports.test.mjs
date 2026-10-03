@@ -1638,3 +1638,41 @@ test("financial summaries distinguish movements, snapshots, missing rates and qu
   assert.match(pdf, /Account Legacy/);
   assert.match(pdf, /BALANCE CHECK DIFFERENCE/);
 });
+
+test("budget baselines identify prior dates, reconcile variance and disclose excluded accounts in exports", async () => {
+  const { company: c } = await (await workspaces.POST(post({ type: "company", name: "Budget baseline audit", baseCurrency: "AED" }))).json();
+  const addEntry = async (date, income, expense) => {
+    const [entry] = await db.insert(schema.journalEntries).values({ companyId: c.id, locationId: c.locations[0].id, entryDate: date, reference: "BUDGET-AUDIT" }).returning();
+    await db.insert(schema.journalLines).values([{ journalEntryId: entry.id, accountName: "Sales Revenue", debit: 0, credit: income }, { journalEntryId: entry.id, accountName: "Operating Expenses", debit: expense, credit: 0 }, { journalEntryId: entry.id, accountName: "Unmatched budget account", debit: 9, credit: 0 }]);
+  };
+  await addEntry("2025-09-10", 800, 400);
+  await addEntry("2026-09-10", 1000, 350);
+  const get = async key => {
+    const response = await GET(new Request(`https://app.test/api/reports?type=${key}&companyId=${c.id}&locationId=${c.locations[0].id}&periodStart=2026-09-01&periodEnd=2026-09-30`));
+    assert.equal(response.status, 200); return (await response.json()).report;
+  };
+  const report = await get("budget-actual");
+  assert.deepEqual(report.budget, { from: "2026-09-01", to: "2026-09-30", baselineFrom: "2025-09-01", baselineTo: "2025-09-30" });
+  assert.equal(report.rows.find(row => row.account === "Sales Revenue").variance, 200);
+  assert.equal(report.rows.find(row => row.account === "Operating Expenses").variance, 50);
+  assert.ok(report.rows.every(row => row.accountAccountId > 0));
+  assert.equal(report.accountLinkIssues.length, 1);
+  const { budgetSummary, budgetBar } = await vite.ssrLoadModule("/lib/budget-report.ts");
+  const profit = await get("budget-profit-loss");
+  assert.deepEqual(budgetSummary(profit).cards.map(card => card.value), [800, 1000, 400, 350, 250]);
+  assert.equal(profit.rows.find(row => row.section === "Net Profit").variance, 250);
+  assert.match(budgetSummary(report).note, /2025-09-01 to 2025-09-30/);
+  assert.match(budgetSummary(report).note, /not a saved or approved budget plan/);
+  assert.deepEqual(budgetBar(-25, 100), { left: 37.5, width: 12.5 });
+  assert.deepEqual(budgetBar(25, 100), { left: 50, width: 12.5 });
+  assert.deepEqual(budgetBar(0, 0), { left: 50, width: 0 });
+  const monthly = await get("budget-actual-graph");
+  assert.deepEqual(monthly.rows, [{ month: "2026-09", budget: 400, actual: 650, variance: 250 }]);
+  const { reportCsv, reportWorkbook, reportPdf } = await vite.ssrLoadModule("/lib/report-export.ts");
+  const csv = reportCsv(report, "Budget audit", "Main");
+  assert.match(csv, /2025-09-01 to 2025-09-30/); assert.match(csv, /Unmatched budget account/);
+  const { default: ExcelJS } = await import("exceljs"); const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(await reportWorkbook(report, "Budget audit", "Main"));
+  assert.match(workbook.getWorksheet("Account review").getCell("A3").value, /Unmatched budget account/);
+  const pdf = Buffer.from(await reportPdf(report, "Budget audit", "Main")).toString("latin1");
+  assert.match(pdf, /Unmatched budget account/); assert.match(pdf, /2025-09-01/);
+});

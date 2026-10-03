@@ -66,6 +66,7 @@ Use this file to locate implementation ownership without rescanning the whole re
 | Vendors report presentation | `app/vendor-report-library.tsx`, `app/vendor-report-table.tsx`, `app/vendor-report-filters.tsx`, domain/filter/account helpers in `lib/vendor-report.ts`; shared stamp preview in `app/sales-report-stamp.tsx` |
 | Purchases report presentation | `app/purchase-report-library.tsx`, `app/purchase-report-table.tsx`, `app/purchase-report-filters.tsx` |
 | Inventory report presentation | `app/inventory-report-library.tsx`, `app/inventory-report-table.tsx`, filters in `app/enterprise-app.tsx` |
+| Budget presentation | `app/budget-report-library.tsx`, `lib/budget-report.ts`; baseline generation and account exceptions in `app/api/reports/route.ts` |
 | Operational report summaries | `lib/sales-report.ts`, `customer-report.ts`, `vendor-report.ts`, `purchase-report.ts`, `inventory-report.ts`, `banking-report.ts`, `accountant-report.ts`, `employee-report.ts`, `list-report.ts`, `budget-report.ts` |
 | Report period/export | `lib/report-period.ts`, `lib/report-export.ts`, `lib/record-list-export.ts`, `lib/export.ts` |
 | Documents and printing | `lib/document-design.ts`, `lib/document-output.ts`, `lib/document-print.ts`, `lib/letterhead.ts`, `lib/uae-cheque-layouts.ts` |
