@@ -1408,3 +1408,116 @@ button, input, select { font: inherit; }
 [data-appearance="dark"] .sales-stamp-preview > span { color: #36556b !important; }
 @media screen and (max-width: 600px) { .sales-stamp-settings { grid-template-columns: minmax(0, 1fr); } .sales-stamp-preview-wrap { width: min(100%, 230px); justify-self: center; } }
 @media print { .sales-stamp-settings { display: none !important; } .sales-report-print-stamp { display: contents; } .sales-report-print-stamp .letterhead-stamp { margin-left: -10mm; margin-top: -10mm; } }
+
+/* VAT library and responsive report data. */
+.vat-library-intro { display: flex; justify-content: space-between; align-items: center; gap: 1.5rem; border: 1px solid #cbded7; border-radius: 1rem; padding: 1.4rem; background: linear-gradient(120deg, #f0fdf4, #fff); }
+.vat-library-intro h4 { margin: .45rem 0; color: #142b25; font-size: 1.25rem; font-weight: 750; }
+.vat-library-intro p:not(.vat-eyebrow), .vat-library-group-heading p { color: #64748b; font-size: .83rem; line-height: 1.6; }
+.vat-library-formats { display: flex; flex-wrap: wrap; gap: .4rem; max-width: 14rem; }
+.vat-library-formats span { background: #fff; border: 1px solid #cbded7; border-radius: .4rem; padding: .35rem .6rem; font-size: .68rem; font-weight: 650; color: #31594a; }
+.vat-library-group { margin-top: 1.7rem; }
+.vat-library-group-heading h4 { color: #172d27; font-size: .95rem; font-weight: 750; }
+.vat-library-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; margin-top: .8rem; }
+.vat-library-card { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; text-align: left; background: #fff; border: 1px solid #d7e0e7; border-radius: .8rem; padding: 1.25rem; color: #047857; transition: border-color .15s, box-shadow .15s; }
+.vat-library-card:hover { border-color: #059669; box-shadow: 0 4px 16px rgb(15 23 42 / .06); }
+.vat-library-card:focus-visible { outline: 2px solid #059669; outline-offset: 3px; }
+.vat-library-card:disabled { opacity: .6; cursor: wait; }
+.vat-library-card-copy { min-width: 0; }
+.vat-library-card-copy strong { display: block; color: #0f172a; font-size: .9rem; line-height: 1.4; }
+.vat-library-card-copy span { display: block; margin-top: .5rem; color: #64748b; font-size: .78rem; line-height: 1.6; }
+.vat-library-card-copy small { display: block; margin-top: 1rem; font-size: .65rem; font-weight: 750; text-transform: uppercase; letter-spacing: .06em; }
+.vat-report-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .8rem; padding: 1rem; border: 1px solid #d7e0e7; border-radius: .8rem; background: #f8fafc; }
+.vat-report-filters label { display: grid; gap: .4rem; flex: 1 1 10rem; min-width: 0; font-size: .75rem; font-weight: 650; color: #475569; }
+.vat-report-filters label.vat-report-search { flex-basis: 18rem; }
+.vat-report-filters select { width: 100%; min-width: 0; height: 2.5rem; border: 1px solid #cbd5e1; border-radius: .4rem; background: #fff; color: #0f172a; padding: 0 .6rem; font-size: .8rem; }
+.vat-report-filter-count { display: flex; justify-content: space-between; align-items: center; gap: .5rem; width: 100%; color: #64748b; font-size: .75rem; }
+.vat-report-data { min-width: 0; width: 100%; }
+.vat-report-dialog .vat-report-table-desktop { overflow: hidden; border-color: #d7e0e7; }
+.vat-report-dialog .vat-report-table-desktop [data-slot="table-container"] { overflow-x: auto; }
+.vat-report-dialog .vat-report-table-desktop table { min-width: 1080px; font-size: .8rem; }
+.vat-report-dialog .vat-report-table-desktop th { background: #edf3f1; color: #36564b; vertical-align: bottom; white-space: normal; padding: .9rem .7rem; font-size: .69rem; }
+.vat-report-dialog .vat-report-table-desktop td { padding: .85rem .7rem; line-height: 1.55; vertical-align: top; }
+.vat-report-dialog .vat-report-table-desktop td[data-vat-kind="text"] { overflow-wrap: anywhere; }
+.vat-report-dialog .vat-report-table-desktop [data-responsive-column] { text-align: right; white-space: nowrap; word-break: normal; overflow-wrap: normal; font-variant-numeric: tabular-nums; }
+.vat-report-dialog .vat-report-table-desktop th[data-responsive-column] { white-space: normal; }
+.vat-report-dialog .vat-report-table-desktop tbody tr:nth-child(even) { background: #f8fafc; }
+.vat-report-dialog .vat-report-table-desktop tbody tr:hover { background: #edf8f3; }
+.vat-report-dialog .vat-report-table-desktop tfoot { background: #edf3f1; color: #0f172a; font-weight: 750; }
+.vat-column-currency { display: block; margin-top: .25rem; opacity: .7; font-size: .62rem; }
+.vat-report-mobile { display: none; }
+.vat-report-empty { text-align: center; border: 1px dashed #cbd5e1; border-radius: .8rem; padding: 3rem 1rem; color: #64748b; }
+.vat-report-empty strong { color: #334155; display: block; margin-bottom: .5rem; }
+.vat-stock-card, .vat-mobile-totals { border: 1px solid #d7e0e7; border-radius: .8rem; overflow: hidden; background: #fff; }
+.vat-stock-card header { padding: 1rem; background: #f6f9f8; border-bottom: 1px solid #e2e8f0; }
+.vat-stock-card h3 { font-size: .9rem; font-weight: 700; line-height: 1.6; overflow-wrap: anywhere; }
+.vat-stock-identities { display: flex; flex-wrap: wrap; gap: .4rem 1rem; margin-top: .5rem; font-size: .72rem; color: #64748b; }
+.vat-stock-card dl, .vat-mobile-totals dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; padding: 1rem; }
+.vat-stock-card dl > div[data-vat-kind="text"] { grid-column: 1 / -1; }
+.vat-stock-card dt, .vat-mobile-totals dt { font-size: .66rem; font-weight: 650; color: #64748b; margin-bottom: .3rem; }
+.vat-stock-card dd, .vat-mobile-totals dd { color: #0f172a; font-size: .85rem; font-weight: 650; line-height: 1.5; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.vat-mobile-totals { background: #edf8f3; }
+.vat-mobile-totals > strong { display: block; padding: 1rem 1rem 0; font-size: .8rem; color: #31594a; }
+[data-appearance="dark"] .vat-library-intro { background: linear-gradient(120deg, #112a24, #101a2a) !important; border-color: #35594c !important; }
+[data-appearance="dark"] :is(.vat-library-card, .vat-stock-card, .vat-report-filters) { background: #101a2a !important; border-color: #334155 !important; }
+[data-appearance="dark"] :is(.vat-library-intro h4, .vat-library-group-heading h4, .vat-library-card-copy strong, .vat-stock-card dd, .vat-mobile-totals dd, .vat-report-empty strong) { color: #f1f5f9 !important; }
+[data-appearance="dark"] :is(.vat-library-intro p:not(.vat-eyebrow), .vat-library-group-heading p, .vat-library-card-copy span, .vat-stock-card dt, .vat-stock-identities, .vat-mobile-totals dt, .vat-report-filters label, .vat-report-filter-count) { color: #b2c0d1 !important; }
+[data-appearance="dark"] :is(.vat-library-card, .vat-eyebrow) { color: #6ee7b7 !important; }
+[data-appearance="dark"] .vat-library-formats span { background: #193025 !important; border-color: #35594c !important; color: #c7edda !important; }
+[data-appearance="dark"] .vat-stock-card header { background: #152538 !important; border-color: #334155 !important; }
+[data-appearance="dark"] .vat-report-dialog .vat-report-table-desktop :is(th, tfoot) { background: #152b25 !important; color: #d1fae5 !important; }
+[data-appearance="dark"] .vat-report-dialog .vat-report-table-desktop tbody tr:nth-child(even) { background: #142034 !important; }
+[data-appearance="dark"] .vat-report-dialog .vat-report-table-desktop tbody tr:hover { background: #19392d !important; }
+[data-appearance="dark"] .vat-report-dialog :is(.vat-report-data button, .vat-stock-identities button) { color: #6ee7b7 !important; }
+[data-appearance="dark"] .vat-mobile-totals { background: #152b25 !important; border-color: #35594c !important; }
+[data-appearance="dark"] .vat-mobile-totals > strong { color: #d1fae5 !important; }
+@media screen and (max-width: 900px) {
+  .vat-report-table-desktop { display: none; }
+  .vat-report-mobile { display: grid; gap: 1rem; }
+  .vat-library-intro { flex-direction: column; align-items: flex-start; padding: 1rem; }
+  .vat-library-formats { max-width: none; }
+  .vat-library-cards { grid-template-columns: minmax(0, 1fr); }
+  .vat-report-filters { padding: .8rem; }
+}
+@media print {
+  .vat-report-mobile, .vat-report-filters { display: none !important; }
+  .vat-report-dialog .vat-report-table-desktop { display: block !important; overflow: visible !important; border-color: #cbd5e1 !important; }
+  .vat-report-dialog .vat-report-table-desktop table { min-width: 0 !important; width: 100% !important; font-size: 7pt !important; }
+  .vat-report-dialog .vat-report-table-desktop th, .vat-report-dialog .vat-report-table-desktop td { color: #0f172a !important; background: #fff !important; padding: 2mm 1mm !important; }
+  .vat-report-dialog .vat-report-table-desktop [data-responsive-column] { white-space: normal !important; overflow-wrap: anywhere !important; }
+  .vat-report-dialog .vat-report-table-desktop thead { display: table-header-group; }
+  .vat-report-dialog .vat-report-table-desktop tfoot { display: table-row-group; }
+  .vat-report-dialog .vat-report-table-desktop tr { break-inside: avoid; }
+  .vat-report-dialog .vat-report-table-desktop button { color: #0f172a !important; text-decoration: none; }
+}
+
+@media print {
+  [data-appearance="dark"] .vat-report-dialog .vat-report-table-desktop :is(th, td, tfoot),
+  [data-appearance="dark"] .vat-report-dialog .vat-report-table-desktop tbody tr:nth-child(even),
+  [data-appearance="dark"] .vat-report-dialog .vat-summary,
+  [data-appearance="dark"] .vat-report-dialog .vat-summary-grid > div { background: #fff !important; color: #0f172a !important; }
+  [data-appearance="dark"] .vat-report-dialog .vat-summary-grid :is(span, strong),
+  [data-appearance="dark"] .vat-report-dialog .vat-summary-note,
+  [data-appearance="dark"] .vat-report-dialog .vat-report-data button { color: #0f172a !important; }
+}
+
+
+.vat-summary { border: 1px solid #d7e2ea; border-radius: .85rem; background: linear-gradient(145deg, #fff, #f3f8fb); padding: 1rem; }
+.vat-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: .75rem; }
+.vat-summary-grid > div { border: 1px solid #dbe6ed; border-radius: .7rem; background: #fff; padding: .8rem .9rem; }
+.vat-summary-grid span { display: block; color: #64748b; font-size: .68rem; font-weight: 750; letter-spacing: .055em; text-transform: uppercase; }
+.vat-summary-grid strong { display: block; margin-top: .35rem; color: #0f172a; font-size: 1.08rem; font-variant-numeric: tabular-nums; }
+.vat-summary-grid [data-tone="negative"] strong { color: #be123c; }
+.vat-summary-note { color: #64748b; }
+[data-appearance="dark"] .vat-summary { background: #101e30 !important; border-color: #35516b !important; }
+[data-appearance="dark"] .vat-summary-grid > div { background: #152538 !important; border-color: #35516b !important; }
+[data-appearance="dark"] .vat-summary-grid span, [data-appearance="dark"] .vat-summary-note { color: #bacddd !important; }
+[data-appearance="dark"] .vat-summary-grid strong { color: #7dd3fc !important; }
+[data-appearance="dark"] .vat-summary-grid [data-tone="negative"] strong { color: #fda4af !important; }
+@media print {
+  .vat-summary { break-inside: avoid; box-shadow: none; padding: 3mm; }
+  .vat-summary-grid { gap: 2mm; }
+  .vat-summary-grid > div { padding: 2mm; }
+  [data-appearance="dark"] .vat-summary, [data-appearance="dark"] .vat-summary-grid > div { background: #fff !important; border-color: #cbd5e1 !important; }
+  [data-appearance="dark"] .vat-summary :is(span, strong, p) { color: #0f172a !important; }
+  .vat-report-dialog [data-responsive-column] { white-space: nowrap !important; overflow-wrap: normal !important; font-size: 6pt; }
+}

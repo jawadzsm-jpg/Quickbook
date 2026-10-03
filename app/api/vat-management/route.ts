@@ -1,3 +1,4 @@
+import { vatTaxableValue } from "@/lib/vat-report";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { accounts, auditLog, companies, inventoryLocations, journalEntries, journalLines, transactionLines, transactions, vatAdjustments, vatCodes, vatReturns } from "@/db/schema";
@@ -34,6 +35,7 @@ async function calculateVat(companyId: number, periodStart: string, periodEnd: s
       vatCode: transactionLines.vatCode,
       vatRate: transactionLines.vatRate,
       taxableAmount: transactionLines.subtotal,
+      freightCharge: transactionLines.freightCharge,
       vatAmount: transactionLines.vatAmount,
       exchangeRate: transactions.exchangeRate,
     }).from(transactionLines).innerJoin(transactions, eq(transactionLines.transactionId, transactions.id)).where(and(
@@ -68,7 +70,8 @@ async function calculateVat(companyId: number, periodStart: string, periodEnd: s
     if (line.type === "cheque" && line.billId) continue;
     const sign = ["credit memo", "vendor credit"].includes(line.type) ? -1 : 1;
     const rate = Number(line.exchangeRate) || 1;
-    const amount = round(sign * Number(line.taxableAmount) * rate);
+    const taxableAmount = vatTaxableValue({ subtotal: line.taxableAmount, freightCharge: line.freightCharge });
+    const amount = round(sign * taxableAmount * rate);
     const vat = round(sign * Number(line.vatAmount) * rate);
     const code = String(line.vatCode || "").trim().toUpperCase();
     const expectedRate = knownCodes.get(code);
@@ -78,7 +81,7 @@ async function calculateVat(companyId: number, periodStart: string, periodEnd: s
       exceptionLines += 1;
       continue;
     }
-    const invalidCalculation = Math.abs(Number(line.vatAmount) - Number(line.taxableAmount) * Number(line.vatRate) / 100) > 0.011 || Math.abs(Number(line.vatRate) - expectedRate) > 0.001;
+    const invalidCalculation = Math.abs(Number(line.vatAmount) - taxableAmount * Number(line.vatRate) / 100) > 0.011 || Math.abs(Number(line.vatRate) - expectedRate) > 0.001;
     const invalidUaeTreatment = expectedRate !== 5 && !["ZERO", "EXEMPT", "OUT_OF_SCOPE"].includes(code);
     if (invalidCalculation || invalidUaeTreatment || (code === "OUT_OF_SCOPE" && Math.abs(vat) > 0.001)) exceptionLines += 1;
     if (code === "OUT_OF_SCOPE") {
