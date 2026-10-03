@@ -116,6 +116,8 @@ Selected GET `kind` values beyond the four main record types are:
 
 VAT report models include saved code/rate, signed values, document IDs and verified posted VAT account IDs. Detail lines include quantity/unit price and freight in taxable value. Item summaries group by item identity, saved code/rate and tax direction. VAT exception review includes unknown/missing codes, saved calculation differences and differences from current configured rates. All seven VAT reports return code metadata and ignore inventory scope; VAT Code List remains a current snapshot. `/api/vat-management` includes line freight in taxable amounts and saved-rate validation without changing posting or filing authorization.
 
+Vendor report rows include company-scoped posted payable/payment account IDs resolved in the transaction currency. Source-document account links support both debit and credit postings; planned purchase orders are labelled without implying a posted control. Ambiguous historical account names remain review labels. Vendor statements expose account-navigation permission and retain their opening/closing response model. Supplier balance summaries and detail retain all prior activity through the selected as-of date. Cancelled/void supplier activity and fully allocated zero-amount open bills are excluded from vendor views. Posted payable entries classify charges and settlements; cash-paid expenses do not increase payable balances, and bill-linked bank cheques reduce balances and statements.
+
 ## Safe endpoint changes
 
 When adding or changing a handler:
