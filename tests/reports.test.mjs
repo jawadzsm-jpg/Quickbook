@@ -1709,3 +1709,36 @@ test("accountant filters preserve ledger balances, use account IDs and retain un
     assert.ok(result.rows.some(row => Number(row.accountAccountId || row.nameAccountId) > 0));
   }
 });
+
+test("list filters sort numeric prices and keep exports aligned with displayed rows", async () => {
+  const { filterListRows, listSummary, listReportGroups, listReportKeys } = await vite.ssrLoadModule("/lib/list-report.ts");
+  const keys = listReportGroups.flatMap(group => group.keys);
+  assert.equal(new Set(keys).size, 15); assert.deepEqual([...keys].sort(), [...listReportKeys].sort());
+  const columns = [{ key: "item", label: "Item" }, { key: "quantity", label: "On Hand" }, { key: "price", label: "Sales Price", type: "money" }, { key: "status", label: "Status" }];
+  const rows = [{ item: "Device A", quantity: 10, price: 2, status: "active" }, { item: "Device B", quantity: 2, price: 10, status: "active" }, { item: "Old device", quantity: 1, price: 999, status: "inactive" }];
+  const filtered = filterListRows(rows, columns, { query: "device", status: "active", sort: "price:desc" });
+  assert.deepEqual(filtered, [rows[1], rows[0]]); assert.equal(rows[0].item, "Device A");
+  const report = { key: "item-price-list", title: "Item Price List", currency: "AED", generatedAt: "2026-10-03T16:00:00Z", columns, rows, accountLinkIssues: ["Inventory asset account link missing; review the account mapping."] };
+  assert.equal(listSummary({ ...report, rows: filtered }).cards[0].value, 40);
+  const { reportCsv, reportWorkbook, reportPdf } = await vite.ssrLoadModule("/lib/report-export.ts");
+  const csv = reportCsv(report, "Lists review", "Main", filtered); assert.doesNotMatch(csv, /Old device/); assert.ok(csv.indexOf("Device B") < csv.indexOf("Device A")); assert.match(csv, /asset account link missing/);
+  const { default: ExcelJS } = await import("exceljs"); const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(await reportWorkbook(report, "Lists review", "Main", filtered));
+  assert.equal(workbook.getWorksheet("Account review").getCell("A3").value, report.accountLinkIssues[0]);
+  assert.match(Buffer.from(await reportPdf(report, "Lists review", "Main", filtered)).toString("latin1"), /asset account link missing/);
+});
+
+test("Lists item directories link stock assets without inventing inventory accounts for services", async () => {
+  const { company: c } = await (await workspaces.POST(post({ type: "company", name: "Lists item accounts", baseCurrency: "AED" }))).json();
+  const [asset] = (await database.query("SELECT id FROM accounts WHERE company_id = $1 AND system_role = 'INVENTORY'", [c.id])).rows;
+  await db.insert(schema.items).values([
+    { companyId: c.id, locationId: c.locations[0].id, sku: "LIST-STOCK", name: "Linked stock", itemType: "stock-part", assetAccountId: asset.id, quantity: 2, cost: 5, salesPrice: 10 },
+    { companyId: c.id, locationId: c.locations[0].id, sku: "LIST-SERVICE", name: "Service", itemType: "service", quantity: 0, cost: 0, salesPrice: 20 },
+  ]);
+  for (const key of ["item-listing", "item-price-list", "item-price-level-list"]) {
+    const result = await (await GET(new Request(`https://app.test/api/reports?type=${key}&companyId=${c.id}`))).json();
+    assert.equal(result.report.rows.find(row => row.sku === "LIST-STOCK").accountAccountId, asset.id);
+    assert.equal(result.report.rows.find(row => row.sku === "LIST-SERVICE").accountAccountId, 0);
+    assert.equal(result.report.rows.find(row => row.sku === "LIST-SERVICE").account, "—");
+    assert.deepEqual(result.report.accountLinkIssues, []);
+  }
+});

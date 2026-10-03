@@ -1886,3 +1886,14 @@ button, input, select { font: inherit; }
   .accountant-filters { border: 0; padding: 0; background: #fff; }
   .accountant-filters > p { color: #334155; margin: 0; }
 }
+
+/* Lists reuse accessible report controls and shared responsive numeric tables. */
+.list-library-group { margin-top: 1.6rem; }
+.list-library-group h5 { font-weight: 750; font-size: .95rem; }
+.list-library-group > p { margin: .3rem 0 .8rem; color: #64748b; font-size: .8rem; }
+.list-filter-controls { grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)) auto; }
+.list-summary-grid > div { min-width: 0; }
+.list-summary-grid strong { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+@media screen { [data-appearance="dark"] .list-library-group > p { color: #b9cbd8; } }
+@media screen and (max-width: 1023px) { .list-filter-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media screen and (max-width: 639px) { .list-filter-controls, .list-summary-grid { grid-template-columns: 1fr; } }
