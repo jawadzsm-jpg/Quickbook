@@ -8,7 +8,7 @@ import { purchaseColumnKind, purchaseColumnTotal, purchaseColumnWeight, purchase
 import { inventoryColumnKind, inventoryColumnTotal, inventoryColumnWeight, inventoryReportKeys, inventorySummary } from "./inventory-report";
 import { bankingSummary } from "./banking-report";
 import { accountantSummary, accountantReportKeys } from "./accountant-report";
-import { listSummary } from "./list-report";
+import { listSummary, listReportKeys } from "./list-report";
 import { employeeSummary } from "./employee-report";
 import { financialSummary } from "./financial-presentation";
 import type { PrintOrientation } from "./document-print";
@@ -36,7 +36,7 @@ function reportOverview(report: ReportExportData, rows: ReportExportRow[]) {
 }
 
 function reportReviewIssues(report: ReportExportData) {
-  return [...new Set([...(report.financial?.issues ?? []), ...((budgetReportKeys.has(report.key || "") || accountantReportKeys.has(report.key || "")) ? report.accountLinkIssues ?? [] : [])])];
+  return [...new Set([...(report.financial?.issues ?? []), ...((budgetReportKeys.has(report.key || "") || accountantReportKeys.has(report.key || "") || listReportKeys.has(report.key || "")) ? report.accountLinkIssues ?? [] : [])])];
 }
 
 const navy = "FF102033";

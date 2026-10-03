@@ -141,3 +141,5 @@ When adding or changing a handler:
 Budget report responses include `budget.from`, `budget.to`, `budget.baselineFrom` and `budget.baselineTo`. The baseline is posted results for the matching prior-year period. Unresolved account postings in either period are excluded and disclosed in `accountLinkIssues`; no budget plan or journal is created.
 
 Accountant report responses include `accountLinkIssues` for account-bearing rows with no verified Chart of Accounts link, including missing and ambiguous matches. Original rows and amounts remain present. Client search/account filtering preserves server running balances and row order.
+
+The `item-listing`, `item-price-list` and `item-price-level-list` responses include `account` and `accountAccountId` for the inventory asset account. Lists responses preserve unresolved account-bearing rows and include `accountLinkIssues`; exports carry those review warnings.
