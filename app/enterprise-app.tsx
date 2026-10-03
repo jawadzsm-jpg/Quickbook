@@ -174,7 +174,6 @@ const navGroups = [
     { id: "inventory-check-reports", label: "Inventory Check Reports", icon: PackageCheck },
     { id: "transfers", label: "Stock Transfers", icon: ArrowRightLeft },
     { id: "banking", label: "Banking", icon: Landmark },
-    { id: "write-cheque", label: "Write UAE Bank Cheque", icon: WalletCards },
     { id: "journal-entries", label: "General Journal", icon: BookOpenCheck },
     { id: "accounts", label: "Chart of Accounts", icon: BookOpen },
     { id: "vat-management", label: "VAT Management", icon: Percent },

@@ -55,6 +55,7 @@
 - Manual general journal entries with balanced debit/credit validation and inventory location selection.
 - Deposits, cheques, credit-card charges, transfers, cheque orders, and opening balances.
 - UAE bank cheque preparation for supplier, salary, and expense workflows with bank-specific layouts and print alignment.
+- Write UAE Bank Cheque is available in Banking workflows; the sidebar omits the duplicate cheque shortcut.
 - Account history, general ledger, trial balance, balance sheet, cash flow, receivables, payables, and reconciliation-oriented reports.
 - Audit log coverage for sensitive changes such as vendor changes and destructive actions.
 
