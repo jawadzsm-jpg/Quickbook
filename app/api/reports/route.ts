@@ -1,3 +1,4 @@
+import { accountantReportKeys, accountantAccountIssues } from "@/lib/accountant-report";
 import { vendorDocumentAccount, vendorReportKeys } from "@/lib/vendor-report";
 import { buildVatReport, vatReportKeys } from "@/lib/vat-report";
 import { financialKeys, financialReport } from "@/lib/financial-reports";
@@ -969,7 +970,7 @@ export async function GET(request: Request) {
     const budget = key.startsWith("budget-") ? { from: budgetStart, to: budgetEnd, baselineFrom: priorBudgetStart, baselineTo: priorBudgetEnd } : undefined;
     const budgetIssues = budget ? [...new Set(journal.filter(entry => ((entry.date >= budgetStart && entry.date <= budgetEnd) || (entry.date >= priorBudgetStart && entry.date <= priorBudgetEnd)) && !journalAccount(entry)).map(entry => `Account “${entry.account}” has no unique Chart of Accounts match. Its postings are excluded from baseline and actual totals; review the account mapping.`))] : [];
 
-    return Response.json({ report: { key, period, companyId, supplierId: supplierReport ? supplierId : undefined, canViewAccounts: hasPermission(authorization, "accounting:manage"), budget, accountLinkIssues: [...linkedAccounts.issues, ...budgetIssues], vatCodes: vatReportKeys.has(key) ? configuredVatCodes.map(({ code, name, rate }) => ({ code, name, rate })) : undefined, title, generatedAt: new Date().toISOString(), currency: reportCurrency, columns, rows: linkedAccounts.rows, chart, summary } }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ report: { key, period, companyId, supplierId: supplierReport ? supplierId : undefined, canViewAccounts: hasPermission(authorization, "accounting:manage"), budget, accountLinkIssues: [...linkedAccounts.issues, ...budgetIssues, ...(accountantReportKeys.has(key) ? accountantAccountIssues(linkedAccounts.rows, columns) : [])], vatCodes: vatReportKeys.has(key) ? configuredVatCodes.map(({ code, name, rate }) => ({ code, name, rate })) : undefined, title, generatedAt: new Date().toISOString(), currency: reportCurrency, columns, rows: linkedAccounts.rows, chart, summary } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not generate report." }, { status: 500 });
   }

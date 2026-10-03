@@ -1856,3 +1856,33 @@ button, input, select { font: inherit; }
   .budget-trend-grid article { break-inside: avoid; }
   .budget-trend-track { print-color-adjust: exact; }
 }
+
+/* Accountant library and report controls. Shared tables retain numeric alignment. */
+.accountant-library-group { margin-top: 1.6rem; }
+.accountant-library-group h5 { font-weight: 750; font-size: .95rem; }
+.accountant-library-group > p { margin: .3rem 0 .8rem; color: #64748b; font-size: .8rem; }
+.accountant-filters { border: 1px solid #ddd8eb; border-radius: .75rem; padding: 1rem; background: #faf9ff; }
+.accountant-filter-controls { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto; gap: .8rem; align-items: end; }
+.accountant-filter-controls label { display: grid; min-width: 0; gap: .4rem; font-size: .75rem; font-weight: 650; }
+.accountant-filter-controls input, .accountant-filter-controls select, .accountant-filter-controls button { min-width: 0; width: 100%; min-height: 42px; border: 1px solid #cbd5e1; border-radius: .45rem; background: #fff; color: #0f172a; padding: .55rem .7rem; }
+.accountant-filter-controls button { font-size: .8rem; font-weight: 650; }
+.accountant-filter-controls button:disabled { opacity: .5; }
+.accountant-filter-controls :is(input, select, button):focus-visible { outline: 2px solid #7c3aed; outline-offset: 2px; }
+.accountant-filters > p { font-size: .75rem; color: #64748b; line-height: 1.6; margin-top: .75rem; overflow-wrap: anywhere; }
+.accountant-summary-grid > div { min-width: 0; }
+.accountant-summary-grid strong { overflow-wrap: anywhere; }
+@media screen {
+  [data-appearance="dark"] .accountant-library-group > p, [data-appearance="dark"] .accountant-filters > p { color: #b9b7d8; }
+  [data-appearance="dark"] .accountant-filters { background: #1c1b3a; border-color: #4d4a7d; }
+  [data-appearance="dark"] .accountant-filter-controls :is(input, select, button) { background: #242440; color: #f8fafc; border-color: #55557d; }
+}
+@media screen and (max-width: 767px) {
+  .accountant-filter-controls { grid-template-columns: 1fr; }
+  .accountant-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media screen and (max-width: 399px) { .accountant-summary-grid { grid-template-columns: 1fr; } }
+@media print {
+  .accountant-filter-controls { display: none !important; }
+  .accountant-filters { border: 0; padding: 0; background: #fff; }
+  .accountant-filters > p { color: #334155; margin: 0; }
+}

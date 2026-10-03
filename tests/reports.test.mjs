@@ -1676,3 +1676,36 @@ test("budget baselines identify prior dates, reconcile variance and disclose exc
   const pdf = Buffer.from(await reportPdf(report, "Budget audit", "Main")).toString("latin1");
   assert.match(pdf, /Unmatched budget account/); assert.match(pdf, /2025-09-01/);
 });
+
+test("accountant filters preserve ledger balances, use account IDs and retain unmatched amounts in exports", async () => {
+  const { filterAccountantRows, accountantSummary, accountantAccountIssues } = await vite.ssrLoadModule("/lib/accountant-report.ts");
+  const columns = [{ key: "account", label: "Account" }, { key: "reference", label: "Reference" }, ...["debit", "credit", "balance"].map(key => ({ key, label: key, type: "money" }))];
+  const rows = [
+    { account: "Shared name", accountAccountId: 11, reference: "FIRST", debit: 100, credit: 0, balance: 150 },
+    { account: "Shared name", accountAccountId: 12, reference: "OTHER", debit: 0, credit: 25, balance: -25 },
+    { account: "Shared name", accountAccountId: 11, reference: "SECOND", debit: 0, credit: 30, balance: 120 },
+    { account: "Legacy missing", accountAccountId: 0, reference: "REVIEW", debit: 9, credit: 0, balance: 9 },
+  ];
+  const filtered = filterAccountantRows(rows, columns, { query: "second", account: "id:11" });
+  assert.deepEqual(filtered, [rows[2]]); assert.equal(filtered[0].balance, 120);
+  assert.deepEqual(filterAccountantRows(rows, columns, { query: "", account: "id:11" }), [rows[0], rows[2]]);
+  const issues = accountantAccountIssues(rows, columns); assert.equal(issues.length, 1); assert.match(issues[0], /recorded amounts are retained/);
+  const report = { key: "general-ledger", title: "General Ledger", currency: "AED", generatedAt: "2026-10-03T12:00:00Z", columns, rows, accountLinkIssues: issues };
+  assert.equal(accountantSummary({ ...report, rows: filtered }).cards[1].value, 30);
+  const { reportCsv, reportWorkbook, reportPdf } = await vite.ssrLoadModule("/lib/report-export.ts");
+  const csv = reportCsv(report, "Accountant review", "Main", filtered); assert.match(csv, /SECOND/); assert.doesNotMatch(csv, /FIRST/); assert.match(csv, /Legacy missing/);
+  const { default: ExcelJS } = await import("exceljs"); const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(await reportWorkbook(report, "Accountant review", "Main", filtered));
+  assert.equal(workbook.getWorksheet("Account review").getCell("A3").value, issues[0]);
+  assert.match(Buffer.from(await reportPdf(report, "Accountant review", "Main", filtered)).toString("latin1"), /Legacy missing/);
+  const { company: c } = await (await workspaces.POST(post({ type: "company", name: "Accountant link audit", baseCurrency: "AED" }))).json();
+  const [entry] = await db.insert(schema.journalEntries).values({ companyId: c.id, locationId: c.locations[0].id, entryDate: "2026-09-15", reference: "MAPPING-REVIEW" }).returning();
+  await db.insert(schema.journalLines).values([{ journalEntryId: entry.id, accountName: "Legacy unmatched", debit: 9, credit: 0 }, { journalEntryId: entry.id, accountName: "Sales Revenue", debit: 0, credit: 9 }]);
+  for (const key of ["trial-balance", "general-ledger", "journal", "transaction-detail-account"]) {
+    const response = await GET(new Request(`https://app.test/api/reports?type=${key}&companyId=${c.id}&periodStart=2026-09-01&periodEnd=2026-09-30`));
+    assert.equal(response.status, 200); const result = (await response.json()).report;
+    assert.equal(result.rows.reduce((sum, row) => sum + Number(row.debit), 0), 9);
+    assert.equal(result.rows.reduce((sum, row) => sum + Number(row.credit), 0), 9);
+    assert.match(result.accountLinkIssues.join(" "), /Legacy unmatched/);
+    assert.ok(result.rows.some(row => Number(row.accountAccountId || row.nameAccountId) > 0));
+  }
+});
