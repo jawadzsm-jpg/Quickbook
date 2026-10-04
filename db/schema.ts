@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, doublePrecision, index, integer, pgTable, serial, text, timestamp, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { boolean, check, uuid, doublePrecision, index, integer, pgTable, serial, text, timestamp, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
 
 export const companies = pgTable("companies", {
   id: serial("id").primaryKey(),
@@ -568,3 +568,45 @@ export const incomeTaxWorkingPapers = pgTable("income_tax_working_papers", {
   revision: integer("revision").notNull().default(1),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 }, table => [uniqueIndex("income_tax_working_papers_company_id_period_start_period_end_key").on(table.companyId, table.periodStart, table.periodEnd)]);
+
+
+export const backupSchedules = pgTable("backup_schedules", {
+  companyId: integer("company_id").primaryKey().references(() => companies.id, { onDelete: "cascade" }),
+  config: text("config").notNull(),
+  enabled: boolean("enabled").notNull().default(false),
+  nextRunAt: timestamp("next_run_at", { withTimezone: true }),
+  leaseUntil: timestamp("lease_until", { withTimezone: true }),
+  revision: integer("revision").notNull().default(1),
+  updatedBy: integer("updated_by").notNull().references(() => appUsers.id),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const companyBackups = pgTable("company_backups", {
+  id: uuid("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  runKey: text("run_key").notNull().unique(),
+  source: text("source").notNull(),
+  status: text("status").notNull(),
+  requestedBy: integer("requested_by").references(() => appUsers.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  filename: text("filename").notNull(),
+  blobPath: text("blob_path"),
+  sha256: text("sha256"),
+  sizeBytes: integer("size_bytes"),
+  rowCount: integer("row_count"),
+  tableCount: integer("table_count"),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
+  error: text("error"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+}, (table) => [
+  uniqueIndex("company_backups_running").on(table.companyId).where(sql`${table.status}='running'`),
+  index("company_backups_history").on(table.companyId, table.createdAt.desc()),
+  check("company_backups_source_check", sql`${table.source} IN ('manual','scheduled')`),
+  check("company_backups_status_check", sql`${table.status} IN ('running','completed','failed','deleted')`),
+]);
+
+export const backupWorkerStatus = pgTable("backup_worker_status", {
+  id: integer("id").primaryKey(),
+  checkedAt: timestamp("checked_at", { withTimezone: true }).notNull(),
+}, (table) => [check("backup_worker_status_id_check", sql`${table.id}=1`)]);

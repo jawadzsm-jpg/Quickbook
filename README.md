@@ -132,6 +132,7 @@ It applies migrations, creates a local global administrator on first run, stores
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `DATABASE_URL` | Production/shared development | PostgreSQL connection used by the application and migration scripts |
+| `BLOB_READ_WRITE_TOKEN` | Company backups | Server-only token for a private Vercel Blob store |
 | `DATABASE_URL_UNPOOLED` | Migration generation only | Preferred direct URL for Drizzle Kit when available |
 | `NEXT_PUBLIC_APP_URL` | Recommended | Canonical application URL and invitation login link |
 | `SMTP_ENCRYPTION_KEY` | Recommended for email | At least 32 random characters used to encrypt stored SMTP passwords; database URL is a fallback |
@@ -184,3 +185,7 @@ Vercel installs with `npm ci --ignore-scripts` and runs `npm run build`. The pro
 | [Codebase map](docs/CODEBASE-MAP.md) | Source ownership, change locations, conventions, and maintenance checklist |
 
 When behavior changes, update the affected focused document in the same change. `README.md` and the six files above are the maintained source of truth; audit files in `docs/` describe reviews at a point in time.
+
+## Company backups
+
+Admin Controls includes private company archives, manual backup, UAE date/time scheduling, download and integrity verification, history, and retention. Configuration, archive scope, monitoring and assisted recovery are documented in [Company backups](docs/BACKUPS.md).

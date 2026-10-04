@@ -280,3 +280,7 @@ Inventory staff work on bills/receipts during their UAE creation day. After midn
 5. Incoming lists remaining purchase-order quantities with selling prices, without supplier identities, purchase costs or purchase-document access.
 
 Income tax: open Financial → Income Tax Working Paper, choose a complete tax period and rates, select or create tax expense/payable accounts, enter explained adjustments, and Calculate. Save working paper stores inputs for the period; opening it and recalculating uses current postings. Review warnings and provision comparison, then export/print. This workflow never creates a tax journal or submits a return. Administrators/accountants can maintain configurations; report readers can calculate and export.
+
+## Scheduled company backup
+
+Open Admin Controls for the company, create a manual backup, then set a start date, UAE time, repeat frequency and retention; enable and save. Confirm the next run and recent scheduler heartbeat. Download a completed file and keep its displayed fingerprint with a separate secure copy. Verify files through history or the offline `backup:verify` command. Administrators can pause schedules and explicitly delete files. Recovery requires an isolated database rehearsal and separate approval before changing live data; detailed instructions are in [Company backups](BACKUPS.md).

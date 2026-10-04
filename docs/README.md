@@ -34,3 +34,5 @@ Update documentation in the same change when any of these areas change:
 - Move or introduce source ownership: update `CODEBASE-MAP.md`.
 
 Use the code as the final authority when a conflict is discovered, then correct the canonical document so the conflict does not persist.
+
+- [Company backups](BACKUPS.md): Admin schedules, private archives, integrity verification, monitoring and assisted recovery.

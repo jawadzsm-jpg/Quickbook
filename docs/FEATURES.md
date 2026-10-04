@@ -282,3 +282,7 @@ Posted ledger income less COGS/expenses gives accounting profit. The selected ta
 Administrators/accountants can create/link the standard tax accounts, save working papers and update saved periods. One configuration per company/date range prevents duplicates and revision checks prevent overwriting another user's changes. Report readers may preview and export. Saved configurations recalculate from the live ledger; they are not filed-return snapshots. Clear company → saved reports includes working papers.
 
 Responsive calculation rows, light/dark styling, shared Minimize/Restore dialog controls, A4 portrait/landscape print/PDF, CSV and Excel, report summaries and draggable/touch/keyboard stamp placement share the same calculation. Exports require recalculation after settings change, include company/period/date in filenames, and show assumptions and review notes. Print opens the A4 PDF in a printable browser tab; stamps are on the first PDF page.
+
+## Admin backup controls
+
+Admin Controls includes company-scoped manual backups, one-time/daily/weekly/monthly UAE date/time schedules, 7/30/90/365-day retention, private downloads, SHA-256 verification and a responsive light/dark history view. The latest successful file is retained during automatic cleanup. Passwords and authentication configuration are excluded; recovery is administrator-assisted, not a one-click ledger overwrite. See [Company backups](BACKUPS.md).

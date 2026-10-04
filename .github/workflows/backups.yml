@@ -1,0 +1,24 @@
+name: Scheduled company backups
+on:
+  schedule:
+    - cron: '3-58/5 * * * *'
+  workflow_dispatch:
+permissions:
+  id-token: write
+  contents: read
+concurrency:
+  group: company-backup-dispatch
+  cancel-in-progress: false
+jobs:
+  dispatch:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Dispatch due backups using short-lived identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          token=$(curl --fail --silent --show-error -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=comnet-backup-worker" | jq -er '.value')
+          echo "::add-mask::$token"
+          curl --fail --silent --show-error --max-time 290 --request POST -H "Authorization: Bearer $token" https://comnet-enterprise-accounting.vercel.app/api/admin-backups/run
