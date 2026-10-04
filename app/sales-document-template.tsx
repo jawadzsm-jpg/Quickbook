@@ -11,6 +11,7 @@ import { CustomInvoiceTemplate, type TemplateBranding } from "./custom-invoice-t
 import { InvoicePackingListDialog } from "./invoice-packing-list";
 import { DeliveryNoteTemplate } from "./delivery-note-template";
 import { toast } from "sonner";
+import { customerInvoiceLines, inventoryInvoiceLines } from "@/lib/invoice-stock-lines";
 import { letterheadForDocument } from "@/lib/letterhead";
 
 type RecordData = Record<string, string | number | boolean>;
@@ -84,6 +85,7 @@ export function salesDocumentModeForTransaction(type: string): SalesDocumentMode
 export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: { mode: SalesDocumentMode; record: RecordData; lines: RecordData[]; contact?: RecordData | null; setup: Branding; showBillingName: boolean; showShipping: boolean; showHsCode: boolean; showDimensions: boolean }) {
   const outputModes = relatedDocumentOutputs[mode] ?? [mode];
   const [selection, setSelection] = useState<{ source: SalesDocumentMode; output: SalesDocumentMode }>({ source: mode, output: mode });
+  const [copy, setCopy] = useState<"customer" | "inventory">("customer");
   const [pdfBusy, setPdfBusy] = useState(false);
   const [poStamp, setPoStamp] = useState<{show:boolean;left:number;top:number}|null>(null);
   const [packingOpen, setPackingOpen] = useState(false);
@@ -108,9 +110,22 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
   const a4Design = { ...design, paper: "A4" as const, printerMode: "specified" as const, orientation: printOrientation };
   const pageRule = documentPageRule(a4Design);
   const screenPreviewRef = useRef<HTMLDivElement>(null);
+  const alternatePreviewRef = useRef<HTMLDivElement>(null);
+  const splitInvoiceCopies = connectedPackingList && signedInvoiceCopies;
+  const selectedCopy = splitInvoiceCopies ? copy : "customer";
+  const customerLines = connectedPackingList ? customerInvoiceLines(lines) : lines;
+  const inventoryLines = inventoryInvoiceLines(lines);
+  const renderDocument = (documentCopy: "customer" | "inventory", print = false) => {
+    const inventoryCopy = splitInvoiceCopies && documentCopy === "inventory";
+    const copyDesign = { ...(print ? a4Design : design), ...(inventoryCopy ? { title: `${design.title} — Inventory Copy` } : {}) };
+    const copyLines = inventoryCopy ? inventoryLines : customerLines;
+    return activeMode === "delivery-note" && connectedPackingList
+      ? <DeliveryNoteTemplate record={record} lines={copyLines} contact={contact} setup={setup} letterhead={letterhead} />
+      : <CustomInvoiceTemplate design={copyDesign} record={record} lines={copyLines} contact={contact} setup={setup} letterhead={letterhead} stampOverride={stampOverride} showItemNumberAtEnd={signedInvoiceCopies} target={print ? "print" : "screen"} onMoveStamp={!print && movableStamp ? (left, top) => setPoStamp({ ...stamp, left, top }) : undefined} />;
+  };
   const customerName = String(contact?.billingName || contact?.company || record.party || "Customer");
   const referenceNumber = String(record.number || "Document");
-  const pdfFileName = documentPdfFileName(customerName, referenceNumber);
+  const pdfFileName = documentPdfFileName(customerName, selectedCopy === "inventory" ? `${referenceNumber}_Inventory_Copy` : referenceNumber);
   const pdfTitle = pdfFileName.replace(/\.pdf$/i, "");
   const pdfElement = () => screenPreviewRef.current?.querySelector<HTMLElement>(".custom-invoice") || null;
 
@@ -118,24 +133,29 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
     const popup = window.open("", "_blank");
     if (!popup) return toast.error("Allow pop-ups to print this document.");
     popup.opener = null;
-    const source = screenPreviewRef.current?.innerHTML || "";
-    const invoice = screenPreviewRef.current?.querySelector<HTMLElement>(".custom-invoice");
-    if (!source || !invoice) { popup.close(); return toast.error("Document preview is not ready."); }
-
-    const rect = invoice.getBoundingClientRect();
-    const sourceWidth = Math.max(1, Math.ceil(Math.max(rect.width, invoice.scrollWidth)));
-    const sourceHeight = Math.max(1, Math.ceil(Math.max(rect.height, invoice.scrollHeight)));
     const portrait = a4Design.orientation !== "landscape";
     const pageWidthMm = portrait ? 210 : 297;
     const pageHeightMm = portrait ? 297 : 210;
     const printableWidthPx = Math.max(1, (pageWidthMm - a4Design.margin * 2) * 96 / 25.4);
     const printableHeightPx = Math.max(1, (pageHeightMm - a4Design.margin * 2) * 96 / 25.4);
     const signingSpace = signedInvoiceCopies ? 82 : 0;
-    const scale = Math.min(1, printableWidthPx / sourceWidth, (printableHeightPx - signingSpace) / sourceHeight);
-    const copyLabels = signedInvoiceCopies ? ["CUSTOMER COPY", "INVENTORY TEAM COPY"] : Array.from({ length: a4Design.copies }, () => "");
-    const copies = copyLabels.map((label) =>
-      `<section class="print-copy" style="width:${printableWidthPx}px;height:${printableHeightPx}px">${label ? `<div class="copy-label">${label}</div>` : ""}<div class="print-fit" style="top:${label ? 30 : 0}px;width:${sourceWidth}px;transform:scale(${scale});transform-origin:top left">${source}</div>${label ? `<div class="copy-signature"><span>Received by: ____________________</span><span>Signature: ____________________</span><span>Date: ____________________</span></div>` : ""}</section>`
-    ).join("");
+    const customerPreview = splitInvoiceCopies && selectedCopy === "inventory" ? alternatePreviewRef : screenPreviewRef;
+    const inventoryPreview = splitInvoiceCopies && selectedCopy === "customer" ? alternatePreviewRef : screenPreviewRef;
+    const copySources = signedInvoiceCopies
+      ? [{ label: "CUSTOMER COPY", ref: customerPreview }, { label: "INVENTORY TEAM COPY", ref: inventoryPreview }]
+      : Array.from({ length: a4Design.copies }, () => ({ label: "", ref: screenPreviewRef }));
+    if (copySources.some(({ ref }) => !ref.current?.querySelector(".custom-invoice"))) {
+      popup.close(); return toast.error("Document preview is not ready.");
+    }
+    const copies = copySources.map(({ label, ref }) => {
+      const invoice = ref.current!.querySelector<HTMLElement>(".custom-invoice")!;
+      const source = ref.current!.innerHTML;
+      const rect = invoice.getBoundingClientRect();
+      const sourceWidth = Math.max(1, Math.ceil(Math.max(rect.width, invoice.scrollWidth)));
+      const sourceHeight = Math.max(1, Math.ceil(Math.max(rect.height, invoice.scrollHeight)));
+      const scale = Math.min(1, printableWidthPx / sourceWidth, (printableHeightPx - signingSpace) / sourceHeight);
+      return `<section class="print-copy" style="width:${printableWidthPx}px;height:${printableHeightPx}px">${label ? `<div class="copy-label">${label}</div>` : ""}<div class="print-fit" style="top:${label ? 30 : 0}px;width:${sourceWidth}px;transform:scale(${scale});transform-origin:top left">${source}</div>${label ? `<div class="copy-signature"><span>Received by: ____________________</span><span>Signature: ____________________</span><span>Date: ____________________</span></div>` : ""}</section>`;
+    }).join("");
     const pageNumbers = a4Design.printPageNumbers ? '@bottom-center{content:"Page " counter(page) " of " counter(pages);font:10px Arial,sans-serif;color:#475569;}' : "";
 
     popup.document.write(`<!doctype html><html><head><title>${pdfTitle}</title><style>
@@ -241,6 +261,10 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
         })}
       </div> : <div />}
       <div className="flex flex-wrap justify-end gap-2">
+        {splitInvoiceCopies && <div className="flex flex-wrap gap-2" aria-label="Invoice copy">
+          <Button type="button" variant={copy === "customer" ? "default" : "outline"} aria-pressed={copy === "customer"} onClick={() => setCopy("customer")}>Customer Copy</Button>
+          <Button type="button" variant={copy === "inventory" ? "default" : "outline"} aria-pressed={copy === "inventory"} onClick={() => setCopy("inventory")}>Inventory Copy</Button>
+        </div>}
         <PrintOrientationSelect value={printOrientation} onValueChange={setPrintOrientation} />
         <Button type="button" variant="outline" onClick={printA4}>
           <Printer className="size-4" />{signedInvoiceCopies ? "Print 2 A4 copies" : "Print A4"}
@@ -254,9 +278,12 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
       </div>
     </div>
     {movableStamp && <div className="document-internal-only mb-3 flex flex-wrap items-center gap-3 rounded-lg border bg-slate-50 p-3 text-sm"><label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={stamp.show} disabled={!setup.stampData} onChange={(event) => setPoStamp({...stamp,show:event.target.checked})} />Company stamp</label>{!setup.stampData && <span className="text-slate-500">Upload a stamp in Company Setup first.</span>}{stamp.show && setup.stampData && <><label className="flex items-center gap-2">Left (mm)<input type="number" min="0" max="170" className="w-20 rounded border bg-white px-2 py-1" value={stamp.left} onChange={(event) => setPoStamp({...stamp,left:Math.max(0,Math.min(170,Number(event.target.value)||0))})} /></label><label className="flex items-center gap-2">Top (mm)<input type="number" min="0" max="260" className="w-20 rounded border bg-white px-2 py-1" value={stamp.top} onChange={(event) => setPoStamp({...stamp,top:Math.max(0,Math.min(260,Number(event.target.value)||0))})} /></label><span className="text-slate-500">Drag the stamp in the preview to adjust it.</span></>}</div>}
-    {signedInvoiceCopies ? <div className="document-internal-only mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-900">Printing creates two A4 pages: Customer Copy and Inventory Team Copy, each with a receipt signature area.</div> : null}
-    <div ref={screenPreviewRef} className="invoice-screen-only">{activeMode === "delivery-note" && connectedPackingList ? <DeliveryNoteTemplate record={record} lines={lines} contact={contact} setup={setup} letterhead={letterhead} /> : <CustomInvoiceTemplate design={design} record={record} lines={lines} contact={contact} setup={setup} letterhead={letterhead} stampOverride={stampOverride} showItemNumberAtEnd={signedInvoiceCopies} onMoveStamp={movableStamp ? (left,top) => setPoStamp({...stamp,left,top}) : undefined} />}</div>
-    <div className="invoice-print-only">{activeMode === "delivery-note" && connectedPackingList ? <DeliveryNoteTemplate record={record} lines={lines} contact={contact} setup={setup} letterhead={letterhead} /> : <CustomInvoiceTemplate design={a4Design} record={record} lines={lines} contact={contact} setup={setup} letterhead={letterhead} stampOverride={stampOverride} showItemNumberAtEnd={signedInvoiceCopies} target="print" />}</div>
+    {signedInvoiceCopies ? <div className="document-internal-only mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-900">Print creates Customer and Inventory copies with signature areas. Customer copies hide zero-price and stock-return lines. Save or download uses the selected copy.</div> : null}
+    <div className="relative min-w-0">
+      <div ref={screenPreviewRef} className="invoice-screen-only" data-invoice-copy={selectedCopy}>{renderDocument(selectedCopy)}</div>
+      {splitInvoiceCopies && <div ref={alternatePreviewRef} data-invoice-copy={selectedCopy === "customer" ? "inventory" : "customer"} className="invoice-screen-only pointer-events-none absolute top-0 w-full" style={{ left: -100000 }} aria-hidden="true" inert>{renderDocument(selectedCopy === "customer" ? "inventory" : "customer")}</div>}
+    </div>
+    <div className="invoice-print-only">{renderDocument(selectedCopy, true)}</div>
     {connectedPackingList ? <InvoicePackingListDialog open={packingOpen} onOpenChange={setPackingOpen} companyId={Number(record.companyId)} companyName={String(setup.name || "Company")} setup={setup} invoiceId={Number(record.id)} initialView={packingView} /> : null}
   </>;
 }

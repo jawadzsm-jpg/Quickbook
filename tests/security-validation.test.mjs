@@ -64,7 +64,8 @@ test("item identity appears once in titles and Item No. is reserved for invoice 
   assert.match(overview, /inventorySocialShareText\(record\.name, record\.sku, description, channel\)/);
   assert.match(overview, /w-full max-w-full whitespace-normal break-words.*\[overflow-wrap:anywhere\]/);
   const salesTemplate = readFileSync(new URL("../app/sales-document-template.tsx", import.meta.url), "utf8");
-  assert.match(salesTemplate, /\["CUSTOMER COPY", "INVENTORY TEAM COPY"\]/);
+  assert.match(salesTemplate, /label: "CUSTOMER COPY", ref: customerPreview/);
+  assert.match(salesTemplate, /label: "INVENTORY TEAM COPY", ref: inventoryPreview/);
   assert.match(salesTemplate, /showItemNumberAtEnd=\{signedInvoiceCopies\}/);
 });
 

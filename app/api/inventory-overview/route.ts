@@ -150,7 +150,7 @@ export async function GET(request: Request) {
         JOIN items stock_item ON stock_item.id = sale_line.item_id AND stock_item.company_id = sale.company_id
         JOIN companies activity_company ON activity_company.id = sale.company_id
         LEFT JOIN inventory_locations inventory_location ON inventory_location.id = sale.location_id AND inventory_location.company_id = sale.company_id
-        WHERE sale.type IN ('invoice', 'sales receipt') AND sale.status <> 'cancelled'
+        WHERE sale.type IN ('invoice', 'sales receipt') AND sale.status <> 'cancelled' AND sale_line.quantity > 0
           AND activity_company.active = true ${companyScope}
         ORDER BY sale.transaction_date DESC, sale.id DESC, sale_line.id DESC
         LIMIT 50

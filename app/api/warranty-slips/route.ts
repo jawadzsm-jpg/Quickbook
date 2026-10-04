@@ -1,6 +1,6 @@
 import { documentVisibility } from "@/lib/document-access-sql";
 import { hasPermission } from "@/lib/auth";
-import { and, desc, eq, inArray, lte } from "drizzle-orm";
+import { sql, and, desc, eq, inArray, lte } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { appUsers, auditLog, contacts, items, transactionLines, transactions, warrantySlips } from "@/db/schema";
 import { requireCompanyAccess } from "@/lib/auth";
@@ -36,7 +36,7 @@ export async function GET(request: Request) {
       const [invoice] = await db.select().from(transactions).where(and(eq(transactions.id, invoiceId), and(eq(transactions.companyId, companyId), documentVisibility(user)), eq(transactions.type, "invoice"))).limit(1);
       if (!invoice) return Response.json({ error: "Customer invoice not found in this company." }, { status: 404 });
       const lines = await db.select({ id: transactionLines.id, itemId: transactionLines.itemId, description: transactionLines.description, serialNumber: transactionLines.serialNumber, itemName: items.name, specifications: items.specifications })
-        .from(transactionLines).leftJoin(items, eq(transactionLines.itemId, items.id)).where(eq(transactionLines.transactionId, invoiceId));
+        .from(transactionLines).leftJoin(items, eq(transactionLines.itemId, items.id)).where(and(eq(transactionLines.transactionId, invoiceId), sql`${transactionLines.quantity} > 0`));
       const itemIds = [...new Set(lines.flatMap((line) => line.itemId ? [line.itemId] : []))];
       const [suppliers, purchaseLines] = await Promise.all([
         db.select({ id: contacts.id, name: contacts.name, company: contacts.company, billingName: contacts.billingName }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "vendor"))),
@@ -140,7 +140,7 @@ async function save(request: Request, editing: boolean) {
         [invoice] = await db.select().from(transactions).where(and(eq(transactions.id, invoiceId), and(eq(transactions.companyId, companyId), documentVisibility(user)), eq(transactions.type, "invoice"))).limit(1);
         if (!invoice || invoice.party.trim().toLocaleLowerCase() !== customer.name.trim().toLocaleLowerCase()) return Response.json({ error: "The selected invoice does not belong to this customer." }, { status: 400 });
         if (invoiceLineId !== null) {
-          const [line] = await db.select({ id: transactionLines.id }).from(transactionLines).where(and(eq(transactionLines.id, invoiceLineId), eq(transactionLines.transactionId, invoiceId))).limit(1);
+          const [line] = await db.select({ id: transactionLines.id }).from(transactionLines).where(and(eq(transactionLines.id, invoiceLineId), and(eq(transactionLines.transactionId, invoiceId), sql`${transactionLines.quantity} > 0`))).limit(1);
           if (!line) return Response.json({ error: "The selected item does not belong to this invoice." }, { status: 400 });
         }
       }
