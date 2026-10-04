@@ -212,3 +212,7 @@ The HR employee form now exposes a Loan / advance account selector directly belo
 ## Staff salary sheets
 
 Employees & HR provides a Salary sheets control for administrators. Its monthly staff template follows the supplied STAF layout: serial number, employee name, personal number, card details, bank, IBAN, salary, service-fee count/rate, salary total, editable charges and grand total. Users can create, save, view, edit and delete company-scoped sheets. HR employee selection prefills name/salary, while personal/bank identifiers remain text. A4 landscape PDF and print share the same paginated output, with company letterhead and page numbers. Saved sheets retain their company branding snapshot. Documents do not post payroll or adjust balances.
+
+Employee edits open the dedicated Employee form, including salary, loan-account and vacation fields. Find existing bank loan lets an administrator explicitly select an unlinked, posted, tax-free bank cheque against an eligible advance asset in the employee currency. Linking saves immediately, is audited, and never posts a second payment or changes manual balances. Employee choices in Banking display the employee name rather than their company name.
+
+Salary sheet dialogs use the available desktop width, retain scrollable forms and visible save controls, and stack preview rows on mobile. Saved lists show the name, month and date range. PDF filenames use the saved document name, salary month, start/end dates and record ID. A4 landscape columns total 273 mm inside 12 mm margins.

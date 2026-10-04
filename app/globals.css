@@ -1950,3 +1950,19 @@ button, input, select { font: inherit; }
   [data-appearance="dark"] .employee-hr-fields :is(input,select) { background: #0f172a; color: #f1f5f9; border-color: #475569; }
   [data-appearance="dark"] .employee-hr-fields p, [data-appearance="dark"] .employee-hr-details dt { color: #b4c3d5; }
 }
+
+/* Salary workspace owns its width; the generic dialog defaults to 42rem. */
+[data-slot="dialog-content"].staff-salary-dialog { --dialog-width: 87.5rem; }
+.staff-salary-dialog :is(label, fieldset, input, select, textarea) { min-width: 0; }
+.staff-salary-dialog :is(input, select, textarea) { width: 100%; }
+.salary-table th, .salary-table td { overflow-wrap: anywhere; }
+.salary-table th:first-child { width: 6%; }
+.salary-table th:nth-child(2) { width: 23%; }
+.salary-table th:last-child { width: 15%; text-align: right; }
+@media (max-width: 639px) {
+  .salary-table, .salary-table tbody, .salary-table tr, .salary-table td { display: block; width: 100%; }
+  .salary-table thead { display: none; }
+  .salary-table tr { margin-bottom: .75rem; border: 1px solid #cbd5e1; }
+  .salary-table td { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: .5rem; text-align: right; }
+  .salary-table td::before { content: attr(data-label); text-align: left; font-weight: 600; }
+}
