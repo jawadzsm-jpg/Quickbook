@@ -1,5 +1,6 @@
 "use client";
 import { useRecordRole, useCanDeleteRecord } from "./record-permissions";
+import { AdminBackupCenter } from "./admin-backup-center";
 import { DataExportToolbar } from "./data-export-toolbar";
 import { CompanyDocumentProvider, useCompanyDocumentOutput } from "./company-document-output";
 import { IncomeTaxCenter } from "./income-tax-center";
@@ -294,7 +295,7 @@ const viewTitles: Record<View, { title: string; sub: string }> = {
   "invoice-series": { title: "Invoice Series", sub: "Customize invoice numbering for every company inventory" },
   currencies: { title: "Currencies", sub: "Set company currency and transaction currencies" },
   "vat-codes": { title: "VAT Codes", sub: "Manage tax rates and usage details for transaction dropdowns" },
-  "admin-controls": { title: "Admin Controls", sub: "Protect restricted inventory operations for this company" },
+  "admin-controls": { title: "Admin Controls", sub: "Company backups, schedules and security controls" },
 };
 
 const transactionTypes: Record<string, string[]> = {
@@ -2470,7 +2471,7 @@ function AdminSettingsCenter({ companyId, companyName, currentUserEmail }: { com
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not change the password"); setPasswordSaving(false); }
   }
 
-  return <div className="space-y-5"><div className="grid gap-5 xl:grid-cols-[1fr_420px]">
+  return <div className="space-y-5"><AdminBackupCenter key={companyId} companyId={companyId} companyName={companyName} /><div className="grid gap-5 xl:grid-cols-[1fr_420px]">
     <section className="rounded-xl border bg-white shadow-sm">
       <div className="flex items-start justify-between gap-4 border-b p-5"><div><h2 className="font-bold">Restricted stock operations</h2><p className="mt-1 text-sm text-slate-500">Security controls apply separately to {companyName}.</p></div><Badge className={configured ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100" : "bg-amber-100 text-amber-900 hover:bg-amber-100"}>{loading ? "Checking…" : configured ? "PIN configured" : "Setup required"}</Badge></div>
       <div className="p-5"><div className="flex gap-4 rounded-xl border border-amber-200 bg-amber-50 p-4"><div className="grid size-11 shrink-0 place-items-center rounded-lg bg-amber-100 text-amber-800"><ShieldCheck className="size-6" /></div><div><h3 className="font-semibold text-amber-950">Negative-stock invoice override</h3><p className="mt-1 text-sm leading-6 text-amber-900">Invoices and sales receipts are blocked when stock is insufficient. A company admin can enter this PIN on the document to approve an exception.</p><p className="mt-2 text-sm font-medium text-amber-950">Every override is recorded in the audit log.</p></div></div></div>

@@ -12,11 +12,12 @@
     "start": "next start",
     "lint": "eslint . --ignore-pattern .next --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/release-gates.test.mjs tests/security-validation.test.mjs tests/transaction-context.test.mjs tests/invoice-pricing.test.mjs tests/contact-currency.test.mjs tests/reports.test.mjs tests/document-output.test.mjs",
+    "test": "node --test tests/release-gates.test.mjs tests/security-validation.test.mjs tests/transaction-context.test.mjs tests/invoice-pricing.test.mjs tests/contact-currency.test.mjs tests/reports.test.mjs tests/document-output.test.mjs tests/backups.test.mjs",
     "ci": "npm run lint && npm test && npm run typecheck && npm run build:ci",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node scripts/migrate.mjs",
-    "db:seed": "node scripts/seed.mjs"
+    "db:seed": "node scripts/seed.mjs",
+    "backup:verify": "node scripts/verify-backup.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
@@ -24,6 +25,7 @@
     "@hookform/resolvers": "^5.7.1",
     "@neondatabase/serverless": "^1.0.2",
     "@shadcn/react": "^0.3.0",
+    "@vercel/blob": "^2.8.0",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "cmdk": "^1.1.1",
@@ -33,6 +35,7 @@
     "exceljs": "^4.4.0",
     "html2canvas": "^1.4.1",
     "input-otp": "^1.4.2",
+    "jose": "^5.10.0",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
     "lucide-react": "^1.31.0",
