@@ -1995,3 +1995,24 @@ button, input, select { font: inherit; }
 @media screen and (max-width: 479px) {
   .account-table .account-data-row { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Packing input rows adapt without forcing the dialog wider than the screen. */
+.packing-editor-table { width: 100%; }
+.packing-editor-table th { white-space: normal; }
+.packing-editor-table td { min-width: 0; overflow-wrap: anywhere; }
+.packing-editor-table input { width: 100%; min-width: 0; }
+.packing-editor-table th:nth-child(12) { min-width: 16rem; }
+@media screen and (max-width: 1919px) {
+  .packing-editor-table, .packing-editor-table tbody { display: block; width: 100%; }
+  .packing-editor-table thead { display: none; }
+  .packing-editor-table tr { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: .75rem; gap: .5rem; }
+  .packing-editor-table td { display: flex; flex-direction: column; align-items: stretch; gap: .3rem; width: auto; max-width: none; text-align: left; }
+  .packing-editor-table td::before { content: attr(data-label); font-size: .7rem; color: var(--muted-foreground); }
+  .packing-editor-table td:nth-child(2) { grid-column: span 3; }
+  .packing-editor-table td:nth-child(12) { grid-column: span 2; }
+}
+@media screen and (max-width: 767px) {
+  .packing-editor-table tr { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: .25rem; }
+  .packing-editor-table td:nth-child(2), .packing-editor-table td:nth-child(12) { grid-column: 1 / -1; }
+  .packing-dimension-inputs { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+}

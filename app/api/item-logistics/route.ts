@@ -1,3 +1,4 @@
+import { dimensionText } from "@/lib/item-logistics";
 import { skuWrite } from "@/lib/sku-locks";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
@@ -61,7 +62,7 @@ async function handlePATCH(request: Request) {
     const prepared = changes.map((record) => {
       const numeric = [number(record.lengthCm), number(record.widthCm), number(record.heightCm), number(record.weightKg)];
       if (numeric.some((value) => value === null)) throw new Error("Enter valid non-negative dimensions and weights.");
-      return { id: Number(record.id), hsCode: text(record.hsCode, 40), countryOfOrigin: text(record.countryOfOrigin, 80).toUpperCase(), dimensionText: text(record.dimensionText, 120), lengthCm: numeric[0]!, widthCm: numeric[1]!, heightCm: numeric[2]!, weightKg: numeric[3]! };
+      return { id: Number(record.id), hsCode: text(record.hsCode, 40), countryOfOrigin: text(record.countryOfOrigin, 80).toUpperCase(), dimensionText: dimensionText(numeric[0], numeric[1], numeric[2], text(record.dimensionText, 120)), lengthCm: numeric[0]!, widthCm: numeric[1]!, heightCm: numeric[2]!, weightKg: numeric[3]! };
     });
     await Promise.all(prepared.map(({ id, ...values }) => db.update(items).set(values).where(and(eq(items.id, id), eq(items.companyId, companyId), eq(items.locationId, locationId)))));
     await db.insert(auditLog).values({ companyId, action: "updated", entityType: "item_logistics", entityId: prepared[0].id, details: `${prepared.length} item logistics row(s) updated by ${user.email}` });

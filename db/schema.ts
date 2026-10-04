@@ -542,3 +542,11 @@ export const staffSalarySheets = pgTable("staff_salary_sheets", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, table => [index("staff_salary_sheets_company_idx").on(table.companyId)]);
+
+export const itemLogisticsOptions = pgTable("item_logistics_options", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  type: text("type").notNull(),
+  value: text("value").notNull(),
+  label: text("label").notNull().default(""),
+}, table => [uniqueIndex("item_logistics_options_company_type_value").on(table.companyId, table.type, table.value)]);

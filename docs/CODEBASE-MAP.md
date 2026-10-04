@@ -34,7 +34,7 @@ Use this file to locate implementation ownership without rescanning the whole re
 | Purchase receiving/returns | `open-purchase-orders.tsx`, `purchase-order-receiving.tsx`, `purchase-return-source.tsx` | `records` |
 | Payments | `unpaid-invoices.tsx`, `unpaid-bills.tsx`, `payment-terms-picker.tsx` | `records`, `payment-terms` |
 | Inventory overview/out of stock | `inventory-overview.tsx`, `shared-out-of-stock.tsx` | `inventory-overview`, `out-of-stock` |
-| Item logistics/specs | `item-logistics-center.tsx`, item forms in `enterprise-app.tsx` | `item-logistics`, `spec-options` |
+| Item logistics/specs | `item-logistics-center.tsx`, item forms in `enterprise-app.tsx` | `item-logistics`, `item-logistics-options`, `spec-options` |
 | Stock pricing/revaluation | `stock-pricing.tsx`, `stock-revaluation.tsx` | `stock-pricing`, `stock-revaluation` |
 | Transfers | `transfer-center.tsx` | `transfers` |
 | Inventory checks | `inventory-check-reports.tsx` | `inventory-check-reports` |
