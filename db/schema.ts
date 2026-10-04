@@ -169,6 +169,7 @@ export const vatReturns = pgTable("vat_returns", {
 }, (table) => [index("idx_vat_returns_company_period").on(table.companyId, table.periodStart, table.periodEnd), uniqueIndex("idx_vat_returns_company_reference").on(table.companyId, table.reference)]);
 
 export const contacts = pgTable("contacts", {
+  salesOwnerId: integer("sales_owner_id").references(() => appUsers.id, { onDelete: "set null" }),
   id: serial("id").primaryKey(),
   companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   type: text("type", { enum: ["customer", "vendor", "employee"] }).notNull(),
@@ -265,6 +266,7 @@ export const specificationOptions = pgTable("specification_options", {
 }, (table) => [uniqueIndex("idx_specification_options_label_value").on(table.label, table.value)]);
 
 export const transactions = pgTable("transactions", {
+  createdByUserId: integer("created_by_user_id").references(() => appUsers.id, { onDelete: "set null" }),
   employeeLoanContactId: integer("employee_loan_contact_id"),
   id: serial("id").primaryKey(),
   companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),

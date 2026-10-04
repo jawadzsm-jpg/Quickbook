@@ -25,7 +25,7 @@ export async function GET(request: Request) {
     if (!canAccessCompany(user, companyId)) return Response.json({ error: "Company access denied." }, { status: 403 });
     const [record] = await getDb().select().from(companies).where(eq(companies.id, companyId)).limit(1);
     if (!record) return Response.json({ error: "Company not found." }, { status: 404 });
-    return Response.json({ record });
+    return Response.json({ record: user.role === "sales" ? { ...record, stampData: "", bankName: "", bankAccountName: "", bankAccountNumber: "", bankIban: "", bankSwift: "", documentDesign: "", letterheadDesign: "" } : record });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
   }
@@ -48,7 +48,7 @@ export async function PATCH(request: Request) {
         const [record] = await getDb().update(companies).set(updates).where(eq(companies.id, companyId)).returning();
         if (!record) return Response.json({ error: "Company not found." }, { status: 404 });
         await getDb().insert(auditLog).values({ companyId, action: "updated", entityType: "company_setup", entityId: companyId, details: JSON.stringify({ actorId: user.id, fields: Object.keys(updates), mode: "stamp-bank" }) });
-        return Response.json({ record });
+        return Response.json({ record: user.role === "sales" ? { ...record, stampData: "", bankName: "", bankAccountName: "", bankAccountNumber: "", bankIban: "", bankSwift: "", documentDesign: "", letterheadDesign: "" } : record });
       });
     }
     if (!canAccessCompany(user, companyId) || !isAdministrator(user)) return Response.json({ error: "Company administrator access required." }, { status: 403 });

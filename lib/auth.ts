@@ -1,3 +1,4 @@
+import { salesRouteAllowed } from "./sales-access";
 import { canDeleteBusinessRecord } from "./document-access";
 import "server-only";
 
@@ -118,6 +119,7 @@ export async function requireApiUser(request: Request, required: boolean | Permi
   if (!user) return Response.json({ error: "Authentication required." }, { status: 401 });
   if (user.mustChangePassword) return Response.json({ error: "Change your temporary password before using the application." }, { status: 403 });
   if (request.method === "DELETE" && !["/api/auth/session", "/api/sku-locks"].includes(new URL(request.url).pathname) && !canDeleteBusinessRecord(user)) return Response.json({ error: "Only administrators can delete saved records." }, { status: 403 });
+  if (user.role === "sales" && !salesRouteAllowed(new URL(request.url).pathname, request.method)) return Response.json({ error: "Sales users can access their sales workspace only." }, { status: 403 });
   if (required === true && !isAdministrator(user)) return Response.json({ error: "Administrator permission required." }, { status: 403 });
   if (typeof required === "string" && !hasPermission(user, required)) return Response.json({ error: "Your role does not allow this action." }, { status: 403 });
   return user;
