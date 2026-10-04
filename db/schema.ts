@@ -558,3 +558,13 @@ export const itemLogisticsOptions = pgTable("item_logistics_options", {
   uniqueIndex("item_logistics_options_company_type_value").on(table.companyId, table.type, table.value).where(sql`NOT ${table.hidden}`),
   uniqueIndex("item_logistics_options_company_type_source").on(table.companyId, table.type, table.sourceValue),
 ]);
+
+export const incomeTaxWorkingPapers = pgTable("income_tax_working_papers", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  periodStart: text("period_start").notNull(),
+  periodEnd: text("period_end").notNull(),
+  config: text("config").notNull(),
+  revision: integer("revision").notNull().default(1),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, table => [uniqueIndex("income_tax_working_papers_company_id_period_start_period_end_key").on(table.companyId, table.periodStart, table.periodEnd)]);

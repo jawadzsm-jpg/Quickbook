@@ -12,7 +12,7 @@ This README is the entry point for the codebase. The focused documents under [`d
 - Creates purchase orders, item receipts, received-item bills, bills, expenses, vendor credits, bill payments, and UAE bank cheques.
 - Posts balanced journal entries, payment allocations, inventory movements, VAT activity, contact balances, and audit history.
 - Tracks serial numbers, item specifications, HS codes, country of origin, dimensions, warehouse quantities, reordering, stock pricing, stock counts, transfers, and revaluations.
-- Provides 120 reports across Profit & Loss, Financial, Budgets, Accountant, Lists, Employees & HR, Banking, VAT, Customers, Sales, Vendors, Purchases, and Inventory.
+- Provides 121 reports across Profit & Loss, Financial, Budgets, Accountant, Lists, Employees & HR, Banking, VAT, Customers, Sales, Vendors, Purchases, and Inventory.
 - Exports report data to A4 PDF, XLSX, and CSV, supports A4 printing, saved report views, summaries, drill-down, and movable document stamps.
 - Supports branded login pages, company document templates, A4 letterheads, light/dark appearance, and six accent themes.
 
@@ -59,7 +59,7 @@ See [Application workflows](docs/WORKFLOWS.md) for sales, purchasing, inventory,
 
 ## API overview
 
-The application exposes 39 route groups under `app/api`. They are internal JSON endpoints used by the application UI rather than a versioned public API.
+The application exposes 40 route groups under `app/api`. They are internal JSON endpoints used by the application UI rather than a versioned public API.
 
 | Area | Routes |
 | --- | --- |
@@ -68,7 +68,7 @@ The application exposes 39 route groups under `app/api`. They are internal JSON 
 | Core records and accounting | `/api/records`, `/api/journal-entries`, `/api/account-history`, `/api/payment-terms`, `/api/attachments` |
 | Inventory | `/api/inventory-overview`, `/api/out-of-stock`, `/api/serial-search`, `/api/item-logistics`, `/api/inventory-check-reports`, `/api/stock-pricing`, `/api/stock-revaluation`, `/api/transfers`, `/api/shared-items`, `/api/sku-locks`, `/api/spec-options` |
 | Documents | `/api/packing-lists`, `/api/warranty-slips`, `/api/staff-salary-sheets`, `/api/employee-loan-links` |
-| Tax, currency, and reports | `/api/reports`, `/api/memorised-reports`, `/api/vat-management`, `/api/vat-codes`, `/api/exchange-rates` |
+| Tax, currency, and reports | `/api/reports`, `/api/memorised-reports`, `/api/vat-management`, `/api/vat-codes`, `/api/exchange-rates`, `/api/income-tax` |
 
 See [API reference](docs/API.md) for methods, authorization, parameters, and behavior for every route group.
 

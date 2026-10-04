@@ -101,7 +101,7 @@ Selected GET `kind` values beyond the four main record types are:
 
 | Endpoint | Methods | Authorization | Purpose and important inputs |
 | --- | --- | --- | --- |
-| `/api/reports` | `GET` | Usually `reports:read`; selected customer/vendor reports also allow their operational permissions; HR requires Administrator | Generate one of 120 report models. Main inputs: `type`, `companyId`, optional `locationId`, `periodStart`, `periodEnd`, `currency`, `supplierId`, statement fields. |
+| `/api/reports` | `GET` | Usually `reports:read`; selected customer/vendor reports also allow their operational permissions; HR requires Administrator | Generate one of 121 report models. Main inputs: `type`, `companyId`, optional `locationId`, `periodStart`, `periodEnd`, `currency`, `supplierId`, statement fields. |
 | `/api/memorised-reports` | `GET`, `POST`, `DELETE` | `reports:read`; writes same-origin | List, save/update, or delete user-owned report configurations by company and report key. |
 | `/api/vat-management` | `GET`, `POST` | `reports:read` for review; `accounting:manage` for changes | Review company-wide VAT by period; create adjustments and VAT return/filing records. |
 | `/api/vat-codes` | `GET`, `POST`, `PATCH` | `workspace:read` for GET; Administrator for writes | List and manage company VAT codes and rates, including the protected `IMPORT_GOODS` UAE import code. |
@@ -193,3 +193,9 @@ Item logistics PATCH derives `dimensionText` from positive length/width/height a
 - `PATCH /api/sales-work` is administrator-only: `companyId`, `customerId`, `salesOwnerId` (nullable), `expectedOwnerId` (nullable). Rejects stale assignment with 409 and invalid company/user/role combinations.
 - Customer duplicate checks apply across every company customer, regardless of ownership: normalized billing/company names at least 70% similar, duplicate TRN, or duplicate normalized phone/WhatsApp prevent save.
 - Sales `GET /api/inventory-overview` returns only safe Incoming fields and empty other activity lists; purchase document identifiers, supplier names and purchase prices are omitted. Company/workspace responses omit bank/stamp/template data and global balances for this role.
+
+## Income tax working papers
+
+`/api/income-tax` GET accepts companyId and returns home currency, account options, saved period configurations and canManage. POST accepts companyId and action preview, save or create-accounts. All operations require reports:read and company access; POST requires same origin. Save/account creation additionally require accounting:manage (administrators/accountants). Preview calculates a company-wide estimate from posted journals within inclusive dates. Config contains from/to, lowerRate/upperRate (0–100), threshold, tax expense/payable account IDs, additions/deductions and an adjustment explanation. Account IDs must belong to that company with suitable types and home currency. Unmatched or ambiguous historical postings are disclosed rather than guessed.
+
+Save stores one working-paper configuration per company/period with optimistic revision checks (409 for duplicate/stale updates), and an audit event. Reopening recalculates against the current ledger; these are working papers, not immutable filed returns. No tax journal or filing is created. create-accounts safely creates or reuses 7100 Corporate Income Tax Expense and 2150 Corporate Income Tax Payable, rejecting conflicting codes/names. Existing account choices are not overwritten. `/api/reports?type=income-tax` provides a default, unsaved working paper for generic report callers; interactive percentage management uses the dedicated screen. Inventory and requested display currency never narrow the tax calculation.

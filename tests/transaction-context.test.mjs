@@ -346,7 +346,7 @@ test('professional Chart of Accounts installer preserves existing records and li
   assert.equal(first.status,200,await first.clone().text());
   assert.ok((await first.json()).installed>40);
   const second=await install();
-  assert.deepEqual(await second.json(),{installed:0,total:56});
+  assert.deepEqual(await second.json(),{installed:0,total:58});
   const preserved=(await database.query('SELECT id,balance FROM accounts WHERE company_id=$1 AND code=$2',[companyId,'1000'])).rows[0];
   assert.deepEqual(preserved,{id:existing.id,balance:321});
   const child=(await database.query("SELECT child.name,parent.name AS parent FROM accounts child LEFT JOIN accounts parent ON parent.id=child.parent_account_id WHERE child.company_id=$1 AND child.code='6110'",[companyId])).rows[0];
