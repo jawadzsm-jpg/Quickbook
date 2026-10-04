@@ -102,8 +102,7 @@ export function ItemLogisticsCenter({ companyId, companyName, locationId, locati
 
   const choicesFor = (type: LogisticsOption["type"]) => {
     const defaults = type === "hs_code" ? defaultHsCodes : countries.filter(country => country.code !== "OTHER").map(country => ({ type: "coo" as const, value: country.name.toUpperCase(), label: "" }));
-    const savedValues = records.map(record => ({ type, value: type === "hs_code" ? record.hsCode : record.countryOfOrigin, label: "" })).filter(option => option.value);
-    return [...new Map([...savedValues, ...defaults, ...options.filter(option => option.type === type)].map(option => [option.value, option])).values()];
+    return [...new Map([...defaults, ...options.filter(option => option.type === type)].map(option => [option.value, option])).values()];
   };
   const hsOptions = choicesFor("hs_code"), cooOptions = choicesFor("coo");
   async function addOption(id: number, type: LogisticsOption["type"], raw: string, label: string) {
@@ -120,6 +119,18 @@ export function ItemLogisticsCenter({ companyId, companyName, locationId, locati
     toast.success("Choice added. Save Changes to update the item.");
     } finally { setChoiceBusy(false); }
   }
+  async function deleteOption(option: LogisticsOption) {
+    if (!option.id || !canEdit || choiceBusy || saving) return;
+    if (!window.confirm(`Delete ${option.value} from this company's choices? Saved item and packing-list values will stay unchanged.`)) return;
+    setChoiceBusy(true);
+    try {
+      const response = await fetch("/api/item-logistics-options", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, id: option.id }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not delete choice.");
+      setOptions(current => current.filter(entry => entry.id !== option.id));
+      toast.success("Custom choice deleted. Saved item values are unchanged.");
+    } finally { setChoiceBusy(false); }
+  }
   if (minimized) return <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-4 text-card-foreground"><div><strong>HS Code, COO &amp; Dimensions · Minimized</strong>{dirtyIds.size > 0 && <p className="text-sm text-muted-foreground">{dirtyIds.size} unsaved item(s)</p>}</div><Button variant="outline" onClick={() => setMinimized(false)}><Maximize2 className="size-4" />Restore</Button></section>;
   return <div className="min-w-0 w-full space-y-5"><SkuLockNotice message={skuLock.message} />
     <section className="min-w-0 rounded-xl border bg-white shadow-sm">
@@ -134,13 +145,13 @@ export function ItemLogisticsCenter({ companyId, companyName, locationId, locati
             </div>
             <div className="min-w-0 space-y-3">
               <div className="grid min-w-0 gap-3 sm:grid-cols-3">
-                <LogisticsChoice label="HS code" value={record.hsCode} options={hsOptions} disabled={!canEdit || skuLock.blocked || saving} onChange={value => update(record.id, "hsCode", value)} onAdd={(value, label) => addOption(record.id, "hs_code", value, label)} />
-                <LogisticsChoice label="COO" value={record.countryOfOrigin} options={cooOptions} disabled={!canEdit || skuLock.blocked || saving} onChange={value => update(record.id, "countryOfOrigin", value)} onAdd={(value, label) => addOption(record.id, "coo", value, label)} />
-                <label className="min-w-0 space-y-1 text-sm"><span>Dimension</span><Input readOnly={Boolean(dimensionText(record.lengthCm, record.widthCm, record.heightCm))} value={dimensionText(record.lengthCm, record.widthCm, record.heightCm, record.dimensionText)} disabled={!canEdit || skuLock.blocked || saving} onChange={(event) => update(record.id, "dimensionText", event.target.value)} placeholder="e.g. 11 × 35 × 55 cm" /><span className="block text-xs text-muted-foreground">Auto-filled from L × W × H; used in packing lists.</span></label>
+                <LogisticsChoice onDelete={deleteOption} label="HS code" value={record.hsCode} options={hsOptions} disabled={!canEdit || skuLock.blocked || saving || choiceBusy} onChange={value => update(record.id, "hsCode", value)} onAdd={(value, label) => addOption(record.id, "hs_code", value, label)} />
+                <LogisticsChoice onDelete={deleteOption} label="COO" value={record.countryOfOrigin} options={cooOptions} disabled={!canEdit || skuLock.blocked || saving || choiceBusy} onChange={value => update(record.id, "countryOfOrigin", value)} onAdd={(value, label) => addOption(record.id, "coo", value, label)} />
+                <label className="min-w-0 space-y-1 text-sm"><span>Dimension</span><Input readOnly={Boolean(dimensionText(record.lengthCm, record.widthCm, record.heightCm))} value={dimensionText(record.lengthCm, record.widthCm, record.heightCm, record.dimensionText)} disabled={!canEdit || skuLock.blocked || saving || choiceBusy} onChange={(event) => update(record.id, "dimensionText", event.target.value)} placeholder="e.g. 11 × 35 × 55 cm" /><span className="block text-xs text-muted-foreground">Auto-filled from L × W × H; used in packing lists.</span></label>
               </div>
               <div className="grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-4">
                 {([["lengthCm", "Length (cm)"], ["widthCm", "Width (cm)"], ["heightCm", "Height (cm)"], ["weightKg", "Weight (kg)"]] as const).map(([field, label]) => (
-                  <label key={field} className="min-w-0 space-y-1 text-sm"><span>{label}</span><Input type="number" min="0" max="1000000" step="0.01" value={record[field]} disabled={!canEdit || skuLock.blocked || saving} onChange={(event) => update(record.id, field, Number(event.target.value))} className="min-w-0" /></label>
+                  <label key={field} className="min-w-0 space-y-1 text-sm"><span>{label}</span><Input type="number" min="0" max="1000000" step="0.01" value={record[field]} disabled={!canEdit || skuLock.blocked || saving || choiceBusy} onChange={(event) => update(record.id, field, Number(event.target.value))} className="min-w-0" /></label>
                 ))}
               </div>
             </div>

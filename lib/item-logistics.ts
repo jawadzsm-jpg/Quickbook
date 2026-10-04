@@ -1,4 +1,4 @@
-export type LogisticsOption = { type: "hs_code" | "coo"; value: string; label: string };
+export type LogisticsOption = { id?: number; type: "hs_code" | "coo"; value: string; label: string };
 export const defaultHsCodes: LogisticsOption[] = [
   ["84713000", "Laptop / Notebook"], ["84714100", "Desktop Computer"],
   ["84717000", "HDD & RAM / Storage"], ["85235100", "SSD / Solid-State Storage"],
