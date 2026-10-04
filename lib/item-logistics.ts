@@ -1,4 +1,6 @@
-export type LogisticsOption = { id?: number; type: "hs_code" | "coo"; value: string; label: string };
+import { countries } from "./countries";
+
+export type LogisticsOption = { id?: number; sourceValue?: string | null; hidden?: boolean; type: "hs_code" | "coo"; value: string; label: string };
 export const defaultHsCodes: LogisticsOption[] = [
   ["84713000", "Laptop / Notebook"], ["84714100", "Desktop Computer"],
   ["84717000", "HDD & RAM / Storage"], ["85235100", "SSD / Solid-State Storage"],
@@ -6,6 +8,18 @@ export const defaultHsCodes: LogisticsOption[] = [
   ["84716000", "Keyboard & Mouse"], ["85183000", "Headphones / Speakers"],
   ["85044090", "Power Adapter / Charger"],
 ].map(([value, label]) => ({ type: "hs_code", value, label }));
+
+export function defaultLogisticsChoices(type: LogisticsOption["type"]): LogisticsOption[] {
+  const choices = type === "hs_code" ? defaultHsCodes : countries.filter(country => country.code !== "OTHER").map(country => ({ type: "coo" as const, value: country.name.toUpperCase(), label: "" }));
+  return choices.map(option => ({ ...option, sourceValue: option.value }));
+}
+
+/** Company overrides hide or replace defaults without rewriting document snapshots. */
+export function logisticsChoices(type: LogisticsOption["type"], saved: LogisticsOption[]): LogisticsOption[] {
+  const relevant = saved.filter(option => option.type === type);
+  const overridden = new Set(relevant.map(option => option.sourceValue).filter(Boolean));
+  return [...new Map([...defaultLogisticsChoices(type).filter(option => !overridden.has(option.value)), ...relevant.filter(option => !option.hidden)].map(option => [option.value, option])).values()];
+}
 
 /** Numeric dimensions are authoritative once all three measurements are present. */
 export function dimensionText(length: unknown, width: unknown, height: unknown, fallback = "") {

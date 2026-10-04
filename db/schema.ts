@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { boolean, doublePrecision, index, integer, pgTable, serial, text, timestamp, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
 
 export const companies = pgTable("companies", {
@@ -549,4 +550,9 @@ export const itemLogisticsOptions = pgTable("item_logistics_options", {
   type: text("type").notNull(),
   value: text("value").notNull(),
   label: text("label").notNull().default(""),
-}, table => [uniqueIndex("item_logistics_options_company_type_value").on(table.companyId, table.type, table.value)]);
+  sourceValue: text("source_value"),
+  hidden: boolean("hidden").notNull().default(false),
+}, table => [
+  uniqueIndex("item_logistics_options_company_type_value").on(table.companyId, table.type, table.value).where(sql`NOT ${table.hidden}`),
+  uniqueIndex("item_logistics_options_company_type_source").on(table.companyId, table.type, table.sourceValue),
+]);

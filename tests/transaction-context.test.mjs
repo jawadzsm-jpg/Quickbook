@@ -2312,3 +2312,57 @@ test('logistics choices persist per company and validate roles, codes and duplic
   assert.equal(dimensionText(0, 35, 55), '');
   assert.equal(dimensionText(0, 0, 0, 'Manual dimensions'), 'Manual dimensions');
 });
+
+test('built-in logistics choices can be edited and deleted per company without changing snapshots', async () => {
+  const c = (await database.query("INSERT INTO companies(name) VALUES ('Editable default choices') RETURNING id")).rows[0].id;
+  const other = (await database.query("INSERT INTO companies(name) VALUES ('Unaffected default choices') RETURNING id")).rows[0].id;
+  const location = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES ($1,'EDITCHOICE','Edit choices','ECH') RETURNING id", [c])).rows[0].id;
+  const item = (await database.query("INSERT INTO items(company_id,location_id,sku,name,hs_code,country_of_origin) VALUES ($1,$2,'EDIT-CHOICE','Saved logistics','85235100','CHINA') RETURNING id", [c, location])).rows[0].id;
+  const invoice = (await database.query("INSERT INTO transactions(company_id,number,type,party,transaction_date) VALUES($1,'ECH-INV','invoice','Buyer','2026-10-04') RETURNING id", [c])).rows[0].id;
+  const line = (await database.query("INSERT INTO transaction_lines(transaction_id,description,quantity,unit_price) VALUES($1,'Saved logistics',1,100) RETURNING id", [invoice])).rows[0].id;
+  const packing = (await database.query("INSERT INTO packing_lists(company_id,invoice_id,number,packing_date) VALUES($1,$2,'ECH-PL','2026-10-04') RETURNING id", [c, invoice])).rows[0].id;
+  await database.query("INSERT INTO packing_list_lines(packing_list_id,invoice_line_id,item_id,description,hs_code,country_of_origin,packed_quantity,units_per_carton,carton_count) VALUES($1,$2,$3,'Saved logistics','85235100','CHINA',1,1,1)", [packing, line, item]);
+  const route = await vite.ssrLoadModule('/app/api/item-logistics-options/route.ts');
+  const { logisticsChoices } = await vite.ssrLoadModule('/lib/item-logistics.ts');
+  const write = (method, body) => route[method](new Request('https://app.test/api/item-logistics-options', { method, headers: { origin: 'https://app.test', 'content-type': 'application/json' }, body: JSON.stringify({ companyId: c, ...body }) }));
+  const read = async (type, companyId = c) => logisticsChoices(type, (await (await route.GET(new Request(`https://app.test/api/item-logistics-options?companyId=${companyId}`))).json()).options);
+  const target = { type: 'hs_code', sourceValue: '85235100', value: '85235101', label: 'Edited SSD' };
+  try {
+    globalThis.__transferTestUser = { id: 1, role: 'viewer', companyIds: [c] };
+    assert.equal((await write('PATCH', target)).status, 403);
+    assert.equal((await write('DELETE', target)).status, 403);
+    globalThis.__transferTestUser = { id: 1, role: 'admin', companyIds: [other] };
+    assert.equal((await write('PATCH', target)).status, 403);
+  } finally { delete globalThis.__transferTestUser; }
+  assert.equal((await write('PATCH', { ...target, sourceValue: 'NOT A DEFAULT' })).status, 404);
+  assert.equal((await write('PATCH', { ...target, value: 'invalid' })).status, 400);
+  assert.equal((await write('PATCH', { ...target, value: '85285200' })).status, 409);
+  const edited = await write('PATCH', target);
+  assert.equal(edited.status, 200, JSON.stringify(await edited.clone().json()));
+  const option = (await edited.json()).option;
+  assert.equal(option.sourceValue, '85235100');
+  assert.ok((await read('hs_code')).some(entry => entry.value === '85235101' && entry.label === 'Edited SSD'));
+  assert.ok(!(await read('hs_code')).some(entry => entry.value === '85235100'));
+  assert.ok((await read('hs_code', other)).some(entry => entry.value === '85235100'));
+  assert.equal((await write('PATCH', target)).status, 409);
+  assert.equal((await write('PATCH', { id: option.id, companyId: other, value: '12345678' })).status, 404);
+  assert.equal((await write('PATCH', { id: option.id, expectedValue: 'stale', value: '12345678' })).status, 409);
+  assert.equal((await write('PATCH', { id: option.id, expectedValue: '85235101', value: '85235102', label: 'Revised SSD' })).status, 200);
+  assert.equal((await write('DELETE', { id: option.id, expectedValue: '85235101' })).status, 409);
+  assert.equal((await write('DELETE', { id: option.id })).status, 200);
+  assert.ok(!(await read('hs_code')).some(entry => ['85235100','85235101','85235102'].includes(entry.value)));
+  assert.equal((await write('DELETE', { id: option.id })).status, 404);
+  assert.equal((await write('DELETE', { type: 'coo', sourceValue: 'CHINA' })).status, 200);
+  assert.ok(!(await read('coo')).some(entry => entry.value === 'CHINA'));
+  assert.ok((await read('coo', other)).some(entry => entry.value === 'CHINA'));
+  const custom = (await (await write('POST', { type: 'coo', value: 'Custom origin' })).json()).option;
+  assert.equal((await write('PATCH', { id: custom.id, value: ' Updated origin ', label: '' })).status, 200);
+  assert.ok((await read('coo')).some(entry => entry.value === 'UPDATED ORIGIN'));
+  assert.equal((await write('PATCH', { id: custom.id, value: 'UNITED ARAB EMIRATES' })).status, 409);
+  assert.equal((await write('POST', { type: 'hs_code', value: '85235100' })).status, 201);
+  assert.ok((await read('hs_code')).some(entry => entry.value === '85235100'));
+  const snapshot = { hs_code: '85235100', country_of_origin: 'CHINA' };
+  assert.deepEqual((await database.query('SELECT hs_code,country_of_origin FROM items WHERE id=$1', [item])).rows[0], snapshot);
+  assert.deepEqual((await database.query('SELECT hs_code,country_of_origin FROM packing_list_lines WHERE packing_list_id=$1', [packing])).rows[0], snapshot);
+  assert.equal((await database.query("SELECT count(*)::int AS n FROM audit_log WHERE company_id=$1 AND entity_type='item_logistics_option' AND action='updated'", [c])).rows[0].n, 3);
+});
