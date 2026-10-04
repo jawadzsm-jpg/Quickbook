@@ -13,7 +13,7 @@ export async function staffSalaryPdf(record: StaffSalaryRecord, print = false) {
   pdf.setFontSize(11);
   const titleLines: string[] = pdf.splitTextToSize(data.title, 230);
   const brandingExtra = (template.heading ? 5 : 0) + (template.subtitle ? 4 : 0);
-  const tableTop = 58 + brandingExtra + Math.max(0, titleLines.length - 1) * 5;
+  const tableTop = 63 + brandingExtra + Math.max(0, titleLines.length - 1) * 5;
   const image = (src: string, x: number) => { if (!src) return; try { const props = pdf.getImageProperties(src); const scale = Math.min(35 / props.width, 17 / props.height); pdf.addImage(src, x, 9, props.width * scale, props.height * scale); } catch { /* Company name remains visible for unsupported images. */ } };
   const header = () => {
     if (template.showLogo) image(company.logoData, 12);
@@ -29,7 +29,9 @@ export async function staffSalaryPdf(record: StaffSalaryRecord, print = false) {
     pdf.text([company.phone, company.email, template.website].filter(Boolean).join(" | "), 148.5, 33 + brandingExtra, { align: "center", maxWidth: 270 });
     pdf.setDrawColor(color); pdf.line(12, 36 + brandingExtra, 285, 36 + brandingExtra);
     pdf.setFontSize(11); pdf.setFont("helvetica", "bold"); pdf.setTextColor(20); pdf.text(titleLines, 12, 42 + brandingExtra);
-    pdf.setFontSize(8); pdf.setFont("helvetica", "normal"); pdf.text(`Salary month: ${data.month}     Start: ${data.startDate}     End: ${data.endDate}`, 12, tableTop - 10);
+    pdf.setFontSize(8); pdf.setFont("helvetica", "normal");
+    pdf.text(`Ref. No.: ${data.referenceNo || "-"}`, 12, tableTop - 15, { maxWidth: 270 });
+    pdf.text(`Salary month: ${data.month}     Start: ${data.startDate}     End: ${data.endDate}`, 12, tableTop - 10);
     pdf.text(`Company code: ${data.companyCode || "-"}     Tel./Mob.: ${data.phone || company.phone || "-"}`, 12, tableTop - 5, { maxWidth: 270 });
   };
   autoTable(pdf, { tableWidth: pdf.internal.pageSize.getWidth() - 24, startY: tableTop, margin: { top: tableTop, left: 12, right: 12, bottom: 17 }, theme: "grid", styles: { font: "helvetica", fontSize: 7.5, cellPadding: 1.2, textColor: 20, lineColor: [180, 190, 200], overflow: "linebreak" }, headStyles: { fillColor: color, textColor: 255, fontStyle: "bold" }, columnStyles: { 0: { cellWidth: 12 }, 1: { cellWidth: 80 }, 2: { cellWidth: 32 }, 3: { cellWidth: 25 }, 4: { cellWidth: 32 }, 5: { cellWidth: 58 }, 6: { cellWidth: 34, halign: "right" } }, head: [["Sl. No.", "Employee name", "Emp. personal no.", "Card details", "Bank name", "IBAN", `Salary (${data.currency})`]], body: data.lines.map((line, index) => [index + 1, line.name, line.personalNumber, line.cardDetails, line.bankName, line.iban, amount(line.salary)]), foot: [

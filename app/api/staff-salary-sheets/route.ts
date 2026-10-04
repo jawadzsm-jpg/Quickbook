@@ -1,11 +1,11 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { auditLog, companies, contacts, staffSalarySheets } from "@/db/schema";
 import { apiRoute, RequestError } from "@/lib/api";
 import { canAccessCompany, isAdministrator, requireApiUser } from "@/lib/auth";
 import { validateStaffSalaryData } from "@/lib/staff-salary-sheet";
 
-const serialize = (row: typeof staffSalarySheets.$inferSelect) => ({ id: row.id, revision: row.revision, data: JSON.parse(row.data), letterhead: JSON.parse(row.letterhead) });
+const serialize = (row: typeof staffSalarySheets.$inferSelect) => ({ id: row.id, revision: row.revision, data: { referenceNo: "", ...JSON.parse(row.data) }, letterhead: JSON.parse(row.letterhead) });
 async function handle(request: Request) {
   const user = await requireApiUser(request); if (user instanceof Response) return user;
   const input = request.method === "GET" ? Object.fromEntries(new URL(request.url).searchParams) : await request.json();
@@ -25,6 +25,7 @@ async function handle(request: Request) {
     if (existing.revision !== revision) throw new RequestError("This salary sheet changed. Reopen it before saving or deleting.", 409);
   }
   if (request.method === "DELETE") {
+    await db.execute(sql`DELETE FROM record_attachments WHERE company_id = ${companyId} AND entity_type = 'staff_salary_sheet' AND entity_id = ${id}`);
     await db.delete(staffSalarySheets).where(and(eq(staffSalarySheets.id, id), eq(staffSalarySheets.companyId, companyId)));
     await db.insert(auditLog).values({ companyId, action: "deleted", entityType: "staff_salary_sheet", entityId: id, details: `Salary sheet deleted by ${user.email}` });
     return Response.json({ ok: true });
