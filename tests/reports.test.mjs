@@ -1757,13 +1757,29 @@ test("HR profile validates amounts and dates, protects private fields and links 
   assert.equal((await update({ vacationDeparture: "2026-02-30" })).status, 400);
   assert.equal((await update({ salaryExpenseAccountId: bank.id })).status, 400);
   assert.equal((await update({ salaryExpenseAccountId: 9999999 })).status, 400);
+  assert.equal((await update({ paymentBankAccountId: payroll.id })).status, 400);
+  assert.equal((await update({ paymentBankAccountId: 9999999 })).status, 400);
+  const foreignBank = (await database.query("INSERT INTO accounts(company_id,code,name,type,currency) VALUES ($1,'HRUSD','Foreign bank','Bank','USD') RETURNING id", [c.id])).rows[0];
+  assert.equal((await update({ paymentBankAccountId: foreignBank.id })).status, 400);
+  const configured = await update({ paymentBankAccountId: bank.id, loanAccountId: "create-employee-loan" });
+  assert.equal(configured.status, 200, await configured.clone().text());
+  const configuredEmployee = (await configured.json()).record;
+  assert.equal(configuredEmployee.paymentBankAccountId, bank.id);
+  const newLoan = (await database.query("SELECT * FROM accounts WHERE id=$1", [configuredEmployee.loanAccountId])).rows[0];
+  assert.equal(newLoan.type, "Other Current Asset"); assert.equal(newLoan.currency, "AED"); assert.equal(newLoan.balance, 0);
+  assert.equal(newLoan.company_id, c.id); assert.equal(newLoan.system_role, null);
+  const repeated = await update({ loanAccountId: "create-employee-loan" });
+  assert.equal(repeated.status, 200); assert.equal((await repeated.json()).record.loanAccountId, newLoan.id);
+  const invalidCreation = await update({ name: "Invalid profile", loanAccountId: "create-employee-loan", loanBalance: -1 });
+  assert.equal(invalidCreation.status, 400);
+  assert.equal((await database.query("SELECT id FROM accounts WHERE company_id=$1 AND name LIKE '%Invalid profile%'", [c.id])).rows.length, 0);
   const saved = await update({ loanBalance: 1000, vacationReturn: "2026-11-22" }); assert.equal(saved.status, 200); const updated = (await saved.json()).record;
-  assert.equal(updated.loanBalance, 1000); assert.equal(updated.salaryAmount, 4500); assert.equal(updated.vacationReturn, "2026-11-22");
+  assert.equal(updated.paymentBankAccountId, bank.id); assert.equal(updated.loanAccountId, newLoan.id); assert.equal(updated.loanBalance, 1000); assert.equal(updated.salaryAmount, 4500); assert.equal(updated.vacationReturn, "2026-11-22");
   globalThis.__reportTestUser = { id: 2, email: "viewer@example.test", role: "viewer", companyIds: [c.id], mustChangePassword: false };
   try {
     const list = await records.GET(new Request(`https://app.test/api/records?kind=contacts&companyId=${c.id}`));
     assert.equal(list.status, 200); const contact = (await list.json()).records.find(record => record.id === employee.id);
-    for (const field of ["salaryAmount", "loanBalance", "salaryExpenseAccountId", "vacationDeparture", "vacationReturn"]) assert.equal(contact[field], undefined);
+    for (const field of ["salaryAmount", "loanBalance", "salaryExpenseAccountId", "paymentBankAccountId", "vacationDeparture", "vacationReturn"]) assert.equal(contact[field], undefined);
     assert.equal((await update({ salaryAmount: 1 })).status, 403);
   } finally { delete globalThis.__reportTestUser; }
   const paid = await records.POST(post({ kind: "transactions", companyId: c.id, locationId: c.locations[0].id, type: "cheque", chequeType: "salary", number: "HR-SALARY-01", party: employee.name, account: "Operating Expenses", bankAccountId: bank.id, currency: "AED", exchangeRate: 1, transactionDate: "2026-10-03", lines: [{ description: "October salary", quantity: 1, unitPrice: 4500, vatCode: "ZERO", vatRate: 0 }] }));

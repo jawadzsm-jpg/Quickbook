@@ -2676,7 +2676,9 @@ function CashTransactionFields({ form, setForm, contacts, accounts, locations, l
     const selectedEmployee = chequeType === "salary" ? parties.find(party => party.name === value) : undefined;
     const configuredSalary = accounts.find(candidate => candidate.id === Number(selectedEmployee?.salaryExpenseAccountId));
     const configuredLoan = accounts.find(candidate => candidate.id === Number(loanEmployee?.loanAccountId));
-    setForm({ ...next, employeeLoanContactId: employeeLoan ? String(loanEmployee?.id || "") : "", account: configuredLoan ? String(configuredLoan.name) : configuredSalary ? String(configuredSalary.name) : account });
+    const paymentEmployee = loanEmployee ?? selectedEmployee;
+    const configuredBank = bankAccounts.find(bank => bank.id === Number(paymentEmployee?.paymentBankAccountId) && bank.currency === currency);
+    setForm({ ...next, ...(paymentEmployee ? { bankAccountId: configuredBank ? String(configuredBank.id) : "" } : {}), employeeLoanContactId: employeeLoan ? String(loanEmployee?.id || "") : "", account: configuredLoan ? String(configuredLoan.name) : configuredSalary ? String(configuredSalary.name) : account });
     if (selectedEmployee?.salaryAmount !== undefined) updateLine({ quantity: "1", unitPrice: String(selectedEmployee.salaryAmount), description: "Salary payment", vatCode: "ZERO", vatRate: "0" });
   };
   const selectChequeType = (value: string) => {

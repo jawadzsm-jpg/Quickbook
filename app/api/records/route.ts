@@ -1,3 +1,4 @@
+import { employeeHrForSave } from "@/lib/employee-hr-save";
 import { employeeHrValues, employeeLoanAccount, redactEmployeeHr } from "@/lib/employee-hr";
 import { RequestError } from "@/lib/errors";
 import { skuWrite } from "@/lib/sku-locks";
@@ -549,7 +550,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       }
       const [record] = await db.insert(contacts).values({
         companyId, type: contactType, name,
-        ...(contactType === "employee" ? employeeHrValues(payload, companyId, await db.select().from(accounts).where(eq(accounts.companyId, companyId))) : {}),
+        ...(contactType === "employee" ? await employeeHrForSave(payload, companyId) : {}),
         company: String(payload.company ?? ""), billingName: String(payload.billingName ?? name),
         email: String(payload.email ?? ""), phone: String(payload.phone ?? "").trim(), whatsapp: String(payload.whatsapp ?? "").trim(),
         country: String(payload.country ?? ""), trn: String(payload.trn ?? "").trim(), reseller: String(payload.reseller ?? "Reseller"),
@@ -1653,7 +1654,7 @@ async function handlePATCH(request: Request) {
       for (const field of ["company", "billingName", "email", "phone", "whatsapp", "country", "trn", "reseller", "planet", "passport", "description"] as const) {
         if (payload[field] !== undefined) changes[field] = String(payload[field]).trim();
       }
-      const [record] = await db.update(contacts).set({ ...changes, ...(existing.type === "employee" ? employeeHrValues(payload, companyId, await db.select().from(accounts).where(eq(accounts.companyId, companyId)), existing) : {}) }).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId))).returning();
+      const [record] = await db.update(contacts).set({ ...changes, ...(existing.type === "employee" ? await employeeHrForSave(payload, companyId, existing) : {}) }).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId))).returning();
       if (name !== existing.name) await db.update(transactions).set({ party: name }).where(and(eq(transactions.companyId, companyId), eq(transactions.party, existing.name)));
       await db.insert(auditLog).values({ companyId, action: "updated", entityType: existing.type === "vendor" ? "vendor" : "contact", entityId: id, details: existing.type === "vendor" ? JSON.stringify({ actorId: authorization.id, actorName: authorization.fullName || authorization.email, actorEmail: authorization.email, vendorName: name, changes: Object.entries(changes).filter(([field, value]) => String((existing as Record<string, unknown>)[field] ?? "") !== value).map(([field, value]) => ({ field, before: (existing as Record<string, unknown>)[field] ?? "", after: value })) }) : `${existing.name} → ${name}` });
       return Response.json({ record });
