@@ -27,6 +27,7 @@ export const standardAccounts: StandardAccount[] = [
   { code: "2000", name: "Accounts Payable", type: "Accounts Payable", systemRole: "AP" },
   { code: "2050", name: "Accrued Expenses", type: "Other Current Liability" },
   { code: "2100", name: "VAT Payable", type: "Other Current Liability", systemRole: "OUTPUT_VAT" },
+  { code: "2150", name: "Corporate Income Tax Payable", type: "Other Current Liability" },
   { code: "2200", name: "Payroll Liabilities", type: "Other Current Liability" },
   { code: "2300", name: "Corporate Credit Card", type: "Credit Card" },
   { code: "2400", name: "Short-term Loans", type: "Loan" },
@@ -64,5 +65,6 @@ export const standardAccounts: StandardAccount[] = [
   { code: "6500", name: "Repairs and Maintenance", type: "Expense" },
   { code: "6600", name: "Miscellaneous Expense", type: "Expense" },
   { code: "7000", name: "Other Expense", type: "Other Expense" },
+  { code: "7100", name: "Corporate Income Tax Expense", type: "Other Expense" },
   { code: "9999", name: "Suspense", type: "Other Current Asset", systemRole: "SUSPENSE" },
 ];

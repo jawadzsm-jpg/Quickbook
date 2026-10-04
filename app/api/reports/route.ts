@@ -1,3 +1,5 @@
+import { loadIncomeTax } from '@/lib/income-tax-data';
+import { defaultTaxConfig } from '@/lib/income-tax';
 import { listReportKeys } from "@/lib/list-report";
 import { accountantReportKeys, accountantAccountIssues } from "@/lib/accountant-report";
 import { vendorDocumentAccount, vendorReportKeys } from "@/lib/vendor-report";
@@ -62,10 +64,19 @@ export async function GET(request: Request) {
     // Report amounts are stored/converted in home currency; never relabel them from a query parameter.
     const currency = reportCompany.baseCurrency;
     // UAE VAT is filed by the VAT-registered company, not separately by inventory.
-    const scoped = !vatReportKeys.has(key) && Number.isInteger(locationId) && locationId > 0;
+    const scoped = key !== "income-tax" && !vatReportKeys.has(key) && Number.isInteger(locationId) && locationId > 0;
     if (scoped) {
       const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).limit(1);
       if (!location) return Response.json({ error: "Select an inventory in this company." }, { status: 400 });
+    }
+    if (key === 'income-tax') {
+      const config=defaultTaxConfig((periodEnd||new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Dubai',year:'numeric'}).format(new Date())).slice(0,4));
+      if(periodStart) config.from=periodStart;
+      if(periodEnd) config.to=periodEnd;
+      if(config.from>config.to) return Response.json({error:'Choose a complete valid tax period.'},{status:400});
+      if(currency!=='AED') { config.threshold=0; config.upperRate=0; }
+      const result=await loadIncomeTax(companyId,currency,config);
+      return Response.json({report:result.report},{headers:{'Cache-Control':'private, no-store'}});
     }
     if (financialKeys.includes(key)) return await financialReport(companyId, scoped ? locationId : 0, currency, url.searchParams, hasPermission(authorization, "accounting:manage"));
     if (key.startsWith("profit-loss")) return await withPeriod(await profitLoss(companyId, scoped ? locationId : 0, currency, url.searchParams, hasPermission(authorization, "accounting:manage")));

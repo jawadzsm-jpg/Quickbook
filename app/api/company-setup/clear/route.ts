@@ -45,7 +45,7 @@ export async function POST(request: Request) {
       const db = getDb();
       const selected = new Set(sections as ClearSection[]);
       // Serialize this rare destructive operation with writes, including new child rows.
-      await db.execute(sql`LOCK TABLE companies, stock_transfers, transactions, transaction_lines, inventory_movements, journal_entries, journal_lines, invoice_payment_allocations, bill_payment_allocations, sales_invoice_allocations, purchase_receipt_allocations, inventory_locations, items, contacts, accounts, record_attachments, memorised_reports, inventory_check_reports, inventory_check_lines, vat_returns, vat_adjustments, vat_codes, exchange_rates, company_settings, idempotency_requests IN SHARE ROW EXCLUSIVE MODE`);
+      await db.execute(sql`LOCK TABLE companies, stock_transfers, transactions, transaction_lines, inventory_movements, journal_entries, journal_lines, invoice_payment_allocations, bill_payment_allocations, sales_invoice_allocations, purchase_receipt_allocations, inventory_locations, items, contacts, accounts, record_attachments, memorised_reports, income_tax_working_papers, inventory_check_reports, inventory_check_lines, vat_returns, vat_adjustments, vat_codes, exchange_rates, company_settings, idempotency_requests IN SHARE ROW EXCLUSIVE MODE`);
       const [company] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1);
       if (!company) return Response.json({ error: "Company not found." }, { status: 404 });
       if (confirmation.trim() !== company.name) return Response.json({ error: "The company confirmation does not match." }, { status: 400 });
@@ -106,7 +106,7 @@ export async function POST(request: Request) {
         await db.execute(sql`DELETE FROM contacts WHERE company_id=${companyId}`);
       }
       if (selected.has("reports")) {
-        for (const table of ["record_attachments", "memorised_reports", "inventory_check_reports", "staff_salary_sheets"]) await db.execute(sql`DELETE FROM ${sql.identifier(table)} WHERE company_id=${companyId}`);
+        for (const table of ["record_attachments", "memorised_reports", "inventory_check_reports", "staff_salary_sheets", "income_tax_working_papers"]) await db.execute(sql`DELETE FROM ${sql.identifier(table)} WHERE company_id=${companyId}`);
       }
       if (selected.has("settings")) {
         for (const table of ["vat_codes", "exchange_rates", "company_settings"]) await db.execute(sql`DELETE FROM ${sql.identifier(table)} WHERE company_id=${companyId}`);

@@ -3,6 +3,7 @@
 import { ArrowUpRight } from "lucide-react";
 
 const groups = [
+  { title: "Income tax", description: "Review company-wide profit, manage tax percentages and prepare a tax working paper.", keys: ["income-tax"] },
   { title: "Financial position", description: "Review assets, liabilities, equity and changes in net worth.", keys: ["business-final", "balance-sheet", "balance-sheet-detail", "balance-sheet-summary", "balance-sheet-prev-year", "net-worth-graph"] },
   { title: "Income & expenses", description: "Trace posted income and expenses to customers, suppliers and original documents.", keys: ["income-customer-summary", "income-customer-detail", "expenses-supplier-summary", "expenses-supplier-detail", "income-expense-graph"] },
   { title: "Cash & exchange differences", description: "Review cash movements, forecast open balances and assess foreign-currency exposure.", keys: ["cash-flow", "cash-flow-forecast", "realised-gains-losses", "unrealised-gains-losses"] },

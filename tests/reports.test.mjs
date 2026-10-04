@@ -1933,3 +1933,56 @@ test('posted journal CSV Excel and A4 PDF preserve filtered list and account det
     }
   }
 });
+
+test('income tax validates percentages and calculates progressive bands without taxing losses', async()=>{
+  const {defaultTaxConfig,validateTaxConfig,calculateIncomeTax,validateTaxAccounts}=await vite.ssrLoadModule('/lib/income-tax.ts');
+  const config=defaultTaxConfig('2026');
+  const chart=[{id:1,code:'4000',name:'Income',type:'Income',currency:'AED',active:true}];
+  const calculate=(profit,c=config)=>calculateIncomeTax(c,'AED',chart,[{id:1,accountName:'Income',currency:'AED',accountId:1,debit:profit<0?-profit:0,credit:profit>0?profit:0}]);
+  assert.equal(calculate(375000).estimatedTax,0);assert.equal(calculate(500000).estimatedTax,11250);assert.equal(calculate(-1000).estimatedTax,0);assert.equal(calculate(-1000).preTaxProfit,-1000);
+  assert.equal(calculate(500000,{...config,lowerRate:2,upperRate:10}).estimatedTax,20000);
+  assert.equal(calculate(500000,{...config,threshold:0,upperRate:7.5}).estimatedTax,37500);
+  assert.equal(calculate(500000,{...config,additions:20000,deductions:10000,adjustmentNote:'Reviewed adjustments'}).estimatedTax,12150);
+  for(const change of [{lowerRate:101},{upperRate:-1},{threshold:Infinity},{from:'2026-02-30'},{from:'2027-01-01'},{additions:1,adjustmentNote:''},{deductions:'100'}]) assert.throws(()=>validateTaxConfig({...config,...change}));
+  assert.throws(()=>validateTaxAccounts({...config,expenseAccountId:1},chart,'AED'));
+  assert.ok(calculateIncomeTax(config,'AED',chart,[{id:9,accountName:'Missing',currency:'AED',debit:0,credit:800}]).issues.some(x=>x.includes('Unresolved')));
+});
+
+test('income tax working papers isolate companies, preserve revisions, link accounts and do not post tax', async()=>{
+  const route=await vite.ssrLoadModule('/app/api/income-tax/route.ts');
+  const {defaultTaxConfig}=await vite.ssrLoadModule('/lib/income-tax.ts');
+  const c=(await (await workspaces.POST(post({type:'company',name:'Income Tax Test',baseCurrency:'AED'}))).json()).company;
+  const initial=await route.GET(new Request(`https://app.test/api/income-tax?companyId=${c.id}`));assert.equal(initial.status,200);
+  const setup=await initial.json();assert.equal(setup.canManage,true);
+  const create=async()=>route.POST(post({companyId:c.id,action:'create-accounts'}));
+  const first=await create();assert.equal(first.status,200);const {accountIds}=await first.json();assert.deepEqual((await (await create()).json()).accountIds,accountIds);
+  const chart=(await (await route.GET(new Request(`https://app.test/api/income-tax?companyId=${c.id}`))).json()).accounts;
+  const expense=chart.find(a=>a.id===accountIds.expenseAccountId),payable=chart.find(a=>a.id===accountIds.payableAccountId);
+  const [income]=await db.insert(schema.accounts).values({companyId:c.id,code:'TAX-INCOME',name:'Tax Test Revenue',type:'Income',currency:'AED'}).returning();
+  const [cost]=await db.insert(schema.accounts).values({companyId:c.id,code:'TAX-COST',name:'Tax Test Costs',type:'Expense',currency:'AED'}).returning();
+  const addEntry=async(date,posted,location,incomeAmount)=>{const [j]=await db.insert(schema.journalEntries).values({companyId:c.id,locationId:location,entryDate:date,reference:'SAME-REF',description:'Tax fixture',posted,currency:'AED'}).returning();await db.insert(schema.journalLines).values([{journalEntryId:j.id,accountName:income.name,debit:0,credit:incomeAmount},{journalEntryId:j.id,accountName:cost.name,debit:100000,credit:0},{journalEntryId:j.id,accountName:expense.name,debit:10000,credit:0},{journalEntryId:j.id,accountName:payable.name,debit:incomeAmount-110000,credit:0}]);};
+  await addEntry('2026-01-01',true,c.locations[0].id,600000);
+  await addEntry('2026-12-31',true,null,150000);
+  await addEntry('2025-12-31',true,null,999999);
+  await addEntry('2026-06-01',false,null,999999);
+  const config={...defaultTaxConfig('2026'),...accountIds};
+  const request=extra=>route.POST(post({companyId:c.id,action:'preview',config,...extra}));
+  const preview=await request({locationId:c.locations[0].id});assert.equal(preview.status,200);
+  const result=(await preview.json()).result;assert.equal(result.income,750000);assert.equal(result.expenses,220000);assert.equal(result.netProfit,530000);assert.equal(result.taxExpense,20000);assert.equal(result.preTaxProfit,550000);assert.equal(result.estimatedTax,15750);assert.equal(result.issues.length,0);
+  const countBefore=(await database.query('SELECT count(*) FROM journal_entries WHERE company_id=$1',[c.id])).rows[0].count;
+  const saved=await request({action:'save'});assert.equal(saved.status,200);const paper=(await saved.json()).paper;assert.equal(paper.revision,1);
+  assert.equal((await request({action:'save'})).status,409);
+  const changed=await request({action:'save',id:paper.id,revision:1,config:{...config,upperRate:10}});assert.equal(changed.status,200);assert.equal((await changed.json()).paper.revision,2);
+  assert.equal((await request({action:'save',id:paper.id,revision:1})).status,409);
+  const reopened=await (await route.GET(new Request(`https://app.test/api/income-tax?companyId=${c.id}`))).json();assert.equal(reopened.papers.length,1);assert.equal(reopened.papers[0].config.upperRate,10);
+  assert.equal((await database.query('SELECT count(*) FROM journal_entries WHERE company_id=$1',[c.id])).rows[0].count,countBefore);
+  assert.equal((await request({config:{...config,expenseAccountId:income.id}})).status,400);
+  globalThis.__reportTestUser={id:9,email:'viewer@test',role:'viewer',companyIds:[c.id],mustChangePassword:false};
+  try {assert.equal((await request({})).status,200);assert.equal((await request({action:'save'})).status,403);assert.equal((await create()).status,403);assert.equal((await route.GET(new Request(`https://app.test/api/income-tax?companyId=${companyId}`))).status,403);assert.equal((await request({companyId})).status,403);}finally{delete globalThis.__reportTestUser;}
+  globalThis.__reportTestUser={id:9,email:'accountant@test',role:'accountant',companyIds:[c.id],mustChangePassword:false};
+  try{assert.equal((await request({action:'save',id:paper.id,revision:2})).status,200);}finally{delete globalThis.__reportTestUser;}
+  const {reportCsv,reportWorkbook,reportPdf}=await vite.ssrLoadModule('/lib/report-export.ts');
+  const csv=reportCsv(result.report,c.name,'Company-wide');assert.match(csv,/15750/);assert.match(csv,/Tax within threshold \(0%\)/);assert.match(csv,/Management estimate/);
+  const {default:ExcelJS}=await import('exceljs');const book=new ExcelJS.Workbook();await book.xlsx.load(await reportWorkbook(result.report,c.name,'Company-wide'));assert.ok(book.getWorksheet('Report').getSheetValues().flat(Infinity).includes(15750));assert.equal(book.getWorksheet('Report').pageSetup.paperSize,9);
+  for(const orientation of ['portrait','landscape']){const pdf=Buffer.from(await reportPdf(result.report,c.name,'Company-wide',result.report.rows,undefined,orientation)).toString('latin1');assert.ok(pdf.startsWith('%PDF-'));assert.match(pdf,/15,750\.00/);const box=pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/);assert.ok(box);assert.ok(Math.abs(Number(box[1])-(orientation==='portrait'?595.28:841.89))<0.01);}
+});

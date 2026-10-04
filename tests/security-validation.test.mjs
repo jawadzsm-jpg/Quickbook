@@ -384,14 +384,14 @@ test("all 12 Profit & Loss reports share professional A4 output, movable stamps,
   assert.match(css, /@page pnl \{ size: A4 portrait; margin: 10mm; \}/);
 });
 
-test("all 15 Financial reports share professional A4 output, movable stamps, and document-area links", () => {
+test("all 16 Financial reports share professional A4 output, movable stamps, and document-area links", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const financial = readFileSync(new URL("../app/financial-report.tsx", import.meta.url), "utf8");
   const sharedExport = readFileSync(new URL("../lib/report-export.ts", import.meta.url), "utf8");
   const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
   const definitions = [...app.matchAll(/\["[^"]+",\s*"[^"]+",\s*"Financial",\s*"([^"]+)"\]/g)].map((match) => match[1]);
-  assert.equal(definitions.length, 15);
-  assert.equal(new Set(definitions).size, 15);
+  assert.equal(definitions.length, 16);
+  assert.equal(new Set(definitions).size, 16);
   assert.match(app, /const financialReportKeys = new Set\(\[[^\]]+"cash-flow-forecast"\]\)/);
   assert.match(app, /const stampReport = [^;]+isFinancialReport/);
   assert.match(app, /financial-dialog.*financialLandscape/);
