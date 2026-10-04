@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { auditLog, itemLogisticsOptions } from "@/db/schema";
 import { apiRoute, RequestError } from "@/lib/api";
@@ -12,6 +12,14 @@ async function handle(request: Request) {
   if (!canAccessCompany(user, companyId) || !hasPermission(user, request.method === "GET" ? "inventory:read" : "inventory:manage")) throw new RequestError("You cannot manage logistics choices for this company.", 403);
   const db = getDb();
   if (request.method === "GET") return Response.json({ options: await db.select().from(itemLogisticsOptions).where(eq(itemLogisticsOptions.companyId, companyId)).orderBy(asc(itemLogisticsOptions.value)) });
+  if (request.method === "DELETE") {
+    const id = Number(input.id);
+    if (!Number.isSafeInteger(id) || id <= 0) throw new RequestError("Choose a saved custom option.");
+    const [option] = await db.delete(itemLogisticsOptions).where(and(eq(itemLogisticsOptions.id, id), eq(itemLogisticsOptions.companyId, companyId))).returning();
+    if (!option) throw new RequestError("Custom choice not found. Refresh the list.", 404);
+    await db.insert(auditLog).values({ companyId, action: "deleted", entityType: "item_logistics_option", entityId: option.id, details: JSON.stringify({ type: option.type, value: option.value, actorId: user.id }) });
+    return Response.json({ ok: true });
+  }
   const type = input.type;
   if (type !== "hs_code" && type !== "coo") throw new RequestError("Choose HS code or country of origin.");
   const value = typeof input.value === "string" ? input.value.trim().replace(/\s+/g, " ").toUpperCase() : "";
@@ -24,3 +32,5 @@ async function handle(request: Request) {
 }
 export const GET = apiRoute(handle);
 export const POST = apiRoute(handle, { transaction: true });
+
+export const DELETE = apiRoute(handle, { transaction: true });

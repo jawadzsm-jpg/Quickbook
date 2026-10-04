@@ -2279,6 +2279,7 @@ test('logistics choices persist per company and validate roles, codes and duplic
   assert.equal((await create({ value: '12345' })).status, 400);
   assert.equal((await create({ type: 'coo', value: '  custom   origin  ', label: '' })).status, 201);
   assert.equal((await create({ type: 'coo', value: 'CUSTOM ORIGIN' })).status, 409);
+  const remove = (id, companyId = c) => route.DELETE(new Request('https://app.test/api/item-logistics-options', { method: 'DELETE', headers: { origin: 'https://app.test', 'content-type': 'application/json' }, body: JSON.stringify({ companyId, id }) }));
   const options = (await (await list(c)).json()).options;
   assert.equal(options.length, 2); assert.ok(options.some(option => option.value === 'CUSTOM ORIGIN'));
   assert.equal((await (await list(other)).json()).options.length, 0);
@@ -2286,10 +2287,26 @@ test('logistics choices persist per company and validate roles, codes and duplic
     globalThis.__transferTestUser = { id: 1, role: 'viewer', companyIds: [c] };
     assert.equal((await create({ value: '12345679' })).status, 403);
     assert.equal((await list(c)).status, 200);
+    assert.equal((await remove(options[0].id)).status, 403);
     globalThis.__transferTestUser = { id: 1, role: 'admin', companyIds: [other] };
     assert.equal((await create({ value: '12345679' })).status, 403);
     assert.equal((await list(c)).status, 403);
+    assert.equal((await remove(options[0].id)).status, 403);
+    assert.equal((await remove(options[0].id, other)).status, 404);
   } finally { delete globalThis.__transferTestUser; }
+  const location = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES ($1,'DELCHOICE','Delete choices','DCH') RETURNING id", [c])).rows[0].id;
+  const item = (await database.query("INSERT INTO items(company_id,location_id,sku,name,hs_code,country_of_origin) VALUES ($1,$2,'DELETE-CHOICE','Saved logistics','12345678','CUSTOM ORIGIN') RETURNING id", [c, location])).rows[0].id;
+  assert.equal((await remove(0)).status, 400);
+  for (const option of options) {
+    assert.equal((await remove(option.id)).status, 200);
+    assert.equal((await remove(option.id)).status, 404);
+    const audit = (await database.query("SELECT details FROM audit_log WHERE entity_type='item_logistics_option' AND action='deleted' AND entity_id=$1", [option.id])).rows;
+    assert.equal(audit.length, 1);
+    assert.equal(JSON.parse(audit[0].details).value, option.value);
+  }
+  assert.equal((await (await list(c)).json()).options.length, 0);
+  assert.deepEqual((await database.query('SELECT hs_code,country_of_origin FROM items WHERE id=$1', [item])).rows[0], { hs_code: '12345678', country_of_origin: 'CUSTOM ORIGIN' });
+  assert.equal((await create()).status, 201);
   const { dimensionText } = await vite.ssrLoadModule('/lib/item-logistics.ts');
   assert.equal(dimensionText(11.5, 35, 55, 'old'), '11.5 × 35 × 55 cm');
   assert.equal(dimensionText(0, 35, 55), '');
