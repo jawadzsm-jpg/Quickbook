@@ -1,5 +1,6 @@
+import { linkReportAccounts } from "@/lib/report-account-links";
 import { createHash } from "node:crypto";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, gte, lte } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { accounts, auditLog, companies, inventoryLocations, journalEntries, journalLines } from "@/db/schema";
 import { canAccessCompany, isAdministrator, requireApiUser } from "@/lib/auth";
@@ -20,12 +21,32 @@ export async function GET(request: Request) {
     const locationId = Number(url.searchParams.get("locationId"));
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     if (!canAccessCompany(user, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
-    const filter = Number.isInteger(locationId) && locationId > 0 ? and(eq(journalEntries.companyId, companyId), eq(journalEntries.locationId, locationId)) : eq(journalEntries.companyId, companyId);
-    const entries = await getDb().select().from(journalEntries).where(filter).orderBy(desc(journalEntries.entryDate), desc(journalEntries.id)).limit(300);
+    const dateFrom = url.searchParams.get("dateFrom") || "";
+    const dateTo = url.searchParams.get("dateTo") || "";
+    const validDate = (value: string) => !value || (/^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0,10) === value);
+    if (!validDate(dateFrom) || !validDate(dateTo) || (dateFrom && dateTo && dateFrom > dateTo)) return Response.json({ error: "Select a valid date range. From must not be after To." }, { status: 400 });
+    const db = getDb();
+    const companyAccounts = await db.select({ id: accounts.id, code: accounts.code, name: accounts.name, currency: accounts.currency }).from(accounts).where(eq(accounts.companyId, companyId));
+    const [company] = await db.select({ currency: companies.baseCurrency }).from(companies).where(eq(companies.id, companyId));
+    const scope = Number.isInteger(locationId) && locationId > 0 ? and(eq(journalEntries.companyId, companyId), eq(journalEntries.locationId, locationId)) : eq(journalEntries.companyId, companyId);
+    const filter = and(scope, eq(journalEntries.posted, true), dateFrom ? gte(journalEntries.entryDate, dateFrom) : undefined, dateTo ? lte(journalEntries.entryDate, dateTo) : undefined);
+    const entries = await db.select().from(journalEntries).where(filter).orderBy(desc(journalEntries.entryDate), desc(journalEntries.id));
     const lines = entries.length ? await getDb().select().from(journalLines).where(inArray(journalLines.journalEntryId, entries.map((entry) => entry.id))) : [];
     const manualLogs = await getDb().select({ id: auditLog.entityId }).from(auditLog).where(and(eq(auditLog.companyId, companyId), eq(auditLog.entityType, "journal_entry"), eq(auditLog.action, "created")));
     const manualIds = new Set(manualLogs.map((log) => log.id));
-    return Response.json({ entries: entries.map((entry) => { const entryLines = lines.filter((line) => line.journalEntryId === entry.id); return { ...entry, revision: revision(entry, entryLines), canManage: isAdministrator(user) && !entry.transactionId && manualIds.has(entry.id), lines: entryLines, debit: round(entryLines.reduce((sum, line) => sum + Number(line.debit), 0)), credit: round(entryLines.reduce((sum, line) => sum + Number(line.credit), 0)), source: entry.transactionId ? "Transaction" : manualIds.has(entry.id) ? "Manual" : entry.description.startsWith("Stock revaluation:") ? "Stock revaluation" : "Automatic" }; }) });
+    const byEntry = new Map<number, typeof lines>();
+    for (const line of lines) { const group = byEntry.get(line.journalEntryId) || []; group.push(line); byEntry.set(line.journalEntryId, group); }
+    const byId = new Map(companyAccounts.map(account => [account.id, account]));
+    const entryById = new Map(entries.map(entry => [entry.id, entry]));
+    const linkedRows = linkReportAccounts(lines.map(line => ({ ...line, currency: entryById.get(line.journalEntryId)?.currency || company?.currency || "" })), [{ key: "accountName", label: "Account" }], companyAccounts).rows;
+    const linkedByLineId = new Map(linkedRows.map(line => [line.id, Number(line.accountNameAccountId)]));
+    return Response.json({ entries: entries.map(entry => {
+      const entryLines = (byEntry.get(entry.id) || []).sort((a,b) => a.id-b.id);
+      return { ...entry, revision: revision(entry, entryLines), canManage: isAdministrator(user) && !entry.transactionId && manualIds.has(entry.id),
+        lines: entryLines.map(line => { const account = byId.get(linkedByLineId.get(line.id) || 0); return { ...line, accountId: account?.id || null, accountCode: account?.code || "", accountCurrency: account?.currency || "" }; }),
+        debit: round(entryLines.reduce((sum,line)=>sum+Number(line.debit),0)), credit: round(entryLines.reduce((sum,line)=>sum+Number(line.credit),0)),
+        source: entry.transactionId ? "Transaction" : manualIds.has(entry.id) ? "Manual" : entry.description.startsWith("Stock revaluation:") ? "Stock revaluation" : "Automatic" };
+    }) }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Could not load journal entries." }, { status: 500 }); }
 }
 

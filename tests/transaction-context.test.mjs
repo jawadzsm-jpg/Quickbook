@@ -2679,3 +2679,46 @@ test('invoice inventory-only returns increase stock without customer charges and
   response=await create({number:'RETURN-ONLY'}); assert.equal(response.status,201,JSON.stringify(await response.clone().json()));
   assert.equal((await response.json()).record.total,0); assert.equal(await stock(),11); assert.equal(await customerBalance(),0);
 });
+
+test('posted journal register includes older rows, inclusive dates and unique company account links', async () => {
+  const c=(await database.query("INSERT INTO companies(name) VALUES ('Journal register scope') RETURNING id")).rows[0].id;
+  const loc=(await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'JREG','Journal register','JREG') RETURNING id",[c])).rows[0].id;
+  const accts=(await database.query("INSERT INTO accounts(company_id,code,name,type,currency) VALUES($1,'REG1','Register Bank','Bank','AED'),($1,'REG2','Register Bank','Bank','USD'),($1,'REG3','Register Equity','Equity','AED'),($1,'REG4','Ambiguous','Expense','AED'),($1,'REG5','Ambiguous','Expense','AED') RETURNING *",[c])).rows;
+  await database.query("INSERT INTO journal_entries(company_id,location_id,entry_date,reference,description,posted,currency) SELECT $1,$2,'2026-09-01','SAME-REF','Older posting ' || n,true,'AED' FROM generate_series(1,305) n",[c,loc]);
+  const old=(await database.query('SELECT id FROM journal_entries WHERE company_id=$1 ORDER BY id',[c])).rows;
+  for(const entry of old) await database.query("INSERT INTO journal_lines(journal_entry_id,account_name,debit,credit) VALUES($1,'Register Bank',10,0),($1,'Register Equity',0,10)",[entry.id]);
+  const newest=(await database.query("INSERT INTO journal_entries(company_id,location_id,entry_date,reference,description,posted,currency) VALUES($1,$2,'2026-10-04','USD-REF','Foreign transfer',true,'USD') RETURNING id",[c,loc])).rows[0].id;
+  await database.query("INSERT INTO journal_lines(journal_entry_id,account_name,debit,credit) VALUES($1,'Register Bank',100,0),($1,'Ambiguous',0,50),($1,'Missing legacy account',0,50)",[newest]);
+  await database.query("INSERT INTO journal_entries(company_id,location_id,entry_date,reference,description,posted) VALUES($1,$2,'2026-10-04','UNPOSTED','Not posted',false),($1,NULL,'2026-10-04','COMPANY-WIDE','No inventory',true)",[c,loc]);
+  await database.query("INSERT INTO audit_log(company_id,entity_type,entity_id,action,details) VALUES($1,'journal_entry',$2,'created','{}'),($1,'journal_entry',$2,'created','{}')",[c,old[0].id]);
+  const route=await vite.ssrLoadModule('/app/api/journal-entries/route.ts');
+  const get=(extra='')=>route.GET(new Request(`https://app.test/api/journal-entries?companyId=${c}&locationId=${loc}${extra}`));
+  const allResponse=await get();assert.equal(allResponse.status,200);assert.match(allResponse.headers.get('cache-control'),/no-store/);
+  const all=(await allResponse.json()).entries;
+  assert.equal(all.length,306,'no 300-entry cutoff, duplicate audit rows, unposted entries or foreign inventory rows');
+  assert.equal(new Set(all.map(e=>e.id)).size,306);assert.equal(all[0].id,newest);
+  assert.equal(all.find(e=>e.id===old[0].id).source,'Manual');
+  const date=(await (await get('&dateFrom=2026-09-01&dateTo=2026-09-01')).json()).entries;
+  assert.equal(date.length,305); assert.equal(date[0].lines.find(l=>l.accountName==='Register Bank').accountId,accts[0].id);
+  const fx=(await (await get('&dateFrom=2026-10-04&dateTo=2026-10-04')).json()).entries;
+  assert.equal(fx.length,1);assert.equal(fx[0].lines[0].accountId,accts[1].id);assert.equal(fx[0].lines[1].accountId,null);assert.equal(fx[0].lines[2].accountId,null);
+  assert.equal(fx[0].debit,100);assert.equal(fx[0].credit,100);
+  for(const query of ['&dateFrom=2026-02-30','&dateTo=bad','&dateFrom=2026-10-05&dateTo=2026-10-04']) assert.equal((await get(query)).status,400);
+  try {
+    globalThis.__transferTestUser={id:1,role:'admin',companyIds:[999999]};assert.equal((await get()).status,403);
+    globalThis.__transferTestUser={id:1,role:'accountant',companyIds:[c]};
+    const authorized=(await (await get()).json()).entries;assert.equal(authorized.length,306);assert.ok(authorized.every(e=>!e.canManage));
+  } finally {delete globalThis.__transferTestUser;}
+  const {filterJournals,journalTotals,journalReport,journalReportSummary,emptyJournalFilters}=await vite.ssrLoadModule('/lib/journal-register.ts');
+  assert.equal(filterJournals(all,{...emptyJournalFilters,query:'reg2'},'AED').length,1);
+  assert.equal(filterJournals(all,{...emptyJournalFilters,query:'older posting 305'},'AED').length,1);
+  assert.equal(filterJournals(all,{...emptyJournalFilters,source:'Manual'},'AED').length,1);
+  const matched=filterJournals(all,{...emptyJournalFilters,account:String(accts[0].id)},'AED');
+  assert.equal(matched.length,305);assert.equal(matched[0].lines.length,2,'account filter retains complete journals');
+  assert.deepEqual(journalTotals(matched),{count:305,debit:3050,credit:3050,unbalanced:0});
+  const summary=journalReport(all,'AED','','',emptyJournalFilters), detail=journalReport(all,'AED','','',emptyJournalFilters,true);
+  assert.equal(summary.rows.length,306);assert.equal(detail.rows.length,613);
+  assert.deepEqual(journalReportSummary(summary).cards,journalReportSummary(detail).cards);
+  assert.equal(journalReportSummary(summary).cards[0].value,306,'same references do not collapse legitimate journals');
+  assert.equal(summary.accountLinkIssues.length,2);
+});

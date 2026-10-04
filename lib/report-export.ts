@@ -1,3 +1,4 @@
+import { journalReportSummary } from "./journal-register";
 import { reportColumnKind, reportColumnWeight } from "./report-presentation";
 import { vatColumnKind, vatColumnTotal, vatColumnWeight, vatReportKeys, vatSummary } from "./vat-report";
 import { budgetSummary, budgetReportKeys, type BudgetBasis } from "./budget-report";
@@ -32,11 +33,11 @@ export type ReportExportData = {
 };
 
 function reportOverview(report: ReportExportData, rows: ReportExportRow[]) {
-  return financialSummary({ key: report.key, rows, financial: report.financial }) ?? vatSummary({ key: report.key, rows }) ?? budgetSummary({ key: report.key, rows, budget: report.budget }) ?? salesSummary({ key: report.key, rows }) ?? customerSummary({ key: report.key, rows, openBalance: report.openBalance, activeCustomers: report.activeCustomers, statement: report.statement }) ?? vendorSummary({ key: report.key, rows, statement: report.statement }) ?? purchaseSummary({ key: report.key, rows }) ?? inventorySummary({ key: report.key, rows }) ?? bankingSummary({ key: report.key, rows }) ?? accountantSummary({ key: report.key, rows }) ?? listSummary({ key: report.key, rows }) ?? employeeSummary({ key: report.key, rows });
+  return journalReportSummary({ key: report.key, rows }) ?? financialSummary({ key: report.key, rows, financial: report.financial }) ?? vatSummary({ key: report.key, rows }) ?? budgetSummary({ key: report.key, rows, budget: report.budget }) ?? salesSummary({ key: report.key, rows }) ?? customerSummary({ key: report.key, rows, openBalance: report.openBalance, activeCustomers: report.activeCustomers, statement: report.statement }) ?? vendorSummary({ key: report.key, rows, statement: report.statement }) ?? purchaseSummary({ key: report.key, rows }) ?? inventorySummary({ key: report.key, rows }) ?? bankingSummary({ key: report.key, rows }) ?? accountantSummary({ key: report.key, rows }) ?? listSummary({ key: report.key, rows }) ?? employeeSummary({ key: report.key, rows });
 }
 
 function reportReviewIssues(report: ReportExportData) {
-  return [...new Set([...(report.financial?.issues ?? []), ...((budgetReportKeys.has(report.key || "") || accountantReportKeys.has(report.key || "") || listReportKeys.has(report.key || "")) ? report.accountLinkIssues ?? [] : [])])];
+  return [...new Set([...(report.financial?.issues ?? []), ...((["posted-journals", "posted-journal-lines"].includes(report.key || "") || budgetReportKeys.has(report.key || "") || accountantReportKeys.has(report.key || "") || listReportKeys.has(report.key || "")) ? report.accountLinkIssues ?? [] : [])])];
 }
 
 const navy = "FF102033";

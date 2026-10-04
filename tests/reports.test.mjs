@@ -1908,3 +1908,28 @@ test("staff salary sheets save, edit, isolate companies, preserve letterhead and
   assert.equal((await attachments.POST(post(attachmentBody))).status, 404);
   assert.equal((await (await route.GET(new Request(`https://app.test/api/staff-salary-sheets?companyId=${c.id}`))).json()).records.length, 0);
 });
+
+test('posted journal CSV Excel and A4 PDF preserve filtered list and account detail totals', async () => {
+  const {journalReport,emptyJournalFilters}=await vite.ssrLoadModule('/lib/journal-register.ts');
+  const {reportCsv,reportWorkbook,reportPdf}=await vite.ssrLoadModule('/lib/report-export.ts');
+  const entries=Array.from({length:55},(_,i)=>({id:i+1,entryDate:'2026-10-04',reference:`REGISTER-${i+1}`,description:i===0?'=unsafe spreadsheet input':'Journal description with a long reference that wraps in exports',currency:'USD',exchangeRate:2,transactionId:null,source:'Manual',canManage:true,revision:'test',debit:20,credit:20,lines:[{id:i*2+1,accountName:'Bank',accountCode:'1000',accountId:1,accountCurrency:'USD',debit:20,credit:0,originalDebit:10,originalCredit:0},{id:i*2+2,accountName:'Equity',accountId:null,debit:0,credit:20,originalDebit:0,originalCredit:10}]}));
+  const {default:ExcelJS}=await import('exceljs');
+  for(const detail of [false,true]) {
+    const report=journalReport(entries,'AED','2026-10-01','2026-10-04',emptyJournalFilters,detail);
+    const csv=reportCsv(report,'Journal Company','Main Inventory');
+    assert.match(csv,/REGISTER-55/); assert.match(csv,/'=unsafe spreadsheet input/);assert.match(csv,/Total debits/);assert.match(csv,/1100/);assert.match(csv,/has no unique Chart of Accounts link/);
+    const book=new ExcelJS.Workbook();await book.xlsx.load(await reportWorkbook(report,'Journal Company','Main Inventory'));
+    const rows=book.getWorksheet('Report').getSheetValues().flat(Infinity);
+    assert.ok(rows.includes('REGISTER-55'));assert.equal(rows.filter(x=>x==='REGISTER-55').length,detail?2:1);
+    assert.equal(book.getWorksheet('Report').pageSetup.paperSize,9);
+    for(const orientation of ['portrait','landscape']) {
+      const pdf=Buffer.from(await reportPdf(report,'Journal Company','Main Inventory',report.rows,undefined,orientation)).toString('latin1');
+      // PDF table cells can wrap a reference into multiple text operations.
+      const pdfText=[...pdf.matchAll(/\(((?:\\.|[^\\)])*)\)/g)].map(match=>match[1]).join('');
+      assert.ok(pdf.startsWith('%PDF-'));assert.ok(pdfText.includes('REGISTER-55'));assert.match(pdf,/TOTAL DEBITS/);assert.match(pdf,/1,100\.00/);
+      const box=pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/);assert.ok(box);
+      assert.ok(Math.abs(Number(box[1])-(orientation==='portrait'?595.28:841.89))<0.01);
+      assert.ok(Math.abs(Number(box[2])-(orientation==='portrait'?841.89:595.28))<0.01);
+    }
+  }
+});
