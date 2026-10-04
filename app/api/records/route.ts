@@ -667,8 +667,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const currency = String(payload.currency ?? "AED").trim().toUpperCase();
       if (!/^[A-Z]{3}$/.test(currency)) return Response.json({ error: "Choose a valid three-letter account currency." }, { status: 400 });
       if (Number.isInteger(parentAccountId) && parentAccountId > 0) {
-        const [parent] = await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.id, parentAccountId), eq(accounts.companyId, companyId))).limit(1);
-        if (!parent) return Response.json({ error: "Select a valid parent account from this company." }, { status: 400 });
+        const [parent] = await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.id, parentAccountId), eq(accounts.companyId, companyId), eq(accounts.active, true))).limit(1);
+        if (!parent) return Response.json({ error: "Select an active parent account from this company." }, { status: 400 });
       }
       if (systemRole) {
         const filters = systemRole === "AR" || systemRole === "AP"
@@ -1233,6 +1233,30 @@ async function handlePATCH(request: Request) {
     const companyId = Number(payload.companyId);
     if (!Number.isInteger(id) || id <= 0 || !Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a valid record and company." }, { status: 400 });
     if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
+    if (payload.kind === "accounts" && payload.editMode === "account-status") {
+      if (!mayWrite(authorization, "accounting:manage")) return Response.json({ error: "Your role cannot change account status." }, { status: 403 });
+      const allowed = new Set(["kind", "id", "companyId", "editMode", "active", "expectedActive"]);
+      if (Object.keys(payload).some(field => !allowed.has(field)) || typeof payload.active !== "boolean" || typeof payload.expectedActive !== "boolean") return Response.json({ error: "Select a valid account status." }, { status: 400 });
+      return await withWriteTransaction(async () => {
+        const db = getDb();
+        const [account] = await db.select().from(accounts).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId))).for("update");
+        if (!account) return Response.json({ error: "Account not found." }, { status: 404 });
+        if (account.active !== payload.expectedActive) return Response.json({ error: "This account changed. Refresh before changing its status." }, { status: 409 });
+        if (!payload.active) {
+          if (account.systemRole) return Response.json({ error: "Linked system accounts must stay active." }, { status: 409 });
+          const child = await db.execute(sql`SELECT id FROM accounts WHERE company_id = ${companyId} AND parent_account_id = ${id} AND active = true LIMIT 1`);
+          if (child.rows.length) return Response.json({ error: "Make active sub-accounts inactive first." }, { status: 409 });
+          const linked = await db.execute(sql`SELECT id FROM contacts WHERE company_id = ${companyId} AND (ledger_account_id = ${id} OR salary_expense_account_id = ${id} OR loan_account_id = ${id} OR payment_bank_account_id = ${id}) UNION ALL SELECT id FROM items WHERE company_id = ${companyId} AND (cogs_account_id = ${id} OR income_account_id = ${id} OR asset_account_id = ${id}) LIMIT 1`);
+          if (linked.rows.length) return Response.json({ error: "Reassign this account on linked customers, vendors, employees or items before making it inactive." }, { status: 409 });
+        } else if (account.parentAccountId) {
+          const [parent] = await db.select().from(accounts).where(and(eq(accounts.id, account.parentAccountId), eq(accounts.companyId, companyId)));
+          if (!parent?.active) return Response.json({ error: "Activate the parent account first." }, { status: 409 });
+        }
+        const [record] = await db.update(accounts).set({ active: payload.active as boolean }).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId))).returning();
+        await db.insert(auditLog).values({ companyId, action: "updated", entityType: "account", entityId: id, details: JSON.stringify({ actorId: authorization.id, actorEmail: authorization.email, name: account.name, active: { before: account.active, after: record.active } }) });
+        return Response.json({ record });
+      });
+    }
     if (payload.kind === "transactions") {
       if (!isAdministrator(authorization)) return Response.json({ error: "Only All-Admin and Admin can edit these documents." }, { status: 403 });
       return await withWriteTransaction(async () => {

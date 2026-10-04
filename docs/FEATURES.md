@@ -218,3 +218,10 @@ Employee edits open the dedicated Employee form, including salary, loan-account 
 Salary sheet dialogs use the available desktop width, retain scrollable forms and visible save controls, and stack preview rows on mobile. Saved lists show the name, month and date range. PDF filenames use the saved document name, salary month, start/end dates and record ID. A4 landscape columns total 273 mm inside 12 mm margins.
 
 HR profiles have a separate Payment bank / Pay from dropdown for active company banks in the employee currency. Banking salary/employee-loan selection prefills this saved bank, while users can choose another valid bank for a payment. The Loan / advance dropdown always offers “Create loan account for this employee on Save”; saving creates or reuses a uniquely named employee advance asset account with zero opening balance. Cancel creates no account, and manual loan balances are not posted to the ledger. The salary sheet Add employee row action uses a green high-contrast style in both appearance modes.
+
+
+### Chart of Accounts controls
+
+Account rows expose red delete icons to administrators. Main and system accounts remain protected; deletion is still limited to eligible unused sub-accounts. Users with accounting management access can make unlinked accounts inactive or active with the power icon, and filter All/Active/Inactive accounts. System accounts, active parent/child dependencies and saved customer/vendor/employee/item links are protected. Historical balances and journals remain unchanged. Account status changes are audited and reject stale updates.
+
+Negative account balances use the selected user theme color (readable shades in light and dark mode), retain their minus sign and stay together on desktop. Account rows become labeled cards on tablet/mobile. The Chart of Accounts toolbar has an explicit Minimize icon and label, with a Restore action retaining the current search and filters. Account dialogs retain their existing minimize/maximize controls.
