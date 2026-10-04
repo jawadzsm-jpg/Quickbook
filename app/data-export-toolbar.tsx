@@ -1,4 +1,5 @@
 "use client";
+import { useCompanyDocumentOutput } from "./company-document-output";
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
@@ -10,6 +11,7 @@ import { toast } from "sonner";
 type ExportTable = { title: string; headers: string[]; rows: string[][] };
 
 function visible(element: Element) {
+  if(element.closest("[data-output-render]"))return false;
   const html = element as HTMLElement;
   const style = window.getComputedStyle(html);
   const rect = html.getBoundingClientRect();
@@ -165,6 +167,8 @@ function exportPdf(tables: ExportTable[]) {
 }
 
 export function DataExportToolbar() {
+  const documentOutput=useCompanyDocumentOutput();
+  const [dedicatedPdf,setDedicatedPdf]=useState(false);
   const [hasTables, setHasTables] = useState(false);
   const [target, setTarget] = useState<HTMLElement | null>(null);
 
@@ -173,6 +177,7 @@ export function DataExportToolbar() {
       const dialog = activeDialog();
       // Report dialogs own structured exports, summaries, A4 layout and stamps.
       // Do not add the generic DOM-table exporter beside those controls.
+      setDedicatedPdf(Boolean(dialog?.matches(".packing-list-dialog")||dialog?.querySelector(".custom-invoice,.payment-receipt-page,.warranty-page,.rcm-page,.salary-preview")));
       setHasTables(!dialog?.matches(".report-dialog, .pnl-dialog") && extractVisibleTables().length > 0);
       setTarget(dialog ? dialog.querySelector<HTMLElement>('[data-export-slot="dialog"]') : document.querySelector<HTMLElement>('[data-export-slot="page"]'));
     };
@@ -185,13 +190,19 @@ export function DataExportToolbar() {
 
   if (!hasTables || !target) return null;
 
-  function run(kind: "excel" | "pdf" | "csv") {
-    if (kind === "pdf" && activeDialog()?.classList.contains("customer-statement")) { window.print(); return; }
+  async function run(kind: "excel" | "pdf" | "csv") {
+    if (kind === "pdf" && !documentOutput.enabled("Statement") && activeDialog()?.classList.contains("customer-statement")) { window.print(); return; }
     const tables = extractVisibleTables();
     if (!tables.length) return toast.error("No report or transaction table is visible to export.");
     try {
       if (kind === "excel") exportExcel(tables);
-      if (kind === "pdf") exportPdf(tables);
+      if (kind === "pdf") {
+        if(documentOutput.enabled()) {
+          const host=document.createElement('div');for(const table of tables){const heading=document.createElement('h3');heading.textContent=table.title;host.appendChild(heading);const t=document.createElement('table');for(const cells of [table.headers,...table.rows]){const tr=document.createElement('tr');for(const value of cells){const td=document.createElement('td');td.textContent=value;tr.appendChild(td);}t.appendChild(tr);}host.appendChild(t);}
+          const transaction=activeDialog()?.querySelector<HTMLElement>('.document-print-surface');
+          const blob=await documentOutput.pdf(transaction||host,{type:transaction?'Paid To':'Report',title:tables[0]?.title||'Report'});const {downloadPdfBlob}=await import('@/lib/document-output');downloadPdfBlob(blob,`${fileBase(tables)}.pdf`);
+        } else exportPdf(tables);
+      }
       if (kind === "csv") exportCsv(tables);
       toast.success(`${kind === "excel" ? "Excel" : kind.toUpperCase()} export created`);
     } catch (error) {
@@ -206,7 +217,7 @@ export function DataExportToolbar() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" portalContainer={target} className="print:hidden" onEscapeKeyDown={(event) => event.stopPropagation()}>
         <DropdownMenuItem onSelect={() => run("excel")}><FileSpreadsheet className="size-4" />Excel</DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => run("pdf")}><FileText className="size-4" />PDF</DropdownMenuItem>
+        {!dedicatedPdf&&<DropdownMenuItem onSelect={() => { void run("pdf"); }}><FileText className="size-4" />PDF</DropdownMenuItem>}
         <DropdownMenuItem onSelect={() => run("csv")}><Table2 className="size-4" />CSV</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

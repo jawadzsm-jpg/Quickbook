@@ -1,4 +1,6 @@
 "use client";
+import { SalesReportStamp } from "./sales-report-stamp";
+import { useCompanyDocumentOutput } from "./company-document-output";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Download, FileText, History, PackagePlus, Pencil, Plus, Printer, Trash2 } from "lucide-react";
@@ -13,7 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { createA4PdfBlob, downloadPdfBlob } from "@/lib/document-output";
 import { PrintOrientationSelect, type PrintOrientation } from "@/components/print-orientation-select";
-import { letterheadForDocument, type LetterheadDocument } from "@/lib/letterhead";
+import { defaultLetterhead, letterheadForDocument, type LetterheadDocument } from "@/lib/letterhead";
 import type { LetterheadCompany } from "./letterhead-page";
 
 import { dimensionText } from "@/lib/item-logistics";
@@ -79,6 +81,7 @@ function savedDrafts(list: PackingList): Draft[] {
 }
 
 export function InvoicePackingListDialog({ open, onOpenChange, companyId, companyName, setup, invoiceId, initialView = "packing" }: { open: boolean; onOpenChange: (open: boolean) => void; companyId: number; companyName: string; setup: LetterheadCompany & { letterheadDesign?: string }; invoiceId: number; initialView?: "packing" | "hs-summary" }) {
+  const documentOutput=useCompanyDocumentOutput();
   const [data, setData] = useState<PackingData | null>(null);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [packingDate, setPackingDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -88,6 +91,8 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
   const [saving, setSaving] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [hsPdfBusy, setHsPdfBusy] = useState(false);
+  const [packingStamp,setPackingStamp]=useState({show:false,left:227,top:145});
+  const [hsStamp,setHsStamp]=useState({show:false,left:145,top:230});
   const [packingOrientation, setPackingOrientation] = useState<PrintOrientation>("landscape");
   const [hsOrientation, setHsOrientation] = useState<PrintOrientation>("portrait");
   const [selectedListId, setSelectedListId] = useState<number | null>(null);
@@ -219,17 +224,17 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
   }
 
   function linkedLetterhead(type: LetterheadDocument, landscape: boolean) {
-    const template = letterheadForDocument(setup.letterheadDesign, type);
-    if (!template) return { html: `<p class="company">${escapeHtml(companyName)}</p>`, stamp: "" };
+    const template = letterheadForDocument(setup.letterheadDesign, type) ?? defaultLetterhead();
     const safeImage = (value?: string) => value && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(value) ? value : "";
     const image = template.showLogo ? safeImage(setup.logoData) : "";
     const rightImage = template.showRightLogo ? safeImage(setup.rightLogoData) : "";
     const logo = image ? `<img src="${image}" alt="Company logo" style="max-width:65mm;max-height:22mm;object-fit:contain">` : escapeHtml(companyName);
     const right = rightImage ? `<img src="${rightImage}" alt="Right logo" style="max-width:55mm;max-height:20mm;object-fit:contain">` : "";
-    const header = `<div style="display:flex;justify-content:space-between;align-items:center;gap:8mm;border-bottom:1px solid #aaa;padding-bottom:4mm;margin-bottom:5mm"><div>${logo}</div><div style="text-align:right;color:${template.color}">${right}<div dir="auto" style="font-size:18px;font-weight:700">${escapeHtml(template.heading)}</div><div dir="auto">${escapeHtml(template.subtitle)}</div></div></div><div style="text-align:center;font-weight:700;margin-bottom:4mm">${[setup.phone, setup.email, template.website].filter(Boolean).map(escapeHtml).join("　·　")}</div>`;
-    const stampData = template.showStamp ? safeImage(setup.stampData) : "";
-    const left = landscape ? Math.round(template.stampLeft / 210 * 297) : template.stampLeft;
-    const top = landscape ? Math.round(template.stampTop / 297 * 210) : template.stampTop;
+    const header = `<div class="letterhead-brand" style="display:flex;justify-content:space-between;align-items:center;gap:8mm;border-bottom:1px solid #aaa;padding-bottom:4mm;margin-bottom:5mm"><div>${logo}</div><div style="text-align:right;color:${template.color}">${right}<div dir="auto" style="font-size:18px;font-weight:700">${escapeHtml(template.heading)}</div><div dir="auto">${escapeHtml(template.subtitle)}</div></div></div><div class="letterhead-brand" style="text-align:center;font-weight:700;margin-bottom:4mm">${[setup.phone, setup.email, template.website].filter(Boolean).map(escapeHtml).join("　·　")}</div>`;
+    const position=type==='hs-code-summary'?hsStamp:packingStamp;
+    const stampData = position.show ? safeImage(setup.stampData) : "";
+    const left = Math.min(landscape?265:178,position.left);
+    const top = Math.min(landscape?187:274,position.top);
     const stamp = stampData ? `<img src="${stampData}" alt="Company stamp" style="position:absolute;left:${left}mm;top:${top}mm;max-width:32mm;max-height:23mm;object-fit:contain">` : "";
     return { html: header, stamp };
   }
@@ -332,6 +337,7 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
   function printHsCodeSummary(list: PackingList) {
     const document = hsCodeSummaryDocument(list);
     if (!document) return;
+    if(documentOutput.enabled("HS Code Summary")){void documentOutput.printHtml(document,{type:"HS Code Summary",title:`HS Code Summary - ${list.number}`,orientation:hsOrientation}).catch(e=>toast.error(e.message));return;}
     const popup = window.open("", "_blank");
     if (!popup) return toast.error("Allow pop-ups to print the HS Code Summary.");
     popup.opener = null;
@@ -352,7 +358,7 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       const page = host.querySelector<HTMLElement>(".hs-summary-page");
       if (!page) throw new Error("Could not prepare the HS Code Summary PDF.");
-      const blob = await createA4PdfBlob(page, { orientation: hsOrientation, marginMm: 10, title: `HS Code Summary - ${list.number}` });
+      const blob = (documentOutput.enabled("HS Code Summary")?await documentOutput.pdf(page,{type:"HS Code Summary",title:`HS Code Summary - ${list.number}`,orientation:hsOrientation}):await createA4PdfBlob(page, { orientation: hsOrientation, marginMm: 10, title: `HS Code Summary - ${list.number}` }));
       downloadPdfBlob(blob, `${list.number}-HS-Code-Summary.pdf`);
       toast.success("HS Code Summary PDF downloaded.");
     } catch (error) {
@@ -366,6 +372,7 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
   function printList(list: PackingList) {
     const document = packingListDocument(list);
     if (!document) return;
+    if(documentOutput.enabled("Packing List")){void documentOutput.printHtml(document,{type:"Packing List",title:list.number,orientation:packingOrientation}).catch(e=>toast.error(e.message));return;}
     const popup = window.open("", "_blank");
     if (!popup) return toast.error("Allow pop-ups to print the packing list.");
     popup.opener = null;
@@ -386,7 +393,7 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       const page = host.querySelector<HTMLElement>(".packing-page");
       if (!page) throw new Error("Could not prepare the packing list PDF.");
-      const blob = await createA4PdfBlob(page, { orientation: packingOrientation, marginMm: 8, title: list.number });
+      const blob = (documentOutput.enabled("Packing List")?await documentOutput.pdf(page,{type:"Packing List",title:list.number,orientation:packingOrientation}):await createA4PdfBlob(page, { orientation: packingOrientation, marginMm: 8, title: list.number }));
       downloadPdfBlob(blob, `${list.number}.pdf`);
       toast.success("Packing list PDF downloaded.");
     } catch (error) {
@@ -400,11 +407,12 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
   if (initialView === "hs-summary") {
     const summary = activeList ? hsSummaryData(activeList) : null;
     return <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[94vh] w-[calc(100vw-2rem)] !max-w-[calc(100vw-2rem)] overflow-y-auto">
+      <DialogContent className="packing-list-dialog max-h-[94vh] w-[calc(100vw-2rem)] !max-w-[calc(100vw-2rem)] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>HS Code Summary · {data?.invoice.number || "Loading…"}</DialogTitle>
           <DialogDescription>Generated from the selected saved Packing List.</DialogDescription>
         </DialogHeader>
+        <SalesReportStamp stampData={setup.stampData||""} orientation={hsOrientation} value={hsStamp} onChange={setHsStamp} />
         {loading || !data ? <p className="py-16 text-center text-slate-500">Loading HS Code Summary…</p> : <div className="space-y-4">
           {data.packingLists.length === 0 ? <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">Create and save a Packing List first. The HS Code Summary uses its packed quantities and item details.</div> : <>
             <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-slate-50 p-3 dark:bg-slate-900/70">
@@ -452,9 +460,10 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
     </Dialog>;
   }
 
-  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[94vh] w-[calc(100vw-2rem)] !max-w-[calc(100vw-2rem)] overflow-y-auto"><DialogHeader><DialogTitle>Invoice Packing Lists · {data?.invoice.number || "Loading…"}</DialogTitle><DialogDescription>Select invoice items and pack only the remaining balance. Add another line to split repacked cartons or use the same CTN number for multiple items in one carton.</DialogDescription></DialogHeader>
+  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="packing-list-dialog max-h-[94vh] w-[calc(100vw-2rem)] !max-w-[calc(100vw-2rem)] overflow-y-auto"><DialogHeader><DialogTitle>Invoice Packing Lists · {data?.invoice.number || "Loading…"}</DialogTitle><DialogDescription>Select invoice items and pack only the remaining balance. Add another line to split repacked cartons or use the same CTN number for multiple items in one carton.</DialogDescription></DialogHeader>
     {loading || !data ? <p className="py-16 text-center text-slate-500">Loading invoice packing details…</p> : <div className="space-y-5">
       <div className="grid gap-3 rounded-xl border bg-slate-50 p-4 text-sm dark:bg-slate-900/70 sm:grid-cols-4"><div><span className="text-slate-500 dark:text-slate-400">Customer</span><strong className="block">{data.invoice.party}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Invoice Qty</span><strong className="block">{display(data.lines.reduce((sum, line) => sum + Number(line.invoicedQuantity), 0), 2)}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Already Packed + Current</span><strong className="block">{display(packedBeforeDraft + totals.quantity, 2)}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Balance After This Packing</span><strong className={`block ${remainingAfterDraft < 0 ? "text-red-600" : "text-amber-700 dark:text-amber-400"}`}>{display(Math.max(0, remainingAfterDraft), 2)}</strong></div></div>
+      <SalesReportStamp stampData={setup.stampData||""} orientation={packingOrientation} value={packingStamp} onChange={setPackingStamp} />
       {data.packingLists.length ? <section className="rounded-xl border"><div className="flex items-center gap-2 border-b p-3"><History className="size-4" /><strong className="text-sm">Saved Packing Lists</strong></div><div className="flex flex-wrap gap-2 p-3">{data.packingLists.map((list) => <Button key={list.id} type="button" size="sm" variant={selectedListId === list.id ? "default" : "outline"} onClick={() => setSelectedListId(list.id)}>{list.number} · {list.lines.reduce((sum, line) => sum + line.packedQuantity, 0)} pcs</Button>)}</div>{activeList ? <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-emerald-50 p-3 text-sm dark:bg-emerald-950/30"><span><CheckCircle2 className="mr-1 inline size-4 text-emerald-600" /><strong>{activeList.number}</strong> · {activeList.packingDate} · {uniqueCartonCount(activeList)} carton(s) · {display(activeList.lines.reduce((sum, line) => sum + line.totalCbm, 0))} m³</span><div className="flex flex-wrap items-center gap-2"><PrintOrientationSelect value={packingOrientation} onValueChange={setPackingOrientation} /><Button type="button" size="sm" variant="outline" onClick={() => editList(activeList)}><Pencil className="size-4" />Edit</Button><Button type="button" size="sm" variant="outline" onClick={() => printList(activeList)}><Printer className="size-4" />Print Packing List</Button><Button type="button" size="sm" variant="outline" disabled={pdfBusy} onClick={() => void downloadListPdf(activeList)}><Download className="size-4" />{pdfBusy ? "Creating PDF…" : "Packing PDF"}</Button><Button type="button" size="sm" variant="outline" onClick={() => printHsCodeSummary(activeList)}><FileText className="size-4" />Print HS Code Summary</Button><Button type="button" size="sm" variant="outline" disabled={hsPdfBusy} onClick={() => void downloadHsCodeSummaryPdf(activeList)}><Download className="size-4" />{hsPdfBusy ? "Creating HS PDF…" : "HS Summary PDF"}</Button></div></div> : null}</section> : null}
       {editingList ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-400 bg-amber-50 p-3 text-sm text-amber-950 dark:bg-amber-950/40 dark:text-amber-100"><strong>Editing {editingList.number}</strong><Button type="button" size="sm" variant="outline" onClick={cancelEdit}>Cancel Edit</Button></div> : null}
       <section className="space-y-3"><div className="grid gap-3 sm:grid-cols-3"><label className="space-y-1 text-sm"><Label>Packing Date</Label><Input type="date" value={packingDate} onChange={(event) => setPackingDate(event.target.value)} /></label><label className="space-y-1 text-sm sm:col-span-2"><Label>Delivery Address</Label><Input value={deliveryAddress} onChange={(event) => setDeliveryAddress(event.target.value)} maxLength={500} /></label></div>

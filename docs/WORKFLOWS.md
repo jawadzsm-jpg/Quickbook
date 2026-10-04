@@ -92,6 +92,14 @@ Administrators can edit the customer, existing line quantity, unit price, VAT co
 
 Open a saved transaction to choose its supported output: tax/commercial invoice, proforma, delivery note, packing list, or HS-code summary. Company design, logos, letterhead, bank details, VAT data, serials, line comments, attachments, and optional stamps feed the A4 print/PDF view. The output selector defaults documents to portrait and lets the user switch to landscape.
 
+### One saved design for print and PDF
+
+In Company Setup → Invoice Template Customization, edit the selected saved template and save Company Setup. In Templates, enable **Active for all** to use one design everywhere. Selection order is the active all-document template, an active template for the document type, the latest active saved template, then the enabled root customization. Without customization, existing defaults remain available. Reopening the designer edits the selected active Invoice template instead of a disconnected root snapshot.
+
+A4 outputs honor Print visibility separately from Screen visibility, including custom boxes, labels, typography, element properties, logos and footer text. Specialized documents retain their required body fields and financial columns inside the same customized frame. Report rows, summaries, account mapping warnings and filters remain authoritative; this change does not create journal entries or change Chart of Accounts links. Long customized reports continue across A4 pages. CSV and Excel remain structured data exports rather than visual page templates.
+
+The shared design is connected to sales and purchase documents, credit/refund documents, delivery notes, packing lists, HS summaries, customer payment receipts, cheque vouchers, warranty/supplier receipts, RCM declarations, salary sheets, inventory checks, record lists and report exports (including journals, tax and P&L). Report print opens the same PDF layout as download. Stamp placement remains adjustable on document/report controls; packing, HS and customized salary outputs also provide a stamp placement panel. Dedicated document PDF controls suppress the duplicate generic PDF action. The letterhead designer keeps its own authoring preview.
+
 ## 5. Purchasing workflow
 
 ### Purchase order receiving

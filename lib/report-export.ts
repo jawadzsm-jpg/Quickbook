@@ -20,6 +20,9 @@ export type ReportExportRow = Record<string, string | number | null>;
 export type ReportExportData = {
   key?: string;
   budget?: BudgetBasis;
+  description?: string;
+  pnl?: {warnings: string[]};
+  summary?: {income:number;expenses:number;netIncome:number};
   accountLinkIssues?: string[];
   title: string;
   generatedAt: string;
@@ -33,12 +36,13 @@ export type ReportExportData = {
   statement?: { opening: number; charges: number; credits: number; closing: number };
 };
 
-function reportOverview(report: ReportExportData, rows: ReportExportRow[]) {
+export function reportOverview(report: ReportExportData, rows: ReportExportRow[]) {
+  if(report.pnl&&report.summary)return {cards:[{label:'Income',value:report.summary.income,format:'money',tone:'positive'},{label:report.key==='profit-loss-cost-of-goods'?'Cost of goods sold':'Costs & expenses',value:report.summary.expenses,format:'money',tone:'neutral'},{label:report.key==='profit-loss-cost-of-goods'?'Gross profit':'Net profit / loss',value:report.summary.netIncome,format:'money',tone:report.summary.netIncome<0?'negative':'positive'}],note:report.description||'Accrual basis · Posted journal entries'};
   return incomeTaxReportSummary({ key: report.key, rows }) ?? journalReportSummary({ key: report.key, rows }) ?? financialSummary({ key: report.key, rows, financial: report.financial }) ?? vatSummary({ key: report.key, rows }) ?? budgetSummary({ key: report.key, rows, budget: report.budget }) ?? salesSummary({ key: report.key, rows }) ?? customerSummary({ key: report.key, rows, openBalance: report.openBalance, activeCustomers: report.activeCustomers, statement: report.statement }) ?? vendorSummary({ key: report.key, rows, statement: report.statement }) ?? purchaseSummary({ key: report.key, rows }) ?? inventorySummary({ key: report.key, rows }) ?? bankingSummary({ key: report.key, rows }) ?? accountantSummary({ key: report.key, rows }) ?? listSummary({ key: report.key, rows }) ?? employeeSummary({ key: report.key, rows });
 }
 
-function reportReviewIssues(report: ReportExportData) {
-  return [...new Set([...(report.financial?.issues ?? []), ...((["income-tax", "posted-journals", "posted-journal-lines"].includes(report.key || "") || budgetReportKeys.has(report.key || "") || accountantReportKeys.has(report.key || "") || listReportKeys.has(report.key || "")) ? report.accountLinkIssues ?? [] : [])])];
+export function reportReviewIssues(report: ReportExportData) {
+  return [...new Set([...(report.pnl?.warnings ?? []), ...(report.financial?.issues ?? []), ...((["income-tax", "posted-journals", "posted-journal-lines"].includes(report.key || "") || budgetReportKeys.has(report.key || "") || accountantReportKeys.has(report.key || "") || listReportKeys.has(report.key || "")) ? report.accountLinkIssues ?? [] : [])])];
 }
 
 const navy = "FF102033";

@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { DataExportToolbar } from "./data-export-toolbar";
 import { AttachmentCapture } from "./attachment-capture";
 import { EscapeWindowCloser } from "./escape-window-closer";
 
@@ -33,7 +32,6 @@ export default function RootLayout({
       <body className="antialiased">
         {children}
         <EscapeWindowCloser />
-        <DataExportToolbar />
         <AttachmentCapture />
       </body>
     </html>

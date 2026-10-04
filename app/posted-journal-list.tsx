@@ -1,4 +1,5 @@
 "use client";
+import { useCompanyDocumentOutput } from "./company-document-output";
 
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, Download, Eye, Maximize2, Minus, Pencil, Printer, RefreshCw, Search, Trash2 } from 'lucide-react';
@@ -24,6 +25,7 @@ export function JournalAccountLines({ lines, currency, onAccount }: { lines: Jou
 
 type Props = { companyId:number; companyName:string; locationId:number; locationName:string; currency:string; stampData:string; refreshKey:number; onView:(entry:JournalEntry)=>void; onEdit:(entry:JournalEntry)=>void; onDelete:(entry:JournalEntry)=>void; onOpenSource:(id:number)=>void; onAccount:(line:JournalLine)=>void };
 export function PostedJournalList({ companyId, companyName, locationId, locationName, currency, stampData, refreshKey, onView, onEdit, onDelete, onOpenSource, onAccount }: Props) {
+  const documentOutput=useCompanyDocumentOutput();
   const day=reportDownloadDate();
   const [dates,setDates]=useState({from:`${day.slice(0,7)}-01`,to:day});
   const [filters,setFilters]=useState<JournalFilters>(emptyJournalFilters);
@@ -74,9 +76,9 @@ export function PostedJournalList({ companyId, companyName, locationId, location
     if(popup) {popup.opener=null;popup.document.title='Preparing journal print preview';popup.document.body.textContent='Preparing A4 print preview…';}
     setExporting(true);
     try {
-      const {reportCsv,reportWorkbook,reportPdf,reportFilename}=await import('@/lib/report-export');
+      const {reportCsv,reportWorkbook,reportFilename}=await import('@/lib/report-export');
       const report=journalReport(visible,currency,dates.from,dates.to,filters,detailExport);
-      const content=format==='csv' ? reportCsv(report,companyName,locationName) : format==='xlsx' ? await reportWorkbook(report,companyName,locationName,report.rows,orientation) : await reportPdf(report,companyName,locationName,report.rows,stamp.show && stampData ? {data:stampData,left:stamp.left,top:stamp.top}:undefined,orientation);
+      const content=format==='csv' ? reportCsv(report,companyName,locationName) : format==='xlsx' ? await reportWorkbook(report,companyName,locationName,report.rows,orientation) : await documentOutput.reportPdf(report,companyName,locationName,report.rows,stamp.show && stampData ? {data:stampData,left:stamp.left,top:stamp.top}:undefined,orientation);
       const blob=new Blob([content as BlobPart],{type:format==='csv'?'text/csv;charset=utf-8':format==='xlsx'?'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':'application/pdf'});
       const url=URL.createObjectURL(blob);
       if(popup) {popup.location.href=url;setTimeout(()=>URL.revokeObjectURL(url),300000);}

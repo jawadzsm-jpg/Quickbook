@@ -1,5 +1,7 @@
 "use client";
+import { useCompanyDocumentOutput } from "./company-document-output";
 
+import { toast } from "sonner";
 import { useState } from "react";
 import { Check, FileText, Pencil, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -75,6 +77,7 @@ function voucherPrintBody({ companyName, chequeNumber, bankName, layoutName, par
 }
 
 export function UaeBankCheque({ record, lines, journal, companyName, revision, canEditNumber = false, onNumberSaved }: { record: ChequeRecord; lines: ChequeRecord[]; journal: ChequeRecord[]; companyName: string; revision: string; canEditNumber?: boolean; onNumberSaved?: (number: string, revision: string) => void }) {
+  const documentOutput=useCompanyDocumentOutput();
   const amount = Number(record.total || lines[0]?.total || 0);
   const currency = String(record.currency || "AED");
   const bankName = String(journal.find((line) => Number(line.credit) > 0)?.accountName || "Selected UAE bank account");
@@ -88,7 +91,9 @@ export function UaeBankCheque({ record, lines, journal, companyName, revision, c
   const [numberError, setNumberError] = useState("");
   function printVoucher() {
     const styles = `@page{size:A4 portrait;margin:10mm}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:#0f172a;font-family:Arial,sans-serif}.voucher-page{width:190mm;min-height:277mm;padding:9mm;border:1px solid #cbd5e1;break-inside:avoid;page-break-inside:avoid}.voucher-page header{display:flex;justify-content:space-between;gap:12mm;padding-bottom:7mm;border-bottom:1px solid #cbd5e1}.company{margin:0;color:#047857;font-size:10pt;font-weight:800;letter-spacing:.18em}.voucher-page h1{margin:3mm 0 1mm;font-size:21pt}.muted{margin:0;color:#64748b;font-size:10pt}.number{text-align:right}.number span,.facts span,.words span,.details span{display:block;color:#64748b;font-size:8.5pt;font-weight:700;letter-spacing:.05em}.number strong{display:block;margin-top:2mm;font:700 13pt monospace}.facts{display:grid;grid-template-columns:repeat(4,1fr);gap:6mm;margin-top:10mm}.facts strong{display:block;margin-top:2mm;font-size:10.5pt}.words{margin-top:9mm;padding:6mm;border:1px solid #cbd5e1;border-radius:3mm;background:#f8fafc}.words strong{display:block;margin-top:2mm;font-size:11pt;text-transform:uppercase}.details{display:grid;grid-template-columns:1fr 1fr;gap:10mm;margin-top:9mm;padding-top:7mm;border-top:1px solid #cbd5e1}.details p{margin:2mm 0 0;font-size:10.5pt;white-space:pre-wrap}footer{display:grid;grid-template-columns:repeat(3,1fr);gap:10mm;margin-top:28mm;padding-top:12mm}footer p{margin:0;padding-top:3mm;border-top:1px solid #64748b;text-align:center;color:#64748b;font-size:8.5pt;font-weight:700}@media print{.voucher-page{break-after:avoid;page-break-after:avoid}}`;
-    printIsolatedDocument(`Cheque voucher ${chequeNumber}`, styles, voucherPrintBody({ companyName, chequeNumber, bankName, layoutName: selectedLayout.name, party: String(record.party), date, amount, currency, words, details: String(lines[0]?.description || "Cheque payment"), memo: String(record.memo || "") }));
+    const body = voucherPrintBody({ companyName, chequeNumber, bankName, layoutName: selectedLayout.name, party: String(record.party), date, amount, currency, words, details: String(lines[0]?.description || "Cheque payment"), memo: String(record.memo || "") });
+    if(documentOutput.enabled("Paid To")){void documentOutput.printHtml({html:body,styles},{type:"Paid To",title:"Cheque voucher",record:{number:chequeNumber,party:String(record.party),transactionDate:date}}).catch(e=>toast.error(e.message));return;}
+    printIsolatedDocument(`Cheque voucher ${chequeNumber}`,styles,body);
   }
 
   async function saveChequeNumber() {
