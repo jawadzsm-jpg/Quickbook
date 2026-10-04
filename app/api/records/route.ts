@@ -1,3 +1,4 @@
+import { validInvoiceQuantity, isInvoiceStockReturn } from "@/lib/invoice-stock-lines";
 import { salesDocumentTypes } from "@/lib/sales-access";
 import { canManagePendingInvoices, canReadDocument, dubaiDay } from "@/lib/document-access";
 import { documentVisibility } from "@/lib/document-access-sql";
@@ -722,6 +723,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const conversionSourceId = ["invoice", "bill"].includes(type) ? Number(payload.sourceTransactionId) : NaN;
     let rawLines = Array.isArray(payload.lines) ? payload.lines as InputLine[] : [];
     if (Number.isInteger(conversionSourceId) && conversionSourceId > 0) {
+      if (rawLines.some(isInvoiceStockReturn)) return Response.json({ error: "Save the source conversion first, then edit the invoice to add stock-return lines." }, { status: 400 });
       const [source] = await db.select().from(transactions).where(and(eq(transactions.id, conversionSourceId), eq(transactions.companyId, companyId))).for("update");
       const validSalesConversion = type === "invoice" && ["pending invoice", "quotation", "estimate", "proforma invoice", "sales order"].includes(source?.type ?? "");
       const validPurchaseConversion = type === "bill" && source?.type === "purchase order";
@@ -871,9 +873,9 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const unitPrice = Number(line.unitPrice ?? 0);
       const freightCharge = type === "bill" ? round(Number(line.freightCharge ?? 0)) : 0;
       const unitCost = type === "bill" && quantity > 0 ? round(unitPrice + freightCharge / quantity) : Number(line.unitCost ?? 0);
-      const requestedVatCode = type === "item receipt" ? "ZERO" : String(line.vatCode ?? (Number(line.vatRate ?? payload.vatRate ?? 5) === 5 ? "STANDARD" : "ZERO")).trim().toUpperCase();
-      const vatCode = Object.hasOwn(vatRates, requestedVatCode) ? requestedVatCode : Object.hasOwn(vatRates, "STANDARD") ? "STANDARD" : Object.keys(vatRates)[0];
-      const vatRate = vatRates[vatCode];
+      const requestedVatCode = type === "item receipt" || (type === "invoice" && quantity < 0) ? "ZERO" : String(line.vatCode ?? (Number(line.vatRate ?? payload.vatRate ?? 5) === 5 ? "STANDARD" : "ZERO")).trim().toUpperCase();
+      const vatCode = type === "invoice" && quantity < 0 ? "ZERO" : Object.hasOwn(vatRates, requestedVatCode) ? requestedVatCode : Object.hasOwn(vatRates, "STANDARD") ? "STANDARD" : Object.keys(vatRates)[0];
+      const vatRate = type === "invoice" && quantity < 0 ? 0 : vatRates[vatCode];
       const subtotal = round(quantity * unitPrice);
       const vatAmount = round(subtotal * vatRate / 100);
       return { itemId: line.itemId ? Number(line.itemId) : null, description: String(line.description ?? "").trim(), comments: ["invoice", "bill"].includes(type) ? String(line.comments ?? "") : "", serialNumber: ["invoice", "bill"].includes(type) ? String(line.serialNumber ?? "") : "", quantity, unitPrice, unitCost, freightCharge, isFreightCharge: false, vatCode, vatRate, subtotal, vatAmount, total: round(subtotal + vatAmount) };
@@ -885,7 +887,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const vatRate = vatRates[vatCode];
       prepared.push({ comments: "", serialNumber: "", itemId: null, description: String(payload.memo ?? type), quantity: 1, unitPrice: subtotal, unitCost: 0, freightCharge: 0, isFreightCharge: false, vatCode, vatRate, subtotal, vatAmount: round(subtotal * vatRate / 100), total: round(subtotal * (1 + vatRate / 100)) });
     }
-    if (!party || !prepared.length || prepared.some((line) => !Number.isFinite(line.quantity) || line.quantity <= 0 || !Number.isFinite(line.unitPrice) || line.unitPrice < 0)) {
+    if (!party || !prepared.length || prepared.some((line) => type === "invoice" ? !validInvoiceQuantity(line) : !Number.isFinite(line.quantity) || line.quantity <= 0 || !Number.isFinite(line.unitPrice) || line.unitPrice < 0)) {
       return Response.json({ error: "Party and at least one valid document line are required." }, { status: 400 });
     }
     const usesImportGoodsVat = prepared.some((line) => line.vatCode === "IMPORT_GOODS");
@@ -897,18 +899,19 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       return Response.json({ error: "Select a valid inventory item on every stock line." }, { status: 400 });
     }
     const linkedItemIds = [...new Set(prepared.flatMap((line) => line.itemId ? [line.itemId] : []))];
-    let linkedItems: Array<{ id: number; itemType: string; status: string; cogsAccountId: number | null; incomeAccountId: number | null; assetAccountId: number | null }> = [];
+    let linkedItems: Array<{ id: number; itemType: string; status: string; cost: number; amountsIncludeVat: boolean; purchaseVatCode: string; cogsAccountId: number | null; incomeAccountId: number | null; assetAccountId: number | null }> = [];
     if (["bill", "invoice", "estimate", "proforma invoice", "sales order", "quotation"].includes(type) || linkedItemIds.length) {
       const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).limit(1);
       if (!location) return Response.json({ error: "Select a valid inventory in this company." }, { status: 400 });
       if (linkedItemIds.length) {
-        linkedItems = await db.select({ id: items.id, itemType: items.itemType, status: items.status, cogsAccountId: items.cogsAccountId, incomeAccountId: items.incomeAccountId, assetAccountId: items.assetAccountId }).from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId), inArray(items.id, linkedItemIds)));
+        linkedItems = await db.select({ id: items.id, itemType: items.itemType, status: items.status, cost: items.cost, amountsIncludeVat: items.amountsIncludeVat, purchaseVatCode: items.purchaseVatCode, cogsAccountId: items.cogsAccountId, incomeAccountId: items.incomeAccountId, assetAccountId: items.assetAccountId }).from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId), inArray(items.id, linkedItemIds)));
         if (linkedItems.length !== linkedItemIds.length) return Response.json({ error: "Select items from the document’s company and inventory." }, { status: 400 });
         if (linkedItems.some((item) => item.status === "inactive")) return Response.json({ error: "Inactive items cannot be added to a new document." }, { status: 409 });
         if (linkedItems.some((item) => !documentLineItemTypes.has(item.itemType))) return Response.json({ error: "Subtotal, group, discount, payment and VAT control items must be used in their dedicated document areas, not as stock/service lines." }, { status: 400 });
       }
     }
     const stockItemIds = new Set(linkedItems.filter((item) => item.itemType === "stock-part").map((item) => item.id));
+    if (type === "invoice" && prepared.some(line => isInvoiceStockReturn(line) && (!line.itemId || !stockItemIds.has(line.itemId)))) return Response.json({ error: "Stock returns require a stock item in the invoice inventory and a zero selling price." }, { status: 400 });
     const stockReducing = ["invoice", "sales receipt", "vendor credit"].includes(type);
     let usedAdminNegativeStockOverride = false;
     if (stockReducing) {
@@ -928,7 +931,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
           usedAdminNegativeStockOverride = true;
         }
         if (!overrideApproved) {
-          const shortages = available.filter((item) => Number(item.quantity) < (requestedByItem.get(item.id) ?? 0));
+          const shortages = available.filter((item) => (requestedByItem.get(item.id) ?? 0) > 0 && Number(item.quantity) < (requestedByItem.get(item.id) ?? 0));
           if (shortages.length) {
             const detail = shortages.map((item) => `${item.sku} ${item.name}: available ${item.quantity}, requested ${requestedByItem.get(item.id)}`).join("; ");
             return Response.json({ error: `${type === "vendor credit" ? "Purchase return" : "Invoice"} blocked to prevent negative stock. ${detail}` }, { status: 409 });
@@ -953,6 +956,13 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const currency = String(payload.currency ?? "AED").trim().toUpperCase();
     const exchangeRate = Number(payload.exchangeRate ?? 1);
     if (!/^[A-Z]{3}$/.test(currency) || !Number.isFinite(exchangeRate) || exchangeRate <= 0) return Response.json({ error: "Choose a valid currency and exchange rate." }, { status: 400 });
+    if (type === "invoice") for (const line of prepared.filter(isInvoiceStockReturn)) {
+      const item = linkedItems.find(item => item.id === line.itemId)!;
+      const purchaseVat = Number(vatRates[item.purchaseVatCode] || 0);
+      const homeCost = item.amountsIncludeVat && purchaseVat > 0 ? item.cost / (1 + purchaseVat / 100) : item.cost;
+      if (!Number.isFinite(homeCost) || homeCost < 0) return Response.json({ error: "Correct the item cost before returning stock." }, { status: 400 });
+      line.unitCost = homeCost / exchangeRate;
+    }
     const baseSubtotal = round(subtotal * exchangeRate);
     const baseVatAmount = round(vatAmount * exchangeRate);
     const baseTotal = round(total * exchangeRate);
@@ -1209,8 +1219,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
           addAmount(assetCredits, itemAccount(line.itemId, "assetAccountId", inventoryFallback), homeCogs);
         }
         baseLines.push(
-          ...[...cogsDebits].map(([accountName, amount]) => ({ accountName, debit: amount, credit: 0 })),
-          ...[...assetCredits].map(([accountName, amount]) => ({ accountName, debit: 0, credit: amount })),
+          ...[...cogsDebits].map(([accountName, amount]) => ({ accountName, debit: Math.max(0, amount), credit: Math.max(0, -amount) })),
+          ...[...assetCredits].map(([accountName, amount]) => ({ accountName, debit: Math.max(0, -amount), credit: Math.max(0, amount) })),
         );
       }
       const pnlRoleTypes: Record<string, string[]> = { SALES: ["Income"], OTHER_INCOME: ["Other Income", "Income"], COGS: ["Cost of Goods Sold"], PURCHASES: ["Expense", "Cost of Goods Sold"], EXPENSE: ["Expense", "Other Expense"], PAYROLL: ["Expense"] };
@@ -1361,11 +1371,12 @@ async function handlePATCH(request: Request) {
               seen.add(line.id);
               const quantity = input.quantity === undefined ? Number(line.quantity) : Number(input.quantity);
               const unitPrice = input.unitPrice === undefined ? Number(line.unitPrice) : Number(input.unitPrice);
-              if (!description || (input.quantity !== undefined && (!["string", "number"].includes(typeof input.quantity) || String(input.quantity).trim() === "")) || !Number.isFinite(quantity) || quantity <= 0 || (input.unitPrice !== undefined && (!["string", "number"].includes(typeof input.unitPrice) || String(input.unitPrice).trim() === "")) || !Number.isFinite(unitPrice) || unitPrice < 0) return Response.json({ error: "Complete every invoice line with a description, positive quantity and valid price." }, { status: 400 });
-              const vatCode = String(input.vatCode ?? line.vatCode ?? (Number(line.vatRate) === 5 ? "STANDARD" : "ZERO")).trim().toUpperCase();
+              if (!description || (input.quantity !== undefined && (!["string", "number"].includes(typeof input.quantity) || String(input.quantity).trim() === "")) || !validInvoiceQuantity({ quantity, unitPrice, itemId: line.itemId }) || (input.unitPrice !== undefined && (!["string", "number"].includes(typeof input.unitPrice) || String(input.unitPrice).trim() === "")) || !Number.isFinite(unitPrice) || unitPrice < 0) return Response.json({ error: "Enter a description, nonzero quantity and valid price. Negative quantities require a stock item and zero selling price." }, { status: 400 });
+              if ((quantity < 0) !== (Number(line.quantity) < 0)) return Response.json({ error: "Keep the existing line direction. Add a separate stock-return line to receive an item." }, { status: 400 });
+              const vatCode = quantity < 0 ? "ZERO" : String(input.vatCode ?? line.vatCode ?? (Number(line.vatRate) === 5 ? "STANDARD" : "ZERO")).trim().toUpperCase();
               const changingVat = vatCode !== String(line.vatCode || "").trim().toUpperCase();
               if (!vatCode || (changingVat && !Object.hasOwn(vatRateMap, vatCode))) return Response.json({ error: "Select an active VAT code for every invoice line." }, { status: 400 });
-              const vatRate = Object.hasOwn(vatRateMap, vatCode) ? vatRateMap[vatCode] : Number(line.vatRate);
+              const vatRate = quantity < 0 ? 0 : Object.hasOwn(vatRateMap, vatCode) ? vatRateMap[vatCode] : Number(line.vatRate);
               const subtotal = round(quantity * unitPrice);
               const vatAmount = round(subtotal * vatRate / 100);
               const total = round(subtotal + vatAmount);
@@ -1381,13 +1392,13 @@ async function handlePATCH(request: Request) {
             const quantity = Number(line.quantity);
             const unitPrice = Number(line.unitPrice);
             const unitCost = Number(line.unitCost ?? 0);
-            const vatCode = String(line.vatCode ?? (Number(line.vatRate ?? existing.vatRate) === 5 ? "STANDARD" : "ZERO")).trim().toUpperCase();
-            const vatRate = Object.hasOwn(vatRateMap, vatCode) ? vatRateMap[vatCode] : Number(line.vatRate ?? 0);
+            const vatCode = quantity < 0 ? "ZERO" : String(line.vatCode ?? (Number(line.vatRate ?? existing.vatRate) === 5 ? "STANDARD" : "ZERO")).trim().toUpperCase();
+            const vatRate = quantity < 0 ? 0 : Object.hasOwn(vatRateMap, vatCode) ? vatRateMap[vatCode] : Number(line.vatRate ?? 0);
             const subtotal = round(quantity * unitPrice);
             const vatAmount = round(subtotal * vatRate / 100);
             return { itemId: line.itemId ? Number(line.itemId) : null, description: String(line.description ?? "").trim(), comments: String(line.comments ?? ""), serialNumber: String(line.serialNumber ?? ""), quantity, unitPrice, unitCost, freightCharge: 0, isFreightCharge: false, vatCode, vatRate, subtotal, vatAmount, total: round(subtotal + vatAmount) };
           });
-          if (appended.some((line) => !line.description || !Number.isFinite(line.quantity) || line.quantity <= 0 || !Number.isFinite(line.unitPrice) || line.unitPrice < 0 || !Number.isFinite(line.unitCost) || line.unitCost < 0 || !Number.isFinite(line.vatRate))) return Response.json({ error: "Complete each new invoice line with an item/description, positive quantity, valid rate and VAT." }, { status: 400 });
+          if (appended.some((line) => !line.description || !validInvoiceQuantity(line) || !Number.isFinite(line.unitCost) || line.unitCost < 0 || !Number.isFinite(line.vatRate))) return Response.json({ error: "Enter an item/description, nonzero quantity, valid rate and VAT. Negative quantities require a stock item and zero selling price." }, { status: 400 });
           if (appended.some((line) => line.itemId !== null && (!Number.isInteger(line.itemId) || line.itemId <= 0))) return Response.json({ error: "Select a valid inventory item for every stock line." }, { status: 400 });
           const number = String(payload.number ?? "").trim();
           const transactionDate = String(payload.transactionDate ?? "");
@@ -1436,12 +1447,12 @@ async function handlePATCH(request: Request) {
             const appendedTotal = round(appended.reduce((sum, line) => sum + line.total, 0));
             if (round(Number(existing.total) + editDelta.total + appendedTotal) < await invoicePaidAmount(id)) return Response.json({ error: "The invoice total cannot be less than its allocated payments." }, { status: 409 });
           }
-          if (quantityChanged.length && (existing.salesSourceId || existing.sourceTransactionId)) return Response.json({ error: "Quantity is linked to a sales order or estimate. Edit the source allocation before changing this invoice quantity." }, { status: 409 });
+          if (quantityChanged.some(line => line.quantity > 0) && (existing.salesSourceId || existing.sourceTransactionId)) return Response.json({ error: "Quantity is linked to a sales order or estimate. Edit the source allocation before changing this invoice quantity." }, { status: 409 });
           if (quantityChanged.length) {
             const packed = await db.select({ invoiceLineId: packingListLines.invoiceLineId, packedQuantity: packingListLines.packedQuantity }).from(packingListLines).innerJoin(packingLists, eq(packingListLines.packingListId, packingLists.id)).where(and(eq(packingLists.invoiceId, id), inArray(packingListLines.invoiceLineId, quantityChanged.map(line => line.id))));
             const packedByLine = new Map<number, number>();
             for (const row of packed) packedByLine.set(row.invoiceLineId, round((packedByLine.get(row.invoiceLineId) ?? 0) + Number(row.packedQuantity)));
-            const belowPacked = quantityChanged.find(line => line.quantity < (packedByLine.get(line.id) ?? 0));
+            const belowPacked = quantityChanged.find(line => (packedByLine.get(line.id) ?? 0) > 0 && line.quantity < (packedByLine.get(line.id) ?? 0));
             if (belowPacked) return Response.json({ error: `Quantity for ${belowPacked.description} cannot be below its packed quantity of ${packedByLine.get(belowPacked.id)}.` }, { status: 409 });
           }
           if (financialChanged.length || partyChanged) {
@@ -1487,7 +1498,7 @@ async function handlePATCH(request: Request) {
                 const item = itemRows.find(item => item.id === old.itemId);
                 if (item?.itemType === "stock-part") requestedByItem.set(item.id, round((requestedByItem.get(item.id) ?? 0) + line.quantity - Number(old.quantity)));
               }
-              const shortage = itemRows.find(item => item.itemType === "stock-part" && (requestedByItem.get(item.id) ?? 0) > Number(item.quantity));
+              const shortage = itemRows.find(item => item.itemType === "stock-part" && (requestedByItem.get(item.id) ?? 0) > 0 && (requestedByItem.get(item.id) ?? 0) > Number(item.quantity));
               if (shortage) return Response.json({ error: `Invoice blocked to prevent negative stock. ${shortage.sku} ${shortage.name}: available ${shortage.quantity}, additional ${requestedByItem.get(shortage.id)}.` }, { status: 409 });
               for (const [itemId, delta] of requestedByItem) if (delta) await db.update(items).set({ quantity: sql`${items.quantity} - ${delta}` }).where(eq(items.id, itemId));
               for (const line of financialChanged) {
@@ -1527,14 +1538,22 @@ async function handlePATCH(request: Request) {
           if (appended.length) {
             if (!existing.locationId) return Response.json({ error: "This invoice has no inventory location." }, { status: 409 });
             const itemIds = [...new Set(appended.flatMap((line) => line.itemId ? [line.itemId] : []))];
-            const itemRows = itemIds.length ? await db.select({ id: items.id, companyId: items.companyId, locationId: items.locationId, name: items.name, sku: items.sku, quantity: items.quantity, itemType: items.itemType, status: items.status, cogsAccountId: items.cogsAccountId, incomeAccountId: items.incomeAccountId, assetAccountId: items.assetAccountId }).from(items).where(inArray(items.id, itemIds)).orderBy(asc(items.id)).for("update") : [];
+            const itemRows = itemIds.length ? await db.select({ id: items.id, companyId: items.companyId, locationId: items.locationId, name: items.name, sku: items.sku, quantity: items.quantity, itemType: items.itemType, status: items.status, cost: items.cost, amountsIncludeVat: items.amountsIncludeVat, purchaseVatCode: items.purchaseVatCode, cogsAccountId: items.cogsAccountId, incomeAccountId: items.incomeAccountId, assetAccountId: items.assetAccountId }).from(items).where(inArray(items.id, itemIds)).orderBy(asc(items.id)).for("update") : [];
             if (itemRows.length !== itemIds.length || itemRows.some((item) => item.companyId !== companyId || item.locationId !== existing.locationId)) return Response.json({ error: "Select items from the invoice's company and inventory." }, { status: 400 });
             if (itemRows.some((item) => item.status === "inactive")) return Response.json({ error: "Inactive items cannot be added to an invoice." }, { status: 409 });
             if (itemRows.some((item) => !documentLineItemTypes.has(item.itemType))) return Response.json({ error: "Select stock, non-stock, service or other-charge items only." }, { status: 400 });
             const stockIds = new Set(itemRows.filter((item) => item.itemType === "stock-part").map((item) => item.id));
+            if (appended.some(line => isInvoiceStockReturn(line) && (!line.itemId || !stockIds.has(line.itemId)))) return Response.json({ error: "Stock returns require an active stock item in this invoice inventory." }, { status: 400 });
+            for (const line of appended.filter(isInvoiceStockReturn)) {
+              const item = itemRows.find(item => item.id === line.itemId)!;
+              const purchaseVat = Number(vatRateMap[item.purchaseVatCode] || 0);
+              const homeCost = item.amountsIncludeVat && purchaseVat > 0 ? item.cost / (1 + purchaseVat / 100) : item.cost;
+              if (!Number.isFinite(homeCost) || homeCost < 0) return Response.json({ error: "Correct the item cost before returning stock." }, { status: 400 });
+              line.unitCost = homeCost / Number(existing.exchangeRate || 1);
+            }
             const requested = new Map<number, number>();
             for (const line of appended) if (line.itemId && stockIds.has(line.itemId)) requested.set(line.itemId, round((requested.get(line.itemId) ?? 0) + line.quantity));
-            const shortages = itemRows.filter((item) => stockIds.has(item.id) && Number(item.quantity) < (requested.get(item.id) ?? 0));
+            const shortages = itemRows.filter((item) => stockIds.has(item.id) && (requested.get(item.id) ?? 0) > 0 && Number(item.quantity) < (requested.get(item.id) ?? 0));
             if (shortages.length) return Response.json({ error: `Invoice blocked to prevent negative stock. ${shortages.map((item) => `${item.sku} ${item.name}: available ${item.quantity}, requested ${requested.get(item.id)}`).join("; ")}` }, { status: 409 });
 
             const appendSubtotal = round(appended.reduce((sum, line) => sum + line.subtotal, 0));
@@ -1592,8 +1611,8 @@ async function handlePATCH(request: Request) {
               { accountName: linkedAccounts.AR ?? "Accounts Receivable", debit: baseTotal, credit: 0 },
               ...[...income].filter(([, amount]) => amount !== 0).map(([accountName, amount]) => ({ accountName, debit: 0, credit: amount })),
               ...(baseVatAmount ? [{ accountName: linkedAccounts.OUTPUT_VAT ?? "VAT Payable", debit: 0, credit: baseVatAmount }] : []),
-              ...[...cogs].filter(([, amount]) => amount !== 0).map(([accountName, amount]) => ({ accountName, debit: amount, credit: 0 })),
-              ...[...asset].filter(([, amount]) => amount !== 0).map(([accountName, amount]) => ({ accountName, debit: 0, credit: amount })),
+              ...[...cogs].filter(([, amount]) => amount !== 0).map(([accountName, amount]) => ({ accountName, debit: Math.max(0, amount), credit: Math.max(0, -amount) })),
+              ...[...asset].filter(([, amount]) => amount !== 0).map(([accountName, amount]) => ({ accountName, debit: Math.max(0, -amount), credit: Math.max(0, amount) })),
             ];
             await db.insert(journalLines).values(extraJournal.map((line) => ({ ...line, journalEntryId: entry.id })));
             await db.update(contacts).set({ balance: sql`${contacts.balance} + ${appendTotal}` }).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "customer"), eq(contacts.name, party)));
@@ -1952,7 +1971,7 @@ async function handleDELETE(request: Request) {
         const stock = itemIds.length ? await db.select().from(items).where(inArray(items.id, itemIds)).orderBy(asc(items.id)).for("update") : [];
         for (const item of stock) {
           const received = movements.filter((movement) => movement.itemId === item.id).reduce((sum, movement) => sum + movement.quantity, 0);
-          if (received > 0 && item.quantity - received < -0.000001) return Response.json({ error: `Cannot delete this purchase: received stock for ${item.name} has already been used.` }, { status: 409 });
+          if (received > 0 && item.quantity - received < -0.000001) return Response.json({ error: `Cannot delete this document: received stock for ${item.name} has already been used.` }, { status: 409 });
           await db.update(items).set({ quantity: sql`${items.quantity} - ${received}` }).where(eq(items.id, item.id));
         }
         const [postingAccount] = await db.select({ systemRole: accounts.systemRole }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.name, record.account))).limit(1);

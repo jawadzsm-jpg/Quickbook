@@ -2602,3 +2602,80 @@ test('sales ownership migration supports individual prepared statements and retr
   const migration = await readFile(`${root}drizzle/0079_sales_ownership.sql`,'utf8');
   for(let run=0;run<2;run++) for(const statement of migration.split('--> statement-breakpoint').map(s=>s.trim()).filter(Boolean)) await database.query(statement);
 });
+
+test('invoice inventory-only returns increase stock without customer charges and reconcile edits and deletion', async () => {
+  const c = (await database.query("INSERT INTO companies(name) VALUES ('Stock only invoice') RETURNING id")).rows[0].id;
+  const loc = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'RETINV','Return inventory','RET') RETURNING id", [c])).rows[0].id;
+  const item = (await database.query("INSERT INTO items(company_id,location_id,sku,name,quantity,cost) VALUES($1,$2,'RETSTOCK','Returned laptop',10,40) RETURNING id", [c,loc])).rows[0].id;
+  const service = (await database.query("INSERT INTO items(company_id,location_id,sku,name,item_type) VALUES($1,$2,'RETSERVICE','Service','service') RETURNING id", [c,loc])).rows[0].id;
+  const inactive = (await database.query("INSERT INTO items(company_id,location_id,sku,name,status) VALUES($1,$2,'RETINACTIVE','Inactive','inactive') RETURNING id", [c,loc])).rows[0].id;
+  const otherLoc = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'RETOTHER','Other inventory','RO') RETURNING id", [c])).rows[0].id;
+  const foreign = (await database.query("INSERT INTO items(company_id,location_id,sku,name) VALUES($1,$2,'RETFOREIGN','Wrong inventory') RETURNING id", [c,otherLoc])).rows[0].id;
+  await database.query("INSERT INTO contacts(company_id,type,name,currency) VALUES($1,'customer','Return customer','USD')", [c]);
+  const route = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const req = (method, body) => new Request('https://app.test/api/records', { method, headers: { origin:'https://app.test','content-type':'application/json' }, body:JSON.stringify({kind:'transactions',companyId:c,locationId:loc,...body}) });
+  const returnLine = {itemId:item,description:'Inventory return',quantity:-1,unitPrice:0,unitCost:99999,vatCode:'STANDARD',vatRate:5};
+  const base = {type:'invoice',number:'RETURN-1',party:'Return customer',transactionDate:'2026-10-04',currency:'USD',exchangeRate:2,account:'Sales Revenue',lines:[returnLine]};
+  const create = body => route.POST(req('POST',{...base,...body}));
+  const stock = async () => Number((await database.query('SELECT quantity FROM items WHERE id=$1',[item])).rows[0].quantity);
+  for (const badLine of [{...returnLine,unitPrice:10},{...returnLine,quantity:0},{...returnLine,itemId:null},{...returnLine,itemId:service},{...returnLine,itemId:foreign}]) {
+    const response=await create({lines:[badLine]}); assert.equal(response.status,400,JSON.stringify(await response.clone().json()));
+  }
+  assert.equal((await create({lines:[{...returnLine,itemId:inactive}]})).status,409);
+  assert.equal((await create({type:'quotation'})).status,400);
+  assert.equal((await create({sourceTransactionId:999999})).status,400,'source conversion cannot silently discard a submitted return');
+  assert.equal(await stock(),10);
+  const charged={itemId:item,description:'Customer charged laptop',quantity:2,unitPrice:100,unitCost:20,vatCode:'STANDARD'};
+  const free={...charged,description:'Free internal unit',quantity:1,unitPrice:0};
+  let response;
+  try {
+    globalThis.__transferTestUser={id:1,role:'inventory',companyIds:[c]};
+    assert.equal((await create({})).status,403);
+    globalThis.__transferTestUser={id:1,role:'accountant',companyIds:[c]};
+    response=await create({lines:[charged,free,returnLine]});
+    assert.equal(response.status,201,JSON.stringify(await response.clone().json()));
+  } finally {delete globalThis.__transferTestUser;}
+  const {record}=await response.json();
+  const read = async () => (await (await route.GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${c}&id=${record.id}`))).json());
+  let detail=await read();
+  assert.equal(detail.record.total,210); assert.equal(detail.record.vatAmount,10); assert.equal(detail.record.baseTotal,420);
+  assert.equal(await stock(),8);
+  let returned=detail.lines.find(line=>line.quantity<0);
+  assert.equal(returned.unitPrice,0); assert.equal(returned.vatAmount,0); assert.equal(returned.vatRate,0); assert.equal(returned.vatCode,'ZERO'); assert.equal(returned.unitCost,20,'current home cost converted to invoice currency; supplied cost ignored');
+  const customerBalance=async()=>Number((await database.query("SELECT balance FROM contacts WHERE company_id=$1 AND type='customer'",[c])).rows[0].balance);
+  const ledger=async expectedCogs=>{
+    const journal=(await database.query('SELECT jl.* FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.transaction_id=$1',[record.id])).rows;
+    assert.ok(journal.length>0); assert.ok(journal.every(line=>Number(line.debit)>=0&&Number(line.credit)>=0));
+    assert.equal(Math.round(journal.reduce((sum,line)=>sum+Number(line.debit)-Number(line.credit),0)*100),0);
+    assert.equal(journal.filter(line=>line.account_name==='Cost of Goods Sold').reduce((sum,line)=>sum+Number(line.debit)-Number(line.credit),0),expectedCogs);
+    assert.equal(await customerBalance(),210);
+  };
+  await ledger(80);
+  const {customerInvoiceLines,inventoryInvoiceLines}=await vite.ssrLoadModule('/lib/invoice-stock-lines.ts');
+  assert.deepEqual(customerInvoiceLines(detail.lines).map(line=>line.description),['Customer charged laptop']);
+  assert.match(inventoryInvoiceLines(detail.lines).find(line=>line.quantity<0).description,/STOCK RETURN \(\+1 to inventory\)/);
+  assert.equal(customerInvoiceLines([{quantity:1,unitPrice:10,unitCost:0}]).length,1,'zero purchase cost does not hide a charged line');
+  const packing=await vite.ssrLoadModule('/app/api/packing-lists/route.ts');
+  const packingData=await (await packing.GET(new Request(`https://app.test/api/packing-lists?companyId=${c}&invoiceId=${record.id}`))).json();
+  assert.equal(packingData.lines.length,2); assert.ok(packingData.lines.every(line=>line.id!==returned.id));
+  const pack=await packing.POST(new Request('https://app.test/api/packing-lists',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({companyId:c,invoiceId:record.id,packingDate:'2026-10-04',lines:[{invoiceLineId:returned.id,packedQuantity:1,cartonNumber:'1'}]})}));
+  assert.equal(pack.status,409,JSON.stringify(await pack.clone().json()));
+  const edit=body=>route.PATCH(req('PATCH',{locationId:undefined,id:record.id,editMode:'details',revision:detail.revision,number:record.number,transactionDate:record.transactionDate,...body}));
+  assert.equal((await edit({lineDetails:[{id:detail.lines.find(line=>line.unitPrice>0).id,quantity:-1,unitPrice:0}]})).status,400);
+  const oldRevision=detail.revision;
+  response=await edit({appendLines:[returnLine]}); assert.equal(response.status,200,JSON.stringify(await response.clone().json()));
+  assert.equal(await stock(),9); detail=await read(); await ledger(40);
+  assert.equal((await edit({revision:oldRevision,appendLines:[returnLine]})).status,409);
+  returned=detail.lines.find(line=>line.quantity<0);
+  response=await edit({lineDetails:[{id:returned.id,quantity:-3}]}); assert.equal(response.status,200,JSON.stringify(await response.clone().json()));
+  assert.equal(await stock(),11); detail=await read(); await ledger(-40);
+  await database.query('UPDATE items SET quantity=0 WHERE id=$1',[item]);
+  assert.equal((await edit({lineDetails:[{id:returned.id,quantity:-1}]})).status,409,'cannot remove consumed returned stock');
+  const remove=()=>route.DELETE(req('DELETE',{id:record.id,deletionReason:'Remove test invoice'}));
+  assert.equal((await remove()).status,409,'cannot delete a net incoming invoice after its returned stock is consumed');
+  await database.query('UPDATE items SET quantity=11 WHERE id=$1',[item]);
+  response=await remove(); assert.equal(response.status,200,JSON.stringify(await response.clone().json()));
+  assert.equal(await stock(),10); assert.equal(await customerBalance(),0);
+  response=await create({number:'RETURN-ONLY'}); assert.equal(response.status,201,JSON.stringify(await response.clone().json()));
+  assert.equal((await response.json()).record.total,0); assert.equal(await stock(),11); assert.equal(await customerBalance(),0);
+});

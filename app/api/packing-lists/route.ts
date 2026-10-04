@@ -50,7 +50,7 @@ async function responseData(invoiceId: number, companyId: number) {
     widthCm: items.widthCm,
     heightCm: items.heightCm,
     unitWeightKg: items.weightKg,
-  }).from(transactionLines).leftJoin(items, eq(transactionLines.itemId, items.id)).where(eq(transactionLines.transactionId, invoiceId)).orderBy(asc(transactionLines.id));
+  }).from(transactionLines).leftJoin(items, eq(transactionLines.itemId, items.id)).where(and(eq(transactionLines.transactionId, invoiceId), sql`${transactionLines.quantity} > 0`)).orderBy(asc(transactionLines.id));
   const packedRows = await db.select({ invoiceLineId: packingListLines.invoiceLineId, packedQuantity: packingListLines.packedQuantity })
     .from(packingListLines).innerJoin(packingLists, eq(packingListLines.packingListId, packingLists.id)).where(eq(packingLists.invoiceId, invoiceId));
   const packed = new Map<number, number>();
@@ -113,7 +113,7 @@ async function savePackingList(request: Request, editing: boolean) {
         id: transactionLines.id, itemId: transactionLines.itemId, description: transactionLines.description, invoicedQuantity: transactionLines.quantity,
         itemNumber: items.itemNumber, sku: items.sku, hsCode: items.hsCode, countryOfOrigin: items.countryOfOrigin,
         dimensionText: items.dimensionText, lengthCm: items.lengthCm, widthCm: items.widthCm, heightCm: items.heightCm, unitWeightKg: items.weightKg,
-      }).from(transactionLines).leftJoin(items, eq(transactionLines.itemId, items.id)).where(eq(transactionLines.transactionId, invoiceId));
+      }).from(transactionLines).leftJoin(items, eq(transactionLines.itemId, items.id)).where(and(eq(transactionLines.transactionId, invoiceId), sql`${transactionLines.quantity} > 0`));
       const source = new Map(sourceLines.map((line) => [line.id, line]));
       const packedRows = await db.select({ packingListId: packingListLines.packingListId, invoiceLineId: packingListLines.invoiceLineId, packedQuantity: packingListLines.packedQuantity })
         .from(packingListLines).innerJoin(packingLists, eq(packingListLines.packingListId, packingLists.id)).where(eq(packingLists.invoiceId, invoiceId));
