@@ -1966,3 +1966,9 @@ button, input, select { font: inherit; }
   .salary-table td { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: .5rem; text-align: right; }
   .salary-table td::before { content: attr(data-label); text-align: left; font-weight: 600; }
 }
+
+/* Consistent, high-contrast add-row action in both appearance modes. */
+[data-slot="button"].hr-add-employee { background-color: #047857; color: #fff; border: 1px solid #047857; }
+[data-slot="button"].hr-add-employee:hover { background-color: #065f46; }
+[data-appearance="dark"] [data-slot="button"].hr-add-employee { background-color: #34d399; color: #052e24; border-color: #34d399; }
+[data-appearance="dark"] [data-slot="button"].hr-add-employee:hover { background-color: #6ee7b7; }

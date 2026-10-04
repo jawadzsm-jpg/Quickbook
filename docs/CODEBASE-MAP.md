@@ -170,3 +170,5 @@ HR Loan / advance account selection is in `app/employee-hr-fields.tsx`; `lib/emp
 Staff salary sheets: `app/staff-salary-sheets.tsx` owns HR list/editor/view/actions; `app/api/staff-salary-sheets/route.ts` owns company-scoped administrator CRUD; `lib/staff-salary-sheet.ts` owns validation/totals/types; `lib/staff-salary-pdf.ts` owns A4 landscape output. Storage is `staffSalarySheets` in `db/schema.ts` and migration 0075. The letterhead document assignment is `staff-salary-sheet`.
 
 Employee loan linking: `app/employee-loan-linker.tsx` and `app/api/employee-loan-links/route.ts`; employee fields in `app/employee-hr-fields.tsx`. Salary sheet forms/output: `app/staff-salary-sheets.tsx`, `lib/staff-salary-sheet.ts`, `lib/staff-salary-pdf.ts`.
+
+`lib/employee-hr-save.ts` resolves employee profile accounts transactionally, including explicit create-on-save loan accounts. `lib/employee-hr.ts` validates the bank preference and redacts HR fields.

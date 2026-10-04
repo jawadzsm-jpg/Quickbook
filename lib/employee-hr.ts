@@ -1,7 +1,7 @@
 import { isIsoDate } from "./validation";
 import { RequestError } from "./errors";
 
-export const employeeHrFields = ["salaryAmount", "salaryExpenseAccountId", "loanAccountId", "loanBalance", "vacationDeparture", "vacationReturn", "bankLoanPayments"] as const;
+export const employeeHrFields = ["salaryAmount", "salaryExpenseAccountId", "loanAccountId", "paymentBankAccountId", "loanBalance", "vacationDeparture", "vacationReturn", "bankLoanPayments"] as const;
 type HrAccount = { id: number; companyId: number; name: string; type: string; active: boolean; systemRole: string | null; currency: string };
 
 export function employeeHrValues(payload: Record<string, unknown>, companyId: number, accounts: HrAccount[], existing: Record<string, unknown> = {}) {
@@ -22,7 +22,11 @@ export function employeeHrValues(payload: Record<string, unknown>, companyId: nu
   if (account && (account.companyId !== companyId || !account.active || account.type !== "Expense" || accounts.filter(candidate => candidate.companyId === companyId && candidate.name === account.name).length !== 1)) throw new RequestError("Select an active, uniquely named Expense account in this company for salary.");
   if ((requested || salaryAmount > 0) && !account) throw new RequestError("Select an active salary expense account in this company.");
   const loanAccountId = employeeLoanAccount(value("loanAccountId"), companyId, String(value("currency") || "AED"), accounts)?.id ?? null;
-  return { loanAccountId, salaryAmount, salaryExpenseAccountId: account?.id ?? null, loanBalance: amount("loanBalance"), vacationDeparture: departure, vacationReturn: returned };
+  const bankValue = value("paymentBankAccountId");
+  const bankId = bankValue === undefined || bankValue === null || bankValue === "" ? null : Number(bankValue);
+  const bank = accounts.find(candidate => candidate.id === bankId);
+  if (bankId !== null && (!Number.isSafeInteger(bankId) || bankId <= 0 || !bank || bank.companyId !== companyId || !bank.active || (bank.type !== "Bank" && bank.systemRole !== "BANK") || bank.currency !== String(value("currency") || "AED"))) throw new RequestError("Select an active bank in this company and employee currency.");
+  return { paymentBankAccountId: bankId, loanAccountId, salaryAmount, salaryExpenseAccountId: account?.id ?? null, loanBalance: amount("loanBalance"), vacationDeparture: departure, vacationReturn: returned };
 }
 
 export function redactEmployeeHr<T extends Record<string, unknown>>(record: T, allowed: boolean) {
