@@ -2,7 +2,7 @@ import { RequestError } from "./errors";
 import { isIsoDate } from "./validation";
 
 export type StaffSalaryLine = { employeeId: number | null; name: string; personalNumber: string; cardDetails: string; bankName: string; iban: string; salary: number };
-export type StaffSalaryData = { title: string; month: string; startDate: string; endDate: string; companyCode: string; phone: string; currency: string; serviceFee: number; charges: number; notes: string; lines: StaffSalaryLine[] };
+export type StaffSalaryData = { title: string; referenceNo: string; month: string; startDate: string; endDate: string; companyCode: string; phone: string; currency: string; serviceFee: number; charges: number; notes: string; lines: StaffSalaryLine[] };
 export type StaffLetterhead = { name: string; logoData: string; rightLogoData: string; addressLine1: string; addressLine2: string; city: string; country: string; phone: string; email: string; letterheadDesign: string; documentColor: string };
 export type StaffSalaryRecord = { id: number; revision: number; data: StaffSalaryData; letterhead: StaffLetterhead };
 const money = (value: unknown) => { const n = Number(value); if (!Number.isFinite(n) || n < 0 || n > 1e10) throw new RequestError("Enter valid non-negative salary and charge amounts."); return Math.round(n * 100) / 100; };
@@ -23,7 +23,7 @@ export function validateStaffSalaryData(value: unknown): StaffSalaryData {
     if (employeeId !== null) ids.add(employeeId);
     return { employeeId, name: text(row.name, 180, true), personalNumber: text(row.personalNumber, 60), cardDetails: text(row.cardDetails, 80), bankName: text(row.bankName, 120), iban: text(row.iban, 60), salary: money(row.salary) };
   });
-  return { title: text(raw.title, 120, true), month, startDate, endDate, companyCode: text(raw.companyCode, 80), phone: text(raw.phone, 100), currency, serviceFee: money(raw.serviceFee), charges: money(raw.charges), notes: text(raw.notes, 1000), lines };
+  return { title: text(raw.title, 120, true), referenceNo: text(raw.referenceNo ?? "", 80), month, startDate, endDate, companyCode: text(raw.companyCode, 80), phone: text(raw.phone, 100), currency, serviceFee: money(raw.serviceFee), charges: money(raw.charges), notes: text(raw.notes, 1000), lines };
 }
 
 /** Stable filename uses the saved name and salary period, not the download date. */

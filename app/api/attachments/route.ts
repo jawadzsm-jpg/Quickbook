@@ -1,11 +1,11 @@
 import { sql } from "drizzle-orm";
-import { getDb } from "@/db";
+import { getDb, withWriteTransaction } from "@/db";
 import { hasPermission, isAdministrator, requireCompanyAccess } from "@/lib/auth";
 import { MAX_FILES, parseAttachment } from "@/lib/attachments";
 
 type AttachmentInput = { fileName?: string; mimeType?: string; fileData?: string; fileSize?: number };
 
-const allowedTypes = new Set(["transaction", "employee", "vat_code", "report", "rcm_declaration"]);
+const allowedTypes = new Set(["transaction", "employee", "vat_code", "report", "rcm_declaration", "staff_salary_sheet"]);
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const companyId = Number(url.searchParams.get("companyId"));
@@ -14,6 +14,11 @@ export async function GET(request: Request) {
   const authorization = await requireCompanyAccess(request, companyId, "workspace:read");
   if (authorization instanceof Response) return authorization;
   if (!allowedTypes.has(entityType) || !Number.isInteger(entityId) || entityId <= 0) return Response.json({ error: "Select a valid record." }, { status: 400 });
+  if (entityType === "staff_salary_sheet") {
+    if (!isAdministrator(authorization)) return Response.json({ error: "Company administrator access required." }, { status: 403 });
+    const sheet = await getDb().execute(sql`SELECT id FROM staff_salary_sheets WHERE id = ${entityId} AND company_id = ${companyId}`);
+    if (!sheet.rows.length) return Response.json({ error: "Salary sheet not found." }, { status: 404 });
+  }
   const attachmentId = Number(url.searchParams.get("attachmentId"));
   if (url.searchParams.has("attachmentId")) {
     if (!Number.isInteger(attachmentId) || attachmentId <= 0) return Response.json({ error: "Select a valid attachment." }, { status: 400 });
@@ -49,6 +54,20 @@ export async function POST(request: Request) {
   const files = Array.isArray(payload.attachments) ? payload.attachments as AttachmentInput[] : [];
   if (!files.length) return Response.json({ error: "Choose at least one attachment." }, { status: 400 });
   if (files.length > MAX_FILES || files.some((file) => !parseAttachment(file))) return Response.json({ error: "Choose up to 10 supported files, 3 MB each." }, { status: 400 });
+  if (entityType === "staff_salary_sheet") {
+    if (!isAdministrator(authorization)) return Response.json({ error: "Company administrator access required." }, { status: 403 });
+    return withWriteTransaction(async () => {
+      const db = getDb();
+      // Serialize uploads against one another and against sheet deletion.
+      const sheet = await db.execute(sql`SELECT id FROM staff_salary_sheets WHERE id = ${entityId} AND company_id = ${companyId} FOR UPDATE`);
+      if (!sheet.rows.length) return Response.json({ error: "Salary sheet not found." }, { status: 404 });
+      const count = await db.execute(sql`SELECT count(*)::int AS total FROM record_attachments WHERE company_id = ${companyId} AND entity_type = ${entityType} AND entity_id = ${entityId}`);
+      if (Number(count.rows[0]?.total ?? 0) + files.length > MAX_FILES) return Response.json({ error: "A record can have at most 10 attachments." }, { status: 409 });
+      const values = files.map((file) => sql`(${companyId}, ${entityType}, ${entityId}, ${String(file.fileName)}, ${String(file.mimeType)}, ${String(file.fileData)}, ${Number(file.fileSize)})`);
+      await db.execute(sql`INSERT INTO record_attachments (company_id, entity_type, entity_id, file_name, mime_type, file_data, file_size) VALUES ${sql.join(values, sql`, `)}`);
+      return Response.json({ success: true }, { status: 201 });
+    });
+  }
   const db = getDb();
   const target = entityType === "transaction"
     ? await db.execute(sql`SELECT id, type FROM transactions WHERE id = ${entityId} AND company_id = ${companyId} LIMIT 1`)
