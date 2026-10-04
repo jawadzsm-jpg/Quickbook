@@ -59,7 +59,7 @@ See [Application workflows](docs/WORKFLOWS.md) for sales, purchasing, inventory,
 
 ## API overview
 
-The application exposes 38 route groups under `app/api`. They are internal JSON endpoints used by the application UI rather than a versioned public API.
+The application exposes 39 route groups under `app/api`. They are internal JSON endpoints used by the application UI rather than a versioned public API.
 
 | Area | Routes |
 | --- | --- |
@@ -79,7 +79,7 @@ See [API reference](docs/API.md) for methods, authorization, parameters, and beh
 | `all_admin` | Global administration and all companies; represented as Administrator in the client |
 | `admin` | Full application access for assigned companies |
 | `accountant` | Sales, purchases, banking, journals, accounts, VAT, reports, pending invoices, and document stamp/bank settings; no deletion |
-| `sales` | Sales, customer payments, customers, warranties, and read-only inventory context |
+| `sales` | Own customers/balances, daily work, quotations/estimates, sales orders, proforma creation with accounting handoff, and incoming items without suppliers/costs |
 | `purchasing` | Purchases, vendors, cheques, and read-only inventory context |
 | `inventory` | Items, logistics, transfers, purchase orders, vendor creation, same-day bills, invoice serial additions, and warranty/supplier receipts; no deletion |
 | `viewer` | Dashboard, inventory views, serial search, stock checks, and reports |

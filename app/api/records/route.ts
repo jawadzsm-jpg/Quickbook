@@ -1,3 +1,4 @@
+import { salesDocumentTypes } from "@/lib/sales-access";
 import { canManagePendingInvoices, canReadDocument, dubaiDay } from "@/lib/document-access";
 import { documentVisibility } from "@/lib/document-access-sql";
 import { employeeHrForSave } from "@/lib/employee-hr-save";
@@ -199,6 +200,7 @@ export async function GET(request: Request) {
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     const db = getDb();
+    if (authorization.role === "sales" && !["transactions", "contacts", "items", "accounts"].includes(kind || "")) return Response.json({ error: "This record area is not available to sales users." }, { status: 403 });
     if (kind === "bill-of-entry-search") {
       const query = String(url.searchParams.get("q") || "").trim();
       if (!query || query.length > 120) return Response.json({ error: "Enter a Bill of Entry No. of 1–120 characters." }, { status: 400 });
@@ -369,19 +371,23 @@ export async function GET(request: Request) {
         accountName: journalLines.accountName, debit: journalLines.debit, credit: journalLines.credit,
       }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(eq(journalEntries.transactionId, id)).orderBy(asc(journalLines.id));
       const linkedSourceId = record.sourceTransactionId || record.purchaseOrderId || record.salesSourceId || (record.type === "vendor credit" ? record.billId : null);
-      const [sourceDocument] = linkedSourceId ? await db.select({ number: transactions.number, type: transactions.type }).from(transactions).where(eq(transactions.id, linkedSourceId)).limit(1) : [];
-      const [convertedDocument] = record.convertedInvoiceId ? await db.select({ number: transactions.number, type: transactions.type }).from(transactions).where(eq(transactions.id, record.convertedInvoiceId)).limit(1) : [];
+      const [sourceDocument] = linkedSourceId ? await db.select({ number: transactions.number, type: transactions.type }).from(transactions).where(and(eq(transactions.id, linkedSourceId), documentVisibility(authorization))).limit(1) : [];
+      const [convertedDocument] = record.convertedInvoiceId ? await db.select({ number: transactions.number, type: transactions.type }).from(transactions).where(and(eq(transactions.id, record.convertedInvoiceId), documentVisibility(authorization))).limit(1) : [];
       const customerType = ["invoice", "pending invoice", "quotation", "estimate", "proforma invoice", "sales order", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(record.type) ? "customer" : "vendor";
       const [partyContact] = await db.select().from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, customerType), eq(contacts.name, record.party))).limit(1);
       const invoiceBalance = record.type === "invoice" ? (record.status === "paid" ? 0 : round(record.total - await invoicePaidAmount(record.id))) : undefined;
-      return Response.json({ revision: purchaseRevision(record, lines), record: { ...paymentDisplayRecord(record), ...(invoiceBalance !== undefined ? { balance: invoiceBalance } : {}), sourceDocumentNumber: sourceDocument?.number ?? "", sourceDocumentType: sourceDocument?.type ?? "", convertedDocumentNumber: convertedDocument?.number ?? "", convertedDocumentType: convertedDocument?.type ?? "", convertedInvoiceNumber: convertedDocument?.type === "invoice" ? convertedDocument.number : "" }, lines: detailLines, journal, partyContact: partyContact ?? null });
+      return Response.json({ revision: purchaseRevision(record, lines), record: { ...paymentDisplayRecord(record), ...(invoiceBalance !== undefined ? { balance: invoiceBalance } : {}), sourceDocumentNumber: sourceDocument?.number ?? "", sourceDocumentType: sourceDocument?.type ?? "", convertedDocumentNumber: convertedDocument?.number ?? "", convertedDocumentType: convertedDocument?.type ?? "", convertedInvoiceNumber: convertedDocument?.type === "invoice" ? convertedDocument.number : "" }, lines: authorization.role === "sales" ? detailLines.map(line => ({ ...line, unitCost: undefined })) : detailLines, journal: authorization.role === "sales" ? [] : journal, partyContact: partyContact ? redactEmployeeHr(partyContact, isAdministrator(authorization)) : null });
     }
     if (kind === "contacts") {
-      const contactRows = await db.select().from(contacts).where(eq(contacts.companyId, companyId)).orderBy(asc(contacts.name));
+      const contactRows = await db.select().from(contacts).where(and(eq(contacts.companyId, companyId), authorization.role === "sales" ? and(eq(contacts.type, "customer"), eq(contacts.salesOwnerId, authorization.id)) : undefined)).orderBy(asc(contacts.name));
       const loans = isAdministrator(authorization) ? await db.select().from(transactions).where(and(and(eq(transactions.companyId, companyId), documentVisibility(authorization)), sql`${transactions.employeeLoanContactId} IS NOT NULL`)).orderBy(desc(transactions.transactionDate), desc(transactions.id)) : [];
       return Response.json({ records: contactRows.map(record => redactEmployeeHr({ ...record, ...(record.type === "employee" && isAdministrator(authorization) ? { bankLoanPayments: JSON.stringify(loans.filter(loan => loan.employeeLoanContactId === record.id).map(loan => ({ id: loan.id, number: loan.number, date: loan.transactionDate, currency: loan.currency, amount: loan.total, account: loan.account }))) } : {}) }, isAdministrator(authorization))) });
     }
     if (kind === "items") {
+      if (authorization.role === "sales") {
+        const records = await db.select({ id: items.id, companyId: items.companyId, locationId: items.locationId, itemNumber: items.itemNumber, sku: items.sku, name: items.name, category: items.category, description: items.description, specifications: items.specifications, quantity: items.quantity, salesPrice: items.salesPrice, salesVatCode: items.salesVatCode, status: items.status, itemType: items.itemType }).from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId), eq(items.status, "active"))).orderBy(asc(items.name));
+        return Response.json({ records });
+      }
       if (url.searchParams.get("previewIdentity") === "true") {
         if (!mayWrite(authorization, "inventory:manage")) return Response.json({ error: "Your role cannot create inventory items." }, { status: 403 });
         const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).limit(1);
@@ -420,6 +426,10 @@ export async function GET(request: Request) {
       }) });
     }
     if (kind === "accounts") {
+      if (authorization.role === "sales") {
+        const records = await db.select({ id: accounts.id, code: accounts.code, name: accounts.name, type: accounts.type, currency: accounts.currency, active: accounts.active, systemRole: accounts.systemRole }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true), eq(accounts.systemRole, "AR")));
+        return Response.json({ records });
+      }
       const journalFilter = Number.isInteger(locationId) && locationId > 0 ? and(eq(journalEntries.companyId, companyId), eq(journalEntries.locationId, locationId)) : eq(journalEntries.companyId, companyId);
       const [accountRows, [accountCompany], currentRates, balanceLines] = await Promise.all([
         db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(asc(accounts.code)),
@@ -498,6 +508,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const kind = payload.kind as RecordKind;
     if (!["transactions", "contacts", "items", "accounts"].includes(kind)) return Response.json({ error: "Invalid record kind." }, { status: 400 });
     if (kind === "transactions") {
+      if (authorization.role === "sales" && !salesDocumentTypes.includes(String(payload.type))) return Response.json({ error: "Sales users may create quotations, sales orders and proformas only." }, { status: 403 });
       if (payload.type === "pending invoice" && !canManagePendingInvoices(authorization)) return Response.json({ error: "Only administrators and accountants can create pending invoices." }, { status: 403 });
       if (authorization.role === "inventory" && !["bill", "received item bill", "item receipt", "purchase order"].includes(String(payload.type))) return Response.json({ error: "Inventory users may create bills, item receipts and purchase orders only." }, { status: 403 });
       if (["cancelled", "canceled", "void", "voided"].includes(String(payload.status).toLowerCase()) && !isAdministrator(authorization)) return Response.json({ error: "Only administrators can cancel documents." }, { status: 403 });
@@ -509,11 +520,18 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     const db = getDb();
+    if (authorization.role === "sales" && kind === "transactions") {
+      const [customer] = await db.select({ id: contacts.id }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "customer"), eq(contacts.name, String(payload.party || "")), eq(contacts.salesOwnerId, authorization.id), eq(contacts.status, "active"))).for("share");
+      if (!customer) return Response.json({ error: "Select one of your assigned active customers." }, { status: 403 });
+      payload.salesman = authorization.fullName || authorization.email;
+      payload.transactionDate = dubaiDay();
+    }
     // Verify the credential before dispatching on any client-selected record type.
     const [stockSettings] = await db.select({ pinHash: companySettings.negativeStockPinHash }).from(companySettings).where(eq(companySettings.companyId, companyId)).limit(1);
     const stockPinVerified = verifyAdminPin(String(payload.adminOverridePin ?? ""), stockSettings?.pinHash ?? "");
 
     if (kind === "contacts") {
+      if (authorization.role === "sales" && payload.type !== "customer") return Response.json({ error: "Sales users can add customers only." }, { status: 403 });
       const name = String(payload.name ?? "").trim();
       const contactType = (payload.type as "customer" | "vendor" | "employee") ?? "customer";
       const currency = String(payload.currency ?? "AED").trim().toUpperCase();
@@ -557,13 +575,13 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
         }
       }
       const [record] = await db.insert(contacts).values({
-        companyId, type: contactType, name,
+        companyId, type: contactType, name, salesOwnerId: authorization.role === "sales" ? authorization.id : null,
         ...(contactType === "employee" ? await employeeHrForSave(payload, companyId) : {}),
         company: String(payload.company ?? ""), billingName: String(payload.billingName ?? name),
         email: String(payload.email ?? ""), phone: String(payload.phone ?? "").trim(), whatsapp: String(payload.whatsapp ?? "").trim(),
         country: String(payload.country ?? ""), trn: String(payload.trn ?? "").trim(), reseller: String(payload.reseller ?? "Reseller"),
         planet: String(payload.planet ?? "No"), passport: String(payload.passport ?? ""), currency, ledgerAccountId,
-        description: String(payload.description ?? ""), balance: Number(payload.balance ?? 0),
+        description: String(payload.description ?? ""), balance: authorization.role === "sales" ? 0 : Number(payload.balance ?? 0),
       }).returning();
       return Response.json({ record, generatedAccount }, { status: 201 });
     }
@@ -1048,7 +1066,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       }
     }
     const values = {
-      companyId, locationId: Number.isInteger(locationId) ? locationId : null, number, type, party, employeeLoanContactId, billId, invoiceId, purchaseOrderId, salesSourceId,
+      createdByUserId: replacing?.createdByUserId ?? (authorization.role === "sales" ? authorization.id : null), companyId, locationId: Number.isInteger(locationId) ? locationId : null, number, type, party, employeeLoanContactId, billId, invoiceId, purchaseOrderId, salesSourceId,
       salesman: String(payload.salesman ?? ""), isImport: payload.isImport === true || String(payload.isImport) === "true" || usesImportGoodsVat,
       billOfEntryNumber: usesImportGoodsVat && type === "bill" ? billOfEntryNumber : "", airwayBillNumber: usesImportGoodsVat && type === "bill" ? airwayBillNumber : "",
       transactionDate, dueDate: String(payload.dueDate ?? ""), terms, paymentMethod, referenceNo,
@@ -1227,7 +1245,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     for (const id of linkedInvoiceIds) await refreshInvoiceStatus(id);
     if (purchaseOrderId) await refreshPurchaseOrder(purchaseOrderId);
     if (salesSourceId) await refreshSalesSource(salesSourceId);
-    return Response.json({ record }, { status: replacing ? 200 : 201 });
+    return Response.json({ record: authorization.role === "sales" && type === "proforma invoice" ? { id: record.id, number: record.number, type: record.type, status: "awaiting accountant" } : record }, { status: replacing ? 200 : 201 });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: error instanceof RequestError ? error.status : 500 });
   }
@@ -1660,6 +1678,7 @@ async function handlePATCH(request: Request) {
         ? await db.select().from(accounts).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId)))
         : await db.select().from(contacts).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId)));
       if (!existing) return Response.json({ error: "Record not found." }, { status: 404 });
+      if (authorization.role === "sales" && (accountEdit || existing.type !== "customer" || (existing as typeof contacts.$inferSelect).salesOwnerId !== authorization.id)) return Response.json({ error: "You can edit your own customers only." }, { status: 403 });
       if (!mayWrite(authorization, writePermission(accountEdit ? "accounts" : "contacts", { type: existing.type }))) return Response.json({ error: "Your role cannot edit this record." }, { status: 403 });
       if (!accountEdit && existing.type === "vendor" && !isAdministrator(authorization)) return Response.json({ error: "Only All-Admin and Admin can edit vendor details." }, { status: 403 });
       const name = String(payload.name ?? existing.name).trim();

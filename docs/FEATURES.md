@@ -147,7 +147,7 @@ Every report view supports a centered professional layout with category/search n
 | --- | --- |
 | Administrator | All application and management views |
 | Accountant | Home, inventory context, sales, customers, warranties, purchases, vendors, banking, journals, accounts, VAT, reports |
-| Sales | Home, inventory context, sales, payments, customers, warranties |
+| Sales | My daily work, own customers/balances, quotations/sales orders/proforma creation, incoming items |
 | Purchasing | Home, inventory context, purchases, cheques, vendors |
 | Inventory Manager | Home, inventory, logistics, counts, and transfers |
 | Viewer | Home, serial search, inventory overview/check reports, and Report Center |
@@ -242,3 +242,13 @@ Admins and accountants can create, edit and reopen Pending Invoices from Sales. 
 Inventory users can add/edit items, change inventory details, transfer stock, create purchase orders and vendors, and create/print warranty and supplier receipts. They can view/edit bills and receipts only on their creation day in UAE time. The deadline is based on creation time, not the invoice date; opening an old URL or attachment cannot bypass it. Their sales view is read-only except for Add serial numbers on saved invoices, which appends serials while preserving existing serials, quantities, prices and accounting.
 
 Shared dialogs retain explicit Minimize/Restore. Pending-invoice quantity and price fields use the existing responsive transaction editor. Serial entry and stamp/bank settings reflow across desktop, tablet and phone widths. Warranty lists become labeled cards on tablets and phones, keeping receipt actions visible.
+
+### Restricted sales workspace
+
+Sales users have four navigation entries: My daily work, Sales, My customers & balances, and Incoming items. They can create quotations (including the existing estimate type), sales orders, and proforma invoices for their assigned active customers. They cannot post invoices/payments, cancel/delete documents, manage inventory or open company-wide reports. Daily work uses UAE creation dates and shows only their own newly created document activity.
+
+Saved proformas are handed to accounting: sales sees only a confirmation and daily activity reference, with no reopen/edit/print/PDF or attachment access. Accountants and admins can reopen the saved proforma and use the existing PDF, stamp and bank controls.
+
+Customer names are rejected at 70% or greater normalized edit-distance similarity, across billing/company names and all company customers (including other reps' customers). Punctuation/case normalize before comparison. Existing exact TRN and normalized international contact/WhatsApp checks remain. New sales-created customers automatically belong to that user with zero opening balance. Admins assign or reassign existing customers in Customer Center. Unassigned legacy customers remain restricted until assigned; ownership is never guessed from a free-text salesman name.
+
+Incoming shows only outstanding purchase-order item quantities, SKU/item number, inventory and selling price. Supplier names, purchase prices, bill/PO identifiers, other stock activity and purchase links are absent from the sales response. New views use responsive cards, theme colors, labeled quantities/prices and explicit Minimize/Restore controls.

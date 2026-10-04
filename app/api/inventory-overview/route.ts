@@ -170,6 +170,7 @@ export async function GET(request: Request) {
       } catch { return []; }
     }).slice(0, 50);
 
+    if (authorization.role === "sales") return Response.json({ records: [], canSelectItems: false, salesOnly: true, activity: { incoming: incomingResult.rows.map(row => ({ id: row.id, itemId: row.itemId, itemName: row.itemName, sku: row.sku, itemNumber: row.itemNumber, companyId: row.companyId, companyName: row.companyName, locationId: row.locationId, locationName: row.locationName, currency: row.currency, quantity: row.quantity, price: records.find(item => item.id === Number(row.itemId))?.salesPrice ?? null })), launched: [], priceChanges: [], sold: [] } }, { headers: { "Cache-Control": "no-store" } });
     return Response.json({
       records,
       canSelectItems: isAdministrator(authorization),

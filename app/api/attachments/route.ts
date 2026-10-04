@@ -1,3 +1,6 @@
+import { and, eq } from "drizzle-orm";
+import { transactions } from "@/db/schema";
+import { documentVisibility } from "@/lib/document-access-sql";
 import { canReadDocument } from "@/lib/document-access";
 import { sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
@@ -14,6 +17,11 @@ export async function GET(request: Request) {
   const entityType = String(url.searchParams.get("entityType") ?? "");
   const authorization = await requireCompanyAccess(request, companyId, "workspace:read");
   if (authorization instanceof Response) return authorization;
+  if (authorization.role === "sales") {
+    if (entityType !== "transaction") return Response.json({ error: "Sales document attachments only." }, { status: 403 });
+    const [visible] = await getDb().select({ id: transactions.id }).from(transactions).where(and(eq(transactions.id, entityId), eq(transactions.companyId, companyId), documentVisibility(authorization)));
+    if (!visible) return Response.json({ error: "Document unavailable. Ask your accountant for saved proformas." }, { status: 403 });
+  }
   if (entityType === "transaction" && authorization.role === "inventory") {
     const result = await getDb().execute(sql`SELECT type, created_at AS "createdAt" FROM transactions WHERE id = ${entityId} AND company_id = ${companyId}`);
     const document = result.rows[0];
@@ -56,6 +64,11 @@ export async function POST(request: Request) {
   const entityType = String(payload.entityType ?? "");
   const authorization = await requireCompanyAccess(request, companyId, "workspace:read", true);
   if (authorization instanceof Response) return authorization;
+  if (authorization.role === "sales") {
+    if (entityType !== "transaction") return Response.json({ error: "Sales document attachments only." }, { status: 403 });
+    const [visible] = await getDb().select({ id: transactions.id }).from(transactions).where(and(eq(transactions.id, entityId), eq(transactions.companyId, companyId), documentVisibility(authorization)));
+    if (!visible) return Response.json({ error: "Document unavailable. Ask your accountant for saved proformas." }, { status: 403 });
+  }
   if (entityType === "transaction" && authorization.role === "inventory") {
     const result = await getDb().execute(sql`SELECT type, created_at AS "createdAt" FROM transactions WHERE id = ${entityId} AND company_id = ${companyId}`);
     const document = result.rows[0];

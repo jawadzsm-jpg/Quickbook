@@ -35,10 +35,12 @@ const vite = await createServer({
       if (id === "\0test-auth") return `
         export * from "/lib/access.ts";
         export * from "/lib/password.ts";
+        import { salesRouteAllowed } from "/lib/sales-access.ts";
         import { hasPermission, isAdministrator, canAccessCompany } from "/lib/access.ts";
         export const requireApiUser = async (request, required = false) => {
           const user = globalThis.__transferTestUser ?? { id: 1, email: "test@example.test", role: "all_admin", companyIds: [], mustChangePassword: false };
           if (user instanceof Response) return user;
+          if (user.role === "sales" && !salesRouteAllowed(new URL(request.url).pathname, request.method)) return Response.json({ error: "Sales workspace only." }, { status: 403 });
           if ((request.method === "DELETE" && !["/api/auth/session", "/api/sku-locks"].includes(new URL(request.url).pathname) || required === true) && !isAdministrator(user)) return Response.json({ error: "Administrator required." }, { status: 403 });
           if (typeof required === "string" && !hasPermission(user, required)) return Response.json({ error: "Permission denied." }, { status: 403 });
           return user;
@@ -46,6 +48,7 @@ const vite = await createServer({
         export const requireCompanyAccess = async (request, companyId, required = false) => {
           const user = await requireApiUser(request, required);
           if (user instanceof Response) return user;
+          if (user.role === "sales" && !salesRouteAllowed(new URL(request.url).pathname, request.method)) return Response.json({ error: "Sales workspace only." }, { status: 403 });
           return canAccessCompany(user, companyId) ? user : Response.json({ error: "Company denied." }, { status: 403 });
         };
       `;
@@ -85,8 +88,9 @@ test("transfer edits enforce admin and company access, balance quantities and re
       globalThis.__transferTestUser = { id: 1, role, companyIds: [company, other] };
       assert.equal((await edit({ quantity: 5 })).status, 403);
       assert.equal((await remove()).status, 403);
-      const history = await (await GET(new Request('https://app.test/api/transfers'))).json();
-      assert.equal(history.records.find((r) => r.id === id).canEdit, false);
+      const historyResponse = await GET(new Request('https://app.test/api/transfers'));
+      if (role === "sales") assert.equal(historyResponse.status, 403);
+      else assert.equal((await historyResponse.json()).records.find((r) => r.id === id).canEdit, false);
     }
     globalThis.__transferTestUser = { id: 1, role: 'admin', companyIds: [company] };
     assert.equal((await edit()).status, 403);
@@ -2506,4 +2510,95 @@ test('accountants can update bank details and stamps but not company identity or
     const saved = (await database.query('SELECT name,bank_name,stamp_data FROM companies WHERE id=$1', [c])).rows[0];
     assert.deepEqual(saved, { name: 'Accountant document settings', bank_name: 'Test Bank', stamp_data: stamp });
   } finally { delete globalThis.__transferTestUser; }
+});
+
+test('sales workspace enforces ownership, proforma handoff, private costs and administrator assignment', async () => {
+  const c = (await database.query("INSERT INTO companies(name,bank_name,stamp_data) VALUES ('Sales scope test','PRIVATE BANK','PRIVATE STAMP') RETURNING id")).rows[0].id;
+  const other = (await database.query("INSERT INTO companies(name) VALUES ('Sales other company') RETURNING id")).rows[0].id;
+  const loc = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'SALESA','Sales inventory','SLS') RETURNING id", [c])).rows[0].id;
+  const makeUser = async (name, company) => { const id = (await database.query("INSERT INTO app_users(full_name,email,password_hash,role) VALUES($1,$2,'test','sales') RETURNING id", [name, name+'@scope.test'])).rows[0].id; await database.query('INSERT INTO app_user_companies(user_id,company_id) VALUES($1,$2)', [id,company]); return id; };
+  const alice = await makeUser('AliceScope', c), bob = await makeUser('BobScope', c), outsider = await makeUser('OutsideScope', other);
+  const own = (await database.query("INSERT INTO contacts(company_id,type,name,company,phone,whatsapp,currency,balance,sales_owner_id) VALUES($1,'customer','ALPHA TECHNOLOGIES','ALPHA TECHNOLOGIES','+971500111111','+971500111111','AED',400,$2) RETURNING id", [c, alice])).rows[0].id;
+  const foreign = (await database.query("INSERT INTO contacts(company_id,type,name,company,phone,whatsapp,currency,balance,sales_owner_id,trn) VALUES($1,'customer','OMEGA SYSTEMS','OMEGA SYSTEMS','+971500222222','+971500222222','AED',9900,$2,'100000000000099') RETURNING id", [c,bob])).rows[0].id;
+  const item = (await database.query("INSERT INTO items(company_id,location_id,sku,name,quantity,cost,sales_price,last_purchase_price) VALUES($1,$2,'SALES-SCOPE','Scope laptop',10,321,500,322) RETURNING id", [c,loc])).rows[0].id;
+  const po = (await database.query("INSERT INTO transactions(company_id,location_id,number,type,party,transaction_date,currency,total,base_total) VALUES($1,$2,'PRIVATE-PO','purchase order','SECRET SUPPLIER','2026-10-04','AED',642,642) RETURNING id", [c,loc])).rows[0].id;
+  await database.query("INSERT INTO transaction_lines(transaction_id,item_id,description,quantity,unit_price,subtotal,total) VALUES($1,$2,'Scope laptop',2,321,642,642)",[po,item]);
+  const route = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const work = await vite.ssrLoadModule('/app/api/sales-work/route.ts');
+  const attach = await vite.ssrLoadModule('/app/api/attachments/route.ts');
+  const { salesRouteAllowed } = await vite.ssrLoadModule('/lib/sales-access.ts');
+  const req = (path, method='GET', body) => new Request('https://app.test'+path, { method, headers: { origin:'https://app.test','content-type':'application/json' }, ...(body ? { body:JSON.stringify(body) } : {}) });
+  const get = (kind, id='') => route.GET(req(`/api/records?companyId=${c}&locationId=${loc}&kind=${kind}${id ? '&id='+id : ''}`));
+  const post = (body) => route.POST(req('/api/records','POST',{ kind:'transactions',companyId:c,locationId:loc,type:'quotation',number:'SCOPE-QUOTE',party:'ALPHA TECHNOLOGIES',transactionDate:'2026-10-04',currency:'AED',exchangeRate:1,account:'Accounts Receivable',lines:[{ itemId:item,description:'Scope laptop',quantity:1,unitPrice:500,vatCode:'ZERO' }],...body }));
+  const asSales = id => { globalThis.__transferTestUser = { id,role:'sales',fullName:id===alice?'AliceScope':'BobScope',email:'sales@scope.test',companyIds:[c] }; };
+  try {
+    asSales(alice);
+    assert.deepEqual((await (await get('contacts')).json()).records.map(row=>row.id),[own]);
+    assert.equal((await get('vendor-history')).status,403);
+    assert.equal((await get('transactions',po)).status,404);
+    const stock = (await (await get('items')).json()).records[0];
+    for (const key of ['cost','lastPurchasePrice','averageCost','preferredSupplierId']) assert.equal(key in stock,false);
+    assert.equal((await post({ type:'invoice' })).status,403);
+    assert.equal((await post({ party:'OMEGA SYSTEMS' })).status,403);
+    const quoted = await post({ salesman:'BobScope' }); assert.equal(quoted.status,201,JSON.stringify(await quoted.clone().json()));
+    const quote = (await quoted.json()).record;
+    assert.equal(quote.salesman,'AliceScope'); assert.equal(quote.createdByUserId,alice);
+    assert.equal((await get('transactions',quote.id)).status,200);
+    asSales(bob); assert.equal((await get('transactions',quote.id)).status,404); asSales(alice);
+    const proformaResponse = await post({ type:'proforma invoice',number:'SCOPE-PRO' }); assert.equal(proformaResponse.status,201);
+    const proforma = (await proformaResponse.json()).record; assert.equal(proforma.total,undefined);
+    assert.equal((await get('transactions',proforma.id)).status,404);
+    assert.equal((await route.PATCH(req('/api/records','PATCH',{kind:'transactions',companyId:c,id:proforma.id,memo:'try reopen'}))).status,403);
+    assert.equal((await attach.GET(req(`/api/attachments?companyId=${c}&entityType=transaction&entityId=${proforma.id}`))).status,403);
+    assert.equal((await attach.POST(req('/api/attachments','POST',{companyId:c,entityType:'transaction',entityId:proforma.id,attachments:[]}))).status,403);
+    const day = await (await work.GET(req(`/api/sales-work?companyId=${c}`))).json();
+    assert.deepEqual(day.customers.map(row=>row.balance),[400]); assert.equal(day.activity.find(row=>row.id===proforma.id).canOpen,false);
+    assert.equal(day.activity.find(row=>row.id===proforma.id).total,undefined);
+    assert.equal((await work.GET(req(`/api/sales-work?companyId=${other}`))).status,403);
+    assert.equal((await work.PATCH(req('/api/sales-work','PATCH',{companyId:c,customerId:foreign,salesOwnerId:alice}))).status,403);
+    const overviewRoute = await vite.ssrLoadModule('/app/api/inventory-overview/route.ts');
+    const incoming = await (await overviewRoute.GET(req('/api/inventory-overview'))).json();
+    const incomingRow = incoming.activity.incoming.find(row=>row.itemId===item);
+    assert.equal(incomingRow.quantity,2); assert.equal(incomingRow.price,500);
+    for(const key of ['party','transactionId','documentNumber','linkedBillId','salesRep']) assert.equal(key in incomingRow,false);
+    assert.deepEqual(incoming.activity.launched,[]); assert.deepEqual(incoming.activity.sold,[]);
+    const setupRoute = await vite.ssrLoadModule('/app/api/company-setup/route.ts');
+    const setup = await (await setupRoute.GET(req(`/api/company-setup?companyId=${c}`))).json(); assert.equal(setup.record.bankName,'');assert.equal(setup.record.stampData,'');
+    const spacesRoute = await vite.ssrLoadModule('/app/api/workspaces/route.ts');
+    const spaces = await (await spacesRoute.GET(req('/api/workspaces'))).json(); assert.equal(spaces.companies[0].bankName,undefined); assert.equal(spaces.companies[0].locations[0].payable,undefined);
+    for(const path of ['/api/reports','/api/warranty-slips','/api/serial-search','/api/transfers','/api/packing-lists','/api/stock-pricing','/api/stock-revaluation','/api/account-history','/api/employee-loan-links','/api/company-setup/letterhead']) assert.equal(salesRouteAllowed(path,'GET'),false,path);
+    assert.equal(salesRouteAllowed('/api/payment-terms','POST'),false);
+    // Duplicate validation sees customers owned by another sales user.
+    const customerBody = {kind:'contacts',type:'customer',name:'OMEGA SYSTEMZ',company:'OMEGA SYSTEMZ',phone:'+971500333333',whatsapp:'+971500333333',country:'UAE',reseller:'Reseller',planet:'No',currency:'AED'};
+    assert.equal((await post(customerBody)).status,409);
+    assert.equal((await post({...customerBody,name:'UNIQUE WHOLESALE',company:'UNIQUE WHOLESALE',phone:'+971 500 222 222'})).status,409);
+    assert.equal((await post({...customerBody,name:'UNIQUE WHOLESALE',company:'UNIQUE WHOLESALE',trn:'100000000000099'})).status,409);
+    const freshResponse = await post({...customerBody,name:'ZEBRA WHOLESALE',company:'ZEBRA WHOLESALE',balance:999,salesOwnerId:bob}); assert.equal(freshResponse.status,201,JSON.stringify(await freshResponse.clone().json()));
+    const fresh=(await freshResponse.json()).record;assert.equal(fresh.salesOwnerId,alice);assert.equal(fresh.balance,0);
+    assert.equal((await route.PATCH(req('/api/records','PATCH',{kind:'contacts',companyId:c,id:foreign,name:'take over'}))).status,403);
+    globalThis.__transferTestUser={id:alice,role:'admin',companyIds:[c]};
+    assert.equal((await work.PATCH(req('/api/sales-work','PATCH',{companyId:c,customerId:foreign,salesOwnerId:outsider,expectedOwnerId:bob}))).status,400);
+    assert.equal((await work.PATCH(req('/api/sales-work','PATCH',{companyId:c,customerId:foreign,salesOwnerId:alice,expectedOwnerId:bob}))).status,200);
+    assert.equal((await work.PATCH(req('/api/sales-work','PATCH',{companyId:c,customerId:foreign,salesOwnerId:bob,expectedOwnerId:bob}))).status,409);
+    globalThis.__transferTestUser={id:alice,role:'accountant',companyIds:[c]};
+    assert.equal((await get('transactions',proforma.id)).status,200);
+    assert.equal(Number((await database.query('SELECT quantity FROM items WHERE id=$1',[item])).rows[0].quantity),10);
+    assert.equal(Number((await database.query('SELECT count(*) FROM journal_entries WHERE company_id=$1',[c])).rows[0].count),0);
+  } finally { delete globalThis.__transferTestUser; }
+});
+
+test('customer duplicate comparison includes exactly 70 percent and normalized phone/TRN identities', async () => {
+  const { customerNameSimilarity, customerConflict } = await vite.ssrLoadModule('/lib/customer-identity.ts');
+  assert.equal(customerNameSimilarity('abcdefghij','abcdefgXYZ'),0.7);
+  assert.ok(customerNameSimilarity('abcdefghij','abcdefWXYZ')<0.7);
+  assert.equal(customerNameSimilarity('Com-Net L.L.C.','COMNET LLC'),1);
+  assert.equal(customerNameSimilarity('',''),0);
+  const candidate={name:'abcdefghij',company:'abcdefghij',phone:'+971501111111',whatsapp:'+971501111111',trn:''};
+  assert.match(customerConflict(candidate,[{id:1,...candidate,name:'abcdefgXYZ',company:'abcdefgXYZ',phone:'',whatsapp:''}]),/70%/);
+  assert.equal(customerConflict(candidate,[{id:1,...candidate}],1),null);
+});
+
+test('sales ownership migration supports individual prepared statements and retry', async () => {
+  const migration = await readFile(`${root}drizzle/0079_sales_ownership.sql`,'utf8');
+  for(let run=0;run<2;run++) for(const statement of migration.split('--> statement-breakpoint').map(s=>s.trim()).filter(Boolean)) await database.query(statement);
 });

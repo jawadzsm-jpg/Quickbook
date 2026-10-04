@@ -18,6 +18,10 @@ export async function GET(request: Request) {
       : await db.select().from(companies).where(and(eq(companies.active, true), inArray(companies.id, authorization.companyIds))).orderBy(asc(companies.name));
     const allowedIds = companyRows.map((company) => company.id);
     if (!allowedIds.length) return Response.json({ companies: [] });
+    if (authorization.role === "sales") {
+      const locations = await db.select({ id: inventoryLocations.id, companyId: inventoryLocations.companyId, name: inventoryLocations.name, code: inventoryLocations.code }).from(inventoryLocations).where(and(eq(inventoryLocations.active, true), inArray(inventoryLocations.companyId, allowedIds)));
+      return Response.json({ companies: companyRows.map(company => ({ id: company.id, name: company.name, baseCurrency: company.baseCurrency, locations: locations.filter(location => location.companyId === company.id) })) });
+    }
     const [locationRows, transactionRows, accountRows] = await Promise.all([
       db.select().from(inventoryLocations).where(and(eq(inventoryLocations.active, true), inArray(inventoryLocations.companyId, allowedIds))).orderBy(asc(inventoryLocations.name)),
       db.select().from(transactions).where(inArray(transactions.companyId, allowedIds)),

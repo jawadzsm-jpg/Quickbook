@@ -262,3 +262,11 @@ In Employees & HR, open Salary sheets, create a monthly sheet, choose the period
 An administrator/accountant selects Pending Invoice in Sales, enters the customer and lines, then saves the draft. Reopening permits edits; Convert to Invoice posts through the existing sales conversion with source locking. Saving or editing the draft never changes stock or the ledger.
 
 Inventory staff work on bills/receipts during their UAE creation day. After midnight those documents leave their lists and direct API access is denied. Purchase orders remain available independently of that bill deadline. Invoice serial additions use a dedicated append-only editor. Warranty/supplier receipts remain service records with their own saved references and print output.
+
+### Sales representative daily work and accounting handoff
+
+1. An admin assigns existing customers in Customer Center → Assign customer to sales user. New customers entered by a sales user are automatically assigned to them; no legacy assignment is inferred.
+2. The representative opens My daily work to see their own active-customer count, balances grouped by currency and document activity by UAE creation date. My customers lists only assigned customers.
+3. The rep creates a quotation, sales order or proforma for an assigned active customer. Names at least 70% similar and duplicate TRNs/contact numbers are blocked across the company.
+4. Saving a proforma gives its reference and a direction to ask accounting. Sales cannot reopen, edit or export it. Accounting opens it from Sales → Proforma Invoices and generates PDF with the company bank details/stamp. No message is automatically sent.
+5. Incoming lists remaining purchase-order quantities with selling prices, without supplier identities, purchase costs or purchase-document access.
