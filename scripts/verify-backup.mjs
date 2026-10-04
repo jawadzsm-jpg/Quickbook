@@ -1,4 +1,4 @@
-import { readFile, stat } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
 
@@ -6,8 +6,14 @@ import { gunzipSync } from 'node:zlib';
 try {
   const [path, expected] = process.argv.slice(2);
   if (!path || !/^[a-f0-9]{64}$/i.test(expected ?? '')) throw Error('Usage: npm run backup:verify -- <archive.comnet.json.gz> <SHA-256 from backup history>');
-  if ((await stat(path)).size > 64 * 1024 * 1024) throw Error('Archive exceeds the supported compressed size.');
-  const bytes = await readFile(path);
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of createReadStream(path)) {
+    size += chunk.length;
+    if (size > 64 * 1024 * 1024) throw Error('Archive exceeds the supported compressed size.');
+    chunks.push(chunk);
+  }
+  const bytes = Buffer.concat(chunks);
   const actual = createHash('sha256').update(bytes).digest('hex');
   if (actual !== expected.toLowerCase()) throw Error('SHA-256 mismatch. Do not use this file for recovery.');
   const archive = JSON.parse(gunzipSync(bytes, { maxOutputLength: 130 * 1024 * 1024 }).toString('utf8'));
