@@ -2366,3 +2366,11 @@ test('built-in logistics choices can be edited and deleted per company without c
   assert.deepEqual((await database.query('SELECT hs_code,country_of_origin FROM packing_list_lines WHERE packing_list_id=$1', [packing])).rows[0], snapshot);
   assert.equal((await database.query("SELECT count(*)::int AS n FROM audit_log WHERE company_id=$1 AND entity_type='item_logistics_option' AND action='updated'", [c])).rows[0].n, 3);
 });
+
+test('logistics override migration supports individual prepared queries and retries', async () => {
+  const source = await readFile(`${root}drizzle/0078_logistics_choice_overrides.sql`, 'utf8');
+  const statements = source.split('--> statement-breakpoint').map(value => value.trim()).filter(Boolean);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    for (const statement of statements) await database.query(statement, []);
+  }
+});
