@@ -2214,3 +2214,39 @@ test('invoice edit allows quantity, VAT code and description while reconciling s
   await database.query('UPDATE transactions SET sales_source_id=$1 WHERE id=$1',[invoice.id]); detail=await read();
   assert.equal((await edit({quantity:2})).status,409); assert.equal(await stock(),9);
 });
+
+
+test('account status preserves balances, enforces access and protects linked accounts', async () => {
+  const company = (await database.query("INSERT INTO companies (name) VALUES ('Account lifecycle') RETURNING id")).rows[0].id;
+  const add = async (code, parent = null, role = null) => (await database.query("INSERT INTO accounts (company_id, code, name, type, balance, parent_account_id, system_role) VALUES ($1,$2,$2,'Bank',-125,$3,$4) RETURNING id", [company, code, parent, role])).rows[0].id;
+  const parent = await add('LIFE-PARENT'), child = await add('LIFE-CHILD', parent), system = await add('LIFE-BANK', null, 'BANK');
+  const { PATCH } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const change = (id, active, expectedActive, extra = {}) => PATCH(new Request('https://app.test/api/records', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'accounts', editMode: 'account-status', companyId: company, id, active, expectedActive, ...extra }) }));
+  const row = async id => (await database.query('SELECT * FROM accounts WHERE id=$1', [id])).rows[0];
+  try {
+    for (const role of ['sales', 'purchasing', 'viewer', 'inventory']) {
+      globalThis.__transferTestUser = { id: 1, email: 'user@test', role, companyIds: [company] };
+      assert.equal((await change(child, false, true)).status, 403);
+    }
+    globalThis.__transferTestUser = { id: 1, email: 'accountant@test', role: 'accountant', companyIds: [company + 9999] };
+    assert.equal((await change(child, false, true)).status, 403);
+    globalThis.__transferTestUser.companyIds = [company];
+    assert.equal((await change(child, 'false', true)).status, 400);
+    assert.equal((await change(child, false, true, { balance: 0 })).status, 400);
+    assert.equal((await change(system, false, true)).status, 409);
+    assert.equal((await change(parent, false, true)).status, 409);
+    assert.equal((await change(child, false, true)).status, 200);
+    assert.equal((await row(child)).active, false);
+    assert.equal(Number((await row(child)).balance), -125);
+    assert.equal((await change(child, true, true)).status, 409);
+    assert.equal((await change(parent, false, true)).status, 200);
+    assert.equal((await change(child, true, false)).status, 409);
+    assert.equal((await change(parent, true, false)).status, 200);
+    assert.equal((await change(child, true, false)).status, 200);
+    await database.query("INSERT INTO contacts (company_id,type,name,loan_account_id) VALUES ($1,'employee','Linked employee',$2)", [company, child]);
+    assert.equal((await change(child, false, true)).status, 409);
+    const audit = (await database.query("SELECT details FROM audit_log WHERE company_id=$1 AND entity_type='account' AND entity_id=$2 ORDER BY id LIMIT 1", [company, child])).rows[0];
+    assert.deepEqual(JSON.parse(audit.details).active, { before: true, after: false });
+    assert.equal(JSON.parse(audit.details).actorEmail, 'accountant@test');
+  } finally { delete globalThis.__transferTestUser; }
+});
