@@ -1,3 +1,4 @@
+import { RecordPermissionsProvider } from "./record-permissions";
 import EnterpriseApp from "./enterprise-app";
 import { LoginScreen } from "./login-screen";
 import { PasswordChangeScreen } from "./password-change-screen";
@@ -18,5 +19,5 @@ export default async function Home() {
   }
   if (user.mustChangePassword) return <PasswordChangeScreen email={user.email} />;
   const appUser = { ...user, isAllAdmin: user.role === "all_admin", role: user.role === "all_admin" ? ("admin" as const) : user.role };
-  return <EnterpriseApp currentUser={appUser} />;
+  return <RecordPermissionsProvider role={user.role}><EnterpriseApp currentUser={appUser} /></RecordPermissionsProvider>;
 }

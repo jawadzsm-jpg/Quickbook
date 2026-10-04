@@ -1,3 +1,4 @@
+import { canDeleteBusinessRecord } from "./document-access";
 import "server-only";
 
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
@@ -21,7 +22,7 @@ const rolePermissions: Record<AppRole, Permission[]> = {
   accountant: ["workspace:read", "inventory:read", "reports:read", "sales:write", "purchases:write", "banking:write", "accounting:manage", "customers:manage", "vendors:manage"],
   sales: ["workspace:read", "inventory:read", "sales:write", "customers:manage"],
   purchasing: ["workspace:read", "inventory:read", "purchases:write", "vendors:manage"],
-  inventory: ["workspace:read", "inventory:read", "inventory:manage", "inventory:transfer", "customization:manage"],
+  inventory: ["workspace:read", "inventory:read", "inventory:manage", "inventory:transfer", "customization:manage", "purchases:write", "vendors:manage"],
   customization: ["workspace:read", "inventory:read", "customization:manage"],
   viewer: ["workspace:read", "inventory:read", "reports:read"],
 };
@@ -116,6 +117,7 @@ export async function requireApiUser(request: Request, required: boolean | Permi
   const user = await getRequestUser(request);
   if (!user) return Response.json({ error: "Authentication required." }, { status: 401 });
   if (user.mustChangePassword) return Response.json({ error: "Change your temporary password before using the application." }, { status: 403 });
+  if (request.method === "DELETE" && !["/api/auth/session", "/api/sku-locks"].includes(new URL(request.url).pathname) && !canDeleteBusinessRecord(user)) return Response.json({ error: "Only administrators can delete saved records." }, { status: 403 });
   if (required === true && !isAdministrator(user)) return Response.json({ error: "Administrator permission required." }, { status: 403 });
   if (typeof required === "string" && !hasPermission(user, required)) return Response.json({ error: "Your role does not allow this action." }, { status: 403 });
   return user;

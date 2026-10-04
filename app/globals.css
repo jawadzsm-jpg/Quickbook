@@ -2016,3 +2016,16 @@ button, input, select { font: inherit; }
   .packing-editor-table td:nth-child(2), .packing-editor-table td:nth-child(12) { grid-column: 1 / -1; }
   .packing-dimension-inputs { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
 }
+
+/* Warranty staff keep receipt actions and text readable on small screens. */
+@media screen and (max-width: 1023px) {
+  .warranty-records-table, .warranty-records-table tbody { display: block; width: 100%; }
+  .warranty-records-table thead { display: none; }
+  .warranty-records-table tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: .75rem; gap: .5rem; border-bottom: 1px solid var(--border); }
+  .warranty-records-table td { display: block; min-width: 0; white-space: normal; overflow-wrap: anywhere; border: 0; }
+  .warranty-records-table td::before { content: attr(data-label); display: block; font-size: .7rem; font-weight: 600; color: var(--muted-foreground); margin-bottom: .25rem; }
+  .warranty-records-table td[data-label="Actions"], .warranty-records-table td[data-label="Remark"], .warranty-records-table td[data-label="Brand / Model"] { grid-column: 1 / -1; }
+}
+@media screen and (max-width: 479px) {
+  .warranty-records-table tbody tr { grid-template-columns: minmax(0, 1fr); }
+}

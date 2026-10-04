@@ -81,7 +81,7 @@ export async function GET(request: Request) {
         LEFT JOIN LATERAL (
           SELECT receipt_document.id, receipt_document.number
           FROM purchase_receipt_allocations bill_allocation
-          JOIN transactions receipt_document ON receipt_document.id = bill_allocation.receipt_id
+          JOIN transactions receipt_document ON receipt_document.id = bill_allocation.receipt_id AND (${authorization.role !== "inventory"} OR (receipt_document.created_at AT TIME ZONE 'Asia/Dubai')::date = (now() AT TIME ZONE 'Asia/Dubai')::date)
           WHERE bill_allocation.order_line_id = po_line.id
             AND receipt_document.type = 'bill' AND receipt_document.status <> 'cancelled'
           ORDER BY receipt_document.id DESC
@@ -109,6 +109,7 @@ export async function GET(request: Request) {
         JOIN companies activity_company ON activity_company.id = bill.company_id
         JOIN inventory_locations inventory_location ON inventory_location.id = bill.location_id AND inventory_location.company_id = bill.company_id
         WHERE bill.type = 'bill' AND bill.status <> 'cancelled' AND bill_line.quantity > 0
+          AND (${authorization.role !== "inventory"} OR (bill.created_at AT TIME ZONE 'Asia/Dubai')::date = (now() AT TIME ZONE 'Asia/Dubai')::date)
           AND bill.created_at > now() - interval '12 hours' AND bill.created_at <= now()
           AND EXISTS (SELECT 1 FROM inventory_movements movement
             WHERE movement.transaction_id = bill.id AND movement.item_id = stock_item.id

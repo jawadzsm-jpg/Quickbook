@@ -1,3 +1,5 @@
+import { documentVisibility } from "@/lib/document-access-sql";
+import { hasPermission } from "@/lib/auth";
 import { and, desc, eq, inArray, lte } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { appUsers, auditLog, contacts, items, transactionLines, transactions, warrantySlips } from "@/db/schema";
@@ -31,7 +33,7 @@ export async function GET(request: Request) {
     const db = getDb();
     const invoiceId = Number(url.searchParams.get("invoiceId"));
     if (url.searchParams.has("invoiceId")) {
-      const [invoice] = await db.select().from(transactions).where(and(eq(transactions.id, invoiceId), eq(transactions.companyId, companyId), eq(transactions.type, "invoice"))).limit(1);
+      const [invoice] = await db.select().from(transactions).where(and(eq(transactions.id, invoiceId), and(eq(transactions.companyId, companyId), documentVisibility(user)), eq(transactions.type, "invoice"))).limit(1);
       if (!invoice) return Response.json({ error: "Customer invoice not found in this company." }, { status: 404 });
       const lines = await db.select({ id: transactionLines.id, itemId: transactionLines.itemId, description: transactionLines.description, serialNumber: transactionLines.serialNumber, itemName: items.name, specifications: items.specifications })
         .from(transactionLines).leftJoin(items, eq(transactionLines.itemId, items.id)).where(eq(transactionLines.transactionId, invoiceId));
@@ -41,7 +43,7 @@ export async function GET(request: Request) {
         itemIds.length
           ? db.select({ itemId: transactionLines.itemId, serialNumber: transactionLines.serialNumber, id: transactions.id, number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate })
             .from(transactionLines).innerJoin(transactions, eq(transactionLines.transactionId, transactions.id))
-            .where(and(eq(transactions.companyId, companyId), eq(transactions.type, "bill"), lte(transactions.transactionDate, invoice.transactionDate), inArray(transactionLines.itemId, itemIds)))
+            .where(and(and(eq(transactions.companyId, companyId), documentVisibility(user)), eq(transactions.type, "bill"), lte(transactions.transactionDate, invoice.transactionDate), inArray(transactionLines.itemId, itemIds)))
             .orderBy(desc(transactions.transactionDate), desc(transactions.id))
           : Promise.resolve([]),
       ]);
@@ -64,11 +66,11 @@ export async function GET(request: Request) {
     const [slips, customers, invoices, suppliers, purchaseBills, selectedPurchaseBill] = await Promise.all([
       list(companyId),
       db.select({ id: contacts.id, name: contacts.name, company: contacts.company, phone: contacts.phone, email: contacts.email }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "customer"))),
-      db.select({ id: transactions.id, number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.type, "invoice"))).orderBy(desc(transactions.id)).limit(500),
+      db.select({ id: transactions.id, number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate }).from(transactions).where(and(and(eq(transactions.companyId, companyId), documentVisibility(user)), eq(transactions.type, "invoice"))).orderBy(desc(transactions.id)).limit(500),
       db.select({ id: contacts.id, name: contacts.name, company: contacts.company, billingName: contacts.billingName }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "vendor"))),
-      db.select({ id: transactions.id, number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.type, "bill"))).orderBy(desc(transactions.id)).limit(500),
+      db.select({ id: transactions.id, number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate }).from(transactions).where(and(and(eq(transactions.companyId, companyId), documentVisibility(user)), eq(transactions.type, "bill"))).orderBy(desc(transactions.id)).limit(500),
       Number.isInteger(requestedPurchaseBillId) && requestedPurchaseBillId > 0
-        ? db.select({ id: transactions.id, number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate }).from(transactions).where(and(eq(transactions.id, requestedPurchaseBillId), eq(transactions.companyId, companyId), eq(transactions.type, "bill"))).limit(1).then((rows) => rows[0] ?? null)
+        ? db.select({ id: transactions.id, number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate }).from(transactions).where(and(eq(transactions.id, requestedPurchaseBillId), and(eq(transactions.companyId, companyId), documentVisibility(user)), eq(transactions.type, "bill"))).limit(1).then((rows) => rows[0] ?? null)
         : Promise.resolve(null),
     ]);
     const availablePurchaseBills = selectedPurchaseBill && !purchaseBills.some((bill) => bill.id === selectedPurchaseBill.id) ? [selectedPurchaseBill, ...purchaseBills] : purchaseBills;
@@ -83,7 +85,8 @@ async function save(request: Request, editing: boolean) {
   try {
     const input = await request.json() as Record<string, unknown>;
     const companyId = Number(input.companyId);
-    const user = await requireCompanyAccess(request, companyId, "sales:write", true);
+    const user = await requireCompanyAccess(request, companyId, "workspace:read", true);
+    if (!(user instanceof Response) && !hasPermission(user, "sales:write") && user.role !== "inventory") return Response.json({ error: "Warranty access denied." }, { status: 403 });
     if (user instanceof Response) return user;
     const customerId = Number(input.customerId);
     const invoiceId = input.invoiceId ? Number(input.invoiceId) : null;
@@ -124,14 +127,17 @@ async function save(request: Request, editing: boolean) {
         [supplier] = await db.select({ id: contacts.id, name: contacts.name, company: contacts.company, billingName: contacts.billingName }).from(contacts).where(and(eq(contacts.id, supplierId), eq(contacts.companyId, companyId), eq(contacts.type, "vendor"))).limit(1);
         if (!supplier) return Response.json({ error: "Select a supplier from this company." }, { status: 400 });
       }
+      const [savedSlip] = editing ? await db.select().from(warrantySlips).where(and(eq(warrantySlips.id, id), eq(warrantySlips.companyId, companyId))).limit(1) : [];
       let purchaseBill = null;
-      if (purchaseBillId !== null && supplier) {
-        [purchaseBill] = await db.select({ number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate }).from(transactions).where(and(eq(transactions.id, purchaseBillId), eq(transactions.companyId, companyId), eq(transactions.type, "bill"))).limit(1);
+      if (purchaseBillId !== null && supplier && user.role === "inventory" && savedSlip?.purchaseBillId === purchaseBillId && savedSlip.supplierId === supplierId) {
+        purchaseBill = { number: savedSlip.purchaseNumber, party: supplier.name, transactionDate: savedSlip.purchaseDate };
+      } else if (purchaseBillId !== null && supplier) {
+        [purchaseBill] = await db.select({ number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate }).from(transactions).where(and(eq(transactions.id, purchaseBillId), and(eq(transactions.companyId, companyId), documentVisibility(user)), eq(transactions.type, "bill"))).limit(1);
         if (!purchaseBill || !supplierMatchesBill(supplier, purchaseBill.party)) return Response.json({ error: "The purchase bill does not belong to this supplier." }, { status: 400 });
       }
       let invoice = null;
       if (invoiceId !== null) {
-        [invoice] = await db.select().from(transactions).where(and(eq(transactions.id, invoiceId), eq(transactions.companyId, companyId), eq(transactions.type, "invoice"))).limit(1);
+        [invoice] = await db.select().from(transactions).where(and(eq(transactions.id, invoiceId), and(eq(transactions.companyId, companyId), documentVisibility(user)), eq(transactions.type, "invoice"))).limit(1);
         if (!invoice || invoice.party.trim().toLocaleLowerCase() !== customer.name.trim().toLocaleLowerCase()) return Response.json({ error: "The selected invoice does not belong to this customer." }, { status: 400 });
         if (invoiceLineId !== null) {
           const [line] = await db.select({ id: transactionLines.id }).from(transactionLines).where(and(eq(transactionLines.id, invoiceLineId), eq(transactionLines.transactionId, invoiceId))).limit(1);
@@ -178,7 +184,8 @@ export async function DELETE(request: Request) {
     const companyId = Number(input.companyId);
     const id = Number(input.id);
     const revision = typeof input.revision === "string" ? input.revision : "";
-    const user = await requireCompanyAccess(request, companyId, "sales:write", true);
+    const user = await requireCompanyAccess(request, companyId, "workspace:read", true);
+    if (!(user instanceof Response) && !hasPermission(user, "sales:write") && user.role !== "inventory") return Response.json({ error: "Warranty access denied." }, { status: 403 });
     if (user instanceof Response) return user;
     if (!Number.isInteger(id) || id < 1 || !revision) return Response.json({ error: "Select a valid warranty receipt to delete." }, { status: 400 });
     return await withWriteTransaction(async () => {

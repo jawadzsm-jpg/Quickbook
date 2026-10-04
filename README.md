@@ -78,10 +78,10 @@ See [API reference](docs/API.md) for methods, authorization, parameters, and beh
 | --- | --- |
 | `all_admin` | Global administration and all companies; represented as Administrator in the client |
 | `admin` | Full application access for assigned companies |
-| `accountant` | Sales, purchases, banking, journals, accounts, VAT, customer/vendor areas, and reports |
+| `accountant` | Sales, purchases, banking, journals, accounts, VAT, reports, pending invoices, and document stamp/bank settings; no deletion |
 | `sales` | Sales, customer payments, customers, warranties, and read-only inventory context |
 | `purchasing` | Purchases, vendors, cheques, and read-only inventory context |
-| `inventory` | Inventory maintenance, logistics, counts, and transfers |
+| `inventory` | Items, logistics, transfers, purchase orders, vendor creation, same-day bills, invoice serial additions, and warranty/supplier receipts; no deletion |
 | `viewer` | Dashboard, inventory views, serial search, stock checks, and reports |
 
 API access is based on named permissions and is always narrowed by company assignment, except for `all_admin`. Mutating endpoints require a same-origin request. See [Architecture: Security model](docs/ARCHITECTURE.md#security-model).

@@ -1,3 +1,4 @@
+import { documentVisibility } from "@/lib/document-access-sql";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { inventoryLocations, items, transactionLines, transactions } from "@/db/schema";
@@ -15,7 +16,7 @@ export async function GET(request: Request) {
   try {
     const db = getDb();
     const fields = { id: transactions.id, type: transactions.type, number: transactions.number, date: transactions.transactionDate, party: transactions.party, currency: transactions.currency, status: transactions.status, inventory: inventoryLocations.name };
-    const scope = and(eq(transactions.companyId, companyId), inArray(transactions.type, ["invoice", "bill"]));
+    const scope = and(documentVisibility(user), eq(transactions.companyId, companyId), inArray(transactions.type, ["invoice", "bill"]));
     const [lines, documents] = await Promise.all([
       db.select({ ...fields, lineId: transactionLines.id, serialNumber: transactionLines.serialNumber, description: transactionLines.description, sku: items.sku, quantity: transactionLines.quantity, unitPrice: transactionLines.unitPrice, total: transactionLines.total, comments: transactionLines.comments }).from(transactionLines)
         .innerJoin(transactions, eq(transactionLines.transactionId, transactions.id)).leftJoin(items, eq(transactionLines.itemId, items.id)).leftJoin(inventoryLocations, eq(transactions.locationId, inventoryLocations.id))

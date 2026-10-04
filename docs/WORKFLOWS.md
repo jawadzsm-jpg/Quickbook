@@ -256,3 +256,9 @@ In New/Edit Employee, choose Loan / advance account and save the profile before 
 
 
 In Employees & HR, open Salary sheets, create a monthly sheet, choose the period and company code, select HR employees or enter manual rows, then supply the personal/card/bank/IBAN details and salaries. Enter charges or use count × fee as a starting value; charges can include the service provider’s tax/other fees. Save to view, edit, delete, Print A4 or download PDF. Print opens the generated A4 landscape PDF with a print action. Assign Staff Salary Sheet in the company letterhead editor before creating a sheet to use its design. Saved sheets retain that branding. Creating a sheet is document preparation; salary payments continue through Banking.
+
+## Pending invoice and inventory staff workflow
+
+An administrator/accountant selects Pending Invoice in Sales, enters the customer and lines, then saves the draft. Reopening permits edits; Convert to Invoice posts through the existing sales conversion with source locking. Saving or editing the draft never changes stock or the ledger.
+
+Inventory staff work on bills/receipts during their UAE creation day. After midnight those documents leave their lists and direct API access is denied. Purchase orders remain available independently of that bill deadline. Invoice serial additions use a dedicated append-only editor. Warranty/supplier receipts remain service records with their own saved references and print output.

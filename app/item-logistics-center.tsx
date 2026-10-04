@@ -28,7 +28,7 @@ type LogisticsRecord = {
   weightKg: number;
 };
 
-export function ItemLogisticsCenter({ companyId, companyName, locationId, locationName, canEdit }: { companyId: number; companyName: string; locationId: number; locationName: string; canEdit: boolean }) {
+export function ItemLogisticsCenter({ companyId, companyName, locationId, locationName, canEdit, canDelete = false }: { companyId: number; companyName: string; locationId: number; locationName: string; canEdit: boolean; canDelete?: boolean }) {
   const [minimized, setMinimized] = useState(false);
   const [choiceBusy, setChoiceBusy] = useState(false);
   const [options, setOptions] = useState<LogisticsOption[]>([]);
@@ -140,8 +140,8 @@ export function ItemLogisticsCenter({ companyId, companyName, locationId, locati
             </div>
             <div className="min-w-0 space-y-3">
               <div className="grid min-w-0 gap-3 sm:grid-cols-3">
-                <LogisticsChoice onDelete={option => changeOption(option, "DELETE")} onEdit={(option, value, label) => changeOption(option, "PATCH", value, label)} label="HS code" value={record.hsCode} options={hsOptions} disabled={!canEdit || skuLock.blocked || saving || choiceBusy} onChange={value => update(record.id, "hsCode", value)} onAdd={(value, label) => addOption(record.id, "hs_code", value, label)} />
-                <LogisticsChoice onDelete={option => changeOption(option, "DELETE")} onEdit={(option, value, label) => changeOption(option, "PATCH", value, label)} label="COO" value={record.countryOfOrigin} options={cooOptions} disabled={!canEdit || skuLock.blocked || saving || choiceBusy} onChange={value => update(record.id, "countryOfOrigin", value)} onAdd={(value, label) => addOption(record.id, "coo", value, label)} />
+                <LogisticsChoice canDelete={canDelete} onDelete={option => changeOption(option, "DELETE")} onEdit={(option, value, label) => changeOption(option, "PATCH", value, label)} label="HS code" value={record.hsCode} options={hsOptions} disabled={!canEdit || skuLock.blocked || saving || choiceBusy} onChange={value => update(record.id, "hsCode", value)} onAdd={(value, label) => addOption(record.id, "hs_code", value, label)} />
+                <LogisticsChoice canDelete={canDelete} onDelete={option => changeOption(option, "DELETE")} onEdit={(option, value, label) => changeOption(option, "PATCH", value, label)} label="COO" value={record.countryOfOrigin} options={cooOptions} disabled={!canEdit || skuLock.blocked || saving || choiceBusy} onChange={value => update(record.id, "countryOfOrigin", value)} onAdd={(value, label) => addOption(record.id, "coo", value, label)} />
                 <label className="min-w-0 space-y-1 text-sm"><span>Dimension</span><Input readOnly={Boolean(dimensionText(record.lengthCm, record.widthCm, record.heightCm))} value={dimensionText(record.lengthCm, record.widthCm, record.heightCm, record.dimensionText)} disabled={!canEdit || skuLock.blocked || saving || choiceBusy} onChange={(event) => update(record.id, "dimensionText", event.target.value)} placeholder="e.g. 11 × 35 × 55 cm" /><span className="block text-xs text-muted-foreground">Auto-filled from L × W × H; used in packing lists.</span></label>
               </div>
               <div className="grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-4">

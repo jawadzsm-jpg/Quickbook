@@ -1,3 +1,4 @@
+import { canReadDocument } from "@/lib/document-access";
 import { sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { hasPermission, isAdministrator, requireCompanyAccess } from "@/lib/auth";
@@ -13,6 +14,11 @@ export async function GET(request: Request) {
   const entityType = String(url.searchParams.get("entityType") ?? "");
   const authorization = await requireCompanyAccess(request, companyId, "workspace:read");
   if (authorization instanceof Response) return authorization;
+  if (entityType === "transaction" && authorization.role === "inventory") {
+    const result = await getDb().execute(sql`SELECT type, created_at AS "createdAt" FROM transactions WHERE id = ${entityId} AND company_id = ${companyId}`);
+    const document = result.rows[0];
+    if (!document || !canReadDocument(authorization, { type: String(document.type), createdAt: String(document.createdAt) })) return Response.json({ error: "Bill access has expired." }, { status: 403 });
+  }
   if (!allowedTypes.has(entityType) || !Number.isInteger(entityId) || entityId <= 0) return Response.json({ error: "Select a valid record." }, { status: 400 });
   if (entityType === "staff_salary_sheet") {
     if (!isAdministrator(authorization)) return Response.json({ error: "Company administrator access required." }, { status: 403 });
@@ -50,6 +56,11 @@ export async function POST(request: Request) {
   const entityType = String(payload.entityType ?? "");
   const authorization = await requireCompanyAccess(request, companyId, "workspace:read", true);
   if (authorization instanceof Response) return authorization;
+  if (entityType === "transaction" && authorization.role === "inventory") {
+    const result = await getDb().execute(sql`SELECT type, created_at AS "createdAt" FROM transactions WHERE id = ${entityId} AND company_id = ${companyId}`);
+    const document = result.rows[0];
+    if (!document || !canReadDocument(authorization, { type: String(document.type), createdAt: String(document.createdAt) })) return Response.json({ error: "Bill access has expired." }, { status: 403 });
+  }
   if (!allowedTypes.has(entityType) || !Number.isInteger(entityId) || entityId <= 0) return Response.json({ error: "Select a valid record." }, { status: 400 });
   const files = Array.isArray(payload.attachments) ? payload.attachments as AttachmentInput[] : [];
   if (!files.length) return Response.json({ error: "Choose at least one attachment." }, { status: 400 });

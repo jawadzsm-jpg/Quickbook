@@ -172,3 +172,5 @@ Staff salary sheets: `app/staff-salary-sheets.tsx` owns HR list/editor/view/acti
 Employee loan linking: `app/employee-loan-linker.tsx` and `app/api/employee-loan-links/route.ts`; employee fields in `app/employee-hr-fields.tsx`. Salary sheet forms/output: `app/staff-salary-sheets.tsx`, `lib/staff-salary-sheet.ts`, `lib/staff-salary-pdf.ts`.
 
 `lib/employee-hr-save.ts` resolves employee profile accounts transactionally, including explicit create-on-save loan accounts. `lib/employee-hr.ts` validates the bank preference and redacts HR fields.
+
+Document role policies: `lib/document-access.ts`, query constraints in `lib/document-access-sql.ts`, shared DELETE boundary in `lib/auth.ts`, and UI role context in `app/record-permissions.tsx`. Inventory invoice serial entry is in `app/invoice-serial-editor.tsx`; accountant stamp/bank settings are in `app/accountant-document-settings.tsx`. Pending invoice creation, editing and conversion share `enterprise-app.tsx` and the central records route.
