@@ -25,3 +25,9 @@ export function validateStaffSalaryData(value: unknown): StaffSalaryData {
   });
   return { title: text(raw.title, 120, true), month, startDate, endDate, companyCode: text(raw.companyCode, 80), phone: text(raw.phone, 100), currency, serviceFee: money(raw.serviceFee), charges: money(raw.charges), notes: text(raw.notes, 1000), lines };
 }
+
+/** Stable filename uses the saved name and salary period, not the download date. */
+export function staffSalaryFilename(record: StaffSalaryRecord) {
+  const title = record.data.title.normalize("NFKC").replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").replace(/\s+/g, " ").trim().replace(/[. ]+$/, "").slice(0, 100) || "Staff Salary Sheet";
+  return `${title}_${record.data.month}_${record.data.startDate}_to_${record.data.endDate}_HR-${record.id}.pdf`;
+}

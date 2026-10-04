@@ -1804,6 +1804,29 @@ test("bank employee loans retain identity, post asset/bank entries and appear pr
   const list = await (await records.GET(new Request(`https://app.test/api/records?kind=contacts&companyId=${c.id}`))).json();
   const profile = list.records.find(record => record.id === employee.id); assert.equal(profile.loanAccountId, asset.id); assert.equal(profile.loanBalance, 75); assert.equal(JSON.parse(profile.bankLoanPayments)[0].id, payment.id);
   const report = await (await GET(new Request(`https://app.test/api/reports?type=employee-balances&companyId=${c.id}`))).json(); assert.equal(report.report.rows[0].bankLoansPaid, 1000); assert.equal(report.report.rows[0].loanAccountAccountId, asset.id);
+  const links = await vite.ssrLoadModule("/app/api/employee-loan-links/route.ts");
+  const candidates = () => links.GET(new Request(`https://app.test/api/employee-loan-links?companyId=${c.id}&employeeId=${employee.id}`));
+  const linkPayment = () => links.PATCH(new Request("https://app.test/api/employee-loan-links", { method: "PATCH", headers: { origin: "https://app.test", "content-type": "application/json" }, body: JSON.stringify({ companyId: c.id, employeeId: employee.id, transactionId: payment.id }) }));
+  assert.deepEqual((await (await candidates()).json()).candidates, []);
+  // Reproduce an old payment with a valid journal but no employee identity link.
+  await database.query("UPDATE transactions SET employee_loan_contact_id = NULL WHERE id = $1", [payment.id]);
+  let options = await candidates(); assert.equal(options.status, 200, await options.clone().text());
+  assert.equal((await options.json()).candidates[0].id, payment.id);
+  await database.query("UPDATE transactions SET vat_amount = 50 WHERE id = $1", [payment.id]);
+  assert.equal((await linkPayment()).status, 409);
+  await database.query("UPDATE transactions SET vat_amount = 0 WHERE id = $1", [payment.id]);
+  globalThis.__reportTestUser = { id: 2, email: "viewer@example.test", role: "viewer", companyIds: [c.id], mustChangePassword: false };
+  try { assert.equal((await candidates()).status, 403); assert.equal((await linkPayment()).status, 403); } finally { delete globalThis.__reportTestUser; }
+  globalThis.__reportTestUser = { id: 3, email: "admin@example.test", role: "admin", companyIds: [c.id + 999], mustChangePassword: false };
+  try { assert.equal((await candidates()).status, 403); assert.equal((await linkPayment()).status, 403); } finally { delete globalThis.__reportTestUser; }
+  const linkedOld = await linkPayment(); assert.equal(linkedOld.status, 200, await linkedOld.clone().text());
+  assert.equal((await linkPayment()).status, 409);
+  assert.deepEqual((await (await candidates()).json()).candidates, []);
+  const afterLink = await (await records.GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${c.id}&id=${payment.id}`))).json();
+  assert.deepEqual(afterLink.journal, detail.journal);
+  const unchanged = (await database.query("SELECT loan_balance FROM contacts WHERE id = $1", [employee.id])).rows[0];
+  assert.equal(unchanged.loan_balance, 75);
+
   globalThis.__reportTestUser = { id: 2, email: "viewer@example.test", role: "viewer", companyIds: [c.id], mustChangePassword: false };
   try { const privateList = await (await records.GET(new Request(`https://app.test/api/records?kind=contacts&companyId=${c.id}`))).json(); assert.equal(privateList.records.find(record => record.id === employee.id).bankLoanPayments, undefined); assert.equal(privateList.records.find(record => record.id === employee.id).loanAccountId, undefined); } finally { delete globalThis.__reportTestUser; }
 });
@@ -1827,7 +1850,13 @@ test("staff salary sheets save, edit, isolate companies, preserve letterhead and
   try { assert.equal((await route.GET(new Request(`https://app.test/api/staff-salary-sheets?companyId=${c.id}`))).status, 403); } finally { delete globalThis.__reportTestUser; }
   const list = await (await route.GET(new Request(`https://app.test/api/staff-salary-sheets?companyId=${c.id}`))).json(); assert.equal(list.records.length, 1); assert.equal(list.records[0].data.charges, 20);
   const { staffSalaryPdf } = await vite.ssrLoadModule("/lib/staff-salary-pdf.ts");
-  const pdf = await staffSalaryPdf(updated); const bytes = Buffer.from(await pdf.arrayBuffer()); assert.equal(bytes.subarray(0, 5).toString(), "%PDF-");
+  assert.equal(domain.staffSalaryFilename(updated), `Staff Salary Sheet_2026-09_2026-09-01_to_2026-09-30_HR-${updated.id}.pdf`);
+  const originalWarn = console.warn; const layoutWarnings = [];
+  console.warn = (...args) => layoutWarnings.push(args.join(" "));
+  let pdf;
+  try { pdf = await staffSalaryPdf(updated); } finally { console.warn = originalWarn; }
+  assert.deepEqual(layoutWarnings, [], "salary PDF columns must fit the A4 content width");
+  const bytes = Buffer.from(await pdf.arrayBuffer()); assert.equal(bytes.subarray(0, 5).toString(), "%PDF-");
   const mediaBox = bytes.toString("latin1").match(/\/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/); assert.ok(mediaBox); assert.ok(Math.abs(Number(mediaBox[1]) - 841.89) < 0.02); assert.ok(Math.abs(Number(mediaBox[2]) - 595.28) < 0.02);
   assert.equal((await route.DELETE(request("DELETE", { companyId: c.id, id: record.id, revision: 1 }))).status, 409);
   assert.equal((await route.DELETE(request("DELETE", { companyId: c.id, id: record.id, revision: 2 }))).status, 200);

@@ -156,3 +156,7 @@ Employee POST/PATCH accepts nullable `loanAccountId`. Validation requires an act
 ## `/api/staff-salary-sheets`
 
 GET lists saved sheets for `companyId`. POST creates from validated `data`; PATCH and DELETE require `companyId`, `id`, and the current integer `revision`. All methods require administrator access to the company. Mutations require same-origin JSON and run transactionally with audit entries. Stale updates/deletions return 409. Data accepts 1–200 rows and validates month/date range, bounded strings, non-negative amounts, unique employee IDs and same-company/currency employee links. Personal numbers/cards/IBANs are strings. The server snapshots only public company letterhead fields on creation, preserving them on edit. No accounting journals are posted.
+
+## `/api/employee-loan-links`
+
+Administrator-only, company-scoped GET accepts `companyId` and `employeeId` and lists eligible existing bank loan cheques. PATCH accepts these IDs and `transactionId`, locks and validates the employee, transaction and loan account, and writes only the employee link plus an audit entry. Requires an active employee, matching currency, a uniquely named active advance asset (matching the saved account if configured), positive total, zero VAT, posted debit and bank credit, and no existing employee/bill/invoice allocation. Re-linking or a stale candidate returns 409. No journals or balances change.
