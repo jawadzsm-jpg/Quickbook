@@ -16,6 +16,8 @@ import { PrintOrientationSelect, type PrintOrientation } from "@/components/prin
 import { letterheadForDocument, type LetterheadDocument } from "@/lib/letterhead";
 import type { LetterheadCompany } from "./letterhead-page";
 
+import { dimensionText } from "@/lib/item-logistics";
+
 type InvoiceLine = { id: number; itemId: number | null; itemNumber: string | null; sku: string | null; description: string; invoicedQuantity: number; unitPrice: number; packedQuantity: number; remainingQuantity: number; hsCode: string | null; countryOfOrigin: string | null; dimensionText: string | null; lengthCm: number; widthCm: number; heightCm: number; unitWeightKg: number };
 type PackedLine = { id: number; packingListId: number; invoiceLineId: number; itemNumber: string; sku: string; description: string; hsCode: string; countryOfOrigin: string; packedQuantity: number; unitsPerCarton: number; cartonCount: number; cartonReference: string; grossWeightKg: number; cartonWeightKg: number; dimensionText: string; lengthCm: number; widthCm: number; heightCm: number; cbmPerCarton: number; totalCbm: number };
 type PackingList = { id: number; number: string; packingDate: string; deliveryAddress: string; memo: string; createdAt: string; creator: string | null; creatorEmail: string | null; lines: PackedLine[] };
@@ -59,7 +61,7 @@ function makeDraft(line: InvoiceLine, key: string, cartonReference: string, extr
     packedQuantity: extra ? "" : String(line.remainingQuantity),
     unitsPerCarton: String(line.remainingQuantity || 1), cartonReference,
     grossWeightKg: extra ? "0" : line.unitWeightKg > 0 ? String(Number((line.unitWeightKg * line.remainingQuantity).toFixed(3))) : "0",
-    dimensionText: line.dimensionText || "", lengthCm: String(line.lengthCm || 0), widthCm: String(line.widthCm || 0), heightCm: String(line.heightCm || 0),
+    dimensionText: dimensionText(line.lengthCm, line.widthCm, line.heightCm, line.dimensionText || ""), lengthCm: String(line.lengthCm || 0), widthCm: String(line.widthCm || 0), heightCm: String(line.heightCm || 0),
   };
 }
 
@@ -151,7 +153,12 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
   }, [selectedRows]);
 
   function update(key: string, changes: Partial<Draft>) {
-    setDrafts((current) => current.map((draft) => draft.key === key ? { ...draft, ...changes } : draft));
+    setDrafts((current) => current.map((draft) => {
+      if (draft.key !== key) return draft;
+      const next = { ...draft, ...changes };
+      if (["lengthCm", "widthCm", "heightCm"].some(field => field in changes)) next.dimensionText = dimensionText(next.lengthCm, next.widthCm, next.heightCm);
+      return next;
+    }));
   }
 
   function addLine() {
@@ -452,7 +459,7 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
       {editingList ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-400 bg-amber-50 p-3 text-sm text-amber-950 dark:bg-amber-950/40 dark:text-amber-100"><strong>Editing {editingList.number}</strong><Button type="button" size="sm" variant="outline" onClick={cancelEdit}>Cancel Edit</Button></div> : null}
       <section className="space-y-3"><div className="grid gap-3 sm:grid-cols-3"><label className="space-y-1 text-sm"><Label>Packing Date</Label><Input type="date" value={packingDate} onChange={(event) => setPackingDate(event.target.value)} /></label><label className="space-y-1 text-sm sm:col-span-2"><Label>Delivery Address</Label><Input value={deliveryAddress} onChange={(event) => setDeliveryAddress(event.target.value)} maxLength={500} /></label></div>
         <div className="overflow-x-auto rounded-xl border">
-          <Table className="min-w-[1850px]"><TableHeader><TableRow><TableHead>Select</TableHead><TableHead className="min-w-72">Invoice Item</TableHead><TableHead>Invoice</TableHead><TableHead>Packed</TableHead><TableHead>Balance</TableHead><TableHead className="min-w-28">Pack Qty</TableHead><TableHead className="min-w-28">PCS / CTN</TableHead><TableHead>CTN</TableHead><TableHead className="min-w-28">CTN No</TableHead><TableHead>HS Code</TableHead><TableHead>COO</TableHead><TableHead className="min-w-[430px] text-center">L × W × H cm</TableHead><TableHead className="min-w-28">Gross KG</TableHead><TableHead>CBM</TableHead><TableHead /></TableRow></TableHeader>
+          <Table className="packing-editor-table"><TableHeader><TableRow><TableHead>Select</TableHead><TableHead className="min-w-72">Invoice Item</TableHead><TableHead responsiveColumn="quantity">Invoice</TableHead><TableHead responsiveColumn="quantity">Packed</TableHead><TableHead responsiveColumn="quantity">Balance</TableHead><TableHead className="min-w-28">Pack Qty</TableHead><TableHead className="min-w-28">PCS / CTN</TableHead><TableHead>CTN</TableHead><TableHead className="min-w-28">CTN No</TableHead><TableHead>HS Code</TableHead><TableHead>COO</TableHead><TableHead className="text-center">L × W × H cm</TableHead><TableHead className="min-w-28">Gross KG</TableHead><TableHead>CBM</TableHead><TableHead /></TableRow></TableHeader>
             <TableBody>{drafts.map((draft, draftIndex) => {
               const line = data.lines.find((entry) => entry.id === draft.invoiceLineId);
               if (!line) return null;
@@ -467,16 +474,16 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
               const lineBalance = available - (selectedQuantityByLine.get(line.id) ?? 0);
               const invalid = selected && (quantity <= 0 || units <= 0 || keys.length < cartons || lineBalance < -0.000001);
               return <TableRow key={draft.key} className={available <= 0 ? "opacity-55" : invalid ? "bg-red-50 text-red-700 dark:bg-red-950/45 dark:text-red-300" : selected ? "bg-blue-50/60 dark:bg-blue-950/35" : ""}>
-                <TableCell><Checkbox className="size-5 border-2 border-slate-500 bg-white shadow-sm data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600 dark:border-slate-200 dark:bg-slate-800 dark:data-[state=checked]:border-blue-400 dark:data-[state=checked]:bg-blue-500" disabled={available <= 0} checked={selected} onCheckedChange={(checked) => update(draft.key, { selected: checked === true })} aria-label={`Select packing row ${draftIndex + 1}`} /></TableCell>
-                <TableCell>{draft.extra ? <Select value={String(line.id)} onValueChange={(value) => changeLine(draft, Number(value))}><SelectTrigger className="w-full min-w-64"><SelectValue /></SelectTrigger><SelectContent>{data.lines.filter((entry) => availableQuantity(entry) > 0).map((entry) => <SelectItem key={entry.id} value={String(entry.id)}>#{entry.itemNumber || "—"} · {entry.description}</SelectItem>)}</SelectContent></Select> : <><strong>{line.description}</strong><span className="block font-mono text-xs text-slate-500 dark:text-slate-400">#{line.itemNumber || "—"} · {line.sku || "—"}</span></>}</TableCell>
-                <TableCell>{display(line.invoicedQuantity, 2)}</TableCell><TableCell>{display(line.packedQuantity, 2)}</TableCell><TableCell className={`font-bold ${lineBalance < 0 ? "text-red-600" : "text-amber-700 dark:text-amber-400"}`}>{display(Math.max(0, lineBalance), 2)}</TableCell>
-                <TableCell><Input disabled={!selected} type="number" min="0.01" max={available} step="0.01" value={draft.packedQuantity} onChange={(event) => update(draft.key, { packedQuantity: event.target.value, grossWeightKg: line.unitWeightKg > 0 ? String(Number((line.unitWeightKg * number(event.target.value)).toFixed(3))) : draft.grossWeightKg })} /></TableCell>
-                <TableCell><Input disabled={!selected} type="number" min="0.01" step="0.01" value={draft.unitsPerCarton} onChange={(event) => update(draft.key, { unitsPerCarton: event.target.value })} /></TableCell>
-                <TableCell className="font-bold">{displayedCartons}</TableCell><TableCell><Input disabled={!selected} value={draft.cartonReference} onChange={(event) => update(draft.key, { cartonReference: event.target.value })} placeholder="1 or 1-3" maxLength={120} /></TableCell>
-                <TableCell>{line.hsCode || "—"}</TableCell><TableCell>{line.countryOfOrigin || "—"}</TableCell>
-                <TableCell><div className="grid min-w-[400px] grid-cols-3 gap-3">{(["lengthCm", "widthCm", "heightCm"] as const).map((field) => <Input key={field} className="h-14 min-w-[124px] bg-white px-4 text-lg font-bold text-slate-950 md:text-lg dark:bg-slate-800 dark:text-white" disabled={!selected} type="number" min="0" step="0.01" value={draft[field]} onChange={(event) => update(draft.key, { [field]: event.target.value })} aria-label={field} />)}</div></TableCell>
-                <TableCell><Input disabled={!selected} type="number" min="0" step="0.001" value={draft.grossWeightKg} onChange={(event) => update(draft.key, { grossWeightKg: event.target.value })} /></TableCell><TableCell className="font-semibold">{display(cbm)} m³</TableCell>
-                <TableCell>{draft.extra ? <Button type="button" size="icon" variant="outline" className="border-rose-300 text-rose-600" onClick={() => setDrafts((current) => current.filter((entry) => entry.key !== draft.key))} aria-label="Remove packing row"><Trash2 className="size-4" /></Button> : null}</TableCell>
+                <TableCell data-label="Select"><Checkbox className="size-5 border-2 border-slate-500 bg-white shadow-sm data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600 dark:border-slate-200 dark:bg-slate-800 dark:data-[state=checked]:border-blue-400 dark:data-[state=checked]:bg-blue-500" disabled={available <= 0} checked={selected} onCheckedChange={(checked) => update(draft.key, { selected: checked === true })} aria-label={`Select packing row ${draftIndex + 1}`} /></TableCell>
+                <TableCell data-label="Invoice item">{draft.extra ? <Select value={String(line.id)} onValueChange={(value) => changeLine(draft, Number(value))}><SelectTrigger className="w-full min-w-64"><SelectValue /></SelectTrigger><SelectContent>{data.lines.filter((entry) => availableQuantity(entry) > 0).map((entry) => <SelectItem key={entry.id} value={String(entry.id)}>#{entry.itemNumber || "—"} · {entry.description}</SelectItem>)}</SelectContent></Select> : <><strong>{line.description}</strong><span className="block font-mono text-xs text-slate-500 dark:text-slate-400">#{line.itemNumber || "—"} · {line.sku || "—"}</span></>}</TableCell>
+                <TableCell data-label="Invoice qty">{display(line.invoicedQuantity, 2)}</TableCell><TableCell data-label="Already packed">{display(line.packedQuantity, 2)}</TableCell><TableCell data-label="Balance qty" className={`font-bold ${lineBalance < 0 ? "text-red-600" : "text-amber-700 dark:text-amber-400"}`}>{display(Math.max(0, lineBalance), 2)}</TableCell>
+                <TableCell data-label="Pack qty"><Input disabled={!selected} type="number" min="0.01" max={available} step="0.01" value={draft.packedQuantity} onChange={(event) => update(draft.key, { packedQuantity: event.target.value, grossWeightKg: line.unitWeightKg > 0 ? String(Number((line.unitWeightKg * number(event.target.value)).toFixed(3))) : draft.grossWeightKg })} /></TableCell>
+                <TableCell data-label="PCS / CTN"><Input disabled={!selected} type="number" min="0.01" step="0.01" value={draft.unitsPerCarton} onChange={(event) => update(draft.key, { unitsPerCarton: event.target.value })} /></TableCell>
+                <TableCell data-label="Cartons" className="font-bold">{displayedCartons}</TableCell><TableCell data-label="CTN No"><Input disabled={!selected} value={draft.cartonReference} onChange={(event) => update(draft.key, { cartonReference: event.target.value })} placeholder="1 or 1-3" maxLength={120} /></TableCell>
+                <TableCell data-label="HS code">{line.hsCode || "—"}</TableCell><TableCell data-label="COO">{line.countryOfOrigin || "—"}</TableCell>
+                <TableCell data-label="L × W × H (cm)"><div className="packing-dimension-inputs grid min-w-0 grid-cols-3 gap-2">{(["lengthCm", "widthCm", "heightCm"] as const).map((field) => <Input key={field} className="h-11 min-w-0 w-full bg-white px-4 text-lg font-bold text-slate-950 md:text-lg dark:bg-slate-800 dark:text-white" disabled={!selected} type="number" min="0" step="0.01" value={draft[field]} onChange={(event) => update(draft.key, { [field]: event.target.value })} aria-label={field} />)}</div><p className="mt-2 text-xs text-muted-foreground">{draft.dimensionText || "Enter L × W × H"}</p></TableCell>
+                <TableCell data-label="Gross KG"><Input disabled={!selected} type="number" min="0" step="0.001" value={draft.grossWeightKg} onChange={(event) => update(draft.key, { grossWeightKg: event.target.value })} /></TableCell><TableCell data-label="CBM" className="font-semibold">{display(cbm)} m³</TableCell>
+                <TableCell data-label="Actions">{draft.extra ? <Button type="button" size="icon" variant="outline" className="border-rose-300 text-rose-600" onClick={() => setDrafts((current) => current.filter((entry) => entry.key !== draft.key))} aria-label="Remove packing row"><Trash2 className="size-4" /></Button> : null}</TableCell>
               </TableRow>;
             })}</TableBody>
           </Table>

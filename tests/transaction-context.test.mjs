@@ -2060,6 +2060,11 @@ test('invoice packing lists preserve logistics, calculate cartons and expose onl
   await database.query("INSERT INTO contacts(company_id,type,name,country) VALUES($1,'customer','Packing customer','AFGHANISTAN')",[company]);
   const invoice=(await database.query("INSERT INTO transactions(company_id,location_id,number,type,party,transaction_date) VALUES($1,$2,'INV-PACK-1','invoice','Packing customer','2026-09-22') RETURNING id",[company,location])).rows[0].id;
   const invoiceLine=(await database.query("INSERT INTO transaction_lines(transaction_id,item_id,description,quantity) VALUES($1,$2,'Packed router',100) RETURNING id",[invoice,item])).rows[0].id;
+  const logistics = await vite.ssrLoadModule('/app/api/item-logistics/route.ts');
+  const updateLogistics = values => logistics.PATCH(new Request('https://app.test/api/item-logistics', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ companyId: company, locationId: location, records: [{ id: item, hsCode: '84718000', countryOfOrigin: 'china', dimensionText: 'stale manual text', lengthCm: 50, widthCm: 40, heightCm: 30, weightKg: 0.5, ...values }] }) }));
+  let updated = await updateLogistics({});
+  assert.equal(updated.status, 200, await updated.clone().text());
+  assert.equal((await database.query('SELECT dimension_text FROM items WHERE id=$1', [item])).rows[0].dimension_text, '50 × 40 × 30 cm');
   const {GET,POST,PATCH}=await vite.ssrLoadModule('/app/api/packing-lists/route.ts');
   const save=(quantity)=>POST(new Request('https://app.test/api/packing-lists',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({companyId:company,invoiceId:invoice,packingDate:'2026-09-22',deliveryAddress:'Kabul Airport',memo:'Export packing',lines:[{invoiceLineId:invoiceLine,packedQuantity:quantity,unitsPerCarton:10,cartonReference:'5',grossWeightKg:quantity*0.5,lengthCm:50,widthCm:40,heightCm:30}]})}));
   let response=await save(20);
@@ -2069,6 +2074,8 @@ test('invoice packing lists preserve logistics, calculate cartons and expose onl
   assert.equal(data.packingLists[0].lines[0].cartonCount,2);
   assert.equal(data.packingLists[0].lines[0].cartonReference,'5-6');
   assert.equal(data.packingLists[0].lines[0].totalCbm,0.12);
+  assert.equal(data.packingLists[0].lines[0].dimensionText,'50 × 40 × 30 cm');
+  assert.equal(data.lines[0].dimensionText,'50 × 40 × 30 cm');
   assert.equal(data.packingLists[0].lines[0].hsCode,'84718000');
   assert.equal(data.packingLists[0].lines[0].countryOfOrigin,'CHINA');
   assert.equal(data.lines[0].remainingQuantity,80);
@@ -2090,6 +2097,14 @@ test('invoice packing lists preserve logistics, calculate cartons and expose onl
   response=await PATCH(new Request('https://app.test/api/packing-lists',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({companyId:company,invoiceId:invoice,packingListId:firstList.id,packingDate:'2026-09-23',deliveryAddress:'Updated Kabul Airport',memo:'Updated packing',lines:[{invoiceLineId:invoiceLine,packedQuantity:20,unitsPerCarton:10,cartonReference:'20',grossWeightKg:10,lengthCm:55,widthCm:45,heightCm:35}]})}));
   assert.equal(response.status,200,await response.clone().text());data=await response.json();
   assert.equal(data.packingLists.length,3);assert.equal(data.packingLists[0].number,'PL-INV-PACK-1-01');assert.equal(data.packingLists[0].packingDate,'2026-09-23');assert.equal(data.packingLists[0].deliveryAddress,'Updated Kabul Airport');assert.equal(data.packingLists[0].lines.length,1);assert.equal(data.packingLists[0].lines[0].cartonReference,'20-21');assert.equal(data.lines[0].remainingQuantity,0);
+  assert.equal(data.packingLists[0].lines[0].dimensionText, '55 × 45 × 35 cm');
+  updated = await updateLogistics({ lengthCm: 10, widthCm: 20, heightCm: 30, hsCode: '99999999', countryOfOrigin: 'JAPAN' });
+  assert.equal(updated.status, 200);
+  const snapshot = await (await GET(new Request(`https://app.test/api/packing-lists?companyId=${company}&invoiceId=${invoice}`))).json();
+  assert.equal(snapshot.lines[0].dimensionText, '10 × 20 × 30 cm');
+  assert.equal(snapshot.lines[0].hsCode, '99999999');
+  assert.equal(snapshot.packingLists[0].lines[0].dimensionText, '55 × 45 × 35 cm');
+  assert.equal(snapshot.packingLists[0].lines[0].hsCode, '84718000');
   const refreshed=await GET(new Request(`https://app.test/api/packing-lists?companyId=${company}&invoiceId=${invoice}`));
   assert.equal(refreshed.status,200);
   assert.equal((await refreshed.json()).lines[0].remainingQuantity,0);
@@ -2249,4 +2264,34 @@ test('account status preserves balances, enforces access and protects linked acc
     assert.deepEqual(JSON.parse(audit.details).active, { before: true, after: false });
     assert.equal(JSON.parse(audit.details).actorEmail, 'accountant@test');
   } finally { delete globalThis.__transferTestUser; }
+});
+
+
+test('logistics choices persist per company and validate roles, codes and duplicates', async () => {
+  const c = (await database.query("INSERT INTO companies (name) VALUES ('Logistics choices') RETURNING id")).rows[0].id;
+  const other = (await database.query("INSERT INTO companies (name) VALUES ('Other choices') RETURNING id")).rows[0].id;
+  const route = await vite.ssrLoadModule('/app/api/item-logistics-options/route.ts');
+  const create = (body = {}) => route.POST(new Request('https://app.test/api/item-logistics-options', { method: 'POST', headers: { origin: 'https://app.test', 'content-type': 'application/json' }, body: JSON.stringify({ companyId: c, type: 'hs_code', value: '12345678', label: 'Custom goods', ...body }) }));
+  const list = companyId => route.GET(new Request(`https://app.test/api/item-logistics-options?companyId=${companyId}`));
+  assert.equal((await create()).status, 201);
+  assert.equal((await create()).status, 409);
+  assert.equal((await create({ value: 'BAD' })).status, 400);
+  assert.equal((await create({ value: '12345' })).status, 400);
+  assert.equal((await create({ type: 'coo', value: '  custom   origin  ', label: '' })).status, 201);
+  assert.equal((await create({ type: 'coo', value: 'CUSTOM ORIGIN' })).status, 409);
+  const options = (await (await list(c)).json()).options;
+  assert.equal(options.length, 2); assert.ok(options.some(option => option.value === 'CUSTOM ORIGIN'));
+  assert.equal((await (await list(other)).json()).options.length, 0);
+  try {
+    globalThis.__transferTestUser = { id: 1, role: 'viewer', companyIds: [c] };
+    assert.equal((await create({ value: '12345679' })).status, 403);
+    assert.equal((await list(c)).status, 200);
+    globalThis.__transferTestUser = { id: 1, role: 'admin', companyIds: [other] };
+    assert.equal((await create({ value: '12345679' })).status, 403);
+    assert.equal((await list(c)).status, 403);
+  } finally { delete globalThis.__transferTestUser; }
+  const { dimensionText } = await vite.ssrLoadModule('/lib/item-logistics.ts');
+  assert.equal(dimensionText(11.5, 35, 55, 'old'), '11.5 × 35 × 55 cm');
+  assert.equal(dimensionText(0, 35, 55), '');
+  assert.equal(dimensionText(0, 0, 0, 'Manual dimensions'), 'Manual dimensions');
 });

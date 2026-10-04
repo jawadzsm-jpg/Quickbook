@@ -1,3 +1,4 @@
+import { dimensionText } from "@/lib/item-logistics";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { appUsers, auditLog, contacts, items, packingListLines, packingLists, transactionLines, transactions } from "@/db/schema";
@@ -157,7 +158,7 @@ async function savePackingList(request: Request, editing: boolean) {
           invoiceLineId, itemId: line.itemId, itemNumber: line.itemNumber ?? "", sku: line.sku ?? "", description: line.description,
           hsCode: line.hsCode ?? "", countryOfOrigin: line.countryOfOrigin ?? "", packedQuantity, unitsPerCarton, cartonCount, cartonReference, cartonKeys: keys,
           grossWeightKg: round(grossWeightKg, 3), cartonWeightKg: round(cartonCount ? grossWeightKg / cartonCount : 0, 3),
-          dimensionText: clean(input.dimensionText || line.dimensionText, 120), lengthCm, widthCm, heightCm, cbmPerCarton, totalCbm: 0,
+          dimensionText: dimensionText(lengthCm, widthCm, heightCm, clean(input.dimensionText || line.dimensionText, 120)), lengthCm, widthCm, heightCm, cbmPerCarton, totalCbm: 0,
         };
       });
       for (const [invoiceLineId, quantity] of requestedByLine) {

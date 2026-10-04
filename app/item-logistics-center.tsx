@@ -1,13 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { PackageSearch, RotateCcw, Save, Search } from "lucide-react";
+import { Maximize2, Minus, PackageSearch, RotateCcw, Save, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { useSkuLock, SkuLockNotice } from "./use-sku-lock";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+import { countries } from "@/lib/countries";
+import { defaultHsCodes, dimensionText, type LogisticsOption } from "@/lib/item-logistics";
+import { LogisticsChoice } from "./logistics-choice";
 
 type LogisticsRecord = {
   id: number;
@@ -25,21 +29,10 @@ type LogisticsRecord = {
   weightKg: number;
 };
 
-const hsCodes = [
-  ["84713000", "Laptop / Notebook"],
-  ["84714100", "Desktop Computer"],
-  ["84717000", "HDD & RAM / Storage"],
-  ["85235100", "SSD / Solid-State Storage"],
-  ["85285200", "Computer Monitor"],
-  ["84433100", "Printer / Multifunction"],
-  ["84716000", "Keyboard & Mouse"],
-  ["85183000", "Headphones / Speakers"],
-  ["85044090", "Power Adapter / Charger"],
-] as const;
-
-const countries = ["CHINA", "TAIWAN", "THAILAND", "JAPAN", "SOUTH KOREA", "VIETNAM", "MALAYSIA", "INDIA", "UNITED STATES", "UNITED ARAB EMIRATES"];
-
 export function ItemLogisticsCenter({ companyId, companyName, locationId, locationName, canEdit }: { companyId: number; companyName: string; locationId: number; locationName: string; canEdit: boolean }) {
+  const [minimized, setMinimized] = useState(false);
+  const [choiceBusy, setChoiceBusy] = useState(false);
+  const [options, setOptions] = useState<LogisticsOption[]>([]);
   const [records, setRecords] = useState<LogisticsRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -53,7 +46,10 @@ export function ItemLogisticsCenter({ companyId, companyName, locationId, locati
     if (!companyId || !locationId) return;
     setLoading(true);
     try {
-      const response = await fetch(`/api/item-logistics?companyId=${companyId}&locationId=${locationId}`, { cache: "no-store" });
+      const [response, choices] = await Promise.all([fetch(`/api/item-logistics?companyId=${companyId}&locationId=${locationId}`, { cache: "no-store" }), fetch(`/api/item-logistics-options?companyId=${companyId}`, { cache: "no-store" })]);
+      const choiceData = await choices.json();
+      if (!choices.ok) throw new Error(choiceData.error || "Could not load logistics choices.");
+      setOptions(choiceData.options);
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not load item logistics");
       setRecords(data.records as LogisticsRecord[]);
@@ -77,14 +73,19 @@ export function ItemLogisticsCenter({ companyId, companyName, locationId, locati
   const visible = filtered.slice((safePage - 1) * size, safePage * size);
 
   function update(id: number, field: keyof LogisticsRecord, value: string | number) {
-    if (!canEdit) return;
-    setRecords((current) => current.map((record) => record.id === id ? { ...record, [field]: value } : record));
+    if (!canEdit || saving) return;
+    setRecords((current) => current.map((record) => {
+      if (record.id !== id) return record;
+      const next = { ...record, [field]: value };
+      if (["lengthCm", "widthCm", "heightCm"].includes(field)) next.dimensionText = dimensionText(next.lengthCm, next.widthCm, next.heightCm);
+      return next;
+    }));
     setDirtyIds((current) => new Set(current).add(id));
   }
 
   const skuLock = useSkuLock(activeIds.size || dirtyIds.size ? { resource: "item-logistics", records: [...new Set([...activeIds, ...dirtyIds])].sort((a, b) => a - b).map((id) => ({ id })) } : null);
   async function save() {
-    if (!skuLock.ready) return;
+    if (!skuLock.ready || choiceBusy) return;
     const changed = records.filter((record) => dirtyIds.has(record.id));
     if (!changed.length || !canEdit) return;
     setSaving(true);
@@ -99,12 +100,31 @@ export function ItemLogisticsCenter({ companyId, companyName, locationId, locati
     finally { setSaving(false); }
   }
 
+  const choicesFor = (type: LogisticsOption["type"]) => {
+    const defaults = type === "hs_code" ? defaultHsCodes : countries.filter(country => country.code !== "OTHER").map(country => ({ type: "coo" as const, value: country.name.toUpperCase(), label: "" }));
+    const savedValues = records.map(record => ({ type, value: type === "hs_code" ? record.hsCode : record.countryOfOrigin, label: "" })).filter(option => option.value);
+    return [...new Map([...savedValues, ...defaults, ...options.filter(option => option.type === type)].map(option => [option.value, option])).values()];
+  };
+  const hsOptions = choicesFor("hs_code"), cooOptions = choicesFor("coo");
+  async function addOption(id: number, type: LogisticsOption["type"], raw: string, label: string) {
+    const value = raw.trim().replace(/\s+/g, " ").toUpperCase();
+    const field = type === "hs_code" ? "hsCode" : "countryOfOrigin";
+    if ((type === "hs_code" ? hsOptions : cooOptions).some(option => option.value === value)) { update(id, field, value); return; }
+    setChoiceBusy(true);
+    try {
+    const response = await fetch("/api/item-logistics-options", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, type, value, label }) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Could not add choice.");
+    setOptions(current => [...current, result.option]);
+    update(id, field, result.option.value);
+    toast.success("Choice added. Save Changes to update the item.");
+    } finally { setChoiceBusy(false); }
+  }
+  if (minimized) return <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-4 text-card-foreground"><div><strong>HS Code, COO &amp; Dimensions · Minimized</strong>{dirtyIds.size > 0 && <p className="text-sm text-muted-foreground">{dirtyIds.size} unsaved item(s)</p>}</div><Button variant="outline" onClick={() => setMinimized(false)}><Maximize2 className="size-4" />Restore</Button></section>;
   return <div className="min-w-0 w-full space-y-5"><SkuLockNotice message={skuLock.message} />
     <section className="min-w-0 rounded-xl border bg-white shadow-sm">
-      <div className="flex flex-col gap-4 border-b bg-slate-50 p-5 lg:flex-row lg:items-center lg:justify-between"><div className="flex items-center gap-3"><div className="grid size-11 place-items-center rounded-xl bg-blue-600 text-white"><PackageSearch className="size-5" /></div><div><h2 className="font-bold text-slate-900">HS Code, COO &amp; Dimensions</h2><p className="text-sm text-slate-500">{companyName} · {locationName}</p></div></div><div className="flex flex-wrap items-center gap-2"><Badge variant="outline" className="bg-white">{records.length} items</Badge>{dirtyIds.size ? <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">{dirtyIds.size} unsaved</Badge> : null}<Button type="button" variant="outline" onClick={() => void load()} disabled={loading || saving}><RotateCcw className="size-4" />Reset</Button>{canEdit ? <Button type="button" onClick={() => void save()} disabled={!skuLock.ready || !dirtyIds.size || saving}><Save className="size-4" />{saving ? "Saving…" : "Save Changes"}</Button> : null}</div></div>
+      <div className="flex flex-col gap-4 border-b bg-slate-50 p-5 lg:flex-row lg:items-center lg:justify-between"><div className="flex items-center gap-3"><div className="grid size-11 place-items-center rounded-xl bg-blue-600 text-white"><PackageSearch className="size-5" /></div><div><h2 className="font-bold text-slate-900">HS Code, COO &amp; Dimensions</h2><p className="text-sm text-slate-500">{companyName} · {locationName}</p></div></div><div className="flex flex-wrap items-center gap-2"><Button type="button" variant="outline" onClick={() => setMinimized(true)}><Minus className="size-4" />Minimize</Button><Badge variant="outline" className="bg-white">{records.length} items</Badge>{dirtyIds.size ? <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">{dirtyIds.size} unsaved</Badge> : null}<Button type="button" variant="outline" onClick={() => { if (!dirtyIds.size || window.confirm("Discard unsaved item changes?")) void load(); }} disabled={loading || saving || choiceBusy}><RotateCcw className="size-4" />Reset</Button>{canEdit ? <Button type="button" onClick={() => void save()} disabled={!skuLock.ready || !dirtyIds.size || saving || choiceBusy}><Save className="size-4" />{saving ? "Saving…" : "Save Changes"}</Button> : null}</div></div>
       <div className="flex flex-col gap-3 border-b p-4 md:flex-row md:items-center md:justify-between"><div className="flex items-center gap-2 text-sm text-slate-600"><span>Show</span><Select value={pageSize} onValueChange={(value) => { setPageSize(value); setPage(1); }}><SelectTrigger className="w-20"><SelectValue /></SelectTrigger><SelectContent>{[25, 50, 100].map((value) => <SelectItem key={value} value={String(value)}>{value}</SelectItem>)}</SelectContent></Select><span>entries</span></div><div className="relative w-full md:max-w-sm"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Search items, SKU, HS code or COO" className="pl-9" /></div></div>
-      <datalist id="hs-code-options">{hsCodes.map(([code, label]) => <option key={code} value={`${label} (${code})`} />)}</datalist>
-      <datalist id="country-origin-options">{countries.map((country) => <option key={country} value={country} />)}</datalist>
       <div className="max-h-[68vh] overflow-y-auto">
         {loading ? <p className="p-12 text-center text-slate-500">Loading item specifications…</p> : visible.length ? visible.map((record) => (
           <div key={record.id} onFocusCapture={() => { if (canEdit) setActiveIds((old) => old.has(record.id) ? old : new Set(old).add(record.id)); }} className={`grid min-w-0 gap-4 border-b p-4 last:border-b-0 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] ${dirtyIds.has(record.id) ? "bg-amber-50/60" : ""}`}>
@@ -114,13 +134,13 @@ export function ItemLogisticsCenter({ companyId, companyName, locationId, locati
             </div>
             <div className="min-w-0 space-y-3">
               <div className="grid min-w-0 gap-3 sm:grid-cols-3">
-                <label className="min-w-0 space-y-1 text-sm"><span>HS Code</span><Input list="hs-code-options" value={record.hsCode} disabled={!canEdit || skuLock.blocked} onChange={(event) => update(record.id, "hsCode", event.target.value)} placeholder="Select or enter HS code" /></label>
-                <label className="min-w-0 space-y-1 text-sm"><span>COO</span><Input list="country-origin-options" value={record.countryOfOrigin} disabled={!canEdit || skuLock.blocked} onChange={(event) => update(record.id, "countryOfOrigin", event.target.value.toUpperCase())} placeholder="Country" /></label>
-                <label className="min-w-0 space-y-1 text-sm"><span>Dimension</span><Input value={record.dimensionText} disabled={!canEdit || skuLock.blocked} onChange={(event) => update(record.id, "dimensionText", event.target.value)} placeholder="e.g. 11 × 35 × 55 cm" /></label>
+                <LogisticsChoice label="HS code" value={record.hsCode} options={hsOptions} disabled={!canEdit || skuLock.blocked || saving} onChange={value => update(record.id, "hsCode", value)} onAdd={(value, label) => addOption(record.id, "hs_code", value, label)} />
+                <LogisticsChoice label="COO" value={record.countryOfOrigin} options={cooOptions} disabled={!canEdit || skuLock.blocked || saving} onChange={value => update(record.id, "countryOfOrigin", value)} onAdd={(value, label) => addOption(record.id, "coo", value, label)} />
+                <label className="min-w-0 space-y-1 text-sm"><span>Dimension</span><Input readOnly={Boolean(dimensionText(record.lengthCm, record.widthCm, record.heightCm))} value={dimensionText(record.lengthCm, record.widthCm, record.heightCm, record.dimensionText)} disabled={!canEdit || skuLock.blocked || saving} onChange={(event) => update(record.id, "dimensionText", event.target.value)} placeholder="e.g. 11 × 35 × 55 cm" /><span className="block text-xs text-muted-foreground">Auto-filled from L × W × H; used in packing lists.</span></label>
               </div>
               <div className="grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-4">
                 {([["lengthCm", "Length (cm)"], ["widthCm", "Width (cm)"], ["heightCm", "Height (cm)"], ["weightKg", "Weight (kg)"]] as const).map(([field, label]) => (
-                  <label key={field} className="min-w-0 space-y-1 text-sm"><span>{label}</span><Input type="number" min="0" step="0.01" value={record[field]} disabled={!canEdit || skuLock.blocked} onChange={(event) => update(record.id, field, Number(event.target.value))} className="min-w-0" /></label>
+                  <label key={field} className="min-w-0 space-y-1 text-sm"><span>{label}</span><Input type="number" min="0" max="1000000" step="0.01" value={record[field]} disabled={!canEdit || skuLock.blocked || saving} onChange={(event) => update(record.id, field, Number(event.target.value))} className="min-w-0" /></label>
                 ))}
               </div>
             </div>
