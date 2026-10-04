@@ -9,8 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-import { countries } from "@/lib/countries";
-import { defaultHsCodes, dimensionText, type LogisticsOption } from "@/lib/item-logistics";
+import { logisticsChoices, dimensionText, type LogisticsOption } from "@/lib/item-logistics";
 import { LogisticsChoice } from "./logistics-choice";
 
 type LogisticsRecord = {
@@ -100,11 +99,7 @@ export function ItemLogisticsCenter({ companyId, companyName, locationId, locati
     finally { setSaving(false); }
   }
 
-  const choicesFor = (type: LogisticsOption["type"]) => {
-    const defaults = type === "hs_code" ? defaultHsCodes : countries.filter(country => country.code !== "OTHER").map(country => ({ type: "coo" as const, value: country.name.toUpperCase(), label: "" }));
-    return [...new Map([...defaults, ...options.filter(option => option.type === type)].map(option => [option.value, option])).values()];
-  };
-  const hsOptions = choicesFor("hs_code"), cooOptions = choicesFor("coo");
+  const hsOptions = logisticsChoices("hs_code", options), cooOptions = logisticsChoices("coo", options);
   async function addOption(id: number, type: LogisticsOption["type"], raw: string, label: string) {
     const value = raw.trim().replace(/\s+/g, " ").toUpperCase();
     const field = type === "hs_code" ? "hsCode" : "countryOfOrigin";
@@ -119,16 +114,16 @@ export function ItemLogisticsCenter({ companyId, companyName, locationId, locati
     toast.success("Choice added. Save Changes to update the item.");
     } finally { setChoiceBusy(false); }
   }
-  async function deleteOption(option: LogisticsOption) {
-    if (!option.id || !canEdit || choiceBusy || saving) return;
-    if (!window.confirm(`Delete ${option.value} from this company's choices? Saved item and packing-list values will stay unchanged.`)) return;
+  async function changeOption(option: LogisticsOption, method: "PATCH" | "DELETE", value?: string, label?: string) {
+    if (!canEdit || choiceBusy || saving) return;
+    if (method === "DELETE" && !window.confirm(`Delete ${option.value} from this company's choices? Saved item and packing-list values will stay unchanged.`)) return;
     setChoiceBusy(true);
     try {
-      const response = await fetch("/api/item-logistics-options", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, id: option.id }) });
+      const response = await fetch("/api/item-logistics-options", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, id: option.id, type: option.type, sourceValue: option.sourceValue, expectedValue: option.value, expectedLabel: option.label, value, label }) });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Could not delete choice.");
-      setOptions(current => current.filter(entry => entry.id !== option.id));
-      toast.success("Custom choice deleted. Saved item values are unchanged.");
+      if (!response.ok) throw new Error(result.error || "Could not update choice.");
+      setOptions(current => [...current.filter(entry => !option.id || entry.id !== option.id), ...(result.option ? [result.option] : [])]);
+      toast.success(method === "DELETE" ? "Choice deleted. Saved item values are unchanged." : "Choice updated. Select it and Save Changes to apply it to an item.");
     } finally { setChoiceBusy(false); }
   }
   if (minimized) return <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-4 text-card-foreground"><div><strong>HS Code, COO &amp; Dimensions · Minimized</strong>{dirtyIds.size > 0 && <p className="text-sm text-muted-foreground">{dirtyIds.size} unsaved item(s)</p>}</div><Button variant="outline" onClick={() => setMinimized(false)}><Maximize2 className="size-4" />Restore</Button></section>;
@@ -145,8 +140,8 @@ export function ItemLogisticsCenter({ companyId, companyName, locationId, locati
             </div>
             <div className="min-w-0 space-y-3">
               <div className="grid min-w-0 gap-3 sm:grid-cols-3">
-                <LogisticsChoice onDelete={deleteOption} label="HS code" value={record.hsCode} options={hsOptions} disabled={!canEdit || skuLock.blocked || saving || choiceBusy} onChange={value => update(record.id, "hsCode", value)} onAdd={(value, label) => addOption(record.id, "hs_code", value, label)} />
-                <LogisticsChoice onDelete={deleteOption} label="COO" value={record.countryOfOrigin} options={cooOptions} disabled={!canEdit || skuLock.blocked || saving || choiceBusy} onChange={value => update(record.id, "countryOfOrigin", value)} onAdd={(value, label) => addOption(record.id, "coo", value, label)} />
+                <LogisticsChoice onDelete={option => changeOption(option, "DELETE")} onEdit={(option, value, label) => changeOption(option, "PATCH", value, label)} label="HS code" value={record.hsCode} options={hsOptions} disabled={!canEdit || skuLock.blocked || saving || choiceBusy} onChange={value => update(record.id, "hsCode", value)} onAdd={(value, label) => addOption(record.id, "hs_code", value, label)} />
+                <LogisticsChoice onDelete={option => changeOption(option, "DELETE")} onEdit={(option, value, label) => changeOption(option, "PATCH", value, label)} label="COO" value={record.countryOfOrigin} options={cooOptions} disabled={!canEdit || skuLock.blocked || saving || choiceBusy} onChange={value => update(record.id, "countryOfOrigin", value)} onAdd={(value, label) => addOption(record.id, "coo", value, label)} />
                 <label className="min-w-0 space-y-1 text-sm"><span>Dimension</span><Input readOnly={Boolean(dimensionText(record.lengthCm, record.widthCm, record.heightCm))} value={dimensionText(record.lengthCm, record.widthCm, record.heightCm, record.dimensionText)} disabled={!canEdit || skuLock.blocked || saving || choiceBusy} onChange={(event) => update(record.id, "dimensionText", event.target.value)} placeholder="e.g. 11 × 35 × 55 cm" /><span className="block text-xs text-muted-foreground">Auto-filled from L × W × H; used in packing lists.</span></label>
               </div>
               <div className="grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-4">
