@@ -729,7 +729,7 @@ test("supplier bills have direct attachments and A4 template output with a movab
   assert.match(app, /"bill", "purchase order"/);
   assert.match(template, /bill: "Supplier Bill"/);
   assert.match(template, /case "bill": return "bill"/);
-  assert.match(template, /activeMode === "bill" \|\| activeMode === "purchase-order"/);
+  assert.match(template, /const movableStamp = true/);
   assert.match(template, /createA4PdfBlob/);
   assert.match(attachmentApi, /transactionType === "bill" && hasPermission\(authorization, "purchases:write"\)/);
 });

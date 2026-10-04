@@ -1,4 +1,5 @@
 "use client";
+import { useCompanyDocumentOutput } from "./company-document-output";
 
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { BadgeCheck, CircleOff, Download, Eye, FileText, Paperclip, Pencil, Percent, Plus, Printer, Stamp, Trash2 } from "lucide-react";
@@ -27,6 +28,7 @@ function readableType(value: string) {
 }
 
 export function VatCodeCenter({ companyId, company, onChanged, onOpenDocument }: { companyId: number; company: LetterheadCompany; onChanged?: () => void; onOpenDocument?: (id: number) => void }) {
+  const documentOutput=useCompanyDocumentOutput();
   const [codes, setCodes] = useState<VatCodeRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -134,9 +136,9 @@ export function VatCodeCenter({ companyId, company, onChanged, onOpenDocument }:
   async function downloadPdf() {
     setExporting(true);
     try {
-      const { reportFilename, reportPdf } = await import("@/lib/report-export");
+      const { reportFilename } = await import("@/lib/report-export");
       const report = reportData();
-      const bytes = await reportPdf(report, company.name, "All document areas", report.rows, stamp.show && company.stampData ? { data: company.stampData, left: stamp.left, top: stamp.top } : undefined, "portrait");
+      const bytes = await documentOutput.reportPdf(report, company.name, "All document areas", report.rows, stamp.show && company.stampData ? { data: company.stampData, left: stamp.left, top: stamp.top } : undefined, "portrait");
       const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "application/pdf" }));
       const link = document.createElement("a"); link.href = url; link.download = reportFilename(report, "pdf"); document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not prepare VAT-code PDF"); }
@@ -144,6 +146,7 @@ export function VatCodeCenter({ companyId, company, onChanged, onOpenDocument }:
   }
 
   function printRegister() {
+    if(documentOutput.enabled()){void documentOutput.printReport(reportData(),company.name,"All document areas",undefined,stamp.show&&company.stampData?{data:company.stampData,left:stamp.left,top:stamp.top}:undefined).catch(e=>toast.error(e.message));return;}
     const content = printRef.current?.outerHTML;
     if (!content) return;
     const popup = window.open("", "_blank", "noopener,noreferrer");

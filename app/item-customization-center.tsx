@@ -1,9 +1,10 @@
 "use client";
+import { useCompanyDocumentOutput } from "./company-document-output";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Download, Eye, GripHorizontal, PackageOpen, RefreshCw, Save, Search } from "lucide-react";
 import { toast } from "sonner";
-import { reportCsv, reportFilename, reportPdf, reportWorkbook } from "@/lib/report-export";
+import { reportCsv, reportFilename, reportWorkbook } from "@/lib/report-export";
 import { useSkuLock, SkuLockNotice } from "./use-sku-lock";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ function download(content: BlobPart, type: string, filename: string) {
 export function ItemCustomizationCenter({ companyId, companyName, locationId, locationName, currency, canOpenInventory, onOpenInventory }: {
   companyId: number; companyName: string; locationId: number; locationName: string; currency: string; canOpenInventory: boolean; onOpenInventory: (sku: string) => void;
 }) {
+  const documentOutput=useCompanyDocumentOutput();
   const [records, setRecords] = useState<CustomizationRecord[]>([]);
   const [canEdit, setCanEdit] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -118,7 +120,7 @@ export function ItemCustomizationCenter({ companyId, companyName, locationId, lo
     try {
       if (kind === "csv") download(reportCsv(exportReport, companyName, locationName), "text/csv;charset=utf-8", reportFilename(exportReport, kind));
       else if (kind === "xlsx") download(await reportWorkbook(exportReport, companyName, locationName, exportRows, "portrait") as BlobPart, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", reportFilename(exportReport, kind));
-      else download(await reportPdf(exportReport, companyName, locationName, exportRows, undefined, "portrait") as BlobPart, "application/pdf", reportFilename(exportReport, kind));
+      else download(await documentOutput.reportPdf(exportReport, companyName, locationName, exportRows, undefined, "portrait") as BlobPart, "application/pdf", reportFilename(exportReport, kind));
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not export customization details."); }
     finally { setExporting(null); }
   }

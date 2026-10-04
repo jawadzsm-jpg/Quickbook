@@ -1,4 +1,5 @@
 "use client";
+import { useCompanyDocumentOutput } from "./company-document-output";
 import { useState, type ReactNode } from "react";
 import { ChevronDown, Download } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -11,6 +12,7 @@ import { toast } from "sonner";
 import type { PrintOrientation } from "@/lib/document-print";
 
 export function ProfitLossReport({ report, company, loading, onOpen, onOpenItem, onOpenArea, stamp, orientation = "portrait" }: { report: PnlReport; company: string; loading: boolean; onApply: (from: string, to: string) => Promise<void>; onOpen: (id: number) => void; onOpenItem: (query: string) => void; onOpenArea: (area: "sales" | "purchases" | "inventory" | "journal-entries", query?: string, locationId?: number) => void; stamp?: { data: string; left: number; top: number }; orientation?: PrintOrientation }) {
+  const documentOutput=useCompanyDocumentOutput();
   const [account, setAccount] = useState<{ id: number; name: string } | null>(null);
   const [exporting, setExporting] = useState(false);
   const amount = pnlAmount;
@@ -18,7 +20,7 @@ export function ProfitLossReport({ report, company, loading, onOpen, onOpenItem,
     setExporting(true);
     try {
       const [{ pnlCsv, pnlWorkbook, pnlPdf }, { reportFilename }] = await Promise.all([import("@/lib/pnl-export"), import("@/lib/report-export")]);
-      const data = kind === "csv" ? pnlCsv(report, company) : kind === "xlsx" ? await pnlWorkbook(report, company, orientation) : await pnlPdf(report, company, stamp, orientation);
+      const data = kind === "csv" ? pnlCsv(report, company) : kind === "xlsx" ? await pnlWorkbook(report, company, orientation) : documentOutput.enabled() ? await documentOutput.reportPdf({...report,period:{label:`${report.pnl.from} to ${report.pnl.to}`}}, company, report.pnl.location, report.rows, stamp, orientation) : await pnlPdf(report, company, stamp, orientation);
       const blob = new Blob([data as BlobPart], { type: kind === "csv" ? "text/csv;charset=utf-8" : kind === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
       const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = reportFilename(report, kind); document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch { toast.error("Export could not be generated. Please try again."); } finally { setExporting(false); }

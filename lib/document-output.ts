@@ -2,6 +2,8 @@ export type PdfPageOptions = {
   orientation?: "portrait" | "landscape";
   marginMm?: number;
   title?: string;
+  paginate?: boolean;
+  pageNumbers?: boolean;
 };
 
 function cleanFilePart(value: unknown, fallback: string) {
@@ -143,16 +145,31 @@ export async function createA4PdfBlob(element: HTMLElement, options: PdfPageOpti
   const pageHeight = pdf.internal.pageSize.getHeight();
   const printableWidth = Math.max(1, pageWidth - margin * 2);
   const printableHeight = Math.max(1, pageHeight - margin * 2);
-  const scale = Math.min(printableWidth / sourceWidth, printableHeight / sourceHeight);
+  const scale = options.paginate ? printableWidth / sourceWidth : Math.min(printableWidth / sourceWidth, printableHeight / sourceHeight);
   const offsetX = margin + Math.max(0, (printableWidth - sourceWidth * scale) / 2);
   const offsetY = margin;
 
+  const pageOffsets=[0];
+  if(options.paginate) {
+    const capacity=printableHeight/scale;
+    const rows=Array.from(element.querySelectorAll<HTMLElement>('tr')).map(row=>row.getBoundingClientRect());
+    while(pageOffsets[pageOffsets.length-1]+capacity<sourceHeight-1) {
+      const start=pageOffsets[pageOffsets.length-1];let end=start+capacity;
+      const crossing=rows.find(row=>row.top-minTop<end&&row.bottom-minTop>end&&row.top-minTop>start+capacity*0.25);
+      if(crossing)end=crossing.top-minTop;
+      pageOffsets.push(end);
+    }
+  }
+  for(let pageIndex=0;pageIndex<pageOffsets.length;pageIndex++) {
+    if(pageIndex)pdf.addPage();
+    if(options.paginate){pdf.saveGraphicsState();pdf.rect(margin,margin,printableWidth,Math.min(printableHeight,((pageOffsets[pageIndex+1]??sourceHeight)-pageOffsets[pageIndex])*scale));pdf.clip();pdf.discardPath();}
   const xOf = (px: number) => offsetX + (px - minLeft) * scale;
-  const yOf = (px: number) => offsetY + (px - minTop) * scale;
+  const yOf = (px: number) => offsetY + (px - minTop - pageOffsets[pageIndex]) * scale;
 
+  const onPage = (node:HTMLElement) => {const rect=node.getBoundingClientRect();return rect.bottom-minTop>pageOffsets[pageIndex]&&rect.top-minTop<(pageOffsets[pageIndex+1]??sourceHeight);};
   // First pass: backgrounds and borders. This keeps the visible template geometry
   // without using a browser canvas, so cross-origin logos can never taint the export.
-  for (const node of all) {
+  for (const node of all.filter(onPage)) {
     const rect = node.getBoundingClientRect();
     const style = window.getComputedStyle(node);
     const x = xOf(rect.left);
@@ -185,7 +202,7 @@ export async function createA4PdfBlob(element: HTMLElement, options: PdfPageOpti
 
   // Second pass: logos and other images. Images that cannot be read because of CORS
   // are skipped instead of aborting the entire PDF.
-  const images = Array.from(element.querySelectorAll<HTMLImageElement>("img")).filter(visibleElement);
+  const images = Array.from(element.querySelectorAll<HTMLImageElement>("img")).filter(visibleElement).filter(onPage);
   for (const image of images) {
     const originalDataUrl = await imageAsDataUrl(image);
     if (!originalDataUrl) continue;
@@ -201,7 +218,7 @@ export async function createA4PdfBlob(element: HTMLElement, options: PdfPageOpti
   }
 
   // Third pass: text. Drawing text directly into jsPDF avoids canvas security rules.
-  for (const node of all) {
+  for (const node of all.filter(onPage)) {
     const text = directText(node);
     if (!text) continue;
     const style = window.getComputedStyle(node);
@@ -246,6 +263,9 @@ export async function createA4PdfBlob(element: HTMLElement, options: PdfPageOpti
     pdf.text(lines, x, y, { align, lineHeightFactor: Math.max(1, lineHeightPx / fontPx) });
   }
 
+    if(options.paginate)pdf.restoreGraphicsState();
+    if(options.pageNumbers){pdf.setFont('helvetica','normal');pdf.setFontSize(8);pdf.setTextColor(71,85,105);pdf.text(`Page ${pageIndex+1} of ${pageOffsets.length}`,pageWidth/2,pageHeight-3,{align:'center'});}
+  }
   return pdf.output("blob");
 }
 

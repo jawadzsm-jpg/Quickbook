@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { Download, FileDown, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PrintOrientationSelect, type PrintOrientation } from "@/components/print-orientation-select";
-import { readDocumentDesign, resolveDocumentDesign, type TemplateDocumentType } from "@/lib/document-design";
+import { resolveDocumentDesign, type TemplateDocumentType } from "@/lib/document-design";
 import { documentPageRule } from "@/lib/document-print";
 import { createA4PdfBlob, documentPdfFileName, downloadPdfBlob, savePdfBlob } from "@/lib/document-output";
 import { CustomInvoiceTemplate, type TemplateBranding } from "./custom-invoice-template";
@@ -37,7 +37,8 @@ export type SalesDocumentMode = keyof typeof salesDocumentTitles;
 
 const savedTemplateType: Partial<Record<SalesDocumentMode, TemplateDocumentType>> = {
   "tax-invoice": "Invoice",
-  "commercial-invoice": "Invoice",
+  "commercial-invoice": "Commercial Invoice",
+  quotation: "Quotation",
   estimate: "Estimate",
   "proforma-invoice": "Proforma Invoice",
   "sales-order": "Sales Order",
@@ -96,15 +97,11 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
   const signedInvoiceCopies = activeMode === "tax-invoice" || activeMode === "commercial-invoice";
   const letterhead = letterheadForDocument(setup.letterheadDesign, activeMode);
   const stamp = poStamp ?? {show: Boolean(letterhead?.showStamp), left: letterhead?.stampLeft ?? 155, top: letterhead?.stampTop ?? 230};
-  const movableStamp = activeMode === "bill" || activeMode === "purchase-order" || activeMode === "purchase-return";
+  const movableStamp = true;
   const stampOverride = movableStamp ? stamp : undefined;
   const requestedTemplateType = savedTemplateType[activeMode];
-  let { design, savedTemplate } = resolveDocumentDesign(setup.documentDesign, requestedTemplateType);
-  if (activeMode === "purchase-return" && savedTemplate && !savedTemplate.appliesToAll && savedTemplate.type !== "Purchase Return") {
-    design = readDocumentDesign(setup.documentDesign);
-    savedTemplate = null;
-  }
-  if (!savedTemplate || savedTemplate.appliesToAll || (requestedTemplateType && savedTemplate.type !== requestedTemplateType) || activeMode === "commercial-invoice" || activeMode === "purchase-return") design.title = salesDocumentTitles[activeMode];
+  const { design, savedTemplate } = resolveDocumentDesign(setup.documentDesign, requestedTemplateType);
+  if (!savedTemplate || savedTemplate.appliesToAll || (requestedTemplateType && savedTemplate.type !== requestedTemplateType)) design.title = salesDocumentTitles[activeMode];
   if (activeMode === "purchase-return") design.headers = [...design.headers.filter((field) => field.key !== "source"), { key: "source", label: "Original Supplier Bill", width: 1, screen: true, print: true }];
 
   const a4Design = { ...design, paper: "A4" as const, printerMode: "specified" as const, orientation: printOrientation };
@@ -119,9 +116,9 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
     const inventoryCopy = splitInvoiceCopies && documentCopy === "inventory";
     const copyDesign = { ...(print ? a4Design : design), ...(inventoryCopy ? { title: `${design.title} — Inventory Copy` } : {}) };
     const copyLines = inventoryCopy ? inventoryLines : customerLines;
-    return activeMode === "delivery-note" && connectedPackingList
+    return activeMode === "delivery-note" && connectedPackingList && !design.enabled
       ? <DeliveryNoteTemplate record={record} lines={copyLines} contact={contact} setup={setup} letterhead={letterhead} />
-      : <CustomInvoiceTemplate design={copyDesign} record={record} lines={copyLines} contact={contact} setup={setup} letterhead={letterhead} stampOverride={stampOverride} showItemNumberAtEnd={signedInvoiceCopies} target={print ? "print" : "screen"} onMoveStamp={!print && movableStamp ? (left, top) => setPoStamp({ ...stamp, left, top }) : undefined} />;
+      : <CustomInvoiceTemplate design={copyDesign} record={record} lines={copyLines} contact={contact} setup={setup} letterhead={design.enabled ? undefined : letterhead} stampOverride={stampOverride} showItemNumberAtEnd={signedInvoiceCopies} target="print" onMoveStamp={!print && movableStamp ? (left, top) => setPoStamp({ ...stamp, left, top }) : undefined} />;
   };
   const customerName = String(contact?.billingName || contact?.company || record.party || "Customer");
   const referenceNumber = String(record.number || "Document");

@@ -1,4 +1,5 @@
 "use client";
+import { useCompanyDocumentOutput } from "./company-document-output";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, FilePlus2, Link2, Minus, Pencil, Printer, Save, Search, Trash2, X } from "lucide-react";
@@ -62,6 +63,7 @@ function readMinimizedDraft(companyId: number) {
 }
 
 export function WarrantyCenter({ companyId, company, canWrite, canDelete = false, onMinimize, initialPurchaseBillId = null, onInitialPurchaseBillHandled }: { companyId: number; company: Company; canWrite: boolean; canDelete?: boolean; onMinimize?: (label: string) => void; initialPurchaseBillId?: number | null; onInitialPurchaseBillHandled?: () => void }) {
+  const documentOutput=useCompanyDocumentOutput();
   const letterhead = letterheadForDocument(company.letterheadDesign, "warranty-slip");
   const stampDefault = letterhead?.showStamp ?? Boolean(company.stampData);
   const [slips, setSlips] = useState<Slip[]>([]);
@@ -215,6 +217,7 @@ export function WarrantyCenter({ companyId, company, canWrite, canDelete = false
         toast.error("Add the supplier bill, purchase date, serial number, problem and supplier return date, then save the slip."); return false;
       }
     }
+    if(documentOutput.enabled(supplierReceipt?"Supplier Return Receipt":"Warranty Received"))return Boolean(page.current);
     if (!page.current || page.current.scrollHeight > page.current.clientHeight + 2) { toast.error("The slip exceeds one A4 page. Shorten the text before printing."); return false; }
     const table = page.current.querySelector("table");
     const footer = page.current.querySelector(".letterhead-footer-area");
@@ -223,6 +226,7 @@ export function WarrantyCenter({ companyId, company, canWrite, canDelete = false
   }
   function print() {
     if (!checkPage() || !page.current) return;
+    if(documentOutput.enabled(supplierReceipt?"Supplier Return Receipt":"Warranty Received")){void documentOutput.print(page.current,{type:supplierReceipt?"Supplier Return Receipt":"Warranty Received",title:documentTitle,orientation}).catch(e=>toast.error(e.message));return;}
     const popup = window.open("", "_blank");
     if (!popup) return toast.error("Allow pop-ups to print the warranty slip.");
     popup.opener = null;
@@ -235,7 +239,7 @@ export function WarrantyCenter({ companyId, company, canWrite, canDelete = false
   async function pdf() {
     if (!checkPage() || !page.current) return;
     setBusy(true);
-    try { downloadPdfBlob(await createA4LetterheadPdfBlob(page.current, `${documentTitle} ${form.number || "Draft"}`, orientation), `${supplierReceipt ? receiptNumber : form.number || "Warranty-Slip"}.pdf`); }
+    try { downloadPdfBlob((documentOutput.enabled(supplierReceipt?"Supplier Return Receipt":"Warranty Received") ? await documentOutput.pdf(page.current,{type:supplierReceipt?"Supplier Return Receipt":"Warranty Received",title:documentTitle,orientation}) : await createA4LetterheadPdfBlob(page.current, `${documentTitle} ${form.number || "Draft"}`, orientation)), `${supplierReceipt ? receiptNumber : form.number || "Warranty-Slip"}.pdf`); }
     catch (error) { toast.error(error instanceof Error ? error.message : "Could not create the PDF."); }
     finally { setBusy(false); }
   }

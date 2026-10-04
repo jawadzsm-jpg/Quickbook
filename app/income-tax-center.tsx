@@ -1,4 +1,5 @@
 "use client";
+import { useCompanyDocumentOutput } from "./company-document-output";
 import { useEffect, useState } from 'react';
 import { Download, Printer, Save, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
@@ -15,6 +16,7 @@ type Paper={id:number;revision:number;periodStart:string;periodEnd:string;config
 type Setup={currency:string;accounts:TaxAccount[];papers:Paper[];canManage:boolean};
 const selectClass='h-10 w-full min-w-0 rounded-md border bg-background px-3 text-sm';
 export function IncomeTaxCenter({companyId,companyName,stampData,onClose,onSource,onAccounts}:{companyId:number;companyName:string;stampData:string;onClose:()=>void;onSource:(id:number)=>void;onAccounts:()=>void}) {
+  const documentOutput=useCompanyDocumentOutput();
   const [setup,setSetup]=useState<Setup|null>(null),[error,setError]=useState(''),[retry,setRetry]=useState(0);
   const [config,setConfig]=useState<TaxConfig>(defaultTaxConfig(reportDownloadDate().slice(0,4)));
   const [selected,setSelected]=useState<Paper|null>(null),[result,setResult]=useState<TaxResult|null>(null),[resultKey,setResultKey]=useState('');
@@ -46,9 +48,9 @@ export function IncomeTaxCenter({companyId,companyName,stampData,onClose,onSourc
     if(popup){popup.opener=null;popup.document.body.textContent='Preparing A4 print preview…';}
     setBusy(true);
     try {
-      const {reportCsv,reportWorkbook,reportPdf,reportFilename}=await import('@/lib/report-export');
+      const {reportCsv,reportWorkbook,reportFilename}=await import('@/lib/report-export');
       const report=result.report;
-      const content=format==='csv'?reportCsv(report,companyName,'Company-wide · all inventories'):format==='xlsx'?await reportWorkbook(report,companyName,'Company-wide · all inventories',report.rows,orientation):await reportPdf(report,companyName,'Company-wide · all inventories',report.rows,stamp.show&&stampData?{data:stampData,left:stamp.left,top:stamp.top}:undefined,orientation);
+      const content=format==='csv'?reportCsv(report,companyName,'Company-wide · all inventories'):format==='xlsx'?await reportWorkbook(report,companyName,'Company-wide · all inventories',report.rows,orientation):await documentOutput.reportPdf(report,companyName,'Company-wide · all inventories',report.rows,stamp.show&&stampData?{data:stampData,left:stamp.left,top:stamp.top}:undefined,orientation);
       const url=URL.createObjectURL(new Blob([content as BlobPart],{type:format==='csv'?'text/csv;charset=utf-8':format==='xlsx'?'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':'application/pdf'}));
       if(popup)popup.location.href=url;else{const a=document.createElement('a');a.href=url;a.download=reportFilename({...report,title:`${companyName} Income Tax ${config.from} ${config.to}`},format==='print'?'pdf':format);a.click();}
       setTimeout(()=>URL.revokeObjectURL(url),300000);

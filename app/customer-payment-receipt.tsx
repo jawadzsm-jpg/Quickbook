@@ -1,4 +1,5 @@
 "use client";
+import { useCompanyDocumentOutput } from "./company-document-output";
 
 import { useEffect, useRef, useState } from "react";
 import { Download, Printer, Stamp } from "lucide-react";
@@ -46,6 +47,7 @@ async function withUnscaledPage<T>(page: HTMLElement, task: (printablePage: HTML
 }
 
 export function CustomerPaymentReceipt({ record, lines, company, canEditAttachments }: { record: RecordData; lines: RecordData[]; company: PaymentCompany; canEditAttachments: boolean }) {
+  const documentOutput=useCompanyDocumentOutput();
   const assigned = letterheadForDocument(company.letterheadDesign, "customer-payment");
   const template = assigned ?? { ...defaultLetterhead(), color: company.documentColor || "#059669" };
   const [stamp, setStamp] = useState({ show: Boolean(company.stampData && assigned?.showStamp), left: assigned?.stampLeft ?? 155, top: assigned?.stampTop ?? 230 });
@@ -83,6 +85,7 @@ export function CustomerPaymentReceipt({ record, lines, company, canEditAttachme
   const print = () => {
     const page = pageRef.current;
     if (!page) return toast.error("Payment receipt preview is not ready.");
+    if(documentOutput.enabled("Payment Receipt")){void documentOutput.print(page,{type:"Payment Receipt",title:"Customer Payment Receipt",record:{number:String(record.number||""),transactionDate:String(record.transactionDate||""),party:String(record.party||"")}}).catch(e=>toast.error(e.message));return;}
     const popup = window.open("", "_blank");
     if (!popup) return toast.error("Allow pop-ups to print the payment receipt.");
     popup.opener = null;
@@ -96,7 +99,7 @@ export function CustomerPaymentReceipt({ record, lines, company, canEditAttachme
     if (!pageRef.current) return toast.error("Payment receipt preview is not ready.");
     setPdfBusy(true);
     try {
-      const blob = await withUnscaledPage(pageRef.current, (printablePage) => createA4LetterheadPdfBlob(printablePage, `Customer Payment ${String(record.number || "")}`));
+      const blob = await withUnscaledPage(pageRef.current, (printablePage) => documentOutput.enabled("Payment Receipt") ? documentOutput.pdf(printablePage,{type:"Payment Receipt",title:"Customer Payment Receipt",record:{number:String(record.number||""),transactionDate:String(record.transactionDate||""),party:String(record.party||"")}}) : createA4LetterheadPdfBlob(printablePage, `Customer Payment ${String(record.number || "")}`));
       downloadPdfBlob(blob, fileName);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not create the customer payment PDF.");
