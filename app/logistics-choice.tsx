@@ -7,8 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { LogisticsOption } from "@/lib/item-logistics";
 
-export function LogisticsChoice({ label, value, options, disabled, onChange, onAdd, onDelete, onEdit }: {
-  label: string; value: string; options: LogisticsOption[]; disabled: boolean;
+export function LogisticsChoice({ label, value, options, disabled, onChange, onAdd, onDelete, onEdit, canDelete }: {
+  canDelete: boolean; label: string; value: string; options: LogisticsOption[]; disabled: boolean;
   onDelete: (option: LogisticsOption) => Promise<void>;
   onEdit: (option: LogisticsOption, value: string, label: string) => Promise<void>;
   onChange: (value: string) => void; onAdd: (value: string, label: string) => Promise<void>;
@@ -64,7 +64,7 @@ export function LogisticsChoice({ label, value, options, disabled, onChange, onA
                 <span className="min-w-0 flex-1 break-words">{option.value}{option.label ? ` · ${option.label}` : ""}</span>{value === option.value && <Check className="size-4 shrink-0" />}
               </button>
               <Button type="button" variant="ghost" size="icon" disabled={blocked} className="shrink-0 text-blue-600 dark:text-blue-400" title="Edit choice" aria-label={`Edit ${label} ${option.value}`} onClick={() => { setEditing(option); setCustom(option.value); setDescription(option.label); }}><Pencil className="size-4" /></Button>
-              <Button type="button" variant="ghost" size="icon" disabled={blocked} className="shrink-0 text-rose-600 dark:text-rose-400" title="Delete choice" aria-label={`Delete ${label} ${option.value}`} onClick={() => void remove(option)}><Trash2 className="size-4" /></Button>
+              {canDelete && <Button type="button" variant="ghost" size="icon" disabled={blocked} className="shrink-0 text-rose-600 dark:text-rose-400" title="Delete choice" aria-label={`Delete ${label} ${option.value}`} onClick={() => void remove(option)}><Trash2 className="size-4" /></Button>}
             </div>)}
             {!filtered.length && <p className="p-2 text-sm text-muted-foreground">No matching choices.</p>}
           </div>

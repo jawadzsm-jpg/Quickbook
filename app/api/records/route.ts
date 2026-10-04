@@ -1,3 +1,5 @@
+import { canManagePendingInvoices, canReadDocument, dubaiDay } from "@/lib/document-access";
+import { documentVisibility } from "@/lib/document-access-sql";
 import { employeeHrForSave } from "@/lib/employee-hr-save";
 import { employeeHrValues, employeeLoanAccount, redactEmployeeHr } from "@/lib/employee-hr";
 import { RequestError } from "@/lib/errors";
@@ -52,7 +54,7 @@ function writePermission(kind: RecordKind, payload: Record<string, unknown>): Pe
     return "admin";
   }
   const type = String(payload.type ?? "");
-  if (["invoice", "quotation", "estimate", "proforma invoice", "sales order", "sales receipt", "statement charge", "finance charge", "credit memo", "customer payment"].includes(type)) return "sales:write";
+  if (["invoice", "pending invoice", "quotation", "estimate", "proforma invoice", "sales order", "sales receipt", "statement charge", "finance charge", "credit memo", "customer payment"].includes(type)) return "sales:write";
   if (["bill", "purchase order", "item receipt", "received item bill", "vendor credit", "bill payment", "vendor payment"].includes(type)) return "purchases:write";
   if (["expense", "deposit", "cheque", "credit card charge", "cheque order", "transfer", "opening balance", "journal entry"].includes(type)) return "banking:write";
   return "accounting:manage";
@@ -208,7 +210,7 @@ export async function GET(request: Request) {
         billOfEntryNumber: transactions.billOfEntryNumber, airwayBillNumber: transactions.airwayBillNumber,
         inventoryName: inventoryLocations.name,
       }).from(transactions).leftJoin(inventoryLocations, eq(transactions.locationId, inventoryLocations.id))
-        .where(and(eq(transactions.companyId, companyId), locationFilter, eq(transactions.type, "bill"), sql`strpos(lower(${transactions.billOfEntryNumber}), lower(${query})) > 0`))
+        .where(and(and(eq(transactions.companyId, companyId), documentVisibility(authorization)), locationFilter, eq(transactions.type, "bill"), sql`strpos(lower(${transactions.billOfEntryNumber}), lower(${query})) > 0`))
         .orderBy(desc(transactions.transactionDate), desc(transactions.id)).limit(50);
       return Response.json({ records }, { headers: { "Cache-Control": "no-store" } });
     }
@@ -217,8 +219,8 @@ export async function GET(request: Request) {
       if (!Number.isSafeInteger(supplierId) || supplierId <= 0) return Response.json({ error: "Select a supplier." }, { status: 400 });
       const [supplier] = await db.select({ name: contacts.name }).from(contacts).where(and(eq(contacts.id, supplierId), eq(contacts.companyId, companyId), eq(contacts.type, "vendor"))).limit(1);
       if (!supplier) return Response.json({ error: "Supplier not found in this company." }, { status: 404 });
-      const returns = await db.select({ id: transactions.id, billId: transactions.billId, number: transactions.number, transactionDate: transactions.transactionDate, total: transactions.total, currency: transactions.currency }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.type, "vendor credit"), eq(transactions.party, supplier.name))).orderBy(desc(transactions.transactionDate), desc(transactions.id)).limit(50);
-      const bills = returns.some((row) => row.billId) ? await db.select({ id: transactions.id, number: transactions.number }).from(transactions).where(and(eq(transactions.companyId, companyId), inArray(transactions.id, returns.flatMap((row) => row.billId ? [row.billId] : [])))) : [];
+      const returns = await db.select({ id: transactions.id, billId: transactions.billId, number: transactions.number, transactionDate: transactions.transactionDate, total: transactions.total, currency: transactions.currency }).from(transactions).where(and(and(eq(transactions.companyId, companyId), documentVisibility(authorization)), eq(transactions.type, "vendor credit"), eq(transactions.party, supplier.name))).orderBy(desc(transactions.transactionDate), desc(transactions.id)).limit(50);
+      const bills = returns.some((row) => row.billId) ? await db.select({ id: transactions.id, number: transactions.number }).from(transactions).where(and(and(eq(transactions.companyId, companyId), documentVisibility(authorization)), inArray(transactions.id, returns.flatMap((row) => row.billId ? [row.billId] : [])))) : [];
       const billNumbers = new Map(bills.map((bill) => [bill.id, bill.number]));
       return Response.json({ records: returns.map((row) => ({ ...row, billNumber: billNumbers.get(row.billId ?? 0) || "" })) }, { headers: { "Cache-Control": "no-store" } });
     }
@@ -228,7 +230,7 @@ export async function GET(request: Request) {
       if (!party) return Response.json({ error: "Select a customer." }, { status: 400 });
       const documents = await db.select({ id: transactions.id, type: transactions.type, number: transactions.number, transactionDate: transactions.transactionDate, total: transactions.total, currency: transactions.currency, memo: transactions.memo, inventory: inventoryLocations.name }).from(transactions)
         .leftJoin(inventoryLocations, eq(transactions.locationId, inventoryLocations.id))
-        .where(and(eq(transactions.companyId, companyId), eq(transactions.party, party), inArray(transactions.type, ["estimate", "proforma invoice", "sales order"]), sql`${transactions.convertedInvoiceId} IS NULL`, inArray(transactions.status, ["open", "draft", "pending", "overdue", "sent", "accepted", "approved", "partially invoiced"]),
+        .where(and(and(eq(transactions.companyId, companyId), documentVisibility(authorization)), eq(transactions.party, party), inArray(transactions.type, ["estimate", "proforma invoice", "sales order"]), sql`${transactions.convertedInvoiceId} IS NULL`, inArray(transactions.status, ["open", "draft", "pending", "overdue", "sent", "accepted", "approved", "partially invoiced"]),
           sql`EXISTS (SELECT 1 FROM transaction_lines sl WHERE sl.transaction_id = ${transactions.id} AND sl.quantity > COALESCE((SELECT SUM(a.quantity) FROM sales_invoice_allocations a WHERE a.source_line_id = sl.id), 0))`))
         .orderBy(asc(transactions.transactionDate), asc(transactions.id));
       return Response.json({ documents }, { headers: { "Cache-Control": "no-store" } });
@@ -237,12 +239,12 @@ export async function GET(request: Request) {
       if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
       const sourceId = Number(url.searchParams.get("sourceId"));
       if (!Number.isSafeInteger(sourceId) || sourceId <= 0) return Response.json({ error: "Select an estimate, proforma invoice or sales order." }, { status: 400 });
-      const [source] = await db.select().from(transactions).where(and(eq(transactions.id, sourceId), eq(transactions.companyId, companyId), inArray(transactions.type, ["estimate", "proforma invoice", "sales order"])));
+      const [source] = await db.select().from(transactions).where(and(eq(transactions.id, sourceId), and(eq(transactions.companyId, companyId), documentVisibility(authorization)), inArray(transactions.type, ["estimate", "proforma invoice", "sales order"])));
       if (!source) return Response.json({ error: "Sales document not found." }, { status: 404 });
       const locations = await db.select({ id: inventoryLocations.id, name: inventoryLocations.name }).from(inventoryLocations).where(eq(inventoryLocations.companyId, companyId)).orderBy(asc(inventoryLocations.name));
       const selectedLocation = url.searchParams.has("locationId") ? locationId : source.locationId;
       if (!locations.some((location) => location.id === selectedLocation)) return Response.json({ error: "Select an inventory in this company." }, { status: 400 });
-      const invoices = await db.select({ id: transactions.id, number: transactions.number, transactionDate: transactions.transactionDate, total: transactions.total, currency: transactions.currency, locationId: transactions.locationId }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.salesSourceId, sourceId))).orderBy(asc(transactions.id));
+      const invoices = await db.select({ id: transactions.id, number: transactions.number, transactionDate: transactions.transactionDate, total: transactions.total, currency: transactions.currency, locationId: transactions.locationId }).from(transactions).where(and(and(eq(transactions.companyId, companyId), documentVisibility(authorization)), eq(transactions.salesSourceId, sourceId))).orderBy(asc(transactions.id));
       return Response.json({ source, locations, locationId: selectedLocation, lines: await salesInventoryLines(sourceId, companyId, selectedLocation!), invoices }, { headers: { "Cache-Control": "no-store" } });
     }
     if (kind === "open-purchase-orders") {
@@ -251,7 +253,7 @@ export async function GET(request: Request) {
       if (!party) return Response.json({ error: "Select a vendor." }, { status: 400 });
       const orders = await db.select({ status: transactions.status, id: transactions.id, number: transactions.number, transactionDate: transactions.transactionDate, currency: transactions.currency, memo: transactions.memo, inventory: inventoryLocations.name }).from(transactions)
         .leftJoin(inventoryLocations, eq(transactions.locationId, inventoryLocations.id))
-        .where(and(eq(transactions.companyId, companyId), eq(transactions.party, party), eq(transactions.type, "purchase order"), sql`${transactions.convertedInvoiceId} IS NULL`, inArray(transactions.status, ["open", "pending", "overdue", "partially received"]),
+        .where(and(and(eq(transactions.companyId, companyId), documentVisibility(authorization)), eq(transactions.party, party), eq(transactions.type, "purchase order"), sql`${transactions.convertedInvoiceId} IS NULL`, inArray(transactions.status, ["open", "pending", "overdue", "partially received"]),
           sql`EXISTS (SELECT 1 FROM transaction_lines pol WHERE pol.transaction_id = ${transactions.id} AND pol.quantity > COALESCE((SELECT SUM(pra.quantity) FROM purchase_receipt_allocations pra WHERE pra.order_line_id = pol.id), 0))`))
         .orderBy(asc(transactions.transactionDate), asc(transactions.id));
       return Response.json({ orders }, { headers: { "Cache-Control": "no-store" } });
@@ -261,11 +263,11 @@ export async function GET(request: Request) {
       const party = String(url.searchParams.get("party") || "").trim();
       const currency = String(url.searchParams.get("currency") || "").trim().toUpperCase();
       if (!party || !currency || !Number.isSafeInteger(locationId) || locationId <= 0) return Response.json({ error: "Select a vendor, inventory and currency." }, { status: 400 });
-      const bills = await db.select({ id: transactions.id, number: transactions.number, transactionDate: transactions.transactionDate, currency: transactions.currency }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId), eq(transactions.party, party), eq(transactions.currency, currency), eq(transactions.type, "bill"))).orderBy(desc(transactions.transactionDate), desc(transactions.id));
+      const bills = await db.select({ id: transactions.id, number: transactions.number, transactionDate: transactions.transactionDate, currency: transactions.currency }).from(transactions).where(and(and(eq(transactions.companyId, companyId), documentVisibility(authorization)), eq(transactions.locationId, locationId), eq(transactions.party, party), eq(transactions.currency, currency), eq(transactions.type, "bill"))).orderBy(desc(transactions.transactionDate), desc(transactions.id));
       if (!bills.length) return Response.json({ records: [] }, { headers: { "Cache-Control": "no-store" } });
       const billIds = bills.map((bill) => bill.id);
       const purchased = await db.select({ id: transactionLines.id, transactionId: transactionLines.transactionId, itemId: transactionLines.itemId, description: transactionLines.description, quantity: transactionLines.quantity, unitPrice: transactionLines.unitPrice, unitCost: transactionLines.unitCost, vatCode: transactionLines.vatCode, vatRate: transactionLines.vatRate }).from(transactionLines).where(inArray(transactionLines.transactionId, billIds)).orderBy(asc(transactionLines.id));
-      const returnDocuments = await db.select({ id: transactions.id, billId: transactions.billId }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.type, "vendor credit"), inArray(transactions.billId, billIds)));
+      const returnDocuments = await db.select({ id: transactions.id, billId: transactions.billId }).from(transactions).where(and(and(eq(transactions.companyId, companyId), documentVisibility(authorization)), eq(transactions.type, "vendor credit"), inArray(transactions.billId, billIds)));
       const returnedLines = returnDocuments.length ? await db.select({ transactionId: transactionLines.transactionId, itemId: transactionLines.itemId, description: transactionLines.description, quantity: transactionLines.quantity }).from(transactionLines).where(inArray(transactionLines.transactionId, returnDocuments.map((document) => document.id))) : [];
       const returnedByBillAndLine = new Map<string, number>();
       for (const line of returnedLines) {
@@ -280,7 +282,7 @@ export async function GET(request: Request) {
       if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
       const orderId = Number(url.searchParams.get("orderId"));
       if (!Number.isSafeInteger(orderId) || orderId <= 0) return Response.json({ error: "Select a purchase order." }, { status: 400 });
-      const [order] = await db.select().from(transactions).where(and(eq(transactions.id, orderId), eq(transactions.companyId, companyId), eq(transactions.type, "purchase order")));
+      const [order] = await db.select().from(transactions).where(and(eq(transactions.id, orderId), and(eq(transactions.companyId, companyId), documentVisibility(authorization)), eq(transactions.type, "purchase order")));
       if (!order) return Response.json({ error: "Purchase order not found." }, { status: 404 });
       const locations = await db.select({ id: inventoryLocations.id, name: inventoryLocations.name }).from(inventoryLocations).where(eq(inventoryLocations.companyId, companyId)).orderBy(asc(inventoryLocations.name));
       return Response.json({ order, locations, lines: await purchaseReceiptLines(orderId) }, { headers: { "Cache-Control": "no-store" } });
@@ -293,10 +295,10 @@ export async function GET(request: Request) {
       const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId)));
       if (!location) return Response.json({ error: "Inventory does not belong to this company." }, { status: 400 });
       const paymentId = Number(url.searchParams.get("paymentId")) || 0;
-      const [editingPayment] = paymentId ? await db.select().from(transactions).where(and(eq(transactions.id, paymentId), eq(transactions.companyId, companyId), inArray(transactions.type, ["bill payment", "cheque"]))) : [];
-      const bills = await db.select({ id: transactions.id, number: transactions.number, transactionDate: transactions.transactionDate, dueDate: transactions.dueDate, status: transactions.status, total: transactions.total }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId), eq(transactions.party, party), eq(transactions.currency, currency), inArray(transactions.type, ["bill", "received item bill"]), sql`(${transactions.status} in ('open', 'overdue', 'pending', 'partially paid') or ${transactions.id} = ${editingPayment?.billId ?? 0})`)).orderBy(asc(transactions.transactionDate), asc(transactions.id));
-      const payments = await db.select({ billId: transactions.billId, total: transactions.total }).from(transactions).where(and(eq(transactions.companyId, companyId), inArray(transactions.type, ["bill payment", "cheque", "vendor credit"]), sql`${transactions.id} <> ${editingPayment?.id ?? 0}`));
-      const allocatedBills = await db.select({ billId: billPaymentAllocations.billId, amount: billPaymentAllocations.amount }).from(billPaymentAllocations).innerJoin(transactions, eq(transactions.id, billPaymentAllocations.paymentId)).where(and(eq(transactions.companyId, companyId), sql`${transactions.id} <> ${editingPayment?.id ?? 0}`));
+      const [editingPayment] = paymentId ? await db.select().from(transactions).where(and(eq(transactions.id, paymentId), and(eq(transactions.companyId, companyId), documentVisibility(authorization)), inArray(transactions.type, ["bill payment", "cheque"]))) : [];
+      const bills = await db.select({ id: transactions.id, number: transactions.number, transactionDate: transactions.transactionDate, dueDate: transactions.dueDate, status: transactions.status, total: transactions.total }).from(transactions).where(and(and(eq(transactions.companyId, companyId), documentVisibility(authorization)), eq(transactions.locationId, locationId), eq(transactions.party, party), eq(transactions.currency, currency), inArray(transactions.type, ["bill", "received item bill"]), sql`(${transactions.status} in ('open', 'overdue', 'pending', 'partially paid') or ${transactions.id} = ${editingPayment?.billId ?? 0})`)).orderBy(asc(transactions.transactionDate), asc(transactions.id));
+      const payments = await db.select({ billId: transactions.billId, total: transactions.total }).from(transactions).where(and(and(eq(transactions.companyId, companyId), documentVisibility(authorization)), inArray(transactions.type, ["bill payment", "cheque", "vendor credit"]), sql`${transactions.id} <> ${editingPayment?.id ?? 0}`));
+      const allocatedBills = await db.select({ billId: billPaymentAllocations.billId, amount: billPaymentAllocations.amount }).from(billPaymentAllocations).innerJoin(transactions, eq(transactions.id, billPaymentAllocations.paymentId)).where(and(and(eq(transactions.companyId, companyId), documentVisibility(authorization)), sql`${transactions.id} <> ${editingPayment?.id ?? 0}`));
       const records = bills.map((bill) => { const paid = round(payments.filter((payment) => payment.billId === bill.id).reduce((sum, payment) => sum + payment.total, 0) + allocatedBills.filter((payment) => payment.billId === bill.id).reduce((sum, payment) => sum + payment.amount, 0)); return { ...bill, paid, remaining: round(bill.total - paid) }; }).filter((bill) => bill.remaining > 0);
 
       return Response.json({ records }, { headers: { "Cache-Control": "no-store" } });
@@ -309,9 +311,9 @@ export async function GET(request: Request) {
       const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId)));
       if (!location) return Response.json({ error: "Inventory does not belong to this company." }, { status: 400 });
       const paymentId = Number(url.searchParams.get("paymentId")) || 0;
-      const [editingPayment] = paymentId ? await db.select().from(transactions).where(and(eq(transactions.id, paymentId), eq(transactions.companyId, companyId), eq(transactions.type, "customer payment"))) : [];
-      const invoices = await db.select({ id: transactions.id, number: transactions.number, transactionDate: transactions.transactionDate, dueDate: transactions.dueDate, status: transactions.status, total: transactions.total }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId), eq(transactions.party, party), eq(transactions.currency, currency), inArray(transactions.type, ["invoice"]), sql`(${transactions.status} in ('open', 'overdue', 'pending', 'partially paid') or ${transactions.id} = ${editingPayment?.invoiceId ?? 0})`)).orderBy(asc(transactions.transactionDate), asc(transactions.id));
-      const payments = await db.select({ invoiceId: invoicePaymentAllocations.invoiceId, total: invoicePaymentAllocations.amount }).from(invoicePaymentAllocations).innerJoin(transactions, eq(transactions.id, invoicePaymentAllocations.paymentId)).where(and(eq(transactions.companyId, companyId), sql`${transactions.id} <> ${editingPayment?.id ?? 0}`));
+      const [editingPayment] = paymentId ? await db.select().from(transactions).where(and(eq(transactions.id, paymentId), and(eq(transactions.companyId, companyId), documentVisibility(authorization)), eq(transactions.type, "customer payment"))) : [];
+      const invoices = await db.select({ id: transactions.id, number: transactions.number, transactionDate: transactions.transactionDate, dueDate: transactions.dueDate, status: transactions.status, total: transactions.total }).from(transactions).where(and(and(eq(transactions.companyId, companyId), documentVisibility(authorization)), eq(transactions.locationId, locationId), eq(transactions.party, party), eq(transactions.currency, currency), inArray(transactions.type, ["invoice"]), sql`(${transactions.status} in ('open', 'overdue', 'pending', 'partially paid') or ${transactions.id} = ${editingPayment?.invoiceId ?? 0})`)).orderBy(asc(transactions.transactionDate), asc(transactions.id));
+      const payments = await db.select({ invoiceId: invoicePaymentAllocations.invoiceId, total: invoicePaymentAllocations.amount }).from(invoicePaymentAllocations).innerJoin(transactions, eq(transactions.id, invoicePaymentAllocations.paymentId)).where(and(and(eq(transactions.companyId, companyId), documentVisibility(authorization)), sql`${transactions.id} <> ${editingPayment?.id ?? 0}`));
       const records = invoices.map((invoice) => { const paid = round(payments.filter((payment) => payment.invoiceId === invoice.id).reduce((sum, payment) => sum + payment.total, 0)); return { ...invoice, paid, remaining: round(invoice.total - paid) }; }).filter((invoice) => invoice.remaining > 0);
 
       return Response.json({ records }, { headers: { "Cache-Control": "no-store" } });
@@ -322,7 +324,7 @@ export async function GET(request: Request) {
       return Response.json({ history }, { headers: { "Cache-Control": "no-store" } });
     }
     if (kind === "transactions" && id) {
-      const [record] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId)));
+      const [record] = await db.select().from(transactions).where(and(eq(transactions.id, id), and(eq(transactions.companyId, companyId), documentVisibility(authorization))));
       if (!record) return Response.json({ error: "Transaction not found." }, { status: 404 });
       const lines = await db.select({
         id: transactionLines.id,
@@ -369,14 +371,14 @@ export async function GET(request: Request) {
       const linkedSourceId = record.sourceTransactionId || record.purchaseOrderId || record.salesSourceId || (record.type === "vendor credit" ? record.billId : null);
       const [sourceDocument] = linkedSourceId ? await db.select({ number: transactions.number, type: transactions.type }).from(transactions).where(eq(transactions.id, linkedSourceId)).limit(1) : [];
       const [convertedDocument] = record.convertedInvoiceId ? await db.select({ number: transactions.number, type: transactions.type }).from(transactions).where(eq(transactions.id, record.convertedInvoiceId)).limit(1) : [];
-      const customerType = ["invoice", "quotation", "estimate", "proforma invoice", "sales order", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(record.type) ? "customer" : "vendor";
+      const customerType = ["invoice", "pending invoice", "quotation", "estimate", "proforma invoice", "sales order", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(record.type) ? "customer" : "vendor";
       const [partyContact] = await db.select().from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, customerType), eq(contacts.name, record.party))).limit(1);
       const invoiceBalance = record.type === "invoice" ? (record.status === "paid" ? 0 : round(record.total - await invoicePaidAmount(record.id))) : undefined;
       return Response.json({ revision: purchaseRevision(record, lines), record: { ...paymentDisplayRecord(record), ...(invoiceBalance !== undefined ? { balance: invoiceBalance } : {}), sourceDocumentNumber: sourceDocument?.number ?? "", sourceDocumentType: sourceDocument?.type ?? "", convertedDocumentNumber: convertedDocument?.number ?? "", convertedDocumentType: convertedDocument?.type ?? "", convertedInvoiceNumber: convertedDocument?.type === "invoice" ? convertedDocument.number : "" }, lines: detailLines, journal, partyContact: partyContact ?? null });
     }
     if (kind === "contacts") {
       const contactRows = await db.select().from(contacts).where(eq(contacts.companyId, companyId)).orderBy(asc(contacts.name));
-      const loans = isAdministrator(authorization) ? await db.select().from(transactions).where(and(eq(transactions.companyId, companyId), sql`${transactions.employeeLoanContactId} IS NOT NULL`)).orderBy(desc(transactions.transactionDate), desc(transactions.id)) : [];
+      const loans = isAdministrator(authorization) ? await db.select().from(transactions).where(and(and(eq(transactions.companyId, companyId), documentVisibility(authorization)), sql`${transactions.employeeLoanContactId} IS NOT NULL`)).orderBy(desc(transactions.transactionDate), desc(transactions.id)) : [];
       return Response.json({ records: contactRows.map(record => redactEmployeeHr({ ...record, ...(record.type === "employee" && isAdministrator(authorization) ? { bankLoanPayments: JSON.stringify(loans.filter(loan => loan.employeeLoanContactId === record.id).map(loan => ({ id: loan.id, number: loan.number, date: loan.transactionDate, currency: loan.currency, amount: loan.total, account: loan.account }))) } : {}) }, isAdministrator(authorization))) });
     }
     if (kind === "items") {
@@ -396,7 +398,7 @@ export async function GET(request: Request) {
       }).from(transactionLines)
         .innerJoin(transactions, eq(transactionLines.transactionId, transactions.id))
         .where(and(
-          eq(transactions.companyId, companyId),
+          and(eq(transactions.companyId, companyId), documentVisibility(authorization)),
           eq(transactions.locationId, locationId),
           inArray(transactions.type, ["bill", "item receipt"]),
           sql`${transactionLines.itemId} IS NOT NULL`,
@@ -406,7 +408,7 @@ export async function GET(request: Request) {
           onPo: sql<number>`coalesce(sum(greatest(0, ${transactionLines.quantity} - coalesce((select sum(pra.quantity) from purchase_receipt_allocations pra where pra.order_line_id = ${transactionLines.id}), 0))), 0)`,
         }).from(transactionLines)
         .innerJoin(transactions, eq(transactionLines.transactionId, transactions.id))
-        .where(and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId), eq(transactions.type, "purchase order"), inArray(transactions.status, ["open", "pending", "overdue", "partially received"]), sql`${transactionLines.itemId} IS NOT NULL`))
+        .where(and(and(eq(transactions.companyId, companyId), documentVisibility(authorization)), eq(transactions.locationId, locationId), eq(transactions.type, "purchase order"), inArray(transactions.status, ["open", "pending", "overdue", "partially received"]), sql`${transactionLines.itemId} IS NOT NULL`))
         .groupBy(transactionLines.itemId),
       ]);
       const weightedCosts = new Map(purchaseCosts.flatMap((row) => row.itemId ? [[row.itemId, { quantity: Number(row.quantity), value: Number(row.value) }] as const] : []));
@@ -449,7 +451,7 @@ export async function GET(request: Request) {
         return { ...account, balance: round(Number(account.balance) + movement), baseBalance: round(Number(account.balance) * openingRate + baseMovement) };
       }) });
     }
-    const transactionFilter = Number.isInteger(locationId) && locationId > 0 ? and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId)) : eq(transactions.companyId, companyId);
+    const transactionFilter = Number.isInteger(locationId) && locationId > 0 ? and(and(eq(transactions.companyId, companyId), documentVisibility(authorization)), eq(transactions.locationId, locationId)) : and(eq(transactions.companyId, companyId), documentVisibility(authorization));
     return Response.json({ records: (await db.select().from(transactions).where(transactionFilter).orderBy(desc(transactions.transactionDate), desc(transactions.id)).limit(500)).map(paymentDisplayRecord) });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: error instanceof RequestError ? error.status : 500 });
@@ -495,6 +497,12 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const payload = (await request.json()) as Record<string, unknown>;
     const kind = payload.kind as RecordKind;
     if (!["transactions", "contacts", "items", "accounts"].includes(kind)) return Response.json({ error: "Invalid record kind." }, { status: 400 });
+    if (kind === "transactions") {
+      if (payload.type === "pending invoice" && !canManagePendingInvoices(authorization)) return Response.json({ error: "Only administrators and accountants can create pending invoices." }, { status: 403 });
+      if (authorization.role === "inventory" && !["bill", "received item bill", "item receipt", "purchase order"].includes(String(payload.type))) return Response.json({ error: "Inventory users may create bills, item receipts and purchase orders only." }, { status: 403 });
+      if (["cancelled", "canceled", "void", "voided"].includes(String(payload.status).toLowerCase()) && !isAdministrator(authorization)) return Response.json({ error: "Only administrators can cancel documents." }, { status: 403 });
+      if (authorization.role === "inventory" && ["bill", "received item bill", "item receipt"].includes(String(payload.type)) && String(payload.transactionDate) !== dubaiDay()) return Response.json({ error: "Inventory documents must use today's UAE date." }, { status: 403 });
+    }
     if (!mayWrite(authorization, writePermission(kind, payload))) return Response.json({ error: "Your role does not allow this action." }, { status: 403 });
     const companyId = Number(payload.companyId);
     const locationId = Number(payload.locationId);
@@ -697,12 +705,13 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     let rawLines = Array.isArray(payload.lines) ? payload.lines as InputLine[] : [];
     if (Number.isInteger(conversionSourceId) && conversionSourceId > 0) {
       const [source] = await db.select().from(transactions).where(and(eq(transactions.id, conversionSourceId), eq(transactions.companyId, companyId))).for("update");
-      const validSalesConversion = type === "invoice" && ["quotation", "estimate", "proforma invoice", "sales order"].includes(source?.type ?? "");
+      const validSalesConversion = type === "invoice" && ["pending invoice", "quotation", "estimate", "proforma invoice", "sales order"].includes(source?.type ?? "");
       const validPurchaseConversion = type === "bill" && source?.type === "purchase order";
       if (!source || (!validSalesConversion && !validPurchaseConversion)) return Response.json({ error: type === "bill" ? "Only a purchase order can be converted to a supplier bill." : "Only a quotation, estimate, proforma invoice, or sales order can be converted to an invoice." }, { status: 400 });
       if (validSalesConversion && (await salesSourceLines(source.id)).some((line) => line.invoiced > 0)) return Response.json({ error: "This document has partial invoices. Use Save Invoice for the remaining quantities." }, { status: 409 });
       if (validPurchaseConversion && (await purchaseReceiptLines(source.id)).some((line) => line.received > 0)) return Response.json({ error: "This PO has item receipts. Finish receiving on the same PO; do not convert the full PO to a stock-posting bill." }, { status: 409 });
-      if (source.convertedInvoiceId || source.status === "converted") return Response.json({ error: "This document has already been converted." }, { status: 409 });
+      if (source.type === "pending invoice" && !canManagePendingInvoices(authorization)) return Response.json({ error: "Only administrators and accountants can post pending invoices." }, { status: 403 });
+      if (source.convertedInvoiceId || ["converted", "cancelled", "canceled", "void"].includes(source.status)) return Response.json({ error: "This document has already been converted." }, { status: 409 });
       if (source.locationId !== locationId) return Response.json({ error: "Create the new document from the same inventory as the source document." }, { status: 400 });
       rawLines = await db.select().from(transactionLines).where(eq(transactionLines.transactionId, conversionSourceId)).orderBy(asc(transactionLines.id));
       payload.party = source.party;
@@ -1044,7 +1053,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       billOfEntryNumber: usesImportGoodsVat && type === "bill" ? billOfEntryNumber : "", airwayBillNumber: usesImportGoodsVat && type === "bill" ? airwayBillNumber : "",
       transactionDate, dueDate: String(payload.dueDate ?? ""), terms, paymentMethod, referenceNo,
       chequeBankKey,
-      account: String(payload.account ?? "Accounts Receivable"), status: ["customer payment", "cheque", "transfer"].includes(type) && total > 0 ? "paid" : String(payload.status ?? "open"), ...(["customer payment", "cheque", "transfer"].includes(type) && total > 0 ? { paidAt: new Date().toISOString() } : {}), memo: String(payload.memo ?? ""), comments, serialNumber,
+      account: String(payload.account ?? "Accounts Receivable"), status: type === "pending invoice" ? "pending" : ["customer payment", "cheque", "transfer"].includes(type) && total > 0 ? "paid" : String(payload.status ?? "open"), ...(["customer payment", "cheque", "transfer"].includes(type) && total > 0 ? { paidAt: new Date().toISOString() } : {}), memo: String(payload.memo ?? ""), comments, serialNumber,
       subtotal, vatRate: Number(payload.vatRate ?? 5), vatAmount, total, currency, exchangeRate, baseTotal,
       sourceTransactionId: replacing ? replacing.sourceTransactionId : Number.isInteger(conversionSourceId) && conversionSourceId > 0 ? conversionSourceId : null,
     };
@@ -1057,8 +1066,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     if (allocations.length) await db.insert(invoicePaymentAllocations).values(allocations.map((allocation) => ({ ...allocation, paymentId: record.id })));
     await db.insert(transactionLines).values(prepared.map((line) => ({ ...line, transactionId: record.id })));
 
-    const nonPosting = ["quotation", "estimate", "proforma invoice", "sales order", "purchase order", "cheque order"].includes(type);
-    const partyContactType = employeeLoanContactId ? "employee" : ["invoice", "quotation", "estimate", "proforma invoice", "sales order", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(type) ? "customer" : ["bill", "purchase order", "item receipt", "received item bill", "vendor credit", "bill payment", "vendor payment", "cheque", "credit card charge", "cheque order"].includes(type) ? "vendor" : null;
+    const nonPosting = ["pending invoice", "quotation", "estimate", "proforma invoice", "sales order", "purchase order", "cheque order"].includes(type);
+    const partyContactType = employeeLoanContactId ? "employee" : ["invoice", "pending invoice", "quotation", "estimate", "proforma invoice", "sales order", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"].includes(type) ? "customer" : ["bill", "purchase order", "item receipt", "received item bill", "vendor credit", "bill payment", "vendor payment", "cheque", "credit card charge", "cheque order"].includes(type) ? "vendor" : null;
     const [partyContact] = partyContactType ? await db.select({ ledgerAccountId: contacts.ledgerAccountId }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.name, party), eq(contacts.type, partyContactType))).limit(1) : [];
     // A customer's default currency must not route a foreign-currency document
     // into the wrong receivable control account. This runs inside the posting transaction.
@@ -1258,10 +1267,30 @@ async function handlePATCH(request: Request) {
       });
     }
     if (payload.kind === "transactions") {
-      if (!isAdministrator(authorization)) return Response.json({ error: "Only All-Admin and Admin can edit these documents." }, { status: 403 });
       return await withWriteTransaction(async () => {
         const db = getDb();
         const [existing] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId))).for("update");
+        if (!existing) return Response.json({ error: "Document not found." }, { status: 404 });
+        if (!canReadDocument(authorization, existing)) return Response.json({ error: "Inventory bill access ends at midnight UAE time on the creation day." }, { status: 403 });
+        if (authorization.role === "inventory" && existing.type === "invoice") {
+          const allowed = new Set(["kind", "id", "companyId", "revision", "editMode", "lineDetails"]);
+          if (payload.editMode !== "invoice-serials" || Object.keys(payload).some(key => !allowed.has(key))) return Response.json({ error: "Inventory users may add invoice serial numbers only." }, { status: 403 });
+          const oldLines = await db.select().from(transactionLines).where(eq(transactionLines.transactionId, id)).orderBy(asc(transactionLines.id));
+          if (payload.revision !== purchaseRevision(existing, oldLines)) return Response.json({ error: "Invoice changed. Reopen it before saving." }, { status: 409 });
+          const details = Array.isArray(payload.lineDetails) ? payload.lineDetails as Record<string, unknown>[] : [];
+          if (!details.length || new Set(details.map(line => Number(line.id))).size !== details.length) return Response.json({ error: "Select unique invoice lines." }, { status: 400 });
+          for (const line of details) {
+            const old = oldLines.find(entry => entry.id === Number(line.id));
+            if (!old || Object.keys(line).some(key => !["id", "serialNumber"].includes(key)) || typeof line.serialNumber !== "string" || (old.serialNumber && line.serialNumber !== old.serialNumber && !line.serialNumber.startsWith(old.serialNumber + "\n"))) return Response.json({ error: "Keep existing serial numbers; inventory users can only append serial numbers." }, { status: 403 });
+          }
+          for (const line of details) await db.update(transactionLines).set({ serialNumber: String(line.serialNumber) }).where(eq(transactionLines.id, Number(line.id)));
+          await db.insert(auditLog).values({ companyId, action: "updated", entityType: "transaction", entityId: id, details: JSON.stringify({ mode: "invoice-serials", actorId: authorization.id, lines: details, before: oldLines.map(line => ({ id: line.id, serialNumber: line.serialNumber })) }) });
+          return Response.json({ record: existing });
+        }
+        const inventoryEdit = authorization.role === "inventory" && ["bill", "received item bill", "item receipt", "purchase order"].includes(existing.type);
+        const pendingEdit = existing.type === "pending invoice" && canManagePendingInvoices(authorization);
+        if (!isAdministrator(authorization) && !inventoryEdit && !pendingEdit) return Response.json({ error: "Your role cannot edit this document." }, { status: 403 });
+        if (!isAdministrator(authorization) && ["cancelled", "canceled", "void", "voided"].includes(String(payload.status).toLowerCase())) return Response.json({ error: "Only administrators can cancel documents." }, { status: 403 });
         if (existing?.type === "cheque" && payload.editMode === "cheque-layout") {
           const allowed = new Set(["kind", "id", "companyId", "revision", "editMode", "chequeBankKey", "chequeOffsetX", "chequeOffsetY", "chequeAmountOffsetX", "chequeDateOffsetX", "chequeCrossingOffsetX"]);
           if (Object.keys(payload).some((field) => !allowed.has(field))) return Response.json({ error: "Only the cheque layout and print alignment can be changed here." }, { status: 400 });
@@ -1572,7 +1601,7 @@ async function handlePATCH(request: Request) {
         }
         if (existing?.purchaseOrderId && existing.type !== "bill") return Response.json({ error: "Remove and recreate this linked receipt to change received quantities." }, { status: 409 });
         if (!existing) return Response.json({ error: "Purchase not found." }, { status: 404 });
-        if (!["estimate", "proforma invoice", "sales order", "bill", "purchase order", "item receipt", "received item bill", "expense", "bill payment", "vendor payment", "vendor credit"].includes(existing.type)) return Response.json({ error: "This document is not an editable purchase." }, { status: 400 });
+        if (!["pending invoice", "estimate", "proforma invoice", "sales order", "bill", "purchase order", "item receipt", "received item bill", "expense", "bill payment", "vendor payment", "vendor credit"].includes(existing.type)) return Response.json({ error: "This document is not an editable purchase." }, { status: 400 });
         const [salesChild] = await db.select({ id: transactions.id }).from(transactions).where(sql`${transactions.salesSourceId} = ${id} or ${transactions.sourceTransactionId} = ${id}`).limit(1);
         if (salesChild) return Response.json({ error: "Remove linked invoices before editing or deleting this source document." }, { status: 409 });
         const [receipt] = await db.select({ id: transactions.id }).from(transactions).where(eq(transactions.purchaseOrderId, id)).limit(1);

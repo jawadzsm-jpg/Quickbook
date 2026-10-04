@@ -207,3 +207,11 @@ Migration 0074 adds nullable `contacts.loan_account_id`. Loan-account validation
 
 
 Staff salary documents persist in `staff_salary_sheets` (migration 0075), with company ownership, serialized validated data, server-captured letterhead, revision and timestamps. Company access and administrator authorization apply to all operations; row locking and revisions prevent lost edits. Snapshots preserve historical document identity. Company deletion cascades, and the authorized saved-reports clear option includes these documents.
+
+### Document role boundaries
+
+All saved business-record DELETE requests require `admin` or `all_admin` in the shared authentication boundary. Session logout and SKU lock release remain available to every signed-in user. Unsaved form cancellation is unaffected. Non-admin transaction writes reject cancelled/void statuses.
+
+`lib/document-access.ts` defines UAE-day visibility and pending-invoice permissions; `lib/document-access-sql.ts` applies them to query results. Inventory bill/item-receipt access is limited to the creation calendar day in Asia/Dubai, independently of the editable transaction date. Lists, direct document reads, serial searches, attachments, warranty bill choices and inventory activity use that boundary. Saved warranty receipts may retain existing supplier/bill references without granting access to the original bill.
+
+Inventory has purchasing/vendor permissions for operational entry, narrowed in the records route to bills, receipts and purchase orders. Invoice changes use the separate append-only `invoice-serials` mode with revision checking, SKU locking and audit data; it cannot alter prices, quantities, existing serial numbers, customer, or accounting. Pending invoices are accessible only to administrators and accountants and use the existing non-posting sales-document pipeline. Conversion uses source locking and unique source-conversion identity to prevent double posting.

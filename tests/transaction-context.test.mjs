@@ -35,8 +35,19 @@ const vite = await createServer({
       if (id === "\0test-auth") return `
         export * from "/lib/access.ts";
         export * from "/lib/password.ts";
-        export const requireCompanyAccess = async () => ({ id: 1, email: "test@example.test", role: "all_admin", companyIds: [], mustChangePassword: false });
-        export const requireApiUser = async () => (globalThis.__transferTestUser ?? { id: 1, email: "test@example.test", role: "all_admin", companyIds: [], mustChangePassword: false });
+        import { hasPermission, isAdministrator, canAccessCompany } from "/lib/access.ts";
+        export const requireApiUser = async (request, required = false) => {
+          const user = globalThis.__transferTestUser ?? { id: 1, email: "test@example.test", role: "all_admin", companyIds: [], mustChangePassword: false };
+          if (user instanceof Response) return user;
+          if ((request.method === "DELETE" && !["/api/auth/session", "/api/sku-locks"].includes(new URL(request.url).pathname) || required === true) && !isAdministrator(user)) return Response.json({ error: "Administrator required." }, { status: 403 });
+          if (typeof required === "string" && !hasPermission(user, required)) return Response.json({ error: "Permission denied." }, { status: 403 });
+          return user;
+        };
+        export const requireCompanyAccess = async (request, companyId, required = false) => {
+          const user = await requireApiUser(request, required);
+          if (user instanceof Response) return user;
+          return canAccessCompany(user, companyId) ? user : Response.json({ error: "Company denied." }, { status: 403 });
+        };
       `;
     },
   }],
@@ -657,7 +668,8 @@ test('journal edit and delete are admin-only, balanced, scoped, audited and atom
     for (const role of ['accountant', 'viewer', 'sales', 'purchasing', 'inventory']) {
       globalThis.__transferTestUser = { id: 7, role, companyIds: [companyId] };
       assert.equal((await edit()).status, 403); assert.equal((await remove()).status, 403);
-      assert.equal((await listing()).entries.find(e => e.id === id).canManage, false);
+      if (role === 'accountant') assert.equal((await listing()).entries.find(e => e.id === id).canManage, false);
+      else assert.equal((await GET(new Request(`https://app.test/api/journal-entries?companyId=${companyId}&locationId=${locationId}`))).status, 403);
     }
     globalThis.__transferTestUser = { id: 7, role: 'admin', companyIds: [] };
     assert.equal((await edit()).status, 403); assert.equal((await remove()).status, 403);
@@ -2373,4 +2385,125 @@ test('logistics override migration supports individual prepared queries and retr
   for (let attempt = 0; attempt < 2; attempt++) {
     for (const statement of statements) await database.query(statement, []);
   }
+});
+
+test('inventory bill access expires by UAE creation day and serial edits cannot change finances', async () => {
+  const { dubaiDay, canReadDocument } = await vite.ssrLoadModule('/lib/document-access.ts');
+  assert.equal(canReadDocument({ role: 'inventory' }, { type: 'bill', createdAt: '2026-10-04T19:59:00Z' }, new Date('2026-10-04T20:00:00Z')), false);
+  assert.equal(canReadDocument({ role: 'inventory' }, { type: 'bill', createdAt: '2026-10-04T00:01:00Z' }, new Date('2026-10-04T19:59:00Z')), true);
+  const c = (await database.query("INSERT INTO companies(name) VALUES ('Inventory role rules') RETURNING id")).rows[0].id;
+  const loc = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'ROLEINV','Role inventory','RIV') RETURNING id", [c])).rows[0].id;
+  const item = (await database.query("INSERT INTO items(company_id,location_id,sku,name,quantity,cost) VALUES($1,$2,'ROLEITEM','Role item',10,40) RETURNING id", [c, loc])).rows[0].id;
+  await database.query("INSERT INTO contacts(company_id,type,name,currency) VALUES($1,'vendor','Role Vendor','AED'),($1,'customer','Role Customer','AED')", [c]);
+  const route = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const write = (method, body) => route[method](new Request('https://app.test/api/records', { method, headers: { origin: 'https://app.test', 'content-type': 'application/json' }, body: JSON.stringify({ companyId: c, locationId: loc, kind: 'transactions', ...body }) }));
+  const detail = id => route.GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${c}&id=${id}`));
+  const billInput = { type: 'bill', number: 'ROLE-BILL', party: 'Role Vendor', transactionDate: dubaiDay(), currency: 'AED', exchangeRate: 1, account: 'Purchases', lines: [{ itemId: item, description: 'Role item', quantity: 2, unitPrice: 40, vatCode: 'ZERO', serialNumber: 'ROLE-BILL-SERIAL' }] };
+  try {
+    globalThis.__transferTestUser = { id: 1, role: 'inventory', companyIds: [c] };
+    const billResponse = await write('POST', billInput);
+    assert.equal(billResponse.status, 201, JSON.stringify(await billResponse.clone().json()));
+    const bill = (await billResponse.json()).record;
+    let data = await (await detail(bill.id)).json();
+    const edited = await write('PATCH', { ...billInput, id: bill.id, revision: data.revision, lines: [{ ...billInput.lines[0], quantity: 3 }] });
+    assert.equal(edited.status, 200, JSON.stringify(await edited.clone().json()));
+    assert.equal((await write('DELETE', { id: bill.id, memo: 'Not permitted' })).status, 403);
+    assert.equal((await write('POST', { ...billInput, number: 'ROLE-BACKDATE', transactionDate: '2020-01-01' })).status, 403);
+    data = await (await detail(bill.id)).json();
+    await database.query("UPDATE transactions SET created_at=now()-interval '2 days' WHERE id=$1", [bill.id]);
+    assert.equal((await detail(bill.id)).status, 404);
+    const rows = (await (await route.GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${c}`))).json()).records;
+    assert.ok(!rows.some(row => row.id === bill.id));
+    assert.equal((await write('PATCH', { ...billInput, id: bill.id, revision: data.revision })).status, 403);
+    const serial = await vite.ssrLoadModule('/app/api/serial-search/route.ts');
+    assert.equal((await (await serial.GET(new Request(`https://app.test/api/serial-search?companyId=${c}&q=ROLE-BILL-SERIAL`))).json()).results.length, 0);
+    const attachments = await vite.ssrLoadModule('/app/api/attachments/route.ts');
+    assert.equal((await attachments.GET(new Request(`https://app.test/api/attachments?companyId=${c}&entityType=transaction&entityId=${bill.id}`))).status, 403);
+    const purchaseOrder = await write('POST', { ...billInput, type: 'purchase order', number: 'ROLE-PO' });
+    assert.equal(purchaseOrder.status, 201);
+    assert.equal((await write('POST', { ...billInput, type: 'vendor credit' })).status, 403);
+    const newItem = await write('POST', { kind: 'items', name: 'Inventory added item', category: 'General', quantity: 0, cost: 0, salesPrice: 0, itemType: 'stock-part' });
+    assert.equal(newItem.status, 201, JSON.stringify(await newItem.clone().json()));
+    const vendor = await write('POST', { kind: 'contacts', type: 'vendor', name: 'Inventory Added Vendor', company: 'Inventory Added Vendor LLC', phone: '+971501111222', country: 'United Arab Emirates', currency: 'AED', status: 'active' });
+    assert.equal(vendor.status, 201, JSON.stringify(await vendor.clone().json()));
+
+    delete globalThis.__transferTestUser;
+    const invoiceResponse = await write('POST', { ...billInput, type: 'invoice', number: 'ROLE-INV', party: 'Role Customer', account: 'Sales Revenue' });
+    assert.equal(invoiceResponse.status, 201, JSON.stringify(await invoiceResponse.clone().json()));
+    const invoice = (await invoiceResponse.json()).record;
+    data = await (await detail(invoice.id)).json();
+    const before = (await database.query('SELECT quantity FROM items WHERE id=$1', [item])).rows[0].quantity;
+    globalThis.__transferTestUser = { id: 1, role: 'inventory', companyIds: [c] };
+    const serialBody = { locationId: undefined, id: invoice.id, revision: data.revision, editMode: 'invoice-serials', lineDetails: [{ id: data.lines[0].id, serialNumber: 'ROLE-BILL-SERIAL\nADDED-SERIAL' }] };
+    assert.equal((await write('PATCH', { ...serialBody, total: 0 })).status, 403);
+    assert.equal((await write('PATCH', { ...serialBody, lineDetails: [{ id: data.lines[0].id, serialNumber: '' }] })).status, 403);
+    assert.equal((await write('PATCH', { ...serialBody, lineDetails: [{ id: data.lines[0].id, serialNumber: 'ROLE-BILL-SERIAL-CHANGED' }] })).status, 403);
+    const serialResponse = await write('PATCH', serialBody);
+    assert.equal(serialResponse.status, 200, JSON.stringify(await serialResponse.clone().json()));
+    assert.equal((await database.query('SELECT quantity FROM items WHERE id=$1', [item])).rows[0].quantity, before);
+    assert.equal((await database.query('SELECT total FROM transactions WHERE id=$1', [invoice.id])).rows[0].total, invoice.total);
+    assert.equal((await database.query('SELECT serial_number FROM transaction_lines WHERE id=$1', [data.lines[0].id])).rows[0].serial_number, 'ROLE-BILL-SERIAL\nADDED-SERIAL');
+    const warranty = await vite.ssrLoadModule('/app/api/warranty-slips/route.ts');
+    const contacts = (await database.query("SELECT id,type FROM contacts WHERE company_id=$1 AND name IN ('Role Customer','Role Vendor')", [c])).rows;
+    const receipt = await warranty.POST(new Request('https://app.test/api/warranty-slips', { method: 'POST', headers: { origin: 'https://app.test', 'content-type': 'application/json' }, body: JSON.stringify({ companyId: c, customerId: contacts.find(row => row.type === 'customer').id, supplierId: contacts.find(row => row.type === 'vendor').id, invoiceId: invoice.id, invoiceLineId: data.lines[0].id, slipDate: dubaiDay(), purchaseDate: dubaiDay(), returnedToSupplierDate: dubaiDay(), receivedFromSupplierDate: '', status: 'Returned to Supplier', problem: 'Service required', showStamp: false, stampLeft: 130, stampTop: 200 }) }));
+    assert.equal(receipt.status, 201, JSON.stringify(await receipt.clone().json()));
+    const slip = (await receipt.json()).slip;
+    assert.equal(slip.status, 'Returned to Supplier');
+    assert.equal((await warranty.DELETE(new Request('https://app.test/api/warranty-slips', { method: 'DELETE', headers: { origin: 'https://app.test', 'content-type': 'application/json' }, body: JSON.stringify({ companyId: c, id: slip.id, revision: slip.updatedAt }) }))).status, 403);
+
+  } finally { delete globalThis.__transferTestUser; }
+});
+
+test('pending invoices remain unposted until an administrator or accountant converts them once', async () => {
+  const c = (await database.query("INSERT INTO companies(name) VALUES ('Pending invoice roles') RETURNING id")).rows[0].id;
+  const loc = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'PENDROLE','Pending inventory','PEND') RETURNING id", [c])).rows[0].id;
+  const item = (await database.query("INSERT INTO items(company_id,location_id,sku,name,quantity,cost) VALUES($1,$2,'PENDITEM','Draft item',10,40) RETURNING id", [c, loc])).rows[0].id;
+  await database.query("INSERT INTO contacts(company_id,type,name,currency) VALUES($1,'customer','Pending Customer','AED')", [c]);
+  const route = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const post = body => route.POST(new Request('https://app.test/api/records', { method: 'POST', headers: { origin: 'https://app.test', 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'transactions', companyId: c, locationId: loc, type: 'pending invoice', number: 'PEND-ROLE', party: 'Pending Customer', transactionDate: '2026-10-04', currency: 'AED', exchangeRate: 1, account: 'Accounts Receivable', lines: [{ itemId: item, description: 'Draft item', quantity: 2, unitPrice: 100, vatCode: 'ZERO' }], ...body }) }));
+  const stock = async () => Number((await database.query('SELECT quantity FROM items WHERE id=$1', [item])).rows[0].quantity);
+  try {
+    for (const role of ['sales', 'inventory', 'purchasing', 'viewer']) {
+      globalThis.__transferTestUser = { id: 1, role, companyIds: [c] };
+      assert.equal((await post({})).status, 403);
+    }
+    globalThis.__transferTestUser = { id: 1, role: 'accountant', companyIds: [c] };
+    const response = await post({});
+    assert.equal(response.status, 201, JSON.stringify(await response.clone().json()));
+    const pending = (await response.json()).record;
+    assert.equal(pending.status, 'pending'); assert.equal(await stock(), 10);
+    assert.equal((await database.query('SELECT count(*)::int AS n FROM journal_entries WHERE transaction_id=$1', [pending.id])).rows[0].n, 0);
+    assert.equal((await database.query('SELECT balance FROM contacts WHERE company_id=$1', [c])).rows[0].balance, 0);
+    const pendingDetail = await (await route.GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${c}&id=${pending.id}`))).json();
+    const edit = await route.PATCH(new Request('https://app.test/api/records', { method: 'PATCH', headers: { origin: 'https://app.test', 'content-type': 'application/json' }, body: JSON.stringify({ ...pending, kind: 'transactions', revision: pendingDetail.revision, lines: pendingDetail.lines.map(line => ({ ...line, quantity: 2, unitPrice: 110 })) }) }));
+    assert.equal(edit.status, 200, JSON.stringify(await edit.clone().json()));
+    assert.equal(await stock(), 10);
+    globalThis.__transferTestUser.role = 'sales';
+    assert.equal((await route.GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${c}&id=${pending.id}`))).status, 404);
+    assert.equal((await post({ type: 'invoice', sourceTransactionId: pending.id })).status, 403);
+    globalThis.__transferTestUser.role = 'accountant';
+    const posted = await post({ type: 'invoice', sourceTransactionId: pending.id });
+    assert.equal(posted.status, 201, JSON.stringify(await posted.clone().json()));
+    assert.equal(await stock(), 8);
+    assert.equal((await post({ type: 'invoice', sourceTransactionId: pending.id })).status, 409);
+    assert.equal(await stock(), 8);
+    assert.equal((await database.query('SELECT status FROM transactions WHERE id=$1', [pending.id])).rows[0].status, 'converted');
+  } finally { delete globalThis.__transferTestUser; }
+});
+
+test('accountants can update bank details and stamps but not company identity or saved-record deletion', async () => {
+  const c = (await database.query("INSERT INTO companies(name) VALUES ('Accountant document settings') RETURNING id")).rows[0].id;
+  const route = await vite.ssrLoadModule('/app/api/company-setup/route.ts');
+  const patch = body => route.PATCH(new Request('https://app.test/api/company-setup', { method: 'PATCH', headers: { origin: 'https://app.test', 'content-type': 'application/json' }, body: JSON.stringify({ companyId: c, ...body }) }));
+  try {
+    globalThis.__transferTestUser = { id: 1, email: 'accountant@test', role: 'accountant', companyIds: [c] };
+    const stamp = 'data:image/png;base64,aGVsbG8=';
+    assert.equal((await patch({ bankName: 'Test Bank', bankIban: 'AE123', bankCurrency: 'AED', stampData: stamp })).status, 200);
+    assert.equal((await patch({ name: 'Changed name' })).status, 403);
+    assert.equal((await patch({ bankCurrency: 'INVALID' })).status, 400);
+    globalThis.__transferTestUser.role = 'inventory';
+    assert.equal((await patch({ bankName: 'Other Bank' })).status, 403);
+    const saved = (await database.query('SELECT name,bank_name,stamp_data FROM companies WHERE id=$1', [c])).rows[0];
+    assert.deepEqual(saved, { name: 'Accountant document settings', bank_name: 'Test Bank', stamp_data: stamp });
+  } finally { delete globalThis.__transferTestUser; }
 });

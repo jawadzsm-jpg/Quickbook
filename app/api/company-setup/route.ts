@@ -32,11 +32,25 @@ export async function GET(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const user = await requireApiUser(request, true, true);
+  const user = await requireApiUser(request, false, true);
   if (user instanceof Response) return user;
   try {
     const payload = (await request.json()) as Record<string, unknown>;
     const companyId = Number(payload.companyId);
+    if (user.role === "accountant" && canAccessCompany(user, companyId)) {
+      const keys = ["bankName", "bankAccountName", "bankAccountNumber", "bankIban", "bankSwift", "bankCurrency", "stampData"];
+      if (Object.keys(payload).some(key => key !== "companyId" && !keys.includes(key))) return Response.json({ error: "Accountants may update bank details and the company stamp only." }, { status: 403 });
+      const updates: Record<string, string> = {};
+      for (const key of keys) if (payload[key] !== undefined) updates[key] = text(payload[key], key === "stampData" ? 700001 : 120);
+      if (updates.stampData && (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(updates.stampData) || updates.stampData.length > 700000)) return Response.json({ error: "Upload a PNG, JPG or WebP stamp smaller than 500 KB." }, { status: 400 });
+      if (updates.bankCurrency !== undefined && !/^[A-Z]{3}$/.test(updates.bankCurrency)) return Response.json({ error: "Enter a three-letter bank currency." }, { status: 400 });
+      return withWriteTransaction(async () => {
+        const [record] = await getDb().update(companies).set(updates).where(eq(companies.id, companyId)).returning();
+        if (!record) return Response.json({ error: "Company not found." }, { status: 404 });
+        await getDb().insert(auditLog).values({ companyId, action: "updated", entityType: "company_setup", entityId: companyId, details: JSON.stringify({ actorId: user.id, fields: Object.keys(updates), mode: "stamp-bank" }) });
+        return Response.json({ record });
+      });
+    }
     if (!canAccessCompany(user, companyId) || !isAdministrator(user)) return Response.json({ error: "Company administrator access required." }, { status: 403 });
     const [existing] = await getDb().select().from(companies).where(eq(companies.id, companyId)).limit(1);
     if (!existing) return Response.json({ error: "Company not found." }, { status: 404 });
