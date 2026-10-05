@@ -421,9 +421,9 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     </section>
 
     <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
-        <div><h2 className="font-bold text-slate-950">Consolidated stock</h2><p className="text-sm text-slate-500">All companies, inventories, item details, quantities and selling prices.</p></div>
-        <div className="flex gap-2">
+      <div className="flex items-center gap-3 border-b border-slate-200 px-3 py-2.5">
+        <div className="flex min-w-0 shrink items-center gap-2 whitespace-nowrap"><h2 className="text-sm font-bold text-slate-950">Consolidated stock</h2><p className="hidden truncate text-xs text-slate-500 lg:block">All companies, inventories, item details, quantities and selling prices.</p></div>
+        <div className="ml-auto flex min-w-0 shrink gap-2">
           <div className="relative min-w-0 sm:w-80"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search SKU, item, specs or inventory…" className="pl-9" /></div>
           <Button variant="outline" size="icon" onClick={load} disabled={loading} aria-label="Refresh inventory overview"><RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} /></Button>
         </div>
