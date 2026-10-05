@@ -20,6 +20,19 @@ const { chequeAlignmentBounds, uaeChequeLayout, validChequeAlignment } = await s
 const { countries } = await sourceModule("../lib/countries.ts");
 const { generatedItemDescription, inventoryItemDetails, inventoryItemLine, inventoryItemTitle, inventoryShareDescription, inventorySocialShareText, invoiceItemDescription, itemSpecificationDescription, itemTitleWithSku } = await sourceModule("../lib/item-description.ts");
 const { isInvoiceItemSelectable } = await sourceModule("../lib/invoice-item-filter.ts");
+const { calculatorResult } = await sourceModule("../lib/calculator.ts");
+
+test("header calculator provides safe everyday arithmetic", () => {
+  assert.equal(calculatorResult(0.1, 0.2, "+"), 0.3);
+  assert.equal(calculatorResult(20, 5, "÷"), 4);
+  assert.equal(calculatorResult(8, 3, "−"), 5);
+  assert.equal(calculatorResult(7, 6, "×"), 42);
+  assert.equal(calculatorResult(10, 0, "÷"), null);
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const calculator = readFileSync(new URL("../app/workspace-calculator.tsx", import.meta.url), "utf8");
+  assert.match(app, /<WorkspaceShortcuts[\s\S]*<WorkspaceCalculator \/>[\s\S]*aria-label="Appearance"/);
+  assert.match(calculator, /aria-label="Calculator"/);
+});
 
 test("invoice item choices hide out-of-stock tracked items", () => {
   assert.equal(isInvoiceItemSelectable({ itemType: "stock-part", quantity: 2, status: "active" }), true);
