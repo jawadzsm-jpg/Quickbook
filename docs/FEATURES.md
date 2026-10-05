@@ -318,3 +318,5 @@ Customer and vendor Add/Edit forms include Sub-account of and Active/Inactive co
 Parents must be the same contact type and company; sales users can select only their own customers. Self-links and cycles are rejected. Active children must be moved or made inactive before their parent is deactivated; parents with children cannot be deleted. Inactive contacts remain in history and can be reactivated. New trading documents reject inactive parties, while payment lists retain them for balance settlement and credit/return workflows remain available.
 
 Authorized users can also Activate/Make inactive directly from a contact row. This narrow action preserves identity details and rejects stale status changes.
+
+- **Invoice line Pending Cart:** per-line Pending and Restore actions in invoice entry/editing; atomic save to non-posting customer drafts in Sales → Pending Cart, with stock/accounting reversal for posted lines and payment, packing, source-link and revision protection.

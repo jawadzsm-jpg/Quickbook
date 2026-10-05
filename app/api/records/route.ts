@@ -8,7 +8,7 @@ import { employeeHrValues, employeeLoanAccount, redactEmployeeHr } from "@/lib/e
 import { RequestError } from "@/lib/errors";
 import { skuWrite } from "@/lib/sku-locks";
 import { refreshSalesSource, salesSourceLines, salesInventoryLines } from "@/lib/sales-invoicing";
-import { createHash } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "../../../db";
 import {
@@ -24,7 +24,7 @@ import { uaeChequeLayout, uaeChequeLayouts, validChequeAlignment } from "@/lib/u
 import { standardAccounts } from "@/lib/standard-accounts";
 
 type RecordKind = "transactions" | "contacts" | "items" | "accounts";
-type InputLine = { comments?: string; serialNumber?: string; freightCharge?: number | string; isFreightCharge?: boolean; orderLineId?: number; sourceLineId?: number; itemId?: number | string | null; description?: string; quantity?: number | string; unitPrice?: number | string; unitCost?: number | string; vatCode?: string; vatRate?: number | string };
+type InputLine = { pending?: boolean; comments?: string; serialNumber?: string; freightCharge?: number | string; isFreightCharge?: boolean; orderLineId?: number; sourceLineId?: number; itemId?: number | string | null; description?: string; quantity?: number | string; unitPrice?: number | string; unitCost?: number | string; vatCode?: string; vatRate?: number | string };
 
 function errorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : "Unexpected database error";
@@ -471,8 +471,41 @@ export async function GET(request: Request) {
   }
 }
 
+// Reuse document validation and numbering without starting a second HTTP request.
+function recordRequest(request: Request, payload: Record<string, unknown>) {
+  return new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify(payload) });
+}
+
+async function savePendingCart(request: Request, context: Record<string, unknown>, lines: InputLine[]) {
+  return saveNewRecord(recordRequest(request, {
+    kind: "transactions", companyId: context.companyId, locationId: context.locationId,
+    type: "pending invoice", number: `PEND-${randomUUID()}`, status: "pending",
+    party: context.party, currency: context.currency, exchangeRate: context.exchangeRate,
+    transactionDate: context.transactionDate, dueDate: context.dueDate, terms: context.terms,
+    account: context.account, salesman: context.salesman,
+    memo: `Pending Cart from invoice ${String(context.number || "draft")}\n${String(context.memo || "")}`.slice(0, 5000),
+    comments: context.comments, serialNumber: context.serialNumber,
+    lines: lines.map(line => ({ ...line, pending: undefined, sourceLineId: undefined, orderLineId: undefined })),
+  }));
+}
+
 async function handlePOST(request: Request) {
   const payload = await request.clone().json();
+  if (payload.kind === "transactions" && payload.type === "invoice" && Array.isArray(payload.lines) && payload.lines.some((line: InputLine) => line?.pending === true)) {
+    return withWriteTransaction(async () => {
+      if (payload.sourceTransactionId || payload.salesSourceId) return Response.json({ error: "Save the source conversion separately. Source-linked invoice lines cannot move to Pending Cart." }, { status: 409 });
+      const pendingLines = payload.lines.filter((line: InputLine) => line?.pending === true);
+      if (pendingLines.some((line: InputLine) => !(Number(line.quantity) > 0))) return Response.json({ error: "Only positive-quantity sale lines can move to Pending Cart." }, { status: 400 });
+      const pendingResponse = await savePendingCart(request, payload, pendingLines);
+      if (!pendingResponse.ok) return pendingResponse;
+      const pendingRecord = (await pendingResponse.json()).record;
+      const activeLines = payload.lines.filter((line: InputLine) => line?.pending !== true);
+      if (!activeLines.length) return Response.json({ record: pendingRecord, pendingRecord }, { status: 201 });
+      const invoiceResponse = await saveNewRecord(recordRequest(request, { ...payload, lines: activeLines }));
+      if (!invoiceResponse.ok) return invoiceResponse;
+      return Response.json({ ...await invoiceResponse.json(), pendingRecord }, { status: 201 });
+    });
+  }
   if (payload.action === "resolve-vendor-payable") return withWriteTransaction(async () => {
     const authorization = await requireApiUser(request, false, true);
     if (authorization instanceof Response) return authorization;
@@ -724,8 +757,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     let referenceNo = type === "customer payment" ? String(payload.referenceNo ?? payload.number ?? "").trim().slice(0, 120) : "";
     const chequeBankKey = type === "cheque" ? String(payload.chequeBankKey ?? "other-uae-bank").trim() : "";
     if (type === "cheque" && !uaeChequeLayouts.some((layout) => layout.key === chequeBankKey)) return Response.json({ error: "Select a valid UAE bank cheque layout." }, { status: 400 });
-    const comments = ["invoice", "bill"].includes(type) ? String(payload.comments ?? replacing?.comments ?? "") : "";
-    const serialNumber = ["invoice", "bill"].includes(type) ? String(payload.serialNumber ?? replacing?.serialNumber ?? "") : "";
+    const comments = ["invoice", "pending invoice", "bill"].includes(type) ? String(payload.comments ?? replacing?.comments ?? "") : "";
+    const serialNumber = ["invoice", "pending invoice", "bill"].includes(type) ? String(payload.serialNumber ?? replacing?.serialNumber ?? "") : "";
     const conversionSourceId = ["invoice", "bill"].includes(type) ? Number(payload.sourceTransactionId) : NaN;
     let rawLines = Array.isArray(payload.lines) ? payload.lines as InputLine[] : [];
     if (Number.isInteger(conversionSourceId) && conversionSourceId > 0) {
@@ -772,7 +805,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
         if (!line || !Number.isFinite(quantity) || quantity <= 0 || quantity > line.remaining) return Response.json({ error: "Invoice a positive quantity no greater than the remaining quantity. Refresh the source document." }, { status: 409 });
         if (line.itemId && !line.stockItemId) return Response.json({ error: "An ordered item is unavailable in this inventory. Choose another inventory or invoice other items." }, { status: 409 });
         salesAllocations.push({ sourceLineId: line.id, quantity });
-        invoiceLines.push({ ...line, comments: input.comments, serialNumber: input.serialNumber, itemId: line.itemId ? line.stockItemId : null, quantity, unitCost: line.itemId ? line.homeCost / rate : line.unitCost });
+        invoiceLines.push({ ...line, comments: input.comments ?? line.comments, serialNumber: input.serialNumber ?? line.serialNumber, itemId: line.itemId ? line.stockItemId : null, quantity, unitCost: line.itemId ? line.homeCost / rate : line.unitCost });
       }
       rawLines = invoiceLines;
       payload.party = source.party; payload.salesman = source.salesman; payload.terms = source.terms; payload.currency = source.currency; payload.exchangeRate = source.exchangeRate;
@@ -890,7 +923,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const vatRate = type === "invoice" && quantity < 0 ? 0 : vatRates[vatCode];
       const subtotal = round(quantity * unitPrice);
       const vatAmount = round(subtotal * vatRate / 100);
-      return { itemId: line.itemId ? Number(line.itemId) : null, description: String(line.description ?? "").trim(), comments: ["invoice", "bill"].includes(type) ? String(line.comments ?? "") : "", serialNumber: ["invoice", "bill"].includes(type) ? String(line.serialNumber ?? "") : "", quantity, unitPrice, unitCost, freightCharge, isFreightCharge: false, vatCode, vatRate, subtotal, vatAmount, total: round(subtotal + vatAmount) };
+      return { itemId: line.itemId ? Number(line.itemId) : null, description: String(line.description ?? "").trim(), comments: ["invoice", "pending invoice", "bill"].includes(type) ? String(line.comments ?? "") : "", serialNumber: ["invoice", "pending invoice", "bill"].includes(type) ? String(line.serialNumber ?? "") : "", quantity, unitPrice, unitCost, freightCharge, isFreightCharge: false, vatCode, vatRate, subtotal, vatAmount, total: round(subtotal + vatAmount) };
     }).filter((line) => line.description || line.itemId || line.subtotal > 0);
     if (!prepared.length && Number(payload.total) > 0) {
       const subtotal = Number(payload.total);
@@ -1369,12 +1402,14 @@ async function handlePATCH(request: Request) {
           if (payload.revision !== purchaseRevision(existing, oldLines)) return Response.json({ error: "This document changed. Close and reopen the editor before saving." }, { status: 409 });
           const configuredVatCodes = existing.type === "invoice" ? await db.select({ code: vatCodes.code, rate: vatCodes.rate }).from(vatCodes).where(and(eq(vatCodes.companyId, companyId), eq(vatCodes.active, true))) : [];
           const vatRateMap = configuredVatCodes.length ? Object.fromEntries(configuredVatCodes.map((entry) => [entry.code, Number(entry.rate)])) : fallbackVatRates;
+          const pendingLines: InputLine[] = [];
+          const pendingIds = new Set<number>();
           const lineDetails: { id: number; description: string; comments: string; serialNumber: string; quantity: number; unitPrice: number; vatCode: string; vatRate: number; subtotal: number; vatAmount: number; total: number }[] = [];
           if (payload.lineDetails !== undefined) {
             if (!Array.isArray(payload.lineDetails)) return Response.json({ error: "Select valid invoice line details." }, { status: 400 });
             const seen = new Set<number>();
             for (const input of payload.lineDetails) {
-              if (!input || typeof input !== "object" || Object.keys(input).some(key => !["id", "description", "comments", "serialNumber", "quantity", "unitPrice", "vatCode"].includes(key))) return Response.json({ error: "Only line quantity, price, VAT, description, comments and serial numbers can be edited." }, { status: 400 });
+              if (!input || typeof input !== "object" || Object.keys(input).some(key => !["id", "description", "comments", "serialNumber", "quantity", "unitPrice", "vatCode", "pending"].includes(key))) return Response.json({ error: "Only line quantity, price, VAT, description, comments and serial numbers can be edited." }, { status: 400 });
               const line = oldLines.find(line => line.id === input.id);
               if (!line || seen.has(line.id)) return Response.json({ error: "Select unique lines belonging to this invoice." }, { status: 400 });
               const description = String(input.description ?? line.description).trim();
@@ -1393,14 +1428,31 @@ async function handlePATCH(request: Request) {
               const vatAmount = round(subtotal * vatRate / 100);
               const total = round(subtotal + vatAmount);
               if (![vatRate, subtotal, vatAmount, total].every(Number.isFinite)) return Response.json({ error: "Enter valid invoice line values." }, { status: 400 });
-              lineDetails.push({ id: line.id, description, comments, serialNumber, quantity, unitPrice, vatCode, vatRate, subtotal, vatAmount, total });
+              if (input.pending === true) {
+                if (quantity <= 0 || line.isFreightCharge) return Response.json({ error: "Only positive-quantity sale lines can move to Pending Cart." }, { status: 400 });
+                pendingIds.add(line.id);
+                pendingLines.push({ itemId: line.itemId, description, comments, serialNumber, quantity, unitPrice, unitCost: line.unitCost, vatCode, vatRate });
+                lineDetails.push({ id: line.id, description, comments, serialNumber, quantity: 0, unitPrice, vatCode, vatRate, subtotal: 0, vatAmount: 0, total: 0 });
+              } else {
+                lineDetails.push({ id: line.id, description, comments, serialNumber, quantity, unitPrice, vatCode, vatRate, subtotal, vatAmount, total });
+              }
             }
           }
           const appendInputs = existing.type === "invoice" && Array.isArray(payload.appendLines) ? payload.appendLines as InputLine[] : [];
           if (payload.appendLines !== undefined && !Array.isArray(payload.appendLines)) return Response.json({ error: "Select valid invoice lines to add." }, { status: 400 });
           if (appendInputs.length && !["open", "overdue", "partially paid", "pending"].includes(existing.status)) return Response.json({ error: "Only open, overdue or partially paid invoices can have new item lines added." }, { status: 409 });
           if (appendInputs.length > 100) return Response.json({ error: "Add no more than 100 invoice lines at a time." }, { status: 400 });
-          const appended = appendInputs.map((line) => {
+          for (const line of appendInputs.filter(line => line.pending === true)) {
+            if (!(Number(line.quantity) > 0)) return Response.json({ error: "Only positive-quantity sale lines can move to Pending Cart." }, { status: 400 });
+            pendingLines.push(line);
+          }
+          if (pendingLines.length && (existing.salesSourceId || existing.sourceTransactionId)) return Response.json({ error: "Source-linked invoice lines cannot move to Pending Cart. Adjust the source document instead." }, { status: 409 });
+          if (pendingLines.length && !["open", "overdue", "partially paid", "paid"].includes(existing.status)) return Response.json({ error: "This invoice status does not allow moving lines to Pending Cart." }, { status: 409 });
+          if (pendingIds.size) {
+            const [packed] = await db.select({ id: packingListLines.id }).from(packingListLines).where(inArray(packingListLines.invoiceLineId, [...pendingIds])).limit(1);
+            if (packed) return Response.json({ error: "Remove the line from its packing list before moving it to Pending Cart." }, { status: 409 });
+          }
+          const appended = appendInputs.filter(line => line.pending !== true).map((line) => {
             const quantity = Number(line.quantity);
             const unitPrice = Number(line.unitPrice);
             const unitCost = Number(line.unitCost ?? 0);
@@ -1645,8 +1697,17 @@ async function handlePATCH(request: Request) {
           await db.update(journalEntries).set({ entryDate: transactionDate, reference: number }).where(eq(journalEntries.transactionId, id));
           await db.update(inventoryMovements).set({ movementDate: transactionDate, reference: number }).where(eq(inventoryMovements.transactionId, id));
           await db.insert(auditLog).values({ companyId, action: "updated", entityType: "transaction", entityId: id, details: JSON.stringify({ actor: { id: authorization.id, email: authorization.email }, mode: appended.length ? "details+append-lines" : "details", before: existing, after: record, appendedLines: appended, lineDetails: { before: oldLines.map(line => ({ id: line.id, description: line.description, comments: line.comments, serialNumber: line.serialNumber, quantity: line.quantity, unitPrice: line.unitPrice, vatCode: line.vatCode, vatRate: line.vatRate })), after: lineDetails } }) });
+          let pendingRecord;
+          if (pendingLines.length) {
+            const pendingResponse = await savePendingCart(request, { ...existing, number, party, transactionDate, dueDate, terms, salesman, memo, comments, serialNumber }, pendingLines);
+            if (!pendingResponse.ok) return pendingResponse; // outer transaction rolls back invoice reversals too
+            pendingRecord = (await pendingResponse.json()).record;
+            if (pendingIds.size) await db.delete(transactionLines).where(and(eq(transactionLines.transactionId, id), inArray(transactionLines.id, [...pendingIds])));
+            if (pendingIds.size === oldLines.length && !appended.length) await db.update(transactions).set({ status: "cancelled", paidAt: null }).where(eq(transactions.id, id));
+            await db.insert(auditLog).values({ companyId, action: "moved-to-pending", entityType: "transaction", entityId: id, details: JSON.stringify({ actorId: authorization.id, pendingInvoiceId: pendingRecord.id, lineIds: [...pendingIds], lines: pendingLines }) });
+          }
           const [updatedRecord] = await db.select().from(transactions).where(eq(transactions.id, id));
-          return Response.json({ record: updatedRecord });
+          return Response.json({ record: updatedRecord, pendingRecord });
         }
         if (existing?.purchaseOrderId && existing.type !== "bill") return Response.json({ error: "Remove and recreate this linked receipt to change received quantities." }, { status: 409 });
         if (!existing) return Response.json({ error: "Purchase not found." }, { status: 404 });
