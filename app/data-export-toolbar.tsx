@@ -178,7 +178,7 @@ export function DataExportToolbar() {
       // Report dialogs own structured exports, summaries, A4 layout and stamps.
       // Do not add the generic DOM-table exporter beside those controls.
       setDedicatedPdf(Boolean(dialog?.matches(".packing-list-dialog")||dialog?.querySelector(".custom-invoice,.payment-receipt-page,.warranty-page,.rcm-page,.salary-preview")));
-      setHasTables(!dialog?.matches(".report-dialog, .pnl-dialog") && extractVisibleTables().length > 0);
+      setHasTables(!dialog?.matches(".report-dialog, .pnl-dialog") && !(dialog ?? document).querySelector("[data-native-export]") && extractVisibleTables().length > 0);
       setTarget(dialog ? dialog.querySelector<HTMLElement>('[data-export-slot="dialog"]') : document.querySelector<HTMLElement>('[data-export-slot="page"]'));
     };
     check();

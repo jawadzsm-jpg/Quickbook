@@ -123,9 +123,9 @@ function DialogContent({
         data-slot="dialog-content"
         data-window-state={windowState}
         data-window-dock-index={window?.dockIndex ?? 0}
-        style={{ ...style, "--dialog-dock-bottom": `${16 + (window?.dockIndex ?? 0) * 96}px` } as React.CSSProperties}
+        style={{ ...style, "--dialog-dock-bottom": `${16 + (window?.dockIndex ?? 0) * 144}px` } as React.CSSProperties}
         className={cn(
-          "fixed z-50 grid w-full max-w-[calc(100%-2rem)] gap-4 rounded-xl border border-border/80 bg-background p-5 shadow-2xl shadow-slate-950/15 duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-h-[calc(100dvh-2rem)] sm:max-w-4xl sm:overflow-y-auto sm:p-6",
+          "fixed z-50 grid auto-rows-min w-full max-w-[calc(100%-2rem)] gap-4 rounded-xl border border-border/80 bg-background p-5 shadow-2xl shadow-slate-950/15 duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-h-[calc(100dvh-2rem)] sm:max-w-4xl sm:overflow-y-auto sm:p-6",
           windowState === "normal" && "top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%]",
           className
         )}
@@ -147,46 +147,21 @@ function DialogContent({
         }}
         {...props}
       >
-        {children}
-        {showWindowControls && (
-          <div data-slot="dialog-window-controls" className="absolute right-12 top-3 z-20 flex items-center gap-1 print:hidden">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-8 text-muted-foreground hover:text-foreground"
-              aria-label={windowState === "minimized" ? "Restore window" : "Minimize window"}
-              title={windowState === "minimized" ? "Restore" : "Minimize"}
-              onClick={() => {
-                if (windowState === "minimized") setWindowState?.("normal")
-                else if (onMinimize) onMinimize()
-                else setWindowState?.("minimized")
-              }}
-            >
-              <MinusIcon className="size-4" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-8 text-muted-foreground hover:text-foreground"
-              aria-label={windowState === "maximized" ? "Restore window" : "Maximize window"}
-              title={windowState === "maximized" ? "Restore" : "Maximize"}
-              onClick={() => setWindowState?.((current) => current === "maximized" ? "normal" : "maximized")}
-            >
+        {(showWindowControls || showCloseButton) && <div data-slot="dialog-window-controls" role="group" aria-label="Window controls" className="dialog-control-bar">
+          <span className="mr-auto text-xs font-medium text-muted-foreground">{windowState === "minimized" ? "Minimized" : windowState === "maximized" ? "Full screen" : "Window"}</span>
+          {showWindowControls && <>
+            <Button type="button" variant="ghost" size="icon" aria-label={windowState === "minimized" ? "Restore window" : "Minimize window"} title={windowState === "minimized" ? "Restore" : "Minimize"} onClick={() => {
+              if (windowState === "minimized") setWindowState?.("normal")
+              else if (onMinimize) onMinimize()
+              else setWindowState?.("minimized")
+            }}>{windowState === "minimized" ? <Maximize2Icon className="size-4" /> : <MinusIcon className="size-4" />}</Button>
+            <Button type="button" variant="ghost" size="icon" aria-label={windowState === "maximized" ? "Restore window" : "Maximize window"} title={windowState === "maximized" ? "Restore" : "Maximize"} onClick={() => setWindowState?.(current => current === "maximized" ? "normal" : "maximized")}>
               {windowState === "maximized" ? <Minimize2Icon className="size-4" /> : <Maximize2Icon className="size-4" />}
             </Button>
-          </div>
-        )}
-        {showCloseButton && (
-          <DialogPrimitive.Close
-            data-slot="dialog-close"
-            className="absolute top-4 right-4 grid size-8 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus:ring-2 focus:ring-ring/40 focus:outline-hidden disabled:pointer-events-none data-[state=open]:bg-accent [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
-          >
-            <XIcon />
-            <span className="sr-only">Close</span>
-          </DialogPrimitive.Close>
-        )}
+          </>}
+          {showCloseButton && <DialogPrimitive.Close asChild><Button data-slot="dialog-close" type="button" variant="ghost" size="icon" className="dialog-close-action" aria-label="Close window" title="Close"><XIcon className="size-4" /></Button></DialogPrimitive.Close>}
+        </div>}
+        {children}
       </DialogPrimitive.Content>
     </DialogPortal>
   )
@@ -196,7 +171,7 @@ function DialogHeader({ className, children, ...props }: React.ComponentProps<"d
   return (
     <div
       data-slot="dialog-header"
-      className={cn("flex flex-col gap-2 pr-28 text-center sm:text-left", className)}
+      className={cn("flex flex-col gap-2 text-left", className)}
       {...props}
     >
       {children}

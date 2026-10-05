@@ -2029,3 +2029,19 @@ button, input, select { font: inherit; }
 @media screen and (max-width: 479px) {
   .warranty-records-table tbody tr { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Shared window chrome: controls occupy their own row, never a document corner. */
+@media screen {
+  .dialog-control-bar { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: .25rem; min-width: 0; padding: .375rem .5rem; border: 1px solid var(--border); border-radius: .75rem; background: var(--background); box-shadow: 0 1px 3px rgb(15 23 42 / .05); }
+  .dialog-control-bar > button { width: 2.5rem; height: 2.5rem; flex-shrink: 0; color: var(--muted-foreground); }
+  .dialog-control-bar > button:hover { color: var(--foreground); background: var(--accent); }
+  .dialog-control-bar > .dialog-close-action:hover { color: #be123c; background: #fff1f2; }
+  [data-appearance="dark"] .dialog-control-bar > .dialog-close-action:hover { color: #fda4af; background: #4c0519; }
+  [data-slot="dialog-content"] > [data-slot="dialog-header"] { padding-inline-end: 0; min-width: 0; }
+  [data-slot="dialog-content"][data-window-state="minimized"] { max-height: 8rem !important; gap: .5rem; }
+  [data-slot="dialog-content"][data-window-state="minimized"] [data-slot="dialog-title"] { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: .875rem; }
+  [data-slot="table-container"] { min-width: 0; scrollbar-width: thin; scrollbar-color: var(--muted-foreground) var(--muted); }
+  [data-slot="table-head"][data-responsive-column] { white-space: normal; line-height: 1.4; }
+  [data-slot="table-cell"][data-responsive-column] input { min-width: 0; width: 100%; font-variant-numeric: tabular-nums; text-align: right; }
+}
+@media print { .dialog-control-bar { display: none !important; } }
