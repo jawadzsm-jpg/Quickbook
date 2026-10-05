@@ -190,3 +190,5 @@ Purchase workflow presentation: `app/purchase-workflow-panel.tsx` owns action ca
 Shared window controls: `components/ui/dialog.tsx` and the scoped dialog-control-bar rules in `app/globals.css`. Searchable role-filtered navigation: `app/workspace-shortcuts.tsx`, supplied from `visibleNavGroups` in EnterpriseApp. `data-native-export` prevents the generic `app/data-export-toolbar.tsx` from duplicating register exports.
 
 Customer/vendor organization: `lib/contact-hierarchy.ts` validates parent and status changes, `app/contact-organization-fields.tsx` owns the shared form controls, and `enterprise-app.tsx` owns status filters and parent labels. Persistence and scoped names are in the records route; migration `0082_contact_subaccounts.sql` adds the nullable parent link. List exports include parent/status through `lib/record-list-export.ts`.
+
+- `lib/invoice-series.ts`: shared invoice format validation, rendering and settings revision; used by workspace settings, invoice creation and all inventory number previews. Persistent format/padding columns are introduced by migration `0083_custom_invoice_series.sql`.

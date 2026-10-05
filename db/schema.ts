@@ -113,6 +113,8 @@ export const inventoryLocations = pgTable("inventory_locations", {
   name: text("name").notNull(),
   code: text("code").notNull(),
   invoicePrefix: text("invoice_prefix").notNull(),
+  invoiceNumberFormat: text("invoice_number_format").notNull().default("C{COMPANY}-{PREFIX}-INV-{NUMBER}"),
+  invoiceNumberPadding: integer("invoice_number_padding").notNull().default(4),
   nextInvoiceNumber: integer("next_invoice_number").notNull().default(1),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
