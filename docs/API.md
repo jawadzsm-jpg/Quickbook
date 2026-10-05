@@ -211,3 +211,9 @@ Save stores one working-paper configuration per company/period with optimistic r
 Contact POST/PATCH accepts `parentContactId` (positive ID, null/empty to remove) and `status` (`active` or `inactive`). Omitted PATCH values are preserved. Parent selection enforces company, contact type, sales ownership, cycle and active-parent checks within the contact write transaction. GET contact rows include `parentContactName` resolved only from rows visible to the user. Organization changes are audited; deleting a contact with children returns 409. These fields never update balances or ledger links.
 
 For list-row activation use contact PATCH `editMode: "contact-status"`, `status`, and `expectedStatus` with kind/id/companyId only. It preserves identity fields and balances, checks current status to reject stale writes with 409, and follows the same permissions and hierarchy rules.
+
+### Invoice line pending transfers
+
+`POST /api/records` with `type: "invoice"` accepts `lines[].pending: true`. The server splits marked lines into a non-posting pending invoice in the same company/inventory and returns `pendingRecord` alongside `record`. When every line is marked, both refer to that pending invoice and no final invoice is posted.
+
+Administrator `PATCH` invoice details accepts `lineDetails[].pending: true` for existing lines and `appendLines[].pending: true` for new lines. Posted reversals, pending creation, line removal and audit are one transaction. Existing revision, company, SKU locking, payment and packing checks apply; source-linked and negative-quantity lines are rejected. A failed pending save rolls back all changes. `pendingRecord` identifies the saved cart. Pending invoices retain line comments and serial numbers through conversion.
