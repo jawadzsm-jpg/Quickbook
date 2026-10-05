@@ -1656,7 +1656,7 @@ function VendorCenterContent({ companyId, onEdit, onEditPurchaseReturn, records,
       .catch((error) => { if (!controller.signal.aborted) { setReturnsState({ supplierId: currentSupplierId, rows: [] }); toast.error(error instanceof Error ? error.message : "Could not load purchase returns."); } });
     return () => controller.abort();
   }, [companyId, currentSupplierId, currentSupplierBalance]);
-  const selectedReport = (key: string) => { if (selectedSupplier) onReport(key, undefined, { locationId: 0, currency, supplierId: selectedSupplier.id }); };
+  const selectedReport = (key: string) => { if (selectedSupplier) onReport(key, undefined, { locationId: 0, currency: String(selectedSupplier.currency || currency).toUpperCase(), supplierId: selectedSupplier.id }); };
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [history, setHistory] = useState<Array<{ id: number; action: string; createdAt: string; details: string }>>([]);
