@@ -3,7 +3,7 @@
 import Image from "next/image";
 import type { CSSProperties } from "react";
 import { LetterheadBrand, LetterheadStamp } from "./letterhead-page";
-import type { LetterheadTemplate } from "@/lib/letterhead";
+import { defaultLetterhead, type LetterheadTemplate } from "@/lib/letterhead";
 
 type Data = Record<string, string | number | boolean>;
 type Branding = {
@@ -38,12 +38,16 @@ export function DeliveryNoteTemplate({
   contact,
   setup,
   letterhead,
+  stampOverride,
+  onMoveStamp,
 }: {
   record: Data;
   lines: Data[];
   contact?: Data | null;
   setup: Branding;
   letterhead?: LetterheadTemplate;
+  stampOverride?: {show:boolean;left:number;top:number};
+  onMoveStamp?: (left:number,top:number)=>void;
 }) {
   const customerName = String(contact?.billingName || contact?.company || record.party || "Customer");
   const customerCountry = String(contact?.country || "");
@@ -106,7 +110,7 @@ export function DeliveryNoteTemplate({
         {setup.rightLogoData ? <Image src={setup.rightLogoData} alt="Right company logo" width={300} height={110} unoptimized style={{ width: 280, maxWidth: "100%", height: 95, objectFit: "contain", objectPosition: "right top" }} /> : null}
       </div>
     </div>}
-    {letterhead ? <LetterheadStamp template={letterhead} company={setup} /> : null}
+    {letterhead && !stampOverride ? <LetterheadStamp template={letterhead} company={setup} /> : null}
 
     <div className="dn-contact-grid">
       <div className="dn-contact">
@@ -144,5 +148,6 @@ export function DeliveryNoteTemplate({
       {address ? <div>{address}</div> : null}
       <strong>{[setup.phone, setup.email].filter(Boolean).join(" · ")}</strong>
     </div>
+    {stampOverride?.show && setup.stampData && <div className="ci-stamp-footer" style={{position:'relative',marginTop:'8mm',height:`${stampOverride.top+25}mm`,breakInside:'avoid'}}><LetterheadStamp template={{...(letterhead ?? defaultLetterhead()),showStamp:true,stampLeft:Math.min(140,stampOverride.left),stampTop:stampOverride.top}} company={setup} onMove={onMoveStamp} maxLeft={140} maxTop={20} responsive pageWidthMm={180} /></div>}
   </article>;
 }

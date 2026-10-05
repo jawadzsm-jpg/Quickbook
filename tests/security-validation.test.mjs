@@ -900,3 +900,12 @@ test("purchase register exports retain supplier accounts and separate currencies
   assert.deepEqual(report.rows.map(row => [row.currency, row.amount, row.postingAccount]), [["AED", 100, "Supplier AED Payable"], ["USD", 200, "Supplier USD Payable"]]);
   assert.ok(report.columns.some(column => column.key === "postingAccount"));
 });
+
+
+test("report stamp clears the final table and moves to a new page when space runs out", async () => {
+  const { reportStampAfterTable } = await sourceModule("../lib/report-stamp.ts");
+  assert.deepEqual(reportStampAfterTable(297, 150, 50, 23), { newPage: false, top: 158 });
+  assert.deepEqual(reportStampAfterTable(297, 120, 230, 23), { newPage: false, top: 230 });
+  assert.deepEqual(reportStampAfterTable(297, 275, 230, 23), { newPage: true, top: 230 });
+  assert.deepEqual(reportStampAfterTable(210, 180, 260, 23), { newPage: true, top: 169 });
+});

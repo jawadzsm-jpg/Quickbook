@@ -34,13 +34,13 @@ export function LetterheadBrand({ template, company }: { template: LetterheadTem
   </header>;
 }
 
-export function LetterheadStamp({ template, company, onMove, maxLeft = 170, maxTop = 260, pageWidthMm = 210 }: { template: LetterheadTemplate; company: LetterheadCompany; onMove?: (left: number, top: number) => void; maxLeft?: number; maxTop?: number; pageWidthMm?: number }) {
+export function LetterheadStamp({ template, company, onMove, maxLeft = 170, maxTop = 260, pageWidthMm = 210, responsive = false }: { template: LetterheadTemplate; company: LetterheadCompany; onMove?: (left: number, top: number) => void; maxLeft?: number; maxTop?: number; pageWidthMm?: number; responsive?: boolean }) {
   if (!template.showStamp || !company.stampData) return null;
   const begin = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!onMove || event.button !== 0) return;
     event.preventDefault();
     const startX = event.clientX, startY = event.clientY;
-    const page = event.currentTarget.closest<HTMLElement>(".letterhead-page, .report-print-surface");
+    const page = event.currentTarget.closest<HTMLElement>(".letterhead-page, .report-print-surface, .ci-stamp-footer");
     const pixelsPerMm = page ? page.getBoundingClientRect().width / pageWidthMm : 96 / 25.4;
     const move = (next: PointerEvent) => onMove(
       Math.max(0, Math.min(maxLeft, Math.round(template.stampLeft + (next.clientX - startX) / pixelsPerMm))),
@@ -56,8 +56,8 @@ export function LetterheadStamp({ template, company, onMove, maxLeft = 170, maxT
     window.addEventListener("pointercancel", stop, { once: true });
   };
   return <div className="letterhead-stamp" onPointerDown={begin} title={onMove ? "Drag stamp to move" : undefined}
-    style={{ position: "absolute", left: `${template.stampLeft}mm`, top: `${template.stampTop}mm`, cursor: onMove ? "grab" : undefined, touchAction: "none", zIndex: 2 }}>
-    <Image src={company.stampData} alt="Company stamp" width={130} height={95} unoptimized style={{ maxWidth: "32mm", maxHeight: "23mm", objectFit: "contain" }} />
+    style={{ position: "absolute", left: responsive ? `${template.stampLeft / pageWidthMm * 100}%` : `${template.stampLeft}mm`, width: responsive ? `${32 / pageWidthMm * 100}%` : undefined, top: `${template.stampTop}mm`, cursor: onMove ? "grab" : undefined, touchAction: "none", zIndex: 2 }}>
+    <Image src={company.stampData} alt="Company stamp" width={130} height={95} unoptimized style={{ width: responsive ? "100%" : undefined, height: responsive ? "auto" : undefined, maxWidth: "32mm", maxHeight: "23mm", objectFit: "contain" }} />
   </div>;
 }
 

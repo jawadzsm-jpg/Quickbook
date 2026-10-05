@@ -7,3 +7,12 @@ export function moveReportStamp(orientation: PrintOrientation, left: number, top
   const page = reportStampPage(orientation), pixelsPerMm = Math.max(1, previewWidth) / page.width;
   return { left: Math.max(0, Math.min(page.maxLeft, Math.round(left + deltaX / pixelsPerMm))), top: Math.max(0, Math.min(page.maxTop, Math.round(top + deltaY / pixelsPerMm))) };
 }
+
+// Position on the final report page, clear of the table and page footer.
+export function reportStampAfterTable(pageHeight: number, tableBottom: number, requestedTop: number, stampHeight: number) {
+  const maxTop = pageHeight - 18 - stampHeight;
+  const minimumTop = tableBottom + 8;
+  const newPage = minimumTop > maxTop;
+  const top = Math.max(newPage ? 46 : minimumTop, Math.min(maxTop, requestedTop));
+  return { newPage, top };
+}

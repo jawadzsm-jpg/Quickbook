@@ -152,7 +152,7 @@ export async function createA4PdfBlob(element: HTMLElement, options: PdfPageOpti
   const pageOffsets=[0];
   if(options.paginate) {
     const capacity=printableHeight/scale;
-    const rows=Array.from(element.querySelectorAll<HTMLElement>('tr')).map(row=>row.getBoundingClientRect());
+    const rows=Array.from(element.querySelectorAll<HTMLElement>('tr, .ci-stamp-footer')).map(row=>row.getBoundingClientRect());
     while(pageOffsets[pageOffsets.length-1]+capacity<sourceHeight-1) {
       const start=pageOffsets[pageOffsets.length-1];let end=start+capacity;
       const crossing=rows.find(row=>row.top-minTop<end&&row.bottom-minTop>end&&row.top-minTop>start+capacity*0.25);
