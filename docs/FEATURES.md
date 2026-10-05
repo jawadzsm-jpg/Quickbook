@@ -286,3 +286,9 @@ Responsive calculation rows, light/dark styling, shared Minimize/Restore dialog 
 ## Admin backup controls
 
 Admin Controls includes company-scoped manual backups, one-time/daily/weekly/monthly UAE date/time schedules, 7/30/90/365-day retention, private downloads, SHA-256 verification and a responsive light/dark history view. The latest successful file is retained during automatic cleanup. Passwords and authentication configuration are excluded; recovery is administrator-assisted, not a one-click ledger overwrite. See [Company backups](BACKUPS.md).
+
+## Sales document workspace
+
+The Sales document workflow has responsive preparation/confirmation/order/invoice cards, a minimize/restore action, and role-aware pending invoice and Chart of Accounts shortcuts. Sales-only users retain their restricted quotation/order/proforma handoff. The document register provides a filtered summary, status/currency/date/search filters and recorded posting/planned accounts. Duplicate display IDs are collapsed without deleting saved documents.
+
+A4 print preview, PDF, CSV and real XLSX use the selected company/inventory context and saved document output design. Administrators and accountants can include and reposition the company stamp for sales-register print/PDF. Register summaries describe the loaded list (up to 500 recent transactions); they do not combine currencies or count non-posting document values as revenue. Document conversion uses responsive item cards with source unit prices and clearly labelled quantity fields, preserving existing stock/allocation validation.
