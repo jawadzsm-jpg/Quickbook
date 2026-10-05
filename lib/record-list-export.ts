@@ -37,14 +37,14 @@ export function recordListReport(view: string, kind: RecordListKind, records: Re
 
   if (kind === "transactions") return {
     title, generatedAt, currency, period,
-    ...(view === "sales" ? { key: "sales-document-register", description: "Filtered loaded register. Non-posting documents are not revenue. Amounts remain in their original currency." } : {}),
+    ...(view === "sales" ? { key: "sales-document-register", description: "Filtered loaded register. Non-posting documents are not revenue. Amounts remain in their original currency." } : view === "purchases" ? { key: "purchase-document-register", description: "Filtered loaded register. Orders are non-posting commitments, not expenses or payables. Original currencies and workflow stages are not added together." } : {}),
     columns: [
       { key: "date", label: "Date" }, { key: "type", label: "Type" }, { key: "number", label: "Reference" },
       { key: "name", label: "Name" }, { key: "status", label: "Status" }, { key: "currency", label: "Currency" },
       { key: "amount", label: "Amount", type: "money" },
-      ...(view === "sales" ? [{ key: "postingAccount", label: "Posting / planned account" }] : []),
+      ...(["sales","purchases"].includes(view) ? [{ key: "postingAccount", label: "Posting / planned account" }] : []),
     ],
-    rows: records.map((record) => ({ date: String(record.transactionDate || ""), type: String(record.type || ""), number: String(record.number || ""), name: String(record.party || ""), status: String(record.status || ""), currency: String(record.currency || currency), amount: Number(record.total || 0), ...(view === "sales" ? { postingAccount: String(record.account || "Not recorded") } : {}) })),
+    rows: records.map((record) => ({ date: String(record.transactionDate || ""), type: String(record.type || ""), number: String(record.number || ""), name: String(record.party || ""), status: String(record.status || ""), currency: String(record.currency || currency), amount: Number(record.total || 0), ...(["sales","purchases"].includes(view) ? { postingAccount: String(record.account || "Not recorded") } : {}) })),
   };
 
   if (kind === "contacts") return {

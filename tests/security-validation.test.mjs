@@ -887,3 +887,16 @@ test("sales register exports preserve currency and the recorded account without 
   assert.deepEqual(report.rows.map(row=>[row.currency,row.amount,row.postingAccount]),[["AED",100,"Customer AED Receivable"],["USD",200,"Customer USD Receivable"]]);
   assert.ok(report.columns.some(column=>column.key==="postingAccount"));
 });
+
+
+test("purchase register exports retain supplier accounts and separate currencies and stages", () => {
+  const rows = [
+    { transactionDate: "2026-10-01", type: "purchase order", number: "PO-1", party: "Supplier", status: "open", currency: "AED", total: 100, account: "Supplier AED Payable" },
+    { transactionDate: "2026-10-02", type: "bill", number: "BILL-2", party: "Supplier", status: "open", currency: "USD", total: 200, account: "Supplier USD Payable" },
+  ];
+  const report = recordListReport("purchases", "transactions", rows, "AED", "2026-10-01", "2026-10-02");
+  assert.equal(report.key, "purchase-document-register");
+  assert.match(report.description, /Orders are non-posting commitments/);
+  assert.deepEqual(report.rows.map(row => [row.currency, row.amount, row.postingAccount]), [["AED", 100, "Supplier AED Payable"], ["USD", 200, "Supplier USD Payable"]]);
+  assert.ok(report.columns.some(column => column.key === "postingAccount"));
+});

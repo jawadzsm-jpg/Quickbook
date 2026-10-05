@@ -37,6 +37,11 @@ export type ReportExportData = {
 };
 
 export function reportOverview(report: ReportExportData, rows: ReportExportRow[]) {
+  if (report.key === "purchase-document-register") return { cards: [
+    { label: "Documents", value: rows.length, format: "number", tone: "neutral" },
+    { label: "Purchase orders", value: rows.filter(row => row.type === "purchase order").length, format: "number", tone: "neutral" },
+    { label: "Bills", value: rows.filter(row => ["bill","received item bill"].includes(String(row.type))).length, format: "number", tone: "neutral" },
+  ], note: report.description || "Filtered purchase register; original document currencies." };
   if (report.key === "sales-document-register") return { cards: [
     { label: "Documents", value: rows.length, format: "number", tone: "neutral" },
     { label: "Invoices", value: rows.filter(row => row.type === "invoice").length, format: "number", tone: "neutral" },
