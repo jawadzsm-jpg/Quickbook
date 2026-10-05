@@ -205,3 +205,9 @@ Save stores one working-paper configuration per company/period with optimistic r
 `GET /api/admin-backups?companyId=…` returns schedule/revision, latest 100 runs, storage readiness and dispatcher heartbeat. Add `download=<uuid>` to stream a private gzip archive. `POST /api/admin-backups` accepts `{companyId, action}` with `create`, `verify`/`delete` plus `id`, or `schedule` plus `{enabled, frequency, startDate, time, retentionDays}` and the current `revision` (0 for initial creation). Both methods require company-authorized admin/all_admin; mutations require same-origin authentication and a bounded JSON body. Conflicting revisions return 409.
 
 `POST /api/admin-backups/run` is a production-only worker endpoint authenticated by the exact main-branch GitHub Actions workflow OIDC identity. It accepts no user-controlled company selection, claims due schedules, verifies owner access, handles retry leases and performs retention cleanup. See [Company backups](BACKUPS.md) for security and operational limits.
+
+### Contact organization
+
+Contact POST/PATCH accepts `parentContactId` (positive ID, null/empty to remove) and `status` (`active` or `inactive`). Omitted PATCH values are preserved. Parent selection enforces company, contact type, sales ownership, cycle and active-parent checks within the contact write transaction. GET contact rows include `parentContactName` resolved only from rows visible to the user. Organization changes are audited; deleting a contact with children returns 409. These fields never update balances or ledger links.
+
+For list-row activation use contact PATCH `editMode: "contact-status"`, `status`, and `expectedStatus` with kind/id/companyId only. It preserves identity fields and balances, checks current status to reject stale writes with 409, and follows the same permissions and hierarchy rules.
