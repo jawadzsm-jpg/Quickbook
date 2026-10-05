@@ -92,6 +92,8 @@ Administrators can edit the customer, existing line quantity, unit price, VAT co
 
 Open a saved transaction to choose its supported output: tax/commercial invoice, proforma, delivery note, packing list, or HS-code summary. Company design, logos, letterhead, bank details, VAT data, serials, line comments, attachments, and optional stamps feed the A4 print/PDF view. The output selector defaults documents to portrait and lets the user switch to landscape.
 
+Selecting an inventory item for a new sales or purchase line fills the complete uppercase inventory description: item name, SKU, condition, and saved specifications. Customer invoice output omits the Item #; the invoice Inventory Copy and Inventory Overview share/copy text append it at the end.
+
 ### One saved design for print and PDF
 
 In Company Setup → Invoice Template Customization, edit the selected saved template and save Company Setup. In Templates, enable **Active for all** to use one design everywhere. Selection order is the active all-document template, an active template for the document type, the latest active saved template, then the enabled root customization. Without customization, existing defaults remain available. Reopening the designer edits the selected active Invoice template instead of a disconnected root snapshot.
