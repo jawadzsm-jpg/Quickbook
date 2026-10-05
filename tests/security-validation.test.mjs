@@ -30,8 +30,20 @@ test("header calculator provides safe everyday arithmetic", () => {
   assert.equal(calculatorResult(10, 0, "÷"), null);
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const calculator = readFileSync(new URL("../app/workspace-calculator.tsx", import.meta.url), "utf8");
-  assert.match(app, /<WorkspaceShortcuts[\s\S]*<WorkspaceCalculator \/>[\s\S]*aria-label="Appearance"/);
+  assert.match(app, /<WorkspaceShortcuts[\s\S]*<WorkspaceCalculator \/>[\s\S]*<WorkspaceOnlineUsers \/>[\s\S]*aria-label="Appearance"/);
   assert.match(calculator, /aria-label="Calculator"/);
+});
+
+test("online-user presence tracks the active session and displays its IP in the header", () => {
+  const schema = readFileSync(new URL("../db/schema.ts", import.meta.url), "utf8");
+  const route = readFileSync(new URL("../app/api/online-users/route.ts", import.meta.url), "utf8");
+  const widget = readFileSync(new URL("../app/workspace-online-users.tsx", import.meta.url), "utf8");
+  assert.match(schema, /ipAddress: text\("ip_address"\)/);
+  assert.match(schema, /lastSeenAt: timestamp\("last_seen_at"/);
+  assert.match(route, /ONLINE_WINDOW_MS = 2 \* 60 \* 1000/);
+  assert.match(route, /touchRequestSession\(request\)/);
+  assert.match(widget, /Active in the last 2 minutes/);
+  assert.match(widget, /user\.ipAddress \|\| "Unknown IP"/);
 });
 
 test("invoice item choices hide out-of-stock tracked items", () => {

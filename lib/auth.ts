@@ -46,6 +46,16 @@ export function canAccessCompany(user: Pick<SessionUser, "role" | "companyIds">,
 
 const tokenDigest = (token: string) => createHash("sha256").update(token).digest("hex");
 
+function requestSessionToken(request: Request) {
+  const cookie = request.headers.get("cookie") ?? "";
+  return cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${SESSION_COOKIE}=`))?.slice(SESSION_COOKIE.length + 1);
+}
+
+export function requestIpAddress(request: Request) {
+  const forwardedIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  return (forwardedIp || request.headers.get("x-real-ip") || "Unknown").slice(0, 64);
+}
+
 export function hashPassword(password: string) {
   const salt = randomBytes(16);
   const hash = scryptSync(password, salt, 64, { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
@@ -70,11 +80,18 @@ export function sessionCookie(token: string, maxAge = SESSION_HOURS * 60 * 60) {
   return `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`;
 }
 
-export async function createSession(userId: number) {
+export async function createSession(userId: number, ipAddress = "") {
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + SESSION_HOURS * 60 * 60 * 1000).toISOString();
-  await getDb().insert(authSessions).values({ userId, tokenHash: tokenDigest(token), expiresAt });
+  await getDb().insert(authSessions).values({ userId, tokenHash: tokenDigest(token), ipAddress: ipAddress.slice(0, 64), lastSeenAt: new Date().toISOString(), expiresAt });
   return token;
+}
+
+export async function touchRequestSession(request: Request) {
+  const token = requestSessionToken(request);
+  if (!token) return false;
+  await getDb().update(authSessions).set({ ipAddress: requestIpAddress(request), lastSeenAt: new Date().toISOString() }).where(eq(authSessions.tokenHash, tokenDigest(token)));
+  return true;
 }
 
 async function assignedCompanyIds(userId: number) {
@@ -101,9 +118,7 @@ export async function getSessionUser() {
 }
 
 export async function getRequestUser(request: Request) {
-  const cookie = request.headers.get("cookie") ?? "";
-  const token = cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${SESSION_COOKIE}=`))?.slice(SESSION_COOKIE.length + 1);
-  return findSessionUser(token);
+  return findSessionUser(requestSessionToken(request));
 }
 
 export function sameOrigin(request: Request) {
@@ -133,7 +148,6 @@ export async function requireCompanyAccess(request: Request, companyId: number, 
 }
 
 export async function revokeRequestSession(request: Request) {
-  const cookie = request.headers.get("cookie") ?? "";
-  const token = cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${SESSION_COOKIE}=`))?.slice(SESSION_COOKIE.length + 1);
+  const token = requestSessionToken(request);
   if (token) await getDb().delete(authSessions).where(eq(authSessions.tokenHash, tokenDigest(token)));
 }

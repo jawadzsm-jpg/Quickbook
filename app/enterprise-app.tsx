@@ -4,6 +4,7 @@ import { defaultInvoiceNumberFormat, formatInvoiceNumber, invoiceSeriesError, in
 import { ContactOrganizationFields } from "./contact-organization-fields";
 import { WorkspaceShortcuts } from "./workspace-shortcuts";
 import { WorkspaceCalculator } from "./workspace-calculator";
+import { WorkspaceOnlineUsers } from "./workspace-online-users";
 import { useRecordRole, useCanDeleteRecord } from "./record-permissions";
 import { PurchaseWorkflowPanel, PurchaseRegisterSummary } from "./purchase-workflow-panel";
 import { SalesWorkflowPanel, SalesRegisterSummary } from "./sales-workflow-panel";
@@ -1310,6 +1311,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
           <div className="app-header-actions ml-auto flex max-w-full flex-wrap items-center justify-end gap-1.5 sm:gap-2">
             <WorkspaceShortcuts groups={visibleNavGroups} currentView={view} onNavigate={(id)=>{const target=id as View;if(roleViews[currentUser.role].includes(target)){setSearch("");setView(target);}}} />
             <WorkspaceCalculator />
+            <WorkspaceOnlineUsers />
             <Popover>
               <PopoverTrigger asChild>
                 <Button type="button" variant="ghost" size="icon" aria-label="Appearance" title="Appearance"><Palette className="size-4" /></Button>
