@@ -7,7 +7,11 @@ import { PurchaseOrderReceiving } from "./purchase-order-receiving";
 
 type Order = { id: number; number: string; transactionDate: string; currency: string; status: string; memo: string | null; inventory: string };
 
-export function OpenPurchaseOrders({ companyId, party, onSaved, onComplete, onSelectBill }: { companyId: number; party: string; onSaved: () => void; onComplete: () => void; onSelectBill?: (id: number) => Promise<void> }) {
+type OpenPurchaseOrdersProps = { companyId: number; party: string; onSaved: () => void; onComplete: () => void; onSelectBill?: (id: number) => Promise<void> };
+export function OpenPurchaseOrders(props: OpenPurchaseOrdersProps) {
+  return <PurchaseOrderSelection key={`${props.companyId}-${props.party}`} {...props} />;
+}
+function PurchaseOrderSelection({ companyId, party, onSaved, onComplete, onSelectBill }: OpenPurchaseOrdersProps) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [stage, setStage] = useState<"closed" | "select" | "receive">("closed");
   const [selected, setSelected] = useState<number[]>([]);
@@ -21,9 +25,11 @@ export function OpenPurchaseOrders({ companyId, party, onSaved, onComplete, onSe
       .then(async (response) => {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Could not check open purchase orders.");
+        if (controller.signal.aborted) return;
+        setSelected([]); setSelectionError("");
         setOrders(data.orders);
         setError("");
-        if (data.orders.length) setStage("select");
+        setStage(data.orders.length ? "select" : "closed");
       }).catch((err) => { if (!controller.signal.aborted) setError(err.message); });
     return () => controller.abort();
   }, [companyId, party, retry]);
@@ -40,19 +46,13 @@ export function OpenPurchaseOrders({ companyId, party, onSaved, onComplete, onSe
           <DialogDescription>{onSelectBill ? `${party} · Select a purchase order to enter the quantities received now. Remaining quantities stay open for the next bill.` : `${party} · Each selected PO has its own receipt. Remaining quantities stay on the original order.`}</DialogDescription>
         </DialogHeader>
         {stage === "select" && <div className="space-y-4">
-          <div className="rounded-md border">
-            <table className="w-full table-fixed text-sm">
-              <thead><tr className="border-b bg-muted/50"><th className="w-10 p-2"><span className="sr-only">Select</span></th><th className="w-1/5 p-2 text-left">Date</th><th className="w-1/3 p-2 text-left">PO number</th><th className="p-2 text-left">Memo</th></tr></thead>
-              <tbody>{orders.map((order) => <tr key={order.id} className={`border-b last:border-b-0 ${selected.includes(order.id) ? "bg-accent" : ""}`}>
-                <td className="p-2 align-top"><input type={onSelectBill ? "radio" : "checkbox"} name="purchase-order-selection" disabled={selecting} aria-label={`Select purchase order ${order.number}`} className="size-4" checked={selected.includes(order.id)} onChange={(event) => setSelected((old) => event.target.checked ? onSelectBill ? [order.id] : [...old, order.id] : old.filter((id) => id !== order.id))} /></td>
-                <td className="break-words p-2 align-top">{order.transactionDate}</td>
-                <td className="p-2 align-top [overflow-wrap:anywhere]"><strong>{order.number}</strong><span className="mt-1 block text-xs text-muted-foreground">{order.inventory} · {order.currency}</span></td>
-                <td className="whitespace-pre-wrap p-2 align-top [overflow-wrap:anywhere]">{order.memo || "—"}</td>
-              </tr>)}</tbody>
-            </table>
-          </div>
+          <div className="grid gap-3">{orders.map((order) => <label key={order.id} className={`flex min-w-0 cursor-pointer items-start gap-3 rounded-xl border p-4 ${selected.includes(order.id) ? "border-primary/50 bg-primary/5" : "bg-card"}`}>
+            <input type={onSelectBill ? "radio" : "checkbox"} name="purchase-order-selection" disabled={selecting} aria-label={`Select purchase order ${order.number}`} className="mt-1 size-4 shrink-0" checked={selected.includes(order.id)} onChange={(event) => setSelected((old) => event.target.checked ? onSelectBill ? [order.id] : [...new Set([...old, order.id])] : old.filter((id) => id !== order.id))} />
+            <span className="min-w-0 flex-1"><span className="flex flex-wrap justify-between gap-2"><strong className="[overflow-wrap:anywhere]">{order.number}</strong><span className="text-xs text-muted-foreground">{order.transactionDate} · {order.status}</span></span><span className="mt-1 block text-xs text-muted-foreground">{order.inventory} · {order.currency}</span><span className="mt-3 block whitespace-pre-wrap text-sm [overflow-wrap:anywhere]">{order.memo || "No memo"}</span></span>
+          </label>)}</div>
           {selectionError && <p role="alert" className="text-sm text-rose-600">{selectionError}</p>}
-          <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={selecting} onClick={() => setStage("closed")}>Cancel</Button><Button type="button" disabled={!selected.length || selecting} onClick={async () => {
+          <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={selecting} onClick={() => setStage("closed")}>Cancel</Button><Button type="button" disabled={!selected.length || selected.some(id => !orders.some(order => order.id === id)) || selecting} onClick={async () => {
+            if (!selected.length || selected.some(id => !orders.some(order => order.id === id))) return;
             if (!onSelectBill) { setStage("receive"); return; }
             setSelecting(true); setSelectionError("");
             try { await onSelectBill(selected[0]); setStage("closed"); }
