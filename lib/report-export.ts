@@ -1,3 +1,4 @@
+import { reportStampAfterTable } from "./report-stamp";
 import { incomeTaxReportSummary } from "./income-tax";
 import { journalReportSummary } from "./journal-register";
 import { reportColumnKind, reportColumnWeight } from "./report-presentation";
@@ -349,9 +350,11 @@ export async function reportPdf(report: ReportExportData, company: string, inven
       image.onerror = () => reject(new Error("Could not read the company stamp."));
       image.src = stamp.data;
     });
-    pdf.setPage(1);
     const scale = Math.min(32 / stampImage.width, 23 / stampImage.height);
-    pdf.addImage(stampImage.data, "PNG", Math.max(0, Math.min(pageWidth - stampImage.width * scale, stamp.left)), Math.max(0, Math.min(pageHeight - stampImage.height * scale, stamp.top)), stampImage.width * scale, stampImage.height * scale);
+    const tableBottom = (pdf as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
+    const placement = reportStampAfterTable(pageHeight, tableBottom, stamp.top, stampImage.height * scale);
+    if (placement.newPage) { pdf.addPage(); drawHeader(); }
+    pdf.addImage(stampImage.data, "PNG", Math.max(0, Math.min(pageWidth - stampImage.width * scale, stamp.left)), placement.top, stampImage.width * scale, stampImage.height * scale);
   }
   const pages = pdf.getNumberOfPages();
   for (let page = 1; page <= pages; page++) {

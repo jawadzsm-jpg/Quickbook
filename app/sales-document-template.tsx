@@ -96,15 +96,16 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
   const activeMode = selection.source === mode && outputModes.includes(selection.output) ? selection.output : mode;
   const signedInvoiceCopies = activeMode === "tax-invoice" || activeMode === "commercial-invoice";
   const letterhead = letterheadForDocument(setup.letterheadDesign, activeMode);
-  const stamp = poStamp ?? {show: Boolean(letterhead?.showStamp), left: letterhead?.stampLeft ?? 155, top: letterhead?.stampTop ?? 230};
+  const stamp = poStamp ?? {show: Boolean(letterhead?.showStamp), left: letterhead?.stampLeft ?? 155, top: 0};
   const movableStamp = true;
-  const stampOverride = movableStamp ? stamp : undefined;
   const requestedTemplateType = savedTemplateType[activeMode];
   const { design, savedTemplate } = resolveDocumentDesign(setup.documentDesign, requestedTemplateType);
   if (!savedTemplate || savedTemplate.appliesToAll || (requestedTemplateType && savedTemplate.type !== requestedTemplateType)) design.title = salesDocumentTitles[activeMode];
   if (activeMode === "purchase-return") design.headers = [...design.headers.filter((field) => field.key !== "source"), { key: "source", label: "Original Supplier Bill", width: 1, screen: true, print: true }];
 
   const a4Design = { ...design, paper: "A4" as const, printerMode: "specified" as const, orientation: printOrientation };
+  const stampMaxLeft = activeMode === "delivery-note" && !design.enabled ? 140 : Math.max(0, (printOrientation === "landscape" ? 297 : 210) - design.margin * 2 - 40);
+  const stampOverride = { ...stamp, left: Math.min(stampMaxLeft, stamp.left) };
   const pageRule = documentPageRule(a4Design);
   const screenPreviewRef = useRef<HTMLDivElement>(null);
   const alternatePreviewRef = useRef<HTMLDivElement>(null);
@@ -114,11 +115,11 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
   const inventoryLines = inventoryInvoiceLines(lines);
   const renderDocument = (documentCopy: "customer" | "inventory", print = false) => {
     const inventoryCopy = splitInvoiceCopies && documentCopy === "inventory";
-    const copyDesign = { ...(print ? a4Design : design), ...(inventoryCopy ? { title: `${design.title} — Inventory Copy` } : {}) };
+    const copyDesign = { ...a4Design, ...(inventoryCopy ? { title: `${design.title} — Inventory Copy` } : {}) };
     const copyLines = inventoryCopy ? inventoryLines : customerLines;
     return activeMode === "delivery-note" && connectedPackingList && !design.enabled
-      ? <DeliveryNoteTemplate record={record} lines={copyLines} contact={contact} setup={setup} letterhead={letterhead} />
-      : <CustomInvoiceTemplate design={copyDesign} record={record} lines={copyLines} contact={contact} setup={setup} letterhead={design.enabled ? undefined : letterhead} stampOverride={stampOverride} showItemNumberAtEnd={signedInvoiceCopies} target="print" onMoveStamp={!print && movableStamp ? (left, top) => setPoStamp({ ...stamp, left, top }) : undefined} />;
+      ? <DeliveryNoteTemplate record={record} lines={copyLines} contact={contact} setup={setup} letterhead={letterhead} stampOverride={stampOverride} onMoveStamp={!print ? (left, top) => setPoStamp({...stamp,left,top}) : undefined} />
+      : <CustomInvoiceTemplate design={copyDesign} record={record} lines={copyLines} contact={contact} setup={setup} letterhead={design.enabled ? undefined : letterhead} stampOverride={stampOverride} stampPlacement="footer" showItemNumberAtEnd={signedInvoiceCopies} target="print" onMoveStamp={!print && movableStamp ? (left, top) => setPoStamp({ ...stamp, left, top }) : undefined} />;
   };
   const customerName = String(contact?.billingName || contact?.company || record.party || "Customer");
   const referenceNumber = String(record.number || "Document");
@@ -242,9 +243,9 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
         body:has(.custom-invoice) .custom-invoice table{width:100%!important;max-width:100%!important;table-layout:fixed!important}
         body:has(.custom-invoice) .custom-invoice th,body:has(.custom-invoice) .custom-invoice td{overflow-wrap:anywhere!important;word-break:break-word!important;white-space:normal!important}
       }`}</style>
-    <div className="document-internal-only mb-3 flex flex-wrap items-center justify-between gap-2">
-      {outputModes.length > 1 ? <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-slate-50 p-2 text-sm">
-        <span className="px-1 font-semibold text-slate-700">Document layout</span>
+    <div className="document-internal-only mb-4 grid gap-4 rounded-xl border bg-card p-4 text-card-foreground sm:p-5">
+      {outputModes.length > 1 ? <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="w-full text-xs font-semibold uppercase tracking-wide text-muted-foreground">Document layout</span>
         {outputModes.map((outputMode) => {
           const packingLinked = connectedPackingList && (outputMode === "packing-list" || outputMode === "hs-code-summary");
           return <Button key={outputMode} type="button" size="sm" variant={activeMode === outputMode && !packingLinked ? "default" : "outline"} aria-pressed={activeMode === outputMode} onClick={() => {
@@ -257,8 +258,8 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
           }}>{salesDocumentTitles[outputMode]}</Button>;
         })}
       </div> : <div />}
-      <div className="flex flex-wrap justify-end gap-2">
-        {splitInvoiceCopies && <div className="flex flex-wrap gap-2" aria-label="Invoice copy">
+      <div className="flex flex-wrap items-center gap-2 border-t pt-4">
+        {splitInvoiceCopies && <div className="flex w-full flex-wrap gap-2" aria-label="Invoice copy">
           <Button type="button" variant={copy === "customer" ? "default" : "outline"} aria-pressed={copy === "customer"} onClick={() => setCopy("customer")}>Customer Copy</Button>
           <Button type="button" variant={copy === "inventory" ? "default" : "outline"} aria-pressed={copy === "inventory"} onClick={() => setCopy("inventory")}>Inventory Copy</Button>
         </div>}
@@ -274,8 +275,8 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
         </Button>
       </div>
     </div>
-    {movableStamp && <div className="document-internal-only mb-3 flex flex-wrap items-center gap-3 rounded-lg border bg-slate-50 p-3 text-sm"><label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={stamp.show} disabled={!setup.stampData} onChange={(event) => setPoStamp({...stamp,show:event.target.checked})} />Company stamp</label>{!setup.stampData && <span className="text-slate-500">Upload a stamp in Company Setup first.</span>}{stamp.show && setup.stampData && <><label className="flex items-center gap-2">Left (mm)<input type="number" min="0" max="170" className="w-20 rounded border bg-white px-2 py-1" value={stamp.left} onChange={(event) => setPoStamp({...stamp,left:Math.max(0,Math.min(170,Number(event.target.value)||0))})} /></label><label className="flex items-center gap-2">Top (mm)<input type="number" min="0" max="260" className="w-20 rounded border bg-white px-2 py-1" value={stamp.top} onChange={(event) => setPoStamp({...stamp,top:Math.max(0,Math.min(260,Number(event.target.value)||0))})} /></label><span className="text-slate-500">Drag the stamp in the preview to adjust it.</span></>}</div>}
-    {signedInvoiceCopies ? <div className="document-internal-only mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-900">Print creates Customer and Inventory copies with signature areas. Customer copies hide zero-price and stock-return lines. Save or download uses the selected copy.</div> : null}
+    {movableStamp && <div className="document-internal-only mb-4 flex flex-wrap items-end gap-4 rounded-xl border bg-card p-4 text-sm text-card-foreground"><label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={stamp.show} disabled={!setup.stampData} onChange={(event) => setPoStamp({...stamp,show:event.target.checked})} />Company stamp</label>{!setup.stampData && <span className="text-muted-foreground">Upload a stamp in Company Setup first.</span>}{stamp.show && setup.stampData && <><label className="flex items-center gap-2">Left (mm)<input type="number" min="0" max={stampMaxLeft} className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={stampOverride.left} onChange={(event) => setPoStamp({...stamp,left:Math.max(0,Math.min(stampMaxLeft,Number(event.target.value)||0))})} /></label><label className="flex items-center gap-2">Vertical gap (mm)<input type="number" min="0" max="20" className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={stamp.top} onChange={(event) => setPoStamp({...stamp,top:Math.max(0,Math.min(20,Number(event.target.value)||0))})} /></label><span className="w-full text-xs text-muted-foreground">Stamp stays below the table and totals. Drag within this area or adjust the values. Turn off to remove it from print and PDF.</span></>}</div>}
+    {signedInvoiceCopies ? <div className="document-internal-only mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">Print creates Customer and Inventory copies with signature areas. Customer copies hide zero-price and stock-return lines. Save or download uses the selected copy.</div> : null}
     <div className="relative min-w-0">
       <div ref={screenPreviewRef} className="invoice-screen-only" data-invoice-copy={selectedCopy}>{renderDocument(selectedCopy)}</div>
       {splitInvoiceCopies && <div ref={alternatePreviewRef} data-invoice-copy={selectedCopy === "customer" ? "inventory" : "customer"} className="invoice-screen-only pointer-events-none absolute top-0 w-full" style={{ left: -100000 }} aria-hidden="true" inert>{renderDocument(selectedCopy === "customer" ? "inventory" : "customer")}</div>}

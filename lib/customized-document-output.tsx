@@ -37,7 +37,7 @@ export async function customizedDocumentPdf(element:HTMLElement,company:Template
   const host=document.createElement('div');host.dataset.outputRender="true";host.style.cssText=`position:fixed;left:-20000px;top:0;width:${resolved.orientation==='landscape'?297-resolved.margin*2:210-resolved.margin*2}mm;background:white;z-index:-1`;
   document.body.appendChild(host);const root=createRoot(host);
   try {
-    flushSync(()=>root.render(createElement(CustomInvoiceTemplate,{design:resolved,record,lines:[],setup:{...company,stampData:options.stamp?.data||company.stampData},target:'print',stampOverride:options.stamp?{show:true,left:options.stamp.left,top:options.stamp.top}:undefined,content:createElement('div',{className:'customized-native-content',dangerouslySetInnerHTML:{__html:nativeBody(element)}})})));
+    flushSync(()=>root.render(createElement(CustomInvoiceTemplate,{design:resolved,record,lines:[],setup:{...company,stampData:options.stamp?.data||company.stampData},target:'print',stampPlacement:'footer',stampOverride:options.stamp?{show:true,left:options.stamp.left,top:options.stamp.top}:undefined,content:createElement('div',{className:'customized-native-content',dangerouslySetInnerHTML:{__html:nativeBody(element)}})})));
     await document.fonts.ready;
     await Promise.all([...host.querySelectorAll('img')].map(image=>image.complete?Promise.resolve():new Promise<void>(resolve=>{const timer=setTimeout(resolve,10000);image.onload=()=>{clearTimeout(timer);resolve();};image.onerror=()=>{clearTimeout(timer);resolve();};})));
     const page=host.querySelector<HTMLElement>('.custom-invoice');if(!page)throw new Error('Could not prepare the customized document.');

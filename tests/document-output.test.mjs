@@ -97,7 +97,7 @@ test('long customized A4 PDF continues rows at readable scale without repeating 
   const {createA4PdfBlob}=await import(`data:text/javascript;base64,${Buffer.from(transformed).toString('base64')}`);
   const rect=(top,height)=>({left:0,right:794,top,bottom:top+height,width:794,height});
   const rows=Array.from({length:60},(_,i)=>({tagName:'TR',childNodes:[{nodeType:3,textContent:`UNIQUE_ROW_${String(i).padStart(2,'0')}`}],closest:()=>null,getBoundingClientRect:()=>rect(i*40,40),querySelectorAll:()=>[]}));
-  const page={tagName:'ARTICLE',childNodes:[],closest:()=>null,getBoundingClientRect:()=>rect(0,2400),querySelectorAll:selector=>selector==='*'||selector==='tr'?rows:[]};
+  const page={tagName:'ARTICLE',childNodes:[],closest:()=>null,getBoundingClientRect:()=>rect(0,2400),querySelectorAll:selector=>selector==='*'||selector==='tr, .ci-stamp-footer'?rows:[]};
   const originalWindow=globalThis.window,originalNode=globalThis.Node;
   globalThis.Node={TEXT_NODE:3};
   globalThis.window={getComputedStyle:()=>({display:'block',visibility:'visible',opacity:'1',backgroundColor:'#ffffff',color:'#111111',fontFamily:'Arial',fontWeight:'normal',fontStyle:'normal',fontSize:'12px',lineHeight:'16px',paddingLeft:'0',paddingRight:'0',paddingTop:'0',textAlign:'left'})};
@@ -111,4 +111,24 @@ test('long customized A4 PDF continues rows at readable scale without repeating 
     for(let i=0;i<60;i++)assert.equal((text.match(new RegExp(`UNIQUE_ROW_${String(i).padStart(2,'0')}`,'g'))||[]).length,1);
     assert.match(text,/Page 3 of 3/);
   } finally {globalThis.window=originalWindow;globalThis.Node=originalNode;}
+});
+
+test('document stamp is after totals and disappears completely when switched off', async () => {
+  const {createServer}=await import('vite');
+  const {fileURLToPath}=await import('node:url');
+  const React=await import('react');
+  const {renderToStaticMarkup}=await import('react-dom/server');
+  const root=fileURLToPath(new URL('..',import.meta.url));
+  const vite=await createServer({appType:'custom',configFile:false,root,ssr:{noExternal:['next']},plugins:[{name:'test-next-image',enforce:'pre',resolveId(id){if(id==='next/image')return '\0test-image';},load(id){if(id==='\0test-image')return `import {createElement} from 'react'; export default function Image({unoptimized,...props}) { return createElement('img',props); }`;}}],resolve:{alias:{'@':root}},server:{middlewareMode:true,hmr:false,ws:false}});
+  try {
+    const {defaultDocumentDesign}=await vite.ssrLoadModule('/lib/document-design.ts');
+    const {CustomInvoiceTemplate}=await vite.ssrLoadModule('/app/custom-invoice-template.tsx');
+    const props={design:defaultDocumentDesign,record:{total:105,currency:'AED'},lines:[{description:'ITEM ROW',quantity:1,unitPrice:100,total:105}],setup:{name:'Company',logoData:'',stampData:'data:image/png;base64,AA==',phone:'',trn:'',addressLine1:'',addressLine2:'',city:'',country:''},stampPlacement:'footer',target:'print'};
+    const render=show=>renderToStaticMarkup(React.createElement(CustomInvoiceTemplate,{...props,stampOverride:{show,left:50,top:0}}));
+    const on=render(true),off=render(false);
+    assert.ok(on.indexOf('class="ci-stamp-footer"')>on.indexOf('class="ci-bottom"'));
+    assert.match(on,/alt="Company stamp"/);
+    assert.doesNotMatch(off,/class="ci-stamp-footer"|alt="Company stamp"/);
+    assert.match(off,/ITEM ROW/);
+  } finally {await vite.close();}
 });
