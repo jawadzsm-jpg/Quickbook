@@ -322,3 +322,7 @@ Authorized users can also Activate/Make inactive directly from a contact row. Th
 - **Invoice line Pending Cart:** per-line Pending and Restore actions in invoice entry/editing; atomic save to non-posting customer drafts in Sales → Pending Cart, with stock/accounting reversal for posted lines and payment, packing, source-link and revision protection.
 
 - **Complete invoice series customization:** administrators can replace the full invoice format per inventory, including fixed text, separators, suffixes, optional company/prefix placeholders, number padding and next sequence. Live previews use the same formatter as posting; saved invoice numbers remain unchanged, with duplicate and stale-editor protection.
+
+### Insights daily transaction activity
+
+Company Home → Insights includes an Entry date selector (today in UAE time by default), Today and Refresh actions, a matching entry count and paginated access to every permitted transaction entered that day. Rows show entry time, original document date, type/reference, party, inventory, creator, status and amount in the recorded currency, with View to open the source. Backdated documents appear on their actual entry day. Company, inventory and server-side role restrictions apply. Current balance and financial overview cards remain clearly labelled as unfiltered current figures; sales representatives retain their dedicated My daily work screen.
