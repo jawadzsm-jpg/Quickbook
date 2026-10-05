@@ -1,3 +1,4 @@
+import { formatInvoiceNumber, invoiceSeriesError, invoiceSeriesRevision } from "@/lib/invoice-series";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "../../../db";
 import { accounts, auditLog, companies, exchangeRates, inventoryLocations, transactions, vatCodes } from "../../../db/schema";
@@ -95,10 +96,28 @@ export async function PATCH(request: Request) {
     const companyId = Number(payload.companyId);
     if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     if (payload.type === "invoiceSeries") {
-      const locationId = Number(payload.locationId); const invoicePrefix = String(payload.invoicePrefix ?? "").trim().toUpperCase(); const nextInvoiceNumber = Number(payload.nextInvoiceNumber);
-      if (!Number.isInteger(companyId) || !Number.isInteger(locationId) || !/^[A-Z0-9][A-Z0-9/-]{0,19}$/.test(invoicePrefix) || !Number.isInteger(nextInvoiceNumber) || nextInvoiceNumber < 1 || nextInvoiceNumber > 999999999) return Response.json({ error: "Enter a valid invoice prefix and next invoice number." }, { status: 400 });
-      const [location] = await getDb().update(inventoryLocations).set({ invoicePrefix, nextInvoiceNumber }).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).returning();
-      if (!location) return Response.json({ error: "Inventory not found." }, { status: 404 }); return Response.json({ location });
+      const locationId = Number(payload.locationId);
+      if (!Number.isInteger(companyId) || companyId <= 0 || !Number.isInteger(locationId) || locationId <= 0) return Response.json({ error: "Select a company and inventory." }, { status: 400 });
+      return await withWriteTransaction(async () => {
+        const db = getDb();
+        const [existing] = await db.select().from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId), eq(inventoryLocations.active, true))).for("update");
+        if (!existing) return Response.json({ error: "Inventory not found." }, { status: 404 });
+        if (payload.expectedSeries !== undefined && payload.expectedSeries !== invoiceSeriesRevision(existing)) return Response.json({ error: "The series changed or another invoice was issued. Reopen the series editor before saving." }, { status: 409 });
+        const series = {
+          invoicePrefix: String(payload.invoicePrefix ?? existing.invoicePrefix).trim().toUpperCase(),
+          nextInvoiceNumber: Number(payload.nextInvoiceNumber),
+          invoiceNumberFormat: String(payload.invoiceNumberFormat ?? existing.invoiceNumberFormat).trim().toUpperCase(),
+          invoiceNumberPadding: Number(payload.invoiceNumberPadding ?? existing.invoiceNumberPadding),
+        };
+        const error = invoiceSeriesError(companyId, series);
+        if (error) return Response.json({ error }, { status: 400 });
+        const preview = formatInvoiceNumber(companyId, series);
+        const [duplicate] = await db.select({ id: transactions.id }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId), eq(transactions.number, preview))).limit(1);
+        if (duplicate) return Response.json({ error: `Invoice number ${preview} is already used in this inventory. Choose another format or next number.` }, { status: 409 });
+        const [location] = await db.update(inventoryLocations).set(series).where(eq(inventoryLocations.id, locationId)).returning();
+        await db.insert(auditLog).values({ companyId, action: "updated", entityType: "invoice-series", entityId: locationId, details: JSON.stringify({ actorId: authorization.id, before: existing, after: series, preview }) });
+        return Response.json({ location, preview });
+      });
     }
     const baseCurrency = String(payload.baseCurrency ?? "").trim().toUpperCase();
     if (!Number.isInteger(companyId) || !/^[A-Z]{3}$/.test(baseCurrency)) return Response.json({ error: "Company and a valid currency code are required." }, { status: 400 });

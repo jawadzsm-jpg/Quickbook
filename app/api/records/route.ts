@@ -1,3 +1,4 @@
+import { formatInvoiceNumber, invoiceSeriesError } from "@/lib/invoice-series";
 import { contactOrganization } from "@/lib/contact-hierarchy";
 import { validInvoiceQuantity, isInvoiceStockReturn } from "@/lib/invoice-stock-lines";
 import { salesDocumentTypes } from "@/lib/sales-access";
@@ -1021,8 +1022,12 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       if (!Number.isInteger(locationId) || locationId <= 0) return Response.json({ error: "Select an inventory before creating the invoice." }, { status: 400 });
       const [sequence] = await db.update(inventoryLocations).set({ nextInvoiceNumber: sql`${inventoryLocations.nextInvoiceNumber} + 1` }).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).returning();
       if (!sequence) return Response.json({ error: "The selected inventory was not found." }, { status: 404 });
-      const companyPrefix = `C${String(companyId).padStart(3, "0")}`;
-      number = `${companyPrefix}-${sequence.invoicePrefix}-INV-${String(sequence.nextInvoiceNumber - 1).padStart(4, "0")}`;
+      const issuedSeries = { ...sequence, nextInvoiceNumber: sequence.nextInvoiceNumber - 1 };
+      const seriesError = invoiceSeriesError(companyId, issuedSeries);
+      if (seriesError) return Response.json({ error: `Update the invoice series: ${seriesError}` }, { status: 409 });
+      number = formatInvoiceNumber(companyId, issuedSeries);
+      const [duplicateNumber] = await db.select({ id: transactions.id }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.locationId, locationId), eq(transactions.number, number))).limit(1);
+      if (duplicateNumber) return Response.json({ error: `Invoice number ${number} is already used. Update the next number in Customize invoice series.` }, { status: 409 });
     }
     if (["transfer", "credit card charge"].includes(type)) {
       const bankingAccounts = await db.select({ name: accounts.name, type: accounts.type, systemRole: accounts.systemRole }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true)));

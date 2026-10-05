@@ -2851,3 +2851,48 @@ test('invoice Pending Cart splits drafts atomically and reverses posted stock, V
   assert.equal(convertedDetail.lines[0].serialNumber, line.serialNumber);
   assert.equal((await call('PATCH', { ...editBody, id: converted.id, number: converted.number, revision: convertedDetail.revision, lineDetails: [{ id: convertedDetail.lines[0].id, pending: true }] })).status, 409);
 });
+
+test('custom invoice series previews and issues exact formats with duplicate, stale and company protections', async () => {
+  const { formatInvoiceNumber, invoiceSeriesError, invoiceSeriesRevision } = await vite.ssrLoadModule('/lib/invoice-series.ts');
+  assert.equal(formatInvoiceNumber(7,{invoicePrefix:'MAIN',nextInvoiceNumber:1}), 'C007-MAIN-INV-0001');
+  assert.equal(formatInvoiceNumber(7,{invoicePrefix:'',nextInvoiceNumber:12345,invoiceNumberFormat:'INV/{NUMBER}/A',invoiceNumberPadding:2}), 'INV/12345/A');
+  for (const format of ['INV', '{NUMBER}-{NUMBER}', '{UNKNOWN}-{NUMBER}', '<script>{NUMBER}']) assert.ok(invoiceSeriesError(7,{invoicePrefix:'MAIN',nextInvoiceNumber:1,invoiceNumberFormat:format}));
+  assert.ok(invoiceSeriesError(7,{invoicePrefix:'MAIN',nextInvoiceNumber:0}));
+  assert.ok(invoiceSeriesError(7,{invoicePrefix:'MAIN',nextInvoiceNumber:1,invoiceNumberPadding:13}));
+  const c = (await database.query("INSERT INTO companies(name) VALUES ('Custom series company') RETURNING id")).rows[0].id;
+  const loc = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'SERIES','Series inventory','MAIN') RETURNING id",[c])).rows[0].id;
+  const otherLoc = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'OTHER','Other inventory','OTHER') RETURNING id",[c])).rows[0].id;
+  await database.query("INSERT INTO contacts(company_id,type,name,currency) VALUES($1,'customer','Series Customer','AED')",[c]);
+  const workspace = await vite.ssrLoadModule('/app/api/workspaces/route.ts');
+  const records = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const request = (method,body) => new Request('https://app.test/api/records',{method,headers:{origin:'https://app.test','content-type':'application/json'},body:JSON.stringify(body)});
+  const patch = body => workspace.PATCH(request('PATCH',{type:'invoiceSeries',companyId:c,locationId:loc,...body}));
+  const series = {invoicePrefix:'',invoiceNumberFormat:'COMNET/2026/{NUMBER}/A',invoiceNumberPadding:5,nextInvoiceNumber:28};
+  let response = await patch(series);
+  assert.equal(response.status,200,JSON.stringify(await response.clone().json()));
+  let result = await response.json(); assert.equal(result.preview,'COMNET/2026/00028/A');
+  const savedSeries = result.location;
+  const post = body => records.POST(request('POST',{kind:'transactions',companyId:c,locationId:loc,type:'invoice',party:'Series Customer',transactionDate:'2026-10-05',currency:'AED',exchangeRate:1,account:'Accounts Receivable',lines:[{description:'Service',quantity:1,unitPrice:100,vatCode:'ZERO'}],...body}));
+  response = await post({}); assert.equal(response.status,201,JSON.stringify(await response.clone().json()));
+  const first = (await response.json()).record; assert.equal(first.number,result.preview);
+  response = await patch({...series,expectedSeries:invoiceSeriesRevision(savedSeries)}); assert.equal(response.status,409,'an invoice issued while editing must invalidate the preview');
+  response = await patch(series); assert.equal(response.status,409,'cannot reset to a used number');
+  response = await patch({...series,nextInvoiceNumber:29,invoiceNumberFormat:'{NUMBER}',invoiceNumberPadding:1}); assert.equal(response.status,200);
+  response = await post({}); assert.equal(response.status,201); assert.equal((await response.json()).record.number,'29');
+  assert.equal((await database.query('SELECT number FROM transactions WHERE id=$1',[first.id])).rows[0].number,'COMNET/2026/00028/A','old invoices remain unchanged');
+  const other = (await database.query('SELECT invoice_number_format,next_invoice_number FROM inventory_locations WHERE id=$1',[otherLoc])).rows[0];
+  assert.equal(other.next_invoice_number,1); assert.equal(other.invoice_number_format,'C{COMPANY}-{PREFIX}-INV-{NUMBER}');
+  // A later collision also fails safely without consuming the counter or posting money.
+  await database.query("INSERT INTO transactions(company_id,location_id,type,number,party,transaction_date) VALUES($1,$2,'invoice','30','Series Customer','2026-10-05')",[c,loc]);
+  response = await post({}); assert.equal(response.status,409);
+  assert.equal((await database.query('SELECT next_invoice_number FROM inventory_locations WHERE id=$1',[loc])).rows[0].next_invoice_number,30);
+  assert.equal((await database.query('SELECT balance FROM contacts WHERE company_id=$1',[c])).rows[0].balance,200);
+  response = await patch({...series,invoiceNumberFormat:'{NUMBER}-{BAD}',nextInvoiceNumber:31}); assert.equal(response.status,400);
+  try {
+    globalThis.__transferTestUser={id:1,role:'accountant',companyIds:[c]}; assert.equal((await patch({...series,nextInvoiceNumber:31})).status,403);
+    globalThis.__transferTestUser={id:1,role:'admin',companyIds:[c+999]}; assert.equal((await patch({...series,nextInvoiceNumber:31})).status,403);
+  } finally { delete globalThis.__transferTestUser; }
+  assert.equal((await database.query("SELECT count(*)::int AS n FROM audit_log WHERE company_id=$1 AND entity_type='invoice-series'",[c])).rows[0].n,2);
+  for (const statement of (await readFile(`${root}drizzle/0083_custom_invoice_series.sql`,'utf8')).split('--> statement-breakpoint')) await database.exec(statement);
+  assert.equal((await database.query('SELECT invoice_number_format FROM inventory_locations WHERE id=$1',[loc])).rows[0].invoice_number_format,'{NUMBER}','migration retry preserves customization');
+});
