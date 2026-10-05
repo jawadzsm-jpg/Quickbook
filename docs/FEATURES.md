@@ -307,7 +307,7 @@ Document previews group layout choices, copy selection and print/PDF actions int
 
 All shared dialogs use a dedicated control bar for minimize, maximize/restore and close, with consistent touch targets and light/dark colors. Controls remain outside the document content and are hidden in print. Minimized dialogs retain a visible title and restore controls.
 
-The app header Shortcuts button opens a searchable, categorized list derived from the current user's permitted sidebar pages. Ctrl/Command+K opens it when no dialog is active; selecting a page preserves the active company. Shortcut IDs are deduplicated. Customer/vendor/banking action cards use the shared theme. Register-owned exports suppress redundant generic toolbar exports, while shared numeric table fields retain responsive widths and alignment. Existing structured A4/PDF/CSV/Excel reports, accounting links and stamp rules remain unchanged.
+The app header Shortcuts button opens a searchable, categorized list derived from the current user's permitted sidebar pages. Ctrl/Command+K opens it when no dialog is active; selecting a page preserves the active company. Shortcut IDs are deduplicated. A compact calculator icon on the same header row opens a light/dark-mode keypad for quick arithmetic without leaving the current workspace. Customer/vendor/banking action cards use the shared theme. Register-owned exports suppress redundant generic toolbar exports, while shared numeric table fields retain responsive widths and alignment. Existing structured A4/PDF/CSV/Excel reports, accounting links and stamp rules remain unchanged.
 
 Company and inventory administration is accessed through the Management navigation group. The duplicate Companies & inventory sidebar footer shortcut is removed.
 
