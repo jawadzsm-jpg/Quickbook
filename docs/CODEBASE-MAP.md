@@ -192,3 +192,5 @@ Shared window controls: `components/ui/dialog.tsx` and the scoped dialog-control
 Customer/vendor organization: `lib/contact-hierarchy.ts` validates parent and status changes, `app/contact-organization-fields.tsx` owns the shared form controls, and `enterprise-app.tsx` owns status filters and parent labels. Persistence and scoped names are in the records route; migration `0082_contact_subaccounts.sql` adds the nullable parent link. List exports include parent/status through `lib/record-list-export.ts`.
 
 - `lib/invoice-series.ts`: shared invoice format validation, rendering and settings revision; used by workspace settings, invoice creation and all inventory number previews. Persistent format/padding columns are introduced by migration `0083_custom_invoice_series.sql`.
+
+Insights daily activity is owned by `app/insights-activity.tsx`, mounted in the Insights tab of `app/enterprise-app.tsx`; its paginated entry-date query is in `app/api/records/route.ts`, using `lib/document-access-sql.ts` for shared document visibility.

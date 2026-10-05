@@ -2896,3 +2896,53 @@ test('custom invoice series previews and issues exact formats with duplicate, st
   for (const statement of (await readFile(`${root}drizzle/0083_custom_invoice_series.sql`,'utf8')).split('--> statement-breakpoint')) await database.exec(statement);
   assert.equal((await database.query('SELECT invoice_number_format FROM inventory_locations WHERE id=$1',[loc])).rows[0].invoice_number_format,'{NUMBER}','migration retry preserves customization');
 });
+
+test('Insights entry-day activity uses UAE boundaries, complete pagination and server-side role/company scope', async () => {
+  const company = (await database.query("INSERT INTO companies(name) VALUES ('Insights test') RETURNING id")).rows[0].id;
+  const other = (await database.query("INSERT INTO companies(name) VALUES ('Insights other') RETURNING id")).rows[0].id;
+  const location = async c => (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'INS','Insights stock','INS') RETURNING id", [c])).rows[0].id;
+  const loc = await location(company), otherLoc = await location(other);
+  const user = (await database.query("INSERT INTO app_users(full_name,email,password_hash,role) VALUES('Insights Rep','insights@tests.test','test','sales') RETURNING id")).rows[0].id;
+  await database.query("INSERT INTO contacts(company_id,type,name,sales_owner_id) VALUES($1,'customer','Insights customer',$2)", [company,user]);
+  const { GET } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const insert = async (number, type, createdAt, companyId = company, locationId = loc, creator = user, party = 'Insights customer') => (await database.query("INSERT INTO transactions(company_id,location_id,number,type,party,transaction_date,created_at,created_by_user_id,total) VALUES($1,$2,$3,$4,$5,'2020-01-01',$6,$7,100) RETURNING id", [companyId,locationId,number,type,party,createdAt,creator])).rows[0].id;
+  const get = (params = {}) => GET(new Request('https://app.test/api/records?' + new URLSearchParams({ kind:'transactions',companyId:String(company),enteredDate:'2026-01-10',...params })));
+  try {
+    const start = await insert('START','invoice','2026-01-09T20:00:00Z');
+    const end = await insert('END','invoice','2026-01-10T19:59:59.999Z');
+    await insert('BEFORE','invoice','2026-01-09T19:59:59.999Z');
+    await insert('AFTER','invoice','2026-01-10T20:00:00Z');
+    await insert('FOREIGN','invoice','2026-01-10T10:00:00Z',other,otherLoc);
+    for(let i=0;i<53;i++) await insert(`PAGE-${i}`,'invoice','2026-01-10T10:00:00Z');
+    globalThis.__transferTestUser = { id:user,role:'admin',companyIds:[company] };
+    const response = await get(); assert.equal(response.status,200);
+    assert.equal(response.headers.get('cache-control'),'no-store');
+    const first = await response.json(), second = await (await get({page:'2'})).json();
+    assert.equal(first.total,55); assert.equal(first.records.length,50); assert.equal(second.records.length,5);
+    const ids = [...first.records,...second.records].map(row=>row.id);
+    assert.equal(new Set(ids).size,55); assert.equal(ids[0],end); assert.equal(ids.at(-1),start);
+    assert.equal(first.records[0].transactionDate,'2020-01-01');
+    assert.equal(first.records[0].enteredBy,'Insights Rep');
+    assert.equal((await get({companyId:String(other)})).status,403);
+    assert.equal((await get({locationId:String(otherLoc)})).status,403);
+    for(const enteredDate of ['','2026-02-30','bad']) assert.equal((await get({enteredDate})).status,400);
+    for(const page of ['0','1.5','no']) assert.equal((await get({page})).status,400);
+    await insert('PENDING','pending invoice','2026-01-10T10:00:00Z');
+    await insert('PO','purchase order','2026-01-10T10:00:00Z');
+    await insert('BILL','bill','2026-01-10T10:00:00Z');
+    const own = await insert('OWN','quotation','2026-01-10T10:00:00Z');
+    await insert('NOT-OWNER','quotation','2026-01-10T10:00:00Z',company,loc,user,'Unassigned customer');
+    await insert('NOT-CREATOR','quotation','2026-01-10T10:00:00Z',company,loc,null);
+    globalThis.__transferTestUser.role='sales';
+    const sales = await (await get()).json(); assert.equal(sales.total,1); assert.deepEqual(sales.records.map(row=>row.id),[own]);
+    globalThis.__transferTestUser.role='purchasing';
+    const purchasing = await (await get()).json(); assert.equal(purchasing.total,2); assert.deepEqual(new Set(purchasing.records.map(row=>row.type)),new Set(['purchase order','bill']));
+    globalThis.__transferTestUser.role='inventory';
+    const inventory = await (await get()).json(); assert.equal(inventory.total,56); assert.ok(inventory.records.every(row=>['invoice','purchase order'].includes(row.type)));
+    globalThis.__transferTestUser.role='viewer';
+    const viewer = await (await get({page:'2'})).json(); assert.equal(viewer.total,60); assert.ok(viewer.records.every(row=>row.type!=='pending invoice'));
+    globalThis.__transferTestUser.role='accountant'; assert.equal((await (await get()).json()).total,61);
+    globalThis.__transferTestUser.role='customization'; assert.equal((await get()).status,403);
+    globalThis.__transferTestUser.role='all_admin'; assert.equal((await (await get({companyId:String(other)})).json()).total,1);
+  } finally { delete globalThis.__transferTestUser; }
+});

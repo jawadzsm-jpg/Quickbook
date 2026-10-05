@@ -13,7 +13,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "../../../db";
 import {
-  accounts, auditLog, companies, companySettings, contacts, exchangeRates, inventoryLocations, inventoryMovements, items, journalEntries,
+  accounts, appUsers, auditLog, companies, companySettings, contacts, exchangeRates, inventoryLocations, inventoryMovements, items, journalEntries,
   journalLines, transactionLines, transactions, vatCodes, billPaymentAllocations, invoicePaymentAllocations, packingListLines, packingLists, purchaseReceiptAllocations, salesInvoiceAllocations,
 } from "../../../db/schema";
 import { verifyAdminPin } from "../../../lib/admin-pin";
@@ -204,6 +204,34 @@ export async function GET(request: Request) {
     if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     const db = getDb();
     if (authorization.role === "sales" && !["transactions", "contacts", "items", "accounts"].includes(kind || "")) return Response.json({ error: "This record area is not available to sales users." }, { status: 403 });
+    if (kind === "transactions" && url.searchParams.has("enteredDate")) {
+      const date = url.searchParams.get("enteredDate") || "";
+      const page = Number(url.searchParams.get("page") || 1);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date || !Number.isSafeInteger(page) || page < 1 || page > 1000000) return Response.json({ error: "Select a valid entry date and page." }, { status: 400 });
+      if (url.searchParams.has("locationId") && (!Number.isSafeInteger(locationId) || locationId < 0)) return Response.json({ error: "Select a valid inventory." }, { status: 400 });
+      if (locationId > 0) {
+        const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId)));
+        if (!location) return Response.json({ error: "Inventory not found in this company." }, { status: 403 });
+      }
+      if (authorization.role === "customization") return Response.json({ error: "Your role cannot view transaction activity." }, { status: 403 });
+      const allowedTypes = authorization.role === "purchasing" ? ["purchase order", "bill", "item receipt", "received item bill", "expense", "vendor credit", "bill payment", "vendor payment", "cheque", "cheque order"]
+        : authorization.role === "inventory" ? ["invoice", "purchase order", "bill", "item receipt", "received item bill"] : null;
+      const start = new Date(`${date}T00:00:00+04:00`);
+      const end = new Date(start.getTime() + 86400000);
+      const filter = and(eq(transactions.companyId, companyId), locationId > 0 ? eq(transactions.locationId, locationId) : undefined,
+        documentVisibility(authorization), allowedTypes ? inArray(transactions.type, allowedTypes) : undefined,
+        sql`${transactions.createdAt} >= ${start.toISOString()}::timestamptz AND ${transactions.createdAt} < ${end.toISOString()}::timestamptz`);
+      const pageSize = 50;
+      const [rows, [count]] = await Promise.all([
+        db.select({ id: transactions.id, type: transactions.type, number: transactions.number, party: transactions.party,
+          transactionDate: transactions.transactionDate, createdAt: transactions.createdAt, status: transactions.status,
+          currency: transactions.currency, total: transactions.total, enteredBy: appUsers.fullName, inventoryName: inventoryLocations.name })
+          .from(transactions).leftJoin(appUsers, eq(appUsers.id, transactions.createdByUserId)).leftJoin(inventoryLocations, eq(inventoryLocations.id, transactions.locationId))
+          .where(filter).orderBy(desc(transactions.createdAt), desc(transactions.id)).limit(pageSize).offset((page - 1) * pageSize),
+        db.select({ total: sql<number>`count(*)::int` }).from(transactions).where(filter),
+      ]);
+      return Response.json({ records: rows, total: Number(count.total), page, pageSize, date, timeZone: "Asia/Dubai" }, { headers: { "Cache-Control": "no-store" } });
+    }
     if (kind === "bill-of-entry-search") {
       const query = String(url.searchParams.get("q") || "").trim();
       if (!query || query.length > 120) return Response.json({ error: "Enter a Bill of Entry No. of 1–120 characters." }, { status: 400 });
