@@ -119,7 +119,7 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
     const copyLines = inventoryCopy ? inventoryLines : customerLines;
     return activeMode === "delivery-note" && connectedPackingList && !design.enabled
       ? <DeliveryNoteTemplate record={record} lines={copyLines} contact={contact} setup={setup} letterhead={letterhead} stampOverride={stampOverride} onMoveStamp={!print ? (left, top) => setPoStamp({...stamp,left,top}) : undefined} />
-      : <CustomInvoiceTemplate design={copyDesign} record={record} lines={copyLines} contact={contact} setup={setup} letterhead={design.enabled ? undefined : letterhead} stampOverride={stampOverride} stampPlacement="footer" showItemNumberAtEnd={signedInvoiceCopies} target="print" onMoveStamp={!print && movableStamp ? (left, top) => setPoStamp({ ...stamp, left, top }) : undefined} />;
+      : <CustomInvoiceTemplate design={copyDesign} record={record} lines={copyLines} contact={contact} setup={setup} letterhead={design.enabled ? undefined : letterhead} stampOverride={stampOverride} stampPlacement="footer" showItemNumberAtEnd={inventoryCopy} target="print" onMoveStamp={!print && movableStamp ? (left, top) => setPoStamp({ ...stamp, left, top }) : undefined} />;
   };
   const customerName = String(contact?.billingName || contact?.company || record.party || "Customer");
   const referenceNumber = String(record.number || "Document");
