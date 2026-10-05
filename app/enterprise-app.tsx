@@ -3,6 +3,7 @@ import { InsightsActivity } from "./insights-activity";
 import { defaultInvoiceNumberFormat, formatInvoiceNumber, invoiceSeriesError, invoiceSeriesRevision } from "@/lib/invoice-series";
 import { ContactOrganizationFields } from "./contact-organization-fields";
 import { WorkspaceShortcuts } from "./workspace-shortcuts";
+import { WorkspaceCalculator } from "./workspace-calculator";
 import { useRecordRole, useCanDeleteRecord } from "./record-permissions";
 import { PurchaseWorkflowPanel, PurchaseRegisterSummary } from "./purchase-workflow-panel";
 import { SalesWorkflowPanel, SalesRegisterSummary } from "./sales-workflow-panel";
@@ -1308,6 +1309,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
           <div className="flex min-w-0 flex-1 items-center gap-3"><SidebarTrigger className="size-9 text-muted-foreground hover:text-foreground" /><div className="hidden h-5 w-px bg-border sm:block" /><div className="min-w-0"><h1 className="truncate text-base font-semibold tracking-tight text-foreground sm:text-lg">{heading.title}</h1><p className="hidden truncate text-xs text-muted-foreground sm:block">{heading.sub}</p></div></div>
           <div className="app-header-actions ml-auto flex max-w-full flex-wrap items-center justify-end gap-1.5 sm:gap-2">
             <WorkspaceShortcuts groups={visibleNavGroups} currentView={view} onNavigate={(id)=>{const target=id as View;if(roleViews[currentUser.role].includes(target)){setSearch("");setView(target);}}} />
+            <WorkspaceCalculator />
             <Popover>
               <PopoverTrigger asChild>
                 <Button type="button" variant="ghost" size="icon" aria-label="Appearance" title="Appearance"><Palette className="size-4" /></Button>
