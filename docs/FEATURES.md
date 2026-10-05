@@ -302,3 +302,9 @@ Register exports support A4 portrait/landscape PDF and print preview, CSV and Ex
 ### Document controls and clear stamp placement
 
 Document previews group layout choices, copy selection and print/PDF actions into responsive sections with theme-aware colors. Record registers separate search/date filters from output actions. Company stamps on transaction previews and customized output occupy a separate area below content and totals; switching the stamp off removes that area. Left position and vertical spacing remain adjustable. Standard report PDFs place stamps after the last table, adding a page when necessary and preserving footer clearance. Custom template body fields and accounting values are unchanged.
+
+### Shared workspace arrangement
+
+All shared dialogs use a dedicated control bar for minimize, maximize/restore and close, with consistent touch targets and light/dark colors. Controls remain outside the document content and are hidden in print. Minimized dialogs retain a visible title and restore controls.
+
+The app header Shortcuts button opens a searchable, categorized list derived from the current user's permitted sidebar pages. Ctrl/Command+K opens it when no dialog is active; selecting a page preserves the active company. Shortcut IDs are deduplicated. Customer/vendor/banking action cards use the shared theme. Register-owned exports suppress redundant generic toolbar exports, while shared numeric table fields retain responsive widths and alignment. Existing structured A4/PDF/CSV/Excel reports, accounting links and stamp rules remain unchanged.
