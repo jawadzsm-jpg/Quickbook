@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { appUsers, authSessions, companySettings } from "@/db/schema";
 import { verifyAdminPin } from "@/lib/admin-pin";
-import { createSession, getRequestUser, hashPassword, revokeRequestSession, sameOrigin, sessionCookie, verifyPassword } from "@/lib/auth";
+import { createSession, getRequestUser, hashPassword, requestIpAddress, revokeRequestSession, sameOrigin, sessionCookie, verifyPassword } from "@/lib/auth";
 
 export async function GET(request: Request) {
   const user = await getRequestUser(request);
@@ -33,12 +33,11 @@ export async function POST(request: Request) {
     }
     return Response.json({ error: "Incorrect email or password." }, { status: 401 });
   }
-  const forwardedIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  const loginIp = (forwardedIp || request.headers.get("x-real-ip") || "Unknown").slice(0, 64);
+  const loginIp = requestIpAddress(request);
   const loginUserAgent = (request.headers.get("user-agent") || "Unknown device").slice(0, 500);
   const lastLoginAt = new Date().toISOString();
   await getDb().update(appUsers).set({ failedLoginAttempts: 0, lockedUntil: null, lastLoginAt, lastLoginIp: loginIp, lastLoginUserAgent: loginUserAgent, updatedAt: lastLoginAt }).where(eq(appUsers.id, user.id));
-  const token = await createSession(user.id);
+  const token = await createSession(user.id, loginIp);
   return Response.json({ user: { id: user.id, fullName: user.fullName, email: user.email, avatarData: user.avatarData, themeColor: user.themeColor, appearanceMode: user.appearanceMode, role: user.role, mustChangePassword: user.mustChangePassword } }, { headers: { "Set-Cookie": sessionCookie(token), "Cache-Control": "no-store" } });
 }
 

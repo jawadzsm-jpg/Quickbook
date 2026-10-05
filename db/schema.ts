@@ -103,9 +103,11 @@ export const authSessions = pgTable("auth_sessions", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => appUsers.id, { onDelete: "cascade" }),
   tokenHash: text("token_hash").notNull(),
+  ipAddress: text("ip_address").notNull().default(""),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
   expiresAt: timestamp("expires_at", { withTimezone: true, mode: "string" }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
-}, (table) => [uniqueIndex("idx_auth_sessions_token_hash").on(table.tokenHash), index("idx_auth_sessions_user").on(table.userId)]);
+}, (table) => [uniqueIndex("idx_auth_sessions_token_hash").on(table.tokenHash), index("idx_auth_sessions_user").on(table.userId), index("idx_auth_sessions_last_seen").on(table.lastSeenAt)]);
 
 export const inventoryLocations = pgTable("inventory_locations", {
   id: serial("id").primaryKey(),

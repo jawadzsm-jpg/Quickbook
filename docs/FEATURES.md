@@ -7,7 +7,7 @@
 - Company and inventory selectors that scope forms, lists, dashboard data, and most reports.
 - Per-user company assignments, global administration, company administration, and six operational roles.
 - Configurable login branding, company logos, background, display name, copyright text, document colors, templates, and letterhead.
-- Light and dark appearance modes with Emerald, Ocean, Indigo, Violet, Rose, and Amber accent themes.
+- Light and dark appearance modes with Emerald, Ocean, Indigo, Violet, Rose, and Amber accent themes, plus a live header panel showing online users and their current IP addresses.
 
 ## Sales and customers
 
