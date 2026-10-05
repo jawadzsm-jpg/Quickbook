@@ -38,11 +38,13 @@ export function inventoryItemLine(name: unknown, sku: unknown, description: unkn
   return [identity, condition, detailsWithNumber].filter(Boolean).join(" | ");
 }
 
-export function inventorySocialShareText(name: unknown, sku: unknown, description: unknown, channel: "whatsapp" | "telegram") {
-  const { identity, condition, details } = inventoryLineParts(name, sku, description);
+export function inventorySocialShareText(name: unknown, sku: unknown, description: unknown, channel: "whatsapp" | "telegram", itemNumber?: unknown) {
+  const { identity, condition, details } = inventoryLineParts(name, sku, description, itemNumber);
+  const number = capitalText(itemNumber).replace(/^#/, "");
+  const detailsWithNumber = [details, number ? `#${number}` : ""].filter(Boolean).join(" ");
   const bold = (value: string) => channel === "whatsapp" ? `*${value}*` : `**${value}**`;
   const heading = [`🔺 ${bold(identity)} 🔺`, condition ? `⚡ ${bold(condition)} ⚡` : ""].filter(Boolean).join(" | ");
-  return [condition ? `${heading} |` : heading, details ? bold(details) : ""].filter(Boolean).join("\n");
+  return [condition ? `${heading} |` : heading, detailsWithNumber ? bold(detailsWithNumber) : ""].filter(Boolean).join("\n");
 }
 
 export function inventoryItemDetails(description: unknown, itemNumber?: unknown) {
