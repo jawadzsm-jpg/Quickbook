@@ -301,8 +301,8 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     const items = selectedRecords.map((record) => {
       const description = specificationText(record);
       const title = channel === "email"
-        ? `***${inventoryItemLine(record.name, record.sku, description)}***`
-        : inventorySocialShareText(record.name, record.sku, description, channel);
+        ? `***${inventoryItemLine(record.name, record.sku, description, record.itemNumber)}***`
+        : inventorySocialShareText(record.name, record.sku, description, channel, record.itemNumber);
       const lines = [title];
       const details: string[] = [];
       if (showQuantity) {
