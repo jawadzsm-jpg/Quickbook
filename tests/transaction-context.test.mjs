@@ -2722,3 +2722,56 @@ test('posted journal register includes older rows, inclusive dates and unique co
   assert.equal(journalReportSummary(summary).cards[0].value,306,'same references do not collapse legitimate journals');
   assert.equal(summary.accountLinkIssues.length,2);
 });
+
+test('customer and vendor sub-accounts persist organization, protect scope and preserve balances', async () => {
+  const company = (await database.query("INSERT INTO companies(name) VALUES('Contact organization test') RETURNING id")).rows[0].id;
+  const otherCompany = (await database.query("INSERT INTO companies(name) VALUES('Other contact organization') RETURNING id")).rows[0].id;
+  const api = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const write = (method, values) => api[method](new Request('https://app.test/api/records', {method, headers: {'content-type':'application/json'}, body: JSON.stringify({kind:'contacts',companyId:company,...values})}));
+  const add = async (type, name, extra = {}) => {
+    const response = await write('POST', {type,name,company:name,currency:'AED',phone: '+971500010001',whatsapp:type === 'customer' ? '+971500010001' : '',country:'United Arab Emirates',reseller:'Reseller',planet:'No',...extra});
+    const body = await response.json(); assert.equal(response.status,201,JSON.stringify(body)); return body.record;
+  };
+  try {
+    globalThis.__transferTestUser = {id:1,role:'all_admin',companyIds:[]};
+    const parent = await add('vendor','Parent Supplier');
+    const child = await add('vendor','Branch Supplier',{parentContactId:parent.id,balance:350});
+    assert.equal(child.parentContactId,parent.id);
+    const customer = await add('customer','Distinct Buyer');
+    assert.equal((await write('PATCH',{id:child.id,parentContactId:customer.id})).status,400);
+    assert.equal((await write('PATCH',{id:parent.id,parentContactId:child.id})).status,400);
+    assert.equal((await write('PATCH',{id:child.id,parentContactId:child.id})).status,400);
+    assert.equal((await write('PATCH',{id:child.id,parentContactId:'invalid'})).status,400);
+    const foreign = (await database.query("INSERT INTO contacts(company_id,type,name) VALUES($1,'vendor','Foreign Parent') RETURNING id",[otherCompany])).rows[0].id;
+    assert.equal((await write('PATCH',{id:child.id,parentContactId:foreign})).status,400);
+    assert.equal((await write('PATCH',{id:parent.id,status:'inactive'})).status,400);
+    const response = await write('PATCH',{id:child.id,status:'inactive'});
+    assert.equal(response.status,200,JSON.stringify(await response.clone().json()));
+    const saved = (await response.json()).record;
+    assert.equal(saved.balance,350);assert.equal(saved.ledgerAccountId,child.ledgerAccountId);assert.equal(saved.parentContactId,parent.id);
+    const location = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'CONTACT','Contact inventory','CON') RETURNING id",[company])).rows[0].id;
+    const blocked = await write('POST',{kind:'transactions',type:'purchase order',locationId:location,party:child.name,number:'INACTIVE-PO',transactionDate:'2026-10-05',currency:'AED',exchangeRate:1,lines:[{description:'Service',quantity:1,unitPrice:10,vatCode:'ZERO'}]});
+    assert.equal(blocked.status,409,JSON.stringify(await blocked.clone().json()));
+    assert.match((await blocked.json()).error,/inactive/);
+    assert.equal((await database.query('SELECT count(*)::int AS count FROM transactions WHERE company_id=$1',[company])).rows[0].count,0);
+    const inactiveChild = await add('vendor','Dormant Branch',{parentContactId:parent.id,status:'inactive'});
+    assert.equal(inactiveChild.status,'inactive');assert.equal(inactiveChild.parentContactId,parent.id);
+
+    assert.equal((await write('PATCH',{id:child.id,status:'active'})).status,200);
+    const customerParent = (await database.query("INSERT INTO contacts(company_id,type,name,company,phone,whatsapp) VALUES($1,'customer','Remote Business','Remote Business','+971500020002','+971500020002') RETURNING id",[company])).rows[0].id;
+    assert.equal((await write('PATCH',{id:customer.id,parentContactId:customerParent,status:'inactive'})).status,200);
+    const list = await api.GET(new Request(`https://app.test/api/records?kind=contacts&companyId=${company}`));
+    const rows = (await list.json()).records;
+    assert.equal(rows.find(row=>row.id===child.id).parentContactName,'Parent Supplier');
+    assert.equal(rows.find(row=>row.id===customer.id).parentContactName,'Remote Business');
+    assert.equal((await write('DELETE',{id:parent.id,deletionReason:'Test parent protection'})).status,409);
+    assert.equal((await write('PATCH',{id:child.id,parentContactId:''})).status,200);
+    assert.equal((await write('PATCH',{id:child.id,editMode:'contact-status',expectedStatus:'active',status:'inactive'})).status,200);
+    assert.equal((await write('PATCH',{id:child.id,editMode:'contact-status',expectedStatus:'active',status:'active'})).status,409);
+    assert.equal((await write('PATCH',{id:child.id,editMode:'contact-status',expectedStatus:'inactive',status:'active',balance:0})).status,400);
+    assert.equal((await database.query('SELECT balance FROM contacts WHERE id=$1',[child.id])).rows[0].balance,350);
+
+    globalThis.__transferTestUser = {id:1,role:'viewer',companyIds:[company]};
+    assert.equal((await write('PATCH',{id:child.id,status:'inactive'})).status,403);
+  } finally {delete globalThis.__transferTestUser;}
+});

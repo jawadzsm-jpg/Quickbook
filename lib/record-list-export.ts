@@ -50,11 +50,11 @@ export function recordListReport(view: string, kind: RecordListKind, records: Re
   if (kind === "contacts") return {
     title, generatedAt, currency, period,
     columns: [
-      { key: "name", label: "Name" }, { key: "company", label: "Company" }, { key: "currency", label: "Currency" },
+      { key: "name", label: "Name" }, { key: "parent", label: "Sub-account of" }, { key: "company", label: "Company" }, { key: "currency", label: "Currency" },
       { key: "email", label: "Email" }, { key: "phone", label: "Phone" }, { key: "status", label: "Status" },
       { key: "balance", label: "Balance", type: "money" },
     ],
-    rows: records.map((record) => ({ name: String(record.name || ""), company: String(record.company || ""), currency: String(record.currency || currency), email: String(record.email || ""), phone: String(record.phone || ""), status: String(record.status || ""), balance: Number(record.balance || 0) })),
+    rows: records.map((record) => ({ name: String(record.name || ""), parent: String(record.parentContactName || ""), company: String(record.company || ""), currency: String(record.currency || currency), email: String(record.email || ""), phone: String(record.phone || ""), status: String(record.status || ""), balance: Number(record.balance || 0) })),
   };
 
   if (kind === "items") return {

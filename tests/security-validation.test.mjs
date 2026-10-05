@@ -909,3 +909,14 @@ test("report stamp clears the final table and moves to a new page when space run
   assert.deepEqual(reportStampAfterTable(297, 275, 230, 23), { newPage: true, top: 230 });
   assert.deepEqual(reportStampAfterTable(210, 180, 260, 23), { newPage: true, top: 169 });
 });
+
+test('contact hierarchy rejects cross-owner links and leaves opening balances outside organization updates', async () => {
+  const { contactOrganization } = await sourceModule('../lib/contact-hierarchy.ts');
+  const current = {id:3,companyId:1,type:'customer',status:'active',parentContactId:null,salesOwnerId:10};
+  const rows = [{...current,id:1,salesOwnerId:20},{...current,id:2,salesOwnerId:10}];
+  assert.throws(()=>contactOrganization({parentContactId:1},current,rows,10),/accessible parent/);
+  assert.deepEqual(contactOrganization({parentContactId:2,status:'inactive',balance:999},current,rows,10),{parentContactId:2,status:'inactive'});
+  assert.throws(()=>contactOrganization({status:'invalid'},current,rows),/Active or Inactive/);
+  const report = recordListReport('customers','contacts',[{name:'Branch',parentContactName:'Parent',status:'inactive',balance:45,currency:'AED'}],'AED','','');
+  assert.equal(report.rows[0].parent,'Parent');assert.equal(report.rows[0].status,'inactive');assert.equal(report.rows[0].balance,45);
+});

@@ -1,3 +1,4 @@
+import { contactOrganization } from "@/lib/contact-hierarchy";
 import { validInvoiceQuantity, isInvoiceStockReturn } from "@/lib/invoice-stock-lines";
 import { salesDocumentTypes } from "@/lib/sales-access";
 import { canManagePendingInvoices, canReadDocument, dubaiDay } from "@/lib/document-access";
@@ -381,8 +382,9 @@ export async function GET(request: Request) {
     }
     if (kind === "contacts") {
       const contactRows = await db.select().from(contacts).where(and(eq(contacts.companyId, companyId), authorization.role === "sales" ? and(eq(contacts.type, "customer"), eq(contacts.salesOwnerId, authorization.id)) : undefined)).orderBy(asc(contacts.name));
+      const parentNames = new Map(contactRows.map(row => [row.id, row.name]));
       const loans = isAdministrator(authorization) ? await db.select().from(transactions).where(and(and(eq(transactions.companyId, companyId), documentVisibility(authorization)), sql`${transactions.employeeLoanContactId} IS NOT NULL`)).orderBy(desc(transactions.transactionDate), desc(transactions.id)) : [];
-      return Response.json({ records: contactRows.map(record => redactEmployeeHr({ ...record, ...(record.type === "employee" && isAdministrator(authorization) ? { bankLoanPayments: JSON.stringify(loans.filter(loan => loan.employeeLoanContactId === record.id).map(loan => ({ id: loan.id, number: loan.number, date: loan.transactionDate, currency: loan.currency, amount: loan.total, account: loan.account }))) } : {}) }, isAdministrator(authorization))) });
+      return Response.json({ records: contactRows.map(record => redactEmployeeHr({ ...record, parentContactName: parentNames.get(record.parentContactId ?? 0) ?? "", ...(record.type === "employee" && isAdministrator(authorization) ? { bankLoanPayments: JSON.stringify(loans.filter(loan => loan.employeeLoanContactId === record.id).map(loan => ({ id: loan.id, number: loan.number, date: loan.transactionDate, currency: loan.currency, amount: loan.total, account: loan.account }))) } : {}) }, isAdministrator(authorization))) });
     }
     if (kind === "items") {
       if (authorization.role === "sales") {
@@ -560,6 +562,10 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
           || contactType === "vendor" && Boolean(companyName) && normalizeComparableText(contact.company) === normalizeComparableText(companyName));
         if (duplicate) return Response.json({ error: "Another record already uses this name or company." }, { status: 409 });
       }
+      const contactRows = await db.select().from(contacts).where(eq(contacts.companyId, companyId));
+      let organization;
+      try { organization = contactOrganization(payload, { id: 0, companyId, type: contactType, status: "active" }, contactRows, authorization.role === "sales" ? authorization.id : undefined); }
+      catch (error) { throw new RequestError(error instanceof Error ? error.message : "Invalid contact organization."); }
       let ledgerAccountId: number | null = null;
       let generatedAccount: { id: number; code: string; name: string; currency: string } | null = null;
       if (contactType === "customer" || contactType === "vendor") {
@@ -576,7 +582,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
         }
       }
       const [record] = await db.insert(contacts).values({
-        companyId, type: contactType, name, salesOwnerId: authorization.role === "sales" ? authorization.id : null,
+        companyId, type: contactType, name, ...organization, salesOwnerId: authorization.role === "sales" ? authorization.id : null,
         ...(contactType === "employee" ? await employeeHrForSave(payload, companyId) : {}),
         company: String(payload.company ?? ""), billingName: String(payload.billingName ?? name),
         email: String(payload.email ?? ""), phone: String(payload.phone ?? "").trim(), whatsapp: String(payload.whatsapp ?? "").trim(),
@@ -842,6 +848,12 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       payload.memo = [String(payload.memo || ""), `Returned against bill ${sourceBill.number}`].filter(Boolean).join(" · ");
     }
     const requestedParty = String(payload.party ?? "").trim();
+    const tradingPartyType = ["invoice", "pending invoice", "quotation", "estimate", "proforma invoice", "sales order", "sales receipt", "statement charge", "finance charge"].includes(type) ? "customer" : ["bill", "purchase order", "item receipt", "received item bill"].includes(type) ? "vendor" : null;
+    if (tradingPartyType && (!replacing || replacing.party !== requestedParty)) {
+      const [inactiveParty] = await db.select({ id: contacts.id }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, tradingPartyType), eq(contacts.name, requestedParty), eq(contacts.status, "inactive"))).limit(1);
+      if (inactiveParty) throw new RequestError("This account is inactive. Reactivate it before creating a new trading document.", 409);
+    }
+
     const chequeType = String(payload.chequeType ?? "").trim();
     let employeeLoanContactId: number | null = null;
     if (chequeType === "employee-loan") {
@@ -1700,6 +1712,19 @@ async function handlePATCH(request: Request) {
       if (authorization.role === "sales" && (accountEdit || existing.type !== "customer" || (existing as typeof contacts.$inferSelect).salesOwnerId !== authorization.id)) return Response.json({ error: "You can edit your own customers only." }, { status: 403 });
       if (!mayWrite(authorization, writePermission(accountEdit ? "accounts" : "contacts", { type: existing.type }))) return Response.json({ error: "Your role cannot edit this record." }, { status: 403 });
       if (!accountEdit && existing.type === "vendor" && !isAdministrator(authorization)) return Response.json({ error: "Only All-Admin and Admin can edit vendor details." }, { status: 403 });
+      if (!accountEdit && payload.editMode === "contact-status") {
+        const allowed = new Set(["kind", "id", "companyId", "editMode", "status", "expectedStatus"]);
+        if (Object.keys(payload).some(key => !allowed.has(key)) || !["customer", "vendor"].includes(existing.type) || !["active", "inactive"].includes(String(payload.status))) throw new RequestError("Select a valid customer or vendor status.");
+        const current = existing as typeof contacts.$inferSelect;
+        if (payload.expectedStatus !== current.status) throw new RequestError("This account changed. Refresh the list and try again.", 409);
+        const rows = await db.select().from(contacts).where(eq(contacts.companyId, companyId));
+        let organization;
+        try { organization = contactOrganization(payload, current, rows, authorization.role === "sales" ? authorization.id : undefined); }
+        catch (error) { throw new RequestError(error instanceof Error ? error.message : "Invalid contact status."); }
+        const [record] = await db.update(contacts).set({ status: organization.status }).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId))).returning();
+        await db.insert(auditLog).values({ companyId, action: "updated", entityType: "contact", entityId: id, details: JSON.stringify({ actorId: authorization.id, mode: "contact-status", before: current.status, after: organization.status }) });
+        return Response.json({ record });
+      }
       const name = String(payload.name ?? existing.name).trim();
       if (!name) return Response.json({ error: "Name is required." }, { status: 400 });
       if (!accountEdit && existing.type === "customer") {
@@ -1741,13 +1766,18 @@ async function handlePATCH(request: Request) {
         await db.insert(auditLog).values({ companyId, action: "updated", entityType: "account", entityId: id, details: JSON.stringify({ name: { before: existing.name, after: name }, type: { before: existing.type, after: record.type } }) });
         return Response.json({ record });
       }
+      const contactRows = await db.select().from(contacts).where(eq(contacts.companyId, companyId));
+      let organization;
+      try { organization = contactOrganization(payload, existing as typeof contacts.$inferSelect, contactRows, authorization.role === "sales" ? authorization.id : undefined); }
+      catch (error) { throw new RequestError(error instanceof Error ? error.message : "Invalid contact organization."); }
       const changes: Record<string, string> = { name };
       for (const field of ["company", "billingName", "email", "phone", "whatsapp", "country", "trn", "reseller", "planet", "passport", "description"] as const) {
         if (payload[field] !== undefined) changes[field] = String(payload[field]).trim();
       }
-      const [record] = await db.update(contacts).set({ ...changes, ...(existing.type === "employee" ? await employeeHrForSave(payload, companyId, existing) : {}) }).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId))).returning();
+      const [record] = await db.update(contacts).set({ ...changes, ...organization, ...(existing.type === "employee" ? await employeeHrForSave(payload, companyId, existing) : {}) }).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId))).returning();
       if (name !== existing.name) await db.update(transactions).set({ party: name }).where(and(eq(transactions.companyId, companyId), eq(transactions.party, existing.name)));
       await db.insert(auditLog).values({ companyId, action: "updated", entityType: existing.type === "vendor" ? "vendor" : "contact", entityId: id, details: existing.type === "vendor" ? JSON.stringify({ actorId: authorization.id, actorName: authorization.fullName || authorization.email, actorEmail: authorization.email, vendorName: name, changes: Object.entries(changes).filter(([field, value]) => String((existing as Record<string, unknown>)[field] ?? "") !== value).map(([field, value]) => ({ field, before: (existing as Record<string, unknown>)[field] ?? "", after: value })) }) : `${existing.name} → ${name}` });
+      if (organization.status !== (existing as typeof contacts.$inferSelect).status || organization.parentContactId !== (existing as typeof contacts.$inferSelect).parentContactId) await db.insert(auditLog).values({ companyId, action: "updated", entityType: "contact", entityId: id, details: JSON.stringify({ actorId: authorization.id, mode: "contact-organization", before: { status: (existing as typeof contacts.$inferSelect).status, parentContactId: (existing as typeof contacts.$inferSelect).parentContactId }, after: organization }) });
       return Response.json({ record });
     });
     if (payload.kind !== "items") return Response.json({ error: "This record cannot be edited here." }, { status: 400 });
@@ -1908,8 +1938,11 @@ async function handleDELETE(request: Request) {
     if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     if (kind === "contacts") return await withWriteTransaction(async () => {
       const tx = getDb();
+      if (process.env.COMNET_LOCAL_DB !== "1") await tx.execute(sql`select pg_advisory_xact_lock(731459, ${companyId})`);
       const [vendor] = await tx.select().from(contacts).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId))).for("update");
       if (!vendor) return Response.json({ error: "Contact not found." }, { status: 404 });
+      const [child] = await tx.select({ id: contacts.id }).from(contacts).where(eq(contacts.parentContactId, id)).limit(1);
+      if (child) return Response.json({ error: "Move sub-accounts to another parent before deleting this account." }, { status: 409 });
       if (vendor.type === "employee") {
         const [loan] = await tx.select({ id: transactions.id }).from(transactions).where(and(eq(transactions.companyId, companyId), eq(transactions.employeeLoanContactId, id))).limit(1);
         if (loan) return Response.json({ error: "This employee has linked bank loan payments and cannot be deleted." }, { status: 409 });

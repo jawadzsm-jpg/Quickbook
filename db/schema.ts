@@ -169,6 +169,7 @@ export const vatReturns = pgTable("vat_returns", {
 }, (table) => [index("idx_vat_returns_company_period").on(table.companyId, table.periodStart, table.periodEnd), uniqueIndex("idx_vat_returns_company_reference").on(table.companyId, table.reference)]);
 
 export const contacts = pgTable("contacts", {
+  parentContactId: integer("parent_contact_id").references((): AnyPgColumn => contacts.id, { onDelete: "set null" }),
   salesOwnerId: integer("sales_owner_id").references(() => appUsers.id, { onDelete: "set null" }),
   id: serial("id").primaryKey(),
   companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
@@ -197,7 +198,7 @@ export const contacts = pgTable("contacts", {
   balance: doublePrecision("balance").notNull().default(0),
   status: text("status", { enum: ["active", "inactive"] }).notNull().default("active"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
-}, (table) => [index("idx_contacts_company_type_name").on(table.companyId, table.type, table.name)]);
+}, (table) => [index("idx_contacts_company_type_name").on(table.companyId, table.type, table.name), index("idx_contacts_parent").on(table.companyId, table.parentContactId)]);
 
 export const items = pgTable("items", {
   id: serial("id").primaryKey(),

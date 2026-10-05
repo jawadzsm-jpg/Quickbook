@@ -310,3 +310,11 @@ All shared dialogs use a dedicated control bar for minimize, maximize/restore an
 The app header Shortcuts button opens a searchable, categorized list derived from the current user's permitted sidebar pages. Ctrl/Command+K opens it when no dialog is active; selecting a page preserves the active company. Shortcut IDs are deduplicated. Customer/vendor/banking action cards use the shared theme. Register-owned exports suppress redundant generic toolbar exports, while shared numeric table fields retain responsive widths and alignment. Existing structured A4/PDF/CSV/Excel reports, accounting links and stamp rules remain unchanged.
 
 Company and inventory administration is accessed through the Management navigation group. The duplicate Companies & inventory sidebar footer shortcut is removed.
+
+### Customer and vendor sub-accounts
+
+Customer and vendor Add/Edit forms include Sub-account of and Active/Inactive controls. Lists provide All/Active/Inactive filters and display the parent name; A4/PDF/CSV/Excel list exports include the parent and status. Each sub-account retains its own balance, currency and AR/AP ledger link; parent links do not consolidate balances or change posting. Existing duplicate-name, phone and TRN rules still apply.
+
+Parents must be the same contact type and company; sales users can select only their own customers. Self-links and cycles are rejected. Active children must be moved or made inactive before their parent is deactivated; parents with children cannot be deleted. Inactive contacts remain in history and can be reactivated. New trading documents reject inactive parties, while payment lists retain them for balance settlement and credit/return workflows remain available.
+
+Authorized users can also Activate/Make inactive directly from a contact row. This narrow action preserves identity details and rejects stale status changes.
