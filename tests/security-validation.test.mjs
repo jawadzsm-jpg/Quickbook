@@ -875,3 +875,15 @@ test('template properties and saved copies validate without breaking older setti
  assert.throws(()=>validateDocumentDesign(JSON.stringify({...design,savedTemplates:[{id:'nested',design}]})));
  assert.throws(()=>validateDocumentDesign(JSON.stringify({...design,savedTemplates:Array.from({length:21},(_,i)=>({id:`copy-${i}`,design:snapshot}))})));
 });
+
+test("sales register exports preserve currency and the recorded account without treating drafts as revenue", () => {
+  const rows = [
+    { transactionDate: "2026-10-01", type: "estimate", number: "EST-1", party: "Customer", status: "open", currency: "AED", total: 100, account: "Customer AED Receivable" },
+    { transactionDate: "2026-10-02", type: "invoice", number: "INV-2", party: "Customer", status: "open", currency: "USD", total: 200, account: "Customer USD Receivable" },
+  ];
+  const report=recordListReport("sales","transactions",rows,"AED","2026-10-01","2026-10-02");
+  assert.equal(report.key,"sales-document-register");
+  assert.match(report.description,/Non-posting documents are not revenue/);
+  assert.deepEqual(report.rows.map(row=>[row.currency,row.amount,row.postingAccount]),[["AED",100,"Customer AED Receivable"],["USD",200,"Customer USD Receivable"]]);
+  assert.ok(report.columns.some(column=>column.key==="postingAccount"));
+});

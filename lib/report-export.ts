@@ -37,6 +37,11 @@ export type ReportExportData = {
 };
 
 export function reportOverview(report: ReportExportData, rows: ReportExportRow[]) {
+  if (report.key === "sales-document-register") return { cards: [
+    { label: "Documents", value: rows.length, format: "number", tone: "neutral" },
+    { label: "Invoices", value: rows.filter(row => row.type === "invoice").length, format: "number", tone: "neutral" },
+    { label: "Currencies", value: new Set(rows.map(row => row.currency)).size, format: "number", tone: "neutral" },
+  ], note: report.description || "Filtered sales document register; original document currencies." };
   if(report.pnl&&report.summary)return {cards:[{label:'Income',value:report.summary.income,format:'money',tone:'positive'},{label:report.key==='profit-loss-cost-of-goods'?'Cost of goods sold':'Costs & expenses',value:report.summary.expenses,format:'money',tone:'neutral'},{label:report.key==='profit-loss-cost-of-goods'?'Gross profit':'Net profit / loss',value:report.summary.netIncome,format:'money',tone:report.summary.netIncome<0?'negative':'positive'}],note:report.description||'Accrual basis · Posted journal entries'};
   return incomeTaxReportSummary({ key: report.key, rows }) ?? journalReportSummary({ key: report.key, rows }) ?? financialSummary({ key: report.key, rows, financial: report.financial }) ?? vatSummary({ key: report.key, rows }) ?? budgetSummary({ key: report.key, rows, budget: report.budget }) ?? salesSummary({ key: report.key, rows }) ?? customerSummary({ key: report.key, rows, openBalance: report.openBalance, activeCustomers: report.activeCustomers, statement: report.statement }) ?? vendorSummary({ key: report.key, rows, statement: report.statement }) ?? purchaseSummary({ key: report.key, rows }) ?? inventorySummary({ key: report.key, rows }) ?? bankingSummary({ key: report.key, rows }) ?? accountantSummary({ key: report.key, rows }) ?? listSummary({ key: report.key, rows }) ?? employeeSummary({ key: report.key, rows });
 }

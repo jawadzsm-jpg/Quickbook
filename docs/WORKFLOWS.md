@@ -284,3 +284,9 @@ Income tax: open Financial → Income Tax Working Paper, choose a complete tax p
 ## Scheduled company backup
 
 Open Admin Controls for the company, create a manual backup, then set a start date, UAE time, repeat frequency and retention; enable and save. Confirm the next run and recent scheduler heartbeat. Download a completed file and keep its displayed fingerprint with a separate secure copy. Verify files through history or the offline `backup:verify` command. Administrators can pause schedules and explicitly delete files. Recovery requires an isolated database rehearsal and separate approval before changing live data; detailed instructions are in [Company backups](BACKUPS.md).
+
+### Sales register review and output
+
+Use Sales document workflow to create the appropriate source document or pending invoice. Open a saved eligible source, select inventory and available quantities, and save the partial/final invoice. The conversion view shows the original unit price/currency alongside ordered, invoiced, remaining and available quantities. Stock and accounting writes still use the existing source allocation and posting rules.
+
+For register reporting, select document type, status, currency, dates and search. The summary and exports use the same filtered loaded records. Use Export → Print A4 preview/PDF/Excel/CSV; company and inventory headings match the active workspace. Stamp & A4 lets administrators/accountants move or hide the stamp used in print/PDF. The planned posting account on source documents is informational until posting; the Chart of Accounts shortcut is limited to roles with account access.
