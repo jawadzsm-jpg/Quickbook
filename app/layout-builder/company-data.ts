@@ -1,0 +1,53 @@
+import type { DocumentData, DocumentLine } from "@/lib/layout/document-data";
+
+
+export type CompanyBranding = {
+  name: string; logoData: string; rightLogoData?: string; stampData?: string; phone: string; email?: string; trn: string;
+  addressLine1: string; addressLine2: string; city: string; country: string;
+  bankName?: string; bankAccountName?: string; bankAccountNumber?: string; bankIban?: string; bankSwift?: string;
+};
+type RecordData = Record<string, unknown>;
+
+const text = (value: unknown) => value === null || value === undefined ? "" : String(value);
+const number = (value: unknown) => { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : 0; };
+const round = (value: number) => Math.round(value * 100) / 100;
+
+export function companyDocumentData(setup: CompanyBranding): DocumentData["company"] {
+  return {
+    name: setup.name, addressLines: [setup.addressLine1, setup.addressLine2, [setup.city, setup.country].filter(Boolean).join(", ")].filter((line) => line.trim()),
+    phone: setup.phone, email: setup.email ?? "", trn: setup.trn, leftLogo: setup.logoData, rightLogo: setup.rightLogoData ?? "", stamp: setup.stampData ?? "",
+    bank: { name: setup.bankName ?? "", accountName: setup.bankAccountName ?? "", accountNumber: setup.bankAccountNumber ?? "", iban: setup.bankIban ?? "", swift: setup.bankSwift ?? "" },
+  };
+}
+
+/** Map a saved invoice (record, posted lines, customer contact) onto the layout renderer's input. */
+export function transactionDocumentData(record: RecordData, lines: RecordData[], contact: RecordData | null | undefined, setup: CompanyBranding): DocumentData {
+  const documentLines: DocumentLine[] = lines.filter((line) => !line.isFreightCharge && !line.pending).map((line) => {
+    const quantity = number(line.quantity); const unitPrice = number(line.unitPrice);
+    const subtotal = line.subtotal !== undefined ? number(line.subtotal) : round(quantity * unitPrice);
+    const vatAmount = number(line.vatAmount);
+    return {
+      sku: text(line.sku || line.itemNumber), description: text(line.description || line.itemDescription || line.name), quantity, unitPrice,
+      serialNumber: text(line.serialNumber), comments: text(line.comments), subtotal, vatRate: number(line.vatRate), vatAmount,
+      total: line.total !== undefined ? number(line.total) : round(subtotal + vatAmount),
+    };
+  });
+  const total = number(record.total);
+  const paid = number(record.paidAmount ?? record.amountPaid);
+  const billingName = text(contact?.billingName || contact?.company || record.party);
+  const contactCity = [contact?.city, contact?.country].map(text).filter(Boolean).join(", ");
+  return {
+    company: companyDocumentData(setup),
+    billTo: [billingName, text(contact?.address || contact?.addressLine1), contactCity, contact?.trn ? `TRN ${text(contact.trn)}` : ""].filter(Boolean),
+    shipTo: [text(record.deliveryAddress || contact?.shippingAddress)].filter(Boolean),
+    details: {
+      number: text(record.number), date: text(record.transactionDate), dueDate: text(record.dueDate), terms: text(record.terms || contact?.paymentTerms),
+      salesman: text(record.salesman), reference: text(record.referenceNo || record.reference), trn: text(contact?.trn), source: text(record.sourceDocumentNumber), status: text(record.status),
+    },
+    currency: text(record.currency) || "AED",
+    lines: documentLines,
+    totals: { subtotal: number(record.subtotal), vat: number(record.vatAmount), total, paid, balance: record.balance !== undefined ? number(record.balance) : round(total - paid) },
+    message: text(record.memo), terms: "", status: text(record.status),
+  };
+}
+

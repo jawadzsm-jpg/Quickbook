@@ -1,3 +1,4 @@
+import { parseLayout } from "@/lib/layout/schema";
 import { validateDocumentDesign } from "@/lib/document-design";
 import { eq, ne, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
@@ -25,7 +26,7 @@ export async function GET(request: Request) {
     if (!canAccessCompany(user, companyId)) return Response.json({ error: "Company access denied." }, { status: 403 });
     const [record] = await getDb().select().from(companies).where(eq(companies.id, companyId)).limit(1);
     if (!record) return Response.json({ error: "Company not found." }, { status: 404 });
-    return Response.json({ record: user.role === "sales" ? { ...record, stampData: "", bankName: "", bankAccountName: "", bankAccountNumber: "", bankIban: "", bankSwift: "", documentDesign: "", letterheadDesign: "" } : record });
+    return Response.json({ record: user.role === "sales" ? { ...record, stampData: "", bankName: "", bankAccountName: "", bankAccountNumber: "", bankIban: "", bankSwift: "", documentDesign: "", letterheadDesign: "", documentLayout: "" } : record });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
   }
@@ -48,10 +49,25 @@ export async function PATCH(request: Request) {
         const [record] = await getDb().update(companies).set(updates).where(eq(companies.id, companyId)).returning();
         if (!record) return Response.json({ error: "Company not found." }, { status: 404 });
         await getDb().insert(auditLog).values({ companyId, action: "updated", entityType: "company_setup", entityId: companyId, details: JSON.stringify({ actorId: user.id, fields: Object.keys(updates), mode: "stamp-bank" }) });
-        return Response.json({ record: user.role === "sales" ? { ...record, stampData: "", bankName: "", bankAccountName: "", bankAccountNumber: "", bankIban: "", bankSwift: "", documentDesign: "", letterheadDesign: "" } : record });
+        return Response.json({ record: user.role === "sales" ? { ...record, stampData: "", bankName: "", bankAccountName: "", bankAccountNumber: "", bankIban: "", bankSwift: "", documentDesign: "", letterheadDesign: "", documentLayout: "" } : record });
       });
     }
     if (!canAccessCompany(user, companyId) || !isAdministrator(user)) return Response.json({ error: "Company administrator access required." }, { status: 403 });
+    // The layout builder saves only its own layout so it never overwrites other Company Setup fields.
+    if (payload.documentLayout !== undefined && Object.keys(payload).every((key) => key === "companyId" || key === "documentLayout")) {
+      const raw = String(payload.documentLayout);
+      if (raw.length > 4_000_000) return Response.json({ error: "The layout is too large. Use smaller images." }, { status: 413 });
+      let documentLayout = "";
+      if (raw) {
+        try { documentLayout = JSON.stringify(parseLayout(raw)); } catch (error) { return Response.json({ error: `Check the layout: ${error instanceof Error ? error.message : "invalid layout"}` }, { status: 400 }); }
+      }
+      return withWriteTransaction(async () => {
+        const [record] = await getDb().update(companies).set({ documentLayout }).where(eq(companies.id, companyId)).returning();
+        if (!record) return Response.json({ error: "Company not found." }, { status: 404 });
+        await getDb().insert(auditLog).values({ companyId, action: "updated", entityType: "company_setup", entityId: companyId, details: JSON.stringify({ actorId: user.id, fields: ["documentLayout"], mode: "layout-builder" }) });
+        return Response.json({ record });
+      });
+    }
     const [existing] = await getDb().select().from(companies).where(eq(companies.id, companyId)).limit(1);
     if (!existing) return Response.json({ error: "Company not found." }, { status: 404 });
     const rightLogoData = String(payload.rightLogoData ?? existing.rightLogoData);
