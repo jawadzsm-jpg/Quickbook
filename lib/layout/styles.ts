@@ -70,6 +70,7 @@ export function layoutCss(layout: Layout) {
 .lb-overlay{position:absolute;display:flex;align-items:center;justify-content:center;overflow:hidden;pointer-events:none}
 .lb-overlay img{width:100%;height:100%;object-fit:contain}
 .lb-overlay-text{white-space:pre-wrap;text-align:center}
+.lb-bank-stamp{display:block;max-width:32mm;max-height:22mm;margin-top:2mm;object-fit:contain}
 .lb-stamp{border:0.9mm solid var(--lb-accent);border-radius:2mm;color:var(--lb-accent);font-weight:800;font-size:1.6em;text-transform:uppercase;letter-spacing:0.08em}
 `;
 }

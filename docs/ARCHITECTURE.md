@@ -169,7 +169,7 @@ The same wrapper is used by core records, pricing, revaluation, logistics, trans
 
 Report output is normalized as a title, description, generation time, currency, columns, rows, optional summary, chart metadata, period metadata, and drill-down context. The client renders the same model and exports it through `lib/report-export.ts` to PDF, XLSX, or CSV.
 
-Document output combines company setup, selected template, logos, letterhead, bank details, line data, and optional draggable stamps. Print CSS and PDF generation target A4 output.
+Document output combines company setup, selected template, logos, letterhead, bank details, line data, and optional draggable stamps. Bank details and the bank stamp follow the document currency through `bankForCurrency` in `lib/bank-accounts.ts`. The default account's stamp is `companies.bank_stamp_data` (migration 0087); extra currency accounts keep `stampData` inside `companies.bank_accounts`. Print CSS and PDF generation target A4 output.
 
 ## Deployment architecture
 

@@ -17,6 +17,7 @@ import { parseLayoutCollection } from "@/lib/layout/schema";
 import { transactionDocumentData, type CompanyBranding } from "./layout-builder/company-data";
 import { LayoutPreview } from "./layout-builder/layout-preview";
 import { printLayout } from "./layout-builder/print-layout";
+import { bankForCurrency } from "@/lib/bank-accounts";
 
 type RecordData = Record<string, string | number | boolean>;
 type Branding = TemplateBranding & CompanyBranding & { documentDesign?: string; letterheadDesign?: string; documentLayout?: string };
@@ -93,6 +94,8 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
   const [copy, setCopy] = useState<"customer" | "inventory">("customer");
   const [pdfBusy, setPdfBusy] = useState(false);
   const [poStamp, setPoStamp] = useState<{show:boolean;left:number;top:number}|null>(null);
+  const [showBank, setShowBank] = useState(true);
+  const [showBankStamp, setShowBankStamp] = useState(true);
   const [packingOpen, setPackingOpen] = useState(false);
   const [packingView, setPackingView] = useState<"packing" | "hs-summary">("packing");
   const [printOrientation, setPrintOrientation] = useState<PrintOrientation>("portrait");
@@ -102,6 +105,10 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
   const letterhead = letterheadForDocument(setup.letterheadDesign, activeMode);
   const stamp = poStamp ?? {show: Boolean(letterhead?.showStamp), left: letterhead?.stampLeft ?? 155, top: 0};
   const movableStamp = true;
+  // Bank details belong on documents asking for payment, not on delivery notes or packing lists.
+  const bankApplies = !["delivery-note", "packing-list", "hs-code-summary"].includes(activeMode);
+  // Each currency's bank account can have its own stamp; offer it when the document's account has one.
+  const bankStampAvailable = Boolean(bankForCurrency(setup, String(record.currency || setup.baseCurrency || ""))?.stampData);
   const requestedTemplateType = savedTemplateType[activeMode];
   const { design, savedTemplate } = resolveDocumentDesign(setup.documentDesign, requestedTemplateType);
   if (!savedTemplate || savedTemplate.appliesToAll || (requestedTemplateType && savedTemplate.type !== requestedTemplateType)) design.title = salesDocumentTitles[activeMode];
@@ -139,13 +146,12 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
   const inventoryLines = inventoryInvoiceLines(lines);
   const renderDocument = (documentCopy: "customer" | "inventory", print = false) => {
     const inventoryCopy = splitInvoiceCopies && documentCopy === "inventory";
-    // Bank details belong on documents asking for payment, not on delivery notes or packing lists.
-    const withoutBank = ["delivery-note", "packing-list", "hs-code-summary"].includes(activeMode);
+    const withoutBank = !bankApplies || !showBank;
     const copyDesign = { ...a4Design, ...(inventoryCopy ? { title: `${design.title} — Inventory Copy` } : {}), ...(withoutBank ? { footer: a4Design.footer.filter((field) => field.key !== "bankDetails") } : {}) };
     const copyLines = inventoryCopy ? inventoryLines : customerLines;
     return activeMode === "delivery-note" && connectedPackingList && !design.enabled
       ? <DeliveryNoteTemplate record={record} lines={copyLines} contact={contact} setup={setup} letterhead={letterhead} stampOverride={stampOverride} onMoveStamp={!print ? (left, top) => setPoStamp({...stamp,left,top}) : undefined} />
-      : <CustomInvoiceTemplate design={copyDesign} record={record} lines={copyLines} contact={contact} setup={setup} letterhead={design.enabled ? undefined : letterhead} stampOverride={stampOverride} stampPlacement="footer" showItemNumberAtEnd={inventoryCopy} target="print" onMoveStamp={!print && movableStamp ? (left, top) => setPoStamp({ ...stamp, left, top }) : undefined} />;
+      : <CustomInvoiceTemplate design={copyDesign} record={record} lines={copyLines} contact={contact} setup={setup} letterhead={design.enabled ? undefined : letterhead} stampOverride={stampOverride} stampPlacement="footer" showBankStamp={showBankStamp} showItemNumberAtEnd={inventoryCopy} target="print" onMoveStamp={!print && movableStamp ? (left, top) => setPoStamp({ ...stamp, left, top }) : undefined} />;
   };
   const customerName = String(contact?.billingName || contact?.company || record.party || "Customer");
   const referenceNumber = String(record.number || "Document");
@@ -156,16 +162,26 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
   const builderLayout = useMemo(() => {
     const type = savedTemplateType[activeMode];
     if (!type || !setup.documentLayout) return null;
-    try { const layout = parseLayoutCollection(setup.documentLayout)[type]; return layout?.enabled ? layout : null; } catch { return null; }
-  }, [activeMode, setup.documentLayout]);
+    try {
+      const layout = parseLayoutCollection(setup.documentLayout)[type];
+      if (!layout?.enabled) return null;
+      if (showBank) return layout;
+      // Turning bank details off hides the layout's bank section on screen, print and PDF.
+      return { ...layout, rows: layout.rows.map((row) => ({ ...row, sections: row.sections.map((section) => section.type === "bankDetails" ? { ...section, screen: false, print: false } : section) })) };
+    } catch { return null; }
+  }, [activeMode, setup.documentLayout, showBank]);
   const builderCopies = useMemo(() => {
     if (!builderLayout) return null;
-    const customer = transactionDocumentData(record, customerLines, contact, setup);
+    const documentData = (documentLines: RecordData[]) => {
+      const data = transactionDocumentData(record, documentLines, contact, setup);
+      return showBankStamp ? data : { ...data, company: { ...data.company, bank: { ...data.company.bank, stamp: "" } } };
+    };
+    const customer = documentData(customerLines);
     if (!signedInvoiceCopies) return { preview: customer, print: [{ data: customer }] };
     // Signed invoices print a customer copy and an inventory-team copy, each starting on its own page.
-    const inventory = transactionDocumentData(record, inventoryLines, contact, setup);
+    const inventory = documentData(inventoryLines);
     return { preview: selectedCopy === "inventory" ? inventory : customer, print: [{ data: customer, label: "CUSTOMER COPY" }, { data: inventory, label: "INVENTORY TEAM COPY" }] };
-  }, [builderLayout, record, customerLines, inventoryLines, contact, setup, signedInvoiceCopies, selectedCopy]);
+  }, [builderLayout, record, customerLines, inventoryLines, contact, setup, signedInvoiceCopies, selectedCopy, showBankStamp]);
   const printWithBuilder = (pdf: boolean) => {
     if (!builderLayout || !builderCopies) return false;
     if (pdf) toast.info("Choose “Save as PDF” as the destination in the print dialog.");
@@ -328,7 +344,7 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
         </Button>
       </div>
     </div>
-    {movableStamp && <div className="document-internal-only mb-4 flex flex-wrap items-end gap-4 rounded-xl border bg-card p-4 text-sm text-card-foreground"><label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={stamp.show} disabled={!setup.stampData} onChange={(event) => setPoStamp({...stamp,show:event.target.checked})} />Company stamp</label>{!setup.stampData && <span className="text-muted-foreground">Upload a stamp in Company Setup first.</span>}{stamp.show && setup.stampData && <><label className="flex items-center gap-2">Left (mm)<input type="number" min="0" max={stampMaxLeft} className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={stampOverride.left} onChange={(event) => setPoStamp({...stamp,left:Math.max(0,Math.min(stampMaxLeft,Number(event.target.value)||0))})} /></label><label className="flex items-center gap-2">Vertical gap (mm)<input type="number" min="0" max="20" className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={stamp.top} onChange={(event) => setPoStamp({...stamp,top:Math.max(0,Math.min(20,Number(event.target.value)||0))})} /></label><span className="w-full text-xs text-muted-foreground">Stamp stays below the table and totals. Drag within this area or adjust the values. Turn off to remove it from print and PDF.</span></>}</div>}
+    {movableStamp && <div className="document-internal-only mb-4 flex flex-wrap items-end gap-4 rounded-xl border bg-card p-4 text-sm text-card-foreground"><label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={stamp.show} disabled={!setup.stampData} onChange={(event) => setPoStamp({...stamp,show:event.target.checked})} />Company stamp</label>{bankApplies && <label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={showBank} onChange={(event) => setShowBank(event.target.checked)} />Bank account details</label>}{bankApplies && showBank && bankStampAvailable && <label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={showBankStamp} onChange={(event) => setShowBankStamp(event.target.checked)} />Bank stamp ({String(record.currency || setup.baseCurrency || "").toUpperCase()})</label>}{!setup.stampData && <span className="text-muted-foreground">Upload a stamp in Company Setup first.</span>}{stamp.show && setup.stampData && <><label className="flex items-center gap-2">Left (mm)<input type="number" min="0" max={stampMaxLeft} className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={stampOverride.left} onChange={(event) => setPoStamp({...stamp,left:Math.max(0,Math.min(stampMaxLeft,Number(event.target.value)||0))})} /></label><label className="flex items-center gap-2">Vertical gap (mm)<input type="number" min="0" max="20" className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={stamp.top} onChange={(event) => setPoStamp({...stamp,top:Math.max(0,Math.min(20,Number(event.target.value)||0))})} /></label><span className="w-full text-xs text-muted-foreground">Stamp stays below the table and totals. Drag within this area or adjust the values. Turn off to remove it from print and PDF.</span></>}</div>}
     {signedInvoiceCopies ? <div className="document-internal-only mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">Print creates Customer and Inventory copies with signature areas. Customer copies hide zero-price and stock-return lines. Save or download uses the selected copy.</div> : null}
     <div ref={fitRef} className="relative min-w-0">
       {builderLayout && builderCopies ? <LayoutPreview layout={builderLayout} data={builderCopies.preview} /> : <div ref={zoomRef} style={{ zoom: previewZoom }}><div ref={screenPreviewRef} className="invoice-screen-only" data-invoice-copy={selectedCopy}>{renderDocument(selectedCopy)}</div></div>}

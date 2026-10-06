@@ -3,7 +3,7 @@ import type { DetailField } from "./schema";
 /** Everything a layout needs to render one document. Real invoices and the editor's mock data share this shape. */
 export type DocumentLine = { sku: string; description: string; quantity: number; unitPrice: number; serialNumber: string; comments: string; subtotal: number; vatRate: number; vatAmount: number; total: number };
 export type DocumentData = {
-  company: { name: string; addressLines: string[]; phone: string; email: string; trn: string; leftLogo: string; rightLogo: string; stamp: string; bank: { name: string; accountName: string; accountNumber: string; iban: string; swift: string } };
+  company: { name: string; addressLines: string[]; phone: string; email: string; trn: string; leftLogo: string; rightLogo: string; stamp: string; bank: { name: string; accountName: string; accountNumber: string; iban: string; swift: string; stamp: string } };
   billTo: string[];
   shipTo: string[];
   details: Partial<Record<DetailField, string>>;
@@ -43,7 +43,7 @@ export function mockDocument(size: MockSize = "short"): DocumentData {
     company: {
       name: "ComNet International", addressLines: ["Shop # 13 & 14, Bayat Center Building", "Naif Road, Deira, Dubai", "United Arab Emirates"],
       phone: "+971 4 393 8050", email: "sales@comnet.example", trn: "100349940500003", leftLogo: "", rightLogo: "", stamp: "",
-      bank: { name: "Emirates NBD", accountName: "ComNet International LLC", accountNumber: "1015 4567 8901", iban: "AE07 0260 0010 1545 6789 01", swift: "EBILAEAD" },
+      bank: { name: "Emirates NBD", accountName: "ComNet International LLC", accountNumber: "1015 4567 8901", iban: "AE07 0260 0010 1545 6789 01", swift: "EBILAEAD", stamp: "" },
     },
     billTo: ["Techno Com Trading LLC", "Office 402, Al Fahidi Street", "Dubai, United Arab Emirates", "TRN 100200300400003"],
     shipTo: ["Techno Com Warehouse", "Al Quoz Industrial 3", "Dubai, United Arab Emirates"],

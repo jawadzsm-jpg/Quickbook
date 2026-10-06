@@ -86,7 +86,7 @@ export function SectionBody({ section, data }: { section: Section; data: Documen
     case "terms": return <><p className="lb-label">{section.props.label}</p><p className="lb-pre">{section.props.text || data.terms || <span className="lb-empty">No terms</span>}</p></>;
     case "bankDetails": {
       const { bank } = data.company;
-      return <><p className="lb-label">{section.props.label}</p><Lines lines={[bank.name, bank.accountName && `Account name: ${bank.accountName}`, bank.accountNumber && `Account no.: ${bank.accountNumber}`, bank.iban && `IBAN: ${bank.iban}`, bank.swift && `SWIFT: ${bank.swift}`].filter(Boolean) as string[]} empty="Add bank details in Company Setup" /></>;
+      return <><p className="lb-label">{section.props.label}</p><Lines lines={[bank.name, bank.accountName && `Account name: ${bank.accountName}`, bank.accountNumber && `Account no.: ${bank.accountNumber}`, bank.iban && `IBAN: ${bank.iban}`, bank.swift && `SWIFT: ${bank.swift}`].filter(Boolean) as string[]} empty="Add bank details in Company Setup" />{bank.stamp && <img className="lb-bank-stamp" src={bank.stamp} alt="" />}</>;
     }
     case "signature": return <span className="lb-signature" style={{ width: `${section.props.lineWidthMm}mm` }}>{section.props.label}</span>;
     case "text": return <p className="lb-pre">{section.props.text}</p>;

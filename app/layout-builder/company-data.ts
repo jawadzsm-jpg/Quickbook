@@ -18,7 +18,7 @@ export function companyDocumentData(setup: CompanyBranding, currency?: string): 
   return {
     name: setup.name, addressLines: [setup.addressLine1, setup.addressLine2, [setup.city, setup.country].filter(Boolean).join(", ")].filter((line) => line.trim()),
     phone: setup.phone, email: setup.email ?? "", trn: setup.trn, leftLogo: setup.logoData, rightLogo: setup.rightLogoData ?? "", stamp: setup.stampData ?? "",
-    bank: { name: bank?.bankName ?? "", accountName: bank?.accountName ?? "", accountNumber: bank?.accountNumber ?? "", iban: bank?.iban ?? "", swift: bank?.swift ?? "" },
+    bank: { name: bank?.bankName ?? "", accountName: bank?.accountName ?? "", accountNumber: bank?.accountNumber ?? "", iban: bank?.iban ?? "", swift: bank?.swift ?? "", stamp: bank?.stampData ?? "" },
   };
 }
 
