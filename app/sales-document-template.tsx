@@ -1,13 +1,13 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Download, FileDown, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PrintOrientationSelect, type PrintOrientation } from "@/components/print-orientation-select";
 import { resolveDocumentDesign, type TemplateDocumentType } from "@/lib/document-design";
 import { documentPageRule } from "@/lib/document-print";
 import { createA4PdfBlob, documentPdfFileName, downloadPdfBlob, savePdfBlob } from "@/lib/document-output";
-import { CustomInvoiceTemplate, type TemplateBranding } from "./custom-invoice-template";
+import { CustomInvoiceTemplate, TEMPLATE_WIDTH_PX, type TemplateBranding } from "./custom-invoice-template";
 import { InvoicePackingListDialog } from "./invoice-packing-list";
 import { DeliveryNoteTemplate } from "./delivery-note-template";
 import { toast } from "sonner";
@@ -112,6 +112,26 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
   const stampOverride = { ...stamp, left: Math.min(stampMaxLeft, stamp.left) };
   const pageRule = documentPageRule(a4Design);
   const screenPreviewRef = useRef<HTMLDivElement>(null);
+  // The template renders at its fixed design width; on narrow screens the preview zooms out to fit.
+  // Print and PDF temporarily restore true size so their measurements and output are unaffected.
+  const fitRef = useRef<HTMLDivElement>(null);
+  const zoomRef = useRef<HTMLDivElement>(null);
+  const [previewZoom, setPreviewZoom] = useState(1);
+  useLayoutEffect(() => {
+    const host = fitRef.current;
+    if (!host) return;
+    const measure = () => setPreviewZoom(Math.min(1, Math.max(0.35, host.clientWidth / TEMPLATE_WIDTH_PX)));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, []);
+  const atTrueSize = async <T,>(work: () => T | Promise<T>) => {
+    const zoomed = zoomRef.current;
+    const previous = zoomed?.style.zoom ?? "";
+    if (zoomed) zoomed.style.zoom = "1";
+    try { return await work(); } finally { if (zoomed) zoomed.style.zoom = previous; }
+  };
   const alternatePreviewRef = useRef<HTMLDivElement>(null);
   const splitInvoiceCopies = connectedPackingList && signedInvoiceCopies;
   const selectedCopy = splitInvoiceCopies ? copy : "customer";
@@ -119,7 +139,9 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
   const inventoryLines = inventoryInvoiceLines(lines);
   const renderDocument = (documentCopy: "customer" | "inventory", print = false) => {
     const inventoryCopy = splitInvoiceCopies && documentCopy === "inventory";
-    const copyDesign = { ...a4Design, ...(inventoryCopy ? { title: `${design.title} — Inventory Copy` } : {}) };
+    // Bank details belong on documents asking for payment, not on delivery notes or packing lists.
+    const withoutBank = ["delivery-note", "packing-list", "hs-code-summary"].includes(activeMode);
+    const copyDesign = { ...a4Design, ...(inventoryCopy ? { title: `${design.title} — Inventory Copy` } : {}), ...(withoutBank ? { footer: a4Design.footer.filter((field) => field.key !== "bankDetails") } : {}) };
     const copyLines = inventoryCopy ? inventoryLines : customerLines;
     return activeMode === "delivery-note" && connectedPackingList && !design.enabled
       ? <DeliveryNoteTemplate record={record} lines={copyLines} contact={contact} setup={setup} letterhead={letterhead} stampOverride={stampOverride} onMoveStamp={!print ? (left, top) => setPoStamp({...stamp,left,top}) : undefined} />
@@ -169,6 +191,9 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
     if (copySources.some(({ ref }) => !ref.current?.querySelector(".custom-invoice"))) {
       popup.close(); return toast.error("Document preview is not ready.");
     }
+    const zoomed = zoomRef.current;
+    const previousZoom = zoomed?.style.zoom ?? "";
+    if (zoomed) zoomed.style.zoom = "1";
     const copies = copySources.map(({ label, ref }) => {
       const invoice = ref.current!.querySelector<HTMLElement>(".custom-invoice")!;
       const source = ref.current!.innerHTML;
@@ -178,6 +203,7 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
       const scale = Math.min(1, printableWidthPx / sourceWidth, (printableHeightPx - signingSpace) / sourceHeight);
       return `<section class="print-copy" style="width:${printableWidthPx}px;height:${printableHeightPx}px">${label ? `<div class="copy-label">${label}</div>` : ""}<div class="print-fit" style="top:${label ? 30 : 0}px;width:${sourceWidth}px;transform:scale(${scale});transform-origin:top left">${source}</div>${label ? `<div class="copy-signature"><span>Received by: ____________________</span><span>Signature: ____________________</span><span>Date: ____________________</span></div>` : ""}</section>`;
     }).join("");
+    if (zoomed) zoomed.style.zoom = previousZoom;
     const pageNumbers = a4Design.printPageNumbers ? '@bottom-center{content:"Page " counter(page) " of " counter(pages);font:10px Arial,sans-serif;color:#475569;}' : "";
 
     popup.document.write(`<!doctype html><html><head><title>${pdfTitle}</title><style>
@@ -221,7 +247,7 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
     if (!target) return toast.error("Document preview is not ready.");
     setPdfBusy(true);
     try {
-      const blob = await createA4PdfBlob(target, { orientation: a4Design.orientation, marginMm: a4Design.margin, title: pdfTitle });
+      const blob = await atTrueSize(() => createA4PdfBlob(target, { orientation: a4Design.orientation, marginMm: a4Design.margin, title: pdfTitle }));
       await savePdfBlob(blob, pdfFileName);
       toast.success(`PDF saved as ${pdfFileName}`);
     } catch (error) {
@@ -237,7 +263,7 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
     if (!target) return toast.error("Document preview is not ready.");
     setPdfBusy(true);
     try {
-      const blob = await createA4PdfBlob(target, { orientation: a4Design.orientation, marginMm: a4Design.margin, title: pdfTitle });
+      const blob = await atTrueSize(() => createA4PdfBlob(target, { orientation: a4Design.orientation, marginMm: a4Design.margin, title: pdfTitle }));
       downloadPdfBlob(blob, pdfFileName);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not download the PDF.");
@@ -303,8 +329,8 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
     </div>
     {movableStamp && <div className="document-internal-only mb-4 flex flex-wrap items-end gap-4 rounded-xl border bg-card p-4 text-sm text-card-foreground"><label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={stamp.show} disabled={!setup.stampData} onChange={(event) => setPoStamp({...stamp,show:event.target.checked})} />Company stamp</label>{!setup.stampData && <span className="text-muted-foreground">Upload a stamp in Company Setup first.</span>}{stamp.show && setup.stampData && <><label className="flex items-center gap-2">Left (mm)<input type="number" min="0" max={stampMaxLeft} className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={stampOverride.left} onChange={(event) => setPoStamp({...stamp,left:Math.max(0,Math.min(stampMaxLeft,Number(event.target.value)||0))})} /></label><label className="flex items-center gap-2">Vertical gap (mm)<input type="number" min="0" max="20" className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={stamp.top} onChange={(event) => setPoStamp({...stamp,top:Math.max(0,Math.min(20,Number(event.target.value)||0))})} /></label><span className="w-full text-xs text-muted-foreground">Stamp stays below the table and totals. Drag within this area or adjust the values. Turn off to remove it from print and PDF.</span></>}</div>}
     {signedInvoiceCopies ? <div className="document-internal-only mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">Print creates Customer and Inventory copies with signature areas. Customer copies hide zero-price and stock-return lines. Save or download uses the selected copy.</div> : null}
-    <div className="relative min-w-0">
-      {builderLayout && builderCopies ? <LayoutPreview layout={builderLayout} data={builderCopies.preview} /> : <div ref={screenPreviewRef} className="invoice-screen-only" data-invoice-copy={selectedCopy}>{renderDocument(selectedCopy)}</div>}
+    <div ref={fitRef} className="relative min-w-0">
+      {builderLayout && builderCopies ? <LayoutPreview layout={builderLayout} data={builderCopies.preview} /> : <div ref={zoomRef} style={{ zoom: previewZoom }}><div ref={screenPreviewRef} className="invoice-screen-only" data-invoice-copy={selectedCopy}>{renderDocument(selectedCopy)}</div></div>}
       {splitInvoiceCopies && <div ref={alternatePreviewRef} data-invoice-copy={selectedCopy === "customer" ? "inventory" : "customer"} className="invoice-screen-only pointer-events-none absolute top-0 w-full" style={{ left: -100000 }} aria-hidden="true" inert>{renderDocument(selectedCopy === "customer" ? "inventory" : "customer")}</div>}
     </div>
     <div className="invoice-print-only">{renderDocument(selectedCopy, true)}</div>

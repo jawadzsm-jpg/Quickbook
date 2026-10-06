@@ -1,7 +1,7 @@
 "use client";
 import { useRef, useState } from 'react';
 import { defaultDocumentDesign, defaultElementProperties, readDocumentDesign, resolveDocumentDesign, type DocumentDesign, type DesignField } from '@/lib/document-design';
-import { CustomInvoiceTemplate, type TemplateBranding } from './custom-invoice-template';
+import { CustomInvoiceTemplate, TEMPLATE_WIDTH_PX, type TemplateBranding } from './custom-invoice-template';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -126,7 +126,7 @@ export function CompanyTemplateDesigner({value,onChange,setup,disabled}:{value:s
   const next={...current,boxWidth:width,boxHeight:height,...(x===undefined?{}:{offsetX:x}),...(y===undefined?{}:{offsetY:y})};
   if(key.startsWith('columns.')){
    const rowKey=key.slice('columns.'.length);
-   const previewWidth=Math.max(1,preview.current?.clientWidth||760);
+   const previewWidth=TEMPLATE_WIDTH_PX; // column widths are relative to the fixed template width
    const relativeWidth=Math.max(1,Math.min(100,Math.round(width/previewWidth*100)));
    update({properties:{...design.properties,[key]:next},columns:design.columns.map(column=>column.key===rowKey?{...column,width:relativeWidth}:column)});
    return;
