@@ -2976,10 +2976,13 @@ test('layout builder saves only the validated layout and hides it from sales use
   const patch=(body)=>PATCH(new Request('https://app.test/api/company-setup',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({companyId,...body})}));
   const layout=defaultLayout('invoice');layout.enabled=true;layout.name='Branch layout';
   const saved=await patch({documentLayout:JSON.stringify(layout)});assert.equal(saved.status,200,JSON.stringify(await saved.clone().json()));
-  const record=(await saved.json()).record;assert.equal(JSON.parse(record.documentLayout).name,'Branch layout');assert.equal(record.phone,'+971 4 000');
+  const record=(await saved.json()).record;assert.equal(JSON.parse(record.documentLayout).layouts.Invoice.name,'Branch layout');assert.equal(record.phone,'+971 4 000');
   assert.equal((await patch({documentLayout:JSON.stringify({...layout,rows:[]})})).status,400);
   assert.equal((await patch({documentLayout:'{"version":1}'})).status,400);
-  assert.equal(JSON.parse((await (await GET(new Request(`https://app.test/api/company-setup?companyId=${companyId}`))).json()).record.documentLayout).name,'Branch layout');
+  assert.equal(JSON.parse((await (await GET(new Request(`https://app.test/api/company-setup?companyId=${companyId}`))).json()).record.documentLayout).layouts.Invoice.name,'Branch layout');
+  const quote={...layout,name:'Quote layout'};
+  const both=await patch({documentLayout:JSON.stringify({version:3,layouts:{Invoice:layout,Quotation:quote}})});assert.equal(both.status,200);assert.deepEqual(Object.keys(JSON.parse((await both.json()).record.documentLayout).layouts),['Invoice','Quotation']);
+  assert.equal((await patch({documentLayout:JSON.stringify({version:3,layouts:{Brochure:layout}})})).status,400);
   try { globalThis.__transferTestUser={id:7,role:'sales',companyIds:[companyId]};
     const sales=await GET(new Request(`https://app.test/api/company-setup?companyId=${companyId}`));
     if (sales.status===200) assert.equal((await sales.json()).record.documentLayout,'');
@@ -3001,4 +3004,14 @@ test('company bank accounts by currency are validated, saved by accountants and 
     const sales=await GET(new Request(`https://app.test/api/company-setup?companyId=${companyId}`));
     if (sales.status===200) assert.equal((await sales.json()).record.bankAccounts,'');
   } finally { delete globalThis.__transferTestUser; }
+});
+
+test('administrators can save bank accounts on their own without the rest of Company Setup', async () => {
+  const companyId=(await database.query("INSERT INTO companies (name, phone) VALUES ('Bank save company', '+971 4 111') RETURNING id")).rows[0].id;
+  const {PATCH}=await vite.ssrLoadModule('/app/api/company-setup/route.ts');
+  const patch=(body)=>PATCH(new Request('https://app.test/api/company-setup',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({companyId,...body})}));
+  const saved=await patch({bankName:'ENBD',bankCurrency:'AED',bankAccounts:JSON.stringify([{id:'eur',currency:'EUR',bankName:'BNP',accountName:'',accountNumber:'9',iban:'',swift:''}])});
+  assert.equal(saved.status,200,JSON.stringify(await saved.clone().json()));
+  const record=(await saved.json()).record;assert.equal(record.bankName,'ENBD');assert.equal(JSON.parse(record.bankAccounts)[0].currency,'EUR');assert.equal(record.phone,'+971 4 111');
+  assert.equal((await patch({})).status,400);
 });

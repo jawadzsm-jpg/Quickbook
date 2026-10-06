@@ -184,3 +184,40 @@ test("saved designs gain the movable Bank Details footer field", async () => {
   assert.ok(bank && bank.print && bank.screen);
   assert.equal(readDocumentDesign(JSON.stringify(design)).footer.filter((field) => field.key === "bankDetails").length, 1);
 });
+
+test("layouts are kept per document type and older saves load as the Invoice layout", async () => {
+  const { parseLayoutCollection, serializeLayoutCollection, parseLayout } = await vite.ssrLoadModule("/lib/layout/schema.ts");
+  const { layoutForDocumentType } = await vite.ssrLoadModule("/lib/layout/defaults.ts");
+  const invoice = defaultLayout();
+  assert.deepEqual(Object.keys(parseLayoutCollection(JSON.stringify(invoice))), ["Invoice"]);
+  const quote = layoutForDocumentType("Quotation", invoice);
+  assert.equal(quote.rows.flatMap((row) => row.sections).find((section) => section.type === "title").props.text, "Quotation");
+  assert.equal(quote.enabled, false);
+  assert.notEqual(quote.rows[0].id, invoice.rows[0].id);
+  const roundTrip = parseLayoutCollection(serializeLayoutCollection({ Invoice: invoice, Quotation: quote }));
+  assert.deepEqual(Object.keys(roundTrip), ["Invoice", "Quotation"]);
+  assert.throws(() => parseLayoutCollection(JSON.stringify({ version: 3, layouts: { Flyer: invoice } })), /Unknown document type/);
+  // Layouts saved before the new style options load with defaults.
+  const legacy = structuredClone(invoice);
+  for (const row of legacy.rows) for (const section of row.sections) { for (const key of ["verticalAlign", "borderColor", "borderWidthPt", "textColor", "font", "italic", "underline"]) delete section.style[key]; if (section.type === "companyHeader") for (const key of ["nameText", "addressText", "phoneLabel", "emailLabel", "trnLabel"]) delete section.props[key]; if (section.type === "lineItems") for (const key of ["headingBackground", "headingTextColor", "headingBold", "gridLines"]) delete section.props[key]; }
+  const loaded = parseLayout(JSON.stringify(legacy));
+  assert.equal(loaded.rows[0].sections[0].style.verticalAlign, "top");
+  assert.equal(loaded.rows[0].sections[0].props.trnLabel, "TRN");
+});
+
+test("section styles, company labels and table heading options render", async () => {
+  const React = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { LayoutDocument } = await vite.ssrLoadModule("/app/layout-builder/layout-document.tsx");
+  const layout = defaultLayout();
+  const header = layout.rows[0].sections[0];
+  header.props = { ...header.props, nameText: "ComNet Intl", phoneLabel: "Phone:", trnLabel: "VAT No.", emailLabel: "E-mail:" };
+  header.style = { ...header.style, textColor: "#aa0000", underline: true, italic: true, font: "Georgia", border: "box", borderColor: "#00aa00", borderWidthPt: 2, verticalAlign: "middle" };
+  const items = layout.rows.flatMap((row) => row.sections).find((section) => section.type === "lineItems");
+  items.props = { ...items.props, headingBackground: "#ffee00", headingTextColor: "#000000", headingBold: false, gridLines: "grid" };
+  const html = renderToStaticMarkup(React.createElement(LayoutDocument, { layout, data: mockDocument("short"), mode: "print" }));
+  assert.match(html, /ComNet Intl/); assert.match(html, /Phone: \+971/); assert.match(html, /VAT No\. 100349940500003/); assert.match(html, /E-mail: sales@/);
+  assert.match(html, /color:#aa0000/); assert.match(html, /text-decoration:underline/); assert.match(html, /font-style:italic/); assert.match(html, /Georgia/);
+  assert.match(html, /--lb-section-border:2pt solid #00aa00/); assert.match(html, /lb-valign-middle/);
+  assert.match(html, /lb-grid-grid/); assert.match(html, /background:#ffee00;color:#000000;font-weight:400/);
+});

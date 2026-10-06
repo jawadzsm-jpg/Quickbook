@@ -2,7 +2,7 @@ import type { Layout, LayoutKind, Overlay, Row, Section, SectionProps, SectionSt
 
 export const newId = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 
-export const defaultStyle: SectionStyle = { align: "left", paddingMm: 2, border: "none", background: "", fontScale: 1, bold: false };
+export const defaultStyle: SectionStyle = { align: "left", verticalAlign: "top", paddingMm: 2, border: "none", borderColor: "", borderWidthPt: 0.75, background: "", textColor: "", font: "", fontScale: 1, bold: false, italic: false, underline: false };
 
 export const sectionLabels: Record<SectionType, string> = {
   companyHeader: "Company header", title: "Document title", billTo: "Bill to", shipTo: "Ship to", details: "Document details",
@@ -11,7 +11,7 @@ export const sectionLabels: Record<SectionType, string> = {
 };
 
 const defaultProps: { [K in SectionType]: () => SectionProps[K] } = {
-  companyHeader: () => ({ showLeftLogo: true, showRightLogo: true, showName: true, showAddress: true, showPhone: true, showEmail: true, showTrn: true, logoHeightMm: 20 }),
+  companyHeader: () => ({ showLeftLogo: true, showRightLogo: true, showName: true, showAddress: true, showPhone: true, showEmail: true, showTrn: true, logoHeightMm: 20, nameText: "", addressText: "", phoneLabel: "Tel:", emailLabel: "", trnLabel: "TRN" }),
   title: () => ({ text: "Tax Invoice" }),
   billTo: () => ({ label: "Bill To" }),
   shipTo: () => ({ label: "Ship To" }),
@@ -19,7 +19,7 @@ const defaultProps: { [K in SectionType]: () => SectionProps[K] } = {
     { key: "number", label: "Invoice #" }, { key: "date", label: "Date" }, { key: "dueDate", label: "Due Date" }, { key: "terms", label: "Terms" },
     { key: "salesman", label: "Sales Rep" }, { key: "trn", label: "Customer TRN" },
   ] }),
-  lineItems: () => ({ zebra: false, repeatHeading: true, columns: [
+  lineItems: () => ({ zebra: false, repeatHeading: true, headingBackground: "", headingTextColor: "", headingBold: true, gridLines: "rows", columns: [
     { key: "index", label: "#", width: 5 }, { key: "sku", label: "Item", width: 12 }, { key: "description", label: "Description", width: 37 },
     { key: "quantity", label: "Qty", width: 7 }, { key: "unitPrice", label: "Rate", width: 11 }, { key: "vatAmount", label: "VAT", width: 10 }, { key: "total", label: "Amount", width: 13 },
   ] }),
@@ -74,4 +74,14 @@ export function defaultLayout(kind: LayoutKind = "invoice"): Layout {
     newRow([newSection("notes"), newSection("totals")], { ratios: [3, 2], keepTogether: true }),
     newRow([newSection("terms")]),
   ] };
+}
+
+/** A new layout for a document type: a copy of the invoice layout (or the default) titled for that type. */
+export function layoutForDocumentType(type: string, base?: Layout): Layout {
+  const copy = structuredClone(base ?? defaultLayout("invoice"));
+  copy.name = `${type} layout`.slice(0, 80);
+  copy.enabled = false;
+  copy.rows = copy.rows.map((row) => ({ ...row, id: newId("row"), sections: row.sections.map((section) => ({ ...section, id: newId(section.type), ...(section.type === "title" ? { props: { ...section.props, text: type === "Invoice" ? "Tax Invoice" : type } } : {}) } as Section)) }));
+  copy.overlays = copy.overlays.map((overlay) => ({ ...overlay, id: newId("overlay") }));
+  return copy;
 }

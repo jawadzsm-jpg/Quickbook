@@ -64,11 +64,12 @@ function RowGrip({ id, index }: { id: string; index: number }) {
   return <button ref={setNodeRef} type="button" className="lbe-row-handle" aria-label={`Drag row ${index + 1}`} {...attributes} {...listeners}><GripVertical style={{ width: "4mm", height: "4mm" }} /></button>;
 }
 
-export function LayoutBuilder({ initial, company, onSave, saving = false }: { initial: Layout; company?: Partial<DocumentData["company"]>; onSave: (layout: Layout) => Promise<void> | void; saving?: boolean }) {
+export function LayoutBuilder({ initial, company, onSave, onDirtyChange, saving = false }: { initial: Layout; company?: Partial<DocumentData["company"]>; onSave: (layout: Layout) => Promise<void> | void; onDirtyChange?: (dirty: boolean) => void; saving?: boolean }) {
   const [history, dispatchHistory] = useReducer(historyReducer, initial, initialHistory);
   const layout = history.present;
   const [saved, setSaved] = useState(() => JSON.stringify(initial));
   const dirty = JSON.stringify(layout) !== saved;
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   const [selection, setSelection] = useState<Selection>(null);
   const [sample, setSample] = useState<MockSize>("short");
   const [preview, setPreview] = useState(false);
@@ -123,6 +124,16 @@ export function LayoutBuilder({ initial, company, onSave, saving = false }: { in
   })();
 
   const select = (next: Selection) => { setSelection(next); if (!wide && next) setInspectorOpen(true); };
+  // Quick jumps matching the familiar Header / Columns / Footer tabs.
+  const jumpTo = (part: "header" | "columns" | "footer") => {
+    const sections = layout.rows.flatMap((row) => row.sections);
+    const target = part === "header" ? sections.find((section) => section.type === "companyHeader") ?? sections[0]
+      : part === "columns" ? sections.find((section) => section.type === "lineItems")
+      : sections.find((section) => section.type === "totals") ?? sections.find((section) => section.type === "terms") ?? layout.rows.at(-1)?.sections[0];
+    if (!target) { toast.info(part === "columns" ? "Add a Line items section to edit columns." : "Add a section first."); return; }
+    select({ kind: "section", id: target.id });
+    requestAnimationFrame(() => docRef.current?.querySelector(`[data-section-id="${CSS.escape(target.id)}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" }));
+  };
 
   // ---- Drag & drop: targets are computed from the pointer against measured rows, then shown as one line. ----
   const sensors = useSensors(useSensor(MouseSensor, { activationConstraint: { distance: 4 } }), useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 6 } }));
@@ -262,6 +273,7 @@ export function LayoutBuilder({ initial, company, onSave, saving = false }: { in
         <Button type="button" size="icon" variant="outline" className="size-8" aria-label="Undo" title="Undo (Ctrl/⌘ Z)" disabled={!history.past.length} onClick={() => dispatchHistory({ type: "undo" })}><Undo2 className="size-4" /></Button>
         <Button type="button" size="icon" variant="outline" className="size-8" aria-label="Redo" title="Redo (Ctrl/⌘ Shift Z)" disabled={!history.future.length} onClick={() => dispatchHistory({ type: "redo" })}><Redo2 className="size-4" /></Button>
       </div>
+      <div className="flex rounded-md border p-0.5" role="group" aria-label="Jump to">{(["header", "columns", "footer"] as const).map((part) => <Button key={part} type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs capitalize" onClick={() => jumpTo(part)}>{part}</Button>)}</div>
       <div className="flex rounded-md border p-0.5" role="group" aria-label="Sample document">{(Object.keys(mockSizes) as MockSize[]).map((size) => <Button key={size} type="button" size="sm" variant={sample === size ? "default" : "ghost"} aria-pressed={sample === size} className="h-7 px-2 text-xs" onClick={() => setSample(size)}>{mockSizes[size].label}</Button>)}</div>
       <Button type="button" size="sm" variant="outline" className="h-8" aria-pressed={preview} onClick={() => { setPreview(!preview); setSelection(null); }}>{preview ? <EyeOff className="size-4" /> : <Eye className="size-4" />}{preview ? "Edit" : "Preview"}</Button>
       <span className="text-xs text-muted-foreground">{fit.pages} {fit.pages === 1 ? "page" : "pages"} · {layout.page.size} {layout.page.orientation}</span>
