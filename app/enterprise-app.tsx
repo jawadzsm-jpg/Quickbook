@@ -976,7 +976,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   }
 
   function appendInvoiceLine() {
-    setLines((current) => [...current, { itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatCode: "STANDARD", vatRate: "5", comments: "", serialNumber: "" }]);
+    setLines((current) => [{ itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatCode: "STANDARD", vatRate: "5", comments: "", serialNumber: "" }, ...current]);
   }
 
   function minimizeEditor() {
@@ -1368,7 +1368,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
           {activeEditorKind === "transactions" && editingRecordId === null && form.type === "invoice" && form.salesSourceId ? <SalesSourceInvoicing key={form.salesSourceId} sourceId={Number(form.salesSourceId)} companyId={activeCompanyId} onSaved={() => { setDialogOpen(false); setEditorKind(null); void loadData(); }} onViewInvoice={(id) => { setDialogOpen(false); void openDetail(id); }} /> : activeEditorKind === "transactions" && editingRecordId === null && form.type === "bill" && form.purchaseOrderId ? <PurchaseOrderReceiving key={`bill:${form.purchaseOrderId}`} orderId={Number(form.purchaseOrderId)} companyId={activeCompanyId} documentType="bill" account={defaultPostingAccount("bill", records.accounts, form.currency || baseCurrency)} onSaved={() => { setDialogOpen(false); setEditorKind(null); void loadData(); }} /> : <form onSubmit={saveRecord} className={activeEditorKind === "transactions" ? "flex min-h-0 flex-col gap-4 overflow-hidden" : "space-y-5"}>
             <SkuLockNotice message={skuLock.message} /><fieldset disabled={!skuLock.ready} className={activeEditorKind === "transactions" ? "min-h-0 flex-1 space-y-5 overflow-y-auto pr-1" : "space-y-5"}>
             {linkedInventoryDocument && !salesDetailsOnly && <p role="status" className="text-sm text-slate-500">{documentInventory.key === documentInventoryKey && documentInventory.error ? documentInventory.error : !documentInventoryReady ? "Loading inventory items…" : `${documentItems.length} items available in the selected inventory.`}</p>}
-            {activeEditorKind === "transactions" && form.type === "invoice" && (salesDetailsOnly || (!form.sourceTransactionId && !form.salesSourceId)) && <InvoiceStockReturn disabled={!documentInventoryReady} items={inventoryDocumentItems.map(item => ({ id: item.id, sku: String(item.sku), description: documentItemLineDescription(item), status: String(item.status), itemType: String(item.itemType) }))} onAdd={line => setLines(current => [...current, line])} />}
+            {activeEditorKind === "transactions" && form.type === "invoice" && (salesDetailsOnly || (!form.sourceTransactionId && !form.salesSourceId)) && <InvoiceStockReturn disabled={!documentInventoryReady} items={inventoryDocumentItems.map(item => ({ id: item.id, sku: String(item.sku), description: documentItemLineDescription(item), status: String(item.status), itemType: String(item.itemType) }))} onAdd={line => setLines(current => [line, ...current])} />}
             {activeEditorKind === "transactions" && !salesDetailsOnly && <TransactionFields form={form} setForm={updateDocumentForm} onPayableResolved={(party, currency, account) => setForm((current) => current.type === "purchase order" && current.party === party && current.currency === currency ? { ...current, ...(account ? { account, payableAccountResolved: "true" } : {}), payableAccountPending: "" } : current)} types={currentUser.role === "sales" ? salesDocumentTypes : currentUser.role === "inventory" ? ["bill", "purchase order", "item receipt", "received item bill"] : ["sales", "customers", "vendors", "banking"].includes(view) ? [form.type] : transactionTypes[view] ?? transactionTypes.dashboard} items={documentItems} contacts={records.contacts} accounts={records.accounts} locations={activeLocations} lines={lines} setLines={setLines} vatCodeOptions={vatCodeOptions} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />}
             {salesDetailsOnly && <div className="space-y-4">
               <p className="rounded-md border p-3 text-sm">{form.party} · {formatMoney(form.type === "invoice" ? lines.reduce((sum, line) => { const subtotal = Math.round(Number(line.quantity) * Number(line.unitPrice) * 100) / 100; return sum + subtotal + Math.round(subtotal * Number(line.vatRate)) / 100; }, 0) : Number(form.total), form.currency)} · {form.status}<br /><span className="text-muted-foreground">{form.type === "invoice" ? "Edit customer, line quantity, price, VAT, description, sales rep and due date. Save changes to update the invoice." : "Edit payment details, sales rep and memo. Save changes to update the payment."}</span></p>
@@ -2673,7 +2673,7 @@ function CurrencyExchangeChoice({ form, setForm, exchangeRates, baseCurrency }: 
 }
 function BillFields({ form, setForm, items, vendors, salesmen, accounts, locations, lines, setLines, vatCodeOptions, exchangeRates, baseCurrency }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; items: DataRecord[]; vendors: DataRecord[]; salesmen: DataRecord[]; accounts: DataRecord[]; locations: InventoryLocation[]; lines: LineForm[]; setLines: (lines: LineForm[]) => void; vatCodeOptions: VatCodeOption[]; exchangeRates: ExchangeRateRecord[]; baseCurrency: string }) {
   const update = (index: number, changes: Partial<LineForm>) => setLines(lines.map((line, position) => position === index ? { ...line, ...changes } : line));
-  const addLine = () => setLines([...lines, { itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", freightCharge: "0", vatCode: form.isImport === "true" ? "IMPORT_GOODS" : "ZERO", vatRate: form.isImport === "true" ? "5" : "0" }]);
+  const addLine = (event?: { currentTarget: HTMLElement }) => { setLines([{ itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", freightCharge: "0", vatCode: form.isImport === "true" ? "IMPORT_GOODS" : "ZERO", vatRate: form.isImport === "true" ? "5" : "0" }, ...lines]); revealNewLine(event?.currentTarget, ".bill-item-row"); };
   const usesImportGoodsVat = lines.some((line) => line.vatCode === "IMPORT_GOODS");
   const documentRate = Math.max(Number(form.exchangeRate) || 1, Number.EPSILON);
   const subtotal = lines.filter(line => !line.pending).reduce((sum, line) => sum + Math.round(Number(line.quantity || 0) * Number(line.unitPrice || 0) * 100) / 100, 0);
@@ -2889,6 +2889,14 @@ function BankTransactionFields({ form, setForm, contacts, accounts, locations, l
     <div className={`rounded-lg border p-4 text-sm ${isCard && !hasCreditCard ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>{isOrder ? "This order is saved for tracking and does not post to the ledger." : isTransfer ? "The amount is credited from the source bank and debited to the destination bank." : isCard && !hasCreditCard ? "Add an active Credit Card account in Chart of Accounts before saving this charge." : isCard ? "The expense and recoverable VAT are posted against the linked credit-card account." : "The linked bank account is debited and the selected source account is credited."}</div>
   </div>;
 }
+// New lines are inserted at the top of the list so they appear beside the add button. When the add
+// button sits below the lines, bring the new first line into view.
+function revealNewLine(trigger: HTMLElement | undefined, lineSelector: string) {
+  const scope = trigger?.closest<HTMLElement>("[role='dialog'], form");
+  if (!scope) return;
+  requestAnimationFrame(() => scope.querySelector<HTMLElement>(lineSelector)?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+}
+
 // On phones the sidebar is an overlay sheet; close it once a page is chosen so the page is visible.
 function NavMenuButton({ onClick, ...props }: ComponentProps<typeof SidebarMenuButton>) {
   const { isMobile, setOpenMobile } = useSidebar();
@@ -2944,9 +2952,10 @@ function TransactionFields({ form, setForm, onPayableResolved, types, items, con
       toast.error(error instanceof Error ? error.message : "Set the currency exchange rate first.");
     }
   };
-  const addTransactionLine = () => {
+  const addTransactionLine = (event?: { currentTarget: HTMLElement }) => {
     if (linkedPurchaseOrderBill) return;
-    setLines([...lines, { itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatCode: form.vatRate === "0" ? "ZERO" : "STANDARD", vatRate: form.vatRate ?? "5" }]);
+    setLines([{ itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatCode: form.vatRate === "0" ? "ZERO" : "STANDARD", vatRate: form.vatRate ?? "5" }, ...lines]);
+    revealNewLine(event?.currentTarget, ".transaction-line");
   };
   const subtotal = lines.filter(line => !line.pending).reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0), 0);
   const vat = lines.filter(line => !line.pending).reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0) * Number(line.vatRate || 0) / 100, 0);

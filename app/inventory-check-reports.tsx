@@ -158,7 +158,7 @@ export function InventoryCheckReports({ companyId, companyName, locationId, loca
   async function startEditing() { if (!canManage) return; await loadStock(); setEditing(true); }
 
   function addLine(option: StockOption) {
-    setLines((current) => [...current, { id: -Date.now(), itemId: option.itemId, itemNumber: option.itemNumber, sku: option.sku, itemName: option.itemName, systemQuantity: option.totalQuantity, companyQuantities: option.companyQuantities, remark: "" }]);
+    setLines((current) => [{ id: -Date.now(), itemId: option.itemId, itemNumber: option.itemNumber, sku: option.sku, itemName: option.itemName, systemQuantity: option.totalQuantity, companyQuantities: option.companyQuantities, remark: "" }, ...current]);
   }
 
   function setLineCount(sku: string, companyId: number, value: string) {

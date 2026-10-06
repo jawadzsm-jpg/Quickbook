@@ -63,7 +63,7 @@ export function MultiLineTransferCenter({ companies, activeLocationId, onTransfe
   useEffect(() => { loadData(); }, [loadData]);
 
   const updateLine = (key: string, change: Partial<TransferLine>) => setLines((current) => current.map((line) => line.key === key ? { ...line, ...change } : line));
-  const addLine = () => setLines((current) => [...current, blankLine()]);
+  const addLine = () => setLines((current) => [blankLine(), ...current]);
   const removeLine = (key: string) => setLines((current) => current.length === 1 ? current : current.filter((line) => line.key !== key));
   const locationLabel = (location: typeof locations[number]) => `${location.companyName} — ${location.name}`;
 
