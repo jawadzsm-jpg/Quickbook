@@ -2968,3 +2968,21 @@ test('bills entered from a PO keep the chosen reference, sales rep and one VAT c
   assert.equal(fallback.status,201); const plain = (await fallback.json()).record;
   assert.equal(plain.salesman,'PO rep'); assert.equal(plain.vatAmount,0);
 });
+
+test('layout builder saves only the validated layout and hides it from sales users', async () => {
+  const companyId=(await database.query("INSERT INTO companies (name, phone) VALUES ('Layout company', '+971 4 000') RETURNING id")).rows[0].id;
+  const {GET,PATCH}=await vite.ssrLoadModule('/app/api/company-setup/route.ts');
+  const {defaultLayout}=await vite.ssrLoadModule('/lib/layout/defaults.ts');
+  const patch=(body)=>PATCH(new Request('https://app.test/api/company-setup',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({companyId,...body})}));
+  const layout=defaultLayout('invoice');layout.enabled=true;layout.name='Branch layout';
+  const saved=await patch({documentLayout:JSON.stringify(layout)});assert.equal(saved.status,200,JSON.stringify(await saved.clone().json()));
+  const record=(await saved.json()).record;assert.equal(JSON.parse(record.documentLayout).name,'Branch layout');assert.equal(record.phone,'+971 4 000');
+  assert.equal((await patch({documentLayout:JSON.stringify({...layout,rows:[]})})).status,400);
+  assert.equal((await patch({documentLayout:'{"version":1}'})).status,400);
+  assert.equal(JSON.parse((await (await GET(new Request(`https://app.test/api/company-setup?companyId=${companyId}`))).json()).record.documentLayout).name,'Branch layout');
+  try { globalThis.__transferTestUser={id:7,role:'sales',companyIds:[companyId]};
+    const sales=await GET(new Request(`https://app.test/api/company-setup?companyId=${companyId}`));
+    if (sales.status===200) assert.equal((await sales.json()).record.documentLayout,'');
+    assert.notEqual((await patch({documentLayout:JSON.stringify(layout)})).status,200);
+  } finally { delete globalThis.__transferTestUser; }
+});
