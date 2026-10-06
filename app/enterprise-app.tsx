@@ -2656,7 +2656,7 @@ function SearchableCountryChoice({ form, setForm }: { form: Record<string, strin
   return <div className="space-y-2">
     <Label>Country *</Label>
     <Popover modal open={open} onOpenChange={(nextOpen) => { setOpen(nextOpen); if (!nextOpen) setQuery(""); }}>
-      <PopoverTrigger asChild><Button type="button" variant="outline" role="combobox" aria-expanded={open} aria-label="Country" className="w-full justify-between bg-white font-normal dark:bg-slate-950">{form.country || "Select country"}<ChevronDown className="size-4 shrink-0 opacity-60" /></Button></PopoverTrigger>
+      <PopoverTrigger asChild><Button type="button" variant="outline" role="combobox" aria-expanded={open} aria-label="Country" data-placeholder={form.country ? undefined : ""} className="w-full justify-between bg-white font-normal dark:bg-slate-950">{form.country || "Select country"}<ChevronDown className="size-4 shrink-0 opacity-60" /></Button></PopoverTrigger>
       <PopoverContent data-attachments-excluded="true" align="start" className="flex w-[min(32rem,calc(100vw-2rem))] max-w-[var(--radix-popover-content-available-width)] flex-col gap-2 p-3">
         <Input autoFocus aria-label="Search countries" placeholder="Search by country name or code…" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && visibleCountries.length === 1) { event.preventDefault(); selectCountry(visibleCountries[0]!.name); } }} />
         <div role="listbox" aria-label="Countries" className="max-h-72 overflow-y-auto overscroll-contain rounded-md border p-1">

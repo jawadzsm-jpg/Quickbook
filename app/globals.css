@@ -2059,3 +2059,18 @@ body {
   [data-slot="table-cell"][data-responsive-column] input { min-width: 0; width: 100%; font-variant-numeric: tabular-nums; text-align: right; }
 }
 @media print { .dialog-control-bar { display: none !important; } }
+
+/* Required fields left empty after a failed save (see app/required-field-highlighter.tsx). */
+[data-required-missing] {
+  border-color: #dc2626 !important;
+  background-color: color-mix(in srgb, #dc2626 5%, transparent) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #dc2626 22%, transparent) !important;
+}
+[data-required-missing-label] { color: #b91c1c !important; }
+[data-required-missing-label]::after { content: "· Required"; font-weight: 600; }
+[data-appearance="dark"] [data-required-missing] { border-color: #f87171 !important; background-color: color-mix(in srgb, #f87171 8%, transparent) !important; box-shadow: 0 0 0 3px color-mix(in srgb, #f87171 28%, transparent) !important; }
+[data-appearance="dark"] [data-required-missing-label] { color: #fca5a5 !important; }
+@media (prefers-reduced-motion: no-preference) {
+  [data-required-missing] { animation: required-missing-nudge 320ms ease-out 1; }
+}
+@keyframes required-missing-nudge { 0%, 100% { translate: 0; } 25% { translate: -3px; } 75% { translate: 3px; } }
