@@ -3000,9 +3000,15 @@ test('company bank accounts by currency are validated, saved by accountants and 
     assert.equal((await patch({bankAccounts:JSON.stringify([{...usd,currency:'XX'}])})).status,400);
     const saved=await patch({bankAccounts:JSON.stringify([usd])});assert.equal(saved.status,200,JSON.stringify(await saved.clone().json()));
     assert.deepEqual(JSON.parse((await saved.json()).record.bankAccounts),[{id:'usd',currency:'USD',bankName:'Mashreq',accountName:'Co',accountNumber:'1',iban:'AE01',swift:'BOML'}]);
+    // The accountant settings screen saves the default bank stamp and per-currency stamps in one request.
+    const stamp='data:image/png;base64,QUJD';
+    const stamped=await patch({bankName:'ENBD',bankCurrency:'AED',bankStampData:stamp,bankAccounts:JSON.stringify([{...usd,stampData:stamp}])});
+    assert.equal(stamped.status,200,JSON.stringify(await stamped.clone().json()));
+    const stampedRecord=(await stamped.json()).record;assert.equal(stampedRecord.bankStampData,stamp);assert.equal(JSON.parse(stampedRecord.bankAccounts)[0].stampData,stamp);
+    assert.equal((await patch({bankStampData:'data:image/svg+xml;base64,PHN2Zz4='})).status,400);
     globalThis.__transferTestUser={id:7,role:'sales',companyIds:[companyId]};
     const sales=await GET(new Request(`https://app.test/api/company-setup?companyId=${companyId}`));
-    if (sales.status===200) assert.equal((await sales.json()).record.bankAccounts,'');
+    if (sales.status===200) { const salesRecord=(await sales.json()).record; assert.equal(salesRecord.bankAccounts,''); assert.equal(salesRecord.bankStampData,''); }
   } finally { delete globalThis.__transferTestUser; }
 });
 

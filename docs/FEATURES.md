@@ -236,7 +236,7 @@ Entering positive length, width and height automatically fills Dimension as L ×
 
 ### Operational roles and pending invoices
 
-Administrators alone delete saved records or cancel business documents. Users may still cancel their own unsaved forms. Accountants have a dedicated Company Setup panel for document stamp and bank details, with responsive fields and explicit Minimize/Restore.
+Administrators alone delete saved records or cancel business documents. Users may still cancel their own unsaved forms. Accountants have a dedicated Company Setup panel for the company stamp and bank details, with responsive fields and explicit Minimize/Restore. It includes the default account's bank stamp and the Bank accounts by currency editor, each account with its own bank stamp, all saved by one button.
 
 Admins and accountants can create, edit and reopen Pending Invoices from Sales. These are drafts with no stock, VAT journal or customer-balance posting. Convert to Invoice posts once through the normal invoice validation and numbering workflow.
 
