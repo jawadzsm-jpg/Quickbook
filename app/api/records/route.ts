@@ -2,6 +2,7 @@ import { formatInvoiceNumber, invoiceSeriesError } from "@/lib/invoice-series";
 import { contactOrganization } from "@/lib/contact-hierarchy";
 import { validInvoiceQuantity, isInvoiceStockReturn } from "@/lib/invoice-stock-lines";
 import { salesDocumentTypes } from "@/lib/sales-access";
+import { documentVatCodes, usesSingleVatCode } from "@/lib/document-vat";
 import { canManagePendingInvoices, canReadDocument, dubaiDay } from "@/lib/document-access";
 import { documentVisibility } from "@/lib/document-access-sql";
 import { employeeHrForSave } from "@/lib/employee-hr-save";
@@ -964,6 +965,9 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     if (!party || !prepared.length || prepared.some((line) => type === "invoice" ? !validInvoiceQuantity(line) : !Number.isFinite(line.quantity) || line.quantity <= 0 || !Number.isFinite(line.unitPrice) || line.unitPrice < 0)) {
       return Response.json({ error: "Party and at least one valid document line are required." }, { status: 400 });
     }
+    if (usesSingleVatCode(type) && documentVatCodes(prepared).length > 1) {
+      return Response.json({ error: `All lines on this ${type} must use the same VAT code. Choose one VAT code for the document (found ${documentVatCodes(prepared).join(", ")}).` }, { status: 400 });
+    }
     const usesImportGoodsVat = prepared.some((line) => line.vatCode === "IMPORT_GOODS");
     if (usesImportGoodsVat && !["bill", "purchase order"].includes(type)) return Response.json({ error: "Goods imported into the UAE VAT can only be used on purchase orders and supplier bills." }, { status: 400 });
     const billOfEntryNumber = String(payload.billOfEntryNumber ?? "").trim().slice(0, 120);
@@ -1497,6 +1501,7 @@ async function handlePATCH(request: Request) {
           });
           if (appended.some((line) => !line.description || !validInvoiceQuantity(line) || !Number.isFinite(line.unitCost) || line.unitCost < 0 || !Number.isFinite(line.vatRate))) return Response.json({ error: "Enter an item/description, nonzero quantity, valid rate and VAT. Negative quantities require a stock item and zero selling price." }, { status: 400 });
           if (appended.some((line) => line.itemId !== null && (!Number.isInteger(line.itemId) || line.itemId <= 0))) return Response.json({ error: "Select a valid inventory item for every stock line." }, { status: 400 });
+          if (documentVatCodes([...lineDetails, ...appended]).length > 1) return Response.json({ error: `All lines on this invoice must use the same VAT code. Choose one VAT code for the document (found ${documentVatCodes([...lineDetails, ...appended]).join(", ")}).` }, { status: 400 });
           const number = String(payload.number ?? "").trim();
           const transactionDate = String(payload.transactionDate ?? "");
           const dueDate = String(payload.dueDate ?? "");
