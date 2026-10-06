@@ -31,7 +31,8 @@ export function BankStampPicker({ id, currency, value, onChange, disabled }: { i
   </div>;
 }
 
-const newBankId = () => `bank-${Math.random().toString(36).slice(2, 10)}`;
+// Row IDs come from the secure random generator (CodeQL blocks Math.random() in values sent to the API).
+const newBankId = () => `bank-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
 
 /** Extra company bank accounts, one per currency; documents print the account matching their currency. */
 export function BankAccountsEditor({ value, defaultCurrency, onChange, disabled }: { value: string; defaultCurrency: string; onChange: (value: string) => void; disabled?: boolean }) {
