@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AttachmentCapture } from "./attachment-capture";
 import { EscapeWindowCloser } from "./escape-window-closer";
+import { RequiredFieldHighlighter } from "./required-field-highlighter";
 
 export const metadata: Metadata = {
   title: "ComNet Enterprise Accounting",
@@ -32,6 +33,7 @@ export default function RootLayout({
       <body className="antialiased">
         {children}
         <EscapeWindowCloser />
+        <RequiredFieldHighlighter />
         <AttachmentCapture />
       </body>
     </html>
