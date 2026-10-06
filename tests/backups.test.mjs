@@ -165,6 +165,8 @@ test('worker rejects unrelated repositories, pull requests, workflow paths and u
   const claims={repository_id:'1359351844',repository:'jawadzsm-jpg/Quickbook',ref:'refs/heads/main',sub:'repo:jawadzsm-jpg/Quickbook:ref:refs/heads/main',workflow_ref:'jawadzsm-jpg/Quickbook/.github/workflows/backups.yml@refs/heads/main',event_name:'schedule'};
   assert.equal(validBackupClaims(claims),true);
   for(const key of Object.keys(claims))assert.equal(validBackupClaims({...claims,[key]:'untrusted'}),false);
+  assert.equal(validBackupClaims({...claims,sub:'repo:jawadzsm-jpg@325708076/Quickbook@1359351844:ref:refs/heads/main'}),true);
+  assert.equal(validBackupClaims({...claims,sub:'repo:jawadzsm-jpg@325708076/Quickbook@1359351844:ref:refs/heads/other'}),false);
   assert.equal(await authorizeBackupWorker(new Request('https://app.test/api')),false);
 });
 
