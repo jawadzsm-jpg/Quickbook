@@ -106,7 +106,19 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-button, input, select { font: inherit; }
+/* Theme defaults live in the base layer so Tailwind utilities (text-sm, font-semibold, border-slate-200…) still win.
+   Unlayered rules here previously forced every button/input to the parent font size and every bare `border` to the text colour. */
+@layer base {
+  *, ::before, ::after, ::backdrop, ::file-selector-button { border-color: var(--border); }
+  /* Printed business documents keep ink-coloured rules. */
+  :is(.document-print-surface, .rcm-page, .uae-cheque-sheet, .letterhead-page, [data-output-render]) :is(*, ::before, ::after) { border-color: currentColor; }
+}
+
+/* Light theme: accent and hint text on white must reach WCAG AA (4.5:1) for small sizes.
+   #10b981 / emerald-600 / slate-400 measure 2.5–3.8:1 on white. Dark surfaces keep their own colours. */
+:root:not([data-appearance="dark"]) :is(.text-primary, .hover\:text-primary:hover):not(:is([data-sidebar], .bg-slate-900, .bg-slate-950, [class*="bg-[#0"]) *) { color: #047857; }
+:root:not([data-appearance="dark"]) .text-emerald-600:not(:is([data-sidebar], .bg-slate-900, .bg-slate-950) *) { color: #047857; }
+:root:not([data-appearance="dark"]) .text-slate-400:not(:is([data-sidebar], .bg-slate-800, .bg-slate-900, .bg-slate-950, [class*="bg-[#0"]) *):not(svg, [data-slot=checkbox] *) { color: #64748b; }
 
 @media screen {
   html {
@@ -214,6 +226,8 @@ button, input, select { font: inherit; }
   [data-appearance="dark"] :is(.bg-slate-100, .hover\:bg-slate-100:hover, .focus\:bg-slate-100:focus, .focus-visible\:bg-slate-100:focus-visible) { background-color: #1b293b !important; }
   [data-appearance="dark"] :is(.bg-slate-200, .hover\:bg-slate-200:hover, .focus\:bg-slate-200:focus, .focus-visible\:bg-slate-200:focus-visible) { background-color: #2a394d !important; }
   [data-appearance="dark"] :is(.text-slate-800, .text-slate-900, .text-slate-950) { color: #f1f5f9 !important; }
+  /* Dark ink stays dark on bright fills (primary buttons, amber/emerald/sky badges); the rule above would make it unreadable. */
+  [data-appearance="dark"] :is(.bg-amber-300, .bg-amber-400, .bg-yellow-300, .bg-yellow-400, .bg-lime-400, .bg-emerald-300, .bg-emerald-400, .bg-emerald-500, .bg-green-400, .bg-sky-300, .bg-sky-400, .bg-cyan-400, .bg-teal-400, .brand-primary-button):is(.text-slate-800, .text-slate-900, .text-slate-950) { color: #020617 !important; }
   [data-appearance="dark"] :is(.text-slate-600, .text-slate-700) { color: #cbd5e1 !important; }
   [data-appearance="dark"] :is(.text-slate-400, .text-slate-500) { color: #a8b6ca !important; }
   [data-appearance="dark"] :is(.border-slate-100, .border-slate-200, .border-slate-300, .border-slate-400, .hover\:border-slate-400:hover, .divide-slate-100 > :not(:last-child), .divide-slate-200 > :not(:last-child)) { border-color: var(--border) !important; }
@@ -1062,7 +1076,7 @@ button, input, select { font: inherit; }
 .rcm-action { border-width: 1px !important; }
 .rcm-action-saved { border-color: #c4b5fd !important; background: #f5f3ff !important; color: #6d28d9 !important; }
 .rcm-action-new { border-color: #bae6fd !important; background: #f0f9ff !important; color: #0369a1 !important; }
-.rcm-action-save { border-color: #059669 !important; background: #059669 !important; color: #fff !important; }
+.rcm-action-save { border-color: #047857 !important; background: #047857 !important; color: #fff !important; }
 .rcm-action-drag { border-color: #fcd34d !important; background: #fffbeb !important; color: #a16207 !important; }
 .rcm-action-drag.is-active { border-color: #d97706 !important; background: #d97706 !important; color: #fff !important; box-shadow: 0 0 0 3px rgb(245 158 11 / 20%); }
 .rcm-action-print { border-color: #cbd5e1 !important; background: #f8fafc !important; color: #334155 !important; }

@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // PGlite loads its WebAssembly from disk; bundling breaks that in local database mode.
+  serverExternalPackages: ["@electric-sql/pglite"],
   async headers() {
     return [{
       source: "/(.*)",

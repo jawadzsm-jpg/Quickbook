@@ -35,7 +35,7 @@ export class VendorCenterErrorBoundary extends Component<Props, State> {
     return <section className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-slate-900 shadow-sm" role="alert">
       <h2 className="text-lg font-bold">Vendor Center needs to reload</h2>
       <p className="mt-2 text-sm text-slate-600">Your accounting data is safe. Reload the vendor data to open this area again.</p>
-      <button type="button" onClick={this.retry} className="mt-4 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Reload Vendor Center</button>
+      <button type="button" onClick={this.retry} className="mt-4 rounded-md bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800">Reload Vendor Center</button>
     </section>;
   }
 }

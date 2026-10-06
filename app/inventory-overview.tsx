@@ -373,19 +373,19 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   const columnCount = 2 + Number(showQuantity) + Number(showPrice);
   const activityTabs = [
     { id: "incoming" as const, label: "Incoming", Icon: PlaneLanding, count: activity.incoming.length, badge: "bg-amber-400 text-slate-950" },
-    { id: "launched" as const, label: "New Arrival", Icon: Rocket, count: activity.launched.length, badge: "bg-rose-500 text-white" },
-    { id: "priceChanges" as const, label: "Price Change", Icon: BadgeDollarSign, count: activity.priceChanges.length, badge: "bg-sky-500 text-white" },
-    { id: "sold" as const, label: "Just Sold", Icon: ShoppingCart, count: activity.sold.length, badge: "bg-emerald-500 text-white" },
+    { id: "launched" as const, label: "New Arrival", Icon: Rocket, count: activity.launched.length, badge: "bg-rose-600 text-white" },
+    { id: "priceChanges" as const, label: "Price Change", Icon: BadgeDollarSign, count: activity.priceChanges.length, badge: "bg-sky-400 text-slate-950" },
+    { id: "sold" as const, label: "Just Sold", Icon: ShoppingCart, count: activity.sold.length, badge: "bg-emerald-400 text-slate-950" },
   ];
   const activityEmpty = activityView === "incoming" ? "No open purchase-order quantities." : activityView === "launched" ? "No bill receipts in the last 12 hours." : activityView === "priceChanges" ? "No selling-price changes in the last 12 hours." : "No recent invoice or sales-receipt lines.";
 
   return <div className="space-y-5">
     <section className="overflow-hidden rounded-2xl border bg-card text-card-foreground shadow-sm">
-      <div className="overflow-x-auto"><div className="grid min-w-[720px] grid-cols-4 border-b bg-muted/40">
-        {activityTabs.map(({ id, label, Icon, count, badge }) => <button key={id} type="button" onClick={() => setActivityView(id)} className={`flex min-h-20 items-center justify-center gap-3 border-r px-4 text-base font-semibold transition-colors last:border-r-0 sm:text-lg ${activityView === id ? "bg-card text-foreground shadow-[inset_0_-3px_0_hsl(var(--primary))]" : "text-muted-foreground hover:bg-card/70 hover:text-foreground"}`} aria-pressed={activityView === id}>
-          <Icon className="size-6 shrink-0" /><span>{label}</span><Badge className={`${badge} min-w-7 justify-center hover:opacity-90`}>{count}</Badge>
+      <div className="grid grid-cols-2 border-b bg-muted/40 sm:grid-cols-4">
+        {activityTabs.map(({ id, label, Icon, count, badge }) => <button key={id} type="button" onClick={() => setActivityView(id)} className={`flex min-h-14 min-w-0 items-center justify-center gap-2 border-r border-b px-3 text-sm font-semibold transition-colors even:border-r-0 sm:min-h-20 sm:gap-3 sm:border-b-0 sm:px-4 sm:text-lg sm:even:border-r sm:last:border-r-0 ${activityView === id ? "bg-card text-foreground shadow-[inset_0_-3px_0_var(--primary)]" : "text-muted-foreground hover:bg-card/70 hover:text-foreground"}`} aria-pressed={activityView === id}>
+          <Icon className="size-5 shrink-0 sm:size-6" /><span className="truncate">{label}</span><Badge className={`${badge} min-w-7 justify-center hover:opacity-90`}>{count}</Badge>
         </button>)}
-      </div></div>
+      </div>
       <div className="overflow-x-auto">
         <Table className="min-w-[900px]">
           <TableHeader><TableRow><TableHead className="w-32">Date</TableHead><TableHead>Item</TableHead><TableHead>Company · inventory</TableHead><TableHead>Linked area</TableHead><TableHead>Activity</TableHead><TableHead className="w-24 text-right">Open</TableHead></TableRow></TableHeader>
@@ -410,12 +410,12 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
       <div className="flex gap-2 overflow-x-auto pb-1">
         <Button variant="outline" onClick={() => setFilter("all")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "all")}`}>
-          <Boxes className="size-5" /><span className="font-semibold">All inventory</span><Badge className="bg-sky-500 text-white hover:bg-sky-500">{totals.quantity.toLocaleString()}</Badge>
+          <Boxes className="size-5" /><span className="font-semibold">All inventory</span><Badge className="bg-sky-400 text-slate-950 hover:bg-sky-400">{totals.quantity.toLocaleString()}</Badge>
         </Button>
         {locations.map((location) => <Button key={location.id} variant="outline" onClick={() => setFilter(`location:${location.id}`)} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === `location:${location.id}`)}`}>
           <Warehouse className="size-5" /><span className="font-semibold">{location.company}</span><span className="text-xs opacity-70">{location.location}</span><Badge variant="secondary">{location.quantity.toLocaleString()}</Badge>
         </Button>)}
-        <Button variant="outline" onClick={() => setFilter("in")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "in")}`}><PackageCheck className="size-5" /><span className="font-semibold">In stock</span><Badge className="bg-emerald-500 text-white hover:bg-emerald-500">{totals.inStock}</Badge></Button>
+        <Button variant="outline" onClick={() => setFilter("in")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "in")}`}><PackageCheck className="size-5" /><span className="font-semibold">In stock</span><Badge className="bg-emerald-400 text-slate-950 hover:bg-emerald-400">{totals.inStock}</Badge></Button>
         <Button variant="outline" onClick={() => setFilter("low")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "low")}`}><AlertTriangle className="size-5" /><span className="font-semibold">Low stock</span><Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">{totals.low}</Badge></Button>
       </div>
     </section>
@@ -429,20 +429,21 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
         </div>
       </div>
 
-      <div className="flex items-center gap-1.5 overflow-x-auto whitespace-nowrap border-b bg-slate-50 px-3 py-1.5 [&_button]:h-7 [&_button]:gap-1 [&_button]:px-2 [&_button]:text-xs [&_svg]:size-3.5">
+      {/* Container query: action labels collapse to icons before the row wraps, so the toolbar stays on one line on typical laptop widths. */}
+      <div className="@container flex flex-wrap items-center gap-1.5 border-b bg-slate-50 px-3 py-1.5 whitespace-nowrap [&_[data-slot=button]]:h-7 [&_[data-slot=button]]:gap-1 [&_[data-slot=button]]:px-2 [&_[data-slot=button]]:text-xs [&_[data-slot=button]_svg]:size-3.5">
         <Badge className="bg-slate-950 text-white hover:bg-slate-950">{selectedRecords.length} selected</Badge>
         <label className="flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md border bg-white px-1.5 text-xs font-medium text-slate-700"><Checkbox checked={!showQuantity} onCheckedChange={(checked) => setShowQuantity(checked !== true)} />Hide quantity</label>
         <label className="flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md border bg-white px-1.5 text-xs font-medium text-slate-700"><Checkbox checked={!showPrice} onCheckedChange={(checked) => setShowPrice(checked !== true)} />Hide price</label>
-        <div className="flex shrink-0 rounded-md border bg-white p-0.5 [&_button]:h-6" aria-label="Shared price VAT format">
-          <Button type="button" size="sm" variant={!includeVat ? "default" : "ghost"} disabled={!showPrice} onClick={() => setIncludeVat(false)} className={!includeVat ? "bg-slate-950 text-white hover:bg-slate-800" : ""}>No VAT</Button>
-          <Button type="button" size="sm" variant={includeVat ? "default" : "ghost"} disabled={!showPrice} onClick={() => setIncludeVat(true)} className={includeVat ? "bg-emerald-500 text-slate-950 hover:bg-emerald-400" : ""}>Including VAT</Button>
+        <div className="flex shrink-0 rounded-md border bg-white p-0.5 [&_[data-slot=button]]:h-6" role="group" aria-label="Shared price VAT format">
+          <Button type="button" size="sm" variant={!includeVat ? "default" : "ghost"} aria-pressed={!includeVat} disabled={!showPrice} onClick={() => setIncludeVat(false)} className={!includeVat ? "bg-slate-950 text-white hover:bg-slate-800" : ""}>No VAT</Button>
+          <Button type="button" size="sm" variant={includeVat ? "default" : "ghost"} aria-pressed={includeVat} disabled={!showPrice} onClick={() => setIncludeVat(true)} className={includeVat ? "bg-emerald-500 text-[#022c22] hover:bg-emerald-400" : ""}>Including VAT</Button>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          <Button size="sm" disabled={!canSelectItems || loading || !selectedRecords.length} onClick={() => copyForChannel("whatsapp")} title="Copy WhatsApp format" className="bg-[#25D366] text-white hover:bg-[#1fb558]"><MessageCircle />WhatsApp</Button>
-          <Button size="sm" disabled={!canSelectItems || loading || !selectedRecords.length} onClick={() => copyForChannel("telegram")} title="Copy Telegram format" className="bg-[#229ED9] text-white hover:bg-[#1987bb]"><Send />Telegram</Button>
-          <Button size="sm" variant="outline" disabled={!canSelectItems || loading || !selectedRecords.length} onClick={() => copyForChannel("email")} title="Copy email format"><Mail />Email</Button>
-          <Button size="sm" variant="outline" disabled={!canSelectItems || loading || !selectedRecords.length} onClick={() => exportExcel(false)}><Download />Excel no VAT</Button>
-          <Button size="sm" variant="outline" disabled={!canSelectItems || loading || !selectedRecords.length} onClick={() => exportExcel(true)}><FileSpreadsheet />Excel + VAT</Button>
+          <Button size="sm" disabled={!canSelectItems || loading || !selectedRecords.length} onClick={() => copyForChannel("whatsapp")} title="Copy WhatsApp format" aria-label="Copy WhatsApp format" className="bg-[#25D366] text-[#052e16] hover:bg-[#1fb558]"><MessageCircle /><span className="@max-[62rem]:hidden">WhatsApp</span></Button>
+          <Button size="sm" disabled={!canSelectItems || loading || !selectedRecords.length} onClick={() => copyForChannel("telegram")} title="Copy Telegram format" aria-label="Copy Telegram format" className="bg-[#1a77ad] text-white hover:bg-[#15638f]"><Send /><span className="@max-[62rem]:hidden">Telegram</span></Button>
+          <Button size="sm" variant="outline" disabled={!canSelectItems || loading || !selectedRecords.length} onClick={() => copyForChannel("email")} title="Copy email format" aria-label="Copy email format"><Mail /><span className="@max-[62rem]:hidden">Email</span></Button>
+          <Button size="sm" variant="outline" disabled={!canSelectItems || loading || !selectedRecords.length} onClick={() => exportExcel(false)} title="Export Excel without VAT" aria-label="Export Excel without VAT"><Download /><span className="@max-[62rem]:hidden">Excel no VAT</span></Button>
+          <Button size="sm" variant="outline" disabled={!canSelectItems || loading || !selectedRecords.length} onClick={() => exportExcel(true)} title="Export Excel including VAT" aria-label="Export Excel including VAT"><FileSpreadsheet /><span className="@max-[62rem]:hidden">Excel + VAT</span></Button>
         </div>
       </div>
 
@@ -458,7 +459,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
                 const description = inventoryItemLine(record.name, record.sku, specificationText(record), record.itemNumber);
                 return <TableRow key={record.id} data-state={selectedIds.has(record.id) ? "selected" : undefined} className="align-top data-[state=selected]:bg-sky-50 hover:bg-slate-50/80">
                   <TableCell className="py-5"><span className="inline-flex rounded-lg border bg-white p-1.5"><Checkbox disabled={!canSelectItems || loading} aria-label={`Select ${record.name}`} checked={selectedIds.has(record.id)} onCheckedChange={(checked) => toggleSelected(record.id, checked === true)} /></span></TableCell>
-                  <TableCell className="min-w-0 overflow-hidden py-4"><div className="flex min-w-0 max-w-full flex-col items-start gap-2 xl:flex-row xl:flex-wrap xl:items-center"><span className="block w-full max-w-full whitespace-normal break-words text-base font-bold text-blue-700 underline decoration-blue-300 underline-offset-2 [overflow-wrap:anywhere]">{description}</span>{out ? <Badge className="bg-rose-500 text-white hover:bg-rose-500">Out of stock</Badge> : low ? <Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">Low stock</Badge> : null}<TooltipProvider>{record.inventories.map((inventory) => <Tooltip key={inventory.locationId}><TooltipTrigger asChild><Badge tabIndex={0} variant="outline" className="max-w-full cursor-help whitespace-normal border-sky-200 bg-sky-50 text-sky-800"><Warehouse className="mr-1 size-3 shrink-0" />{inventory.locationName}{inventory.locationCode ? ` · ${inventory.locationCode}` : ""}</Badge></TooltipTrigger><TooltipContent sideOffset={6}>Qty: {Number(inventory.quantity).toLocaleString()}</TooltipContent></Tooltip>)}</TooltipProvider></div><div className="mt-3 flex min-w-0 flex-wrap items-center gap-2"><Button type="button" size="sm" variant="outline" onClick={() => setDetailRecord(record)} aria-label={`View product customization details for ${record.name}`}><PackageOpen className="size-4" />Customization Details</Button><Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">{receivedAge(record.latestReceivedAt)}</Badge></div></TableCell>
+                  <TableCell className="min-w-0 overflow-hidden py-4"><div className="flex min-w-0 max-w-full flex-col items-start gap-2 xl:flex-row xl:flex-wrap xl:items-center"><span className="block w-full max-w-full whitespace-normal break-words text-base font-bold text-blue-700 underline decoration-blue-300 underline-offset-2 [overflow-wrap:anywhere]">{description}</span>{out ? <Badge className="bg-rose-600 text-white hover:bg-rose-600">Out of stock</Badge> : low ? <Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">Low stock</Badge> : null}<TooltipProvider>{record.inventories.map((inventory) => <Tooltip key={inventory.locationId}><TooltipTrigger asChild><Badge tabIndex={0} variant="outline" className="max-w-full cursor-help whitespace-normal border-sky-200 bg-sky-50 text-sky-800"><Warehouse className="mr-1 size-3 shrink-0" />{inventory.locationName}{inventory.locationCode ? ` · ${inventory.locationCode}` : ""}</Badge></TooltipTrigger><TooltipContent sideOffset={6}>Qty: {Number(inventory.quantity).toLocaleString()}</TooltipContent></Tooltip>)}</TooltipProvider></div><div className="mt-3 flex min-w-0 flex-wrap items-center gap-2"><Button type="button" size="sm" variant="outline" onClick={() => setDetailRecord(record)} aria-label={`View product customization details for ${record.name}`}><PackageOpen className="size-4" />Customization Details</Button><Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">{receivedAge(record.latestReceivedAt)}</Badge></div></TableCell>
                   {showQuantity && <TableCell responsiveColumn="quantity" className={`py-4 text-sm font-black sm:text-base ${out ? "text-rose-600" : low ? "text-amber-600" : "text-slate-900"}`}>{Number(record.quantity).toLocaleString()}</TableCell>}
                   {showPrice && <TableCell responsiveColumn="price" className="py-4 text-sm font-black text-rose-600 sm:text-base">{money(Number(record.salesPrice) * (includeVat ? 1.05 : 1), record.currency)}{includeVat && <span className="mt-1 block whitespace-normal text-[11px] font-semibold text-emerald-600">VAT included</span>}</TableCell>}
                 </TableRow>;
