@@ -69,7 +69,7 @@ export function migrateDocumentDesign(source: DocumentDesign | string): Layout {
     xMm: round(clamp(box.left * PX_TO_MM, 0, 500)), yMm: round(clamp(box.down * PX_TO_MM, 0, 500)),
     widthMm: round(clamp(box.width * PX_TO_MM, 5, 300)), heightMm: round(clamp(box.height * PX_TO_MM, 5, 300)),
   }));
-  if (design.statusStamp) overlays.push({ id: newId("overlay"), kind: "stamp", text: "{status}", src: "", pages: "first", screen: true, print: true, rotateDeg: -12, opacity: 0.85, xMm: 140, yMm: 52, widthMm: 40, heightMm: 18 });
+  if (design.statusStamp) overlays.push({ id: newId("overlay"), kind: "stamp", text: "{status}", src: "", pages: "first", screen: true, print: true, rotateDeg: -8, opacity: 0.85, xMm: 92, yMm: 14, widthMm: 40, heightMm: 14 });
   layout.overlays = overlays;
 
   // Validate the result so a migrated layout is always one the server will accept.

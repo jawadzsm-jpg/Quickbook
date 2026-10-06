@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
-const vite = await createServer({ appType: "custom", configFile: false, root, logLevel: "silent", resolve: { alias: { "@": root } }, server: { middlewareMode: true, hmr: false, ws: false, watch: { ignored: ["**/.next/**"] } } });
+const vite = await createServer({ appType: "custom", configFile: false, root, logLevel: "silent", esbuild: { jsx: "automatic" }, resolve: { alias: { "@": root } }, server: { middlewareMode: true, hmr: false, ws: false, watch: { ignored: ["**/.next/**"] } } });
 after(() => vite.close());
 
 const { defaultLayout, newSection } = await vite.ssrLoadModule("/lib/layout/defaults.ts");
@@ -117,4 +117,39 @@ test("mock documents provide 3, 25 and 120 line invoices with consistent totals"
     assert.equal(doc.totals.total, Math.round((doc.totals.subtotal + doc.totals.vat) * 100) / 100);
   }
   assert.ok(newSection("lineItems").avoidBreakInside === false);
+});
+
+test("print HTML carries page rules, repeating rows, copies and escaped titles", async () => {
+  const { layoutHtml } = await vite.ssrLoadModule("/app/layout-builder/print-layout.tsx");
+  const layout = defaultLayout();
+  layout.page = { ...layout.page, size: "Letter", orientation: "landscape", margins: { top: 15, right: 12, bottom: 18, left: 12 } };
+  layout.rows[0].repeat = "header";
+  layout.overlays = [{ id: "stamp-1", kind: "stamp", xMm: 100, yMm: 20, widthMm: 40, heightMm: 14, rotateDeg: -8, opacity: 0.85, text: "{status}", src: "", pages: "first", screen: true, print: true }];
+  const doc = mockDocument("short");
+  const html = await layoutHtml(layout, [{ data: doc, label: "CUSTOMER COPY" }, { data: { ...doc, status: "Paid" }, label: "INVENTORY TEAM COPY" }], "Invoice <1> & co");
+  assert.match(html, /@page\{size:Letter landscape;margin:15mm 12mm 18mm 12mm;/);
+  assert.match(html, /counter\(page\)/);
+  assert.match(html, /<title>Invoice &lt;1&gt; &amp; co<\/title>/);
+  assert.equal(html.match(/class="lb-copy"/g).length, 2);
+  assert.ok(html.includes("CUSTOMER COPY") && html.includes("INVENTORY TEAM COPY"));
+  // The repeating company header lives in the table header group so browsers print it on every page.
+  assert.match(html, /<thead><tr><td><div class="lb-row"[^>]*>.*ComNet International/);
+  assert.ok(html.includes(">Open<") && html.includes(">Paid<"));
+  // Overlays are positioned relative to the margin box.
+  assert.match(html, /left:88mm;top:5mm/);
+});
+
+test("saved invoices map onto the renderer input without freight or pending lines", async () => {
+  const { transactionDocumentData } = await vite.ssrLoadModule("/app/layout-builder/company-data.ts");
+  const data = transactionDocumentData(
+    { number: "INV-9", transactionDate: "2026-10-06", dueDate: "2026-11-05", salesman: "Sara", currency: "AED", subtotal: 300, vatAmount: 15, total: 315, status: "open", party: "Acme", deliveryAddress: "Warehouse 4" },
+    [{ description: "Laptop", sku: "L1", quantity: 2, unitPrice: 100, subtotal: 200, vatRate: 5, vatAmount: 10, total: 210 }, { description: "Mouse", quantity: 1, unitPrice: 100, vatAmount: 5 }, { description: "Freight", isFreightCharge: true, quantity: 1, unitPrice: 9 }, { description: "Later", pending: true, quantity: 1, unitPrice: 1 }],
+    { billingName: "Acme Trading LLC", city: "Dubai", country: "United Arab Emirates", trn: "100" },
+    { name: "ComNet", logoData: "", phone: "1", trn: "200", addressLine1: "Shop 1", addressLine2: "", city: "Dubai", country: "UAE", bankName: "ENBD" },
+  );
+  assert.deepEqual(data.billTo, ["Acme Trading LLC", "Dubai, United Arab Emirates", "TRN 100"]);
+  assert.deepEqual(data.shipTo, ["Warehouse 4"]);
+  assert.deepEqual(data.lines.map((line) => [line.description, line.total]), [["Laptop", 210], ["Mouse", 105]]);
+  assert.deepEqual(data.totals, { subtotal: 300, vat: 15, total: 315, paid: 0, balance: 315 });
+  assert.equal(data.details.number, "INV-9"); assert.equal(data.company.addressLines.at(-1), "Dubai, UAE"); assert.equal(data.company.bank.name, "ENBD");
 });

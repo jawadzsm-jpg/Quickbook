@@ -59,7 +59,7 @@ export type Section = { [K in SectionType]: { id: string; type: K; props: Sectio
 export const rowSchema = z.object({
   id,
   sections: z.array(sectionSchema).min(1).max(3),
-  ratios: z.array(mm(1, 10)).min(1).max(3),
+  ratios: z.array(mm(0.1, 100)).min(1).max(3),
   gapMm: mm(0, 20),
   spaceBeforeMm: mm(0, 40),
   keepTogether: z.boolean(),

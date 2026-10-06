@@ -51,7 +51,7 @@ export function newRow(sections: Section[], options: Partial<Omit<Row, "id" | "s
 }
 
 export function newOverlay(kind: Overlay["kind"]): Overlay {
-  return { id: newId("overlay"), kind, xMm: 140, yMm: 60, widthMm: kind === "stamp" ? 40 : 50, heightMm: kind === "stamp" ? 40 : 20, rotateDeg: kind === "stamp" ? -12 : 0, opacity: kind === "stamp" ? 0.85 : 1, text: kind === "text" ? "Text" : "", src: "", pages: "first", screen: true, print: true };
+  return { id: newId("overlay"), kind, xMm: 92, yMm: 14, widthMm: 40, heightMm: kind === "stamp" ? 14 : 20, rotateDeg: kind === "stamp" ? -8 : 0, opacity: kind === "stamp" ? 0.85 : 1, text: kind === "text" ? "Text" : "", src: "", pages: "first", screen: true, print: true };
 }
 
 export function defaultLayout(kind: LayoutKind = "invoice"): Layout {

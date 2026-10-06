@@ -1,0 +1,139 @@
+/* eslint-disable @next/next/no-img-element -- documents are printed from static markup with inline data-URL images; next/image cannot render there. */
+import type { CSSProperties, ReactNode } from "react";
+import type { DocumentData } from "@/lib/layout/document-data";
+import type { Layout, LineColumn, Overlay, Row, Section } from "@/lib/layout/schema";
+
+// Pure renderer shared by the editor canvas, the print frame and PDF output. No hooks or browser APIs,
+// so it can also be rendered to static markup for printing.
+
+export type RenderMode = "screen" | "print";
+
+const money = (value: number) => value.toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const numeric: ReadonlySet<LineColumn> = new Set(["index", "quantity", "unitPrice", "subtotal", "vatRate", "vatAmount", "total"]);
+
+export function sectionStyle(section: Section, baseSizePt: number): CSSProperties {
+  const { style } = section;
+  return {
+    textAlign: style.align, padding: `${style.paddingMm}mm`, background: style.background || undefined,
+    fontSize: `${Math.round(baseSizePt * style.fontScale * 100) / 100}pt`, fontWeight: style.bold ? 700 : undefined,
+  };
+}
+
+export function sectionClass(section: Section) {
+  const border = section.style.border === "none" ? "" : ` lb-border-${section.style.border}`;
+  return `lb-section lb-align-${section.style.align}${section.avoidBreakInside ? " lb-avoid" : ""}${border}`;
+}
+
+function Lines({ lines, empty }: { lines: string[]; empty: string }) {
+  const filled = lines.filter((line) => line.trim());
+  return filled.length ? <>{filled.map((line, index) => <p key={index}>{line}</p>)}</> : <p className="lb-empty">{empty}</p>;
+}
+
+function lineValue(data: DocumentData, column: LineColumn, index: number) {
+  const line = data.lines[index];
+  switch (column) {
+    case "index": return String(index + 1);
+    case "quantity": return line.quantity.toLocaleString("en", { maximumFractionDigits: 3 });
+    case "unitPrice": case "subtotal": case "vatAmount": case "total": return money(line[column]);
+    case "vatRate": return `${line.vatRate}%`;
+    default: return line[column];
+  }
+}
+
+/** The body of one section, without its wrapper. */
+export function SectionBody({ section, data }: { section: Section; data: DocumentData }): ReactNode {
+  switch (section.type) {
+    case "companyHeader": {
+      const { props } = section; const { company } = data;
+      const logo = (src: string, side: string) => src ? <img className="lb-logo" src={src} alt={`${company.name} ${side} logo`} style={{ height: `${props.logoHeightMm}mm` }} /> : null;
+      return <div className="lb-header">
+        {props.showLeftLogo && logo(company.leftLogo, "left")}
+        <div className="lb-header-main">
+          {props.showName && <p className="lb-company">{company.name}</p>}
+          {props.showAddress && company.addressLines.map((line, index) => <p key={index} className="lb-muted">{line}</p>)}
+          {(props.showPhone && company.phone) || (props.showEmail && company.email) ? <p className="lb-muted">{[props.showPhone && company.phone && `Tel: ${company.phone}`, props.showEmail && company.email].filter(Boolean).join(" · ")}</p> : null}
+          {props.showTrn && company.trn && <p className="lb-muted">TRN {company.trn}</p>}
+        </div>
+        {props.showRightLogo && logo(company.rightLogo, "right")}
+      </div>;
+    }
+    case "title": return <p className="lb-title">{section.props.text}</p>;
+    case "billTo": return <><p className="lb-label">{section.props.label}</p><Lines lines={data.billTo} empty="Customer details" /></>;
+    case "shipTo": return <><p className="lb-label">{section.props.label}</p><Lines lines={data.shipTo} empty="—" /></>;
+    case "details": return <dl className="lb-details" style={{ gridTemplateColumns: `repeat(${section.props.columns}, minmax(0, 1fr))` }}>
+      {section.props.fields.map((field) => <div key={field.key}><dt>{field.label}</dt><dd>{data.details[field.key] || "—"}</dd></div>)}
+    </dl>;
+    case "lineItems": {
+      const { columns } = section.props;
+      const totalWidth = columns.reduce((sum, column) => sum + column.width, 0) || 1;
+      return <table className={`lb-items${section.props.zebra ? " lb-zebra" : ""}${section.props.repeatHeading ? "" : " lb-no-repeat"}`}>
+        <colgroup>{columns.map((column) => <col key={column.key} style={{ width: `${(column.width / totalWidth) * 100}%` }} />)}</colgroup>
+        <thead><tr>{columns.map((column) => <th key={column.key} className={numeric.has(column.key) ? "lb-num" : undefined}>{column.label}</th>)}</tr></thead>
+        <tbody>{data.lines.length ? data.lines.map((_, index) => <tr key={index}>{columns.map((column) => <td key={column.key} className={numeric.has(column.key) ? "lb-num" : column.key === "description" || column.key === "comments" || column.key === "serialNumber" ? "lb-pre" : undefined}>{lineValue(data, column.key, index)}</td>)}</tr>)
+          : <tr><td colSpan={columns.length} className="lb-empty">No lines</td></tr>}</tbody>
+      </table>;
+    }
+    case "totals": return <table className="lb-totals" style={{ width: `${section.props.widthPercent}%` }}><tbody>
+      {section.props.rows.map((row) => <tr key={row.key} className={row.key === "total" || row.key === "balance" ? "lb-grand" : undefined}><td>{row.label} ({data.currency})</td><td>{money(data.totals[row.key])}</td></tr>)}
+    </tbody></table>;
+    case "notes": return <><p className="lb-label">{section.props.label}</p><p className="lb-pre">{section.props.text || data.message || <span className="lb-empty">No message</span>}</p></>;
+    case "terms": return <><p className="lb-label">{section.props.label}</p><p className="lb-pre">{section.props.text || data.terms || <span className="lb-empty">No terms</span>}</p></>;
+    case "bankDetails": {
+      const { bank } = data.company;
+      return <><p className="lb-label">{section.props.label}</p><Lines lines={[bank.name, bank.accountName && `Account name: ${bank.accountName}`, bank.accountNumber && `Account no.: ${bank.accountNumber}`, bank.iban && `IBAN: ${bank.iban}`, bank.swift && `SWIFT: ${bank.swift}`].filter(Boolean) as string[]} empty="Add bank details in Company Setup" /></>;
+    }
+    case "signature": return <span className="lb-signature" style={{ width: `${section.props.lineWidthMm}mm` }}>{section.props.label}</span>;
+    case "text": return <p className="lb-pre">{section.props.text}</p>;
+    case "image": return section.props.src ? <img className="lb-image" src={section.props.src} alt="" style={{ maxHeight: `${section.props.heightMm}mm` }} /> : <p className="lb-empty">Choose an image</p>;
+    case "spacer": return <div style={{ height: `${section.props.heightMm}mm` }} />;
+    case "divider": return <div style={{ borderTop: `${section.props.thicknessPt}pt solid var(--lb-accent)` }} />;
+    case "letterBody": return <p className="lb-pre">{section.props.text}</p>;
+  }
+}
+
+export const rowStyle = (row: Row): CSSProperties => ({ gridTemplateColumns: row.ratios.map((ratio) => `minmax(0, ${ratio}fr)`).join(" "), columnGap: `${row.gapMm}mm`, marginTop: `${row.spaceBeforeMm}mm` });
+
+function RowView({ row, layout, data, mode }: { row: Row; layout: Layout; data: DocumentData; mode: RenderMode }) {
+  const visible = row.sections.filter((section) => section[mode]);
+  if (!visible.length) return null;
+  // Hidden sections keep their column so the remaining ones do not stretch across the row.
+  return <div className={`lb-row${row.keepTogether ? " lb-keep" : ""}`} style={rowStyle(row)}>
+    {row.sections.map((section) => section[mode]
+      ? <div key={section.id} className={sectionClass(section)} style={sectionStyle(section, layout.theme.baseSizePt)}><SectionBody section={section} data={data} /></div>
+      : <div key={section.id} />)}
+  </div>;
+}
+
+export function overlayStyle(overlay: Overlay, layout: Layout): CSSProperties {
+  // Overlays are stored in page coordinates; the document box starts at the top-left margin.
+  return {
+    left: `${overlay.xMm - layout.page.margins.left}mm`, top: `${overlay.yMm - layout.page.margins.top}mm`,
+    width: `${overlay.widthMm}mm`, height: `${overlay.heightMm}mm`, opacity: overlay.opacity,
+    transform: overlay.rotateDeg ? `rotate(${overlay.rotateDeg}deg)` : undefined,
+  };
+}
+
+export function OverlayBody({ overlay, data }: { overlay: Overlay; data: DocumentData }) {
+  if (overlay.kind === "image") return overlay.src ? <img src={overlay.src} alt="" /> : null;
+  if (overlay.kind === "stamp" && overlay.src) return <img src={overlay.src} alt="" />;
+  const text = overlay.text.replaceAll("{status}", data.status || "");
+  return <span className={overlay.kind === "stamp" ? "lb-stamp lb-overlay-text" : "lb-overlay-text"} style={overlay.kind === "stamp" ? { width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" } : undefined}>{text}</span>;
+}
+
+/**
+ * The full document. Repeating rows go in the table header/footer groups, which browsers repeat on
+ * every printed page; body rows flow and break between rows, table lines and avoid-break sections.
+ */
+export function LayoutDocument({ layout, data, mode }: { layout: Layout; data: DocumentData; mode: RenderMode }) {
+  const group = (repeat: Row["repeat"]) => layout.rows.filter((row) => row.repeat === repeat).map((row) => <RowView key={row.id} row={row} layout={layout} data={data} mode={mode} />);
+  const header = group("header");
+  const footer = group("footer");
+  return <div className="lb-doc">
+    <table className="lb-frame">
+      {header.length > 0 && <thead><tr><td>{header}</td></tr></thead>}
+      {footer.length > 0 && <tfoot><tr><td>{footer}</td></tr></tfoot>}
+      <tbody><tr><td>{group("none")}</td></tr></tbody>
+    </table>
+    {layout.overlays.filter((overlay) => overlay[mode]).map((overlay) => <div key={overlay.id} className={`lb-overlay${overlay.pages === "all" ? " lb-every-page" : ""}`} style={overlayStyle(overlay, layout)}><OverlayBody overlay={overlay} data={data} /></div>)}
+  </div>;
+}
