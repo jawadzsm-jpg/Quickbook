@@ -2074,3 +2074,6 @@ body {
   [data-required-missing] { animation: required-missing-nudge 320ms ease-out 1; }
 }
 @keyframes required-missing-nudge { 0%, 100% { translate: 0; } 25% { translate: -3px; } 75% { translate: 3px; } }
+
+/* Keep a newly added top line clear of the sticky dialog window bar when it is scrolled into view. */
+:is(.transaction-line, .bill-item-row) { scroll-margin-top: 6rem; scroll-margin-bottom: 1rem; }
