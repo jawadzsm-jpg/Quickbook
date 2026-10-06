@@ -36,7 +36,7 @@ export function WorkspaceOnlineUsers() {
     <PopoverTrigger asChild>
       <Button type="button" variant="ghost" size="icon" aria-label={`Online users${users.length ? ` (${users.length})` : ""}`} title="Online users" className="relative">
         <UsersRound className="size-4" />
-        {users.length > 0 ? <span aria-hidden="true" className="absolute right-0.5 top-0.5 grid min-w-3.5 place-items-center rounded-full bg-emerald-500 px-1 text-[9px] font-bold leading-3.5 text-white">{users.length > 9 ? "9+" : users.length}</span> : null}
+        {users.length > 0 ? <span aria-hidden="true" className="absolute right-0.5 top-0.5 grid min-w-3.5 place-items-center rounded-full bg-emerald-400 px-1 text-[9px] font-bold leading-3.5 text-slate-950">{users.length > 9 ? "9+" : users.length}</span> : null}
       </Button>
     </PopoverTrigger>
     <PopoverContent align="end" className="w-80 max-w-[calc(100vw-2rem)] p-0">

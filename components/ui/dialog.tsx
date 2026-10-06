@@ -148,7 +148,7 @@ function DialogContent({
         {...props}
       >
         {(showWindowControls || showCloseButton) && <div data-slot="dialog-window-controls" role="group" aria-label="Window controls" className="dialog-control-bar">
-          <span className="mr-auto text-xs font-medium text-muted-foreground">{windowState === "minimized" ? "Minimized" : windowState === "maximized" ? "Full screen" : "Window"}</span>
+          <span className="mr-auto text-xs font-medium text-muted-foreground">{windowState === "minimized" ? "Minimized" : windowState === "maximized" ? "Full screen" : null}</span>
           {showWindowControls && <>
             <Button type="button" variant="ghost" size="icon" aria-label={windowState === "minimized" ? "Restore window" : "Minimize window"} title={windowState === "minimized" ? "Restore" : "Minimize"} onClick={() => {
               if (windowState === "minimized") setWindowState?.("normal")
