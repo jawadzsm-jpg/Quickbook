@@ -2946,3 +2946,25 @@ test('Insights entry-day activity uses UAE boundaries, complete pagination and s
     globalThis.__transferTestUser.role='all_admin'; assert.equal((await (await get({companyId:String(other)})).json()).total,1);
   } finally { delete globalThis.__transferTestUser; }
 });
+
+test('bills entered from a PO keep the chosen reference, sales rep and one VAT code', async () => {
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('PO bill details') RETURNING id")).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES ($1,'PBD','PBD','PBD') RETURNING id",[companyId])).rows[0].id;
+  const itemId = (await database.query("INSERT INTO items(company_id,location_id,sku,name,quantity,cost) VALUES ($1,$2,'PBD','Monitor',0,20) RETURNING id",[companyId,locationId])).rows[0].id;
+  const { POST } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const request = (body) => new Request('https://app.test/api/records',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const base = {kind:'transactions',companyId,locationId,party:'Detail vendor',currency:'AED',exchangeRate:1,transactionDate:'2026-10-06'};
+  const po = (await (await POST(request({...base,type:'purchase order',number:'PO-PBD',salesman:'PO rep',lines:[{itemId,description:'Monitor',quantity:10,unitPrice:100,unitCost:100,vatCode:'ZERO'}]}))).json()).record;
+  const order = await database.query('SELECT id FROM transaction_lines WHERE transaction_id=$1',[po.id]);
+  const bad = await POST(request({...base,type:'bill',purchaseOrderId:po.id,number:'SUP-1',vatCode:'NOT_A_CODE',lines:[{orderLineId:order.rows[0].id,quantity:2}]}));
+  assert.equal(bad.status,400);
+  const saved = await POST(request({...base,type:'bill',purchaseOrderId:po.id,number:'SUP-INV-77',salesman:'Bill rep',vatCode:'STANDARD',lines:[{orderLineId:order.rows[0].id,quantity:2}]}));
+  assert.equal(saved.status,201,JSON.stringify(await saved.clone().json()));
+  const { record } = await saved.json();
+  assert.equal(record.number,'SUP-INV-77'); assert.equal(record.salesman,'Bill rep'); assert.equal(record.vatAmount,10); assert.equal(record.total,210);
+  const lines = await database.query('SELECT vat_code FROM transaction_lines WHERE transaction_id=$1 AND NOT is_freight_charge',[record.id]);
+  assert.deepEqual(lines.rows.map((row) => row.vat_code),['STANDARD']);
+  const fallback = await POST(request({...base,type:'bill',purchaseOrderId:po.id,number:'SUP-INV-78',lines:[{orderLineId:order.rows[0].id,quantity:1}]}));
+  assert.equal(fallback.status,201); const plain = (await fallback.json()).record;
+  assert.equal(plain.salesman,'PO rep'); assert.equal(plain.vatAmount,0);
+});
