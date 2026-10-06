@@ -31,6 +31,7 @@ export const companies = pgTable("companies", {
   bankIban: text("bank_iban").notNull().default(""),
   bankAccounts: text("bank_accounts").notNull().default(""),
   bankStampData: text("bank_stamp_data").notNull().default(""),
+  stampPositions: text("stamp_positions").notNull().default(""),
   bankSwift: text("bank_swift").notNull().default(""),
   bankCurrency: text("bank_currency").notNull().default(""),
   documentTemplate: text("document_template", { enum: ["classic", "modern", "minimal"] }).notNull().default("modern"),

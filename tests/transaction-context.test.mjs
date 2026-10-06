@@ -3015,3 +3015,15 @@ test('administrators can save bank accounts on their own without the rest of Com
   const record=(await saved.json()).record;assert.equal(record.bankName,'ENBD');assert.equal(JSON.parse(record.bankAccounts)[0].currency,'EUR');assert.equal(record.phone,'+971 4 111');
   assert.equal((await patch({})).status,400);
 });
+
+test('stamp positions save per document type on their own and reject invalid placements', async () => {
+  const companyId=(await database.query("INSERT INTO companies (name, phone) VALUES ('Stamp position company', '+971 4 222') RETURNING id")).rows[0].id;
+  const {PATCH}=await vite.ssrLoadModule('/app/api/company-setup/route.ts');
+  const patch=(body)=>PATCH(new Request('https://app.test/api/company-setup',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({companyId,...body})}));
+  const positions={'tax-invoice':{company:{show:true,left:150,top:4},bank:{show:true,left:20,top:6}}};
+  const saved=await patch({stampPositions:JSON.stringify(positions)});
+  assert.equal(saved.status,200,JSON.stringify(await saved.clone().json()));
+  const record=(await saved.json()).record;assert.deepEqual(JSON.parse(record.stampPositions),positions);assert.equal(record.phone,'+971 4 222');
+  assert.equal((await patch({stampPositions:JSON.stringify({'tax-invoice':{company:{show:true,left:-5,top:0}}})})).status,400);
+  assert.equal((await patch({stampPositions:JSON.stringify({'Bad Type':{}})})).status,400);
+});

@@ -1,5 +1,6 @@
 import { parseLayoutCollection, serializeLayoutCollection } from "@/lib/layout/schema";
 import { parseBankAccounts, validBankStamp } from "@/lib/bank-accounts";
+import { parseStampPositions } from "@/lib/stamp-positions";
 import { validateDocumentDesign } from "@/lib/document-design";
 import { eq, ne, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
@@ -27,7 +28,7 @@ export async function GET(request: Request) {
     if (!canAccessCompany(user, companyId)) return Response.json({ error: "Company access denied." }, { status: 403 });
     const [record] = await getDb().select().from(companies).where(eq(companies.id, companyId)).limit(1);
     if (!record) return Response.json({ error: "Company not found." }, { status: 404 });
-    return Response.json({ record: user.role === "sales" ? { ...record, stampData: "", bankName: "", bankAccountName: "", bankAccountNumber: "", bankIban: "", bankSwift: "", bankAccounts: "", bankStampData: "", documentDesign: "", letterheadDesign: "", documentLayout: "" } : record });
+    return Response.json({ record: user.role === "sales" ? { ...record, stampData: "", bankName: "", bankAccountName: "", bankAccountNumber: "", bankIban: "", bankSwift: "", bankAccounts: "", bankStampData: "", stampPositions: "", documentDesign: "", letterheadDesign: "", documentLayout: "" } : record });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
   }
@@ -39,16 +40,17 @@ export async function PATCH(request: Request) {
   try {
     const payload = (await request.json()) as Record<string, unknown>;
     const companyId = Number(payload.companyId);
-    const bankAndStampKeys = ["bankName", "bankAccountName", "bankAccountNumber", "bankIban", "bankSwift", "bankCurrency", "bankAccounts", "stampData", "bankStampData"];
+    const bankAndStampKeys = ["bankName", "bankAccountName", "bankAccountNumber", "bankIban", "bankSwift", "bankCurrency", "bankAccounts", "stampData", "bankStampData", "stampPositions"];
     // Accountants always use this partial save; administrators use it for the Bank account section's own Save button.
     const bankOnlySave = Object.keys(payload).every((key) => key === "companyId" || bankAndStampKeys.includes(key));
     if ((user.role === "accountant" || (isAdministrator(user) && bankOnlySave)) && canAccessCompany(user, companyId)) {
       const keys = bankAndStampKeys;
       if (Object.keys(payload).some(key => key !== "companyId" && !keys.includes(key))) return Response.json({ error: "Accountants may update bank details and the company stamp only." }, { status: 403 });
       const updates: Record<string, string> = {};
-      for (const key of keys) if (payload[key] !== undefined && key !== "bankAccounts") updates[key] = text(payload[key], key === "stampData" || key === "bankStampData" ? 700001 : 120);
+      for (const key of keys) if (payload[key] !== undefined && key !== "bankAccounts" && key !== "stampPositions") updates[key] = text(payload[key], key === "stampData" || key === "bankStampData" ? 700001 : 120);
       if (payload.bankAccounts !== undefined) { try { updates.bankAccounts = JSON.stringify(parseBankAccounts(payload.bankAccounts)); } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Check the bank accounts." }, { status: 400 }); } }
       if (updates.stampData && (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(updates.stampData) || updates.stampData.length > 700000)) return Response.json({ error: "Upload a PNG, JPG or WebP stamp smaller than 500 KB." }, { status: 400 });
+      if (payload.stampPositions !== undefined) { try { updates.stampPositions = JSON.stringify(parseStampPositions(payload.stampPositions)); } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Check the stamp positions." }, { status: 400 }); } }
       if (updates.bankStampData && !validBankStamp(updates.bankStampData)) return Response.json({ error: "Upload a PNG, JPG or WebP bank stamp smaller than 500 KB." }, { status: 400 });
       if (updates.bankCurrency !== undefined && !/^[A-Z]{3}$/.test(updates.bankCurrency)) return Response.json({ error: "Enter a three-letter bank currency." }, { status: 400 });
       if (!Object.keys(updates).length) return Response.json({ error: "Nothing to save." }, { status: 400 });
@@ -56,7 +58,7 @@ export async function PATCH(request: Request) {
         const [record] = await getDb().update(companies).set(updates).where(eq(companies.id, companyId)).returning();
         if (!record) return Response.json({ error: "Company not found." }, { status: 404 });
         await getDb().insert(auditLog).values({ companyId, action: "updated", entityType: "company_setup", entityId: companyId, details: JSON.stringify({ actorId: user.id, fields: Object.keys(updates), mode: "stamp-bank" }) });
-        return Response.json({ record: user.role === "sales" ? { ...record, stampData: "", bankName: "", bankAccountName: "", bankAccountNumber: "", bankIban: "", bankSwift: "", bankAccounts: "", bankStampData: "", documentDesign: "", letterheadDesign: "", documentLayout: "" } : record });
+        return Response.json({ record: user.role === "sales" ? { ...record, stampData: "", bankName: "", bankAccountName: "", bankAccountNumber: "", bankIban: "", bankSwift: "", bankAccounts: "", bankStampData: "", stampPositions: "", documentDesign: "", letterheadDesign: "", documentLayout: "" } : record });
       });
     }
     if (!canAccessCompany(user, companyId) || !isAdministrator(user)) return Response.json({ error: "Company administrator access required." }, { status: 403 });
