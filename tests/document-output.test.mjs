@@ -67,7 +67,7 @@ test("invoice preview renders different customer and inventory content with unch
   } finally {await vite.close();}
 });
 
-test('saved customization resolves across document families and honors print-only fields', async () => {
+test('retired saved customizations no longer apply, while the template still honors print-only fields', async () => {
   const {createServer}=await import('vite');
   const {fileURLToPath}=await import('node:url');
   const React=await import('react');
@@ -80,8 +80,8 @@ test('saved customization resolves across document families and honors print-onl
     const design={...structuredClone(defaultDocumentDesign),name:'My approved company design',color:'#123456',message:'APPROVED FOOTER',properties:{},headers:[{key:'custom-header-print',label:'PRINT HEADER',screen:false,print:true,width:1},{key:'custom-header-screen',label:'SCREEN HEADER',screen:true,print:false,width:1}],columns:[{key:'description',label:'My item label',width:70,screen:true,print:true},{key:'quantity',label:'Screen quantity',width:30,screen:true,print:false}],customBoxes:[{id:'print-note',text:'APPROVED PRINT BOX',screen:false,print:true,left:0,down:600,width:200,height:40,fontSize:12,bold:false,border:true}]};
     const {savedTemplates:unused,...snapshot}=design;void unused;
     const settings=JSON.stringify({...defaultDocumentDesign,savedTemplates:[{id:'approved',name:'Approved',type:'Invoice',active:true,appliesToAll:true,design:snapshot}]});
-    for(const type of templateDocumentTypes){const result=resolveDocumentDesign(settings,type);assert.equal(result.savedTemplate.id,'approved');assert.equal(result.design.enabled,true);assert.equal(result.design.color,'#123456');}
-    const resolved=resolveDocumentDesign(settings,'Invoice').design;
+    for(const type of templateDocumentTypes){const result=resolveDocumentDesign(settings,type);assert.equal(result.savedTemplate,null);assert.equal(result.design.enabled,false);assert.equal(result.design.color,defaultDocumentDesign.color);}
+    const resolved={...design,enabled:true};
     const props={design:resolved,record:{number:'INV-123',total:105},lines:[{description:'KEEP ITEM',quantity:2}],setup:{name:'Saved company',logoData:'',phone:'',trn:'',addressLine1:'',addressLine2:'',city:'',country:''}};
     const print=renderToStaticMarkup(React.createElement(CustomInvoiceTemplate,{...props,target:'print'}));
     assert.match(print,/PRINT HEADER/);assert.match(print,/APPROVED PRINT BOX/);assert.match(print,/APPROVED FOOTER/);assert.match(print,/KEEP ITEM/);assert.doesNotMatch(print,/SCREEN HEADER|Screen quantity/);

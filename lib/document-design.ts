@@ -14,16 +14,14 @@ export const defaultDocumentDesign: DocumentDesign = {
 export function readDocumentDesign(value?: string): DocumentDesign {
  try { return validateDocumentDesign(value || ''); } catch { return structuredClone(defaultDocumentDesign); }
 }
-export function resolveDocumentDesign(value: string | undefined, type?: TemplateDocumentType) {
- const root = readDocumentDesign(value);
- const activeTemplates = [...root.savedTemplates].reverse().filter((template) => template.active !== false);
- const globalTemplate = activeTemplates.find((template) => template.appliesToAll === true) ?? null;
- const typedTemplate = type ? activeTemplates.find((template) => template.type === type) ?? null : null;
- const savedTemplate = globalTemplate ?? typedTemplate ?? activeTemplates[0] ?? null;
- if (savedTemplate) {
-  return { design: { ...structuredClone(savedTemplate.design), enabled: true, savedTemplates: root.savedTemplates } as DocumentDesign, savedTemplate };
- }
- return { design: root.enabled ? root : structuredClone(defaultDocumentDesign), savedTemplate: null as SavedTemplate | null };
+/**
+ * The pixel-based template designer was retired in favour of the Layout Builder. Saved customizations are kept
+ * in storage (the Layout Builder converts them on first open) but documents no longer apply them: every document
+ * uses the standard layout, and invoices use the Layout Builder design when a company turns it on.
+ */
+export function resolveDocumentDesign(value?: string, type?: TemplateDocumentType) {
+ void value; void type;
+ return { design: structuredClone(defaultDocumentDesign), savedTemplate: null as SavedTemplate | null };
 }
 export function validateDocumentDesign(value: string): DocumentDesign {
  if (!value) return structuredClone(defaultDocumentDesign);
