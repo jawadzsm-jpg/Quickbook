@@ -1,17 +1,16 @@
-// Customer-facing sales documents carry one VAT treatment for the whole document.
+// Sales and purchase documents carry one VAT treatment for the whole document; the first line sets it.
 // Stock-return lines (negative quantity) are always zero-rated and sit outside this rule.
-export const singleVatCodeDocumentTypes = ["invoice", "pending invoice", "quotation", "estimate", "proforma invoice", "sales order", "sales receipt", "credit memo"];
+export const singleVatCodeDocumentTypes = ["invoice", "pending invoice", "quotation", "estimate", "proforma invoice", "sales order", "sales receipt", "credit memo", "bill", "purchase order"];
 
-type VatLine = { vatCode?: string; quantity?: string | number; itemId?: string | number | null; description?: string; unitPrice?: string | number };
+type VatLine = { vatCode?: string; quantity?: string | number };
 
 export const usesSingleVatCode = (type: string) => singleVatCodeDocumentTypes.includes(type);
 
 const followsDocumentVat = (line: VatLine) => !(Number(line.quantity) < 0);
-const isFilled = (line: VatLine) => Boolean(line.itemId || String(line.description ?? "").trim() || Number(line.unitPrice) > 0);
 
-/** VAT code already used by the document's other lines, ignoring the line at `exceptIndex` and empty lines. */
+/** VAT code the document already uses (first other line wins), ignoring the line at `exceptIndex`. */
 export function documentVatCode(lines: VatLine[], exceptIndex = -1) {
-  return lines.find((line, index) => index !== exceptIndex && followsDocumentVat(line) && isFilled(line) && line.vatCode)?.vatCode;
+  return lines.find((line, index) => index !== exceptIndex && followsDocumentVat(line) && line.vatCode)?.vatCode;
 }
 
 /** Apply one VAT code to every line that follows the document VAT. */
