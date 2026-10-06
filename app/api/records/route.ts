@@ -857,6 +857,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const ids = rawLines.map((line) => Number(line.orderLineId));
       if (!ids.length || new Set(ids).size !== ids.length) return Response.json({ error: "Select unique purchase order lines to receive." }, { status: 400 });
       const receivedLines: InputLine[] = [];
+      // A bill entered from a PO may choose one VAT code for the whole bill; otherwise the PO line VAT applies.
+      const billVatCode = type === "bill" ? String(payload.vatCode ?? "").trim().toUpperCase() : "";
       for (const input of rawLines) {
         const line = orderLines.find((entry) => entry.id === Number(input.orderLineId));
         const quantity = Number(input.quantity);
@@ -871,11 +873,11 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
           if (!destinationItem) throw new Error("Could not prepare the item in the receiving inventory.");
           receiptItemId = destinationItem.id;
         }
-        receivedLines.push({ ...line, comments: input.comments, serialNumber: input.serialNumber, itemId: receiptItemId, quantity, ...(editingLinkedBill ? { description: String(input.description ?? line.description), unitPrice: input.unitPrice ?? line.unitPrice, unitCost: input.unitCost ?? line.unitCost, freightCharge: input.freightCharge ?? 0, vatCode: input.vatCode ?? line.vatCode, vatRate: input.vatRate ?? line.vatRate } : {}) });
+        receivedLines.push({ ...line, comments: input.comments, serialNumber: input.serialNumber, itemId: receiptItemId, quantity, ...(editingLinkedBill ? { description: String(input.description ?? line.description), unitPrice: input.unitPrice ?? line.unitPrice, unitCost: input.unitCost ?? line.unitCost, freightCharge: input.freightCharge ?? 0, vatCode: input.vatCode ?? line.vatCode, vatRate: input.vatRate ?? line.vatRate } : {}) , ...(billVatCode ? { vatCode: billVatCode } : {}) });
       }
       rawLines = receivedLines;
       payload.party = order.party; payload.currency = order.currency; payload.exchangeRate = order.exchangeRate;
-      payload.salesman = order.salesman; payload.account = type === "bill" ? String(payload.account || "Purchases") : "Suspense"; payload.status = "open";
+      payload.salesman = type === "bill" && String(payload.salesman ?? "").trim() ? String(payload.salesman).trim() : order.salesman; payload.account = type === "bill" ? String(payload.account || "Purchases") : "Suspense"; payload.status = "open";
       payload.memo = [order.memo, String(payload.memo || ""), `Received from PO ${order.number}`].filter(Boolean).join(" · ");
     }
     let purchaseReturnBillId: number | null = null;
@@ -941,6 +943,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     }
     const configuredVatCodes = await db.select({ code: vatCodes.code, rate: vatCodes.rate }).from(vatCodes).where(and(eq(vatCodes.companyId, companyId), eq(vatCodes.active, true)));
     const vatRates = configuredVatCodes.length ? Object.fromEntries(configuredVatCodes.map((vatCode) => [vatCode.code, Number(vatCode.rate)])) : fallbackVatRates;
+    if (purchaseOrderId && type === "bill" && payload.vatCode && !Object.hasOwn(vatRates, String(payload.vatCode).trim().toUpperCase())) return Response.json({ error: "Select an active VAT code for this bill." }, { status: 400 });
     if (type === "bill") rawLines = rawLines.filter(line => !line.isFreightCharge);
     if (rawLines.some(line => !Number.isFinite(Number(line.freightCharge ?? 0)) || Number(line.freightCharge ?? 0) < 0)) return Response.json({ error: "Line freight charges must be finite, non-negative amounts." }, { status: 400 });
     const prepared = rawLines.map((line) => {

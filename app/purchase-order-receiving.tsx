@@ -11,8 +11,13 @@ import { Save } from "lucide-react";
 
 type ReceiptLine = { id: number; description: string; quantity: number; received: number; remaining: number; unitPrice: number; vatCode: string; vatRate: number };
 type PendingFile = { fileName: string; mimeType: string; fileData: string; fileSize: number };
-export function PurchaseOrderReceiving({ orderId, companyId, onSaved, documentType = "item receipt", account }: { orderId: number; companyId: number; onSaved: () => void; documentType?: "item receipt" | "bill"; account?: string }) {
-  const [data, setData] = useState<{ order: { locationId: number; number: string; status: string; currency: string; memo: string | null }; lines: ReceiptLine[]; locations: { id: number; name: string }[] }>();
+type VatChoice = { code: string; label: string; rate: number };
+export function PurchaseOrderReceiving({ orderId, companyId, onSaved, documentType = "item receipt", account, defaultNumber = "", salesReps = [], vatCodes = [] }: { orderId: number; companyId: number; onSaved: () => void; documentType?: "item receipt" | "bill"; account?: string; defaultNumber?: string; salesReps?: string[]; vatCodes?: VatChoice[] }) {
+  const [data, setData] = useState<{ order: { locationId: number; number: string; status: string; currency: string; memo: string | null; salesman: string | null }; lines: ReceiptLine[]; locations: { id: number; name: string }[] }>();
+  const isBill = documentType === "bill";
+  const [number, setNumber] = useState(defaultNumber);
+  const [salesman, setSalesman] = useState("");
+  const [vatCode, setVatCode] = useState("");
   const [activeLines, setActiveLines] = useState<number[]>([]);
   const [quantities, setQuantities] = useState<Record<number, string>>({});
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
@@ -33,12 +38,16 @@ export function PurchaseOrderReceiving({ orderId, companyId, onSaved, documentTy
       if (controller.signal.aborted) return;
       setData(result);
       setLocationId(result.order.locationId);
+      setSalesman(String(result.order.salesman ?? ""));
+      // One VAT code per bill: start from the purchase order's first line.
+      setVatCode(String(result.lines.find((line: ReceiptLine) => line.remaining > 0)?.vatCode ?? result.lines[0]?.vatCode ?? ""));
     }).catch((error) => { if (!controller.signal.aborted) setError(error.message); });
     return () => controller.abort();
   }, [companyId, orderId]);
   const skuLock = useSkuLock(data ? { resource: "records", kind: "transactions", companyId, locationId: locationId, purchaseOrderId: orderId, lines: data.lines.filter((line) => Number(quantities[line.id]) > 0 || activeLines.includes(line.id)).map((line) => ({ orderLineId: line.id })) } : null);
-  const hasImportGoodsVat = documentType === "bill" && Boolean(data?.lines.some((line) => line.vatCode === "IMPORT_GOODS" && line.remaining > 0));
-  const usesImportGoodsVat = hasImportGoodsVat && Boolean(data?.lines.some((line) => line.vatCode === "IMPORT_GOODS" && Number(quantities[line.id]) > 0));
+  const lineVat = (line: ReceiptLine) => isBill && vatCode ? { code: vatCode, rate: vatCodes.find((option) => option.code === vatCode)?.rate ?? line.vatRate } : { code: line.vatCode, rate: line.vatRate };
+  const hasImportGoodsVat = isBill && Boolean(data?.lines.some((line) => lineVat(line).code === "IMPORT_GOODS" && line.remaining > 0));
+  const usesImportGoodsVat = hasImportGoodsVat && Boolean(data?.lines.some((line) => lineVat(line).code === "IMPORT_GOODS" && Number(quantities[line.id]) > 0));
   async function save(event: React.FormEvent) {
     event.preventDefault();
     if (!skuLock.ready) return;
@@ -46,10 +55,11 @@ export function PurchaseOrderReceiving({ orderId, companyId, onSaved, documentTy
     if (!data.locations.some((location) => location.id === locationId)) return setError("Select a receiving inventory.");
     const lines = data.lines.filter((line) => Number(quantities[line.id]) > 0).map((line) => ({ orderLineId: line.id, quantity: Number(quantities[line.id]), ...(documentType === "bill" ? lineExtras[line.id] : {}) }));
     if (!lines.length) return setError("Enter the quantities received on at least one line.");
+    if (isBill && !number.trim()) return setError("Enter the bill reference number.");
     if (usesImportGoodsVat && (!billOfEntryNumber.trim() || !airwayBillNumber.trim())) return setError("Enter the Bill of Entry No. and Airway Bill No. for imported goods.");
     setSaving(true); setError("");
     try {
-      const response = await fetch("/api/records", { method: "POST", headers: { "Content-Type": "application/json", ...skuLock.headers }, body: JSON.stringify({ kind: "transactions", type: documentType, account, companyId, locationId, purchaseOrderId: orderId, transactionDate: date, memo, ...extra, billOfEntryNumber, airwayBillNumber, lines }) });
+      const response = await fetch("/api/records", { method: "POST", headers: { "Content-Type": "application/json", ...skuLock.headers }, body: JSON.stringify({ kind: "transactions", type: documentType, account, companyId, locationId, purchaseOrderId: orderId, transactionDate: date, memo, ...extra, billOfEntryNumber, airwayBillNumber, lines, ...(isBill ? { number: number.trim(), salesman, vatCode } : {}) }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Could not create item receipt.");
       let attachmentError = "";
@@ -75,6 +85,11 @@ export function PurchaseOrderReceiving({ orderId, companyId, onSaved, documentTy
     <SkuLockNotice message={skuLock.message} />
     {error && <p role="alert" className="mt-3 text-sm text-rose-600">{error}</p>}
     {!data ? <p className="mt-3 text-sm">{error ? "Close and reopen the purchase order to retry." : "Loading quantities…"}</p> : <form onSubmit={save} className="mt-4 grid gap-4">
+      {isBill && <div className="grid gap-4 sm:grid-cols-3">
+        <label className="grid gap-2 text-sm">Reference No. *<Input required maxLength={80} disabled={saving} value={number} onChange={(event) => setNumber(event.target.value)} placeholder="Supplier bill / invoice no." /></label>
+        <label className="grid gap-2 text-sm">Sales Rep<select className="h-10 w-full min-w-0 rounded-md border bg-background px-3" disabled={saving} value={salesman} onChange={(event) => setSalesman(event.target.value)}><option value="">No sales rep</option>{[...new Set([...(salesman ? [salesman] : []), ...salesReps])].map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
+        <label className="grid gap-2 text-sm">VAT code *<select className="h-10 w-full min-w-0 rounded-md border bg-background px-3" required disabled={saving} value={vatCode} onChange={(event) => setVatCode(event.target.value)}>{vatCode && !vatCodes.some((option) => option.code === vatCode) && <option value={vatCode}>{vatCode}</option>}{vatCodes.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}</select></label>
+      </div>}
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="grid gap-2 text-sm">{documentType === "bill" ? "Bill date" : "Receipt date"}<Input type="date" required disabled={saving} value={date} onChange={(event) => setDate(event.target.value)} /></label>
         <label className="grid gap-2 text-sm">Receiving inventory<select className="h-10 w-full min-w-0 rounded-md border bg-background px-3" required disabled={saving} value={locationId || ""} onChange={(event) => { setLocationId(Number(event.target.value)); setLineExtras({}); }}><option value="" disabled>Select inventory</option>{data.locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
@@ -84,7 +99,7 @@ export function PurchaseOrderReceiving({ orderId, companyId, onSaved, documentTy
         <div className="mt-4 grid grid-cols-2 items-end gap-3 sm:grid-cols-4">{[["Ordered", line.quantity], ["Received", line.received], ["Remaining", line.remaining]].map(([label, value]) => <div key={label} className="min-w-0"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 break-all font-medium tabular-nums">{value}</p></div>)}<label className="grid min-w-0 gap-2 text-xs text-muted-foreground">Receive now<Input className="min-w-0 text-right text-foreground tabular-nums" aria-label={'Receive ' + line.description} type="number" min="0" max={line.remaining} step="any" disabled={skuLock.blocked || saving || line.remaining <= 0} onFocus={() => setActiveLines((old) => old.includes(line.id) ? old : [...old, line.id])} value={quantities[line.id] || ""} placeholder="0" onChange={(event) => setQuantities((old) => ({ ...old, [line.id]: event.target.value }))} /></label></div>
         {documentType === "bill" && Number(quantities[line.id]) > 0 && <div className="mt-4 border-t pt-3"><DocumentExtraFields value={lineExtras[line.id] || { comments: "", serialNumber: "" }} onChange={value => setLineExtras(old => ({ ...old, [line.id]: value }))} disabled={saving} /></div>}
       </article>)}</div>
-      {documentType === "bill" && <div className="rounded-md border p-3 text-sm"><p>Prices and VAT are taken from the purchase order.</p><p className="mt-2 font-bold">Bill total: {data.order.currency} {data.lines.reduce((sum, line) => sum + Number((Number(quantities[line.id] || 0) * line.unitPrice).toFixed(2)) + Number((Number((Number(quantities[line.id] || 0) * line.unitPrice).toFixed(2)) * line.vatRate / 100).toFixed(2)), 0).toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p></div>}
+      {documentType === "bill" && <div className="rounded-md border p-3 text-sm"><p>Prices are taken from the purchase order; the VAT code above applies to every line.</p><p className="mt-2 font-bold">Bill total: {data.order.currency} {data.lines.reduce((sum, line) => sum + Number((Number(quantities[line.id] || 0) * line.unitPrice).toFixed(2)) + Number((Number((Number(quantities[line.id] || 0) * line.unitPrice).toFixed(2)) * lineVat(line).rate / 100).toFixed(2)), 0).toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p></div>}
       {hasImportGoodsVat && <section className="grid gap-4 rounded-xl border border-sky-200 bg-sky-50 p-4 sm:grid-cols-2 dark:border-sky-900 dark:bg-sky-950/30"><div className="sm:col-span-2"><h4 className="font-semibold">UAE import documents</h4><p className="mt-1 text-xs text-muted-foreground">This purchase order uses the Goods imported into the UAE VAT code. Bill of Entry No. and Airway Bill No. are required when an import line is included in this bill.</p></div><label className="grid gap-2 text-sm">Bill of Entry No.{usesImportGoodsVat ? " *" : ""}<Input required={usesImportGoodsVat} maxLength={120} value={billOfEntryNumber} onChange={(event) => setBillOfEntryNumber(event.target.value)} placeholder="Enter Bill of Entry number" /></label><label className="grid gap-2 text-sm">Airway Bill No.{usesImportGoodsVat ? " *" : ""}<Input required={usesImportGoodsVat} maxLength={120} value={airwayBillNumber} onChange={(event) => setAirwayBillNumber(event.target.value)} placeholder="Enter Airway Bill number" /></label></section>}
       {hasImportGoodsVat && <InvoiceAttachments companyId={companyId} pending={attachments} onPendingChange={setAttachments} documentLabel="Bill" />}
       {documentType === "bill" && <DocumentExtraFields value={extra} onChange={setExtra} disabled={saving} />}
