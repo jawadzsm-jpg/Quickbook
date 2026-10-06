@@ -34,8 +34,10 @@ export function LetterheadBrand({ template, company }: { template: LetterheadTem
   </header>;
 }
 
-export function LetterheadStamp({ template, company, onMove, maxLeft = 170, maxTop = 260, pageWidthMm = 210, responsive = false }: { template: LetterheadTemplate; company: LetterheadCompany; onMove?: (left: number, top: number) => void; maxLeft?: number; maxTop?: number; pageWidthMm?: number; responsive?: boolean }) {
-  if (!template.showStamp || !company.stampData) return null;
+// Draggable stamp image: the company stamp by default, or another image such as a bank stamp via `imageData`.
+export function LetterheadStamp({ template, company, onMove, maxLeft = 170, maxTop = 260, pageWidthMm = 210, responsive = false, imageData, alt = "Company stamp" }: { template: LetterheadTemplate; company: LetterheadCompany; onMove?: (left: number, top: number) => void; maxLeft?: number; maxTop?: number; pageWidthMm?: number; responsive?: boolean; imageData?: string; alt?: string }) {
+  const src = imageData ?? company.stampData;
+  if (!template.showStamp || !src) return null;
   const begin = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!onMove || event.button !== 0) return;
     event.preventDefault();
@@ -57,7 +59,7 @@ export function LetterheadStamp({ template, company, onMove, maxLeft = 170, maxT
   };
   return <div className="letterhead-stamp" onPointerDown={begin} title={onMove ? "Drag stamp to move" : undefined}
     style={{ position: "absolute", left: responsive ? `${template.stampLeft / pageWidthMm * 100}%` : `${template.stampLeft}mm`, width: responsive ? `${32 / pageWidthMm * 100}%` : undefined, top: `${template.stampTop}mm`, cursor: onMove ? "grab" : undefined, touchAction: "none", zIndex: 2 }}>
-    <Image src={company.stampData} alt="Company stamp" width={130} height={95} unoptimized style={{ width: responsive ? "100%" : undefined, height: responsive ? "auto" : undefined, maxWidth: "32mm", maxHeight: "23mm", objectFit: "contain" }} />
+    <Image src={src} alt={alt} width={130} height={95} unoptimized style={{ width: responsive ? "100%" : undefined, height: responsive ? "auto" : undefined, maxWidth: "32mm", maxHeight: "23mm", objectFit: "contain" }} />
   </div>;
 }
 
