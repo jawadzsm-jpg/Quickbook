@@ -8,7 +8,7 @@ export const defaultDocumentDesign: DocumentDesign = {
  properties: {}, savedTemplates: [], customBoxes: [], enabled: false, name: 'Company invoice', title: 'Tax Invoice', font: 'Arial', fontSize: 11, titleSize: 26, companySize: 21, color: '#164e63', leftLogo: true, rightLogo: true, logoWidth: 150, logoHeight: 70, showCompany: true, showAddress: true, showPhone: true, showEmail: true, statusStamp: true, pastDueStamp: false,
  headers: [field('number','Invoice #'),field('date','Date'),field('billTo','Bill To'),field('shipTo','Ship To'),field('terms','Terms'),field('dueDate','Due Date'),field('salesman','Sales Rep'),field('trn','TRN'),field('source','Source Document',1,false)],
  columns: [field('sku','Item',12),field('description','Description',38),field('quantity','Qty',7),field('unitPrice','Rate',10),field('serialNumber','Serial Number',18),field('subtotal','Subtotal',10),field('vatAmount','VAT',8),field('total','Amount',10),field('comments','Comments',20,false)],
- footer: [field('subtotal','Subtotal'),field('vatAmount','VAT'),field('total','Total'),field('balance','Balance Due'),field('message','Customer Message'),field('disclaimer','Terms & Conditions')],
+ footer: [field('subtotal','Subtotal'),field('vatAmount','VAT'),field('total','Total'),field('balance','Balance Due'),field('message','Customer Message'),field('disclaimer','Terms & Conditions'),field('bankDetails','Bank Details')],
  message: '', disclaimer: '', printerMode: 'specified', copies: 1, paper: 'A4', customPaperWidth: 210, customPaperHeight: 297, orientation: 'portrait', margin: 10, printPageNumbers: false, printTrailingZeros: true, decimals: 2,
 };
 export function readDocumentDesign(value?: string): DocumentDesign {
@@ -77,6 +77,8 @@ export function validateDocumentDesign(value: string): DocumentDesign {
     if (!validKey || typeof row.label !== 'string' || row.label.length > 80 || !row.label.trim() || typeof row.screen !== 'boolean' || typeof row.print !== 'boolean' || !Number.isFinite(row.width) || row.width < 1 || row.width > 100) throw new Error('Invalid template field.');
     return {key:row.key,label:row.label,screen:row.screen,print:row.print,width:row.width};
    });
+   // Fields added after a design was saved (e.g. Bank Details) appear so every template can show and move them.
+   if (key === 'footer' && !input[key].some((row: DesignField) => row.key === 'bankDetails')) input[key].push(original.find(row => row.key === 'bankDetails')!);
   } else if (typeof input[key] !== typeof original) throw new Error('Invalid template setting.');
   Object.assign(result, {[key]:input[key]});
  }

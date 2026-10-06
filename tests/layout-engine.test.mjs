@@ -153,3 +153,34 @@ test("saved invoices map onto the renderer input without freight or pending line
   assert.deepEqual(data.totals, { subtotal: 300, vat: 15, total: 315, paid: 0, balance: 315 });
   assert.equal(data.details.number, "INV-9"); assert.equal(data.company.addressLines.at(-1), "Dubai, UAE"); assert.equal(data.company.bank.name, "ENBD");
 });
+
+test("bank accounts validate per currency and documents pick the account matching their currency", async () => {
+  const { parseBankAccounts, bankForCurrency, bankLines, draftBankAccounts } = await vite.ssrLoadModule("/lib/bank-accounts.ts");
+  const usd = { id: "b1", currency: "usd", bankName: "Mashreq", accountName: "ComNet LLC", accountNumber: "0191", iban: "ae070330000010191", swift: "boml" };
+  const accounts = parseBankAccounts(JSON.stringify([usd]));
+  assert.deepEqual(accounts[0], { id: "b1", currency: "USD", bankName: "Mashreq", accountName: "ComNet LLC", accountNumber: "0191", iban: "AE070330000010191", swift: "BOML" });
+  assert.throws(() => parseBankAccounts([usd, { ...usd, id: "b2" }]), /one bank account per currency/);
+  assert.throws(() => parseBankAccounts([{ ...usd, currency: "US" }]), /three-letter/);
+  assert.throws(() => parseBankAccounts([{ id: "b3", currency: "EUR" }]), /bank name, account number or IBAN/);
+  assert.equal(draftBankAccounts(JSON.stringify([{ ...usd, currency: "U" }]))[0].currency, "U"); // half-typed entries survive editing
+  const company = { bankName: "Emirates NBD", bankAccountNumber: "1015", bankCurrency: "AED", baseCurrency: "AED", bankAccounts: JSON.stringify(accounts) };
+  assert.equal(bankForCurrency(company, "USD").bankName, "Mashreq");
+  assert.equal(bankForCurrency(company, "AED").bankName, "Emirates NBD");
+  assert.equal(bankForCurrency(company, "EUR").bankName, "Emirates NBD"); // no EUR account: default account
+  assert.equal(bankForCurrency({}, "USD"), null);
+  assert.deepEqual(bankLines(bankForCurrency(company, "USD")), ["Mashreq", "Account name: ComNet LLC", "Account no.: 0191", "IBAN: AE070330000010191", "SWIFT: BOML", "Currency: USD"]);
+  const { transactionDocumentData } = await vite.ssrLoadModule("/app/layout-builder/company-data.ts");
+  const branding = { name: "ComNet", logoData: "", phone: "", trn: "", addressLine1: "", addressLine2: "", city: "", country: "", ...company };
+  assert.equal(transactionDocumentData({ currency: "USD", total: 1 }, [], null, branding).company.bank.name, "Mashreq");
+  assert.equal(transactionDocumentData({ currency: "AED", total: 1 }, [], null, branding).company.bank.name, "Emirates NBD");
+});
+
+test("saved designs gain the movable Bank Details footer field", async () => {
+  const { readDocumentDesign, defaultDocumentDesign } = await vite.ssrLoadModule("/lib/document-design.ts");
+  const legacy = structuredClone(defaultDocumentDesign);
+  legacy.footer = legacy.footer.filter((field) => field.key !== "bankDetails");
+  const design = readDocumentDesign(JSON.stringify(legacy));
+  const bank = design.footer.find((field) => field.key === "bankDetails");
+  assert.ok(bank && bank.print && bank.screen);
+  assert.equal(readDocumentDesign(JSON.stringify(design)).footer.filter((field) => field.key === "bankDetails").length, 1);
+});

@@ -1,22 +1,24 @@
+import { bankForCurrency, type CompanyBankFields } from "@/lib/bank-accounts";
 import type { DocumentData, DocumentLine } from "@/lib/layout/document-data";
 
 
 export type CompanyBranding = {
   name: string; logoData: string; rightLogoData?: string; stampData?: string; phone: string; email?: string; trn: string;
   addressLine1: string; addressLine2: string; city: string; country: string;
-  bankName?: string; bankAccountName?: string; bankAccountNumber?: string; bankIban?: string; bankSwift?: string;
-};
+} & CompanyBankFields;
 type RecordData = Record<string, unknown>;
 
 const text = (value: unknown) => value === null || value === undefined ? "" : String(value);
 const number = (value: unknown) => { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : 0; };
 const round = (value: number) => Math.round(value * 100) / 100;
 
-export function companyDocumentData(setup: CompanyBranding): DocumentData["company"] {
+/** Company details for a document; bank details follow the document currency when an account exists for it. */
+export function companyDocumentData(setup: CompanyBranding, currency?: string): DocumentData["company"] {
+  const bank = bankForCurrency(setup, currency || setup.bankCurrency || setup.baseCurrency);
   return {
     name: setup.name, addressLines: [setup.addressLine1, setup.addressLine2, [setup.city, setup.country].filter(Boolean).join(", ")].filter((line) => line.trim()),
     phone: setup.phone, email: setup.email ?? "", trn: setup.trn, leftLogo: setup.logoData, rightLogo: setup.rightLogoData ?? "", stamp: setup.stampData ?? "",
-    bank: { name: setup.bankName ?? "", accountName: setup.bankAccountName ?? "", accountNumber: setup.bankAccountNumber ?? "", iban: setup.bankIban ?? "", swift: setup.bankSwift ?? "" },
+    bank: { name: bank?.bankName ?? "", accountName: bank?.accountName ?? "", accountNumber: bank?.accountNumber ?? "", iban: bank?.iban ?? "", swift: bank?.swift ?? "" },
   };
 }
 
@@ -37,7 +39,7 @@ export function transactionDocumentData(record: RecordData, lines: RecordData[],
   const billingName = text(contact?.billingName || contact?.company || record.party);
   const contactCity = [contact?.city, contact?.country].map(text).filter(Boolean).join(", ");
   return {
-    company: companyDocumentData(setup),
+    company: companyDocumentData(setup, text(record.currency)),
     billTo: [billingName, text(contact?.address || contact?.addressLine1), contactCity, contact?.trn ? `TRN ${text(contact.trn)}` : ""].filter(Boolean),
     shipTo: [text(record.deliveryAddress || contact?.shippingAddress)].filter(Boolean),
     details: {

@@ -2986,3 +2986,19 @@ test('layout builder saves only the validated layout and hides it from sales use
     assert.notEqual((await patch({documentLayout:JSON.stringify(layout)})).status,200);
   } finally { delete globalThis.__transferTestUser; }
 });
+
+test('company bank accounts by currency are validated, saved by accountants and hidden from sales', async () => {
+  const companyId=(await database.query("INSERT INTO companies (name) VALUES ('Bank currency company') RETURNING id")).rows[0].id;
+  const {GET,PATCH}=await vite.ssrLoadModule('/app/api/company-setup/route.ts');
+  const patch=(body)=>PATCH(new Request('https://app.test/api/company-setup',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({companyId,...body})}));
+  const usd={id:'usd',currency:'usd',bankName:'Mashreq',accountName:'Co',accountNumber:'1',iban:'ae01',swift:'boml'};
+  try { globalThis.__transferTestUser={id:9,role:'accountant',companyIds:[companyId]};
+    assert.equal((await patch({bankAccounts:JSON.stringify([usd,{...usd,id:'usd2'}])})).status,400);
+    assert.equal((await patch({bankAccounts:JSON.stringify([{...usd,currency:'XX'}])})).status,400);
+    const saved=await patch({bankAccounts:JSON.stringify([usd])});assert.equal(saved.status,200,JSON.stringify(await saved.clone().json()));
+    assert.deepEqual(JSON.parse((await saved.json()).record.bankAccounts),[{id:'usd',currency:'USD',bankName:'Mashreq',accountName:'Co',accountNumber:'1',iban:'AE01',swift:'BOML'}]);
+    globalThis.__transferTestUser={id:7,role:'sales',companyIds:[companyId]};
+    const sales=await GET(new Request(`https://app.test/api/company-setup?companyId=${companyId}`));
+    if (sales.status===200) assert.equal((await sales.json()).record.bankAccounts,'');
+  } finally { delete globalThis.__transferTestUser; }
+});
