@@ -1,7 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Download, FileDown, Printer } from "lucide-react";
+import { Download, FileDown, Printer, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PrintOrientationSelect, type PrintOrientation } from "@/components/print-orientation-select";
 import { resolveDocumentDesign, type TemplateDocumentType } from "@/lib/document-design";
@@ -18,9 +18,10 @@ import { transactionDocumentData, type CompanyBranding } from "./layout-builder/
 import { LayoutPreview } from "./layout-builder/layout-preview";
 import { printLayout } from "./layout-builder/print-layout";
 import { bankForCurrency } from "@/lib/bank-accounts";
+import { readStampPositions, type DocumentStampPositions, type StampPlacement, type StampPositions } from "@/lib/stamp-positions";
 
 type RecordData = Record<string, string | number | boolean>;
-type Branding = TemplateBranding & CompanyBranding & { documentDesign?: string; letterheadDesign?: string; documentLayout?: string };
+type Branding = TemplateBranding & CompanyBranding & { id?: number; documentDesign?: string; letterheadDesign?: string; documentLayout?: string; stampPositions?: string };
 export const salesDocumentTitles = {
   "tax-invoice": "Tax Invoice",
   "commercial-invoice": "Commercial Invoice",
@@ -88,15 +89,16 @@ export function salesDocumentModeForTransaction(type: string): SalesDocumentMode
 // Each transaction type resolves its own active saved Company Setup template.
 // Invoice-like documents can also switch to the saved Delivery Note or Packing List
 // layout from the document preview, so every template is connected to its real output.
-export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: { mode: SalesDocumentMode; record: RecordData; lines: RecordData[]; contact?: RecordData | null; setup: Branding; showBillingName: boolean; showShipping: boolean; showHsCode: boolean; showDimensions: boolean }) {
+export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onStampPositionsSaved }: { mode: SalesDocumentMode; record: RecordData; lines: RecordData[]; contact?: RecordData | null; setup: Branding; onStampPositionsSaved?: (stampPositions: string) => void; showBillingName: boolean; showShipping: boolean; showHsCode: boolean; showDimensions: boolean }) {
   const outputModes = relatedDocumentOutputs[mode] ?? [mode];
   const [selection, setSelection] = useState<{ source: SalesDocumentMode; output: SalesDocumentMode }>({ source: mode, output: mode });
   const [copy, setCopy] = useState<"customer" | "inventory">("customer");
   const [pdfBusy, setPdfBusy] = useState(false);
-  const [poStamp, setPoStamp] = useState<{show:boolean;left:number;top:number}|null>(null);
   const [showBank, setShowBank] = useState(true);
-  const [showBankStamp, setShowBankStamp] = useState(true);
-  const [bankStampPosition, setBankStampPosition] = useState({ left: 0, top: 0 });
+  // Stamp placement is saved per document type; unsaved edits are kept per type until saved.
+  const [savedPositions, setSavedPositions] = useState(() => readStampPositions(setup.stampPositions));
+  const [stampEdits, setStampEdits] = useState<StampPositions>({});
+  const [savingStamps, setSavingStamps] = useState(false);
   const [packingOpen, setPackingOpen] = useState(false);
   const [packingView, setPackingView] = useState<"packing" | "hs-summary">("packing");
   const [printOrientation, setPrintOrientation] = useState<PrintOrientation>("portrait");
@@ -104,7 +106,15 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
   const activeMode = selection.source === mode && outputModes.includes(selection.output) ? selection.output : mode;
   const signedInvoiceCopies = activeMode === "tax-invoice" || activeMode === "commercial-invoice";
   const letterhead = letterheadForDocument(setup.letterheadDesign, activeMode);
-  const stamp = poStamp ?? {show: Boolean(letterhead?.showStamp), left: letterhead?.stampLeft ?? 155, top: 0};
+  const savedStamps = savedPositions[activeMode] ?? {};
+  const stamp = stampEdits[activeMode]?.company ?? savedStamps.company ?? {show: Boolean(letterhead?.showStamp), left: letterhead?.stampLeft ?? 155, top: 0};
+  const bankStamp = stampEdits[activeMode]?.bank ?? savedStamps.bank ?? { show: true, left: 0, top: 0 };
+  const editStamps = (patch: DocumentStampPositions) => setStampEdits((edits) => ({ ...edits, [activeMode]: { company: stamp, bank: bankStamp, ...edits[activeMode], ...patch } }));
+  const setPoStamp = (company: StampPlacement) => editStamps({ company });
+  const showBankStamp = bankStamp.show;
+  const setShowBankStamp = (show: boolean) => editStamps({ bank: { ...bankStamp, show } });
+  const bankStampPosition = { left: bankStamp.left, top: bankStamp.top };
+  const setBankStampPosition = ({ left, top }: { left: number; top: number }) => editStamps({ bank: { show: bankStamp.show, left, top } });
   const movableStamp = true;
   // Bank details belong on documents asking for payment, not on delivery notes or packing lists.
   const bankApplies = !["delivery-note", "packing-list", "hs-code-summary"].includes(activeMode);
@@ -120,6 +130,24 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
   const stampOverride = { ...stamp, left: Math.min(stampMaxLeft, stamp.left) };
   const bankStampOverride = { ...bankStampPosition, left: Math.min(stampMaxLeft, bankStampPosition.left) };
   const bankStampShown = bankApplies && showBank && bankStampAvailable && showBankStamp;
+  const stampsToSave: DocumentStampPositions = { company: { show: stamp.show, left: stampOverride.left, top: stamp.top }, bank: { show: bankStamp.show, left: bankStampOverride.left, top: bankStamp.top } };
+  const stampsDirty = JSON.stringify(stampsToSave) !== JSON.stringify({ company: savedStamps.company, bank: savedStamps.bank });
+  const saveStampPositions = async () => {
+    if (!setup.id) return;
+    setSavingStamps(true);
+    try {
+      const next = { ...savedPositions, [activeMode]: stampsToSave };
+      const response = await fetch("/api/company-setup", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId: setup.id, stampPositions: JSON.stringify(next) }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not save the stamp positions.");
+      const stored = String(result.record?.stampPositions ?? JSON.stringify(next));
+      setSavedPositions(readStampPositions(stored));
+      setStampEdits((edits) => Object.fromEntries(Object.entries(edits).filter(([type]) => type !== activeMode)));
+      onStampPositionsSaved?.(stored);
+      toast.success(`Stamp positions saved for every ${salesDocumentTitles[activeMode]}`);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save the stamp positions."); }
+    finally { setSavingStamps(false); }
+  };
   const pageRule = documentPageRule(a4Design);
   const screenPreviewRef = useRef<HTMLDivElement>(null);
   // The template renders at its fixed design width; on narrow screens the preview zooms out to fit.
@@ -348,10 +376,10 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
       </div>
     </div>
     {movableStamp && <div className="document-internal-only mb-4 grid gap-3 rounded-xl border bg-card p-4 text-sm text-card-foreground">
-      <div className="flex flex-wrap items-center gap-4"><label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={stamp.show} disabled={!setup.stampData} onChange={(event) => setPoStamp({...stamp,show:event.target.checked})} />Company stamp</label>{bankApplies && <label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={showBank} onChange={(event) => setShowBank(event.target.checked)} />Bank account details</label>}{bankApplies && showBank && bankStampAvailable && <label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={showBankStamp} onChange={(event) => setShowBankStamp(event.target.checked)} />Bank stamp ({String(record.currency || setup.baseCurrency || "").toUpperCase()})</label>}{!setup.stampData && <span className="text-muted-foreground">Upload a company stamp in Company Setup first.</span>}{bankApplies && showBank && !bankStampAvailable && <span className="text-muted-foreground">No bank stamp for {String(record.currency || setup.baseCurrency || "").toUpperCase()} — add one in Company Setup → Bank account.</span>}</div>
+      <div className="flex flex-wrap items-center gap-4"><label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={stamp.show} disabled={!setup.stampData} onChange={(event) => setPoStamp({...stamp,show:event.target.checked})} />Company stamp</label>{bankApplies && <label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={showBank} onChange={(event) => setShowBank(event.target.checked)} />Bank account details</label>}{bankApplies && showBank && bankStampAvailable && <label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={showBankStamp} onChange={(event) => setShowBankStamp(event.target.checked)} />Bank stamp ({String(record.currency || setup.baseCurrency || "").toUpperCase()})</label>}{!setup.stampData && <span className="text-muted-foreground">Upload a company stamp in Company Setup first.</span>}{bankApplies && showBank && !bankStampAvailable && <span className="text-muted-foreground">No bank stamp for {String(record.currency || setup.baseCurrency || "").toUpperCase()} — add one in Company Setup → Bank account.</span>}{(setup.stampData || bankStampAvailable) && setup.id ? <Button type="button" size="sm" variant={stampsDirty ? "default" : "outline"} className="ml-auto" disabled={savingStamps || !stampsDirty} onClick={() => void saveStampPositions()}><Save className="size-4" />{savingStamps ? "Saving…" : stampsDirty ? "Save stamp positions" : "Positions saved"}</Button> : null}</div>
       {stamp.show && setup.stampData && <div className="flex flex-wrap items-center gap-4"><span className="w-28 font-medium">Company stamp</span><label className="flex items-center gap-2">Left (mm)<input type="number" min="0" max={stampMaxLeft} className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={stampOverride.left} onChange={(event) => setPoStamp({...stamp,left:Math.max(0,Math.min(stampMaxLeft,Number(event.target.value)||0))})} /></label><label className="flex items-center gap-2">Vertical gap (mm)<input type="number" min="0" max={20} className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={stamp.top} onChange={(event) => setPoStamp({...stamp,top:Math.max(0,Math.min(20,Number(event.target.value)||0))})} /></label></div>}
       {bankStampShown && <div className="flex flex-wrap items-center gap-4"><span className="w-28 font-medium">Bank stamp ({String(record.currency || setup.baseCurrency || "").toUpperCase()})</span><label className="flex items-center gap-2">Left (mm)<input type="number" min="0" max={stampMaxLeft} className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={bankStampOverride.left} onChange={(event) => setBankStampPosition({...bankStampPosition,left:Math.max(0,Math.min(stampMaxLeft,Number(event.target.value)||0))})} /></label><label className="flex items-center gap-2">Vertical gap (mm)<input type="number" min="0" max={20} className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={bankStampPosition.top} onChange={(event) => setBankStampPosition({...bankStampPosition,top:Math.max(0,Math.min(20,Number(event.target.value)||0))})} /></label></div>}
-      {(stamp.show && setup.stampData) || bankStampShown ? <span className="text-xs text-muted-foreground">Stamps stay below the table and totals. Drag each stamp within this area or adjust the values. The bank stamp follows the document currency. Turn a stamp off to remove it from print and PDF.</span> : null}
+      {(stamp.show && setup.stampData) || bankStampShown ? <span className="text-xs text-muted-foreground">Stamps stay below the table and totals. Drag each stamp within this area or adjust the values. The bank stamp follows the document currency. Turn a stamp off to remove it from print and PDF. Save stamp positions to use these settings on every {salesDocumentTitles[activeMode]}.</span> : null}
     </div>}
     {signedInvoiceCopies ? <div className="document-internal-only mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">Print creates Customer and Inventory copies with signature areas. Customer copies hide zero-price and stock-return lines. Save or download uses the selected copy.</div> : null}
     <div ref={fitRef} className="relative min-w-0">
