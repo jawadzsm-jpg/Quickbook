@@ -175,6 +175,24 @@ test("bank accounts validate per currency and documents pick the account matchin
   assert.equal(transactionDocumentData({ currency: "AED", total: 1 }, [], null, branding).company.bank.name, "Emirates NBD");
 });
 
+test("each currency's bank account carries its own stamp onto documents", async () => {
+  const { parseBankAccounts, bankForCurrency, validBankStamp } = await vite.ssrLoadModule("/lib/bank-accounts.ts");
+  const usdStamp = "data:image/png;base64,VVNE", aedStamp = "data:image/webp;base64,QUVE";
+  const usd = { id: "b1", currency: "USD", bankName: "Mashreq", accountName: "", accountNumber: "0191", iban: "", swift: "", stampData: usdStamp };
+  assert.equal(parseBankAccounts([usd])[0].stampData, usdStamp);
+  assert.equal("stampData" in parseBankAccounts([{ ...usd, stampData: "" }])[0], false);
+  assert.throws(() => parseBankAccounts([{ ...usd, stampData: "data:image/svg+xml;base64,PHN2Zz4=" }]), /bank stamp/);
+  assert.equal(validBankStamp(`data:image/png;base64,${"A".repeat(700_000)}`), false);
+  const company = { bankName: "Emirates NBD", bankAccountNumber: "1015", bankCurrency: "AED", baseCurrency: "AED", bankStampData: aedStamp, bankAccounts: JSON.stringify([usd]) };
+  assert.equal(bankForCurrency(company, "USD").stampData, usdStamp);
+  assert.equal(bankForCurrency(company, "AED").stampData, aedStamp);
+  assert.equal(bankForCurrency(company, "EUR").stampData, aedStamp); // falls back with the default account
+  const { transactionDocumentData } = await vite.ssrLoadModule("/app/layout-builder/company-data.ts");
+  const branding = { name: "ComNet", logoData: "", phone: "", trn: "", addressLine1: "", addressLine2: "", city: "", country: "", ...company };
+  assert.equal(transactionDocumentData({ currency: "USD", total: 1 }, [], null, branding).company.bank.stamp, usdStamp);
+  assert.equal(transactionDocumentData({ currency: "AED", total: 1 }, [], null, { ...branding, bankStampData: "" }).company.bank.stamp, "");
+});
+
 test("saved designs gain the movable Bank Details footer field", async () => {
   const { readDocumentDesign, defaultDocumentDesign } = await vite.ssrLoadModule("/lib/document-design.ts");
   const legacy = structuredClone(defaultDocumentDesign);
