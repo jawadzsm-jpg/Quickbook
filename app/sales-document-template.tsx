@@ -13,7 +13,7 @@ import { DeliveryNoteTemplate } from "./delivery-note-template";
 import { toast } from "sonner";
 import { customerInvoiceLines, inventoryInvoiceLines } from "@/lib/invoice-stock-lines";
 import { letterheadForDocument } from "@/lib/letterhead";
-import { parseLayout } from "@/lib/layout/schema";
+import { parseLayoutCollection } from "@/lib/layout/schema";
 import { transactionDocumentData, type CompanyBranding } from "./layout-builder/company-data";
 import { LayoutPreview } from "./layout-builder/layout-preview";
 import { printLayout } from "./layout-builder/print-layout";
@@ -152,10 +152,11 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup }: {
   const pdfFileName = documentPdfFileName(customerName, selectedCopy === "inventory" ? `${referenceNumber}_Inventory_Copy` : referenceNumber);
   const pdfTitle = pdfFileName.replace(/\.pdf$/i, "");
   const pdfElement = () => screenPreviewRef.current?.querySelector<HTMLElement>(".custom-invoice") || null;
-  // Tax invoices print with the Layout Builder design when the company has turned it on.
+  // Each document type prints with its own Layout Builder design when the company has turned it on.
   const builderLayout = useMemo(() => {
-    if (activeMode !== "tax-invoice" || !setup.documentLayout) return null;
-    try { const layout = parseLayout(setup.documentLayout); return layout.enabled && layout.kind === "invoice" ? layout : null; } catch { return null; }
+    const type = savedTemplateType[activeMode];
+    if (!type || !setup.documentLayout) return null;
+    try { const layout = parseLayoutCollection(setup.documentLayout)[type]; return layout?.enabled ? layout : null; } catch { return null; }
   }, [activeMode, setup.documentLayout]);
   const builderCopies = useMemo(() => {
     if (!builderLayout) return null;

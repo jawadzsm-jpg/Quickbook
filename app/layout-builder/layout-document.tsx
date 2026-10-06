@@ -2,6 +2,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import type { DocumentData } from "@/lib/layout/document-data";
 import type { Layout, LineColumn, Overlay, Row, Section } from "@/lib/layout/schema";
+import { fontStacks } from "@/lib/layout/styles";
 
 // Pure renderer shared by the editor canvas, the print frame and PDF output. No hooks or browser APIs,
 // so it can also be rendered to static markup for printing.
@@ -16,12 +17,16 @@ export function sectionStyle(section: Section, baseSizePt: number): CSSPropertie
   return {
     textAlign: style.align, padding: `${style.paddingMm}mm`, background: style.background || undefined,
     fontSize: `${Math.round(baseSizePt * style.fontScale * 100) / 100}pt`, fontWeight: style.bold ? 700 : undefined,
-  };
+    fontStyle: style.italic ? "italic" : undefined, textDecoration: style.underline ? "underline" : undefined,
+    color: style.textColor || undefined, fontFamily: style.font ? fontStacks[style.font] : undefined,
+    ...(style.border !== "none" ? { "--lb-section-border": `${style.borderWidthPt}pt solid ${style.borderColor || "var(--lb-border)"}` } : {}),
+  } as CSSProperties;
 }
 
 export function sectionClass(section: Section) {
   const border = section.style.border === "none" ? "" : ` lb-border-${section.style.border}`;
-  return `lb-section lb-align-${section.style.align}${section.avoidBreakInside ? " lb-avoid" : ""}${border}`;
+  const valign = section.style.verticalAlign === "top" ? "" : ` lb-valign-${section.style.verticalAlign}`;
+  return `lb-section lb-align-${section.style.align}${section.avoidBreakInside ? " lb-avoid" : ""}${border}${valign}`;
 }
 
 function Lines({ lines, empty }: { lines: string[]; empty: string }) {
@@ -49,10 +54,10 @@ export function SectionBody({ section, data }: { section: Section; data: Documen
       return <div className="lb-header">
         {props.showLeftLogo && logo(company.leftLogo, "left")}
         <div className="lb-header-main">
-          {props.showName && <p className="lb-company">{company.name}</p>}
-          {props.showAddress && company.addressLines.map((line, index) => <p key={index} className="lb-muted">{line}</p>)}
-          {(props.showPhone && company.phone) || (props.showEmail && company.email) ? <p className="lb-muted">{[props.showPhone && company.phone && `Tel: ${company.phone}`, props.showEmail && company.email].filter(Boolean).join(" · ")}</p> : null}
-          {props.showTrn && company.trn && <p className="lb-muted">TRN {company.trn}</p>}
+          {props.showName && <p className="lb-company">{props.nameText || company.name}</p>}
+          {props.showAddress && (props.addressText ? props.addressText.split("\n") : company.addressLines).map((line, index) => <p key={index} className="lb-muted">{line}</p>)}
+          {(props.showPhone && company.phone) || (props.showEmail && company.email) ? <p className="lb-muted">{[props.showPhone && company.phone && `${props.phoneLabel} ${company.phone}`.trim(), props.showEmail && company.email && `${props.emailLabel} ${company.email}`.trim()].filter(Boolean).join(" · ")}</p> : null}
+          {props.showTrn && company.trn && <p className="lb-muted">{`${props.trnLabel} ${company.trn}`.trim()}</p>}
         </div>
         {props.showRightLogo && logo(company.rightLogo, "right")}
       </div>;
@@ -66,9 +71,10 @@ export function SectionBody({ section, data }: { section: Section; data: Documen
     case "lineItems": {
       const { columns } = section.props;
       const totalWidth = columns.reduce((sum, column) => sum + column.width, 0) || 1;
-      return <table className={`lb-items${section.props.zebra ? " lb-zebra" : ""}${section.props.repeatHeading ? "" : " lb-no-repeat"}`}>
+      const heading: CSSProperties = { background: section.props.headingBackground || undefined, color: section.props.headingTextColor || undefined, fontWeight: section.props.headingBold ? 700 : 400 };
+      return <table className={`lb-items lb-grid-${section.props.gridLines}${section.props.zebra ? " lb-zebra" : ""}${section.props.repeatHeading ? "" : " lb-no-repeat"}`}>
         <colgroup>{columns.map((column) => <col key={column.key} style={{ width: `${(column.width / totalWidth) * 100}%` }} />)}</colgroup>
-        <thead><tr>{columns.map((column) => <th key={column.key} className={numeric.has(column.key) ? "lb-num" : undefined}>{column.label}</th>)}</tr></thead>
+        <thead><tr>{columns.map((column) => <th key={column.key} className={numeric.has(column.key) ? "lb-num" : undefined} style={heading}>{column.label}</th>)}</tr></thead>
         <tbody>{data.lines.length ? data.lines.map((_, index) => <tr key={index}>{columns.map((column) => <td key={column.key} className={numeric.has(column.key) ? "lb-num" : column.key === "description" || column.key === "comments" || column.key === "serialNumber" ? "lb-pre" : undefined}>{lineValue(data, column.key, index)}</td>)}</tr>)
           : <tr><td colSpan={columns.length} className="lb-empty">No lines</td></tr>}</tbody>
       </table>;

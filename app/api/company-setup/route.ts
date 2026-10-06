@@ -1,4 +1,4 @@
-import { parseLayout } from "@/lib/layout/schema";
+import { parseLayoutCollection, serializeLayoutCollection } from "@/lib/layout/schema";
 import { parseBankAccounts } from "@/lib/bank-accounts";
 import { validateDocumentDesign } from "@/lib/document-design";
 import { eq, ne, sql } from "drizzle-orm";
@@ -39,14 +39,18 @@ export async function PATCH(request: Request) {
   try {
     const payload = (await request.json()) as Record<string, unknown>;
     const companyId = Number(payload.companyId);
-    if (user.role === "accountant" && canAccessCompany(user, companyId)) {
-      const keys = ["bankName", "bankAccountName", "bankAccountNumber", "bankIban", "bankSwift", "bankCurrency", "bankAccounts", "stampData"];
+    const bankAndStampKeys = ["bankName", "bankAccountName", "bankAccountNumber", "bankIban", "bankSwift", "bankCurrency", "bankAccounts", "stampData"];
+    // Accountants always use this partial save; administrators use it for the Bank account section's own Save button.
+    const bankOnlySave = Object.keys(payload).every((key) => key === "companyId" || bankAndStampKeys.includes(key));
+    if ((user.role === "accountant" || (isAdministrator(user) && bankOnlySave)) && canAccessCompany(user, companyId)) {
+      const keys = bankAndStampKeys;
       if (Object.keys(payload).some(key => key !== "companyId" && !keys.includes(key))) return Response.json({ error: "Accountants may update bank details and the company stamp only." }, { status: 403 });
       const updates: Record<string, string> = {};
       for (const key of keys) if (payload[key] !== undefined && key !== "bankAccounts") updates[key] = text(payload[key], key === "stampData" ? 700001 : 120);
       if (payload.bankAccounts !== undefined) { try { updates.bankAccounts = JSON.stringify(parseBankAccounts(payload.bankAccounts)); } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Check the bank accounts." }, { status: 400 }); } }
       if (updates.stampData && (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(updates.stampData) || updates.stampData.length > 700000)) return Response.json({ error: "Upload a PNG, JPG or WebP stamp smaller than 500 KB." }, { status: 400 });
       if (updates.bankCurrency !== undefined && !/^[A-Z]{3}$/.test(updates.bankCurrency)) return Response.json({ error: "Enter a three-letter bank currency." }, { status: 400 });
+      if (!Object.keys(updates).length) return Response.json({ error: "Nothing to save." }, { status: 400 });
       return withWriteTransaction(async () => {
         const [record] = await getDb().update(companies).set(updates).where(eq(companies.id, companyId)).returning();
         if (!record) return Response.json({ error: "Company not found." }, { status: 404 });
@@ -61,7 +65,7 @@ export async function PATCH(request: Request) {
       if (raw.length > 4_000_000) return Response.json({ error: "The layout is too large. Use smaller images." }, { status: 413 });
       let documentLayout = "";
       if (raw) {
-        try { documentLayout = JSON.stringify(parseLayout(raw)); } catch (error) { return Response.json({ error: `Check the layout: ${error instanceof Error ? error.message : "invalid layout"}` }, { status: 400 }); }
+        try { documentLayout = serializeLayoutCollection(parseLayoutCollection(raw)); } catch (error) { return Response.json({ error: `Check the layout: ${error instanceof Error ? error.message : "invalid layout"}` }, { status: 400 }); }
       }
       return withWriteTransaction(async () => {
         const [record] = await getDb().update(companies).set({ documentLayout }).where(eq(companies.id, companyId)).returning();

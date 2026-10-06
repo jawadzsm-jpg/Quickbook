@@ -1,6 +1,6 @@
 import { contentBox, type Layout } from "./schema";
 
-const fontStacks: Record<Layout["theme"]["font"], string> = {
+export const fontStacks: Record<Layout["theme"]["font"], string> = {
   Arial: "Arial, 'Helvetica Neue', Helvetica, sans-serif",
   Helvetica: "Helvetica, Arial, sans-serif",
   Verdana: "Verdana, Geneva, sans-serif",
@@ -29,9 +29,14 @@ export function layoutCss(layout: Layout) {
 .lb-row.lb-keep{break-inside:avoid;page-break-inside:avoid}
 .lb-section{min-width:0;overflow-wrap:anywhere;word-break:normal}
 .lb-section.lb-avoid{break-inside:avoid;page-break-inside:avoid}
-.lb-border-box{border:0.75pt solid var(--lb-border);border-radius:1mm}
-.lb-border-top{border-top:0.75pt solid var(--lb-border)}
-.lb-border-bottom{border-bottom:0.75pt solid var(--lb-border)}
+.lb-border-box{border:var(--lb-section-border,0.75pt solid var(--lb-border));border-radius:1mm}
+.lb-border-top{border-top:var(--lb-section-border,0.75pt solid var(--lb-border))}
+.lb-border-bottom{border-bottom:var(--lb-section-border,0.75pt solid var(--lb-border))}
+.lb-valign-middle,.lb-valign-bottom{display:flex;flex-direction:column}
+.lb-valign-middle{justify-content:center}
+.lb-valign-bottom{justify-content:flex-end}
+.lb-items.lb-grid-grid th,.lb-items.lb-grid-grid td{border:0.5pt solid var(--lb-border)}
+.lb-items.lb-grid-none td{border-bottom:0}
 .lb-label{font-size:0.82em;font-weight:700;color:var(--lb-accent);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:1mm}
 .lb-muted{color:#475569}
 .lb-pre{white-space:pre-wrap}

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { templateDocumentTypes, type TemplateDocumentType } from "@/lib/document-design";
 
 // Layout builder v2: a document is a vertical flow of rows; each row holds 1–3 sections side by side.
 // Everything is measured in millimetres so the editor canvas, print and PDF share one geometry.
@@ -22,23 +23,37 @@ const imageData = z.string().max(1_400_000).refine((value) => value === "" || /^
 const colour = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 const mm = (min: number, max: number) => z.number().finite().min(min).max(max);
 
+export const layoutFonts = ["Arial", "Helvetica", "Verdana", "Georgia", "Times New Roman"] as const;
+const optionalColour = z.union([colour, z.literal("")]);
+// Fields added after layouts were first saved carry defaults, so older saved layouts stay valid.
 export const sectionStyleSchema = z.object({
   align: z.enum(["left", "center", "right"]),
+  verticalAlign: z.enum(["top", "middle", "bottom"]).default("top"),
   paddingMm: mm(0, 20),
   border: z.enum(["none", "box", "top", "bottom"]),
-  background: z.union([colour, z.literal("")]),
+  borderColor: optionalColour.default(""),
+  borderWidthPt: mm(0.25, 4).default(0.75),
+  background: optionalColour,
+  textColor: optionalColour.default(""),
+  font: z.union([z.enum(layoutFonts), z.literal("")]).default(""),
   fontScale: mm(0.6, 2),
   bold: z.boolean(),
+  italic: z.boolean().default(false),
+  underline: z.boolean().default(false),
 }).strict();
 export type SectionStyle = z.infer<typeof sectionStyleSchema>;
 
 const props = {
-  companyHeader: z.object({ showLeftLogo: z.boolean(), showRightLogo: z.boolean(), showName: z.boolean(), showAddress: z.boolean(), showPhone: z.boolean(), showEmail: z.boolean(), showTrn: z.boolean(), logoHeightMm: mm(8, 60) }).strict(),
+  companyHeader: z.object({ showLeftLogo: z.boolean(), showRightLogo: z.boolean(), showName: z.boolean(), showAddress: z.boolean(), showPhone: z.boolean(), showEmail: z.boolean(), showTrn: z.boolean(), logoHeightMm: mm(8, 60),
+    // Optional overrides; empty text uses the details from Company Setup.
+    nameText: shortText.default(""), addressText: z.string().max(1000).default(""),
+    phoneLabel: shortText.default("Tel:"), emailLabel: shortText.default(""), trnLabel: shortText.default("TRN") }).strict(),
   title: z.object({ text: shortText }).strict(),
   billTo: z.object({ label: shortText }).strict(),
   shipTo: z.object({ label: shortText }).strict(),
   details: z.object({ fields: z.array(z.object({ key: z.enum(detailFields), label: shortText }).strict()).max(detailFields.length), columns: z.number().int().min(1).max(4) }).strict(),
-  lineItems: z.object({ columns: z.array(z.object({ key: z.enum(lineColumns), label: shortText, width: mm(3, 100) }).strict()).min(1).max(lineColumns.length), zebra: z.boolean(), repeatHeading: z.boolean() }).strict(),
+  lineItems: z.object({ columns: z.array(z.object({ key: z.enum(lineColumns), label: shortText, width: mm(3, 100) }).strict()).min(1).max(lineColumns.length), zebra: z.boolean(), repeatHeading: z.boolean(),
+    headingBackground: optionalColour.default(""), headingTextColor: optionalColour.default(""), headingBold: z.boolean().default(true), gridLines: z.enum(["rows", "grid", "none"]).default("rows") }).strict(),
   totals: z.object({ rows: z.array(z.object({ key: z.enum(totalRows), label: shortText }).strict()).min(1).max(totalRows.length), widthPercent: mm(30, 100) }).strict(),
   notes: z.object({ label: shortText, text: longText }).strict(),
   terms: z.object({ label: shortText, text: longText }).strict(),
@@ -92,7 +107,7 @@ export const layoutSchema = z.object({
     margins: z.object({ top: mm(5, 40), right: mm(5, 40), bottom: mm(5, 40), left: mm(5, 40) }).strict(),
     pageNumbers: z.boolean(),
   }).strict(),
-  theme: z.object({ font: z.enum(["Arial", "Georgia", "Verdana", "Helvetica", "Times New Roman"]), baseSizePt: mm(7, 14), accent: colour, text: colour, border: colour }).strict(),
+  theme: z.object({ font: z.enum(layoutFonts), baseSizePt: mm(7, 14), accent: colour, text: colour, border: colour }).strict(),
   rows: z.array(rowSchema).min(1).max(40),
   overlays: z.array(overlaySchema).max(12),
 }).strict().superRefine((layout, context) => {
@@ -116,3 +131,23 @@ export function parseLayout(value: unknown): Layout {
   if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid layout.");
   return result.data as Layout;
 }
+
+// One layout per document type. Older saves held a single invoice layout; they load as the Invoice layout.
+export const layoutDocumentTypes = templateDocumentTypes;
+export type LayoutDocumentType = TemplateDocumentType;
+export type LayoutCollection = Partial<Record<LayoutDocumentType, Layout>>;
+
+export function parseLayoutCollection(value: unknown): LayoutCollection {
+  if (value === "" || value === null || value === undefined) return {};
+  const raw = typeof value === "string" ? JSON.parse(value) : value;
+  if (raw && typeof raw === "object" && (raw as { version?: unknown }).version === 2) return { Invoice: parseLayout(raw) };
+  if (!raw || typeof raw !== "object" || (raw as { version?: unknown }).version !== 3 || typeof (raw as { layouts?: unknown }).layouts !== "object") throw new Error("Invalid layout collection.");
+  const collection: LayoutCollection = {};
+  for (const [type, layout] of Object.entries((raw as { layouts: Record<string, unknown> }).layouts ?? {})) {
+    if (!(layoutDocumentTypes as readonly string[]).includes(type)) throw new Error(`Unknown document type: ${type}.`);
+    try { collection[type as LayoutDocumentType] = parseLayout(layout); } catch (error) { throw new Error(`${type}: ${error instanceof Error ? error.message : "invalid layout"}`); }
+  }
+  return collection;
+}
+
+export const serializeLayoutCollection = (collection: LayoutCollection) => JSON.stringify({ version: 3, layouts: collection });

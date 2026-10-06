@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { sectionLabels } from "@/lib/layout/defaults";
 import type { LayoutAction, RowPatch, SectionPatch } from "@/lib/layout/reducer";
-import { detailFields, lineColumns, totalRows, type Layout, type Overlay, type Row, type Section } from "@/lib/layout/schema";
+import { detailFields, layoutFonts, lineColumns, totalRows, type Layout, type Overlay, type Row, type Section } from "@/lib/layout/schema";
 
 export type Dispatch = (action: LayoutAction, coalesceKey?: string) => void;
 export type Selection = { kind: "section" | "row" | "overlay"; id: string } | null;
@@ -29,6 +29,10 @@ function NumberField({ label, value, min, max, step = 1, onChange, unit }: { lab
 }
 function Group({ title, children }: { title: string; children: ReactNode }) {
   return <section className="grid gap-3 border-t pt-3 first:border-t-0 first:pt-0"><h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h4>{children}</section>;
+}
+
+function ColourField({ label, value, fallback, onChange }: { label: string; value: string; fallback: string; onChange: (value: string) => void }) {
+  return <div className="flex items-end gap-1.5"><Field label={label}><input type="color" className="h-9 w-14 rounded-md border bg-background p-1" value={value || fallback} onChange={(event) => onChange(event.target.value)} /></Field>{value && <Button type="button" size="sm" variant="ghost" className="h-9 px-2 text-xs" onClick={() => onChange("")}>Default</Button>}</div>;
 }
 
 async function readImage(file: File | undefined) {
@@ -74,7 +78,14 @@ function SectionProps({ section, update, onError }: { section: Section; update: 
     case "companyHeader": return <div className="grid gap-2.5">
       {(["showLeftLogo", "showRightLogo", "showName", "showAddress", "showPhone", "showEmail", "showTrn"] as const).map((key) => <Toggle key={key} label={{ showLeftLogo: "Left logo", showRightLogo: "Right logo", showName: "Company name", showAddress: "Address", showPhone: "Phone", showEmail: "Email", showTrn: "Company TRN" }[key]} checked={section.props[key]} onChange={(value) => props({ [key]: value })} />)}
       <NumberField label="Logo height" unit="mm" min={8} max={60} value={section.props.logoHeightMm} onChange={(value) => props({ logoHeightMm: value }, `${section.id}.logo`)} />
-      <p className="text-xs text-muted-foreground">Logos, address and TRN come from Company Setup.</p>
+      <Field label="Company name text" hint="Leave empty to use the name from Company Setup."><Input value={section.props.nameText} maxLength={200} onChange={(event) => props({ nameText: event.target.value }, `${section.id}.name`)} /></Field>
+      <Field label="Company address text" hint="One line per row; leave empty to use Company Setup."><Textarea rows={3} value={section.props.addressText} maxLength={1000} onChange={(event) => props({ addressText: event.target.value }, `${section.id}.address`)} /></Field>
+      <div className="grid grid-cols-3 gap-2">
+        <Field label="VAT no. label"><Input value={section.props.trnLabel} maxLength={200} onChange={(event) => props({ trnLabel: event.target.value }, `${section.id}.trnLabel`)} /></Field>
+        <Field label="Phone label"><Input value={section.props.phoneLabel} maxLength={200} onChange={(event) => props({ phoneLabel: event.target.value }, `${section.id}.phoneLabel`)} /></Field>
+        <Field label="E-mail label"><Input value={section.props.emailLabel} maxLength={200} onChange={(event) => props({ emailLabel: event.target.value }, `${section.id}.emailLabel`)} /></Field>
+      </div>
+      <p className="text-xs text-muted-foreground">Logos, phone, e-mail and VAT number come from Company Setup.</p>
     </div>;
     case "title": return text("Title", "text", section.props.text);
     case "billTo": case "shipTo": case "bankDetails": return text("Heading", "label", section.props.label);
@@ -85,6 +96,9 @@ function SectionProps({ section, update, onError }: { section: Section; update: 
     case "lineItems": return <div className="grid gap-3">
       <Toggle label="Repeat heading on every page" checked={section.props.repeatHeading} onChange={(value) => props({ repeatHeading: value })} />
       <Toggle label="Shade alternate rows" checked={section.props.zebra} onChange={(value) => props({ zebra: value })} />
+      <Field label="Lines"><select className={selectClass} value={section.props.gridLines} onChange={(event) => props({ gridLines: event.target.value })}><option value="rows">Between rows</option><option value="grid">Full grid</option><option value="none">None</option></select></Field>
+      <div className="flex flex-wrap gap-3"><ColourField label="Heading background" value={section.props.headingBackground} fallback="#164e63" onChange={(value) => props({ headingBackground: value }, `${section.id}.hbg`)} /><ColourField label="Heading text" value={section.props.headingTextColor} fallback="#ffffff" onChange={(value) => props({ headingTextColor: value }, `${section.id}.htx`)} /></div>
+      <Toggle label="Bold heading" checked={section.props.headingBold} onChange={(value) => props({ headingBold: value })} />
       <ListEditor items={section.props.columns} all={lineColumns} names={columnNames} width onChange={(columns) => props({ columns })} />
       <p className="text-xs text-muted-foreground">Widths are relative; the table always fits the page width.</p>
     </div>;
@@ -127,11 +141,23 @@ export function SectionInspector({ section, row, rowIndex, sectionIndex, layout,
         <NumberField label="Padding" unit="mm" min={0} max={20} step={0.5} value={section.style.paddingMm} onChange={(value) => update({ style: { paddingMm: value } }, `${section.id}.padding`)} />
         <NumberField label="Text size" unit="×" min={0.6} max={2} step={0.05} value={section.style.fontScale} onChange={(value) => update({ style: { fontScale: value } }, `${section.id}.scale`)} />
       </div>
-      <div className="flex items-end gap-2">
-        <Field label="Background"><input type="color" className="h-9 w-14 rounded-md border bg-background p-1" value={section.style.background || "#ffffff"} onChange={(event) => update({ style: { background: event.target.value } }, `${section.id}.bg`)} /></Field>
-        {section.style.background && <Button type="button" size="sm" variant="ghost" onClick={() => update({ style: { background: "" } })}>No background</Button>}
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Vertical alignment"><select className={selectClass} value={section.style.verticalAlign} onChange={(event) => update({ style: { verticalAlign: event.target.value as Section["style"]["verticalAlign"] } })}><option value="top">Top</option><option value="middle">Middle</option><option value="bottom">Bottom</option></select></Field>
+        <Field label="Font"><select className={selectClass} value={section.style.font} onChange={(event) => update({ style: { font: event.target.value as Section["style"]["font"] } })}><option value="">Page font</option>{layoutFonts.map((font) => <option key={font}>{font}</option>)}</select></Field>
       </div>
-      <Toggle label="Bold" checked={section.style.bold} onChange={(value) => update({ style: { bold: value } })} />
+      <div className="flex flex-wrap gap-3">
+        <ColourField label="Text colour" value={section.style.textColor} fallback="#111827" onChange={(value) => update({ style: { textColor: value } }, `${section.id}.color`)} />
+        <ColourField label="Background" value={section.style.background} fallback="#ffffff" onChange={(value) => update({ style: { background: value } }, `${section.id}.bg`)} />
+      </div>
+      {section.style.border !== "none" && <div className="flex flex-wrap items-end gap-3">
+        <ColourField label="Border colour" value={section.style.borderColor} fallback="#cbd5e1" onChange={(value) => update({ style: { borderColor: value } }, `${section.id}.bc`)} />
+        <div className="w-28"><NumberField label="Border width" unit="pt" min={0.25} max={4} step={0.25} value={section.style.borderWidthPt} onChange={(value) => update({ style: { borderWidthPt: value } }, `${section.id}.bw`)} /></div>
+      </div>}
+      <div className="grid grid-cols-3 gap-2">
+        <Toggle label="Bold" checked={section.style.bold} onChange={(value) => update({ style: { bold: value } })} />
+        <Toggle label="Italic" checked={section.style.italic} onChange={(value) => update({ style: { italic: value } })} />
+        <Toggle label="Underline" checked={section.style.underline} onChange={(value) => update({ style: { underline: value } })} />
+      </div>
     </Group>
     <Group title="Visibility & printing">
       <Toggle label="Show on screen" checked={section.screen} onChange={(value) => update({ screen: value })} />
@@ -190,7 +216,7 @@ export function PageInspector({ layout, dispatch }: { layout: Layout; dispatch: 
     </Group>
     <Group title="Theme">
       <div className="grid grid-cols-2 gap-2">
-        <Field label="Font"><select className={selectClass} value={theme.font} onChange={(event) => dispatch({ type: "updateTheme", patch: { font: event.target.value as Layout["theme"]["font"] } })}>{["Arial", "Helvetica", "Verdana", "Georgia", "Times New Roman"].map((font) => <option key={font}>{font}</option>)}</select></Field>
+        <Field label="Font"><select className={selectClass} value={theme.font} onChange={(event) => dispatch({ type: "updateTheme", patch: { font: event.target.value as Layout["theme"]["font"] } })}>{layoutFonts.map((font) => <option key={font}>{font}</option>)}</select></Field>
         <NumberField label="Text size" unit="pt" min={7} max={14} step={0.5} value={theme.baseSizePt} onChange={(value) => dispatch({ type: "updateTheme", patch: { baseSizePt: value } }, "theme.size")} />
       </div>
       <div className="flex flex-wrap gap-3">{(["accent", "text", "border"] as const).map((key) => <Field key={key} label={{ accent: "Accent", text: "Text", border: "Lines" }[key]}><input type="color" className="h-9 w-14 rounded-md border bg-background p-1" value={theme[key]} onChange={(event) => dispatch({ type: "updateTheme", patch: { [key]: event.target.value } }, `theme.${key}`)} /></Field>)}</div>
