@@ -6,6 +6,7 @@ import { WorkspaceShortcuts } from "./workspace-shortcuts";
 import { WorkspaceCalculator } from "./workspace-calculator";
 import { WorkspaceClock } from "./workspace-clock";
 import { ItemImport } from "./item-import";
+import { matchesSearch } from "@/lib/search";
 import { WorkspaceOnlineUsers } from "./workspace-online-users";
 import { useRecordRole, useCanDeleteRecord } from "./record-permissions";
 import { PurchaseWorkflowPanel, PurchaseRegisterSummary } from "./purchase-workflow-panel";
@@ -840,8 +841,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
       list = list.filter((r) => r.type === type);
     }
     if (currentKind === "transactions" && view !== "dashboard") list = list.filter((r) => transactionTypes[view]?.includes(String(r.type)));
-    const term = search.toLowerCase().trim();
-    return term ? list.filter((r) => Object.values(r).some((v) => String(v).toLowerCase().includes(term))) : list;
+    return search.trim() ? list.filter((r) => matchesSearch(Object.values(r), search)) : list;
   }, [currentKind, records, search, view]);
 
   function openTransaction(type: string) {

@@ -3,6 +3,7 @@ import "./globals.css";
 import { AttachmentCapture } from "./attachment-capture";
 import { EscapeWindowCloser } from "./escape-window-closer";
 import { RequiredFieldHighlighter } from "./required-field-highlighter";
+import { SearchHighlighter } from "./search-highlighter";
 
 export const metadata: Metadata = {
   title: "ComNet Enterprise Accounting",
@@ -34,6 +35,7 @@ export default function RootLayout({
         {children}
         <EscapeWindowCloser />
         <RequiredFieldHighlighter />
+        <SearchHighlighter />
         <AttachmentCapture />
       </body>
     </html>

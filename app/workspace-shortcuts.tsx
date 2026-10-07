@@ -4,7 +4,8 @@ import { useEffect, useState, type ComponentType } from "react";
 import { ArrowRight, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";import { matchesSearch } from "@/lib/search";
+
 
 type Shortcut = { id: string; label: string; icon: ComponentType<{className?:string}> };
 export function WorkspaceShortcuts({ groups, currentView, onNavigate }: { groups: {label:string;items:Shortcut[]}[];currentView:string;onNavigate:(id:string)=>void }) {
@@ -22,7 +23,7 @@ export function WorkspaceShortcuts({ groups, currentView, onNavigate }: { groups
   const seen=new Set<string>();
   const filtered=groups.map(group=>({...group,items:group.items.filter(item=>{
     if(seen.has(item.id))return false;seen.add(item.id);
-    return `${item.label} ${group.label}`.toLowerCase().includes(query.trim().toLowerCase());
+    return matchesSearch([item.label, group.label], query);
   })})).filter(group=>group.items.length);
   return <>
     <Button type="button" variant="outline" onClick={()=>{setQuery("");setOpen(true);}} title="Find a workspace · Ctrl/⌘ K"><Search className="size-4"/>Shortcuts<kbd className="hidden rounded border px-1 text-[10px] text-muted-foreground lg:inline">⌘ / Ctrl K</kbd></Button>
