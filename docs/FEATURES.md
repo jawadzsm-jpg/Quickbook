@@ -7,7 +7,7 @@
 - Company and inventory selectors that scope forms, lists, dashboard data, and most reports.
 - Per-user company assignments, global administration, company administration, and six operational roles.
 - Configurable login branding, company logos, background, display name, copyright text, document colors, templates, and letterhead.
-- Light and dark appearance modes using one fixed app-wide colour palette (users choose only light or dark), plus a live header panel showing online users and their current IP addresses.
+- Light and dark appearance modes using one fixed app-wide colour palette (users choose only light or dark), plus a live header panel, available to every role including Sales, showing online users with their last-activity date and time (UAE) on one line; only administrators also see sign-in IP addresses.
 
 ## Sales and customers
 
@@ -311,7 +311,7 @@ Document previews group layout choices, copy selection and print/PDF actions int
 
 All shared dialogs use a dedicated control bar for minimize, maximize/restore and close, with consistent touch targets and light/dark colors. Controls remain outside the document content and are hidden in print. Minimized dialogs retain a visible title and restore controls.
 
-The app header Shortcuts button opens a searchable, categorized list derived from the current user's permitted sidebar pages. Ctrl/Command+K opens it when no dialog is active; selecting a page preserves the active company. Shortcut IDs are deduplicated. A compact calculator icon on the same header row opens a light/dark-mode keypad for quick arithmetic without leaving the current workspace. Customer/vendor/banking action cards use the shared theme. Register-owned exports suppress redundant generic toolbar exports, while shared numeric table fields retain responsive widths and alignment. Existing structured A4/PDF/CSV/Excel reports, accounting links and stamp rules remain unchanged.
+The app header Shortcuts button opens a searchable, categorized list derived from the current user's permitted sidebar pages. Ctrl/Command+K opens it when no dialog is active; selecting a page preserves the active company. Shortcut IDs are deduplicated. A compact calculator icon on the same header row opens a light/dark-mode keypad for quick arithmetic without leaving the current workspace. Purchase order, bill, invoice, quotation, estimate, proforma invoice and sales order editors also have a Calculator button in their header; that calculator stays open while the document form is used and can copy its result for pasting into a field. Customer/vendor/banking action cards use the shared theme. Register-owned exports suppress redundant generic toolbar exports, while shared numeric table fields retain responsive widths and alignment. Existing structured A4/PDF/CSV/Excel reports, accounting links and stamp rules remain unchanged.
 
 Company and inventory administration is accessed through the Management navigation group. The duplicate Companies & inventory sidebar footer shortcut is removed.
 

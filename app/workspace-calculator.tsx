@@ -1,12 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Calculator as CalculatorIcon, Delete } from "lucide-react";
+import { Calculator as CalculatorIcon, Copy, Delete, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { toast } from "sonner";
 import { calculatorResult, type CalculatorOperator } from "@/lib/calculator";
 
-export function WorkspaceCalculator() {
+/** `inDocument` puts the calculator inside a document editor: it stays open while the form is used, so both work together. */
+export function WorkspaceCalculator({ inDocument = false }: { inDocument?: boolean }) {
+  const [open, setOpen] = useState(false);
   const [display, setDisplay] = useState("0");
   const [storedValue, setStoredValue] = useState<number | null>(null);
   const [operator, setOperator] = useState<CalculatorOperator | null>(null);
@@ -68,12 +71,24 @@ export function WorkspaceCalculator() {
     if (Number.isFinite(value)) setDisplay(String(Number((value / 100).toPrecision(12))));
   };
 
-  return <Popover>
+  const copyResult = async () => {
+    if (display === "Error") return;
+    try { await navigator.clipboard.writeText(display); toast.success(`${display} copied. Paste it into the field you need.`); }
+    catch { toast.error("Could not copy. Select the number and copy it instead."); }
+  };
+
+  return <Popover open={open} onOpenChange={setOpen} modal={false}>
     <PopoverTrigger asChild>
-      <Button type="button" variant="ghost" size="icon" aria-label="Calculator" title="Calculator"><CalculatorIcon className="size-4" /></Button>
+      {inDocument
+        ? <Button type="button" variant="outline" size="sm" aria-label="Calculator" title="Calculator"><CalculatorIcon className="size-4" />Calculator</Button>
+        : <Button type="button" variant="ghost" size="icon" aria-label="Calculator" title="Calculator"><CalculatorIcon className="size-4" /></Button>}
     </PopoverTrigger>
-    <PopoverContent align="end" className="w-72 max-w-[calc(100vw-2rem)] space-y-3 p-3">
-      <div className="flex items-center justify-between"><div><p className="font-semibold">Calculator</p><p className="text-xs text-muted-foreground">Quick calculations</p></div><CalculatorIcon className="size-5 text-primary" /></div>
+    <PopoverContent align="end" className="w-72 max-w-[calc(100vw-2rem)] space-y-3 p-3"
+      onInteractOutside={inDocument ? (event) => event.preventDefault() : undefined}
+      onFocusOutside={inDocument ? (event) => event.preventDefault() : undefined}
+      onOpenAutoFocus={inDocument ? (event) => event.preventDefault() : undefined}>
+      <div className="flex items-center justify-between gap-2"><div><p className="font-semibold">Calculator</p><p className="text-xs text-muted-foreground">{inDocument ? "Stays open while you fill in the document" : "Quick calculations"}</p></div>
+        <div className="flex items-center gap-1"><Button type="button" variant="ghost" size="icon" className="size-8" aria-label="Copy result" title="Copy result" disabled={display === "Error"} onClick={() => void copyResult()}><Copy className="size-4" /></Button>{inDocument ? <Button type="button" variant="ghost" size="icon" className="size-8" aria-label="Close calculator" title="Close calculator" onClick={() => setOpen(false)}><X className="size-4" /></Button> : <CalculatorIcon className="size-5 text-primary" />}</div></div>
       <div aria-live="polite" aria-label="Calculator display" className="min-h-16 overflow-hidden rounded-lg border bg-muted/45 px-3 py-2 text-right">
         <p className="h-4 text-xs text-muted-foreground">{storedValue !== null && operator ? `${storedValue} ${operator}` : "\u00a0"}</p>
         <p className="truncate text-2xl font-semibold tabular-nums">{display}</p>

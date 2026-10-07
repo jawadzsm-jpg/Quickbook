@@ -8,6 +8,13 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 
 type OnlineUser = { id: number; fullName: string; email: string; avatarData: string; ipAddress: string; lastSeenAt: string };
 
+/** Last activity as date and time on one line, in UAE time, e.g. "07 Oct 2026, 4:05 PM". */
+function lastSeenLabel(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("en-GB", { timeZone: "Asia/Dubai", day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
+}
+
 export function WorkspaceOnlineUsers() {
   const [users, setUsers] = useState<OnlineUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,7 +56,7 @@ export function WorkspaceOnlineUsers() {
           const displayName = user.fullName || user.email;
           return <div key={user.id} className="flex items-center gap-3 border-b px-4 py-3 last:border-b-0">
             {user.avatarData ? <Image src={user.avatarData} alt={`${displayName} profile`} width={48} height={48} unoptimized className="size-12 shrink-0 rounded-full border object-cover" /> : <div className="grid size-12 shrink-0 place-items-center rounded-full bg-primary/12 font-semibold text-primary">{displayName.slice(0, 2).toUpperCase()}</div>}
-            <div className="min-w-0 flex-1"><p className="truncate font-medium text-foreground">{displayName}</p><p className="mt-0.5 flex items-center gap-1.5 truncate text-sm text-muted-foreground"><Globe2 className="size-3.5 shrink-0" /><span className="truncate font-mono text-xs">{user.ipAddress || "Unknown IP"}</span></p></div>
+            <div className="min-w-0 flex-1"><p className="truncate font-medium text-foreground">{displayName}</p><p className="mt-0.5 flex items-center gap-1.5 truncate text-sm text-muted-foreground">{user.ipAddress ? <><Globe2 className="size-3.5 shrink-0" /><span className="truncate font-mono text-xs">{user.ipAddress}</span><span aria-hidden="true">·</span></> : null}<span className="shrink-0 whitespace-nowrap text-xs">{lastSeenLabel(user.lastSeenAt)}</span></p></div>
           </div>;
         })}
       </div>
