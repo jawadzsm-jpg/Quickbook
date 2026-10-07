@@ -15,6 +15,7 @@ import { historyReducer, initialHistory, MAX_SECTIONS_PER_ROW, type DropTarget, 
 import { contentBox, sectionTypes, type Layout, type Row, type SectionType } from "@/lib/layout/schema";
 import { layoutCss } from "@/lib/layout/styles";
 import { OverlayInspector, PageInspector, SectionInspector, type Selection } from "./inspector";
+import { fitRowText } from "@/lib/layout/fit-rows";
 import { OverlayBody, overlayStyle, rowStyle, SectionBody, sectionClass, sectionStyle } from "./layout-document";
 import { measurePageFit, type FitReport } from "./page-fit";
 import { printLayout } from "./print-layout";
@@ -109,6 +110,9 @@ export function LayoutBuilder({ initial, company, onSave, onDirtyChange, saving 
     if (paperRef.current) paper.observe(paperRef.current);
     return () => { observer.disconnect(); paper.disconnect(); };
   }, [box.pageWidth]);
+
+  // Shrink "fit the row" sections before page breaks are measured.
+  useLayoutEffect(() => { fitRowText(docRef.current); });
 
   // Recompute predicted page breaks and fit warnings after every render of the document.
   useEffect(() => {

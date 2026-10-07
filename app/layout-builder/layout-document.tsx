@@ -16,9 +16,10 @@ const numeric: ReadonlySet<LineColumn> = new Set(["index", "quantity", "unitPric
 
 export function sectionStyle(section: Section, baseSizePt: number): CSSProperties {
   const { style } = section;
+  const size = `${Math.round(baseSizePt * style.fontScale * 100) / 100}pt`;
   return {
     textAlign: style.align, padding: `${style.paddingMm}mm`, background: style.background || undefined,
-    fontSize: `${Math.round(baseSizePt * style.fontScale * 100) / 100}pt`, fontWeight: style.bold ? 700 : undefined,
+    fontSize: size, ...(style.fitRow ? { "--lb-base-size": size } : {}), fontWeight: style.bold ? 700 : undefined,
     fontStyle: style.italic ? "italic" : undefined, textDecoration: style.underline ? "underline" : undefined,
     color: style.textColor || undefined, fontFamily: style.font ? fontStacks[style.font] : undefined,
     ...(style.border !== "none" ? { "--lb-section-border": `${style.borderWidthPt}pt solid ${style.borderColor || "var(--lb-border)"}` } : {}),
@@ -28,7 +29,7 @@ export function sectionStyle(section: Section, baseSizePt: number): CSSPropertie
 export function sectionClass(section: Section) {
   const border = section.style.border === "none" ? "" : ` lb-border-${section.style.border}`;
   const valign = section.style.verticalAlign === "top" ? "" : ` lb-valign-${section.style.verticalAlign}`;
-  return `lb-section lb-align-${section.style.align}${section.avoidBreakInside ? " lb-avoid" : ""}${border}${valign}`;
+  return `lb-section lb-align-${section.style.align}${section.avoidBreakInside ? " lb-avoid" : ""}${border}${valign}${section.style.fitRow ? " lb-fit" : ""}`;
 }
 
 function Lines({ lines, empty }: { lines: string[]; empty: string }) {

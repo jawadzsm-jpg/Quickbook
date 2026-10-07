@@ -266,6 +266,14 @@ test("section styles, company labels and table heading options render", async ()
   const legacy = structuredClone(defaultLayout());
   for (const row of legacy.rows) for (const section of row.sections) if (section.type === "details") { delete section.props.cellBorder; delete section.props.cellBorderColor; }
   assert.equal(parseLayout(JSON.stringify(legacy)).rows.flatMap((row) => row.sections).find((section) => section.type === "details").props.cellBorder, false);
+  // "Shrink text to fit the row" marks the section and records its base size for the fitting step; older layouts load with it off.
+  assert.doesNotMatch(boxed, /lb-fit/);
+  const notes = layout.rows.flatMap((row) => row.sections).find((section) => section.type === "notes");
+  notes.style = { ...notes.style, fitRow: true };
+  const fitted = renderToStaticMarkup(React.createElement(LayoutDocument, { layout, data: mockDocument("short"), mode: "print" }));
+  assert.match(fitted, /class="lb-section[^"]* lb-fit"/); assert.match(fitted, /--lb-base-size:\d+(\.\d+)?pt/);
+  for (const row of legacy.rows) for (const section of row.sections) delete section.style.fitRow;
+  assert.equal(parseLayout(JSON.stringify(legacy)).rows[0].sections[0].style.fitRow, false);
 });
 
 test("Layout Builder documents print the company stamp and bank details box where they were placed", async () => {

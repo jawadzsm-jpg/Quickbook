@@ -3,6 +3,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import type { DocumentData } from "@/lib/layout/document-data";
 import { contentBox, type Layout } from "@/lib/layout/schema";
+import { fitRowText } from "@/lib/layout/fit-rows";
 import { layoutCss } from "@/lib/layout/styles";
 import { LayoutDocument, type MoveStamp } from "./layout-document";
 
@@ -22,6 +23,7 @@ export function LayoutPreview({ layout, data, onMoveStamp }: { layout: Layout; d
     observer.observe(host); observer.observe(paper);
     return () => observer.disconnect();
   }, [box.pageWidth]);
+  useLayoutEffect(() => { fitRowText(paperRef.current); }, [layout, data]);
   const { margins } = layout.page;
   return <div ref={hostRef} className="min-w-0">
     <style>{layoutCss(layout)}</style>

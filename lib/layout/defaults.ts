@@ -2,7 +2,7 @@ import type { Layout, LayoutKind, Overlay, Row, Section, SectionProps, SectionSt
 
 export const newId = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 
-export const defaultStyle: SectionStyle = { align: "left", verticalAlign: "top", paddingMm: 2, border: "none", borderColor: "", borderWidthPt: 0.75, background: "", textColor: "", font: "", fontScale: 1, bold: false, italic: false, underline: false };
+export const defaultStyle: SectionStyle = { align: "left", verticalAlign: "top", paddingMm: 2, border: "none", borderColor: "", borderWidthPt: 0.75, background: "", textColor: "", font: "", fontScale: 1, bold: false, italic: false, underline: false, fitRow: false };
 
 export const sectionLabels: Record<SectionType, string> = {
   companyHeader: "Company header", title: "Document title", billTo: "Bill to", shipTo: "Ship to", details: "Document details",

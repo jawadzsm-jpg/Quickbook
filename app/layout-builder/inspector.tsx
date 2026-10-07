@@ -161,6 +161,8 @@ export function SectionInspector({ section, row, rowIndex, sectionIndex, layout,
         <Toggle label="Italic" checked={section.style.italic} onChange={(value) => update({ style: { italic: value } })} />
         <Toggle label="Underline" checked={section.style.underline} onChange={(value) => update({ style: { underline: value } })} />
       </div>
+      <Toggle label="Shrink text to fit the row" checked={section.style.fitRow} onChange={(value) => update({ style: { fitRow: value } })} />
+      {section.style.fitRow && <p className="text-xs text-muted-foreground">Text gets smaller until this section is no taller than the other sections in its row (for example, terms next to the totals end level with Paid).</p>}
     </Group>
     <Group title="Visibility & printing">
       <Toggle label="Show on screen" checked={section.screen} onChange={(value) => update({ screen: value })} />

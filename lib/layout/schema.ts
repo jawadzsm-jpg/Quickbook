@@ -40,6 +40,8 @@ export const sectionStyleSchema = z.object({
   bold: z.boolean(),
   italic: z.boolean().default(false),
   underline: z.boolean().default(false),
+  // Shrink this section's text so it is no taller than the other sections in its row.
+  fitRow: z.boolean().default(false),
 }).strict();
 export type SectionStyle = z.infer<typeof sectionStyleSchema>;
 
