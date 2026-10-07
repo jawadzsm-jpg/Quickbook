@@ -146,6 +146,13 @@ export function WarrantyCenter({ companyId, company, canWrite, canDelete = false
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Could not load invoice items.");
       setLines(result.lines);
+      // A slip with an invoiced item but no supplier yet (e.g. saved before linking existed) gets the item's supplier.
+      const linkedBills = (result.lines as InvoiceLine[]).filter((line) => line.purchaseBillId).map((line) => ({ id: line.purchaseBillId!, number: line.purchaseNumber, party: line.supplierName, transactionDate: line.purchaseDate, supplierId: line.supplierId }));
+      setPurchaseBills((old) => [...old, ...linkedBills.filter((bill) => !old.some((entry) => entry.id === bill.id))]);
+      setForm((old) => {
+        const line = (result.lines as InvoiceLine[]).find((row) => row.id === old.invoiceLineId);
+        return line?.supplierId && !old.supplierId ? { ...old, supplierId: line.supplierId, supplierName: line.supplierName, purchaseBillId: line.purchaseBillId, purchaseNumber: line.purchaseNumber, purchaseDate: line.purchaseDate || old.purchaseDate } : old;
+      });
     } catch (error) { setLines([]); toast.error(error instanceof Error ? error.message : "Could not load invoice items."); }
   }
   function openSlip(slip: Slip) {
