@@ -2221,3 +2221,19 @@ body {
 .report-category-button:not(.report-category-active):hover { background: var(--muted) !important; color: var(--foreground) !important; }
 .report-category-button.report-category-active { background: var(--accent) !important; color: var(--accent-foreground) !important; }
 .report-negative { color: var(--report-negative); }
+
+
+/* Stamp / bank-box placement panels (reports, statements, packing lists): compact, readable, theme colours.
+   The A4 guide stays small beside the controls so the panel does not leave a tall empty area. */
+:root .sales-stamp-settings { grid-template-columns: minmax(0, 1fr) 130px !important; align-items: start; gap: 1rem 1.5rem !important; padding: 1rem 1.1rem !important; background: var(--card) !important; border-color: var(--border) !important; color: var(--card-foreground); }
+:root .sales-stamp-controls { gap: .75rem 1rem !important; }
+:root .sales-stamp-controls h3 { font-size: 1rem !important; color: var(--foreground) !important; }
+:root .sales-stamp-controls p, :root .sales-stamp-preview-wrap > p { font-size: .8125rem !important; line-height: 1.55 !important; color: var(--muted-foreground) !important; }
+:root .sales-stamp-controls label { font-size: .875rem !important; color: var(--foreground) !important; }
+:root .sales-stamp-controls input[type="number"] { height: 2.25rem; width: 5.5rem !important; background: var(--background) !important; border-color: var(--input) !important; color: var(--foreground) !important; }
+:root .sales-stamp-controls button { font-size: .875rem; }
+:root .sales-stamp-preview { border-color: var(--border) !important; background: #fff !important; }
+:root .sales-stamp-preview > span { font-size: .6rem !important; padding: .35rem !important; color: #475569 !important; }
+:root .sales-stamp-preview-wrap > p { font-size: .72rem !important; margin-top: .35rem !important; }
+:root .sales-stamp-settings > label { grid-column: 1 / -1; }
+@media screen and (max-width: 600px) { :root .sales-stamp-settings { grid-template-columns: minmax(0, 1fr) !important; } :root .sales-stamp-preview-wrap { width: min(100%, 170px); justify-self: start; } }
