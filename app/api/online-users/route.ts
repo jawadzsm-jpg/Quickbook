@@ -1,7 +1,7 @@
 import { and, desc, eq, gt } from "drizzle-orm";
 import { getDb } from "@/db";
 import { appUsers, authSessions } from "@/db/schema";
-import { requireApiUser, touchRequestSession } from "@/lib/auth";
+import { isAdministrator, requireApiUser, touchRequestSession } from "@/lib/auth";
 
 const ONLINE_WINDOW_MS = 2 * 60 * 1000;
 
@@ -24,6 +24,8 @@ export async function POST(request: Request) {
     .where(and(gt(authSessions.lastSeenAt, activeSince), gt(authSessions.expiresAt, now.toISOString()), eq(appUsers.active, true)))
     .orderBy(desc(authSessions.lastSeenAt));
 
-  const users = [...new Map(rows.map((row) => [row.id, row])).values()];
+  // Every user sees who is online; only administrators see sign-in IP addresses.
+  const showIp = isAdministrator(currentUser);
+  const users = [...new Map(rows.map((row) => [row.id, showIp ? row : { ...row, ipAddress: "" }])).values()];
   return Response.json({ users }, { headers: { "Cache-Control": "no-store" } });
 }

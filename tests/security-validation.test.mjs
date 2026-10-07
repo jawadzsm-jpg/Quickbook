@@ -34,7 +34,7 @@ test("header calculator provides safe everyday arithmetic", () => {
   assert.match(calculator, /aria-label="Calculator"/);
 });
 
-test("online-user presence tracks the active session and displays its IP in the header", () => {
+test("online-user presence tracks the active session, shows last-seen date/time and IPs to administrators only", () => {
   const schema = readFileSync(new URL("../db/schema.ts", import.meta.url), "utf8");
   const route = readFileSync(new URL("../app/api/online-users/route.ts", import.meta.url), "utf8");
   const widget = readFileSync(new URL("../app/workspace-online-users.tsx", import.meta.url), "utf8");
@@ -43,7 +43,9 @@ test("online-user presence tracks the active session and displays its IP in the 
   assert.match(route, /ONLINE_WINDOW_MS = 2 \* 60 \* 1000/);
   assert.match(route, /touchRequestSession\(request\)/);
   assert.match(widget, /Active in the last 2 minutes/);
-  assert.match(widget, /user\.ipAddress \|\| "Unknown IP"/);
+  assert.match(route, /showIp = isAdministrator\(currentUser\)/);
+  assert.match(widget, /user\.ipAddress \?/);
+  assert.match(widget, /lastSeenLabel\(user\.lastSeenAt\)/);
 });
 
 test("invoice item choices hide out-of-stock tracked items", () => {

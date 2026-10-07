@@ -194,6 +194,7 @@ Item logistics PATCH derives `dimensionText` from positive length/width/height a
 
 ### Sales workspace restrictions
 
+- `POST /api/online-users` is available to every signed-in role, including sales; `ipAddress` is blank for non-administrators.
 - Shared auth denies sales users all endpoints except the sales-work, scoped records/attachments, session/preferences/SKU reservation endpoints and read-only form configuration/workspace/Incoming endpoints in `lib/sales-access.ts`. General reports, supplier/warranty/serial/packing/stock/ledger routes are unavailable.
 - Sales `GET /api/records` permits only `transactions`, `contacts`, `items`, `accounts`. Customer rows require `salesOwnerId`; transaction list/detail require creator identity, current customer ownership and invoice type. Item rows omit costs/suppliers; accounts return only active AR selector fields without balances.
 - Sales POST accepts quotation, estimate, sales order, proforma invoice or invoice for an owned active customer; creator/salesman/UAE date are set server-side. Invoice POST returns the full record. Quotation, estimate, sales-order and proforma POST return only id/number/type/`awaiting accountant` status, and all later detail, attachment, print and PDF access to them is denied to sales. Sales `PATCH` of any saved transaction returns 403. Admin/accountant reads and existing outputs remain available.
