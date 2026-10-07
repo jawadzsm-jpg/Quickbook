@@ -201,7 +201,7 @@ Item logistics PATCH derives `dimensionText` from positive length/width/height a
 - `GET /api/sales-work?companyId=&date=YYYY-MM-DD` gives sales users their own customer balances and document creation activity for the UAE day (default today). Non-invoice activity contains no financial/customer/line detail; only invoices have `canOpen: true`. Administrator GET returns assignable active sales users in that company.
 - `PATCH /api/sales-work` is administrator-only: `companyId`, `customerId`, `salesOwnerId` (nullable), `expectedOwnerId` (nullable). Rejects stale assignment with 409 and invalid company/user/role combinations.
 - Customer duplicate checks apply across every company customer, regardless of ownership: normalized billing/company names at least 70% similar, duplicate TRN, or duplicate normalized phone/WhatsApp prevent save.
-- Sales `GET /api/inventory-overview` returns the consolidated stock rows (quantity and selling price; no cost or supplier fields), only safe Incoming fields, and empty other activity lists; purchase document identifiers, supplier names and purchase prices are omitted. Company/workspace responses omit bank/stamp/template data and global balances for this role.
+- Sales `GET /api/inventory-overview` returns the consolidated stock rows (quantity and selling price; no cost or supplier fields), and every activity list (Incoming, New Arrival, Price Change, Just Sold) with only item, company/inventory, date, quantity, selling prices and (Just Sold) the sales rep; purchase document identifiers, supplier names and purchase prices are omitted. Company/workspace responses omit bank/stamp/template data and global balances for this role.
 
 ## Income tax working papers
 

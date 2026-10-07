@@ -170,7 +170,18 @@ export async function GET(request: Request) {
       } catch { return []; }
     }).slice(0, 50);
 
-    if (authorization.role === "sales") return Response.json({ records, canSelectItems: true, canBulkSelect: false, salesOnly: true, activity: { incoming: incomingResult.rows.map(row => ({ id: row.id, itemId: row.itemId, itemName: row.itemName, sku: row.sku, itemNumber: row.itemNumber, companyId: row.companyId, companyName: row.companyName, locationId: row.locationId, locationName: row.locationName, currency: row.currency, quantity: row.quantity, price: records.find(item => item.id === Number(row.itemId))?.salesPrice ?? null })), launched: [], priceChanges: [], sold: [] } }, { headers: { "Cache-Control": "no-store" } });
+    if (authorization.role === "sales") {
+      // Sales see every activity list, but only item, place, date, quantity and selling prices: no supplier or customer
+      // names, purchase documents or purchase prices.
+      const sellingPrice = (itemId: unknown) => records.find(item => item.id === Number(itemId))?.salesPrice ?? null;
+      const safe = (row: Record<string, unknown>) => ({ id: row.id, itemId: row.itemId, itemName: row.itemName, sku: row.sku, itemNumber: row.itemNumber, companyId: row.companyId, companyName: row.companyName, locationId: row.locationId, locationName: row.locationName, currency: row.currency, quantity: row.quantity, date: row.date });
+      return Response.json({ records, canSelectItems: true, canBulkSelect: false, salesOnly: true, activity: {
+        incoming: incomingResult.rows.map(row => ({ ...safe(row), date: undefined, price: sellingPrice(row.itemId) })),
+        launched: launchedResult.rows.map(row => ({ ...safe(row), price: sellingPrice(row.itemId) })),
+        priceChanges: priceChanges.map((row: Record<string, unknown>) => ({ ...safe(row), price: sellingPrice(row.itemId), previousPrice: row.previousPrice, currentPrice: row.currentPrice })),
+        sold: soldResult.rows.map(row => ({ ...safe(row), price: row.price, salesRep: row.salesRep })),
+      } }, { headers: { "Cache-Control": "no-store" } });
+    }
     return Response.json({
       records,
       // Everyone may tick items one by one to copy or export; select-all stays with administrators.
