@@ -2196,8 +2196,8 @@ function ReportDialog({ onVatArea, canManageVatCodes, canOpenVatManagement, onPu
   const visibleRows = isListReport ? filterListRows(qohRows, report.columns, listFilters) : isAccountantReport ? filterAccountantRows(qohRows, report.columns, accountantFilters) : isInventoryReport ? filterInventoryReportRows(qohRows, report.columns, inventoryFilters) : isSalesReport ? filterSalesReportRows(qohRows, report.columns, salesFilters, report.key) : isPurchaseReport ? filterPurchaseReportRows(qohRows, report.columns, purchaseFilters, report.key) : isVatReport ? filterVatRows(qohRows, report.columns, vatFilters) : isVendorReport && !report.statement ? filterVendorReportRows(qohRows, report.columns, vendorFilters) : qohRows;
   const hiddenZeroQoh = report.rows.length - qohRows.length;
   const reportStamp = { show: agingStamp.show, left: Math.min(stampMaxLeft, agingStamp.left), top: Math.min(stampMaxTop, agingStamp.top) };
-  // Customer statements can print the bank account for the statement currency, after the table.
-  const customerStatement = report.key === "customer-statements";
+  // Customer and supplier statements can print the bank account for the statement currency, after the table.
+  const customerStatement = report.key === "customer-statements" || report.key === "vendor-statements";
   const statementBankAccount = customerStatement ? bankForCurrency(setup, report.currency) : null;
   const statementBankLines = statementBankAccount ? bankLines(statementBankAccount) : null;
   const exportReport = customerStatement && statementBank.show && statementBankLines ? { ...report, bankBox: { title: "Bank details", lines: statementBankLines, remark: statementBank.remark ?? statementBankAccount?.remark ?? "", left: Math.max(0, Math.min(statementContentWidthMm(stampLandscape) - STATEMENT_BANK_BOX_WIDTH_MM, statementBank.left)) } } : report;
