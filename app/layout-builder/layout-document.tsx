@@ -52,14 +52,24 @@ function lineValue(data: DocumentData, column: LineColumn, index: number) {
  * Free text for notes, terms and text blocks. Each line picks its own direction, so Arabic lines read right-to-left
  * beside English ones; "**bold**" prints bold and lines starting with "#" print as headings (the marks are hidden).
  */
-export function RichText({ text }: { text: string }) {
+export function RichText({ text, sideBySide = false }: { text: string; sideBySide?: boolean }) {
   const inline = (line: string) => line.split(/\*\*(.+?)\*\*/g).map((part, index) => index % 2 ? <strong key={index}>{part}</strong> : part);
-  return <div className="lb-rich">{text.split("\n").map((line, index) => {
+  const lines = (list: string[], dir: "auto" | "rtl" = "auto") => list.map((line, index) => {
     const heading = /^\s*#{1,6}\s+/.exec(line);
-    if (heading) return <p key={index} dir="auto" className="lb-rich-line lb-rich-heading">{inline(line.slice(heading[0].length))}</p>;
-    return <p key={index} dir="auto" className="lb-rich-line">{line.trim() ? inline(line) : "\u00a0"}</p>;
-  })}</div>;
+    if (heading) return <p key={index} dir={dir} className="lb-rich-line lb-rich-heading">{inline(line.slice(heading[0].length))}</p>;
+    return <p key={index} dir={dir} className="lb-rich-line">{line.trim() ? inline(line) : "\u00a0"}</p>;
+  });
+  const all = text.split("\n");
+  if (sideBySide) {
+    // Arabic lines on the right, the rest on the left; blank lines at the edges are dropped so both columns start at the top.
+    const trim = (list: string[]) => { const start = list.findIndex((line) => line.trim()); const end = list.findLastIndex((line) => line.trim()); return start < 0 ? [] : list.slice(start, end + 1); };
+    const arabic = trim(all.filter((line) => arabicScript.test(line)));
+    const other = trim(all.filter((line) => !arabicScript.test(line)));
+    if (arabic.length && other.length) return <div className="lb-rich lb-rich-columns"><div>{lines(other)}</div><div>{lines(arabic, "rtl")}</div></div>;
+  }
+  return <div className="lb-rich">{lines(all)}</div>;
 }
+const arabicScript = /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/;
 
 /** The body of one section, without its wrapper. */
 export function SectionBody({ section, data, theme }: { section: Section; data: DocumentData; theme?: Layout["theme"] }): ReactNode {
@@ -103,14 +113,14 @@ export function SectionBody({ section, data, theme }: { section: Section; data: 
     case "totals": return <table className="lb-totals" style={{ width: `${section.props.widthPercent}%` }}><tbody>
       {section.props.rows.map((row) => <tr key={row.key} className={row.key === "total" || row.key === "balance" ? "lb-grand" : undefined}><td>{bilingual(<>{row.label} ({currencyMark})</>, row.key)}</td><td>{money(data.totals[row.key])}</td></tr>)}
     </tbody></table>;
-    case "notes": return <><p className="lb-label">{section.props.label}</p>{section.props.text || data.message ? <RichText text={section.props.text || data.message} /> : <p className="lb-empty">No message</p>}</>;
-    case "terms": return <><p className="lb-label">{section.props.label}</p>{section.props.text || data.terms ? <RichText text={section.props.text || data.terms} /> : <p className="lb-empty">No terms</p>}</>;
+    case "notes": return <><p className="lb-label">{section.props.label}</p>{section.props.text || data.message ? <RichText text={section.props.text || data.message} sideBySide={section.props.sideBySide} /> : <p className="lb-empty">No message</p>}</>;
+    case "terms": return <><p className="lb-label">{section.props.label}</p>{section.props.text || data.terms ? <RichText text={section.props.text || data.terms} sideBySide={section.props.sideBySide} /> : <p className="lb-empty">No terms</p>}</>;
     case "bankDetails": {
       const { bank } = data.company;
       return <><p className="lb-label">{section.props.label}</p><Lines lines={[bank.name, bank.accountName && `Account name: ${bank.accountName}`, bank.accountNumber && `Account no.: ${bank.accountNumber}`, bank.iban && `IBAN: ${bank.iban}`, bank.swift && `SWIFT: ${bank.swift}`].filter(Boolean) as string[]} empty="Add bank details in Company Setup" />{bank.stamp && <img className="lb-bank-stamp" src={bank.stamp} alt="" />}</>;
     }
     case "signature": return <span className="lb-signature" style={{ width: `${section.props.lineWidthMm}mm` }}>{section.props.label}</span>;
-    case "text": return <RichText text={section.props.text} />;
+    case "text": return <RichText text={section.props.text} sideBySide={section.props.sideBySide} />;
     case "image": return section.props.src ? <img className="lb-image" src={section.props.src} alt="" style={{ maxHeight: `${section.props.heightMm}mm` }} /> : <p className="lb-empty">Choose an image</p>;
     case "spacer": return <div style={{ height: `${section.props.heightMm}mm` }} />;
     case "divider": return <div style={{ borderTop: `${section.props.thicknessPt}pt solid var(--lb-accent)` }} />;

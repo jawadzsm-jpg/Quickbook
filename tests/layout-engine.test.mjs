@@ -278,6 +278,10 @@ test("section styles, company labels and table heading options render", async ()
   assert.match(rich, /<p dir="auto" class="lb-rich-line lb-rich-heading">شروط الضمان<\/p>/);
   assert.match(rich, /<strong>المعرض فقط<\/strong>/); assert.match(rich, /<strong>Brand New:<\/strong> 1-year warranty\./);
   assert.doesNotMatch(rich, /\*\*|## /);
+  // Side by side: English lines in the left column, Arabic lines (including mixed ones) right-to-left in the right column.
+  notes.props = { ...notes.props, sideBySide: true, text: "شروط الضمان\n* الجديد: ضمان سنة.\nOpen Box: ضمان 90 يوماً.\n\nWarranty terms\n* Brand New: 1-year warranty." };
+  const columns = renderToStaticMarkup(React.createElement(LayoutDocument, { layout, data: mockDocument("short"), mode: "print" }));
+  assert.match(columns, /<div class="lb-rich lb-rich-columns"><div><p dir="auto" class="lb-rich-line">Warranty terms<\/p>.*Brand New.*<\/div><div><p dir="rtl" class="lb-rich-line">شروط الضمان<\/p>.*Open Box: ضمان 90/);
   for (const row of legacy.rows) for (const section of row.sections) delete section.style.fitRow;
   assert.equal(parseLayout(JSON.stringify(legacy)).rows[0].sections[0].style.fitRow, false);
 });

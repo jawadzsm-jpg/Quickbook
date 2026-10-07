@@ -75,6 +75,7 @@ function SectionProps({ section, update, onError }: { section: Section; update: 
   const text = (label: string, name: string, value: string, multiline = false) => <Field label={label}>{multiline
     ? <Textarea rows={5} value={value} maxLength={15000} onChange={(event) => props({ [name]: event.target.value }, `${section.id}.${name}`)} />
     : <Input value={value} maxLength={200} onChange={(event) => props({ [name]: event.target.value }, `${section.id}.${name}`)} />}</Field>;
+  const sideBySideToggle = (value: boolean) => <><Toggle label="Arabic and English side by side" checked={value} onChange={(next) => props({ sideBySide: next })} />{value && <p className="text-xs text-muted-foreground">Lines with Arabic go in the right column and the other lines in the left, in their original order.</p>}</>;
   switch (section.type) {
     case "companyHeader": return <div className="grid gap-2.5">
       {(["showLeftLogo", "showRightLogo", "showName", "showAddress", "showPhone", "showEmail", "showTrn"] as const).map((key) => <Toggle key={key} label={{ showLeftLogo: "Left logo", showRightLogo: "Right logo", showName: "Company name", showAddress: "Address", showPhone: "Phone", showEmail: "Email", showTrn: "Company TRN" }[key]} checked={section.props[key]} onChange={(value) => props({ [key]: value })} />)}
@@ -109,9 +110,10 @@ function SectionProps({ section, update, onError }: { section: Section; update: 
       <NumberField label="Width" unit="% of column" min={30} max={100} value={section.props.widthPercent} onChange={(value) => props({ widthPercent: value }, `${section.id}.width`)} />
       <ListEditor items={section.props.rows} all={totalRows} names={totalNames} onChange={(rows) => props({ rows })} />
     </div>;
-    case "notes": case "terms": return <div className="grid gap-3">{text("Heading", "label", section.props.label)}{text("Text (leave empty to use the document's own)", "text", section.props.text, true)}</div>;
+    case "notes": case "terms": return <div className="grid gap-3">{text("Heading", "label", section.props.label)}{text("Text (leave empty to use the document's own)", "text", section.props.text, true)}{sideBySideToggle(section.props.sideBySide)}</div>;
     case "signature": return <div className="grid gap-3">{text("Label", "label", section.props.label)}<NumberField label="Line width" unit="mm" min={20} max={120} value={section.props.lineWidthMm} onChange={(value) => props({ lineWidthMm: value }, `${section.id}.line`)} /></div>;
-    case "text": case "letterBody": return text("Text", "text", section.props.text, true);
+    case "text": return <div className="grid gap-3">{text("Text", "text", section.props.text, true)}{sideBySideToggle(section.props.sideBySide)}</div>;
+    case "letterBody": return text("Text", "text", section.props.text, true);
     case "image": return <div className="grid gap-3"><ImagePicker value={section.props.src} onChange={(src) => props({ src })} onError={onError} /><NumberField label="Maximum height" unit="mm" min={5} max={120} value={section.props.heightMm} onChange={(value) => props({ heightMm: value }, `${section.id}.height`)} /></div>;
     case "spacer": return <NumberField label="Height" unit="mm" min={1} max={80} value={section.props.heightMm} onChange={(value) => props({ heightMm: value }, `${section.id}.height`)} />;
     case "divider": return <NumberField label="Thickness" unit="pt" min={0.25} max={4} step={0.25} value={section.props.thicknessPt} onChange={(value) => props({ thicknessPt: value }, `${section.id}.thickness`)} />;
