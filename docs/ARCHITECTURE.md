@@ -106,6 +106,7 @@ Four infrastructure tables are created by migrations and accessed with parameter
 Posting documents can produce:
 
 - A balanced `journal_entries` header with `journal_lines` debit and credit rows.
+  Each journal line stores the account name and the Chart of Accounts ID it posts to (`journal_lines.account_id`, migration 0090). Manual journals, stock revaluation and VAT adjustments pass the ID explicitly. For every other insert, the `journal_lines_fill_account_id` trigger resolves it with `comnet_journal_line_account_id`. The rule is: the unique active account with that name; else a unique name; else receivable/payable/bank/card accounts in the entry currency; else the home-currency account; else the entry-currency account. The migration backfilled existing lines with the same rule. Lines it could not resolve unambiguously stay `NULL`, and reports fall back to name matching (with review warnings) for those lines only. Reports (`app/api/reports/route.ts`, `lib/financial-reports.ts`, `lib/profit-loss.ts`, `lib/customer-open-balance.ts`, `lib/income-tax-data.ts`, `lib/purchase-report.ts`) and account history link by the saved ID first. Account renames update only that account's lines.
 - `inventory_movements` for stock additions, reductions, reversals, or transfers.
 - Allocation rows for partial receipts, partial invoicing, and multi-document payments.
 - Updated contact and document balances/statuses.

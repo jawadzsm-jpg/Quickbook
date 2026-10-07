@@ -1223,10 +1223,34 @@ test('all 14 financial reports reconcile posted accounts, settlements, dates and
  const unrealised=await get('unrealised-gains-losses');assert.deepEqual(unrealised.rows.map(r=>[r.reference,r.bookedValue,r.gainLoss]).sort(),[['AUD-BILL',-240,-160],['AUD-CREDIT',-30,-20],['AUD-INV',180,120]]);
  const forecast=await get('cash-flow-forecast');assert.equal(forecast.rows[0].projected,930);assert.equal(forecast.rows.at(-1).projected,840);
  assert.ok((await get('income-customer-detail')).rows.every(r=>r.accountId===revenue.id));
- // Ambiguous account names must not link to the wrong ID or silently classify.
- await addAccount('I2',revenue.name,'Expense');const ambiguous=await get('income-customer-summary');assert.equal(ambiguous.rows.length,0);assert.ok(ambiguous.financial.issues.some(s=>s.includes('multiple matches')));
+ // Journal lines keep the account ID they posted to, so a same-named account added later cannot take them over.
+ await addAccount('I2',revenue.name,'Expense');assert.deepEqual((await get('income-customer-summary')).rows,inc.rows);
+ // Lines without a saved ID and an ambiguous name must not link to the wrong ID or silently classify.
+ const {eq:same}=await import('drizzle-orm');await db.update(schema.journalLines).set({accountId:null}).where(same(schema.journalLines.accountId,revenue.id));
+ const ambiguous=await get('income-customer-summary');assert.equal(ambiguous.rows.length,0);assert.ok(ambiguous.financial.issues.some(s=>s.includes('multiple matches')));
  // Reports retain company access restrictions and account-link permissions.
  try{globalThis.__reportTestUser={id:2,role:'viewer',companyIds:[cid],mustChangePassword:false};assert.equal((await get('balance-sheet')).financial.canViewAccounts,false);const forbidden=await GET(new Request(`https://app.test/api/reports?type=balance-sheet&companyId=${companyId}`));assert.equal(forbidden.status,403);}finally{delete globalThis.__reportTestUser;}
+});
+
+test('journal lines store the posting account ID, resolved by entry currency when names are shared', async () => {
+ const c=(await (await workspaces.POST(post({type:'company',name:'Journal account IDs',baseCurrency:'AED'}))).json()).company;
+ const cid=c.id,loc=c.locations[0].id;
+ const add=async(code,name,type,currency='AED',active=true)=>(await db.insert(schema.accounts).values({companyId:cid,code,name,type,currency,active}).returning())[0];
+ // Two receivable accounts share a name, one per currency; a third name is unique.
+ const arAed=await add('RA','Shared Receivable','Accounts Receivable','AED',false),arUsd=await add('RU','Shared Receivable','Accounts Receivable','USD',false);
+ const income=await add('IN','ID Income','Income');
+ const postEntry=async(currency,lines)=>{const [j]=await db.insert(schema.journalEntries).values({companyId:cid,locationId:loc,entryDate:'2026-02-01',reference:`ID-${currency}-${lines.length}`,currency}).returning();return db.insert(schema.journalLines).values(lines.map(([name,debit,credit,accountId])=>({journalEntryId:j.id,accountName:name,debit,credit,...(accountId?{accountId}:{})}))).returning();};
+ const usdLines=await postEntry('USD',[['Shared Receivable',100,0],['ID Income',0,100]]);
+ const aedLines=await postEntry('AED',[['Shared Receivable',50,0],['ID Income',0,50]]);
+ // The trigger links receivables by the entry currency and unique names directly.
+ assert.equal(usdLines[0].accountId,arUsd.id);assert.equal(aedLines[0].accountId,arAed.id);assert.equal(usdLines[1].accountId,income.id);
+ // An explicit ID from posting code is kept as given.
+ const explicit=await postEntry('USD',[['Shared Receivable',7,0,arAed.id],['ID Income',0,7]]);assert.equal(explicit[0].accountId,arAed.id);
+ // Account history follows the saved ID: the USD account shows only its own USD posting, the AED account both of its lines.
+ const history=await vite.ssrLoadModule('/app/api/account-history/route.ts');
+ const historyFor=async(id)=>(await (await history.GET(new Request(`https://app.test/api/account-history?companyId=${cid}&accountId=${id}`))).json()).rows;
+ assert.deepEqual((await historyFor(arUsd.id)).map(r=>Number(r.debit)),[100]);
+ assert.deepEqual((await historyFor(arAed.id)).map(r=>Number(r.debit)).sort((a,b)=>a-b),[7,50]);
 });
 
 test('VAT management includes every taxable document type and posts adjustments to the linked accounts', async () => {

@@ -46,7 +46,7 @@ async function handlePOST(request: Request) {
           if (!adjustment) [adjustment] = await db.insert(accounts).values({ companyId: item.companyId, code: "STOCK-REVAL", name: "Stock Revaluation Adjustment", type: "Expense", currency: company.baseCurrency }).returning();
           if (!adjustment.active || adjustment.type !== "Expense" || adjustment.currency !== company.baseCurrency || adjustment.systemRole) return Response.json({ error: "The STOCK-REVAL account must be an active, unlinked expense account in the company currency." }, { status: 409 });
           const [entry] = await db.insert(journalEntries).values({ companyId: item.companyId, locationId: item.locationId, entryDate: new Date().toISOString().slice(0, 10), reference, description: `Stock revaluation: ${item.sku} · ${location.name}` }).returning();
-          await db.insert(journalLines).values([{ journalEntryId: entry.id, accountName: asset.name, debit: Math.max(delta, 0), credit: Math.max(-delta, 0) }, { journalEntryId: entry.id, accountName: adjustment.name, debit: Math.max(-delta, 0), credit: Math.max(delta, 0) }]);
+          await db.insert(journalLines).values([{ journalEntryId: entry.id, accountName: asset.name, accountId: asset.id, debit: Math.max(delta, 0), credit: Math.max(-delta, 0) }, { journalEntryId: entry.id, accountName: adjustment.name, accountId: adjustment.id, debit: Math.max(-delta, 0), credit: Math.max(delta, 0) }]);
           await db.update(accounts).set({ balance: sql`${accounts.balance} + ${delta}` }).where(eq(accounts.id, asset.id));
           await db.update(accounts).set({ balance: sql`${accounts.balance} - ${delta}` }).where(eq(accounts.id, adjustment.id));
         }

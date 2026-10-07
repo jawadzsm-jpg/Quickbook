@@ -56,8 +56,14 @@ export function purchaseRemainingLine(line: { quantity: number; subtotal: number
 
 // Resolve actual journal credit accounts for posted purchases. POs retain their saved,
 // planned account. Never silently substitute today's default account for history.
-export function purchaseDocumentAccount(transaction: { id: number; type: string; account: string; currency: string }, journal: Array<{ transactionId: number | null; account: string; credit: number }>, accounts: Array<{ id: number; code: string; name: string; currency: string; systemRole?: string | null }>) {
+export function purchaseDocumentAccount(transaction: { id: number; type: string; account: string; currency: string }, journal: Array<{ transactionId: number | null; account: string; accountId?: number | null; credit: number }>, accounts: Array<{ id: number; code: string; name: string; currency: string; systemRole?: string | null }>) {
   const posted = journal.filter((entry) => entry.transactionId === transaction.id && entry.credit > 0);
+  // Saved journal account IDs are authoritative when every non-VAT credit posts to the same account.
+  const savedIds = [...new Set(posted.map((entry) => accounts.find((account) => account.id === entry.accountId)).filter((account): account is NonNullable<typeof account> => Boolean(account) && !/VAT/.test(account!.systemRole ?? "") && !/VAT/i.test(account!.name)).map((account) => account.id))];
+  if (transaction.type !== "purchase order" && savedIds.length === 1 && posted.every((entry) => entry.accountId)) {
+    const saved = accounts.find((account) => account.id === savedIds[0])!;
+    return { account: `${saved.code} · ${saved.name}`, accountAccountId: saved.id };
+  }
   const credits = [...new Set(posted.filter((entry) => !accounts.some((account) => account.name === entry.account && /VAT/.test(account.systemRole ?? "")) && !/VAT/i.test(entry.account)).map((entry) => entry.account))];
   const name = transaction.type === "purchase order" ? transaction.account : credits.length === 1 ? credits[0] : "";
   if (!name) return { account: credits.length > 1 ? "Multiple posted credit accounts · open document" : "No posted payable / payment account", accountAccountId: 0 };

@@ -457,11 +457,13 @@ export const journalLines = pgTable("journal_lines", {
   id: serial("id").primaryKey(),
   journalEntryId: integer("journal_entry_id").notNull().references(() => journalEntries.id, { onDelete: "cascade" }),
   accountName: text("account_name").notNull(),
+  // Filled by posting code, or by the journal_lines_fill_account_id trigger (migration 0090) from name + entry currency.
+  accountId: integer("account_id").references(() => accounts.id, { onDelete: "set null" }),
   originalDebit: doublePrecision("original_debit"),
   originalCredit: doublePrecision("original_credit"),
   debit: doublePrecision("debit").notNull().default(0),
   credit: doublePrecision("credit").notNull().default(0),
-}, (table) => [index("idx_journal_lines_entry").on(table.journalEntryId), index("idx_journal_lines_account").on(table.accountName)]);
+}, (table) => [index("idx_journal_lines_entry").on(table.journalEntryId), index("idx_journal_lines_account").on(table.accountName), index("idx_journal_lines_account_id").on(table.accountId)]);
 
 export const auditLog = pgTable("audit_log", {
   id: serial("id").primaryKey(),

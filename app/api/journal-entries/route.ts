@@ -101,7 +101,7 @@ async function saveJournal(request: Request, replacing?: typeof journalEntries.$
     const values = { companyId, locationId, entryDate, reference, description, currency, exchangeRate, posted: true };
     if (replacing) await db.delete(journalLines).where(eq(journalLines.journalEntryId, replacing.id));
     const [entry] = replacing ? await db.update(journalEntries).set(values).where(eq(journalEntries.id, replacing.id)).returning() : await db.insert(journalEntries).values(values).returning();
-    await db.insert(journalLines).values(converted.map((line) => ({ journalEntryId: entry.id, accountName: accountNames.get(line.accountId)!, debit: line.debit, credit: line.credit, originalDebit: line.originalDebit, originalCredit: line.originalCredit })));
+    await db.insert(journalLines).values(converted.map((line) => ({ journalEntryId: entry.id, accountName: accountNames.get(line.accountId)!, accountId: line.accountId, debit: line.debit, credit: line.credit, originalDebit: line.originalDebit, originalCredit: line.originalCredit })));
     await db.insert(auditLog).values({ companyId, action: replacing ? "updated" : "created", entityType: "journal_entry", entityId: entry.id, details: JSON.stringify({ actor: { id: user.id, name: user.fullName, email: user.email }, reference, currency, exchangeRate, lines: prepared, total: totalDebit, homeTotal: postedDebit / 100 }) });
     return Response.json({ entry: { ...entry, debit: postedDebit / 100, credit: postedCredit / 100, source: "Manual" } }, { status: replacing ? 200 : 201 });
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Could not post journal entry." }, { status: 500 }); }

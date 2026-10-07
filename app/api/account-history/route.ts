@@ -28,7 +28,7 @@ export async function GET(request: Request) {
         join journal_lines lines on lines.journal_entry_id=j.id
         left join transactions t on t.id=j.transaction_id and t.company_id=j.company_id
         left join inventory_locations l on l.id=j.location_id and l.company_id=j.company_id
-        where j.company_id=${companyId} and j.posted=true and lines.account_name=${account.name} ${currencyFilter}
+        where j.company_id=${companyId} and j.posted=true and (lines.account_id=${accountId} or (lines.account_id is null and lines.account_name=${account.name} ${currencyFilter}))
         group by j.id,t.id,l.name
       ), paged as (select * from history order by date desc,id desc limit 50 offset ${(page - 1) * 50})
       select (select count(*)::int from history) as total,
