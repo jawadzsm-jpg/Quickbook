@@ -76,6 +76,26 @@ export function defaultLayout(kind: LayoutKind = "invoice"): Layout {
   ] };
 }
 
+const documentTitle = (type: string) => type === "Invoice" ? "Tax Invoice" : type;
+
+/**
+ * Copy a finished design to another document type. Everything is kept (sections, overlays, theme, custom text and
+ * "Use for printing"); only text that names the source document (e.g. "Tax Invoice") is renamed for the target.
+ */
+export function applyLayoutToDocumentType(layout: Layout, sourceType: string, targetType: string): Layout {
+  const copy = structuredClone(layout);
+  const sourceNames = new Set([documentTitle(sourceType), sourceType].map((name) => name.trim().toLowerCase()));
+  const rename = (value: unknown) => typeof value === "string" && sourceNames.has(value.trim().toLowerCase()) ? documentTitle(targetType) : value;
+  copy.name = `${targetType} layout`.slice(0, 80);
+  copy.rows = copy.rows.map((row) => ({ ...row, id: newId("row"), sections: row.sections.map((section) => {
+    const props = { ...section.props } as Record<string, unknown>;
+    for (const key of ["text", "nameText"]) if (key in props) props[key] = rename(props[key]);
+    return { ...section, id: newId(section.type), props } as Section;
+  }) }));
+  copy.overlays = copy.overlays.map((overlay) => ({ ...overlay, id: newId("overlay") }));
+  return copy;
+}
+
 /** A new layout for a document type: a copy of the invoice layout (or the default) titled for that type. */
 export function layoutForDocumentType(type: string, base?: Layout): Layout {
   const copy = structuredClone(base ?? defaultLayout("invoice"));

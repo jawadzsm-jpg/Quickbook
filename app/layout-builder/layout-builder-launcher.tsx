@@ -1,12 +1,13 @@
 "use client";
 
-import { LayoutTemplate } from "lucide-react";
+import { Copy, LayoutTemplate } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { layoutForDocumentType } from "@/lib/layout/defaults";
+import { toast } from "sonner";
+import { applyLayoutToDocumentType, layoutForDocumentType } from "@/lib/layout/defaults";
 import type { DocumentData } from "@/lib/layout/document-data";
 import { migrateDocumentDesign } from "@/lib/layout/migrate";
 import { layoutDocumentTypes, parseLayoutCollection, serializeLayoutCollection, type Layout, type LayoutCollection, type LayoutDocumentType } from "@/lib/layout/schema";
@@ -30,6 +31,8 @@ export function LayoutBuilderLauncher({ setup, onSaved, disabled }: { setup: Com
   const [saving, setSaving] = useState(false);
   const [documentType, setDocumentType] = useState<LayoutDocumentType>("Invoice");
   const [dirty, setDirty] = useState(false);
+  const [applyOpen, setApplyOpen] = useState(false);
+  const [applyTargets, setApplyTargets] = useState<Set<LayoutDocumentType>>(new Set());
   const collection = useMemo(() => storedLayouts(setup.documentLayout, setup.documentDesign), [setup.documentLayout, setup.documentDesign]);
   const initial = useMemo(() => collection[documentType] ?? layoutForDocumentType(documentType, collection.Invoice), [collection, documentType]);
   const company = useMemo<DocumentData["company"]>(() => companyDocumentData(setup), [setup]);
@@ -46,6 +49,25 @@ export function LayoutBuilderLauncher({ setup, onSaved, disabled }: { setup: Com
       onSaved(result.record?.documentLayout ?? documentLayout);
       setDirty(false);
     } finally { setSaving(false); }
+  }
+
+  // Copy the saved design of the current type to every ticked type in one save, so each need not be designed again.
+  async function applyToOthers() {
+    const source = saved[documentType];
+    if (!source || !applyTargets.size) return;
+    setSaving(true);
+    try {
+      const next: LayoutCollection = { ...collection };
+      for (const type of applyTargets) next[type] = applyLayoutToDocumentType(source, documentType, type);
+      const documentLayout = serializeLayoutCollection(next);
+      const response = await fetch("/api/company-setup", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId: setup.id, documentLayout }) });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "Could not apply the layout.");
+      onSaved(result.record?.documentLayout ?? documentLayout);
+      toast.success(`${documentType} design applied to ${applyTargets.size} document ${applyTargets.size === 1 ? "type" : "types"}.`);
+      setApplyOpen(false); setApplyTargets(new Set());
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not apply the layout."); }
+    finally { setSaving(false); }
   }
 
   const switchType = (next: LayoutDocumentType) => {
@@ -77,7 +99,31 @@ export function LayoutBuilderLauncher({ setup, onSaved, disabled }: { setup: Com
           </select>
           {!printConnectedTypes.has(documentType) && <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900">This layout is saved for {documentType}, but that screen still prints with its own layout for now.</span>}
           {!saved[documentType] && documentType !== "Invoice" && <span className="text-xs text-muted-foreground">New layout, started from your Invoice layout.</span>}
+          <Button type="button" variant="outline" size="sm" className="ml-auto" disabled={saving || dirty || !saved[documentType]} title={dirty ? "Save this layout first" : !saved[documentType] ? "Save this layout first" : undefined} onClick={() => { setApplyTargets(new Set()); setApplyOpen(true); }}><Copy className="size-4" />Apply design to…</Button>
         </div>
+        <Dialog open={applyOpen} onOpenChange={(next) => { if (!saving) setApplyOpen(next); }}>
+          <DialogContent className="sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Apply the {documentType} design</DialogTitle>
+              <DialogDescription>Tick the documents that should use this same design. Sections, positions, stamps, theme and “Use for printing” are copied; the document title is renamed for each type.</DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-wrap gap-2 text-sm">
+              <Button type="button" variant="outline" size="sm" onClick={() => setApplyTargets(new Set(layoutDocumentTypes.filter((type) => type !== documentType && printConnectedTypes.has(type))))}>Select printing documents</Button>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setApplyTargets(new Set())}>Clear</Button>
+            </div>
+            <div className="grid max-h-[50dvh] gap-1 overflow-y-auto sm:grid-cols-2">
+              {layoutDocumentTypes.filter((type) => type !== documentType).map((type) => <label key={type} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+                <input type="checkbox" checked={applyTargets.has(type)} onChange={(event) => setApplyTargets((current) => { const next = new Set(current); if (event.target.checked) next.add(type); else next.delete(type); return next; })} />
+                <span className="flex-1">{type}</span>
+                {saved[type] ? <span className="text-xs text-amber-600 dark:text-amber-400">replaces saved</span> : null}
+              </label>)}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" disabled={saving} onClick={() => setApplyOpen(false)}>Cancel</Button>
+              <Button type="button" disabled={saving || !applyTargets.size} onClick={() => void applyToOthers()}>{saving ? "Applying…" : `Apply to ${applyTargets.size || ""} ${applyTargets.size === 1 ? "type" : "types"}`.replace("  ", " ")}</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
         {open && <LayoutBuilder key={`${setup.id}:${documentType}`} initial={initial} company={company} saving={saving} onSave={save} onDirtyChange={setDirty} />}
       </DialogContent>
     </Dialog>

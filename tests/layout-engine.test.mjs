@@ -203,6 +203,24 @@ test("saved designs gain the movable Bank Details footer field", async () => {
   assert.equal(readDocumentDesign(JSON.stringify(design)).footer.filter((field) => field.key === "bankDetails").length, 1);
 });
 
+test("a finished design can be applied to other document types with their own title", async () => {
+  const { applyLayoutToDocumentType } = await vite.ssrLoadModule("/lib/layout/defaults.ts");
+  const invoice = structuredClone(defaultLayout());
+  invoice.enabled = true;
+  const sections = (layout) => layout.rows.flatMap((row) => row.sections);
+  sections(invoice).find((section) => section.type === "title").props.text = "Tax Invoice";
+  sections(invoice).find((section) => section.type === "companyHeader").props.nameText = "Tax Invoice";
+  invoice.rows.push({ ...invoice.rows[1], id: "custom", sections: [{ ...sections(invoice).find((section) => section.type === "title"), id: "phone", props: { ...sections(invoice).find((section) => section.type === "title").props, text: "Ahsan +971562577000" } }] });
+  const proforma = applyLayoutToDocumentType(invoice, "Invoice", "Proforma Invoice");
+  assert.equal(proforma.enabled, true); assert.equal(proforma.name, "Proforma Invoice layout");
+  assert.equal(sections(proforma).find((section) => section.type === "title").props.text, "Proforma Invoice");
+  assert.equal(sections(proforma).find((section) => section.type === "companyHeader").props.nameText, "Proforma Invoice");
+  assert.equal(sections(proforma).at(-1).props.text, "Ahsan +971562577000");
+  assert.equal(proforma.rows.length, invoice.rows.length); assert.deepEqual(proforma.theme, invoice.theme); assert.deepEqual(proforma.page, invoice.page);
+  assert.notEqual(proforma.rows[0].id, invoice.rows[0].id);
+  assert.equal(sections(invoice).find((section) => section.type === "title").props.text, "Tax Invoice");
+});
+
 test("layouts are kept per document type and older saves load as the Invoice layout", async () => {
   const { parseLayoutCollection, serializeLayoutCollection, parseLayout } = await vite.ssrLoadModule("/lib/layout/schema.ts");
   const { layoutForDocumentType } = await vite.ssrLoadModule("/lib/layout/defaults.ts");
