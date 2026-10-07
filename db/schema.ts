@@ -630,3 +630,23 @@ export const backupWorkerStatus = pgTable("backup_worker_status", {
   id: integer("id").primaryKey(),
   checkedAt: timestamp("checked_at", { withTimezone: true }).notNull(),
 }, (table) => [check("backup_worker_status_id_check", sql`${table.id}=1`)]);
+
+// Shared cargo / freight agent list (migration 0093). Every user of the company can add entries.
+export const cargos = pgTable("cargos", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  telephone: text("telephone").notNull().default(""),
+  mobile: text("mobile").notNull().default(""),
+  email: text("email").notNull().default(""),
+  /** Comma-separated shipping modes, e.g. "Air,Sea". */
+  modes: text("modes").notNull().default(""),
+  /** Comma-separated destination country names. */
+  destinations: text("destinations").notNull().default(""),
+  address: text("address").notNull().default(""),
+  notes: text("notes").notNull().default(""),
+  createdByUserId: integer("created_by_user_id").references(() => appUsers.id, { onDelete: "set null" }),
+  createdByName: text("created_by_name").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, (table) => [index("idx_cargos_company").on(table.companyId, table.id)]);

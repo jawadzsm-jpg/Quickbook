@@ -3051,3 +3051,28 @@ test('stamp positions save per document type on their own and reject invalid pla
   assert.equal((await patch({stampPositions:JSON.stringify({'tax-invoice':{company:{show:true,left:-5,top:0}}})})).status,400);
   assert.equal((await patch({stampPositions:JSON.stringify({'Bad Type':{}})})).status,400);
 });
+
+test('cargo list: every user can add, only the creator or an admin edits, only admins delete', async () => {
+  const company = (await database.query("INSERT INTO companies(name) VALUES('Cargo list test') RETURNING id")).rows[0].id;
+  const [sales, other] = (await database.query("INSERT INTO app_users(full_name,email,password_hash,role) VALUES('Cargo Sales',$1,'x','sales'),('Cargo Viewer',$2,'x','viewer') RETURNING id", [`cargo-sales-${company}@example.test`, `cargo-viewer-${company}@example.test`])).rows.map((row) => row.id);
+  const api = await vite.ssrLoadModule('/app/api/cargos/route.ts');
+  const call = (method, body, query = '') => api[method](new Request(`https://app.test/api/cargos${query}`, { method, headers: { 'content-type': 'application/json', origin: 'https://app.test', host: 'app.test' }, ...(body ? { body: JSON.stringify({ companyId: company, ...body }) } : {}) }));
+  try {
+    globalThis.__transferTestUser = { id: sales, role: 'sales', fullName: 'Cargo Sales', companyIds: [company] };
+    const created = await call('POST', { name: 'Fast Phoenix Cargo', telephone: '+97145470420', mobile: '+971504658431', email: 'jeena@fastphoenix.ae', modes: ['Air', 'Sea'], destinations: ['Zambia', 'Malawi'], address: 'Ras Al Khor' });
+    assert.equal(created.status, 201, await created.clone().text());
+    const cargo = (await created.json()).record;
+    assert.deepEqual([cargo.modes, cargo.destinations, cargo.createdByName], [['Air', 'Sea'], ['Zambia', 'Malawi'], 'Cargo Sales']);
+    assert.equal((await call('POST', { name: '', email: 'x' })).status, 400);
+    assert.equal((await call('POST', { name: 'Bad mode', modes: ['Rocket'] })).status, 400);
+    const list = await (await call('GET', null, `?companyId=${company}`)).json();
+    assert.equal(list.records.length, 1); assert.equal(list.canDelete, false);
+    globalThis.__transferTestUser = { id: other, role: 'viewer', fullName: 'Cargo Viewer', companyIds: [company] };
+    assert.equal((await call('PATCH', { id: cargo.id, name: 'Taken over' })).status, 403);
+    assert.equal((await call('DELETE', null, `?companyId=${company}&id=${cargo.id}`)).status, 403);
+    globalThis.__transferTestUser = { id: 1, role: 'all_admin', fullName: 'Admin', companyIds: [] };
+    const edited = await call('PATCH', { id: cargo.id, name: 'Fast Phoenix Cargo Services LLC', modes: ['Air'] });
+    assert.equal(edited.status, 200); assert.equal((await edited.json()).record.name, 'Fast Phoenix Cargo Services LLC');
+    assert.equal((await call('DELETE', null, `?companyId=${company}&id=${cargo.id}`)).status, 200);
+  } finally { delete globalThis.__transferTestUser; }
+});
