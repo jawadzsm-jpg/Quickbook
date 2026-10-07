@@ -115,8 +115,9 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
   const savedCompany = savedStamps.company?.page ? savedStamps.company : undefined;
   const savedBank = savedStamps.bank?.page ? savedStamps.bank : undefined;
   const movableStamp = true;
-  // Bank details belong on documents asking for payment, not on delivery notes or packing lists.
-  const bankApplies = !["delivery-note", "packing-list", "hs-code-summary"].includes(activeMode);
+  // The company's bank details belong on customer documents asking for payment: not on delivery notes,
+  // packing lists or HS summaries, and not on purchase documents (bills, purchase orders, purchase returns).
+  const bankApplies = !["delivery-note", "packing-list", "hs-code-summary", "bill", "purchase-order", "purchase-return"].includes(activeMode);
   const requestedTemplateType = savedTemplateType[activeMode];
   const { design, savedTemplate } = resolveDocumentDesign(setup.documentDesign, requestedTemplateType);
   if (!savedTemplate || savedTemplate.appliesToAll || (requestedTemplateType && savedTemplate.type !== requestedTemplateType)) design.title = salesDocumentTitles[activeMode];
