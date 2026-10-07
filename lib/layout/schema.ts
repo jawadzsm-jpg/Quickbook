@@ -107,7 +107,11 @@ export const layoutSchema = z.object({
     margins: z.object({ top: mm(5, 40), right: mm(5, 40), bottom: mm(5, 40), left: mm(5, 40) }).strict(),
     pageNumbers: z.boolean(),
   }).strict(),
-  theme: z.object({ font: z.enum(layoutFonts), baseSizePt: mm(7, 14), accent: colour, text: colour, border: colour }).strict(),
+  theme: z.object({
+    font: z.enum(layoutFonts), baseSizePt: mm(7, 14), accent: colour, text: colour, border: colour,
+    // Bilingual labels (English left, Arabic right) and an optional currency symbol image for AED amounts.
+    arabicLabels: z.boolean().default(true), currencySymbol: imageData.default(""),
+  }).strict(),
   rows: z.array(rowSchema).min(1).max(40),
   overlays: z.array(overlaySchema).max(12),
 }).strict().superRefine((layout, context) => {

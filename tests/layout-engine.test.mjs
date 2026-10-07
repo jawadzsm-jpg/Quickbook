@@ -312,3 +312,24 @@ test("copy labels are movable page stamps saved with stamp positions", async () 
   const html = renderToStaticMarkup(React.createElement(LayoutDocument, { layout: defaultLayout(), data: { ...mockDocument("short"), stamps: [{ kind: "copy", text: "CUSTOMER COPY", left: 74, top: 36 }] }, mode: "print" }));
   assert.match(html, /page-copy-label" style="position:absolute;left:74mm;top:36mm[^"]*">CUSTOMER COPY</);
 });
+
+test("Layout Builder documents show Arabic labels on the right and an optional AED currency symbol", async () => {
+  const React = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { LayoutDocument } = await vite.ssrLoadModule("/app/layout-builder/layout-document.tsx");
+  // Layouts saved before this setting existed load with Arabic labels on.
+  const saved = defaultLayout(); delete saved.theme.arabicLabels; delete saved.theme.currencySymbol;
+  const layout = parseLayout(JSON.stringify(saved));
+  assert.equal(layout.theme.arabicLabels, true); assert.equal(layout.theme.currencySymbol, "");
+  const doc = { ...mockDocument("short"), currency: "AED" };
+  const html = renderToStaticMarkup(React.createElement(LayoutDocument, { layout, data: doc, mode: "print" }));
+  for (const arabic of ["فاتورة إلى", "رقم الفاتورة", "التاريخ", "تاريخ الاستحقاق", "المجموع الفرعي", "ضريبة القيمة المضافة", "الإجمالي"]) assert.ok(html.includes(arabic), arabic);
+  assert.match(html, /<span class="lb-ar" dir="rtl" lang="ar">/);
+  const plain = renderToStaticMarkup(React.createElement(LayoutDocument, { layout: { ...layout, theme: { ...layout.theme, arabicLabels: false } }, data: doc, mode: "print" }));
+  assert.ok(!plain.includes("فاتورة إلى"));
+  const symbol = "data:image/png;base64,QUVE";
+  const withSymbol = renderToStaticMarkup(React.createElement(LayoutDocument, { layout: { ...layout, theme: { ...layout.theme, currencySymbol: symbol } }, data: doc, mode: "print" }));
+  assert.match(withSymbol, /<img class="lb-currency-symbol" src="data:image\/png;base64,QUVE" alt="AED"\/>/);
+  const usd = renderToStaticMarkup(React.createElement(LayoutDocument, { layout: { ...layout, theme: { ...layout.theme, currencySymbol: symbol } }, data: { ...doc, currency: "USD" }, mode: "print" }));
+  assert.ok(!usd.includes("lb-currency-symbol")); assert.match(usd, /\(USD\)/);
+});

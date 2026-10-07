@@ -4,6 +4,7 @@ import type { DocumentData } from "@/lib/layout/document-data";
 import { PageStamps, type MovePageStamp } from "../page-stamps";
 import { contentBox, type Layout, type LineColumn, type Overlay, type Row, type Section } from "@/lib/layout/schema";
 import { fontStacks } from "@/lib/layout/styles";
+import { arabicLabel, arabicTitle } from "@/lib/layout/arabic-labels";
 
 // Pure renderer shared by the editor canvas, the print frame and PDF output. No hooks or browser APIs,
 // so it can also be rendered to static markup for printing.
@@ -47,7 +48,12 @@ function lineValue(data: DocumentData, column: LineColumn, index: number) {
 }
 
 /** The body of one section, without its wrapper. */
-export function SectionBody({ section, data }: { section: Section; data: DocumentData }): ReactNode {
+export function SectionBody({ section, data, theme }: { section: Section; data: DocumentData; theme?: Layout["theme"] }): ReactNode {
+  // Bilingual labels: English on the left, Arabic on the right (theme setting, on by default).
+  const arabic = theme?.arabicLabels ?? false;
+  const bilingual = (english: ReactNode, key: string) => arabic && arabicLabel(key) ? <span className="lb-bi"><span>{english}</span><span className="lb-ar" dir="rtl" lang="ar">{arabicLabel(key)}</span></span> : english;
+  // Optional uploaded currency symbol image (e.g. the UAE dirham sign) replaces the "AED" code in totals.
+  const currencyMark: ReactNode = theme?.currencySymbol && data.currency.toUpperCase() === "AED" ? <img className="lb-currency-symbol" src={theme.currencySymbol} alt="AED" /> : data.currency;
   switch (section.type) {
     case "companyHeader": {
       const { props } = section; const { company } = data;
@@ -63,11 +69,11 @@ export function SectionBody({ section, data }: { section: Section; data: Documen
         {props.showRightLogo && logo(company.rightLogo, "right")}
       </div>;
     }
-    case "title": return <p className="lb-title">{section.props.text}</p>;
-    case "billTo": return <><p className="lb-label">{section.props.label}</p><Lines lines={data.billTo} empty="Customer details" /></>;
-    case "shipTo": return <><p className="lb-label">{section.props.label}</p><Lines lines={data.shipTo} empty="—" /></>;
+    case "title": return <p className="lb-title">{arabic && arabicTitle(section.props.text) ? <span className="lb-title-bi"><span>{section.props.text}</span><span className="lb-ar" dir="rtl" lang="ar">{arabicTitle(section.props.text)}</span></span> : section.props.text}</p>;
+    case "billTo": return <><p className="lb-label">{bilingual(section.props.label, "billTo")}</p><Lines lines={data.billTo} empty="Customer details" /></>;
+    case "shipTo": return <><p className="lb-label">{bilingual(section.props.label, "shipTo")}</p><Lines lines={data.shipTo} empty="—" /></>;
     case "details": return <dl className="lb-details" style={{ gridTemplateColumns: `repeat(${section.props.columns}, minmax(0, 1fr))` }}>
-      {section.props.fields.map((field) => <div key={field.key}><dt>{field.label}</dt><dd>{data.details[field.key] || "—"}</dd></div>)}
+      {section.props.fields.map((field) => <div key={field.key}><dt>{bilingual(field.label, field.key)}</dt><dd>{data.details[field.key] || "—"}</dd></div>)}
     </dl>;
     case "lineItems": {
       const { columns } = section.props;
@@ -81,7 +87,7 @@ export function SectionBody({ section, data }: { section: Section; data: Documen
       </table>;
     }
     case "totals": return <table className="lb-totals" style={{ width: `${section.props.widthPercent}%` }}><tbody>
-      {section.props.rows.map((row) => <tr key={row.key} className={row.key === "total" || row.key === "balance" ? "lb-grand" : undefined}><td>{row.label} ({data.currency})</td><td>{money(data.totals[row.key])}</td></tr>)}
+      {section.props.rows.map((row) => <tr key={row.key} className={row.key === "total" || row.key === "balance" ? "lb-grand" : undefined}><td>{bilingual(<>{row.label} ({currencyMark})</>, row.key)}</td><td>{money(data.totals[row.key])}</td></tr>)}
     </tbody></table>;
     case "notes": return <><p className="lb-label">{section.props.label}</p><p className="lb-pre">{section.props.text || data.message || <span className="lb-empty">No message</span>}</p></>;
     case "terms": return <><p className="lb-label">{section.props.label}</p><p className="lb-pre">{section.props.text || data.terms || <span className="lb-empty">No terms</span>}</p></>;
@@ -106,7 +112,7 @@ function RowView({ row, layout, data, mode }: { row: Row; layout: Layout; data: 
   // Hidden sections keep their column so the remaining ones do not stretch across the row.
   return <div className={`lb-row${row.keepTogether ? " lb-keep" : ""}`} style={rowStyle(row)}>
     {row.sections.map((section) => section[mode]
-      ? <div key={section.id} className={sectionClass(section)} style={sectionStyle(section, layout.theme.baseSizePt)}><SectionBody section={section} data={data} /></div>
+      ? <div key={section.id} className={sectionClass(section)} style={sectionStyle(section, layout.theme.baseSizePt)}><SectionBody theme={layout.theme} section={section} data={data} /></div>
       : <div key={section.id} />)}
   </div>;
 }

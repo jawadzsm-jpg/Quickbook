@@ -312,7 +312,7 @@ export function LayoutBuilder({ initial, company, onSave, onDirtyChange, saving 
                       className={`${sectionClass(section)}${preview ? "" : " lbe-section"}${selection?.kind === "section" && selection.id === section.id ? " lbe-selected" : ""}${hidden && !preview ? " lbe-hidden" : ""}${issueIds.has(section.id) ? " lbe-issue" : ""}`}
                       style={sectionStyle(section, layout.theme.baseSizePt)} onClick={preview ? undefined : (event) => { event.stopPropagation(); select({ kind: "section", id: section.id }); }}>
                       {!preview && <span className="lbe-tag"><SectionGrip id={section.id} label={sectionLabels[section.type]} />{sectionLabels[section.type]}{hidden ? " · not printed" : ""}</span>}
-                      <SectionBody section={section} data={data} />
+                      <SectionBody section={section} data={data} theme={layout.theme} />
                     </div>;
                   })}
                   {!preview && row.sections.slice(0, -1).map((_, index) => {
