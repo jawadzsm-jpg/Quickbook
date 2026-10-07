@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Save } from "lucide-react";
 
-type ReceiptLine = { id: number; description: string; quantity: number; received: number; remaining: number; unitPrice: number; vatCode: string; vatRate: number };
+type ReceiptLine = { id: number; description: string; quantity: number; received: number; remaining: number; unitPrice: number; vatCode: string; vatRate: number; comments?: string; serialNumber?: string };
 type PendingFile = { fileName: string; mimeType: string; fileData: string; fileSize: number };
 type VatChoice = { code: string; label: string; rate: number };
 export function PurchaseOrderReceiving({ orderId, companyId, onSaved, documentType = "item receipt", account, defaultNumber = "", salesReps = [], vatCodes = [] }: { orderId: number; companyId: number; onSaved: () => void; documentType?: "item receipt" | "bill"; account?: string; defaultNumber?: string; salesReps?: string[]; vatCodes?: VatChoice[] }) {
@@ -37,6 +37,8 @@ export function PurchaseOrderReceiving({ orderId, companyId, onSaved, documentTy
       if (!response.ok) throw new Error(result.error || "Could not load purchase order.");
       if (controller.signal.aborted) return;
       setData(result);
+      // Comments and serial numbers typed on the purchase order carry over to the bill (still editable).
+      setLineExtras(Object.fromEntries((result.lines as ReceiptLine[]).filter((line) => line.comments || line.serialNumber).map((line) => [line.id, { comments: line.comments ?? "", serialNumber: line.serialNumber ?? "" }])));
       setLocationId(result.order.locationId);
       setSalesman(String(result.order.salesman ?? ""));
       // One VAT code per bill: start from the purchase order's first line.
