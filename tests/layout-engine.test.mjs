@@ -333,3 +333,14 @@ test("Layout Builder documents show Arabic labels on the right and an optional A
   const usd = renderToStaticMarkup(React.createElement(LayoutDocument, { layout: { ...layout, theme: { ...layout.theme, currencySymbol: symbol } }, data: { ...doc, currency: "USD" }, mode: "print" }));
   assert.ok(!usd.includes("lb-currency-symbol")); assert.match(usd, /\(USD\)/);
 });
+
+test("line-item headings show Arabic under the English heading when Arabic labels are on", async () => {
+  const React = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { LayoutDocument } = await vite.ssrLoadModule("/app/layout-builder/layout-document.tsx");
+  const layout = defaultLayout();
+  const html = renderToStaticMarkup(React.createElement(LayoutDocument, { layout, data: mockDocument("short"), mode: "print" }));
+  for (const arabic of ["الوصف", "الكمية", "السعر", "المبلغ"]) assert.match(html, new RegExp(`<span class="lb-th-ar" dir="rtl" lang="ar">${arabic}</span>`), arabic);
+  const off = renderToStaticMarkup(React.createElement(LayoutDocument, { layout: { ...layout, theme: { ...layout.theme, arabicLabels: false } }, data: mockDocument("short"), mode: "print" }));
+  assert.doesNotMatch(off, /lb-th-ar/);
+});

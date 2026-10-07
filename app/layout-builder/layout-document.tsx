@@ -4,7 +4,7 @@ import type { DocumentData } from "@/lib/layout/document-data";
 import { PageStamps, type MovePageStamp } from "../page-stamps";
 import { contentBox, type Layout, type LineColumn, type Overlay, type Row, type Section } from "@/lib/layout/schema";
 import { fontStacks } from "@/lib/layout/styles";
-import { arabicLabel, arabicTitle } from "@/lib/layout/arabic-labels";
+import { arabicColumnLabel, arabicLabel, arabicTitle } from "@/lib/layout/arabic-labels";
 
 // Pure renderer shared by the editor canvas, the print frame and PDF output. No hooks or browser APIs,
 // so it can also be rendered to static markup for printing.
@@ -81,7 +81,7 @@ export function SectionBody({ section, data, theme }: { section: Section; data: 
       const heading: CSSProperties = { background: section.props.headingBackground || undefined, color: section.props.headingTextColor || undefined, fontWeight: section.props.headingBold ? 700 : 400 };
       return <table className={`lb-items lb-grid-${section.props.gridLines}${section.props.zebra ? " lb-zebra" : ""}${section.props.repeatHeading ? "" : " lb-no-repeat"}`}>
         <colgroup>{columns.map((column) => <col key={column.key} style={{ width: `${(column.width / totalWidth) * 100}%` }} />)}</colgroup>
-        <thead><tr>{columns.map((column) => <th key={column.key} className={numeric.has(column.key) ? "lb-num" : undefined} style={heading}>{column.label}</th>)}</tr></thead>
+        <thead><tr>{columns.map((column) => <th key={column.key} className={numeric.has(column.key) ? "lb-num" : undefined} style={heading}>{column.label}{arabic && arabicColumnLabel(column.key) ? <span className="lb-th-ar" dir="rtl" lang="ar">{arabicColumnLabel(column.key)}</span> : null}</th>)}</tr></thead>
         <tbody>{data.lines.length ? data.lines.map((_, index) => <tr key={index}>{columns.map((column) => <td key={column.key} className={numeric.has(column.key) ? "lb-num" : column.key === "description" || column.key === "comments" || column.key === "serialNumber" ? "lb-pre" : undefined}>{lineValue(data, column.key, index)}</td>)}</tr>)
           : <tr><td colSpan={columns.length} className="lb-empty">No lines</td></tr>}</tbody>
       </table>;

@@ -70,8 +70,9 @@ export function layoutCss(layout: Layout) {
 .lb-bi{display:flex;justify-content:space-between;align-items:baseline;gap:2mm}
 .lb-ar{font-family:"Geeza Pro","Noto Naskh Arabic","Segoe UI","Tahoma",Arial,sans-serif;direction:rtl;text-align:right;text-transform:none;letter-spacing:0}
 .lb-title-bi{display:inline-flex;align-items:baseline;gap:5mm;flex-wrap:wrap;justify-content:center}
-.lb-totals .lb-bi{gap:4mm}
-.lb-totals .lb-bi>span{white-space:nowrap}
+.lb-totals .lb-bi{flex-wrap:wrap;column-gap:3mm;row-gap:0}
+.lb-totals .lb-bi>.lb-ar{margin-left:auto}
+.lb-th-ar{display:block;margin-top:0.4mm;white-space:normal;overflow-wrap:anywhere;font-family:"Geeza Pro","Noto Naskh Arabic","Segoe UI","Tahoma",Arial,sans-serif;font-weight:600;font-size:0.92em;text-transform:none;letter-spacing:0}
 .lb-currency-symbol{display:inline-block;height:0.95em;width:auto;vertical-align:-0.1em}
 .lb-overlay{position:absolute;display:flex;align-items:center;justify-content:center;overflow:hidden;pointer-events:none}
 .lb-overlay img{width:100%;height:100%;object-fit:contain}
