@@ -106,7 +106,14 @@ async function report(type, location = locationId) {
 }
 
 test("product import maps spreadsheet columns and saves rows through the normal item endpoint", async () => {
-  const { parseCsv, rowsToItems, importNumber } = await vite.ssrLoadModule("/lib/item-import.ts");
+  const { parseCsv, rowsToItems, importNumber, markupTableRows } = await vite.ssrLoadModule("/lib/item-import.ts");
+  // .xls files: Excel 2003 XML (this app's exports) and HTML tables are read as text, never as a web page.
+  const xml = '<?xml version="1.0"?><Workbook xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet><Table>'
+    + '<Row><Cell><Data ss:Type="String">Name</Data></Cell><Cell><Data ss:Type="String">Qty</Data></Cell></Row>'
+    + '<Row><Cell><Data ss:Type="String">A &amp; B &lt;script&gt;</Data></Cell><Cell ss:Index="2"><Data ss:Type="Number">4</Data></Cell></Row><Row/></Table></Worksheet></Workbook>';
+  assert.deepEqual(markupTableRows(xml), [["Name", "Qty"], ["A & B <script>", "4"], []]);
+  assert.deepEqual(markupTableRows('<table><tr><th>Name</th><th>Price</th></tr><tr><td><b>HP</b>&nbsp;450</td><td>AED&#32;1,200</td></tr></table>'), [["Name", "Price"], ["HP 450", "AED 1,200"]]);
+  assert.equal(markupTableRows("Name,Qty\nA,1"), null);
   assert.equal(importNumber("AED 6,000.00"), 6000); assert.equal(importNumber(""), 0); assert.equal(importNumber("—"), 0); assert.ok(Number.isNaN(importNumber("abc")));
   const csv = 'Inventory export\nItem No.,SKU,Item & description,Category,On hand,Reorder,Sales price,Avg. cost,Brand,RAM\n'
     + ',,"DELL LATITUDE 5440, 16GB",Laptops,5,1,"AED 3,200.00",2650,DELL,16GB RAM\n'

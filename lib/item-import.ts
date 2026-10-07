@@ -54,6 +54,35 @@ export function parseCsv(text: string): string[][] {
   return rows;
 }
 
+const entities: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+/** Text of a markup fragment: tags dropped, entities decoded. The result is only used as data, never as HTML. */
+function markupText(fragment: string) {
+  return fragment.split(/<br\s*\/?>/i).join("\n").split(/<[^>]*>/).join("")
+    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, code: string) => code[0] === "#"
+      ? String.fromCodePoint(code[1].toLowerCase() === "x" ? Number.parseInt(code.slice(2), 16) : Number(code.slice(1)))
+      : entities[code.toLowerCase()] ?? match);
+}
+
+/**
+ * Rows from Excel 2003 XML spreadsheets (often saved as .xls, like this app's own exports) or HTML-table .xls files,
+ * read as plain text so the file is never interpreted as a web page. Returns null when neither format is present.
+ */
+export function markupTableRows(text: string): string[][] | null {
+  const xmlRows = [...text.matchAll(/<(?:ss:)?Row\b[^>]*?(?:\/>|>([\s\S]*?)<\/(?:ss:)?Row>)/gi)];
+  if (xmlRows.length) return xmlRows.map((row) => {
+    const cells: string[] = [];
+    for (const cell of (row[1] ?? "").matchAll(/<(?:ss:)?Cell\b([^>]*?)(?:\/>|>([\s\S]*?)<\/(?:ss:)?Cell>)/gi)) {
+      const index = Number(/\bss:Index="(\d+)"/i.exec(cell[1])?.[1]);
+      if (index > 0) while (cells.length < index - 1) cells.push("");
+      cells.push(markupText(cell[2] ?? "").trim());
+    }
+    return cells;
+  });
+  const htmlRows = [...text.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)];
+  if (htmlRows.length) return htmlRows.map((row) => [...row[1].matchAll(/<t[hd]\b[^>]*>([\s\S]*?)<\/t[hd]>/gi)].map((cell) => markupText(cell[1]).trim()));
+  return null;
+}
+
 export type ImportRow = { line: number; payload: Record<string, unknown>; label: string; error?: string };
 
 /**
