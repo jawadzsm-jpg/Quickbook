@@ -2571,7 +2571,11 @@ test('sales workspace enforces ownership, proforma handoff, private costs and ad
     const incomingRow = incoming.activity.incoming.find(row=>row.itemId===item);
     assert.equal(incomingRow.quantity,2); assert.equal(incomingRow.price,500);
     for(const key of ['party','transactionId','documentNumber','linkedBillId','salesRep']) assert.equal(key in incomingRow,false);
-    assert.deepEqual(incoming.activity.launched,[]); assert.deepEqual(incoming.activity.sold,[]);
+    // Sales see New Arrival, Price Change and Just Sold too, without customer, supplier, document or purchase details.
+    assert.deepEqual(incoming.activity.launched,[]); assert.ok(Array.isArray(incoming.activity.priceChanges));
+    const soldRow = incoming.activity.sold.find(row=>row.itemId===item);
+    assert.equal(soldRow.quantity,1); assert.equal(soldRow.price,500); assert.equal(soldRow.salesRep,'AliceScope'); assert.ok(soldRow.date);
+    for(const key of ['party','transactionId','documentNumber','linkedBillId']) assert.equal(key in soldRow,false);
     const setupRoute = await vite.ssrLoadModule('/app/api/company-setup/route.ts');
     const setup = await (await setupRoute.GET(req(`/api/company-setup?companyId=${c}`))).json(); assert.equal(setup.record.bankName,'');assert.equal(setup.record.stampData,'');
     const spacesRoute = await vite.ssrLoadModule('/app/api/workspaces/route.ts');
