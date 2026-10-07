@@ -15,6 +15,15 @@ const titles: Record<string, string> = {
   "statement of account": "كشف حساب",
 };
 
+const columnLabels: Record<string, string> = {
+  index: "م", sku: "رمز الصنف", description: "الوصف", quantity: "الكمية", unitPrice: "السعر",
+  subtotal: "المجموع الفرعي", vatRate: "نسبة الضريبة", vatAmount: "الضريبة", total: "المبلغ",
+  serialNumber: "الرقم التسلسلي", comments: "ملاحظات",
+};
+
+/** Arabic for a line-item column heading; empty when there is no translation. */
+export const arabicColumnLabel = (key: string) => columnLabels[key] ?? "";
+
 /** Arabic for a document field, party box or total row key; empty when there is no translation. */
 export const arabicLabel = (key: string) => fieldLabels[key] ?? "";
 
