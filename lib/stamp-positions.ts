@@ -3,7 +3,7 @@
 // (millimetres from the printable area's top-left); older entries without it were offsets in a strip below the totals.
 
 export type StampPlacement = { show: boolean; left: number; top: number; page?: boolean };
-export type DocumentStampPositions = { company?: StampPlacement; bank?: StampPlacement; status?: StampPlacement };
+export type DocumentStampPositions = { company?: StampPlacement; bank?: StampPlacement; status?: StampPlacement; copy?: StampPlacement };
 export type StampPositions = Record<string, DocumentStampPositions>;
 
 const MAX_DOCUMENT_TYPES = 40;
@@ -25,8 +25,8 @@ export function parseStampPositions(value: unknown): StampPositions {
   const result: StampPositions = {};
   for (const [type, stamps] of entries) {
     if (!/^[a-z][a-z-]{0,39}$/.test(type) || !stamps || typeof stamps !== "object") throw new Error("Invalid stamp positions.");
-    const { company, bank, status } = stamps as Record<string, unknown>;
-    result[type] = { ...(company !== undefined ? { company: placement(company) } : {}), ...(bank !== undefined ? { bank: placement(bank) } : {}), ...(status !== undefined ? { status: placement(status) } : {}) };
+    const { company, bank, status, copy } = stamps as Record<string, unknown>;
+    result[type] = { ...(company !== undefined ? { company: placement(company) } : {}), ...(bank !== undefined ? { bank: placement(bank) } : {}), ...(status !== undefined ? { status: placement(status) } : {}), ...(copy !== undefined ? { copy: placement(copy) } : {}) };
   }
   return result;
 }

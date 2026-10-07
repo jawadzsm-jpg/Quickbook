@@ -1,7 +1,7 @@
 import type { DetailField } from "./schema";
 
 /** The company stamp or the bank details box, placed freely on the first page (millimetres from the content area's top-left). */
-export type DocumentStamp = { kind: "company" | "bank" | "status"; left: number; top: number; src?: string; title?: string; lines?: string[]; remark?: string; text?: string };
+export type DocumentStamp = { kind: "company" | "bank" | "status" | "copy"; left: number; top: number; src?: string; title?: string; lines?: string[]; remark?: string; text?: string };
 
 /** Everything a layout needs to render one document. Real invoices and the editor's mock data share this shape. */
 export type DocumentLine = { sku: string; description: string; quantity: number; unitPrice: number; serialNumber: string; comments: string; subtotal: number; vatRate: number; vatAmount: number; total: number };

@@ -302,3 +302,13 @@ test("saved stamp positions accept a movable status stamp and print it on Layout
   const html = renderToStaticMarkup(React.createElement(LayoutDocument, { layout: defaultLayout(), data: { ...mockDocument("short"), stamps: [{ kind: "status", text: "OPEN", left: 120, top: 14 }] }, mode: "print" }));
   assert.match(html, /page-status-stamp" style="position:absolute;left:120mm;top:14mm[^"]*rotate\(-8deg\)[^"]*">OPEN</);
 });
+
+test("copy labels are movable page stamps saved with stamp positions", async () => {
+  const { parseStampPositions } = await vite.ssrLoadModule("/lib/stamp-positions.ts");
+  assert.deepEqual(parseStampPositions({ "tax-invoice": { copy: { show: true, left: 74, top: 36, page: true } } })["tax-invoice"].copy, { show: true, left: 74, top: 36, page: true });
+  const React = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { LayoutDocument } = await vite.ssrLoadModule("/app/layout-builder/layout-document.tsx");
+  const html = renderToStaticMarkup(React.createElement(LayoutDocument, { layout: defaultLayout(), data: { ...mockDocument("short"), stamps: [{ kind: "copy", text: "CUSTOMER COPY", left: 74, top: 36 }] }, mode: "print" }));
+  assert.match(html, /page-copy-label" style="position:absolute;left:74mm;top:36mm[^"]*">CUSTOMER COPY</);
+});
