@@ -17,7 +17,7 @@ import { InvoiceStockReturn } from "./invoice-stock-return";
 import { InvoiceSerialEditor } from "./invoice-serial-editor";
 import { SalesDailyWork } from "./sales-daily-work";
 import { CustomerSalesOwner } from "./customer-sales-owner";
-import { salesDocumentTypes } from "@/lib/sales-access";
+import { salesDocumentTypes, salesHandoffTypes } from "@/lib/sales-access";
 import { canManagePendingInvoices, canReadDocument, dubaiDay } from "@/lib/document-access";
 
 import { VendorReportLibrary } from "./vendor-report-library";
@@ -843,7 +843,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   }, [currentKind, records, search, view]);
 
   function openTransaction(type: string) {
-    if (currentUser.role === "sales" && !salesDocumentTypes.includes(type)) return toast.error("Sales users may create quotations, sales orders and proformas only.");
+    if (currentUser.role === "sales" && !salesDocumentTypes.includes(type)) return toast.error("Sales users may create quotations, estimates, sales orders, proformas and invoices only.");
     if (type === "pending invoice" && !canManagePendingInvoices(currentUser)) return toast.error("Only administrators and accountants can make pending invoices.");
     if (currentUser.role === "inventory" && !["bill", "received item bill", "item receipt", "purchase order"].includes(type)) return toast.error("This transaction is not available to inventory users.");
 
@@ -1052,7 +1052,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
       }
       setRecords((old) => ({ ...old, [saveKind]: editing ? old[saveKind].map((record) => record.id === data.record.id ? data.record : record) : [data.record, ...old[saveKind]] }));
       setDialogOpen(false); setEditorKind(null); setEditingItemId(null); setEditingRecordId(null); if (attachmentError) toast.error(`${form.type === "bill" ? "Bill" : "Invoice"} saved, but attachments failed: ${attachmentError} Open the document to add them again.`);
-      else toast.success(data.pendingRecord ? `Saved. Pending lines moved to Pending Cart (${data.pendingRecord.number}).` : data.generatedAccount ? `${data.generatedAccount.name} created and linked automatically` : editing ? "Changes saved" : currentUser.role === "sales" && form.type === "proforma invoice" ? "Proforma saved. Ask your accountant to open it and prepare the PDF, stamp and bank details." : "Record saved");
+      else toast.success(data.pendingRecord ? `Saved. Pending lines moved to Pending Cart (${data.pendingRecord.number}).` : data.generatedAccount ? `${data.generatedAccount.name} created and linked automatically` : editing ? "Changes saved" : currentUser.role === "sales" && salesHandoffTypes.includes(form.type) ? `${form.type === "proforma invoice" ? "Proforma" : form.type === "sales order" ? "Sales order" : form.type === "estimate" ? "Estimate" : "Quotation"} saved. Your accountant prepares the PDF with the stamp and bank details.` : "Record saved");
       if (saveKind === "transactions" && selectedLocationId !== activeLocationId) setActiveLocationId(selectedLocationId);
       else await loadData();
       if (saveKind === "transactions" && form.type === "invoice") await loadWorkspaces();

@@ -8,7 +8,8 @@ export function canManagePendingInvoices(user: User) {
   return ["all_admin", "admin", "accountant"].includes(user.role);
 }
 export function canReadDocument(user: User, document: Document, now: Date = new Date()) {
-  if (user.role === "sales" && !["quotation", "estimate", "sales order"].includes(document.type)) return false;
+  // Sales users can open their own invoices only (read-only); quotations, estimates, sales orders and proformas go to accounting.
+  if (user.role === "sales" && document.type !== "invoice") return false;
   if (document.type === "pending invoice") return canManagePendingInvoices(user);
   return user.role !== "inventory" || !["bill", "received item bill", "item receipt"].includes(document.type) || Boolean(dubaiDay(document.createdAt) && dubaiDay(document.createdAt) === dubaiDay(now));
 }

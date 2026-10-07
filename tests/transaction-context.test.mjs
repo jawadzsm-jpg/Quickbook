@@ -2538,13 +2538,20 @@ test('sales workspace enforces ownership, proforma handoff, private costs and ad
     assert.equal((await get('transactions',po)).status,404);
     const stock = (await (await get('items')).json()).records[0];
     for (const key of ['cost','lastPurchasePrice','averageCost','preferredSupplierId']) assert.equal(key in stock,false);
-    assert.equal((await post({ type:'invoice' })).status,403);
     assert.equal((await post({ party:'OMEGA SYSTEMS' })).status,403);
+    // Sales may create, view and print their own invoices, but never change them after saving.
+    const invoiced = await post({ type:'invoice',number:'SCOPE-INV',salesman:'BobScope' }); assert.equal(invoiced.status,201,JSON.stringify(await invoiced.clone().json()));
+    const invoice = (await invoiced.json()).record;
+    assert.equal(invoice.salesman,'AliceScope'); assert.equal(invoice.createdByUserId,alice); assert.equal(Number(invoice.total),500);
+    assert.equal((await get('transactions',invoice.id)).status,200);
+    assert.equal((await route.PATCH(req('/api/records','PATCH',{kind:'transactions',companyId:c,id:invoice.id,memo:'change'}))).status,403);
+    asSales(bob); assert.equal((await get('transactions',invoice.id)).status,404); asSales(alice);
+    // Quotations, estimates, sales orders and proformas are handed to accountants: no view, print or PDF for sales.
     const quoted = await post({ salesman:'BobScope' }); assert.equal(quoted.status,201,JSON.stringify(await quoted.clone().json()));
-    const quote = (await quoted.json()).record;
-    assert.equal(quote.salesman,'AliceScope'); assert.equal(quote.createdByUserId,alice);
-    assert.equal((await get('transactions',quote.id)).status,200);
-    asSales(bob); assert.equal((await get('transactions',quote.id)).status,404); asSales(alice);
+    const quote = (await quoted.json()).record; assert.equal(quote.total,undefined); assert.equal(quote.status,'awaiting accountant');
+    const savedQuote = (await database.query('SELECT salesman,created_by_user_id FROM transactions WHERE id=$1',[quote.id])).rows[0];
+    assert.equal(savedQuote.salesman,'AliceScope'); assert.equal(savedQuote.created_by_user_id,alice);
+    assert.equal((await get('transactions',quote.id)).status,404);
     const proformaResponse = await post({ type:'proforma invoice',number:'SCOPE-PRO' }); assert.equal(proformaResponse.status,201);
     const proforma = (await proformaResponse.json()).record; assert.equal(proforma.total,undefined);
     assert.equal((await get('transactions',proforma.id)).status,404);
@@ -2552,7 +2559,8 @@ test('sales workspace enforces ownership, proforma handoff, private costs and ad
     assert.equal((await attach.GET(req(`/api/attachments?companyId=${c}&entityType=transaction&entityId=${proforma.id}`))).status,403);
     assert.equal((await attach.POST(req('/api/attachments','POST',{companyId:c,entityType:'transaction',entityId:proforma.id,attachments:[]}))).status,403);
     const day = await (await work.GET(req(`/api/sales-work?companyId=${c}`))).json();
-    assert.deepEqual(day.customers.map(row=>row.balance),[400]); assert.equal(day.activity.find(row=>row.id===proforma.id).canOpen,false);
+    assert.deepEqual(day.customers.map(row=>row.balance),[900]); assert.equal(day.activity.find(row=>row.id===proforma.id).canOpen,false);
+    assert.equal(day.activity.find(row=>row.id===quote.id).canOpen,false); assert.equal(day.activity.find(row=>row.id===invoice.id).canOpen,true);
     assert.equal(day.activity.find(row=>row.id===proforma.id).total,undefined);
     assert.equal((await work.GET(req(`/api/sales-work?companyId=${other}`))).status,403);
     assert.equal((await work.PATCH(req('/api/sales-work','PATCH',{companyId:c,customerId:foreign,salesOwnerId:alice}))).status,403);
@@ -2582,8 +2590,9 @@ test('sales workspace enforces ownership, proforma handoff, private costs and ad
     assert.equal((await work.PATCH(req('/api/sales-work','PATCH',{companyId:c,customerId:foreign,salesOwnerId:bob,expectedOwnerId:bob}))).status,409);
     globalThis.__transferTestUser={id:alice,role:'accountant',companyIds:[c]};
     assert.equal((await get('transactions',proforma.id)).status,200);
-    assert.equal(Number((await database.query('SELECT quantity FROM items WHERE id=$1',[item])).rows[0].quantity),10);
-    assert.equal(Number((await database.query('SELECT count(*) FROM journal_entries WHERE company_id=$1',[c])).rows[0].count),0);
+    // Only the sales invoice moves stock and posts to the ledger; handoff documents do not.
+    assert.equal(Number((await database.query('SELECT quantity FROM items WHERE id=$1',[item])).rows[0].quantity),9);
+    assert.equal(Number((await database.query('SELECT count(*) FROM journal_entries WHERE company_id=$1 AND transaction_id IS DISTINCT FROM $2',[c,invoice.id])).rows[0].count),0);
   } finally { delete globalThis.__transferTestUser; }
 });
 
@@ -2948,15 +2957,18 @@ test('Insights entry-day activity uses UAE boundaries, complete pagination and s
     await insert('PENDING','pending invoice','2026-01-10T10:00:00Z');
     await insert('PO','purchase order','2026-01-10T10:00:00Z');
     await insert('BILL','bill','2026-01-10T10:00:00Z');
-    const own = await insert('OWN','quotation','2026-01-10T10:00:00Z');
-    await insert('NOT-OWNER','quotation','2026-01-10T10:00:00Z',company,loc,user,'Unassigned customer');
-    await insert('NOT-CREATOR','quotation','2026-01-10T10:00:00Z',company,loc,null);
+    const quote = await insert('OWN-QUOTE','quotation','2026-01-10T10:00:00Z');
+    const notOwner = await insert('NOT-OWNER','invoice','2026-01-10T10:00:00Z',company,loc,user,'Unassigned customer');
+    const notCreator = await insert('NOT-CREATOR','invoice','2026-01-10T10:00:00Z',company,loc,null);
     globalThis.__transferTestUser.role='sales';
-    const sales = await (await get()).json(); assert.equal(sales.total,1); assert.deepEqual(sales.records.map(row=>row.id),[own]);
+    const salesFirst = await (await get()).json(), salesSecond = await (await get({page:'2'})).json();
+    const salesIds = [...salesFirst.records,...salesSecond.records].map(row=>row.id);
+    assert.equal(salesFirst.total,55); assert.ok(salesIds.includes(end));
+    for (const hidden of [quote,notOwner,notCreator]) assert.ok(!salesIds.includes(hidden));
     globalThis.__transferTestUser.role='purchasing';
     const purchasing = await (await get()).json(); assert.equal(purchasing.total,2); assert.deepEqual(new Set(purchasing.records.map(row=>row.type)),new Set(['purchase order','bill']));
     globalThis.__transferTestUser.role='inventory';
-    const inventory = await (await get()).json(); assert.equal(inventory.total,56); assert.ok(inventory.records.every(row=>['invoice','purchase order'].includes(row.type)));
+    const inventory = await (await get()).json(); assert.equal(inventory.total,58); assert.ok(inventory.records.every(row=>['invoice','purchase order'].includes(row.type)));
     globalThis.__transferTestUser.role='viewer';
     const viewer = await (await get({page:'2'})).json(); assert.equal(viewer.total,60); assert.ok(viewer.records.every(row=>row.type!=='pending invoice'));
     globalThis.__transferTestUser.role='accountant'; assert.equal((await (await get()).json()).total,61);

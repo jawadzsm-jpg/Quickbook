@@ -249,7 +249,7 @@ Shared dialogs retain explicit Minimize/Restore. Pending-invoice quantity and pr
 
 ### Restricted sales workspace
 
-Sales users have four navigation entries: My daily work, Sales, My customers & balances, and Inventory Overview. They can create quotations (including the existing estimate type), sales orders, and proforma invoices for their assigned active customers, and can read the complete Inventory Overview for their assigned companies. They cannot post invoices/payments, cancel/delete documents, modify inventory, or open company-wide reports. Daily work uses UAE creation dates and shows only their own newly created document activity.
+Sales users have four navigation entries: My daily work, Sales, My customers & balances, and Inventory Overview. They can create quotations (including the existing estimate type), sales orders, proforma invoices and invoices for their assigned active customers, and can read the complete Inventory Overview for their assigned companies. Saved documents cannot be edited or changed by sales. Sales can open, print and download the PDF of their own invoices only; quotations, estimates, sales orders and proforma invoices are handed to an accountant, who prints them with the company stamp and bank details, and sales cannot view, print or download them after saving. They cannot record payments, cancel/delete documents, modify inventory, or open company-wide reports. Daily work uses UAE creation dates and shows only their own newly created document activity.
 
 Saved proformas are handed to accounting: sales sees only a confirmation and daily activity reference, with no reopen/edit/print/PDF or attachment access. Accountants and admins can reopen the saved proforma and use the existing PDF, stamp and bank controls.
 
