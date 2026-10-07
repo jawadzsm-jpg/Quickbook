@@ -3,6 +3,7 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { appUsers, auditLog, contacts, items, packingListLines, packingLists, transactionLines, transactions } from "@/db/schema";
 import { requireCompanyAccess } from "@/lib/auth";
+import { cleanDeliveryAddress } from "@/lib/delivery-address";
 
 const clean = (value: unknown, max = 240) => String(value ?? "").trim().slice(0, max);
 const finite = (value: unknown, fallback = 0) => { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : fallback; };
@@ -93,7 +94,7 @@ async function savePackingList(request: Request, editing: boolean) {
     const invoiceId = Number(payload.invoiceId);
     const packingListId = editing ? Number(payload.packingListId) : 0;
     const packingDate = clean(payload.packingDate, 10);
-    const deliveryAddress = clean(payload.deliveryAddress, 10000);
+    const deliveryAddress = cleanDeliveryAddress(payload.deliveryAddress);
     const memo = clean(payload.memo, 1_000);
     const requested = Array.isArray(payload.lines) ? payload.lines.slice(0, 500) as Array<Record<string, unknown>> : [];
     const user = await requireCompanyAccess(request, companyId, "sales:write", true);
