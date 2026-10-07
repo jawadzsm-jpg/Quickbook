@@ -1,5 +1,8 @@
 import type { DetailField } from "./schema";
 
+/** A stamp placed in the movable stamp area below the document body (millimetres within that area). */
+export type DocumentStamp = { kind: "company" | "bank"; src: string; left: number; top: number };
+
 /** Everything a layout needs to render one document. Real invoices and the editor's mock data share this shape. */
 export type DocumentLine = { sku: string; description: string; quantity: number; unitPrice: number; serialNumber: string; comments: string; subtotal: number; vatRate: number; vatAmount: number; total: number };
 export type DocumentData = {
@@ -13,6 +16,7 @@ export type DocumentData = {
   message: string;
   terms: string;
   status: string;
+  stamps?: DocumentStamp[];
 };
 
 export type MockSize = "short" | "medium" | "long";

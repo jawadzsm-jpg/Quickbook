@@ -239,3 +239,15 @@ test("section styles, company labels and table heading options render", async ()
   assert.match(html, /--lb-section-border:2pt solid #00aa00/); assert.match(html, /lb-valign-middle/);
   assert.match(html, /lb-grid-grid/); assert.match(html, /background:#ffee00;color:#000000;font-weight:400/);
 });
+
+test("Layout Builder documents print the movable company and bank stamps below the body", async () => {
+  const React = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { LayoutDocument } = await vite.ssrLoadModule("/app/layout-builder/layout-document.tsx");
+  const stamps = [{ kind: "company", src: "data:image/png;base64,Q08=", left: 150, top: 2 }, { kind: "bank", src: "data:image/png;base64,QkFOSw==", left: 400, top: 50 }];
+  const html = renderToStaticMarkup(React.createElement(LayoutDocument, { layout: defaultLayout(), data: { ...mockDocument("short"), stamps }, mode: "print" }));
+  assert.match(html, /class="lb-stamp-area" style="height:45mm"/); // tallest stamp clamped to a 20 mm gap, plus its height
+  assert.match(html, /left:150mm;top:2mm[^"]*"><img src="data:image\/png;base64,Q08=" alt="Company stamp"/);
+  assert.match(html, /left:154mm;top:20mm[^"]*"><img src="data:image\/png;base64,QkFOSw==" alt="Bank stamp"/); // kept inside the 186 mm content width
+  assert.doesNotMatch(renderToStaticMarkup(React.createElement(LayoutDocument, { layout: defaultLayout(), data: mockDocument("short"), mode: "print" })), /lb-stamp-area/);
+});
