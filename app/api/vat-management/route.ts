@@ -204,8 +204,8 @@ async function updateVatManagement(request: Request) {
         if (!vatAccount || !offsetAccount) return Response.json({ error: "Link VAT Payable and Suspense accounts in Chart of Accounts before posting an adjustment." }, { status: 409 });
         const [entry] = await tx.insert(journalEntries).values({ companyId, locationId, entryDate: adjustmentDate, reference, description: `VAT adjustment: ${reason}`, posted: true }).returning();
         await tx.insert(journalLines).values(direction === "increase"
-          ? [{ journalEntryId: entry.id, accountName: offsetAccount.name, debit: amount, credit: 0 }, { journalEntryId: entry.id, accountName: vatAccount.name, debit: 0, credit: amount }]
-          : [{ journalEntryId: entry.id, accountName: vatAccount.name, debit: amount, credit: 0 }, { journalEntryId: entry.id, accountName: offsetAccount.name, debit: 0, credit: amount }]);
+          ? [{ journalEntryId: entry.id, accountName: offsetAccount.name, accountId: offsetAccount.id, debit: amount, credit: 0 }, { journalEntryId: entry.id, accountName: vatAccount.name, accountId: vatAccount.id, debit: 0, credit: amount }]
+          : [{ journalEntryId: entry.id, accountName: vatAccount.name, accountId: vatAccount.id, debit: amount, credit: 0 }, { journalEntryId: entry.id, accountName: offsetAccount.name, accountId: offsetAccount.id, debit: 0, credit: amount }]);
         const [record] = await tx.insert(vatAdjustments).values({ companyId, locationId, adjustmentDate, reference, direction, amount, reason, createdByUserId: user.id }).returning();
         await tx.insert(auditLog).values({ companyId, action: "created", entityType: "vat_adjustment", entityId: record.id, details: `${reference}; ${direction}; ${amount.toFixed(2)}; journal ${entry.id}` });
         return Response.json({ record }, { status: 201 });

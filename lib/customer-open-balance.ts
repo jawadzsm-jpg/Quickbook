@@ -26,7 +26,7 @@ export async function customerOpenBalance(companyId: number, locationId: number,
     db.select({ paymentId: invoicePaymentAllocations.paymentId, invoiceId: invoicePaymentAllocations.invoiceId, amount: invoicePaymentAllocations.amount }).from(invoicePaymentAllocations).innerJoin(transactions, eq(transactions.id, invoicePaymentAllocations.paymentId)).where(eq(transactions.companyId, companyId)),
     db.select().from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "customer"))).orderBy(asc(contacts.name)),
     db.select().from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.type, "Accounts Receivable"))),
-    db.select({ transactionId: journalEntries.transactionId, account: journalLines.accountName }).from(journalLines).innerJoin(journalEntries, eq(journalEntries.id, journalLines.journalEntryId)).where(and(eq(journalEntries.companyId, companyId), eq(journalEntries.posted, true))),
+    db.select({ transactionId: journalEntries.transactionId, account: journalLines.accountName, accountId: journalLines.accountId }).from(journalLines).innerJoin(journalEntries, eq(journalEntries.id, journalLines.journalEntryId)).where(and(eq(journalEntries.companyId, companyId), eq(journalEntries.posted, true))),
   ]);
   const names = [...new Set([...customers.map((row) => row.name), ...documents.map((row) => row.party)])].sort();
   if (customer && !names.includes(customer)) return Response.json({ error: "Select a customer in this company." }, { status: 400 });
@@ -49,7 +49,7 @@ export async function customerOpenBalance(companyId: number, locationId: number,
   for (const entry of postings) {
     const candidates = accountsByName.get(entry.account) ?? [];
     const currency = entry.transactionId ? documentCurrency.get(entry.transactionId) : undefined;
-    const account = candidates.length === 1 ? candidates[0] : candidates.find((candidate) => candidate.currency === currency);
+    const account = (entry.accountId ? arAccounts.find((candidate) => candidate.id === entry.accountId) : undefined) ?? (candidates.length === 1 ? candidates[0] : candidates.find((candidate) => candidate.currency === currency));
     if (entry.transactionId && account) postedAccounts.set(entry.transactionId, account);
   }
   const rows = eligible.filter((row) => (!customer || row.party === customer) && (!locationId || row.locationId === locationId)).map((row) => {

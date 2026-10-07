@@ -101,7 +101,7 @@ export async function GET(request: Request) {
       db.select().from(contacts).where(eq(contacts.companyId, companyId)).orderBy(asc(contacts.name)),
       db.select().from(items).where(and(eq(items.companyId, companyId), scoped ? eq(items.locationId, locationId) : undefined)).orderBy(asc(items.name)),
       db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(asc(accounts.code)),
-      db.select({ transactionId: journalEntries.transactionId, date: journalEntries.entryDate, reference: journalEntries.reference, description: journalEntries.description, account: journalLines.accountName, debit: journalLines.debit, credit: journalLines.credit, originalDebit: journalLines.originalDebit, originalCredit: journalLines.originalCredit, entryCurrency: journalEntries.currency, exchangeRate: journalEntries.exchangeRate }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(journalFilter).orderBy(asc(journalEntries.entryDate), asc(journalLines.id)),
+      db.select({ transactionId: journalEntries.transactionId, date: journalEntries.entryDate, reference: journalEntries.reference, description: journalEntries.description, account: journalLines.accountName, accountId: journalLines.accountId, debit: journalLines.debit, credit: journalLines.credit, originalDebit: journalLines.originalDebit, originalCredit: journalLines.originalCredit, entryCurrency: journalEntries.currency, exchangeRate: journalEntries.exchangeRate }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(journalFilter).orderBy(asc(journalEntries.entryDate), asc(journalLines.id)),
       db.select({ lineId: transactionLines.id, transactionId: transactions.id, itemId: transactionLines.itemId, description: transactionLines.description, quantity: transactionLines.quantity, unitPrice: transactionLines.unitPrice, subtotal: transactionLines.subtotal, unitCost: transactionLines.unitCost, freightCharge: transactionLines.freightCharge, isFreightCharge: transactionLines.isFreightCharge, vatCode: transactionLines.vatCode, vatRate: transactionLines.vatRate, vatAmount: transactionLines.vatAmount, type: transactions.type, status: transactions.status, billId: transactions.billId, locationId: transactions.locationId, party: transactions.party, salesman: transactions.salesman, date: transactions.transactionDate, number: transactions.number, transactionCurrency: transactions.currency, exchangeRate: transactions.exchangeRate, isImport: transactions.isImport }).from(transactionLines).innerJoin(transactions, eq(transactionLines.transactionId, transactions.id)).where(and(eq(transactions.companyId, companyId), scoped ? eq(transactions.locationId, locationId) : undefined)),
       db.select().from(vatCodes).where(eq(vatCodes.companyId, companyId)).orderBy(asc(vatCodes.code)),
       db.select().from(exchangeRates).where(and(eq(exchangeRates.companyId, companyId), eq(exchangeRates.active, true))),
@@ -117,7 +117,11 @@ export async function GET(request: Request) {
     const auditRows = rawAuditRows.filter(row => inPeriod(String(row.createdAt).slice(0,10)));
     const accountCandidates = new Map<string, typeof allAccounts>();
     for (const account of allAccounts) accountCandidates.set(account.name, [...(accountCandidates.get(account.name) ?? []), account]);
+    const accountsById = new Map(allAccounts.map((account) => [account.id, account]));
     const journalAccount = (row: typeof journal[number]) => {
+      // The saved account ID is authoritative; the name is only a fallback for lines that could not be linked.
+      const saved = row.accountId ? accountsById.get(row.accountId) : undefined;
+      if (saved) return saved;
       const candidates = accountCandidates.get(row.account) ?? [];
       if (candidates.length === 1) return candidates[0];
       const entryCurrency = String(row.entryCurrency || currency).toUpperCase();
@@ -140,7 +144,6 @@ export async function GET(request: Request) {
       datedLedger.set(key, total);
     }
     const ledgerRows = [...datedLedger.values()].sort((a, b) => a.name.localeCompare(b.name) || a.currency.localeCompare(b.currency)).map((row) => ({ ...row, nameAccountId: row.accountId, balance: row.debit - row.credit }));
-    const accountsById = new Map(allAccounts.map((account) => [account.id, account]));
     const incomeTypes = new Set(["Income", "Other Income"]);
     const expenseTypes = new Set(["Expense", "Cost of Goods Sold", "Other Expense"]);
     const assetTypes = new Set(["Bank", "Accounts Receivable", "Other Current Asset", "Fixed Asset", "Other Asset"]);

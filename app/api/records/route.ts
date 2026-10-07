@@ -11,7 +11,7 @@ import { RequestError } from "@/lib/errors";
 import { skuWrite } from "@/lib/sku-locks";
 import { refreshSalesSource, salesSourceLines, salesInventoryLines } from "@/lib/sales-invoicing";
 import { randomUUID, createHash } from "node:crypto";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "../../../db";
 import {
   accounts, appUsers, auditLog, companies, companySettings, contacts, exchangeRates, inventoryLocations, inventoryMovements, items, journalEntries,
@@ -1863,7 +1863,8 @@ async function handlePATCH(request: Request) {
         const [record] = await db.update(accounts).set({ code, name, type }).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId))).returning();
         if (name !== existing.name) {
           await db.update(transactions).set({ account: name }).where(and(eq(transactions.companyId, companyId), eq(transactions.account, existing.name)));
-          await db.update(journalLines).set({ accountName: name }).where(and(eq(journalLines.accountName, existing.name), inArray(journalLines.journalEntryId, db.select({ id: journalEntries.id }).from(journalEntries).where(eq(journalEntries.companyId, companyId)))));
+          // Rename only this account's journal lines; a same-named account in another currency keeps its own lines.
+          await db.update(journalLines).set({ accountName: name }).where(and(or(eq(journalLines.accountId, id), and(isNull(journalLines.accountId), eq(journalLines.accountName, existing.name))), inArray(journalLines.journalEntryId, db.select({ id: journalEntries.id }).from(journalEntries).where(eq(journalEntries.companyId, companyId)))));
         }
         await db.insert(auditLog).values({ companyId, action: "updated", entityType: "account", entityId: id, details: JSON.stringify({ name: { before: existing.name, after: name }, type: { before: existing.type, after: record.type } }) });
         return Response.json({ record });
