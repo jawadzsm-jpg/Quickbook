@@ -53,5 +53,13 @@ export function reportDocumentElement(report:ReportExportData,inventory:string,r
   for(const column of report.columns){const th=document.createElement('th');th.textContent=column.label;tr.appendChild(th);}head.appendChild(tr);table.appendChild(head);
   const body=document.createElement('tbody');for(const row of rows){const line=document.createElement('tr');for(const column of report.columns){const td=document.createElement('td');const value=row[column.key];td.textContent=typeof value==='number'?value.toLocaleString('en-US',{minimumFractionDigits:column.type==='money'?2:0,maximumFractionDigits:column.type==='money'?2:6}):String(value??'');if(typeof value==='number')td.style.textAlign='right';line.appendChild(td);}body.appendChild(line);}table.appendChild(body);element.appendChild(table);
   if(overview)paragraph(overview.note);for(const issue of issues)paragraph(`Review: ${issue}`);
+  if(report.bankBox){
+    // Customer statements: bank details for the statement currency, at the chosen left offset.
+    const box=document.createElement('div');box.style.cssText=`margin:6mm 0 0 ${Math.max(0,report.bankBox.left)}mm;width:80mm;padding:2mm;border:1px solid #94a3b8;border-radius:1mm;font:8pt/1.35 Arial,sans-serif;color:#0f172a;break-inside:avoid;white-space:pre-wrap`;
+    const title=document.createElement('strong');title.textContent=report.bankBox.title.toUpperCase();box.appendChild(title);
+    for(const text of report.bankBox.lines){const line=document.createElement('div');line.textContent=text;box.appendChild(line);}
+    if(report.bankBox.remark){const remark=document.createElement('div');remark.style.cssText='margin-top:1mm;color:#b91c1c';remark.textContent=report.bankBox.remark;box.appendChild(remark);}
+    element.appendChild(box);
+  }
   return element;
 }

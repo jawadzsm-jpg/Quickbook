@@ -1126,6 +1126,15 @@ test('employee reports keep native balances separate and export home-currency pa
   assert.ok(Math.abs(Number(page[2]) - 841.89) < 0.01);
 });
 
+test('customer statement PDFs print the bank details box with its remark after the table', async () => {
+  const { reportPdf } = await vite.ssrLoadModule('/lib/report-export.ts');
+  const report = { key: 'customer-statements', title: 'Customer Statements', generatedAt: '2026-10-07T10:00:00.000Z', currency: 'USD', columns: [{ key: 'date', label: 'Date' }, { key: 'amount', label: 'Amount', type: 'money' }], rows: [{ date: '2026-10-01', amount: 100 }], statement: { opening: 0, charges: 100, credits: 0, closing: 100 } };
+  const plain = Buffer.from(await reportPdf(report, 'Comnet', 'All inventories')).toString('latin1');
+  assert.doesNotMatch(plain, /BANK DETAILS/);
+  const withBox = Buffer.from(await reportPdf({ ...report, bankBox: { title: 'Bank details', lines: ['Mashreq Bank', 'IBAN: AE0703300000191'], remark: 'Do not use Standard Chartered', left: 40 } }, 'Comnet', 'All inventories')).toString('latin1');
+  assert.match(withBox, /BANK DETAILS/); assert.match(withBox, /IBAN: AE0703300000191/); assert.match(withBox, /Do not use Standard Chartered/);
+});
+
 test('report date presets handle weeks, leap days, month ends and fiscal boundaries', async () => {
   const {presetDates,reportPeriod,reportMonths,previousYearDate} = await vite.ssrLoadModule('/lib/report-period.ts');
   assert.deepEqual(reportMonths('2026-12-15','2027-01-10'),[{month:'2026-12',from:'2026-12-15',to:'2026-12-31'},{month:'2027-01',from:'2027-01-01',to:'2027-01-10'}]);

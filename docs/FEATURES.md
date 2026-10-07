@@ -17,6 +17,7 @@
 - Partial conversion of estimates, proformas, and sales orders into one or more invoices with source-line allocation tracking.
 - Customer payment entry against one or multiple open invoices, including partial allocations and refreshed invoice status.
 - Customer center with balances, activity, open balances, statements, overdue analysis, and source document drill-down.
+- Customer statements can include a movable bank details box: the Company Setup bank account for the statement currency (bank, account name, number, IBAN, SWIFT, currency) and its remark, editable for that statement. It prints after the statement table at the chosen left offset in screen print, standard PDF and custom-template PDF output, with the company stamp placed after it.
 - Payment terms and calculated due dates.
 
 ## Purchasing and vendors
