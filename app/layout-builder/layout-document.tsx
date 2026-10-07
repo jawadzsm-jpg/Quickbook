@@ -72,7 +72,7 @@ export function SectionBody({ section, data, theme }: { section: Section; data: 
     case "title": return <p className="lb-title">{arabic && arabicTitle(section.props.text) ? <span className="lb-title-bi"><span>{section.props.text}</span><span className="lb-ar" dir="rtl" lang="ar">{arabicTitle(section.props.text)}</span></span> : section.props.text}</p>;
     case "billTo": return <><p className="lb-label">{bilingual(section.props.label, "billTo")}</p><Lines lines={data.billTo} empty="Customer details" /></>;
     case "shipTo": return <><p className="lb-label">{bilingual(section.props.label, "shipTo")}</p><Lines lines={data.shipTo} empty="—" /></>;
-    case "details": return <dl className="lb-details" style={{ gridTemplateColumns: `repeat(${section.props.columns}, minmax(0, 1fr))` }}>
+    case "details": return <dl className={`lb-details${section.props.cellBorder ? " lb-details-boxed" : ""}`} style={{ gridTemplateColumns: `repeat(${section.props.columns}, minmax(0, 1fr))`, ...(section.props.cellBorder && section.props.cellBorderColor ? { "--lb-detail-border": section.props.cellBorderColor } : {}) } as CSSProperties}>
       {section.props.fields.map((field) => <div key={field.key}><dt>{bilingual(field.label, field.key)}</dt><dd>{data.details[field.key] || "—"}</dd></div>)}
     </dl>;
     case "lineItems": {
