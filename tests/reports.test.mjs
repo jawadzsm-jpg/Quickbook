@@ -105,6 +105,40 @@ async function report(type, location = locationId) {
   return report;
 }
 
+test("product import maps spreadsheet columns and saves rows through the normal item endpoint", async () => {
+  const { parseCsv, rowsToItems, importNumber } = await vite.ssrLoadModule("/lib/item-import.ts");
+  assert.equal(importNumber("AED 6,000.00"), 6000); assert.equal(importNumber(""), 0); assert.equal(importNumber("—"), 0); assert.ok(Number.isNaN(importNumber("abc")));
+  const csv = 'Inventory export\nItem No.,SKU,Item & description,Category,On hand,Reorder,Sales price,Avg. cost,Brand,RAM\n'
+    + ',,"DELL LATITUDE 5440, 16GB",Laptops,5,1,"AED 3,200.00",2650,DELL,16GB RAM\n'
+    + ',,HP PROBOOK 450,Laptops,2,,4500,,HP,\n'
+    + ',,,Laptops,1,,10,,,\n'
+    + ',,BAD PRICE ITEM,Laptops,1,,abc,,,\n'
+    + ',,dell latitude 5440  16gb,Laptops,1,,1,,,\n';
+  const parsed = rowsToItems(parseCsv(csv));
+  assert.equal(parsed.error, undefined);
+  assert.deepEqual(parsed.columns.slice(0, 8).map((column) => column.field), ["itemNumber", "sku", "name", "category", "quantity", "reorderPoint", "salesPrice", "cost"]);
+  assert.equal(rowsToItems(parseCsv("Name,Qty\nA,1")).rows[0].payload.name, "A");
+  const csvWithDescription = rowsToItems(parseCsv("Description,Qty\nB,2"));
+  assert.equal(csvWithDescription.rows[0].payload.name, "B");
+  assert.match(rowsToItems(parseCsv("Foo,Bar\n1,2")).error, /Name/);
+  // The app's own inventory export header "Item & description" is read as the product name.
+  const named = parsed;
+  assert.equal(named.rows.length, 5);
+  assert.deepEqual(named.rows.map((row) => row.error ?? "ok"), ["ok", "ok", "Name is empty.", "Sales price must be a number of 0 or more.", "ok"]);
+  assert.deepEqual(named.rows[0].payload, { kind: "items", name: "DELL LATITUDE 5440, 16GB", category: "Laptops", quantity: 5, reorderPoint: 1, salesPrice: 3200, cost: 2650, specLabel0: "Brand", specValue0: "DELL", specLabel1: "RAM", specValue1: "16GB RAM" });
+
+  const created = await workspaces.POST(post({ type: "company", name: "Item import company", baseCurrency: "AED" }));
+  const { company } = await created.json();
+  const records = await vite.ssrLoadModule("/app/api/records/route.ts");
+  const save = (row) => records.POST(new Request("https://app.test/api/records", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...row.payload, companyId: company.id, locationId: company.locations[0].id }) }));
+  const statuses = [];
+  for (const row of named.rows.filter((entry) => !entry.error)) statuses.push((await save(row)).status);
+  assert.deepEqual(statuses, [201, 201, 409]); // the last row repeats the first name
+  const saved = (await database.query("SELECT name,quantity,sales_price,cost,category,specifications FROM items WHERE company_id=$1 ORDER BY id", [company.id])).rows;
+  assert.deepEqual(saved.map((item) => [item.name, Number(item.quantity), Number(item.sales_price), Number(item.cost), item.category]), [["DELL LATITUDE 5440, 16GB", 5, 3200, 2650, "LAPTOPS"], ["HP PROBOOK 450", 2, 4500, 0, "LAPTOPS"]]);
+  assert.deepEqual(JSON.parse(saved[0].specifications), [{ label: "Brand", value: "DELL" }, { label: "RAM", value: "16GB RAM" }]);
+});
+
 test("sales postings hit revenue, VAT, COGS and inventory accounts and sales reports reconcile", async () => {
   const created = await workspaces.POST(post({ type: "company", name: "Sales account audit", baseCurrency: "AED" }));
   assert.equal(created.status, 201);
