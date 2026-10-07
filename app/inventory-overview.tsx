@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, BadgeDollarSign, Boxes, Download, Eye, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PackageOpen, PlaneLanding, RefreshCw, Rocket, Search, Send, ShoppingCart, UserRound, Warehouse } from "lucide-react";
+import { AlertTriangle, BadgeDollarSign, Boxes, ChevronDown, Download, Eye, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PackageOpen, PlaneLanding, RefreshCw, Rocket, Search, Send, ShoppingCart, UserRound, Warehouse } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -132,6 +132,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   const [records, setRecords] = useState<OverviewItem[]>([]);
   const [activity, setActivity] = useState<InventoryActivity>(emptyActivity);
   const [activityView, setActivityView] = useState<ActivityView>("incoming");
+  const [activityOpen, setActivityOpen] = useState(false);
   const [canSelectItems, setCanSelectItems] = useState(false);
   const [canBulkSelect, setCanBulkSelect] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -383,12 +384,12 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
 
   return <div className="space-y-5">
     <section className="overflow-hidden rounded-2xl border bg-card text-card-foreground shadow-sm">
-      <div className="grid grid-cols-2 border-b bg-muted/40 sm:grid-cols-4">
-        {activityTabs.map(({ id, label, Icon, count, badge }) => <button key={id} type="button" onClick={() => setActivityView(id)} className={`flex min-h-14 min-w-0 items-center justify-center gap-2 border-r border-b px-3 text-sm font-semibold transition-colors even:border-r-0 sm:min-h-20 sm:gap-3 sm:border-b-0 sm:px-4 sm:text-lg sm:even:border-r sm:last:border-r-0 ${activityView === id ? "bg-card text-foreground shadow-[inset_0_-3px_0_var(--primary)]" : "text-muted-foreground hover:bg-card/70 hover:text-foreground"}`} aria-pressed={activityView === id}>
-          <Icon className="size-5 shrink-0 sm:size-6" /><span className="truncate">{label}</span><Badge className={`${badge} min-w-7 justify-center hover:opacity-90`}>{count}</Badge>
+      <div className={`grid grid-cols-2 bg-muted/40 sm:grid-cols-4 ${activityOpen ? "border-b" : ""}`}>
+        {activityTabs.map(({ id, label, Icon, count, badge }) => <button key={id} type="button" onClick={() => { if (activityOpen && activityView === id) setActivityOpen(false); else { setActivityView(id); setActivityOpen(true); } }} className={`flex min-h-14 min-w-0 items-center justify-center gap-2 border-r border-b px-3 text-sm font-semibold transition-colors even:border-r-0 sm:min-h-20 sm:gap-3 sm:border-b-0 sm:px-4 sm:text-lg sm:even:border-r sm:last:border-r-0 ${activityOpen && activityView === id ? "bg-card text-foreground shadow-[inset_0_-3px_0_var(--primary)]" : "text-muted-foreground hover:bg-card/70 hover:text-foreground"}`} aria-expanded={activityOpen && activityView === id}>
+          <Icon className="size-5 shrink-0 sm:size-6" /><span className="truncate">{label}</span><Badge className={`${badge} min-w-7 justify-center hover:opacity-90`}>{count}</Badge><ChevronDown className={`size-4 shrink-0 transition-transform ${activityOpen && activityView === id ? "rotate-180" : ""}`} />
         </button>)}
       </div>
-      <div className="overflow-x-auto">
+      {activityOpen ? <><div className="overflow-x-auto">
         <Table className="min-w-[900px]">
           <TableHeader><TableRow><TableHead className="w-32">Date</TableHead><TableHead>Item</TableHead><TableHead>Company · inventory</TableHead><TableHead>Linked area</TableHead><TableHead>Activity</TableHead><TableHead className="w-24 text-right">Open</TableHead></TableRow></TableHeader>
           <TableBody>
@@ -406,7 +407,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
           </TableBody>
         </Table>
       </div>
-      <div className="border-t bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">Incoming shows outstanding Purchase Order quantities. Open the PO to convert the remaining items to a Bill. New Arrival shows stock received through Enter Bill for 12 hours after saving. Price Change shows each item once with its latest change for 12 hours. Just Sold keeps the sales representative from the original sale.</div>
+      <div className="border-t bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">Incoming shows outstanding Purchase Order quantities. Open the PO to convert the remaining items to a Bill. New Arrival shows stock received through Enter Bill for 12 hours after saving. Price Change shows each item once with its latest change for 12 hours. Just Sold keeps the sales representative from the original sale.</div></> : null}
     </section>
 
     <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
