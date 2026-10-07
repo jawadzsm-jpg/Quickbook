@@ -7,7 +7,7 @@ import type { DocumentStamp } from "@/lib/layout/document-data";
 // and their static print markup all share it; dragging only runs in pointer handlers.
 
 export type MovePageStamp = (kind: DocumentStamp["kind"], left: number, top: number) => void;
-export const PAGE_STAMP_SIZE = { company: { width: 34, height: 25 }, bank: { width: 80, height: 40 }, status: { width: 40, height: 14 } } as const;
+export const PAGE_STAMP_SIZE = { company: { width: 34, height: 25 }, bank: { width: 80, height: 40 }, status: { width: 40, height: 14 }, copy: { width: 52, height: 8 } } as const;
 
 /** Keep a stamp inside the area it is placed in. */
 export function clampPageStamp(kind: DocumentStamp["kind"], left: number, top: number, widthMm: number, heightMm: number) {
@@ -48,6 +48,8 @@ export function PageStamps({ stamps, widthMm, heightMm, mm, onMove }: {
     const drag = onMove ? { onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => begin(stamp, event), title: "Drag to move" } : {};
     // Document status stamp (e.g. OPEN, PAID) lifted from a Layout Builder overlay so it can be moved.
     if (stamp.kind === "status") return <div key="status" className="page-stamp page-status-stamp" style={{ ...style, width: mm(size.width), height: mm(size.height), display: "flex", alignItems: "center", justifyContent: "center", border: `${mm(0.9)} solid #1f4e66`, borderRadius: mm(2), color: "#1f4e66", fontFamily: "Arial, sans-serif", fontWeight: 800, fontSize: "14pt", letterSpacing: "0.08em", textTransform: "uppercase", transform: "rotate(-8deg)", opacity: 0.85, background: "transparent" }} {...drag}>{stamp.text}</div>;
+    // "CUSTOMER COPY" / "INVENTORY TEAM COPY" label on signed invoice copies.
+    if (stamp.kind === "copy") return <div key="copy" className="page-stamp page-copy-label" style={{ ...style, height: mm(size.height), display: "inline-flex", alignItems: "center", padding: `0 ${mm(3)}`, border: "1px solid #0f172a", borderRadius: 999, background: "#fff", color: "#0f172a", fontFamily: "Arial, sans-serif", fontWeight: 700, fontSize: "8pt", letterSpacing: "0.08em", whiteSpace: "nowrap" }} {...drag}>{stamp.text}</div>;
     if (stamp.kind === "company") return <div key="company" className="page-stamp page-company-stamp" style={style} {...drag}>
       {stamp.src ? <img src={stamp.src} alt="Company stamp" draggable={false} style={{ display: "block", maxWidth: mm(size.width - 2), maxHeight: mm(size.height - 2), objectFit: "contain" }} /> : null}
     </div>;
