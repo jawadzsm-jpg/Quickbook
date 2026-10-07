@@ -812,6 +812,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       rawLines = await db.select().from(transactionLines).where(eq(transactionLines.transactionId, conversionSourceId)).orderBy(asc(transactionLines.id));
       payload.party = source.party;
       payload.salesman = source.salesman;
+      if (payload.deliveryAddress === undefined || payload.deliveryAddress === "") payload.deliveryAddress = source.deliveryAddress;
       payload.terms = source.terms;
       payload.currency = source.currency;
       payload.exchangeRate = source.exchangeRate;
@@ -845,7 +846,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
         invoiceLines.push({ ...line, comments: input.comments ?? line.comments, serialNumber: input.serialNumber ?? line.serialNumber, itemId: line.itemId ? line.stockItemId : null, quantity, unitCost: line.itemId ? line.homeCost / rate : line.unitCost });
       }
       rawLines = invoiceLines;
-      payload.party = source.party; payload.salesman = source.salesman; payload.terms = source.terms; payload.currency = source.currency; payload.exchangeRate = source.exchangeRate;
+      payload.party = source.party; payload.salesman = source.salesman; if (payload.deliveryAddress === undefined || payload.deliveryAddress === "") payload.deliveryAddress = source.deliveryAddress; payload.terms = source.terms; payload.currency = source.currency; payload.exchangeRate = source.exchangeRate;
       payload.account = source.account; payload.status = "open"; payload.allowNegativeStock = false;
       payload.memo = [source.memo, String(payload.memo ?? ""), `Invoiced from ${source.type} ${source.number}`].filter(Boolean).join(" · ");
     }
@@ -1172,6 +1173,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       salesman: String(payload.salesman ?? ""), isImport: payload.isImport === true || String(payload.isImport) === "true" || usesImportGoodsVat,
       billOfEntryNumber: usesImportGoodsVat && type === "bill" ? billOfEntryNumber : "", airwayBillNumber: usesImportGoodsVat && type === "bill" ? airwayBillNumber : "",
       transactionDate, dueDate: String(payload.dueDate ?? ""), terms, paymentMethod, referenceNo,
+      // Ship To address: multi-line, up to 10,000 characters; edits without the field keep the saved address.
+      deliveryAddress: String(payload.deliveryAddress ?? replacing?.deliveryAddress ?? "").replace(/\r\n/g, "\n").trim().slice(0, 10000),
       chequeBankKey,
       account: String(payload.account ?? "Accounts Receivable"), status: type === "pending invoice" ? "pending" : ["customer payment", "cheque", "transfer"].includes(type) && total > 0 ? "paid" : String(payload.status ?? "open"), ...(["customer payment", "cheque", "transfer"].includes(type) && total > 0 ? { paidAt: new Date().toISOString() } : {}), memo: String(payload.memo ?? ""), comments, serialNumber,
       subtotal, vatRate: Number(payload.vatRate ?? 5), vatAmount, total, currency, exchangeRate, baseTotal,
@@ -1443,7 +1446,7 @@ async function handlePATCH(request: Request) {
           if (payload.editMode !== "details") return Response.json({ error: "Use Edit details for invoices and customer payments. Posted amounts and allocations are protected." }, { status: 400 });
           const allowed = new Set(["kind", "id", "companyId", "revision", "editMode", "number", "transactionDate", "dueDate", "terms", "salesman", "memo"]);
           if (existing.type === "customer payment") { allowed.add("paymentMethod"); allowed.add("referenceNo"); }
-          if (existing.type === "invoice") { allowed.add("comments"); allowed.add("serialNumber"); allowed.add("lineDetails"); allowed.add("appendLines"); allowed.add("party"); }
+          if (existing.type === "invoice") { allowed.add("comments"); allowed.add("serialNumber"); allowed.add("lineDetails"); allowed.add("appendLines"); allowed.add("party"); allowed.add("deliveryAddress"); }
           if (Object.keys(payload).some((field) => !allowed.has(field))) return Response.json({ error: "Only customer, reference, dates, sales rep, memo and invoice line quantity, price, VAT, description, comments and serial numbers can be changed here." }, { status: 400 });
           const oldLines = await db.select().from(transactionLines).where(eq(transactionLines.transactionId, id)).orderBy(asc(transactionLines.id));
           if (payload.revision !== purchaseRevision(existing, oldLines)) return Response.json({ error: "This document changed. Close and reopen the editor before saving." }, { status: 409 });
@@ -1518,6 +1521,7 @@ async function handlePATCH(request: Request) {
           const terms = String(payload.terms ?? "").trim();
           const salesman = String(payload.salesman ?? "").trim();
           const memo = String(payload.memo ?? "");
+          const deliveryAddress = payload.deliveryAddress === undefined ? existing.deliveryAddress : String(payload.deliveryAddress).replace(/\r\n/g, "\n").trim().slice(0, 10000);
           const paymentMethod = existing.type === "customer payment" ? String((payload.paymentMethod ?? existing.paymentMethod) || "Bank transfer").trim().slice(0, 80) : existing.paymentMethod;
           const referenceNo = existing.type === "customer payment" ? String((payload.referenceNo ?? existing.referenceNo) || number).trim().slice(0, 120) : existing.referenceNo;
           const comments = existing.type === "invoice" ? String(payload.comments ?? existing.comments) : existing.comments;
@@ -1732,7 +1736,7 @@ async function handlePATCH(request: Request) {
           }
 
           const [record] = await db.update(transactions).set({
-            number, transactionDate, dueDate, terms, salesman, memo, comments, serialNumber, paymentMethod, referenceNo, party,
+            number, transactionDate, dueDate, terms, salesman, memo, deliveryAddress, comments, serialNumber, paymentMethod, referenceNo, party,
             ...(appendedSummary || financialChanged.length ? {
               subtotal: round(Number(existing.subtotal) + editDelta.subtotal + (appendedSummary?.subtotal ?? 0)),
               vatAmount: round(Number(existing.vatAmount) + editDelta.vatAmount + (appendedSummary?.vatAmount ?? 0)),

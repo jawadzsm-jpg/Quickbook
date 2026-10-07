@@ -41,7 +41,7 @@ export function transactionDocumentData(record: RecordData, lines: RecordData[],
   return {
     company: companyDocumentData(setup, text(record.currency)),
     billTo: [billingName, text(contact?.address || contact?.addressLine1), contactCity, contact?.trn ? `TRN ${text(contact.trn)}` : ""].filter(Boolean),
-    shipTo: [text(record.deliveryAddress || contact?.shippingAddress)].filter(Boolean),
+    shipTo: text(record.deliveryAddress || contact?.shippingAddress).split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
     details: {
       number: text(record.number), date: text(record.transactionDate), dueDate: text(record.dueDate), terms: text(record.terms || contact?.paymentTerms),
       salesman: text(record.salesman), reference: text(record.referenceNo || record.reference), trn: text(contact?.trn), source: text(record.sourceDocumentNumber), status: text(record.status),

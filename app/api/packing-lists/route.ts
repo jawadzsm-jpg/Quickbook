@@ -93,7 +93,7 @@ async function savePackingList(request: Request, editing: boolean) {
     const invoiceId = Number(payload.invoiceId);
     const packingListId = editing ? Number(payload.packingListId) : 0;
     const packingDate = clean(payload.packingDate, 10);
-    const deliveryAddress = clean(payload.deliveryAddress, 500);
+    const deliveryAddress = clean(payload.deliveryAddress, 10000);
     const memo = clean(payload.memo, 1_000);
     const requested = Array.isArray(payload.lines) ? payload.lines.slice(0, 500) as Array<Record<string, unknown>> : [];
     const user = await requireCompanyAccess(request, companyId, "sales:write", true);
