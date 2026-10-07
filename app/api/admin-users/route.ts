@@ -1,6 +1,6 @@
 import { isValidEmail } from "@/lib/email-validation";
 import { and, asc, count, eq, sql } from "drizzle-orm";
-import { getDb } from "@/db";
+import { getDb, withWriteTransaction } from "@/db";
 import { appUsers, authSessions, companies } from "@/db/schema";
 import { appRoles, hashPassword, isAdministrator, requireApiUser, type AppRole } from "@/lib/auth";
 import { sendUserInvitation } from "@/lib/smtp";
@@ -73,13 +73,23 @@ export async function POST(request: Request) {
   if (password.length < 12 || password.length > 128) return Response.json({ error: "Temporary password must contain 12 to 128 characters." }, { status: 400 });
   if (phone.length > 32 || whatsapp.length > 32) return Response.json({ error: "Phone numbers must contain 32 characters or fewer." }, { status: 400 });
   if (!validAvatar(avatarData)) return Response.json({ error: "Use a PNG, JPEG or WebP picture smaller than 800 KB." }, { status: 400 });
-  let created: typeof appUsers.$inferSelect;
+  const [existing] = await getDb().select({ active: appUsers.active }).from(appUsers).where(sql`lower(${appUsers.email}) = ${email}`).limit(1);
+  if (existing) return Response.json({ error: existing.active ? "A user with this email already exists." : "A deactivated user with this email already exists. Reactivate that user instead." }, { status: 409 });
+  let created!: typeof appUsers.$inferSelect;
   try {
-    [created] = await getDb().insert(appUsers).values({ fullName, email, phone, whatsapp, avatarData, role: role as never, passwordHash: hashPassword(password), mustChangePassword: true }).returning();
-    if (role !== "all_admin") await replaceCompanies(created.id, companyIds);
+    // User and company access are saved together, so a failed assignment never leaves a half-created user behind.
+    const response = await withWriteTransaction(async () => {
+      [created] = await getDb().insert(appUsers).values({ fullName, email, phone, whatsapp, avatarData, role: role as never, passwordHash: hashPassword(password), mustChangePassword: true }).returning();
+      if (role !== "all_admin") await replaceCompanies(created.id, companyIds);
+      return Response.json({ ok: true });
+    });
+    if (!response.ok) return response;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Could not add user.";
-    return Response.json({ error: message.includes("idx_app_users_email") || message.includes("duplicate") ? "A user with this email already exists." : "Could not add user." }, { status: 409 });
+    // Drizzle wraps database errors ("Failed query: ..."); the PostgreSQL message is on `cause`.
+    const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : "";
+    const message = `${error instanceof Error ? error.message : ""} ${cause}`;
+    console.error("Could not add user", cause || error);
+    return Response.json({ error: message.includes("idx_app_users_email") || message.includes("duplicate key") ? "A user with this email already exists." : `Could not add user.${cause ? ` ${cause}` : ""}` }, { status: 409 });
   }
   let emailSent = false; let emailWarning = "";
   if (payload.sendEmail === true) {
