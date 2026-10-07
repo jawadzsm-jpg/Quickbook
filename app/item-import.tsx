@@ -5,7 +5,7 @@ import { Download, FileUp, LoaderCircle, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ITEM_IMPORT_TEMPLATE, parseCsv, rowsToItems, type ImportRow } from "@/lib/item-import";
+import { ITEM_IMPORT_TEMPLATE, markupTableRows, parseCsv, rowsToItems, type ImportRow } from "@/lib/item-import";
 
 type Result = { line: number; label: string; ok: boolean; message: string };
 
@@ -42,22 +42,7 @@ async function readSpreadsheet(file: File): Promise<string[][]> {
   }
   if (bytes[0] === 0xd0 && bytes[1] === 0xcf) throw new Error("This is an old binary .xls file. Open it in Excel and save it as .xlsx or CSV, then import again.");
   const text = new TextDecoder().decode(buffer);
-  const document = new DOMParser().parseFromString(text, /<\?xml/i.test(text.slice(0, 200)) ? "application/xml" : "text/html");
-  const xmlRows = [...document.getElementsByTagNameNS("*", "Row")];
-  if (xmlRows.length) { // Excel 2003 XML spreadsheet
-    return xmlRows.map((row) => {
-      const cells: string[] = [];
-      for (const cell of [...row.children].filter((child) => child.localName === "Cell")) {
-        const index = Number(cell.getAttributeNS("urn:schemas-microsoft-com:office:spreadsheet", "Index") || cell.getAttribute("ss:Index"));
-        if (index > 0) while (cells.length < index - 1) cells.push("");
-        cells.push(cell.textContent ?? "");
-      }
-      return cells;
-    });
-  }
-  const tableRows = [...document.querySelectorAll("tr")];
-  if (tableRows.length) return tableRows.map((row) => [...row.querySelectorAll("th,td")].map((cell) => cell.textContent ?? ""));
-  return parseCsv(text);
+  return markupTableRows(text) ?? parseCsv(text);
 }
 
 export function ItemImport({ companyId, locationId, locationName, onImported }: { companyId: number; locationId: number; locationName: string; onImported: () => void }) {
