@@ -1,6 +1,7 @@
 import type { PnlReport } from "./profit-loss";
 import type { PrintOrientation } from "./document-print";
 import { pnlAmount, pnlSummary } from "./pnl-presentation";
+import { reportStampAfterTable } from "./report-stamp";
 
 export const csvValue = (value: string | number) => typeof value === "number" ? String(value) : `"${(/^[\s\u0000-\u001f]*[=+@-]/.test(value) ? "'" + value : value).replaceAll('"', '""')}"`;
 export function pnlCsv(report: PnlReport, company: string) {
@@ -70,8 +71,11 @@ export async function pnlPdf(report: PnlReport, company: string, stamp?: { data:
       source.onerror = () => reject(new Error("Could not read the company stamp.")); source.src = stamp.data;
     });
     const scale = Math.min(32 / image.width, 23 / image.height);
-    pdf.setPage(1);
-    pdf.addImage(image.data, "PNG", Math.max(0, Math.min(width - image.width * scale, stamp.left)), Math.max(0, Math.min(height - image.height * scale, stamp.top)), image.width * scale, image.height * scale);
+    // Like every other report PDF: on the final page, below the last table and clear of the footer.
+    pdf.setPage(pdf.getNumberOfPages());
+    const placement = reportStampAfterTable(height, lastY(), stamp.top, image.height * scale);
+    if (placement.newPage) { pdf.addPage(); head(); }
+    pdf.addImage(image.data, "PNG", Math.max(0, Math.min(width - image.width * scale, stamp.left)), placement.top, image.width * scale, image.height * scale);
   }
   for (let page = 1; page <= pdf.getNumberOfPages(); page++) { pdf.setPage(page); pdf.setTextColor(95); pdf.setFontSize(8); pdf.text(`Generated ${report.generatedAt.slice(0, 16).replace("T", " ")} UTC`, 12, height - 8); pdf.text(`Page ${page} of ${pdf.getNumberOfPages()}`, width - 12, height - 8, { align: "right" }); }
   return pdf.output("arraybuffer");

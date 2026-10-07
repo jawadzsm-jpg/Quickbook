@@ -11,7 +11,6 @@ export const customerReportKeys = new Set([
   "average-days-to-pay-summary",
   "average-days-to-pay-detail",
   "accounts-receivable-graph",
-  "unbilled-costs-job",
   "customer-transactions",
   "online-received-payments",
   "customer-statements",
@@ -46,7 +45,6 @@ export function customerDetailTarget(key = "") {
     "collections-report": "customers-overdue-invoices",
     "average-days-to-pay-summary": "average-days-to-pay-detail",
     "accounts-receivable-graph": "customer-transactions",
-    "unbilled-costs-job": "open-purchase-orders-job",
     "online-received-payments": "customer-transactions",
   } as Record<string, string>)[key] || "";
 }
@@ -91,9 +89,6 @@ export function customerSummary(report: CustomerReportLike): { cards: CustomerSu
   }
   if (key === "accounts-receivable-graph") {
     return { cards: [money("Charges", sum(rows, "charges")), money("Payments / credits", sum(rows, "payments"), "positive"), money("Closing A/R", Number(rows.at(-1)?.balance ?? 0), "accent"), number("Months", rows.length)], note: "The chart compares monthly receivable charges with payments and credits." };
-  }
-  if (key === "unbilled-costs-job") {
-    return { cards: [money("Unbilled cost", sum(rows, "amount"), "accent"), number("Jobs / inventories", rows.length), number("Open documents", sum(rows, "documents")), money("Average per document", sum(rows, "documents") ? sum(rows, "amount") / sum(rows, "documents") : 0)], note: "Open purchase commitments are grouped by their linked inventory or job." };
   }
   if (key === "customer-transactions") {
     const charges = rows.filter((row) => Number(row.amount) > 0).reduce((total, row) => total + Number(row.amount), 0);

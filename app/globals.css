@@ -158,7 +158,8 @@ body {
 .metric-amber { color: #b45309; background: #fef3c7; }
 .metric-violet { color: #6d28d9; background: #ede9fe; }
 
-[data-user-theme] {
+/* One fixed brand palette for the whole app (light and dark); users choose only light or dark mode. */
+:root {
   --primary: var(--user-color-400);
   --primary-foreground: var(--user-color-contrast);
   --ring: var(--user-color-500);
@@ -183,11 +184,6 @@ body {
   --user-hero-end: #173b31;
 }
 
-[data-user-theme="ocean"] { --user-color-50: #f0f9ff; --user-color-100: #e0f2fe; --user-color-200: #bae6fd; --user-color-300: #7dd3fc; --user-color-400: #38bdf8; --user-color-500: #0ea5e9; --user-color-600: #0284c7; --user-color-700: #0369a1; --user-color-950: #082f49; --user-color-contrast: #082f49; --user-workspace: #f3f8fb; --user-hero-start: #102238; --user-hero-end: #123e5a; }
-[data-user-theme="indigo"] { --user-color-50: #eef2ff; --user-color-100: #e0e7ff; --user-color-200: #c7d2fe; --user-color-300: #a5b4fc; --user-color-400: #818cf8; --user-color-500: #6366f1; --user-color-600: #4f46e5; --user-color-700: #4338ca; --user-color-950: #1e1b4b; --user-color-contrast: #1e1b4b; --user-workspace: #f5f5fb; --user-hero-start: #181c36; --user-hero-end: #2b2d61; }
-[data-user-theme="violet"] { --user-color-50: #f5f3ff; --user-color-100: #ede9fe; --user-color-200: #ddd6fe; --user-color-300: #c4b5fd; --user-color-400: #a78bfa; --user-color-500: #8b5cf6; --user-color-600: #7c3aed; --user-color-700: #6d28d9; --user-color-950: #2e1065; --user-color-contrast: #2e1065; --user-workspace: #f8f6fb; --user-hero-start: #211735; --user-hero-end: #43255d; }
-[data-user-theme="rose"] { --user-color-50: #fff1f2; --user-color-100: #ffe4e6; --user-color-200: #fecdd3; --user-color-300: #fda4af; --user-color-400: #fb7185; --user-color-500: #f43f5e; --user-color-600: #e11d48; --user-color-700: #be123c; --user-color-950: #4c0519; --user-color-contrast: #4c0519; --user-workspace: #fbf5f6; --user-hero-start: #301723; --user-hero-end: #5a2037; }
-[data-user-theme="amber"] { --user-color-50: #fffbeb; --user-color-100: #fef3c7; --user-color-200: #fde68a; --user-color-300: #fcd34d; --user-color-400: #fbbf24; --user-color-500: #f59e0b; --user-color-600: #d97706; --user-color-700: #b45309; --user-color-950: #451a03; --user-color-contrast: #451a03; --user-workspace: #faf8f2; --user-hero-start: #2d2414; --user-hero-end: #55401a; }
 
 [data-appearance="light"] { color-scheme: light; }
 
@@ -439,7 +435,9 @@ body {
 
 /* Reports share a fixed-width layout so full descriptions wrap inside the page. */
 .report-dialog > * { min-width: 0; }
-.report-table [data-slot="table-container"] { overflow: visible; }
+/* Wide tables scroll sideways on screen instead of being cut off; print keeps every column visible. */
+.report-table [data-slot="table-container"] { overflow-x: auto; }
+@media print { .report-table [data-slot="table-container"] { overflow: visible; } }
 .report-table th,
 .report-table td {
   white-space: normal;
@@ -1182,7 +1180,7 @@ body {
 [data-appearance="dark"] .inventory-report-dialog :is(.inventory-report-data button, .inventory-stock-identities button) { color: #6ee7b7 !important; }
 [data-appearance="dark"] .inventory-mobile-totals { background: #152b25 !important; border-color: #35594c !important; }
 [data-appearance="dark"] .inventory-mobile-totals > strong { color: #d1fae5 !important; }
-@media screen and (max-width: 900px) {
+@media screen and (max-width: 1023px) {
   .inventory-report-table-desktop { display: none; }
   .inventory-report-mobile { display: grid; gap: 1rem; }
   .inventory-library-intro { flex-direction: column; align-items: flex-start; padding: 1rem; }
@@ -1275,7 +1273,7 @@ body {
 [data-appearance="dark"] .purchase-report-dialog :is(.purchase-report-data button, .purchase-stock-identities button) { color: #6ee7b7 !important; }
 [data-appearance="dark"] .purchase-mobile-totals { background: #152b25 !important; border-color: #35594c !important; }
 [data-appearance="dark"] .purchase-mobile-totals > strong { color: #d1fae5 !important; }
-@media screen and (max-width: 900px) {
+@media screen and (max-width: 1023px) {
   .purchase-report-table-desktop { display: none; }
   .purchase-report-mobile { display: grid; gap: 1rem; }
   .purchase-library-intro { flex-direction: column; align-items: flex-start; padding: 1rem; }
@@ -1368,7 +1366,7 @@ body {
 [data-appearance="dark"] .sales-report-dialog :is(.sales-report-data button, .sales-stock-identities button) { color: #6ee7b7 !important; }
 [data-appearance="dark"] .sales-mobile-totals { background: #152b25 !important; border-color: #35594c !important; }
 [data-appearance="dark"] .sales-mobile-totals > strong { color: #d1fae5 !important; }
-@media screen and (max-width: 900px) {
+@media screen and (max-width: 1023px) {
   .sales-report-table-desktop { display: none; }
   .sales-report-mobile { display: grid; gap: 1rem; }
   .sales-library-intro { flex-direction: column; align-items: flex-start; padding: 1rem; }
@@ -1484,7 +1482,7 @@ body {
 [data-appearance="dark"] .vat-report-dialog :is(.vat-report-data button, .vat-stock-identities button) { color: #6ee7b7 !important; }
 [data-appearance="dark"] .vat-mobile-totals { background: #152b25 !important; border-color: #35594c !important; }
 [data-appearance="dark"] .vat-mobile-totals > strong { color: #d1fae5 !important; }
-@media screen and (max-width: 900px) {
+@media screen and (max-width: 1023px) {
   .vat-report-table-desktop { display: none; }
   .vat-report-mobile { display: grid; gap: 1rem; }
   .vat-library-intro { flex-direction: column; align-items: flex-start; padding: 1rem; }
@@ -1598,7 +1596,7 @@ body {
 [data-appearance="dark"] .vendor-report-dialog :is(.vendor-report-data button, .vendor-stock-identities button) { color: #6ee7b7 !important; }
 [data-appearance="dark"] .vendor-mobile-totals { background: #152b25 !important; border-color: #35594c !important; }
 [data-appearance="dark"] .vendor-mobile-totals > strong { color: #d1fae5 !important; }
-@media screen and (max-width: 900px) {
+@media screen and (max-width: 1023px) {
   .vendor-report-table-desktop { display: none; }
   .vendor-report-mobile { display: grid; gap: 1rem; }
   .vendor-library-intro { flex-direction: column; align-items: flex-start; padding: 1rem; }
@@ -1659,7 +1657,7 @@ body {
 .report-data-desktop { border: 1px solid #d7e0e7; border-radius: .7rem; overflow: hidden; }
 .report-dialog .report-data-desktop table { table-layout: fixed; width: 100%; font-size: .8rem; }
 .report-dialog .report-data-desktop th { background: #edf3f1; color: #36564b; font-size: .7rem; font-weight: 700; white-space: normal; padding: .85rem .7rem; }
-.report-dialog .report-data-desktop td { padding: .8rem .7rem; vertical-align: top; overflow-wrap: anywhere; line-height: 1.6; }
+.report-dialog .report-data-desktop td { padding: .8rem .7rem; vertical-align: top; overflow-wrap: break-word; line-height: 1.6; }
 .report-dialog .report-data-desktop tbody tr:nth-child(even) { background: #f7faf9; }
 .report-dialog .report-data-desktop td[data-responsive-column] { text-align: right; white-space: nowrap; overflow-wrap: normal; word-break: normal; font-variant-numeric: tabular-nums; }
 .report-data-mobile { display: none; }
@@ -2077,3 +2075,149 @@ body {
 
 /* Keep a newly added top line clear of the sticky dialog window bar when it is scrolled into view. */
 :is(.transaction-line, .bill-item-row) { scroll-margin-top: 6rem; scroll-margin-bottom: 1rem; }
+
+
+/* Report Center: one palette for every report category, taken from the shared light/dark theme tokens.
+   Declared last with !important so it replaces the older per-category colours in both modes. */
+:root { --report-positive: #15803d; --report-negative: #be123c; --report-accent: #065f46; --report-stripe: color-mix(in srgb, var(--muted) 55%, transparent); }
+[data-appearance="dark"] { --report-positive: #86efac; --report-negative: #fda4af; --report-accent: #6ee7b7; }
+.report-dialog .accountant-report-brief,
+.report-dialog .banking-report-brief,
+.report-dialog .budget-report-brief,
+.report-dialog .customer-report-brief,
+.report-dialog .inventory-report-brief,
+.report-dialog .list-report-brief,
+.report-dialog .purchase-report-brief,
+.report-dialog .sales-report-brief,
+.report-dialog .vat-report-brief,
+.report-dialog .vendor-report-brief,
+.report-dialog .financial-report-brief,
+.report-dialog .report-brief { background: var(--muted) !important; border-color: var(--border) !important; color: var(--muted-foreground) !important; }
+.report-dialog .accountant-summary,
+.report-dialog .banking-summary,
+.report-dialog .budget-summary,
+.report-dialog .customer-summary,
+.report-dialog .inventory-summary,
+.report-dialog .list-summary,
+.report-dialog .purchase-summary,
+.report-dialog .sales-summary,
+.report-dialog .vat-summary,
+.report-dialog .vendor-summary { background: var(--card) !important; border-color: var(--border) !important; }
+.report-dialog .accountant-summary-grid > div,
+.report-dialog .banking-summary-grid > div,
+.report-dialog .budget-summary-grid > div,
+.report-dialog .customer-summary-grid > div,
+.report-dialog .inventory-summary-grid > div,
+.report-dialog .list-summary-grid > div,
+.report-dialog .purchase-summary-grid > div,
+.report-dialog .sales-summary-grid > div,
+.report-dialog .vat-summary-grid > div,
+.report-dialog .vendor-summary-grid > div { background: color-mix(in srgb, var(--muted) 45%, var(--card)) !important; border-color: var(--border) !important; }
+.report-dialog .accountant-summary-grid span,
+.report-dialog .banking-summary-grid span,
+.report-dialog .budget-summary-grid span,
+.report-dialog .customer-summary-grid span,
+.report-dialog .inventory-summary-grid span,
+.report-dialog .list-summary-grid span,
+.report-dialog .purchase-summary-grid span,
+.report-dialog .sales-summary-grid span,
+.report-dialog .vat-summary-grid span,
+.report-dialog .vendor-summary-grid span,
+.report-dialog .accountant-summary-note,
+.report-dialog .banking-summary-note,
+.report-dialog .budget-summary-note,
+.report-dialog .customer-summary-note,
+.report-dialog .inventory-summary-note,
+.report-dialog .list-summary-note,
+.report-dialog .purchase-summary-note,
+.report-dialog .sales-summary-note,
+.report-dialog .vat-summary-note,
+.report-dialog .vendor-summary-note { color: var(--muted-foreground) !important; }
+.report-dialog .accountant-summary-grid strong,
+.report-dialog .banking-summary-grid strong,
+.report-dialog .budget-summary-grid strong,
+.report-dialog .customer-summary-grid strong,
+.report-dialog .inventory-summary-grid strong,
+.report-dialog .list-summary-grid strong,
+.report-dialog .purchase-summary-grid strong,
+.report-dialog .sales-summary-grid strong,
+.report-dialog .vat-summary-grid strong,
+.report-dialog .vendor-summary-grid strong { color: var(--foreground) !important; }
+.report-dialog .accountant-summary-grid [data-tone="positive"] strong,
+.report-dialog .banking-summary-grid [data-tone="positive"] strong,
+.report-dialog .budget-summary-grid [data-tone="positive"] strong,
+.report-dialog .customer-summary-grid [data-tone="positive"] strong,
+.report-dialog .inventory-summary-grid [data-tone="positive"] strong,
+.report-dialog .list-summary-grid [data-tone="positive"] strong,
+.report-dialog .purchase-summary-grid [data-tone="positive"] strong,
+.report-dialog .sales-summary-grid [data-tone="positive"] strong,
+.report-dialog .vat-summary-grid [data-tone="positive"] strong,
+.report-dialog .vendor-summary-grid [data-tone="positive"] strong { color: var(--report-positive) !important; }
+.report-dialog .accountant-summary-grid [data-tone="negative"] strong,
+.report-dialog .banking-summary-grid [data-tone="negative"] strong,
+.report-dialog .budget-summary-grid [data-tone="negative"] strong,
+.report-dialog .customer-summary-grid [data-tone="negative"] strong,
+.report-dialog .inventory-summary-grid [data-tone="negative"] strong,
+.report-dialog .list-summary-grid [data-tone="negative"] strong,
+.report-dialog .purchase-summary-grid [data-tone="negative"] strong,
+.report-dialog .sales-summary-grid [data-tone="negative"] strong,
+.report-dialog .vat-summary-grid [data-tone="negative"] strong,
+.report-dialog .vendor-summary-grid [data-tone="negative"] strong { color: var(--report-negative) !important; }
+.report-dialog .accountant-summary-grid [data-tone="accent"] strong,
+.report-dialog .banking-summary-grid [data-tone="accent"] strong,
+.report-dialog .budget-summary-grid [data-tone="accent"] strong,
+.report-dialog .customer-summary-grid [data-tone="accent"] strong,
+.report-dialog .inventory-summary-grid [data-tone="accent"] strong,
+.report-dialog .list-summary-grid [data-tone="accent"] strong,
+.report-dialog .purchase-summary-grid [data-tone="accent"] strong,
+.report-dialog .sales-summary-grid [data-tone="accent"] strong,
+.report-dialog .vat-summary-grid [data-tone="accent"] strong,
+.report-dialog .vendor-summary-grid [data-tone="accent"] strong { color: var(--report-accent) !important; }
+.report-dialog .inventory-report-filters,
+.report-dialog .purchase-report-filters,
+.report-dialog .sales-report-filters,
+.report-dialog .vat-report-filters,
+.report-dialog .vendor-report-filters { background: var(--muted) !important; border-color: var(--border) !important; }
+.report-dialog .inventory-report-filters label,
+.report-dialog .purchase-report-filters label,
+.report-dialog .sales-report-filters label,
+.report-dialog .vat-report-filters label,
+.report-dialog .vendor-report-filters label,
+.report-dialog .inventory-report-filter-count,
+.report-dialog .purchase-report-filter-count,
+.report-dialog .sales-report-filter-count,
+.report-dialog .vat-report-filter-count,
+.report-dialog .vendor-report-filter-count { color: var(--muted-foreground) !important; }
+.report-dialog .inventory-report-filters select,
+.report-dialog .purchase-report-filters select,
+.report-dialog .sales-report-filters select,
+.report-dialog .vat-report-filters select,
+.report-dialog .vendor-report-filters select { background: var(--background) !important; color: var(--foreground) !important; border-color: var(--input) !important; }
+.report-dialog .report-data-desktop,
+.report-dialog .inventory-report-table-desktop,
+.report-dialog .purchase-report-table-desktop,
+.report-dialog .sales-report-table-desktop,
+.report-dialog .vat-report-table-desktop,
+.report-dialog .vendor-report-table-desktop { border-color: var(--border) !important; }
+.report-dialog .report-data-desktop th,
+.report-dialog .inventory-report-table-desktop th,
+.report-dialog .purchase-report-table-desktop th,
+.report-dialog .sales-report-table-desktop th,
+.report-dialog .vat-report-table-desktop th,
+.report-dialog .vendor-report-table-desktop th { background: var(--muted) !important; color: var(--muted-foreground) !important; }
+.report-dialog .report-data-desktop tbody tr:nth-child(even),
+.report-dialog .inventory-report-table-desktop tbody tr:nth-child(even),
+.report-dialog .purchase-report-table-desktop tbody tr:nth-child(even),
+.report-dialog .sales-report-table-desktop tbody tr:nth-child(even),
+.report-dialog .vat-report-table-desktop tbody tr:nth-child(even),
+.report-dialog .vendor-report-table-desktop tbody tr:nth-child(even) { background: var(--report-stripe) !important; }
+.report-data-card { background: var(--card) !important; color: var(--card-foreground) !important; border-color: var(--border) !important; }
+.report-data-card header { background: var(--muted) !important; border-color: var(--border) !important; }
+:is(.report-data-card header > span, .report-data-card dt, .report-data-empty p) { color: var(--muted-foreground) !important; }
+.report-center-hero { background: linear-gradient(120deg, var(--accent), var(--card) 70%) !important; color: var(--foreground) !important; border-color: var(--border) !important; }
+:is(.report-center-subtitle, .report-center-stats dt) { color: var(--muted-foreground) !important; }
+:is(.report-center-context span, .report-center-sidebar) { background: var(--card) !important; color: var(--card-foreground) !important; border-color: var(--border) !important; }
+.report-category-button { color: var(--muted-foreground) !important; }
+.report-category-button:not(.report-category-active):hover { background: var(--muted) !important; color: var(--foreground) !important; }
+.report-category-button.report-category-active { background: var(--accent) !important; color: var(--accent-foreground) !important; }
+.report-negative { color: var(--report-negative); }

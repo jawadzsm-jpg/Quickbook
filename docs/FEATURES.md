@@ -7,7 +7,7 @@
 - Company and inventory selectors that scope forms, lists, dashboard data, and most reports.
 - Per-user company assignments, global administration, company administration, and six operational roles.
 - Configurable login branding, company logos, background, display name, copyright text, document colors, templates, and letterhead.
-- Light and dark appearance modes with Emerald, Ocean, Indigo, Violet, Rose, and Amber accent themes, plus a live header panel showing online users and their current IP addresses.
+- Light and dark appearance modes using one fixed app-wide colour palette (users choose only light or dark), plus a live header panel showing online users and their current IP addresses.
 
 ## Sales and customers
 
@@ -110,27 +110,27 @@ Vendors reports use a deduplicated ten-report library grouped into balances/agin
 
 Sales reports use a deduplicated library grouped by daily activity, customers/delivery, products, performance/trends and pipeline/fulfilment. Search, customer/rep/account/status filters and numeric sorting drive the same summaries, charts, table/cards and A4 print/PDF, CSV and Excel downloads. Desktop aligns quantities and prices; tablet/mobile retain labelled details. Detail links open actual posted receivable/receipt and revenue accounts, while unposted documents retain saved planned accounts. Daily summaries count unique documents and use document totals; freight-only lines are excluded from unit counts. Sales Order Fulfilment shows ordered, invoiced and remaining quantities from current allocations. Excel includes a Sales summary sheet. The Sales stamp control provides a proportional A4 preview, mouse/touch dragging, keyboard movement and millimetre offsets shared by print/PDF.
 
-Purchases reports are grouped by supplier spending, item purchasing and orders/receiving. Views include search, supplier/account/status filters, numeric sorting, matching summaries and report totals, desktop tables and tablet/mobile cards. A4 print/PDF, CSV and Excel use the displayed rows; Excel includes a Purchases summary sheet. Supplier spend excludes VAT consistently with detail. Outstanding purchase orders subtract saved receiving allocations, show commitments before VAT in home currency, and separate closed/cancelled orders in status counts. Detail account links use actual posted journal credits for bills/expenses; purchase orders show their saved planned account because they do not post. Missing or ambiguous historical account links are shown for review.
+Purchases reports are grouped by supplier spending, purchases by sales rep, item purchasing and orders/receiving. Purchases by Sales Rep (summary and detail) groups bills, received-item bills, purchase expenses and vendor credits (negative) by the Sales Rep saved on each document, in home currency, excluding cancelled/void documents; detail rows open the source document and its posted payable/payment account. Views include search, supplier/sales-rep/account/status filters, numeric sorting, matching summaries and report totals, desktop tables and tablet/mobile cards. A4 print/PDF, CSV and Excel use the displayed rows; Excel includes a Purchases summary sheet. Supplier spend excludes VAT consistently with detail. Outstanding purchase orders subtract saved receiving allocations, show commitments before VAT in home currency, and separate closed/cancelled orders in status counts. Detail account links use actual posted journal credits for bills/expenses; purchase orders show their saved planned account because they do not post. Missing or ambiguous historical account links are shown for review.
 
 VAT reports use a grouped, deduplicated seven-report library with company-wide scope, code/rate labels, text/code/direction/account/status filters, filtered summaries and responsive table/cards. Detail VAT is signed for credit notes and includes per-line freight in taxable values; item groups separate saved codes/rates and input/output direction. Documents open their original source, VAT codes open a filtered register, and verified VAT accounts open ledger history. The code register shows current system VAT controls, not code-specific overrides. VAT Position Summary shows document output/input/net before manual adjustments rather than a complete VAT201 return. A4 portrait/landscape print/PDF, CSV and Excel share the visible rows and additive totals; unit prices and rates are never summed. VAT uses the proportional movable stamp preview.
 
-The Report Center contains 121 report definitions. Inventory reports are grouped into valuation, availability/purchasing, and stock health/verification. Their views provide search, asset-account and status/aging filters, numeric sorting, summaries and totals for the displayed row set, desktop tables and tablet/mobile stock cards. A4 portrait/landscape PDF, CSV and Excel exports share the displayed filters; Excel includes a separate Inventory summary sheet. Saved asset-account IDs remain authoritative even after account renaming or deactivation, and a missing saved link is shown explicitly instead of silently using the default.
+The Report Center contains 124 report definitions with no duplicate entries: every category uses the same theme-token colours in light and dark mode, wide tables scroll sideways on desktop, and tables switch to labelled cards below 1024 px (tablet and phone). Money columns show negatives in red; identifiers, codes and years are shown without thousands separators. Every category, including Profit & Loss, places the movable company stamp after the final table in PDF output. Inventory reports are grouped into valuation, availability/purchasing, and stock health/verification. Their views provide search, asset-account and status/aging filters, numeric sorting, summaries and totals for the displayed row set, desktop tables and tablet/mobile stock cards. A4 portrait/landscape PDF, CSV and Excel exports share the displayed filters; Excel includes a separate Inventory summary sheet. Saved asset-account IDs remain authoritative even after account renaming or deactivation, and a missing saved link is shown explicitly instead of silently using the default.
 
 | Category | Count | Coverage examples |
 | --- | ---: | --- |
 | Profit & Loss | 12 | Standard, detail, item, sales rep, job, class, YTD, prior year, graphs |
 | Financial | 16 | Business final report, balance sheet, cash flow, income, expenses, net worth |
-| Budgets | 3 | Overview, P&L budget performance, balance-sheet budget performance |
+| Budgets | 4 | Overview, budget vs actual and graph, P&L budget performance |
 | Accountant | 11 | Trial balance, general ledger, journal, transaction detail, audit trail |
-| Lists | 15 | Accounts, contacts, terms, transactions, memorised reports, currencies |
+| Lists | 14 | Accounts, contacts, terms, transactions, memorised reports, currencies |
 | Employees & HR | 2 | Employee balances and payment detail |
 | Banking | 2 | Bank register and cheque detail |
 | VAT | 7 | Summary, detail, exceptions, reverse charge, items, codes |
-| Customers | 17 | Open balance, aging, statements, income, payments, invoices |
+| Customers | 16 | Open balance, aging, statements, income, payments, invoices |
 | Sales | 12 | Sales by customer, item, rep, transaction detail, pending documents |
 | Vendors | 10 | Balances, statements, aging, supplier detail and quick reports |
-| Purchases | 8 | Supplier/item purchasing, order status, outstanding quantities and commitments |
-| Inventory | 6 | Valuation, quantity, stock status, transaction detail, pricing/profit |
+| Purchases | 10 | Supplier, sales rep and item purchasing, order status, outstanding quantities and commitments |
+| Inventory | 8 | Valuation, quantity, stock status, transaction detail, pricing/profit |
 
 Every report view supports a centered professional layout with category/search navigation and contextual actions. Depending on the report, features include:
 
@@ -225,7 +225,7 @@ HR profiles have a separate Payment bank / Pay from dropdown for active company 
 
 Account rows expose red delete icons to administrators. Main and system accounts remain protected; deletion is still limited to eligible unused sub-accounts. Users with accounting management access can make unlinked accounts inactive or active with the power icon, and filter All/Active/Inactive accounts. System accounts, active parent/child dependencies and saved customer/vendor/employee/item links are protected. Historical balances and journals remain unchanged. Account status changes are audited and reject stale updates.
 
-Negative account balances use the selected user theme color (readable shades in light and dark mode), retain their minus sign and stay together on desktop. Account rows become labeled cards on tablet/mobile. The Chart of Accounts toolbar has an explicit Minimize icon and label, with a Restore action retaining the current search and filters. Account dialogs retain their existing minimize/maximize controls.
+Negative account balances use the app accent color (readable shades in light and dark mode), retain their minus sign and stay together on desktop. Account rows become labeled cards on tablet/mobile. The Chart of Accounts toolbar has an explicit Minimize icon and label, with a Restore action retaining the current search and filters. Account dialogs retain their existing minimize/maximize controls.
 
 
 ### HS code, COO and packing dimensions

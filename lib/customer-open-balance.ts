@@ -40,10 +40,16 @@ export async function customerOpenBalance(companyId: number, locationId: number,
     used.set(payment.id, round((used.get(payment.id) || 0) + allocation.amount));
     used.set(invoice.id, round((used.get(invoice.id) || 0) + allocation.amount));
   }
-  const accountByName = new Map(arAccounts.map((account) => [account.name, account]));
+  // Journal lines store account names only. When two receivable accounts share a name, pick the one in the
+  // document's currency instead of whichever was listed last.
+  const accountsByName = new Map<string, typeof arAccounts>();
+  for (const account of arAccounts) accountsByName.set(account.name, [...(accountsByName.get(account.name) ?? []), account]);
+  const documentCurrency = new Map(documents.map((row) => [row.id, row.currency]));
   const postedAccounts = new Map<number, typeof arAccounts[number]>();
   for (const entry of postings) {
-    const account = accountByName.get(entry.account);
+    const candidates = accountsByName.get(entry.account) ?? [];
+    const currency = entry.transactionId ? documentCurrency.get(entry.transactionId) : undefined;
+    const account = candidates.length === 1 ? candidates[0] : candidates.find((candidate) => candidate.currency === currency);
     if (entry.transactionId && account) postedAccounts.set(entry.transactionId, account);
   }
   const rows = eligible.filter((row) => (!customer || row.party === customer) && (!locationId || row.locationId === locationId)).map((row) => {

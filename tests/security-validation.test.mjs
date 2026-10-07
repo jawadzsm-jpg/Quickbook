@@ -468,7 +468,7 @@ test("all 12 Sales reports have professional summaries, one export control, A4 o
   assert.match(css, /\[data-appearance="dark"\] \.report-dialog \.sales-summary/);
 });
 
-test("all 17 Customer reports have professional summaries, one export control, A4 output, linked documents, customer links, and movable stamps", () => {
+test("all 16 Customer reports have professional summaries, one export control, A4 output, linked documents, customer links, and movable stamps", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const openBalance = readFileSync(new URL("../app/customer-open-balance.tsx", import.meta.url), "utf8");
   const api = readFileSync(new URL("../app/api/reports/route.ts", import.meta.url), "utf8");
@@ -476,8 +476,8 @@ test("all 17 Customer reports have professional summaries, one export control, A
   const sharedExport = readFileSync(new URL("../lib/report-export.ts", import.meta.url), "utf8");
   const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
   const definitions = [...app.matchAll(/\["[^"]+",\s*"[^"]+",\s*"Customers",\s*"([^"]+)"\]/g)].map((match) => match[1]);
-  assert.equal(definitions.length, 17);
-  assert.equal(new Set(definitions).size, 17);
+  assert.equal(definitions.length, 16);
+  assert.equal(new Set(definitions).size, 16);
   assert.match(app, /customerOverview && <section className="customer-summary"/);
   assert.match(app, /isBudgetReport \|\| isSalesReport \|\| isCustomerReport \|\| isVendorReport \|\| isPurchaseReport \|\| isInventoryReport \|\| isBankingReport \|\| isAccountantReport \? <DropdownMenu>/);
   assert.match(app, /stampReport = [^;]+\|\| isCustomerReport/);
@@ -516,15 +516,15 @@ test("all 10 Vendor reports have professional summaries, one export control, A4 
   assert.match(css, /\[data-appearance="dark"\] \.report-dialog \.vendor-summary/);
 });
 
-test("all 8 Purchase reports have professional summaries, one export control, A4 output, linked documents, supplier links, and movable stamps", () => {
+test("all 10 Purchase reports have professional summaries, one export control, A4 output, linked documents, supplier links, and movable stamps", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const api = readFileSync(new URL("../app/api/reports/route.ts", import.meta.url), "utf8");
   const purchase = readFileSync(new URL("../lib/purchase-report.ts", import.meta.url), "utf8");
   const sharedExport = readFileSync(new URL("../lib/report-export.ts", import.meta.url), "utf8");
   const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
   const definitions = [...app.matchAll(/\["[^"]+",\s*"[^"]+",\s*"Purchases",\s*"([^"]+)"\]/g)].map((match) => match[1]);
-  assert.equal(definitions.length, 8);
-  assert.equal(new Set(definitions).size, 8);
+  assert.equal(definitions.length, 10);
+  assert.equal(new Set(definitions).size, 10);
   assert.match(app, /purchaseOverview && <section className="purchase-summary"/);
   assert.match(app, /isBudgetReport \|\| isSalesReport \|\| isCustomerReport \|\| isVendorReport \|\| isPurchaseReport \|\| isInventoryReport \|\| isBankingReport \|\| isAccountantReport \? <DropdownMenu>/);
   assert.match(app, /const stampReport = isVendorReport \|\| isPurchaseReport/);
@@ -651,15 +651,15 @@ test("all 11 Accountant reports have professional summaries, one export control,
   assert.match(css, /\[data-appearance="dark"\] \.report-dialog \.accountant-summary/);
 });
 
-test("all 15 Lists reports have professional summaries, one export control, A4 output, correct area links, and movable stamps", () => {
+test("all 14 Lists reports have professional summaries, one export control, A4 output, correct area links, and movable stamps", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const api = readFileSync(new URL("../app/api/reports/route.ts", import.meta.url), "utf8");
   const lists = readFileSync(new URL("../lib/list-report.ts", import.meta.url), "utf8");
   const sharedExport = readFileSync(new URL("../lib/report-export.ts", import.meta.url), "utf8");
   const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
   const definitions = [...app.matchAll(/\["[^"]+",\s*"[^"]+",\s*"Lists",\s*"([^"]+)"\]/g)].map((match) => match[1]);
-  assert.equal(definitions.length, 15);
-  assert.equal(new Set(definitions).size, 15);
+  assert.equal(definitions.length, 14);
+  assert.equal(new Set(definitions).size, 14);
   assert.match(app, /listOverview && <section className="list-summary"/);
   assert.match(app, /isListReport \|\| isBudgetReport[\s\S]*?isAccountantReport \? <DropdownMenu>/);
   assert.match(app, /stampReport = [^;]+isListReport/);

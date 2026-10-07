@@ -240,7 +240,7 @@ export async function GET(request: Request) {
     const salesAccountColumns = [{ key: "account", label: "Receivable / Receipt Account" }, { key: "revenueAccount", label: "Revenue Account" }];
     const groupLines = (types: string[]) => {
       const grouped = new Map<string, { itemId: number; sku: string; name: string; quantity: number; amount: number; cost: number; sourceIds: Set<number>; sourceTransactionId: number; sourceReference: string }>();
-      lines.filter((line) => types.includes(line.type) && (key !== "sales-by-item" || !["cancelled", "void"].includes(line.status))).forEach((line) => {
+      lines.filter((line) => types.includes(line.type) && !["cancelled", "void"].includes(line.status)).forEach((line) => {
         const key = line.itemId ? `item:${line.itemId}` : `description:${line.description}`;
         const item = allItems.find((candidate) => candidate.id === Number(line.itemId));
         const old = grouped.get(key) ?? { itemId: item?.id ?? 0, sku: item?.sku ?? "", name: item?.name ?? line.description, quantity: 0, amount: 0, cost: 0, sourceIds: new Set<number>(), sourceTransactionId: 0, sourceReference: "" };
@@ -655,13 +655,6 @@ export async function GET(request: Request) {
       rows = [...months].sort(([a], [b]) => a.localeCompare(b)).map(([month, value]) => { balance += value.charges - value.payments; return { month, ...value, balance }; });
       columns = [{ key: "month", label: "Month" }, { key: "charges", label: "Charges", ...money }, { key: "payments", label: "Payments", ...money }, { key: "balance", label: "A/R Balance", ...money }];
       chart = { labelKey: "month", incomeKey: "charges", expenseKey: "payments" };
-    } else if (key === "unbilled-costs-job") {
-      title = "Unbilled Costs by Job";
-      const locationNames = new Map(locations.map((location) => [location.id, location.name]));
-      const grouped = new Map<string, { documents: number; amount: number }>();
-      scopedTransactions.filter((row) => ["purchase order", "item receipt"].includes(row.type) && !["paid", "closed", "billed", "cancelled", "converted"].includes(row.status)).forEach((row) => { const job = locationNames.get(row.locationId ?? 0) ?? "Unassigned"; const old = grouped.get(job) ?? { documents: 0, amount: 0 }; grouped.set(job, { documents: old.documents + 1, amount: old.amount + row.baseTotal }); });
-      rows = [...grouped].map(([job, value]) => ({ job, ...value })).sort((a, b) => b.amount - a.amount);
-      columns = [{ key: "job", label: "Job / Inventory" }, { key: "documents", label: "Open Documents" }, { key: "amount", label: "Unbilled Cost", ...money }];
     } else if (key === "customer-transactions") {
       title = "Transaction List by Customer";
       rows = customerActivities.map((row) => ({ transactionId: row.id, customer: row.party, date: row.transactionDate, number: row.number, type: row.type, status: row.status, amount: customerImpact(row) }));
@@ -703,14 +696,13 @@ export async function GET(request: Request) {
       const employees = new Set(allContacts.filter((contact) => contact.type === "employee").map((contact) => contact.name.trim().toLocaleLowerCase()));
       rows = scopedTransactions.filter((transaction) => transaction.type === "cheque" && employees.has(transaction.party.trim().toLocaleLowerCase())).map((transaction) => ({ transactionId: transaction.id, date: transaction.transactionDate, name: transaction.party, number: transaction.number, memo: transaction.memo || "—", originalCurrency: transaction.currency, originalAmount: Number(transaction.total), amount: Number(transaction.baseTotal) }));
       columns = [{ key: "date", label: "Date" }, { key: "name", label: "Employee" }, { key: "number", label: "Cheque No." }, { key: "memo", label: "Memo" }, { key: "originalCurrency", label: "Paid in" }, { key: "originalAmount", label: "Original amount" }, { key: "amount", label: "Home currency", ...money }];
-    } else if (key === "other-names-phone-list" || key === "other-names-contact-list") {
-      const phoneOnly = key === "other-names-phone-list";
-      title = phoneOnly ? "Other Names Phone List" : "Other Names Contact List";
+    } else if (key === "other-names-contact-list") {
+      title = "Other Names Contact List";
       const savedNames = new Set(allContacts.map((contact) => contact.name.trim().toLowerCase()));
       const names = new Map<string, { transactions: number; lastActivity: string }>();
       scopedTransactions.filter((row) => row.party.trim() && !savedNames.has(row.party.trim().toLowerCase())).forEach((row) => { const old = names.get(row.party) ?? { transactions: 0, lastActivity: "" }; names.set(row.party, { transactions: old.transactions + 1, lastActivity: row.transactionDate > old.lastActivity ? row.transactionDate : old.lastActivity }); });
-      rows = [...names].map(([name, value]) => ({ name, phone: "—", ...value })).sort((a, b) => a.name.localeCompare(b.name));
-      columns = phoneOnly ? [{ key: "name", label: "Other Name" }, { key: "phone", label: "Phone" }, { key: "lastActivity", label: "Last Activity" }] : [{ key: "name", label: "Other Name" }, { key: "transactions", label: "Transactions" }, { key: "lastActivity", label: "Last Activity" }];
+      rows = [...names].map(([name, value]) => ({ name, ...value })).sort((a, b) => a.name.localeCompare(b.name));
+      columns = [{ key: "name", label: "Other Name" }, { key: "transactions", label: "Transactions" }, { key: "lastActivity", label: "Last Activity" }];
     } else if (key === "terms-listing") {
       title = "Terms Listing";
       const grouped = new Map<number, { documents: number; names: Set<string> }>();
@@ -792,6 +784,21 @@ export async function GET(request: Request) {
       title = "Purchases by Supplier Detail";
       rows = scopedTransactions.filter((row) => ["bill", "received item bill", "expense"].includes(row.type)).map((row) => ({ transactionId: row.id, ...purchaseAccountFor(row.id), supplier: row.party, date: row.transactionDate, number: row.number, type: row.type, status: row.status, currency: row.currency, subtotal: baseSubtotal(row), vat: row.vatAmount * row.exchangeRate, total: row.baseTotal }));
       columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "status", label: "Status" }, { key: "currency", label: "Document currency" }, { key: "account", label: "Payable / Payment Account" }, { key: "subtotal", label: "Purchases ex VAT", ...money }, { key: "vat", label: "VAT", ...money }, { key: "total", label: "Total", ...money }];
+    } else if (key === "purchases-by-rep-summary" || key === "purchases-by-rep-detail") {
+      const detail = key === "purchases-by-rep-detail";
+      title = detail ? "Purchases by Sales Rep Detail" : "Purchases by Sales Rep Summary";
+      // Bills, received-item bills, expenses and vendor credits (negative), by the Sales Rep saved on each document.
+      const purchases = scopedTransactions.filter((row) => ["bill", "received item bill", "expense", "vendor credit"].includes(row.type) && !["cancelled", "void"].includes(row.status));
+      const sign = (row: typeof allTransactions[number]) => row.type === "vendor credit" ? -1 : 1;
+      if (detail) {
+        rows = purchases.map((row) => ({ transactionId: row.id, ...purchaseAccountFor(row.id), salesman: row.salesman || "Unassigned", date: row.transactionDate, number: row.number, supplier: row.party, type: row.type, status: row.status, currency: row.currency, subtotal: purchaseSubtotal(row), vat: sign(row) * row.vatAmount * row.exchangeRate, total: sign(row) * row.baseTotal }));
+        columns = [{ key: "salesman", label: "Sales Rep" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "supplier", label: "Supplier" }, { key: "type", label: "Type" }, { key: "status", label: "Status" }, { key: "currency", label: "Document currency" }, { key: "account", label: "Payable / Payment Account" }, { key: "subtotal", label: "Purchases ex VAT", ...money }, { key: "vat", label: "VAT", ...money }, { key: "total", label: "Total", ...money }];
+      } else {
+        const grouped = new Map<string, { documents: number; suppliers: Set<string>; subtotal: number; vat: number; total: number }>();
+        purchases.forEach((row) => { const name = row.salesman || "Unassigned"; const old = grouped.get(name) ?? { documents: 0, suppliers: new Set<string>(), subtotal: 0, vat: 0, total: 0 }; old.documents += 1; old.suppliers.add(row.party); old.subtotal += purchaseSubtotal(row); old.vat += sign(row) * row.vatAmount * row.exchangeRate; old.total += sign(row) * row.baseTotal; grouped.set(name, old); });
+        rows = [...grouped].map(([salesman, value]) => ({ salesman, documents: value.documents, suppliers: value.suppliers.size, subtotal: value.subtotal, vat: value.vat, total: value.total })).sort((a, b) => b.subtotal - a.subtotal);
+        columns = [{ key: "salesman", label: "Sales Rep" }, { key: "documents", label: "Documents" }, { key: "suppliers", label: "Suppliers" }, { key: "subtotal", label: "Purchases ex VAT", ...money }, { key: "vat", label: "VAT", ...money }, { key: "total", label: "Total", ...money }];
+      }
     } else if (key === "purchases-by-vendor" || key === "vendor-balances") {
       title = key === "purchases-by-vendor" ? "Purchases by Supplier Summary" : "Supplier Balance Summary";
       if (key === "purchases-by-vendor") {
