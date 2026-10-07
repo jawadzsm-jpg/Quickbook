@@ -11,7 +11,6 @@ export const listReportKeys = new Set([
   "supplier-phone-list",
   "supplier-contact-list",
   "employee-contact-list",
-  "other-names-phone-list",
   "other-names-contact-list",
   "terms-listing",
   "to-do-notes",
@@ -43,7 +42,6 @@ export function listDetailTarget(key = "") {
     "customer-contact-list": "customer-phone-list",
     "supplier-phone-list": "supplier-contact-list",
     "supplier-contact-list": "supplier-phone-list",
-    "other-names-phone-list": "other-names-contact-list",
     "other-names-contact-list": "transactions",
     "terms-listing": "transactions",
     "to-do-notes": "transactions",
@@ -68,7 +66,7 @@ export function listSummary(report: ListReportLike): { cards: ListSummaryCard[];
 
   if (["customer-phone-list", "supplier-phone-list"].includes(key)) return { cards: [number("Contacts", rows.length, "accent"), number("With phone", rows.filter((row) => String(row.phone) !== "—").length, "positive"), number("With WhatsApp", rows.filter((row) => String(row.whatsapp) !== "—").length), number("Companies", unique(rows, "company")), number("Countries", unique(rows, "country"))], note: `Select an underlined ${key.startsWith("customer") ? "customer" : "supplier"} to open the matching contact area.` };
   if (["customer-contact-list", "supplier-contact-list", "employee-contact-list"].includes(key)) return { cards: [number("Contacts", rows.length, "accent"), number("Active", count(rows, "status", "active"), "positive"), number("Inactive", count(rows, "status", "inactive"), "negative"), number("With email", rows.filter((row) => String(row.email) !== "—").length), number("With phone", rows.filter((row) => String(row.phone) !== "—").length), number("Countries", unique(rows, "country"))], note: `Select an underlined ${key.startsWith("customer") ? "customer" : key.startsWith("supplier") ? "supplier" : "employee"} to open the matching contact area.` };
-  if (["other-names-phone-list", "other-names-contact-list"].includes(key)) return { cards: [number("Other names", rows.length, "accent"), number("Transactions", sum(rows, "transactions")), number("With phone", rows.filter((row) => String(row.phone) !== "—" && String(row.phone || "").trim()).length), number("Activity dates", unique(rows, "lastActivity"))], note: "Other names are transaction parties not yet saved as customers, suppliers, or employees. Review the supporting transaction report before creating a contact." };
+  if (key === "other-names-contact-list") return { cards: [number("Other names", rows.length, "accent"), number("Transactions", sum(rows, "transactions")), number("With phone", rows.filter((row) => String(row.phone) !== "—" && String(row.phone || "").trim()).length), number("Activity dates", unique(rows, "lastActivity"))], note: "Other names are transaction parties not yet saved as customers, suppliers, or employees. Review the supporting transaction report before creating a contact." };
   if (key === "terms-listing") return { cards: [number("Terms", rows.length, "accent"), number("Documents", sum(rows, "documents")), number("Customers / suppliers", sum(rows, "names")), number("Average due days", rows.length ? sum(rows, "days") / rows.length : 0)], note: "Terms are derived from document transaction and due dates; this is not the configured payment-term register. Open the supporting transaction report to review the source documents." };
   if (key === "to-do-notes") {
     const today = new Date().toISOString().slice(0, 10);
@@ -80,7 +78,7 @@ export function listSummary(report: ListReportLike): { cards: ListSummaryCard[];
 export const listReportGroups = [
   { title: "Accounts & assets", description: "Review account hierarchy, system roles and assets.", keys: ["account-listing", "fixed-asset-listing"] },
   { title: "Items & pricing", description: "Inspect quantities, current prices and inventory accounts.", keys: ["item-listing", "item-price-list", "item-price-level-list"] },
-  { title: "Contact directories", description: "Find customers, suppliers, employees and other names.", keys: ["customer-phone-list", "customer-contact-list", "supplier-phone-list", "supplier-contact-list", "employee-contact-list", "other-names-phone-list", "other-names-contact-list"] },
+  { title: "Contact directories", description: "Find customers, suppliers, employees and other names.", keys: ["customer-phone-list", "customer-contact-list", "supplier-phone-list", "supplier-contact-list", "employee-contact-list", "other-names-contact-list"] },
   { title: "Terms & working records", description: "Review document terms, open notes and template-marked activity.", keys: ["terms-listing", "to-do-notes", "memorised-transactions"] },
 ];
 export type ListFilters = { query: string; status: string; sort: string };

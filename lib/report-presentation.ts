@@ -4,6 +4,8 @@ export type ReportRow = Record<string, string | number | null>;
 /** Presentation only: never infer additive totals or account IDs from a label. */
 export function reportColumnKind(column: ReportColumn, rows: ReportRow[] = []): "text" | "quantity" | "price" | "amount" {
   if (column.type === "money") return /price|cost|rate/i.test(column.key) && !/total/i.test(column.key) ? "price" : "amount";
+  // Identifiers, codes and years are labels: never format them with thousands separators.
+  if (/(^id$|Id$|^year$|Year$|^code$|Code$|Number$|^number$|^reference$)/.test(column.key)) return "text";
   if (/^(quantity|qty|qoh|onHand|sold|purchased|remaining|count|daysOverdue|overdueDays|days|orders|invoices|bills|debits|credits|margin|percentage|rate)$/i.test(column.key)) return "quantity";
   const values = rows.map(row => row[column.key]).filter(value => value !== null && value !== undefined && value !== "");
   return values.length > 0 && values.every(value => typeof value === "number") ? "quantity" : "text";

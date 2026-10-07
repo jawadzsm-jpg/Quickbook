@@ -7,29 +7,32 @@ export const purchaseReportKeys = new Set([
   "purchase-order-summary",
   "open-purchase-orders-detail",
   "open-purchase-orders-job",
+  "purchases-by-rep-summary",
+  "purchases-by-rep-detail",
 ]);
 
 export type PurchaseReportRow = Record<string, string | number | null>;
 export type PurchaseReportColumn = { key: string; label: string; type?: "money" };
 export const purchaseReportGroups = [
   { title: "Supplier spending", description: "Review purchases and trace each bill or expense.", keys: ["purchases-by-vendor", "purchases-by-supplier-detail"] },
+  { title: "Purchases by sales rep", description: "See which sales rep each bill or expense was entered for, and trace every document.", keys: ["purchases-by-rep-summary", "purchases-by-rep-detail"] },
   { title: "Item purchasing", description: "Compare purchased quantities, unit costs and source documents.", keys: ["purchases-by-item", "purchases-by-item-detail"] },
   { title: "Orders & receiving", description: "Monitor outstanding commitments and receiving progress.", keys: ["purchase-order-summary", "open-purchase-orders", "open-purchase-orders-detail", "open-purchase-orders-job"] },
 ];
-export const emptyPurchaseFilters = { query: "", supplier: "", account: "", status: "", sort: "default" };
+export const emptyPurchaseFilters = { query: "", supplier: "", salesman: "", account: "", status: "", sort: "default" };
 export function purchaseColumnKind(column: PurchaseReportColumn): "text" | "quantity" | "price" | "amount" {
   if (column.type === "money") return /cost|price/i.test(column.key) ? "price" : "amount";
-  return ["quantity", "orderedQuantity", "receivedQuantity", "open", "partiallyReceived", "received", "closed", "totalOrders", "orders", "suppliers"].includes(column.key) ? "quantity" : "text";
+  return ["quantity", "orderedQuantity", "receivedQuantity", "open", "partiallyReceived", "received", "closed", "totalOrders", "orders", "suppliers", "documents"].includes(column.key) ? "quantity" : "text";
 }
 export function purchaseColumnWeight(column: PurchaseReportColumn) {
   if (column.key === "item") return 5;
-  if (["name", "supplier", "job"].includes(column.key)) return 3.5;
+  if (["name", "supplier", "job", "salesman"].includes(column.key)) return 3.5;
   if (/account/i.test(column.key) || column.key === "sourceReference") return 3;
   if (/date/i.test(column.key)) return 2.2;
   return column.type === "money" ? 2.2 : 1.8;
 }
 export function purchaseColumnTotal(rows: PurchaseReportRow[], column: PurchaseReportColumn) {
-  if (!["quantity", "orderedQuantity", "receivedQuantity", "open", "partiallyReceived", "received", "closed", "totalOrders", "orders", "amount", "subtotal", "vat", "total"].includes(column.key)) return null;
+  if (!["quantity", "orderedQuantity", "receivedQuantity", "open", "partiallyReceived", "received", "closed", "totalOrders", "orders", "documents", "amount", "subtotal", "vat", "total"].includes(column.key)) return null;
   return rows.reduce((total, row) => total + Number(row[column.key] ?? 0), 0);
 }
 export function purchaseSupplier(row: PurchaseReportRow, key = "") {
@@ -37,11 +40,11 @@ export function purchaseSupplier(row: PurchaseReportRow, key = "") {
 }
 export function filterPurchaseReportRows<T extends PurchaseReportRow>(rows: T[], columns: PurchaseReportColumn[], filters: typeof emptyPurchaseFilters, key = "") {
   const query = filters.query.trim().toLocaleLowerCase("en-AE");
-  const filtered = rows.filter((row) => (!query || columns.some((column) => String(row[column.key] ?? "").toLocaleLowerCase("en-AE").includes(query))) && (!filters.supplier || purchaseSupplier(row, key) === filters.supplier) && (!filters.account || row.account === filters.account) && (!filters.status || row.status === filters.status));
+  const filtered = rows.filter((row) => (!query || columns.some((column) => String(row[column.key] ?? "").toLocaleLowerCase("en-AE").includes(query))) && (!filters.supplier || purchaseSupplier(row, key) === filters.supplier) && (!filters.salesman || row.salesman === filters.salesman) && (!filters.account || row.account === filters.account) && (!filters.status || row.status === filters.status));
   if (filters.sort === "amount") filtered.sort((a, b) => Number(b.amount ?? b.total ?? b.subtotal ?? 0) - Number(a.amount ?? a.total ?? a.subtotal ?? 0));
   if (filters.sort === "quantity") filtered.sort((a, b) => Number(b.quantity ?? 0) - Number(a.quantity ?? 0));
   if (filters.sort === "date") filtered.sort((a, b) => String(b.date ?? "").localeCompare(String(a.date ?? "")));
-  if (filters.sort === "name") filtered.sort((a, b) => String(a.supplier ?? a.name ?? a.item ?? a.job ?? "").localeCompare(String(b.supplier ?? b.name ?? b.item ?? b.job ?? "")));
+  if (filters.sort === "name") filtered.sort((a, b) => String(a.supplier ?? a.name ?? a.salesman ?? a.item ?? a.job ?? "").localeCompare(String(b.supplier ?? b.name ?? b.salesman ?? b.item ?? b.job ?? "")));
   return filtered;
 }
 
@@ -88,6 +91,7 @@ export function purchaseDetailTarget(key = "") {
     "open-purchase-orders": "open-purchase-orders-detail",
     "purchase-order-summary": "open-purchase-orders",
     "open-purchase-orders-job": "open-purchase-orders-detail",
+    "purchases-by-rep-summary": "purchases-by-rep-detail",
   } as Record<string, string>)[key] || "";
 }
 
@@ -107,6 +111,14 @@ export function purchaseSummary(report: PurchaseReportLike): { cards: PurchaseSu
     const quantity = sum(rows, "quantity");
     const amount = sum(rows, key === "purchases-by-item" ? "amount" : "total");
     return { cards: [money(key === "purchases-by-item" ? "Purchases before VAT" : "Gross purchases", amount, "accent"), number("Quantity purchased", quantity), number(key === "purchases-by-item" ? "Items" : "Purchase lines", rows.length), money("Average unit value", quantity ? amount / quantity : 0)], note: "Document numbers and latest source references open the originating purchase document." };
+  }
+  if (key === "purchases-by-rep-summary") {
+    const total = sum(rows, "subtotal");
+    const assigned = rows.filter((row) => row.salesman !== "Unassigned");
+    return { cards: [money("Purchases before VAT", total, "accent"), number("Sales reps", assigned.length), number("Documents", sum(rows, "documents")), money("Unassigned purchases", sum(rows.filter((row) => row.salesman === "Unassigned"), "subtotal"), "negative")], note: "Bills, received-item bills, purchase expenses and vendor credits (negative) before VAT, in home currency, grouped by the Sales Rep saved on each document. Cancelled and void documents are excluded. Select a total to open the detail report." };
+  }
+  if (key === "purchases-by-rep-detail") {
+    return { cards: [money("Purchases before VAT", sum(rows, "subtotal"), "accent"), money("Document VAT", sum(rows, "vat")), money("Gross total", sum(rows, "total")), number("Documents", rows.length), number("Sales reps", unique(rows.filter((row) => row.salesman !== "Unassigned"), "salesman"))], note: "Amounts are in home currency; vendor credits are negative. Document numbers open the purchase document and accounts open their Chart of Accounts history from the posted journal credit." };
   }
   if (key === "purchase-order-summary") {
     return { cards: [number("Total orders", sum(rows, "totalOrders")), number("Open", sum(rows, "open"), "accent"), number("Partially received", sum(rows, "partiallyReceived"), "negative"), number("Fully received", sum(rows, "received"), "positive"), number("Suppliers", rows.filter((row) => Number(row.totalOrders) > 0).length)], note: "Order counts include open, partially received, completed and closed/cancelled purchase orders. Select a total to open that supplier's purchase-order area. Purchase orders do not post to the ledger." };

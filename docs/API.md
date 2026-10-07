@@ -21,7 +21,7 @@ Authorization labels below refer to permissions defined in `lib/auth.ts`. **Admi
 | `/api/auth/session` | `GET`, `POST`, `PATCH`, `DELETE` | GET/current session; POST/public same-origin login; PATCH/signed-in user; DELETE/same-origin | Read session, sign in, change password, or sign out. POST accepts `email`, `password`; PATCH accepts `currentPassword`, `newPassword`. |
 | `/api/admin-users` | `GET`, `POST`, `PATCH`, `DELETE` | Administrator; writes same-origin | List and manage users, roles, active state, passwords, avatars, and company assignments. Sends an invitation when SMTP is configured. Global-admin invariants are enforced server side. |
 | `/api/admin-settings` | `GET`, `POST` | Administrator; POST same-origin | Read or set company administrative controls such as the protected negative-stock PIN. Uses `companyId`. |
-| `/api/user-preferences` | `PATCH` | Signed-in user, same-origin | Update the current user’s profile preferences, theme color, appearance mode, or avatar fields. |
+| `/api/user-preferences` | `PATCH` | Signed-in user, same-origin | Update the current user’s profile preferences, appearance mode, or avatar fields. `themeColor` is still accepted for compatibility but no longer changes the interface; the app uses one fixed palette. |
 | `/api/email-settings` | `GET`, `PATCH`, `POST` | Administrator; writes same-origin | Read SMTP status, save encrypted SMTP configuration, or send a test email. |
 
 ## Company and workspace configuration

@@ -19,7 +19,7 @@ flowchart TD
 2. `/api/auth/session` verifies the active user and scrypt password. Five failed attempts produce a 15-minute lock.
 3. Successful login records time, source IP, and user agent, then issues the session cookie.
 4. A temporary-password account is sent to the password-change screen. Changing it revokes every session, requiring a new login.
-5. The server loads the application shell with role, company assignments, name, avatar, accent theme, and appearance mode.
+5. The server loads the application shell with role, company assignments, name, avatar, and appearance mode (light or dark; the colour palette is fixed app-wide).
 6. The user selects a company and inventory location. All subsequent operational calls send those identifiers, and the API verifies them again.
 
 ## 2. Master-data workflow

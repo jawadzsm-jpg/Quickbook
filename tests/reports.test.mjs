@@ -408,6 +408,25 @@ test("purchase postings hit the right accounts and purchase reports stay in sync
   } finally { delete globalThis.__reportTestUser; }
 });
 
+test("purchases by sales rep group bills, expenses and vendor credits by the rep on each document", async () => {
+  const { eq, and } = await import("drizzle-orm");
+  await db.update(schema.transactions).set({ salesman: "Rashed" }).where(and(eq(schema.transactions.companyId, companyId), eq(schema.transactions.number, "BILL")));
+  await transaction("expense", "EXP-REP", 400, 0); // no VAT, so the shared VAT report fixtures stay unchanged
+  await db.update(schema.transactions).set({ salesman: "Rashed" }).where(and(eq(schema.transactions.companyId, companyId), eq(schema.transactions.number, "EXP-REP")));
+  const voided = await transaction("bill", "BILL-VOID", 999, 0);
+  await db.update(schema.transactions).set({ salesman: "Rashed", status: "void" }).where(eq(schema.transactions.id, voided.id));
+  const summary = await report("purchases-by-rep-summary");
+  assert.equal(summary.title, "Purchases by Sales Rep Summary");
+  const rashed = summary.rows.find((row) => row.salesman === "Rashed");
+  assert.deepEqual({ documents: rashed.documents, suppliers: rashed.suppliers, subtotal: rashed.subtotal, vat: rashed.vat, total: rashed.total }, { documents: 2, suppliers: 1, subtotal: 1400, vat: 50, total: 1450 });
+  assert.equal(summary.rows.find((row) => row.salesman === "Unassigned").subtotal, -100); // vendor credit only
+  const detail = await report("purchases-by-rep-detail");
+  const bill = detail.rows.find((row) => row.number === "BILL");
+  assert.equal(bill.salesman, "Rashed"); assert.ok(bill.transactionId); assert.ok("accountAccountId" in bill);
+  assert.equal(detail.rows.find((row) => row.number === "VENDOR-CREDIT").total, -105);
+  assert.equal(detail.rows.some((row) => row.number === "BILL-VOID"), false);
+});
+
 test("every Report Center entry opens its matching backend report", async () => {
   // Keep this test tied directly to the visible Report Center catalogue so a renamed,
   // moved, or newly added button cannot silently fall back to a different report.
@@ -943,7 +962,7 @@ test('sales summaries provide report-specific KPIs and export every Sales report
 
 test('customer summaries provide receivable KPIs and export every Customer report to A4 portrait by default', async () => {
   const { customerReportKeys, customerSummary, customerDetailTarget } = await vite.ssrLoadModule('/lib/customer-report.ts');
-  assert.equal(customerReportKeys.size, 17);
+  assert.equal(customerReportKeys.size, 16);
   const aging = customerSummary({ key: 'ar-aging-summary', rows: [{ name: 'A', current: 100, days30: 50, days60: 25, days90: 10, total: 185 }] });
   assert.deepEqual(aging.cards.map(card => card.value), [100, 50, 25, 10, 185]);
   assert.equal(customerDetailTarget('ar-aging-summary'), 'ar-aging-detail');
@@ -977,7 +996,7 @@ test('vendor summaries provide payable KPIs and export Vendor reports to fitted 
 
 test('purchase summaries provide purchasing KPIs and export all Purchase reports to fitted A4 portrait by default', async () => {
   const { purchaseReportKeys, purchaseSummary, purchaseDetailTarget } = await vite.ssrLoadModule('/lib/purchase-report.ts');
-  assert.equal(purchaseReportKeys.size, 8);
+  assert.equal(purchaseReportKeys.size, 10);
   const suppliers = purchaseSummary({ key: 'purchases-by-vendor', rows: [{ name: 'A', amount: 100 }, { name: 'B', amount: 300 }] });
   assert.deepEqual(suppliers.cards.map(card => card.value), [400, 2, 200, 300]);
   assert.equal(purchaseDetailTarget('purchases-by-vendor'), 'purchases-by-supplier-detail');
@@ -1058,9 +1077,9 @@ test('accountant summaries provide control KPIs and export all 11 Accountant rep
   assert.ok(Math.abs(Number(page[1]) - 595.28) < 0.01); assert.ok(Math.abs(Number(page[2]) - 841.89) < 0.01);
 });
 
-test('Lists summaries provide master-data KPIs and export all 15 reports to fitted A4 portrait by default', async () => {
+test('Lists summaries provide master-data KPIs and export all 14 reports to fitted A4 portrait by default', async () => {
   const { listReportKeys, listSummary, listDetailTarget } = await vite.ssrLoadModule('/lib/list-report.ts');
-  assert.equal(listReportKeys.size, 15);
+  assert.equal(listReportKeys.size, 14);
   const accounts = listSummary({ key: 'account-listing', rows: [
     { name: 'Cash', status: 'Active', parent: '—', type: 'Bank', balance: 1000 },
     { name: 'Petty Cash', status: 'Active', parent: 'Cash', type: 'Bank', balance: 200 },
@@ -1713,7 +1732,7 @@ test("accountant filters preserve ledger balances, use account IDs and retain un
 test("list filters sort numeric prices and keep exports aligned with displayed rows", async () => {
   const { filterListRows, listSummary, listReportGroups, listReportKeys } = await vite.ssrLoadModule("/lib/list-report.ts");
   const keys = listReportGroups.flatMap(group => group.keys);
-  assert.equal(new Set(keys).size, 15); assert.deepEqual([...keys].sort(), [...listReportKeys].sort());
+  assert.equal(new Set(keys).size, 14); assert.deepEqual([...keys].sort(), [...listReportKeys].sort());
   const columns = [{ key: "item", label: "Item" }, { key: "quantity", label: "On Hand" }, { key: "price", label: "Sales Price", type: "money" }, { key: "status", label: "Status" }];
   const rows = [{ item: "Device A", quantity: 10, price: 2, status: "active" }, { item: "Device B", quantity: 2, price: 10, status: "active" }, { item: "Old device", quantity: 1, price: 999, status: "inactive" }];
   const filtered = filterListRows(rows, columns, { query: "device", status: "active", sort: "price:desc" });
