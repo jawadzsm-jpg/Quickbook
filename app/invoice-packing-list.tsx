@@ -2,10 +2,11 @@
 import { SalesReportStamp } from "./sales-report-stamp";
 import { BankBoxPlacement, bankBoxHtml, bankBoxLimits, type BankBoxPlacementValue } from "./bank-box-placement";
 import { bankForCurrency, bankLines, type CompanyBankFields } from "@/lib/bank-accounts";
+import type { DocumentStampPositions, StampPlacement, StampPositions } from "@/lib/stamp-positions";
 import { useCompanyDocumentOutput } from "./company-document-output";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Download, FileText, History, PackagePlus, Pencil, Plus, Printer, Trash2 } from "lucide-react";
+import { CheckCircle2, Download, FileText, History, PackagePlus, Pencil, Plus, Printer, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -82,7 +83,7 @@ function savedDrafts(list: PackingList): Draft[] {
   }));
 }
 
-export function InvoicePackingListDialog({ open, onOpenChange, companyId, companyName, setup, invoiceId, initialView = "packing" }: { open: boolean; onOpenChange: (open: boolean) => void; companyId: number; companyName: string; setup: LetterheadCompany & { letterheadDesign?: string } & CompanyBankFields; invoiceId: number; initialView?: "packing" | "hs-summary" }) {
+export function InvoicePackingListDialog({ open, onOpenChange, companyId, companyName, setup, invoiceId, initialView = "packing", stampPositions, onSaveStampPositions, savingStampPositions = false }: { open: boolean; onOpenChange: (open: boolean) => void; companyId: number; companyName: string; setup: LetterheadCompany & { letterheadDesign?: string } & CompanyBankFields; invoiceId: number; initialView?: "packing" | "hs-summary"; stampPositions?: StampPositions; onSaveStampPositions?: (type: string, entry: DocumentStampPositions, label: string) => Promise<boolean>; savingStampPositions?: boolean }) {
   const documentOutput=useCompanyDocumentOutput();
   const [data, setData] = useState<PackingData | null>(null);
   const [drafts, setDrafts] = useState<Draft[]>([]);
@@ -93,10 +94,21 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
   const [saving, setSaving] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [hsPdfBusy, setHsPdfBusy] = useState(false);
-  const [packingStamp,setPackingStamp]=useState({show:false,left:227,top:145});
-  const [hsStamp,setHsStamp]=useState({show:false,left:145,top:230});
+  // Saved per document type ("packing-list", "hs-code-summary") as first-page positions; defaults are off.
+  const savedPage=(placement?:StampPlacement)=>placement?.page?{show:placement.show,left:placement.left,top:placement.top}:undefined;
+  const savedPacking=stampPositions?.["packing-list"], savedHs=stampPositions?.["hs-code-summary"];
+  const [packingStamp,setPackingStamp]=useState(()=>savedPage(savedPacking?.company)??{show:false,left:227,top:145});
+  const [hsStamp,setHsStamp]=useState(()=>savedPage(savedHs?.company)??{show:false,left:145,top:230});
   // Optional bank details box on the packing list: the account for the invoice currency, off by default.
-  const [packingBank,setPackingBank]=useState<BankBoxPlacementValue>({show:false,left:0,top:200,remark:null});
+  const [packingBank,setPackingBank]=useState<BankBoxPlacementValue>(()=>{const saved=savedPage(savedPacking?.bank);return saved?{...saved,remark:null}:{show:false,left:0,top:200,remark:null};});
+  const packingEntry=():DocumentStampPositions=>{const limits=bankBoxLimits(packingOrientation);return {company:{...packingStamp,page:true},bank:{show:packingBank.show,left:Math.max(0,Math.min(limits.maxLeft,Math.round(packingBank.left))),top:Math.max(0,Math.min(limits.maxTop,Math.round(packingBank.top))),page:true}};};
+  const hsEntry=():DocumentStampPositions=>({company:{...hsStamp,page:true}});
+  const sameEntry=(a:DocumentStampPositions,b?:DocumentStampPositions)=>JSON.stringify(a)===JSON.stringify(b?{...(b.company?{company:b.company}:{}),...(b.bank?{bank:b.bank}:{})}:undefined);
+  const saveButton=(type:"packing-list"|"hs-code-summary")=>{
+    if(!onSaveStampPositions)return null;
+    const entry=type==="packing-list"?packingEntry():hsEntry();const saved=type==="packing-list"?savedPacking:savedHs;const dirty=!sameEntry(entry,saved);
+    return <div className="flex justify-end"><Button type="button" size="sm" variant={dirty?"default":"outline"} disabled={savingStampPositions||!dirty} onClick={()=>void onSaveStampPositions(type,entry,type==="packing-list"?"Packing List":"HS Code Summary")}><Save className="size-4"/>{savingStampPositions?"Saving…":dirty?"Save stamp positions":"Positions saved"}</Button></div>;
+  };
   const [packingOrientation, setPackingOrientation] = useState<PrintOrientation>("landscape");
   const [hsOrientation, setHsOrientation] = useState<PrintOrientation>("portrait");
   const [selectedListId, setSelectedListId] = useState<number | null>(null);
@@ -420,6 +432,7 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
           <DialogDescription>Generated from the selected saved Packing List.</DialogDescription>
         </DialogHeader>
         <SalesReportStamp stampData={setup.stampData||""} orientation={hsOrientation} value={hsStamp} onChange={setHsStamp} />
+        {saveButton("hs-code-summary")}
         {loading || !data ? <p className="py-16 text-center text-slate-500">Loading HS Code Summary…</p> : <div className="space-y-4">
           {data.packingLists.length === 0 ? <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">Create and save a Packing List first. The HS Code Summary uses its packed quantities and item details.</div> : <>
             <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-slate-50 p-3 dark:bg-slate-900/70">
@@ -472,6 +485,7 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
       <div className="grid gap-3 rounded-xl border bg-slate-50 p-4 text-sm dark:bg-slate-900/70 sm:grid-cols-4"><div><span className="text-slate-500 dark:text-slate-400">Customer</span><strong className="block">{data.invoice.party}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Invoice Qty</span><strong className="block">{display(data.lines.reduce((sum, line) => sum + Number(line.invoicedQuantity), 0), 2)}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Already Packed + Current</span><strong className="block">{display(packedBeforeDraft + totals.quantity, 2)}</strong></div><div><span className="text-slate-500 dark:text-slate-400">Balance After This Packing</span><strong className={`block ${remainingAfterDraft < 0 ? "text-red-600" : "text-amber-700 dark:text-amber-400"}`}>{display(Math.max(0, remainingAfterDraft), 2)}</strong></div></div>
       <SalesReportStamp stampData={setup.stampData||""} orientation={packingOrientation} value={packingStamp} onChange={setPackingStamp} />
       {(() => { const account = bankForCurrency(setup, data.invoice.currency || "AED"); return <BankBoxPlacement currency={data.invoice.currency || "AED"} lines={account ? bankLines(account) : null} defaultRemark={account?.remark ?? ""} orientation={packingOrientation} value={packingBank} onChange={setPackingBank} />; })()}
+      {saveButton("packing-list")}
       {data.packingLists.length ? <section className="rounded-xl border"><div className="flex items-center gap-2 border-b p-3"><History className="size-4" /><strong className="text-sm">Saved Packing Lists</strong></div><div className="flex flex-wrap gap-2 p-3">{data.packingLists.map((list) => <Button key={list.id} type="button" size="sm" variant={selectedListId === list.id ? "default" : "outline"} onClick={() => setSelectedListId(list.id)}>{list.number} · {list.lines.reduce((sum, line) => sum + line.packedQuantity, 0)} pcs</Button>)}</div>{activeList ? <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-emerald-50 p-3 text-sm dark:bg-emerald-950/30"><span><CheckCircle2 className="mr-1 inline size-4 text-emerald-600" /><strong>{activeList.number}</strong> · {activeList.packingDate} · {uniqueCartonCount(activeList)} carton(s) · {display(activeList.lines.reduce((sum, line) => sum + line.totalCbm, 0))} m³</span><div className="flex flex-wrap items-center gap-2"><PrintOrientationSelect value={packingOrientation} onValueChange={setPackingOrientation} /><Button type="button" size="sm" variant="outline" onClick={() => editList(activeList)}><Pencil className="size-4" />Edit</Button><Button type="button" size="sm" variant="outline" onClick={() => printList(activeList)}><Printer className="size-4" />Print Packing List</Button><Button type="button" size="sm" variant="outline" disabled={pdfBusy} onClick={() => void downloadListPdf(activeList)}><Download className="size-4" />{pdfBusy ? "Creating PDF…" : "Packing PDF"}</Button><Button type="button" size="sm" variant="outline" onClick={() => printHsCodeSummary(activeList)}><FileText className="size-4" />Print HS Code Summary</Button><Button type="button" size="sm" variant="outline" disabled={hsPdfBusy} onClick={() => void downloadHsCodeSummaryPdf(activeList)}><Download className="size-4" />{hsPdfBusy ? "Creating HS PDF…" : "HS Summary PDF"}</Button></div></div> : null}</section> : null}
       {editingList ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-400 bg-amber-50 p-3 text-sm text-amber-950 dark:bg-amber-950/40 dark:text-amber-100"><strong>Editing {editingList.number}</strong><Button type="button" size="sm" variant="outline" onClick={cancelEdit}>Cancel Edit</Button></div> : null}
       <section className="space-y-3"><div className="grid gap-3 sm:grid-cols-3"><label className="space-y-1 text-sm"><Label>Packing Date</Label><Input type="date" value={packingDate} onChange={(event) => setPackingDate(event.target.value)} /></label><label className="space-y-1 text-sm sm:col-span-2"><Label>Delivery Address</Label><Input value={deliveryAddress} onChange={(event) => setDeliveryAddress(event.target.value)} maxLength={500} /></label></div>

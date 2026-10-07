@@ -160,21 +160,25 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
   ];
   const stampsToSave: DocumentStampPositions = { company: { show: stamp.show, left: companyPlacement.left, top: companyPlacement.top, page: true }, bank: { show: bankBox.show, left: bankPlacement.left, top: bankPlacement.top, page: true } };
   const stampsDirty = JSON.stringify(stampsToSave) !== JSON.stringify({ company: savedCompany, bank: savedBank });
-  const saveStampPositions = async () => {
-    if (!setup.id) return;
+  // Saves one document type's stamp settings; also used by the invoice packing-list window.
+  const persistStampPositions = async (type: string, entry: DocumentStampPositions, label: string) => {
+    if (!setup.id) return false;
     setSavingStamps(true);
     try {
-      const next = { ...savedPositions, [activeMode]: stampsToSave };
+      const next = { ...savedPositions, [type]: entry };
       const response = await fetch("/api/company-setup", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId: setup.id, stampPositions: JSON.stringify(next) }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Could not save the stamp positions.");
       const stored = String(result.record?.stampPositions ?? JSON.stringify(next));
       setSavedPositions(readStampPositions(stored));
-      setStampEdits((edits) => Object.fromEntries(Object.entries(edits).filter(([type]) => type !== activeMode)));
       onStampPositionsSaved?.(stored);
-      toast.success(`Stamp positions saved for every ${salesDocumentTitles[activeMode]}`);
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save the stamp positions."); }
+      toast.success(`Stamp positions saved for every ${label}`);
+      return true;
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save the stamp positions."); return false; }
     finally { setSavingStamps(false); }
+  };
+  const saveStampPositions = async () => {
+    if (await persistStampPositions(activeMode, stampsToSave, salesDocumentTitles[activeMode])) setStampEdits((edits) => Object.fromEntries(Object.entries(edits).filter(([type]) => type !== activeMode)));
   };
   const pageRule = documentPageRule(a4Design);
   const screenPreviewRef = useRef<HTMLDivElement>(null);
@@ -405,6 +409,6 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
       {splitInvoiceCopies && <div ref={alternatePreviewRef} data-invoice-copy={selectedCopy === "customer" ? "inventory" : "customer"} className="invoice-screen-only pointer-events-none absolute top-0 w-full" style={{ left: -100000 }} aria-hidden="true" inert>{renderDocument(selectedCopy === "customer" ? "inventory" : "customer")}</div>}
     </div>
     <div className="invoice-print-only">{renderDocument(selectedCopy, true)}</div>
-    {connectedPackingList ? <InvoicePackingListDialog open={packingOpen} onOpenChange={setPackingOpen} companyId={Number(record.companyId)} companyName={String(setup.name || "Company")} setup={setup} invoiceId={Number(record.id)} initialView={packingView} /> : null}
+    {connectedPackingList ? <InvoicePackingListDialog open={packingOpen} onOpenChange={setPackingOpen} companyId={Number(record.companyId)} companyName={String(setup.name || "Company")} setup={setup} invoiceId={Number(record.id)} initialView={packingView} stampPositions={savedPositions} onSaveStampPositions={setup.id && (setup.stampData || bankForCurrency(setup, documentCurrency)) ? persistStampPositions : undefined} savingStampPositions={savingStamps} /> : null}
   </>;
 }
