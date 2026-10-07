@@ -31,7 +31,7 @@
 - Purchase returns constrained to quantities still available from source bills.
 - Single or multi-bill vendor payment allocation and refreshed bill status.
 - Vendor center with balances, purchasing history, returns, open payables, aging, and vendor-currency reports.
-- Supplier bank details (bank name, account name, account number, IBAN, SWIFT/BIC) on each vendor, entered in the new-vendor form or Edit, shown on the Vendor Center supplier profile, and printable as a movable box on single-vendor Vendor Statements.
+- Supplier bank details (bank name, account name, account number, IBAN, SWIFT/BIC) on each vendor, entered in the new-vendor form or Edit, shown on the Vendor Center supplier profile, and printable as a movable box on purchase orders, bills and single-vendor Vendor Statements.
 - Supplier Centre Quick report and Open balance use the selected vendor’s currency, including foreign-currency vendors in a company with a different home currency.
 
 ## Inventory
