@@ -5,9 +5,9 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { draftBankAccounts, MAX_BANK_ACCOUNTS, validBankStamp, type BankAccount } from "@/lib/bank-accounts";
+import { draftBankAccounts, MAX_BANK_ACCOUNTS, MAX_BANK_REMARK_LENGTH, validBankStamp, type BankAccount } from "@/lib/bank-accounts";
 
-const fields: { key: keyof Omit<BankAccount, "id" | "currency" | "stampData">; label: string; max: number }[] = [
+const fields: { key: keyof Omit<BankAccount, "id" | "currency" | "stampData" | "remark">; label: string; max: number }[] = [
   { key: "bankName", label: "Bank Name", max: 120 }, { key: "accountName", label: "Account Name", max: 120 },
   { key: "accountNumber", label: "Account Number", max: 80 }, { key: "iban", label: "IBAN", max: 80 }, { key: "swift", label: "SWIFT / BIC", max: 40 },
 ];
@@ -32,6 +32,16 @@ export function BankStampPicker({ id, currency, value, onChange, disabled }: { i
 }
 
 // Row IDs come from the secure random generator (CodeQL blocks Math.random() in values sent to the API).
+/** Free-text note printed in the bank details box, e.g. correspondent-bank or payment instructions. */
+export function BankRemarkField({ id, currency, value, onChange, disabled }: { id: string; currency: string; value: string; onChange: (value: string) => void; disabled?: boolean }) {
+  return <div className="space-y-1">
+    <Label htmlFor={`${id}-remark`}>{currency ? `${currency} bank remark` : "Bank remark"}</Label>
+    <textarea id={`${id}-remark`} rows={2} maxLength={MAX_BANK_REMARK_LENGTH} disabled={disabled} value={value} onChange={(event) => onChange(event.target.value)} placeholder="e.g. Please do not use Standard Chartered as correspondent / intermediary bank."
+      className="w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50" />
+    <p className="text-xs text-slate-500">Printed in the bank details box on documents in this currency. It can also be rewritten on a single document.</p>
+  </div>;
+}
+
 const newBankId = () => `bank-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
 
 /** Extra company bank accounts, one per currency; documents print the account matching their currency. */
@@ -50,6 +60,7 @@ export function BankAccountsEditor({ value, defaultCurrency, onChange, disabled 
       <div className="space-y-1"><Label htmlFor={`${account.id}-currency`}>Currency</Label><Input id={`${account.id}-currency`} value={account.currency} maxLength={3} disabled={disabled} className="uppercase" aria-invalid={!/^[A-Z]{3}$/.test(account.currency) || accounts.filter((entry) => entry.currency === account.currency).length > 1} onChange={(event) => update(account.id, { currency: event.target.value.toUpperCase().replace(/[^A-Z]/g, "") })} /></div>
       {fields.map((field) => <div key={field.key} className="min-w-0 space-y-1"><Label htmlFor={`${account.id}-${field.key}`}>{field.label}</Label><Input id={`${account.id}-${field.key}`} value={account[field.key]} maxLength={field.max} disabled={disabled} onChange={(event) => update(account.id, { [field.key]: event.target.value })} /></div>)}
       <Button type="button" variant="ghost" size="icon" className="text-destructive" aria-label={`Remove ${account.currency || "currency"} bank account`} disabled={disabled} onClick={() => save(accounts.filter((entry) => entry.id !== account.id))}><Trash2 className="size-4" /></Button>
+      <div className="md:col-span-full"><BankRemarkField id={account.id} currency={account.currency} value={account.remark ?? ""} disabled={disabled} onChange={(remark) => update(account.id, { remark })} /></div>
       <div className="md:col-span-full"><BankStampPicker id={account.id} currency={account.currency} value={account.stampData ?? ""} disabled={disabled} onChange={(stampData) => update(account.id, stampData ? { stampData } : { stampData: undefined })} /></div>
     </div>)}
   </div>;

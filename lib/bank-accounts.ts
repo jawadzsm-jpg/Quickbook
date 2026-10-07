@@ -1,14 +1,16 @@
 // Company bank accounts by currency. The legacy single bank fields on the company remain the default
 // account; `bankAccounts` (JSON) adds one account per extra currency so documents can show the account
 // that matches the customer's currency. Each account may carry its own bank stamp image (`bankStampData`
-// for the default account, `stampData` on the others), printed with that account's details.
+// for the default account, `stampData` on the others) and a remark (`bankRemark` / `remark`), such as payment
+// instructions, printed with that account's details.
 
-export type BankAccount = { id: string; currency: string; bankName: string; accountName: string; accountNumber: string; iban: string; swift: string; stampData?: string };
-export type CompanyBankFields = { bankName?: string; bankAccountName?: string; bankAccountNumber?: string; bankIban?: string; bankSwift?: string; bankCurrency?: string; baseCurrency?: string; bankAccounts?: string; bankStampData?: string };
+export type BankAccount = { id: string; currency: string; bankName: string; accountName: string; accountNumber: string; iban: string; swift: string; stampData?: string; remark?: string };
+export type CompanyBankFields = { bankName?: string; bankAccountName?: string; bankAccountNumber?: string; bankIban?: string; bankSwift?: string; bankCurrency?: string; baseCurrency?: string; bankAccounts?: string; bankStampData?: string; bankRemark?: string };
 
 export const MAX_BANK_ACCOUNTS = 10;
 const limits = { bankName: 120, accountName: 120, accountNumber: 80, iban: 80, swift: 40 } as const;
 export const MAX_BANK_STAMP_LENGTH = 700_000;
+export const MAX_BANK_REMARK_LENGTH = 500;
 
 /** A bank stamp is empty or a PNG, JPG or WebP data URL under 500 KB. */
 export function validBankStamp(value: string): boolean {
@@ -39,6 +41,9 @@ export function parseBankAccounts(value: unknown): BankAccount[] {
     const stampData = String(entry.stampData ?? "");
     if (!validBankStamp(stampData)) throw new Error(`Upload a PNG, JPG or WebP bank stamp smaller than 500 KB for the ${currency} account.`);
     if (stampData) account.stampData = stampData;
+    const remark = String(entry.remark ?? "").trim();
+    if (remark.length > MAX_BANK_REMARK_LENGTH) throw new Error(`Keep the ${currency} bank remark under ${MAX_BANK_REMARK_LENGTH} characters.`);
+    if (remark) account.remark = remark;
     return account;
   });
 }
@@ -48,7 +53,7 @@ export function draftBankAccounts(value: unknown): BankAccount[] {
   try {
     const raw = typeof value === "string" ? (value ? JSON.parse(value) : []) : value;
     if (!Array.isArray(raw)) return [];
-    return raw.filter((entry) => entry && typeof entry === "object").map((entry: Record<string, unknown>) => ({ id: String(entry.id ?? ""), currency: String(entry.currency ?? ""), bankName: String(entry.bankName ?? ""), accountName: String(entry.accountName ?? ""), accountNumber: String(entry.accountNumber ?? ""), iban: String(entry.iban ?? ""), swift: String(entry.swift ?? ""), ...(entry.stampData ? { stampData: String(entry.stampData) } : {}) }));
+    return raw.filter((entry) => entry && typeof entry === "object").map((entry: Record<string, unknown>) => ({ id: String(entry.id ?? ""), currency: String(entry.currency ?? ""), bankName: String(entry.bankName ?? ""), accountName: String(entry.accountName ?? ""), accountNumber: String(entry.accountNumber ?? ""), iban: String(entry.iban ?? ""), swift: String(entry.swift ?? ""), ...(entry.stampData ? { stampData: String(entry.stampData) } : {}), ...(entry.remark ? { remark: String(entry.remark) } : {}) }));
   } catch { return []; }
 }
 
@@ -58,7 +63,7 @@ export function readBankAccounts(value: unknown): BankAccount[] {
 
 function defaultAccount(company: CompanyBankFields): BankAccount | null {
   if (!company.bankName && !company.bankAccountNumber && !company.bankIban) return null;
-  return { id: "default", currency: (company.bankCurrency || company.baseCurrency || "").toUpperCase(), bankName: company.bankName ?? "", accountName: company.bankAccountName ?? "", accountNumber: company.bankAccountNumber ?? "", iban: company.bankIban ?? "", swift: company.bankSwift ?? "", ...(company.bankStampData ? { stampData: company.bankStampData } : {}) };
+  return { id: "default", currency: (company.bankCurrency || company.baseCurrency || "").toUpperCase(), bankName: company.bankName ?? "", accountName: company.bankAccountName ?? "", accountNumber: company.bankAccountNumber ?? "", iban: company.bankIban ?? "", swift: company.bankSwift ?? "", ...(company.bankStampData ? { stampData: company.bankStampData } : {}), ...(company.bankRemark ? { remark: company.bankRemark } : {}) };
 }
 
 /** The account to print for a document currency: an exact currency match, otherwise the default account. */
