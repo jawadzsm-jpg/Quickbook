@@ -265,3 +265,12 @@ test("bank remarks are validated per account and default to the company bank rem
   assert.equal(bankForCurrency(company, "AED").remark, "AED note");
   assert.equal(bankForCurrency(company, "USD").remark, "  Use SWIFT only  ".trim());
 });
+
+test("packing list bank details box prints escaped account lines and remark at its millimetre position", async () => {
+  const { bankBoxHtml, bankBoxLimits } = await vite.ssrLoadModule("/app/bank-box-placement.tsx");
+  const escape = (value) => String(value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  const html = bankBoxHtml(["ENBD", "IBAN: AE07 <x>"], "Pay via SWIFT & quote invoice", 45, 116, escape);
+  assert.match(html, /position:absolute;left:45mm;top:116mm;width:80mm/);
+  assert.match(html, /IBAN: AE07 &lt;x&gt;/); assert.match(html, /Pay via SWIFT &amp; quote invoice/);
+  assert.deepEqual(bankBoxLimits("landscape"), { page: { width: 297, height: 210, maxLeft: 242, maxTop: 160 }, maxLeft: 197, maxTop: 150 });
+});
