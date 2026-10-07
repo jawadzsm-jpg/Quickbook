@@ -35,6 +35,8 @@ export type ReportExportData = {
   openBalance?: { totalOpen: number; totalAmount: number; overdueOnly?: boolean };
   activeCustomers?: { count: number };
   statement?: { opening: number; charges: number; credits: number; closing: number };
+  /** Customer statements: the bank account for the statement currency, printed after the table (left offset in mm). */
+  bankBox?: { title: string; lines: string[]; remark?: string; left: number };
 };
 
 export function reportOverview(report: ReportExportData, rows: ReportExportRow[]) {
@@ -333,6 +335,29 @@ export async function reportPdf(report: ReportExportData, company: string, inven
     const lastY = (pdf as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
     autoTable(pdf, { startY: lastY + 7, margin: { top: 44, bottom: 17, left: 10, right: 10 }, head: [["Account review - review before relying on classified totals"]], body: reportReviewIssues(report).map(issue => [issue]), styles: { font: "helvetica", fontSize: 8, cellPadding: 3, overflow: "linebreak" }, headStyles: { fillColor: [120, 75, 20] }, rowPageBreak: "avoid", didDrawPage: drawHeader });
   }
+  let contentBottom = (pdf as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
+  if (report.bankBox) {
+    // Bank details box after the table, at the chosen left offset, moving to a new page when it does not fit.
+    const box = report.bankBox, width = 80, lineHeight = 3.6;
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(8);
+    const remark = box.remark ? pdf.splitTextToSize(box.remark, width - 6) as string[] : [];
+    const height = 5 + (box.lines.length + 1) * lineHeight + (remark.length ? remark.length * lineHeight + 1.5 : 0);
+    let top = contentBottom + 8;
+    if (top + height > pageHeight - 18) { pdf.addPage(); drawHeader(); top = 46; }
+    const left = Math.max(10, Math.min(pageWidth - 10 - width, 10 + box.left));
+    pdf.setDrawColor(148, 163, 184);
+    pdf.setFillColor(255, 255, 255);
+    pdf.roundedRect(left, top, width, height, 1, 1, "FD");
+    let y = top + 5;
+    pdf.setTextColor(15, 23, 42);
+    pdf.setFont("helvetica", "bold");
+    pdf.text(box.title.toUpperCase(), left + 3, y);
+    pdf.setFont("helvetica", "normal");
+    for (const line of box.lines) { y += lineHeight; pdf.text(line, left + 3, y, { maxWidth: width - 6 }); }
+    if (remark.length) { y += 1.5; pdf.setTextColor(185, 28, 28); for (const line of remark) { y += lineHeight; pdf.text(line, left + 3, y); } }
+    contentBottom = top + height;
+  }
   if (stamp?.data) {
     const stampImage = await new Promise<{ data: string; width: number; height: number }>((resolve, reject) => {
       const image = new Image();
@@ -351,8 +376,7 @@ export async function reportPdf(report: ReportExportData, company: string, inven
       image.src = stamp.data;
     });
     const scale = Math.min(32 / stampImage.width, 23 / stampImage.height);
-    const tableBottom = (pdf as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
-    const placement = reportStampAfterTable(pageHeight, tableBottom, stamp.top, stampImage.height * scale);
+    const placement = reportStampAfterTable(pageHeight, contentBottom, stamp.top, stampImage.height * scale);
     if (placement.newPage) { pdf.addPage(); drawHeader(); }
     pdf.addImage(stampImage.data, "PNG", Math.max(0, Math.min(pageWidth - stampImage.width * scale, stamp.left)), placement.top, stampImage.width * scale, stampImage.height * scale);
   }
