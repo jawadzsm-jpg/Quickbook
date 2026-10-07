@@ -274,3 +274,19 @@ test("packing list bank details box prints escaped account lines and remark at i
   assert.match(html, /IBAN: AE07 &lt;x&gt;/); assert.match(html, /Pay via SWIFT &amp; quote invoice/);
   assert.deepEqual(bankBoxLimits("landscape"), { page: { width: 297, height: 210, maxLeft: 242, maxTop: 160 }, maxLeft: 197, maxTop: 150 });
 });
+
+test("stamp guide layout follows the report PDF: moves the stamp below the table and onto later pages", async () => {
+  const { stampPreviewLayout } = await vite.ssrLoadModule("/lib/report-stamp-preview.ts");
+  // Short statement on A4 portrait: a stamp low on the page prints where it was placed.
+  const short = stampPreviewLayout({ orientation: "portrait", summaryCards: 4, noteLines: 1, rows: 3, stampTop: 230 });
+  assert.equal(short.page, 1); assert.equal(short.showSummary, true); assert.equal(short.stamp.top, 230); assert.equal(short.stamp.moved, false);
+  // A stamp placed over the table is moved to just below it.
+  const overlap = stampPreviewLayout({ orientation: "portrait", summaryCards: 4, noteLines: 1, rows: 3, stampTop: 60 });
+  assert.equal(overlap.stamp.moved, true); assert.ok(overlap.stamp.top >= overlap.tableBottom + 8);
+  // Many rows: the guide shows the last page (no summary) with only that page's rows.
+  const long = stampPreviewLayout({ orientation: "portrait", summaryCards: 4, noteLines: 1, rows: 80, stampTop: 230 });
+  assert.ok(long.page > 1); assert.equal(long.showSummary, false); assert.ok(long.firstRow > 0); assert.equal(long.lastRow, 80); assert.equal(long.tableTop, 44);
+  // Bank boxes come before the stamp.
+  const boxed = stampPreviewLayout({ orientation: "portrait", summaryCards: 4, noteLines: 1, rows: 3, boxes: [{ lines: 6, remarkLines: 1 }], stampTop: 60 });
+  assert.ok(boxed.boxes[0].top > boxed.tableBottom); assert.ok(boxed.stamp.top >= boxed.boxes[0].top + boxed.boxes[0].height + 8);
+});

@@ -78,7 +78,7 @@ import { LiveProfitLossSummary } from "./live-profit-loss-summary";
 import { dashboardMetrics } from "@/lib/dashboard-metrics";
 import { filterZeroQohRows, hasInventoryQohFilter } from "@/lib/inventory-report-filter";
 import { filterRecordListByDate, recordListReport } from "@/lib/record-list-export";
-import { reportCsv, reportFilename, reportWorkbook } from "@/lib/report-export";
+import { reportCsv, reportFilename, reportOverview, reportWorkbook } from "@/lib/report-export";
 import { BudgetReportLibrary, BudgetTrend } from "./budget-report-library";
 import { budgetReportKeys, budgetSummary, type BudgetBasis } from "@/lib/budget-report";
 import { emptySalesFilters, filterSalesReportRows, salesColumnKind, salesDetailTarget, salesReportKeys, salesSummary } from "@/lib/sales-report";
@@ -149,7 +149,7 @@ import { PurchaseReportFilters } from "@/app/purchase-report-filters";
 import { SalesReportLibrary } from "@/app/sales-report-library";
 import { SalesReportTable } from "@/app/sales-report-table";
 import { SalesReportFilters } from "@/app/sales-report-filters";
-import { SalesReportStamp } from "@/app/sales-report-stamp";
+import { SalesReportStamp, type StampPagePreview } from "@/app/sales-report-stamp";
 import { ItemLogisticsCenter } from "@/app/item-logistics-center";
 import { ItemCustomizationCenter } from "@/app/item-customization-center";
 import { UserRoleCenter } from "@/app/user-role-center";
@@ -2212,6 +2212,17 @@ function ReportDialog({ onVatArea, canManageVatCodes, canOpenVatManagement, onPu
     ...(supplierBankLines && supplierBank.show ? [{ title: "Supplier bank details", lines: supplierBankLines, remark: supplierBank.remark ?? "", left: boxLeft(supplierBank.left) }] : []),
   ];
   const exportReport = bankBoxes.length ? { ...report, bankBoxes } : report;
+  // The stamp guide draws the real page where the table ends (standard report PDF layout only).
+  const guideOverview = stampReport && !isProfitLossReport && !report.financial ? reportOverview(exportReport, visibleRows) : null;
+  const guideNumber = (value: number, money: boolean) => value.toLocaleString("en-AE", money ? { minimumFractionDigits: 2, maximumFractionDigits: 2 } : { maximumFractionDigits: 6 });
+  const stampGuide: StampPagePreview | undefined = stampReport && !isProfitLossReport && !report.financial ? {
+    title: report.title, subtitle: companyName,
+    summary: (guideOverview?.cards ?? []).map((card) => ({ label: card.label, value: card.format === "money" ? `${report.currency} ${guideNumber(Number(card.value), true)}` : typeof card.value === "number" ? guideNumber(card.value, false) : String(card.value) })),
+    note: guideOverview?.note,
+    columns: report.columns.map((column) => column.label),
+    rows: visibleRows.map((row) => report.columns.map((column) => { const cell = row[column.key]; return typeof cell === "number" ? guideNumber(cell, column.type === "money") : String(cell ?? ""); })),
+    bankBoxes,
+  } : undefined;
   const budgetOverview = budgetSummary(report);
   const vatOverview = vatSummary({ ...report, rows: visibleRows });
   const reportInventoryName = isVatReport ? "Company-wide · all inventories" : inventoryName;
@@ -2316,7 +2327,7 @@ function ReportDialog({ onVatArea, canManageVatCodes, canOpenVatManagement, onPu
     {isListReport && <ListReportFilters rows={report.rows} columns={report.columns} filters={listFilters} onChange={(filters) => setListFilterState({ key: report.key || "", filters })} visibleCount={visibleRows.length} />}
     {(isListReport || isEmployeeReport) && <div className="list-report-brief rounded-xl border px-4 py-3 text-sm leading-6"><span className="font-semibold">{isEmployeeReport ? "HR reporting basis:" : "List reporting basis:"}</span> Current company records and posted activity · {report.currency} home currency where amounts apply. <span className="print:hidden">Underlined references open the matching account, contact, inventory, employee, or source-document area.</span></div>}
     {listOverview && <section className="list-summary" aria-labelledby="list-summary-title"><div className="list-summary-heading flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[.16em] text-accent-foreground dark:text-cyan-300">{report.key?.startsWith("employee-") ? "People overview" : "Master data overview"}</p><h2 id="list-summary-title" className="mt-1 text-lg font-bold">Summary</h2></div>{listDrillDown && <Button type="button" size="sm" variant="outline" className="print:hidden" onClick={() => onOpenReport(listDrillDown)}>Open supporting report</Button>}</div><div className="list-summary-grid mt-3">{listOverview.cards.map((card) => <div key={card.label} data-tone={card.tone || "neutral"}><span>{card.label}</span><strong>{card.format === "money" ? formatMoney(card.value, report.currency) : card.format === "number" && typeof card.value === "number" ? card.value.toLocaleString("en-AE", { maximumFractionDigits: 2 }) : String(card.value)}</strong></div>)}</div><p className="list-summary-note mt-3 text-sm">{listOverview.note}</p></section>}
-    {stampReport && <SalesReportStamp stampData={setup.stampData} orientation={printOrientation} value={reportStamp} onChange={setAgingStamp} />}
+    {stampReport && <SalesReportStamp stampData={setup.stampData} orientation={printOrientation} value={reportStamp} onChange={setAgingStamp} preview={stampGuide} />}
     {showsQohFilter && <label className="flex w-fit cursor-pointer items-center gap-3 rounded-lg border bg-background px-4 py-3 text-sm font-medium text-foreground shadow-sm print:hidden" htmlFor="hide-zero-qoh"><Checkbox id="hide-zero-qoh" checked={hideZeroQoh} onCheckedChange={(checked) => setHideZeroQoh(checked === true)} /><span>Hide zero QOH</span>{hideZeroQoh && <Badge variant="secondary">{hiddenZeroQoh} hidden</Badge>}</label>}
     {report.accountLinkIssues && report.accountLinkIssues.length > 0 && <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"><p className="font-semibold">Some accounts need review</p><ul className="mt-2 list-disc space-y-1 pl-5">{report.accountLinkIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul></div>}
     {report.statement && <><StatementFilters key={report.generatedAt} statement={report.statement} currency={report.currency} currencies={currencies} loading={loading} onApply={onStatementApply} /><StatementHeading statement={report.statement} currency={report.currency} company={setup} stamp={statementStamp ? { ...reportStamp, show: false, onMove: (left, top) => setAgingStamp({ ...agingStamp, left: Math.min(stampMaxLeft, left), top: Math.min(stampMaxTop, top) }) } : undefined} /></>}
