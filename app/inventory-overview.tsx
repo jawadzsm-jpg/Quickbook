@@ -132,6 +132,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   const [activity, setActivity] = useState<InventoryActivity>(emptyActivity);
   const [activityView, setActivityView] = useState<ActivityView>("incoming");
   const [canSelectItems, setCanSelectItems] = useState(false);
+  const [canBulkSelect, setCanBulkSelect] = useState(false);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<StockFilter>("all");
@@ -152,6 +153,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
       setRecords(data.records as OverviewItem[]);
       setActivity({ ...emptyActivity, ...(data.activity as Partial<InventoryActivity> | undefined) });
       setCanSelectItems(data.canSelectItems === true);
+      setCanBulkSelect(data.canBulkSelect === true);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not load inventory overview");
     } finally {
@@ -288,7 +290,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   });
 
   const toggleAllVisible = (checked: boolean) => setSelectedIds((current) => {
-    if (!canSelectItems || loading) return current;
+    if (!canBulkSelect || loading) return current;
     const next = new Set(current);
     for (const record of filtered) {
       if (checked) next.add(record.id); else next.delete(record.id);
@@ -449,7 +451,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
 
       <div className="overflow-hidden">
         <Table className="w-full table-fixed">
-          <TableHeader><TableRow className="bg-slate-50"><TableHead className="w-12"><span className="inline-flex rounded-lg border bg-white p-1.5"><Checkbox disabled={!canSelectItems || loading || !filtered.length} aria-label="Select all visible items" checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false} onCheckedChange={(checked) => toggleAllVisible(checked === true)} /></span></TableHead><TableHead className="min-w-0 font-bold text-slate-900">Product specifications</TableHead>{showQuantity && <TableHead responsiveColumn="quantity" className="font-bold text-slate-900">Qty</TableHead>}{showPrice && <TableHead responsiveColumn="price" className="font-bold text-slate-900">Price</TableHead>}</TableRow></TableHeader>
+          <TableHeader><TableRow className="bg-slate-50"><TableHead className="w-12"><span className="inline-flex rounded-lg border bg-white p-1.5"><Checkbox disabled={!canBulkSelect || loading || !filtered.length} aria-label="Select all visible items" checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false} onCheckedChange={(checked) => toggleAllVisible(checked === true)} /></span></TableHead><TableHead className="min-w-0 font-bold text-slate-900">Product specifications</TableHead>{showQuantity && <TableHead responsiveColumn="quantity" className="font-bold text-slate-900">Qty</TableHead>}{showPrice && <TableHead responsiveColumn="price" className="font-bold text-slate-900">Price</TableHead>}</TableRow></TableHeader>
           <TableBody>
             {loading ? <TableRow><TableCell colSpan={columnCount} className="h-40 text-center text-slate-500"><RefreshCw className="mx-auto mb-2 size-5 animate-spin" />Loading all inventories…</TableCell></TableRow> : categories.length === 0 ? <TableRow><TableCell colSpan={columnCount} className="h-40 text-center text-slate-500">No products match this view.</TableCell></TableRow> : categories.flatMap(([category, items]) => [
               <TableRow key={`category-${category}`} className="border-slate-800 bg-slate-950 hover:bg-slate-950"><TableCell colSpan={columnCount} className="py-3 font-bold text-white"><span className="mr-2 text-emerald-400">●</span>{category}<Badge className="ml-3 bg-white/15 text-white hover:bg-white/15">{items.length} items</Badge></TableCell></TableRow>,

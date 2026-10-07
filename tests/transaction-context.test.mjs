@@ -846,7 +846,7 @@ test('stock selection capability is limited to admin and all-admin', async () =>
       globalThis.__transferTestUser = { id: 1, role, companyIds: [] };
       const response = await GET(new Request('http://localhost/api/inventory-overview'));
       assert.equal(response.status, 200);
-      assert.equal((await response.json()).canSelectItems, ['all_admin', 'admin'].includes(role));
+      const body = await response.json(); assert.equal(body.canSelectItems, true); assert.equal(body.canBulkSelect, ['all_admin', 'admin'].includes(role));
     }
   } finally { delete globalThis.__transferTestUser; }
 });
@@ -2566,7 +2566,7 @@ test('sales workspace enforces ownership, proforma handoff, private costs and ad
     assert.equal((await work.PATCH(req('/api/sales-work','PATCH',{companyId:c,customerId:foreign,salesOwnerId:alice}))).status,403);
     const overviewRoute = await vite.ssrLoadModule('/app/api/inventory-overview/route.ts');
     const incoming = await (await overviewRoute.GET(req('/api/inventory-overview'))).json();
-    const stockRow = incoming.records.find(row=>row.id===item); assert.equal(stockRow.quantity,9); assert.equal(stockRow.salesPrice,500); assert.equal(incoming.canSelectItems,false);
+    const stockRow = incoming.records.find(row=>row.id===item); assert.equal(stockRow.quantity,9); assert.equal(stockRow.salesPrice,500); assert.equal(incoming.canSelectItems,true); assert.equal(incoming.canBulkSelect,false);
     for(const key of ['cost','averageCost','lastPurchasePrice','preferredSupplierId']) assert.equal(key in stockRow,false);
     const incomingRow = incoming.activity.incoming.find(row=>row.itemId===item);
     assert.equal(incomingRow.quantity,2); assert.equal(incomingRow.price,500);
