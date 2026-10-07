@@ -26,6 +26,7 @@ import { generatedItemDescription } from "@/lib/item-description";
 import { uaeChequeLayout, uaeChequeLayouts, validChequeAlignment } from "@/lib/uae-cheque-layouts";
 import { standardAccounts } from "@/lib/standard-accounts";
 import { cleanDeliveryAddress } from "@/lib/delivery-address";
+import { lineExtraTypes } from "@/lib/line-extras";
 
 type RecordKind = "transactions" | "contacts" | "items" | "accounts";
 type InputLine = { pending?: boolean; comments?: string; serialNumber?: string; freightCharge?: number | string; isFreightCharge?: boolean; orderLineId?: number; sourceLineId?: number; itemId?: number | string | null; description?: string; quantity?: number | string; unitPrice?: number | string; unitCost?: number | string; vatCode?: string; vatRate?: number | string };
@@ -965,7 +966,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const vatRate = type === "invoice" && quantity < 0 ? 0 : vatRates[vatCode];
       const subtotal = round(quantity * unitPrice);
       const vatAmount = round(subtotal * vatRate / 100);
-      return { itemId: line.itemId ? Number(line.itemId) : null, description: String(line.description ?? "").trim(), comments: ["invoice", "pending invoice", "bill"].includes(type) ? String(line.comments ?? "") : "", serialNumber: ["invoice", "pending invoice", "bill"].includes(type) ? String(line.serialNumber ?? "") : "", quantity, unitPrice, unitCost, freightCharge, isFreightCharge: false, vatCode, vatRate, subtotal, vatAmount, total: round(subtotal + vatAmount) };
+      return { itemId: line.itemId ? Number(line.itemId) : null, description: String(line.description ?? "").trim(), comments: lineExtraTypes.includes(type) ? String(line.comments ?? "") : "", serialNumber: lineExtraTypes.includes(type) ? String(line.serialNumber ?? "") : "", quantity, unitPrice, unitCost, freightCharge, isFreightCharge: false, vatCode, vatRate, subtotal, vatAmount, total: round(subtotal + vatAmount) };
     }).filter((line) => line.description || line.itemId || line.subtotal > 0);
     if (!prepared.length && Number(payload.total) > 0) {
       const subtotal = Number(payload.total);

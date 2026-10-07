@@ -95,6 +95,7 @@
 - Tax invoice, proforma invoice, commercial invoice, delivery note, packing list, and HS-code summary views.
 - Company letterhead builder and named A4 letterhead documents.
 - Company logos, bank details, VAT identity, extra fields, line comments, serial numbers, and payment terms.
+- Item lines on invoices, pending invoices, bills, purchase orders, item receipts and received item bills have Comments and Serial Number boxes under the description, on create and edit (`lib/line-extras.ts`). Receiving a purchase order pre-fills each line's comments and serial numbers on the bill, still editable.
 - Paid and company stamp overlays that can be moved before printing/export where supported.
 - A4 portrait print/PDF output by default, with a portrait/landscape selector; packing lists default to landscape.
 

@@ -105,6 +105,23 @@ async function report(type, location = locationId) {
   return report;
 }
 
+test("purchase order lines keep comments and serial numbers", async () => {
+  const created = await workspaces.POST(post({ type: "company", name: "PO line extras", baseCurrency: "AED" }));
+  const { company } = await created.json();
+  const ap = (await database.query("SELECT id FROM accounts WHERE company_id=$1 AND system_role='AP'", [company.id])).rows[0].id;
+  await database.query("INSERT INTO contacts(company_id,type,name,currency,ledger_account_id) VALUES ($1,'vendor','Extras Vendor','AED',$2)", [company.id, ap]);
+  const records = await vite.ssrLoadModule("/app/api/records/route.ts");
+  const response = await records.POST(new Request("https://app.test/api/records", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+    kind: "transactions", type: "purchase order", companyId: company.id, locationId: company.locations[0].id, number: "PO-EXTRAS-1", party: "Extras Vendor",
+    transactionDate: "2026-10-06", currency: "AED", exchangeRate: 1,
+    lines: [{ description: "HP ELITEBOOK 1040", quantity: 2, unitPrice: 100, vatCode: "ZERO", comments: "Ship with pen", serialNumber: "CP3M2UA1 CP3M2UA2" }],
+  }) }));
+  assert.equal(response.status, 201, await response.clone().text());
+  const { record } = await response.json();
+  const [line] = (await database.query("SELECT comments, serial_number FROM transaction_lines WHERE transaction_id=$1", [record.id])).rows;
+  assert.deepEqual(line, { comments: "Ship with pen", serial_number: "CP3M2UA1 CP3M2UA2" });
+});
+
 test("search matches every word in any order and reports merged highlight ranges", async () => {
   const { searchTerms, matchesSearch, matchRanges } = await vite.ssrLoadModule("/lib/search.ts");
   assert.deepEqual(searchTerms("  Dell  16gb dell latitude "), ["latitude", "dell", "16gb"]);
