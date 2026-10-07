@@ -106,7 +106,10 @@ export function SectionBody({ section, data, theme }: { section: Section; data: 
       return <table className={`lb-items lb-grid-${section.props.gridLines}${section.props.zebra ? " lb-zebra" : ""}${section.props.repeatHeading ? "" : " lb-no-repeat"}`}>
         <colgroup>{columns.map((column) => <col key={column.key} style={{ width: `${(column.width / totalWidth) * 100}%` }} />)}</colgroup>
         <thead><tr>{columns.map((column) => <th key={column.key} className={numeric.has(column.key) ? "lb-num" : undefined} style={heading}>{column.label}{arabic && arabicColumnLabel(column.key) ? <span className="lb-th-ar" dir="rtl" lang="ar">{arabicColumnLabel(column.key)}</span> : null}</th>)}</tr></thead>
-        <tbody>{data.lines.length ? data.lines.map((_, index) => <tr key={index}>{columns.map((column) => <td key={column.key} className={numeric.has(column.key) ? "lb-num" : column.key === "description" || column.key === "comments" || column.key === "serialNumber" ? "lb-pre" : undefined}>{lineValue(data, column.key, index)}</td>)}</tr>)
+        <tbody>{data.lines.length ? data.lines.map((line, index) => <tr key={index}>{columns.map((column) => <td key={column.key} className={numeric.has(column.key) ? "lb-num" : column.key === "description" || column.key === "comments" || column.key === "serialNumber" ? "lb-pre" : undefined}>{lineValue(data, column.key, index)}{column.key === "description" && section.props.notesUnderDescription ? <>
+          {line.comments.trim() && !columns.some((entry) => entry.key === "comments") ? <span className="lb-line-note">{line.comments.trim()}</span> : null}
+          {line.serialNumber.trim() && !columns.some((entry) => entry.key === "serialNumber") ? <span className="lb-line-note">S/N: {line.serialNumber.trim()}</span> : null}
+        </> : null}</td>)}</tr>)
           : <tr><td colSpan={columns.length} className="lb-empty">No lines</td></tr>}</tbody>
       </table>;
     }

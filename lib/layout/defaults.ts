@@ -19,7 +19,7 @@ const defaultProps: { [K in SectionType]: () => SectionProps[K] } = {
     { key: "number", label: "Invoice #" }, { key: "date", label: "Date" }, { key: "dueDate", label: "Due Date" }, { key: "terms", label: "Terms" },
     { key: "salesman", label: "Sales Rep" }, { key: "trn", label: "Customer TRN" },
   ], cellBorder: false, cellBorderColor: "" }),
-  lineItems: () => ({ zebra: false, repeatHeading: true, headingBackground: "", headingTextColor: "", headingBold: true, gridLines: "rows", columns: [
+  lineItems: () => ({ zebra: false, repeatHeading: true, headingBackground: "", headingTextColor: "", headingBold: true, gridLines: "rows", notesUnderDescription: true, columns: [
     { key: "index", label: "#", width: 5 }, { key: "sku", label: "Item", width: 12 }, { key: "description", label: "Description", width: 37 },
     { key: "quantity", label: "Qty", width: 7 }, { key: "unitPrice", label: "Rate", width: 11 }, { key: "vatAmount", label: "VAT", width: 10 }, { key: "total", label: "Amount", width: 13 },
   ] }),

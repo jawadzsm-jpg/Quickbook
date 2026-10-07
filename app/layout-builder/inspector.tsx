@@ -103,6 +103,7 @@ function SectionProps({ section, update, onError }: { section: Section; update: 
       <Field label="Lines"><select className={selectClass} value={section.props.gridLines} onChange={(event) => props({ gridLines: event.target.value })}><option value="rows">Between rows</option><option value="grid">Full grid</option><option value="none">None</option></select></Field>
       <div className="flex flex-wrap gap-3"><ColourField label="Heading background" value={section.props.headingBackground} fallback="#164e63" onChange={(value) => props({ headingBackground: value }, `${section.id}.hbg`)} /><ColourField label="Heading text" value={section.props.headingTextColor} fallback="#ffffff" onChange={(value) => props({ headingTextColor: value }, `${section.id}.htx`)} /></div>
       <Toggle label="Bold heading" checked={section.props.headingBold} onChange={(value) => props({ headingBold: value })} />
+      <Toggle label="Comments and serial numbers under the description" checked={section.props.notesUnderDescription} onChange={(value) => props({ notesUnderDescription: value })} />
       <ListEditor items={section.props.columns} all={lineColumns} names={columnNames} width onChange={(columns) => props({ columns })} />
       <p className="text-xs text-muted-foreground">Widths are relative; the table always fits the page width.</p>
     </div>;
