@@ -12,6 +12,7 @@ import { skuWrite } from "@/lib/sku-locks";
 import { refreshSalesSource, salesSourceLines, salesInventoryLines } from "@/lib/sales-invoicing";
 import { randomUUID, createHash } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { vendorBankChanges } from "@/lib/vendor-bank";
 import { getDb, withWriteTransaction } from "../../../db";
 import {
   accounts, appUsers, auditLog, companies, companySettings, contacts, exchangeRates, inventoryLocations, inventoryMovements, items, journalEntries,
@@ -190,6 +191,11 @@ async function refreshPurchaseOrder(orderId: number) {
   const lines = await purchaseReceiptLines(orderId);
   const status = lines.length && lines.every((line) => line.remaining <= 0) ? "received" : lines.some((line) => line.received > 0) ? "partially received" : "open";
   await getDb().update(transactions).set({ status }).where(eq(transactions.id, orderId));
+}
+
+// Supplier bank details: validated, and only for vendor contacts.
+function vendorBankFromPayload(payload: Record<string, unknown>) {
+  try { return vendorBankChanges(payload); } catch (error) { throw new RequestError(error instanceof Error ? error.message : "Check the supplier bank details."); }
 }
 
 export async function GET(request: Request) {
@@ -652,6 +658,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
         country: String(payload.country ?? ""), trn: String(payload.trn ?? "").trim(), reseller: String(payload.reseller ?? "Reseller"),
         planet: String(payload.planet ?? "No"), passport: String(payload.passport ?? ""), currency, ledgerAccountId,
         description: String(payload.description ?? ""), balance: authorization.role === "sales" ? 0 : Number(payload.balance ?? 0),
+        ...(contactType === "vendor" ? vendorBankFromPayload(payload) : {}),
       }).returning();
       return Response.json({ record, generatedAccount }, { status: 201 });
     }
@@ -1877,7 +1884,7 @@ async function handlePATCH(request: Request) {
       for (const field of ["company", "billingName", "email", "phone", "whatsapp", "country", "trn", "reseller", "planet", "passport", "description"] as const) {
         if (payload[field] !== undefined) changes[field] = String(payload[field]).trim();
       }
-      const [record] = await db.update(contacts).set({ ...changes, ...organization, ...(existing.type === "employee" ? await employeeHrForSave(payload, companyId, existing) : {}) }).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId))).returning();
+      const [record] = await db.update(contacts).set({ ...changes, ...organization, ...(existing.type === "vendor" ? vendorBankFromPayload(payload) : {}), ...(existing.type === "employee" ? await employeeHrForSave(payload, companyId, existing) : {}) }).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId))).returning();
       if (name !== existing.name) await db.update(transactions).set({ party: name }).where(and(eq(transactions.companyId, companyId), eq(transactions.party, existing.name)));
       await db.insert(auditLog).values({ companyId, action: "updated", entityType: existing.type === "vendor" ? "vendor" : "contact", entityId: id, details: existing.type === "vendor" ? JSON.stringify({ actorId: authorization.id, actorName: authorization.fullName || authorization.email, actorEmail: authorization.email, vendorName: name, changes: Object.entries(changes).filter(([field, value]) => String((existing as Record<string, unknown>)[field] ?? "") !== value).map(([field, value]) => ({ field, before: (existing as Record<string, unknown>)[field] ?? "", after: value })) }) : `${existing.name} → ${name}` });
       if (organization.status !== (existing as typeof contacts.$inferSelect).status || organization.parentContactId !== (existing as typeof contacts.$inferSelect).parentContactId) await db.insert(auditLog).values({ companyId, action: "updated", entityType: "contact", entityId: id, details: JSON.stringify({ actorId: authorization.id, mode: "contact-organization", before: { status: (existing as typeof contacts.$inferSelect).status, parentContactId: (existing as typeof contacts.$inferSelect).parentContactId }, after: organization }) });

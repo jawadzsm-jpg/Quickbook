@@ -204,6 +204,12 @@ export const contacts = pgTable("contacts", {
   vacationDeparture: text("vacation_departure").notNull().default(""),
   vacationReturn: text("vacation_return").notNull().default(""),
   description: text("description").notNull().default(""),
+  // Supplier bank details (vendors), migration 0091.
+  bankName: text("bank_name").notNull().default(""),
+  bankAccountName: text("bank_account_name").notNull().default(""),
+  bankAccountNumber: text("bank_account_number").notNull().default(""),
+  bankIban: text("bank_iban").notNull().default(""),
+  bankSwift: text("bank_swift").notNull().default(""),
   balance: doublePrecision("balance").notNull().default(0),
   status: text("status", { enum: ["active", "inactive"] }).notNull().default("active"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),

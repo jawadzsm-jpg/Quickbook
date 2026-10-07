@@ -2723,6 +2723,24 @@ test('posted journal register includes older rows, inclusive dates and unique co
   assert.equal(summary.accountLinkIssues.length,2);
 });
 
+test('vendor contacts save validated supplier bank details', async () => {
+  const company = (await database.query("INSERT INTO companies(name) VALUES('Vendor bank test') RETURNING id")).rows[0].id;
+  const api = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const write = (method, values) => api[method](new Request('https://app.test/api/records', {method, headers: {'content-type':'application/json'}, body: JSON.stringify({kind:'contacts',companyId:company,...values})}));
+  try {
+    globalThis.__transferTestUser = {id:1,role:'all_admin',companyIds:[]};
+    const created = await write('POST', {type:'vendor',name:'Bank Supplier',company:'Bank Supplier',currency:'AED',phone:'+971500020002',whatsapp:'',country:'United Arab Emirates',reseller:'Reseller',planet:'No',bankName:' Mashreq ',bankAccountName:'Bank Supplier LLC',bankAccountNumber:'0191',bankIban:'ae070330000010191',bankSwift:'boml aead'});
+    const vendor = (await created.json()).record; assert.equal(created.status,201);
+    assert.deepEqual([vendor.bankName,vendor.bankAccountName,vendor.bankAccountNumber,vendor.bankIban,vendor.bankSwift],['Mashreq','Bank Supplier LLC','0191','AE070330000010191','BOML AEAD']);
+    const updated = await write('PATCH', {id:vendor.id,name:'Bank Supplier',bankIban:'ae99'});
+    assert.equal(updated.status,200,await updated.clone().text()); assert.equal((await updated.json()).record.bankIban,'AE99');
+    assert.equal((await database.query('SELECT bank_name FROM contacts WHERE id=$1',[vendor.id])).rows[0].bank_name,'Mashreq'); // untouched fields stay
+    assert.equal((await write('PATCH', {id:vendor.id,name:'Bank Supplier',bankSwift:'X'.repeat(41)})).status,400);
+    const { vendorBankLines } = await vite.ssrLoadModule('/lib/vendor-bank.ts');
+    assert.deepEqual(vendorBankLines({bankName:'Mashreq',bankIban:'AE99'}),['Mashreq','IBAN: AE99']);
+  } finally { delete globalThis.__transferTestUser; }
+});
+
 test('customer and vendor sub-accounts persist organization, protect scope and preserve balances', async () => {
   const company = (await database.query("INSERT INTO companies(name) VALUES('Contact organization test') RETURNING id")).rows[0].id;
   const otherCompany = (await database.query("INSERT INTO companies(name) VALUES('Other contact organization') RETURNING id")).rows[0].id;
