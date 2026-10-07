@@ -2566,6 +2566,8 @@ test('sales workspace enforces ownership, proforma handoff, private costs and ad
     assert.equal((await work.PATCH(req('/api/sales-work','PATCH',{companyId:c,customerId:foreign,salesOwnerId:alice}))).status,403);
     const overviewRoute = await vite.ssrLoadModule('/app/api/inventory-overview/route.ts');
     const incoming = await (await overviewRoute.GET(req('/api/inventory-overview'))).json();
+    const stockRow = incoming.records.find(row=>row.id===item); assert.equal(stockRow.quantity,9); assert.equal(stockRow.salesPrice,500); assert.equal(incoming.canSelectItems,false);
+    for(const key of ['cost','averageCost','lastPurchasePrice','preferredSupplierId']) assert.equal(key in stockRow,false);
     const incomingRow = incoming.activity.incoming.find(row=>row.itemId===item);
     assert.equal(incomingRow.quantity,2); assert.equal(incomingRow.price,500);
     for(const key of ['party','transactionId','documentNumber','linkedBillId','salesRep']) assert.equal(key in incomingRow,false);
