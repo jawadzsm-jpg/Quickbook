@@ -215,6 +215,35 @@ test("warranty slips link only the selected company's customer and invoice, and 
   assert.equal((await database.query("SELECT action FROM audit_log WHERE company_id=$1 AND entity_type='warranty_slip' AND entity_id=$2 ORDER BY id DESC LIMIT 1", [companyId, latest.id])).rows[0].action, 'deleted');
 });
 
+test("warranty invoice items link their supplier from bills, received item bills or the preferred supplier", async () => {
+  const company = (await database.query("INSERT INTO companies(name) VALUES('Warranty link company') RETURNING id")).rows[0].id;
+  const location = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'WLINK','Warranty link stock','WLK') RETURNING id", [company])).rows[0].id;
+  const vendor = async (name) => (await database.query("INSERT INTO contacts(company_id,type,name) VALUES($1,'vendor',$2) RETURNING id", [company, name])).rows[0].id;
+  const [digitech, alpha, preferredVendor] = [await vendor('Digitech Distribution'), await vendor('Alpha Supply'), await vendor('Preferred Parts')];
+  const item = async (sku, preferred = null) => (await database.query("INSERT INTO items(company_id,location_id,sku,name,quantity,preferred_supplier_id) VALUES($1,$2,$3,$3,5,$4) RETURNING id", [company, location, sku, preferred])).rows[0].id;
+  const [poItem, multiItem, noBillItem] = [await item('WL-PO'), await item('WL-MULTI'), await item('WL-NOBILL', preferredVendor)];
+  const doc = async (number, type, party, date) => (await database.query("INSERT INTO transactions(company_id,location_id,number,type,party,transaction_date) VALUES($1,$2,$3,$4,$5,$6) RETURNING id", [company, location, number, type, party, date])).rows[0].id;
+  const line = (transaction, itemId, serial = '') => database.query("INSERT INTO transaction_lines(transaction_id,item_id,description,quantity,serial_number) VALUES($1,$2,'Line',1,$3) RETURNING id", [transaction, itemId, serial]);
+  // A bill created by receiving a purchase order is a "received item bill".
+  await line(await doc('RIB-1', 'received item bill', 'Digitech Distribution', '2026-08-01'), poItem, 'PO-SN-1');
+  // Two ordinary bills for the same item, no serial numbers: the latest one on or before the invoice date wins.
+  await line(await doc('BILL-OLD', 'bill', 'Digitech Distribution', '2026-07-01'), multiItem);
+  await line(await doc('BILL-NEW', 'bill', 'Alpha Supply', '2026-08-15'), multiItem);
+  await line(await doc('BILL-AFTER', 'bill', 'Digitech Distribution', '2026-12-01'), multiItem);
+  const invoice = await doc('INV-WLINK', 'invoice', 'Buyer', '2026-09-01');
+  await line(invoice, poItem, 'PO-SN-1'); await line(invoice, multiItem); await line(invoice, noBillItem);
+  const { GET } = await vite.ssrLoadModule('/app/api/warranty-slips/route.ts');
+  const { lines } = await (await GET(new Request(`https://app.test/api/warranty-slips?companyId=${company}&invoiceId=${invoice}`))).json();
+  const byItem = (id) => lines.find((row) => row.itemId === id);
+  assert.deepEqual([byItem(poItem).supplierId, byItem(poItem).purchaseNumber, byItem(poItem).supplierSource], [digitech, 'RIB-1', 'serial']);
+  assert.deepEqual([byItem(multiItem).supplierId, byItem(multiItem).purchaseNumber, byItem(multiItem).purchaseDate, byItem(multiItem).supplierSource], [alpha, 'BILL-NEW', '2026-08-15', 'latest-bill']);
+  assert.deepEqual([byItem(noBillItem).supplierId, byItem(noBillItem).supplierName, byItem(noBillItem).purchaseBillId, byItem(noBillItem).supplierSource], [preferredVendor, 'Preferred Parts', null, 'preferred']);
+  assert.equal('preferredSupplierId' in byItem(noBillItem), false);
+  // Received item bills are also offered (and accepted) as the slip's purchase bill.
+  const list = await (await GET(new Request(`https://app.test/api/warranty-slips?companyId=${company}`))).json();
+  assert.ok(list.purchaseBills.some((bill) => bill.number === 'RIB-1' && bill.supplierId === digitech));
+});
+
 test("documents reject stock from another inventory or company before posting", async () => {
   const company = (await database.query("INSERT INTO companies (name) VALUES ('Inventory test') RETURNING id")).rows[0].id;
   const otherCompany = (await database.query("INSERT INTO companies (name) VALUES ('Other inventory test') RETURNING id")).rows[0].id;

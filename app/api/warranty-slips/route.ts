@@ -7,6 +7,9 @@ import { requireCompanyAccess } from "@/lib/auth";
 import { normalizeComparableText } from "@/lib/text-normalization";
 import { normalizeWarrantyStatus } from "@/lib/warranty-status";
 
+// Supplier bills a warranty item can be traced to: normal bills and bills created by receiving a purchase order.
+const purchaseBillTypes = ["bill", "received item bill"];
+
 const clean = (value: unknown, max: number) => String(value ?? "").trim().slice(0, max);
 const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
 const supplierMatchesBill = (supplier: { name: string; company: string; billingName: string }, party: string) => {
@@ -35,7 +38,7 @@ export async function GET(request: Request) {
     if (url.searchParams.has("invoiceId")) {
       const [invoice] = await db.select().from(transactions).where(and(eq(transactions.id, invoiceId), and(eq(transactions.companyId, companyId), documentVisibility(user)), eq(transactions.type, "invoice"))).limit(1);
       if (!invoice) return Response.json({ error: "Customer invoice not found in this company." }, { status: 404 });
-      const lines = await db.select({ id: transactionLines.id, itemId: transactionLines.itemId, description: transactionLines.description, serialNumber: transactionLines.serialNumber, itemName: items.name, specifications: items.specifications })
+      const lines = await db.select({ id: transactionLines.id, itemId: transactionLines.itemId, description: transactionLines.description, serialNumber: transactionLines.serialNumber, itemName: items.name, specifications: items.specifications, preferredSupplierId: items.preferredSupplierId })
         .from(transactionLines).leftJoin(items, eq(transactionLines.itemId, items.id)).where(and(eq(transactionLines.transactionId, invoiceId), sql`${transactionLines.quantity} > 0`));
       const itemIds = [...new Set(lines.flatMap((line) => line.itemId ? [line.itemId] : []))];
       const [suppliers, purchaseLines] = await Promise.all([
@@ -43,7 +46,7 @@ export async function GET(request: Request) {
         itemIds.length
           ? db.select({ itemId: transactionLines.itemId, serialNumber: transactionLines.serialNumber, id: transactions.id, number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate })
             .from(transactionLines).innerJoin(transactions, eq(transactionLines.transactionId, transactions.id))
-            .where(and(and(eq(transactions.companyId, companyId), documentVisibility(user)), eq(transactions.type, "bill"), lte(transactions.transactionDate, invoice.transactionDate), inArray(transactionLines.itemId, itemIds)))
+            .where(and(and(eq(transactions.companyId, companyId), documentVisibility(user)), inArray(transactions.type, purchaseBillTypes), lte(transactions.transactionDate, invoice.transactionDate), inArray(transactionLines.itemId, itemIds)))
             .orderBy(desc(transactions.transactionDate), desc(transactions.id))
           : Promise.resolve([]),
       ]);
@@ -53,12 +56,15 @@ export async function GET(request: Request) {
         const serialMatch = invoiceSerials.length
           ? candidates.find((candidate) => serialParts(candidate.serialNumber).some((serial) => invoiceSerials.includes(serial)))
           : undefined;
-        const uniqueBillIds = [...new Set(candidates.map((candidate) => candidate.id))];
-        const purchaseBill = serialMatch ?? (uniqueBillIds.length === 1 ? candidates[0] : undefined);
-        if (!purchaseBill) return { ...line, purchaseBillId: null, purchaseNumber: "", purchaseDate: "", supplierId: null, supplierName: "" };
-        const supplier = suppliers.find((entry) => supplierMatchesBill(entry, purchaseBill.party));
-        if (!supplier) return { ...line, purchaseBillId: null, purchaseNumber: "", purchaseDate: "", supplierId: null, supplierName: "" };
-        return { ...line, purchaseBillId: purchaseBill.id, purchaseNumber: purchaseBill.number, purchaseDate: purchaseBill.transactionDate, supplierId: supplier.id, supplierName: supplier.name };
+        // Prefer the bill with the same serial number; otherwise the latest bill for the item on or before the invoice date
+        // (candidates are newest first); with no bill at all, fall back to the item's preferred supplier.
+        const purchaseBill = serialMatch ?? candidates[0];
+        const { preferredSupplierId, ...rest } = line;
+        const noLink = { ...rest, purchaseBillId: null, purchaseNumber: "", purchaseDate: "", supplierId: null, supplierName: "", supplierSource: "" };
+        const supplier = purchaseBill ? suppliers.find((entry) => supplierMatchesBill(entry, purchaseBill.party)) : undefined;
+        if (purchaseBill && supplier) return { ...rest, purchaseBillId: purchaseBill.id, purchaseNumber: purchaseBill.number, purchaseDate: purchaseBill.transactionDate, supplierId: supplier.id, supplierName: supplier.name, supplierSource: serialMatch ? "serial" : new Set(candidates.map((candidate) => candidate.id)).size > 1 ? "latest-bill" : "bill" };
+        const preferred = preferredSupplierId ? suppliers.find((entry) => entry.id === preferredSupplierId) : undefined;
+        return preferred ? { ...noLink, supplierId: preferred.id, supplierName: preferred.name, supplierSource: "preferred" } : noLink;
       });
       return Response.json({ invoice, lines: linkedLines }, { headers: { "Cache-Control": "no-store" } });
     }
@@ -68,9 +74,9 @@ export async function GET(request: Request) {
       db.select({ id: contacts.id, name: contacts.name, company: contacts.company, phone: contacts.phone, email: contacts.email }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "customer"))),
       db.select({ id: transactions.id, number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate }).from(transactions).where(and(and(eq(transactions.companyId, companyId), documentVisibility(user)), eq(transactions.type, "invoice"))).orderBy(desc(transactions.id)).limit(500),
       db.select({ id: contacts.id, name: contacts.name, company: contacts.company, billingName: contacts.billingName }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "vendor"))),
-      db.select({ id: transactions.id, number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate }).from(transactions).where(and(and(eq(transactions.companyId, companyId), documentVisibility(user)), eq(transactions.type, "bill"))).orderBy(desc(transactions.id)).limit(500),
+      db.select({ id: transactions.id, number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate }).from(transactions).where(and(and(eq(transactions.companyId, companyId), documentVisibility(user)), inArray(transactions.type, purchaseBillTypes))).orderBy(desc(transactions.id)).limit(500),
       Number.isInteger(requestedPurchaseBillId) && requestedPurchaseBillId > 0
-        ? db.select({ id: transactions.id, number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate }).from(transactions).where(and(eq(transactions.id, requestedPurchaseBillId), and(eq(transactions.companyId, companyId), documentVisibility(user)), eq(transactions.type, "bill"))).limit(1).then((rows) => rows[0] ?? null)
+        ? db.select({ id: transactions.id, number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate }).from(transactions).where(and(eq(transactions.id, requestedPurchaseBillId), and(eq(transactions.companyId, companyId), documentVisibility(user)), inArray(transactions.type, purchaseBillTypes))).limit(1).then((rows) => rows[0] ?? null)
         : Promise.resolve(null),
     ]);
     const availablePurchaseBills = selectedPurchaseBill && !purchaseBills.some((bill) => bill.id === selectedPurchaseBill.id) ? [selectedPurchaseBill, ...purchaseBills] : purchaseBills;
@@ -132,7 +138,7 @@ async function save(request: Request, editing: boolean) {
       if (purchaseBillId !== null && supplier && user.role === "inventory" && savedSlip?.purchaseBillId === purchaseBillId && savedSlip.supplierId === supplierId) {
         purchaseBill = { number: savedSlip.purchaseNumber, party: supplier.name, transactionDate: savedSlip.purchaseDate };
       } else if (purchaseBillId !== null && supplier) {
-        [purchaseBill] = await db.select({ number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate }).from(transactions).where(and(eq(transactions.id, purchaseBillId), and(eq(transactions.companyId, companyId), documentVisibility(user)), eq(transactions.type, "bill"))).limit(1);
+        [purchaseBill] = await db.select({ number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate }).from(transactions).where(and(eq(transactions.id, purchaseBillId), and(eq(transactions.companyId, companyId), documentVisibility(user)), inArray(transactions.type, purchaseBillTypes))).limit(1);
         if (!purchaseBill || !supplierMatchesBill(supplier, purchaseBill.party)) return Response.json({ error: "The purchase bill does not belong to this supplier." }, { status: 400 });
       }
       let invoice = null;
