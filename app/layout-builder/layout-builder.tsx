@@ -299,7 +299,7 @@ export function LayoutBuilder({ initial, company, onSave, onDirtyChange, saving 
 
         <div ref={canvasRef} className={`min-w-0 overflow-auto rounded-xl border bg-slate-200/70 p-3 dark:bg-slate-900 ${preview && wide ? "col-span-2" : ""}`} onClick={(event) => { if (event.target === event.currentTarget) setSelection(null); }}>
           <div style={{ width: box.pageWidth * PX_PER_MM * scale, height: paperHeight ? paperHeight * scale : undefined, overflow: "hidden" }}>
-            <div ref={paperRef} className="relative bg-white shadow-lg" style={paperStyle} onClick={(event) => { if (event.target === event.currentTarget) setSelection(null); }}>
+            <div ref={paperRef} className="layout-paper relative shadow-lg" style={paperStyle} onClick={(event) => { if (event.target === event.currentTarget) setSelection(null); }}>
               <div ref={docRef} className="lb-doc" style={{ width: `${box.width}mm` }}>
                 {layout.rows.map((row, rowIndex) => <div key={row.id} data-row-id={row.id} data-repeat={row.repeat} data-keep={row.keepTogether} data-label={row.sections.map((section) => sectionLabels[section.type]).join(" + ")}
                   className={`lb-row lbe-row${row.keepTogether ? " lb-keep" : ""}${selection?.kind === "row" && selection.id === row.id ? " lbe-selected" : ""}${issueIds.has(row.id) ? " lbe-issue" : ""}`} style={rowStyle(row)}>

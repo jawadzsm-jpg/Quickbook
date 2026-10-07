@@ -26,7 +26,7 @@ export function LayoutPreview({ layout, data, onMoveStamp }: { layout: Layout; d
   return <div ref={hostRef} className="min-w-0">
     <style>{layoutCss(layout)}</style>
     <div style={{ width: box.pageWidth * PX_PER_MM * scale, height: height ? height * scale : undefined, overflow: "hidden", margin: "0 auto" }}>
-      <div ref={paperRef} className="relative bg-white shadow-md ring-1 ring-slate-200" style={{ width: `${box.pageWidth}mm`, minHeight: `${box.pageHeight}mm`, padding: `${margins.top}mm ${margins.right}mm ${margins.bottom}mm ${margins.left}mm`, transform: `scale(${scale})`, transformOrigin: "top left" }}>
+      <div ref={paperRef} className="layout-paper relative shadow-md ring-1 ring-slate-200" style={{ width: `${box.pageWidth}mm`, minHeight: `${box.pageHeight}mm`, padding: `${margins.top}mm ${margins.right}mm ${margins.bottom}mm ${margins.left}mm`, transform: `scale(${scale})`, transformOrigin: "top left" }}>
         <LayoutDocument layout={layout} data={data} mode="screen" onMoveStamp={onMoveStamp} />
       </div>
     </div>
