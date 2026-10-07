@@ -240,14 +240,28 @@ test("section styles, company labels and table heading options render", async ()
   assert.match(html, /lb-grid-grid/); assert.match(html, /background:#ffee00;color:#000000;font-weight:400/);
 });
 
-test("Layout Builder documents print the movable company and bank stamps below the body", async () => {
+test("Layout Builder documents print the company stamp and bank details box where they were placed", async () => {
   const React = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
   const { LayoutDocument } = await vite.ssrLoadModule("/app/layout-builder/layout-document.tsx");
-  const stamps = [{ kind: "company", src: "data:image/png;base64,Q08=", left: 150, top: 2 }, { kind: "bank", src: "data:image/png;base64,QkFOSw==", left: 400, top: 50 }];
+  const stamps = [
+    { kind: "company", src: "data:image/png;base64,Q08=", left: 150, top: 240 },
+    { kind: "bank", title: "Bank details", lines: ["ENBD", "IBAN: AE07"], remark: "Do not use Standard Chartered as intermediary", left: 400, top: 500 },
+  ];
   const html = renderToStaticMarkup(React.createElement(LayoutDocument, { layout: defaultLayout(), data: { ...mockDocument("short"), stamps }, mode: "print" }));
-  assert.match(html, /class="lb-stamp-area" style="height:45mm"/); // tallest stamp clamped to a 20 mm gap, plus its height
-  assert.match(html, /left:150mm;top:2mm[^"]*"><img src="data:image\/png;base64,Q08=" alt="Company stamp"/);
-  assert.match(html, /left:154mm;top:20mm[^"]*"><img src="data:image\/png;base64,QkFOSw==" alt="Bank stamp"/); // kept inside the 186 mm content width
-  assert.doesNotMatch(renderToStaticMarkup(React.createElement(LayoutDocument, { layout: defaultLayout(), data: mockDocument("short"), mode: "print" })), /lb-stamp-area/);
+  assert.match(html, /position:absolute;left:150mm;top:240mm[^"]*"><img src="data:image\/png;base64,Q08=" alt="Company stamp"/);
+  // The A4 portrait content box is 186 x 271 mm; the 80 x 40 mm bank box is kept inside it.
+  assert.match(html, /class="page-stamp page-bank-box" style="position:absolute;left:106mm;top:231mm/);
+  assert.match(html, /IBAN: AE07/); assert.match(html, /Do not use Standard Chartered as intermediary/);
+  assert.doesNotMatch(renderToStaticMarkup(React.createElement(LayoutDocument, { layout: defaultLayout(), data: mockDocument("short"), mode: "print" })), /page-stamp/);
+});
+
+test("bank remarks are validated per account and default to the company bank remark", async () => {
+  const { parseBankAccounts, bankForCurrency } = await vite.ssrLoadModule("/lib/bank-accounts.ts");
+  const usd = { id: "b1", currency: "USD", bankName: "Mashreq", accountName: "", accountNumber: "1", iban: "", swift: "", remark: "  Use SWIFT only  " };
+  assert.equal(parseBankAccounts([usd])[0].remark, "Use SWIFT only");
+  assert.throws(() => parseBankAccounts([{ ...usd, remark: "x".repeat(501) }]), /remark under 500/);
+  const company = { bankName: "ENBD", bankAccountNumber: "9", bankCurrency: "AED", bankRemark: "AED note", bankAccounts: JSON.stringify([usd]) };
+  assert.equal(bankForCurrency(company, "AED").remark, "AED note");
+  assert.equal(bankForCurrency(company, "USD").remark, "  Use SWIFT only  ".trim());
 });

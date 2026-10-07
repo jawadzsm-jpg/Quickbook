@@ -70,9 +70,6 @@ export function layoutCss(layout: Layout) {
 .lb-overlay{position:absolute;display:flex;align-items:center;justify-content:center;overflow:hidden;pointer-events:none}
 .lb-overlay img{width:100%;height:100%;object-fit:contain}
 .lb-overlay-text{white-space:pre-wrap;text-align:center}
-.lb-stamp-area{position:relative;margin-top:6mm;break-inside:avoid;page-break-inside:avoid}
-.lb-stamp-image{position:absolute;touch-action:none;z-index:2}
-.lb-stamp-image img{display:block;max-width:32mm;max-height:23mm;object-fit:contain}
 .lb-bank-stamp{display:block;max-width:32mm;max-height:22mm;margin-top:2mm;object-fit:contain}
 .lb-stamp{border:0.9mm solid var(--lb-accent);border-radius:2mm;color:var(--lb-accent);font-weight:800;font-size:1.6em;text-transform:uppercase;letter-spacing:0.08em}
 `;

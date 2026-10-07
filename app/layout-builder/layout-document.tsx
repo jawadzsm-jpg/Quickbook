@@ -1,6 +1,7 @@
 /* eslint-disable @next/next/no-img-element -- documents are printed from static markup with inline data-URL images; next/image cannot render there. */
 import type { CSSProperties, ReactNode } from "react";
-import type { DocumentData, DocumentStamp } from "@/lib/layout/document-data";
+import type { DocumentData } from "@/lib/layout/document-data";
+import { PageStamps, type MovePageStamp } from "../page-stamps";
 import { contentBox, type Layout, type LineColumn, type Overlay, type Row, type Section } from "@/lib/layout/schema";
 import { fontStacks } from "@/lib/layout/styles";
 
@@ -126,36 +127,7 @@ export function OverlayBody({ overlay, data }: { overlay: Overlay; data: Documen
   return <span className={overlay.kind === "stamp" ? "lb-stamp lb-overlay-text" : "lb-overlay-text"} style={overlay.kind === "stamp" ? { width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" } : undefined}>{text}</span>;
 }
 
-export type MoveStamp = (kind: DocumentStamp["kind"], left: number, top: number) => void;
-const STAMP_MAX_TOP = 20;
-
-/**
- * Company and bank stamps in a flowing area after the body, so they never cover the totals. On screen each
- * stamp can be dragged within the area; printed markup simply places them.
- */
-function StampArea({ stamps, widthMm, onMove }: { stamps: DocumentStamp[]; widthMm: number; onMove?: MoveStamp }) {
-  const maxLeft = Math.max(0, Math.floor(widthMm - 32));
-  const begin = (stamp: DocumentStamp, event: React.PointerEvent<HTMLDivElement>) => {
-    if (!onMove || event.button !== 0) return;
-    event.preventDefault();
-    const area = event.currentTarget.parentElement;
-    const pixelsPerMm = (area?.getBoundingClientRect().width || widthMm * 96 / 25.4) / widthMm;
-    const startX = event.clientX, startY = event.clientY;
-    const move = (next: PointerEvent) => onMove(stamp.kind,
-      Math.max(0, Math.min(maxLeft, Math.round(stamp.left + (next.clientX - startX) / pixelsPerMm))),
-      Math.max(0, Math.min(STAMP_MAX_TOP, Math.round(stamp.top + (next.clientY - startY) / pixelsPerMm))));
-    const stop = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", stop); window.removeEventListener("pointercancel", stop); };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", stop);
-    window.addEventListener("pointercancel", stop);
-  };
-  return <div className="lb-stamp-area" style={{ height: `${Math.max(...stamps.map((stamp) => Math.min(STAMP_MAX_TOP, stamp.top))) + 25}mm` }}>
-    {stamps.map((stamp) => <div key={stamp.kind} className="lb-stamp-image" title={onMove ? "Drag stamp to move" : undefined} onPointerDown={onMove ? (event) => begin(stamp, event) : undefined}
-      style={{ left: `${Math.min(maxLeft, stamp.left)}mm`, top: `${Math.min(STAMP_MAX_TOP, stamp.top)}mm`, cursor: onMove ? "grab" : undefined }}>
-      <img src={stamp.src} alt={stamp.kind === "bank" ? "Bank stamp" : "Company stamp"} />
-    </div>)}
-  </div>;
-}
+export type MoveStamp = MovePageStamp;
 
 /**
  * The full document. Repeating rows go in the table header/footer groups, which browsers repeat on
@@ -169,8 +141,9 @@ export function LayoutDocument({ layout, data, mode, onMoveStamp }: { layout: La
     <table className="lb-frame">
       {header.length > 0 && <thead><tr><td>{header}</td></tr></thead>}
       {footer.length > 0 && <tfoot><tr><td>{footer}</td></tr></tfoot>}
-      <tbody><tr><td>{group("none")}{data.stamps?.length ? <StampArea stamps={data.stamps} widthMm={contentBox(layout.page).width} onMove={mode === "screen" ? onMoveStamp : undefined} /> : null}</td></tr></tbody>
+      <tbody><tr><td>{group("none")}</td></tr></tbody>
     </table>
+    {data.stamps?.length ? <PageStamps stamps={data.stamps} widthMm={contentBox(layout.page).width} heightMm={contentBox(layout.page).height} mm={(value) => `${value}mm`} onMove={mode === "screen" ? onMoveStamp : undefined} /> : null}
     {layout.overlays.filter((overlay) => overlay[mode]).map((overlay) => <div key={overlay.id} className={`lb-overlay${overlay.pages === "all" ? " lb-every-page" : ""}`} style={overlayStyle(overlay, layout)}><OverlayBody overlay={overlay} data={data} /></div>)}
   </div>;
 }

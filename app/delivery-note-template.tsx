@@ -4,6 +4,11 @@ import Image from "next/image";
 import type { CSSProperties } from "react";
 import { LetterheadBrand, LetterheadStamp } from "./letterhead-page";
 import { defaultLetterhead, type LetterheadTemplate } from "@/lib/letterhead";
+import type { DocumentStamp } from "@/lib/layout/document-data";
+import { PAGE_STAMP_SIZE, PageStamps, type MovePageStamp } from "./page-stamps";
+
+// Same fixed design width as the invoice template, so freely placed stamps map millimetres identically.
+const DELIVERY_NOTE_WIDTH_PX = 760;
 
 type Data = Record<string, string | number | boolean>;
 type Branding = {
@@ -40,6 +45,9 @@ export function DeliveryNoteTemplate({
   letterhead,
   stampOverride,
   onMoveStamp,
+  pageStamps,
+  pageStampArea = { width: 186, height: 273 },
+  onMovePageStamp,
 }: {
   record: Data;
   lines: Data[];
@@ -48,7 +56,12 @@ export function DeliveryNoteTemplate({
   letterhead?: LetterheadTemplate;
   stampOverride?: {show:boolean;left:number;top:number};
   onMoveStamp?: (left:number,top:number)=>void;
+  pageStamps?: DocumentStamp[];
+  pageStampArea?: { width: number; height: number };
+  onMovePageStamp?: MovePageStamp;
 }) {
+  const pageStampPx = DELIVERY_NOTE_WIDTH_PX / pageStampArea.width;
+  const pageStampsMinHeight = pageStamps?.length ? Math.max(...pageStamps.map((stamp) => Math.min(stamp.top, pageStampArea.height - PAGE_STAMP_SIZE[stamp.kind].height) + PAGE_STAMP_SIZE[stamp.kind].height)) * pageStampPx + 28 : undefined;
   const customerName = String(contact?.billingName || contact?.company || record.party || "Customer");
   const customerCountry = String(contact?.country || "");
   const deliveryAddress = String(record.deliveryAddress || contact?.shippingAddress || contact?.country || "—");
@@ -56,7 +69,7 @@ export function DeliveryNoteTemplate({
   const totalQty = lines.reduce((sum, line) => sum + qty(line.quantity), 0);
   const address = [setup.addressLine1, setup.addressLine2, setup.city, setup.country].filter(Boolean).join(", ");
 
-  return <article className="custom-invoice delivery-note-page bg-white text-black" style={{ fontFamily: "Arial, sans-serif", padding: 28, minWidth: 0, maxWidth: "100%", position: "relative" }}>
+  return <article className="custom-invoice delivery-note-page bg-white text-black" style={{ fontFamily: "Arial, sans-serif", padding: 28, width: DELIVERY_NOTE_WIDTH_PX, maxWidth: "none", flexShrink: 0, minHeight: pageStampsMinHeight, position: "relative" }}>
     <style>{`
       .delivery-note-page,.delivery-note-page *{box-sizing:border-box;color:#111!important}
       .delivery-note-page{background:#fff!important;color:#111!important;line-height:1.35}
@@ -149,5 +162,6 @@ export function DeliveryNoteTemplate({
       <strong>{[setup.phone, setup.email].filter(Boolean).join(" · ")}</strong>
     </div>
     {stampOverride?.show && setup.stampData && <div className="ci-stamp-footer" style={{position:'relative',marginTop:'8mm',height:`${stampOverride.top+25}mm`,breakInside:'avoid'}}><LetterheadStamp template={{...(letterhead ?? defaultLetterhead()),showStamp:true,stampLeft:Math.min(140,stampOverride.left),stampTop:stampOverride.top}} company={setup} onMove={onMoveStamp} maxLeft={140} maxTop={20} responsive pageWidthMm={180} /></div>}
+    {pageStamps?.length ? <PageStamps stamps={pageStamps} widthMm={pageStampArea.width} heightMm={pageStampArea.height} mm={(value) => `${value * pageStampPx}px`} onMove={onMovePageStamp} /> : null}
   </article>;
 }
