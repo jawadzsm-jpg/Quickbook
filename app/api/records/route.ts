@@ -1,7 +1,7 @@
 import { formatInvoiceNumber, invoiceSeriesError } from "@/lib/invoice-series";
 import { contactOrganization } from "@/lib/contact-hierarchy";
 import { validInvoiceQuantity, isInvoiceStockReturn } from "@/lib/invoice-stock-lines";
-import { salesDocumentTypes } from "@/lib/sales-access";
+import { salesDocumentTypes, salesHandoffTypes } from "@/lib/sales-access";
 import { documentVatCodes, usesSingleVatCode } from "@/lib/document-vat";
 import { canManagePendingInvoices, canReadDocument, dubaiDay } from "@/lib/document-access";
 import { documentVisibility } from "@/lib/document-access-sql";
@@ -580,7 +580,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const kind = payload.kind as RecordKind;
     if (!["transactions", "contacts", "items", "accounts"].includes(kind)) return Response.json({ error: "Invalid record kind." }, { status: 400 });
     if (kind === "transactions") {
-      if (authorization.role === "sales" && !salesDocumentTypes.includes(String(payload.type))) return Response.json({ error: "Sales users may create quotations, sales orders and proformas only." }, { status: 403 });
+      if (authorization.role === "sales" && !salesDocumentTypes.includes(String(payload.type))) return Response.json({ error: "Sales users may create quotations, estimates, sales orders, proformas and invoices only." }, { status: 403 });
       if (payload.type === "pending invoice" && !canManagePendingInvoices(authorization)) return Response.json({ error: "Only administrators and accountants can create pending invoices." }, { status: 403 });
       if (authorization.role === "inventory" && !["bill", "received item bill", "item receipt", "purchase order"].includes(String(payload.type))) return Response.json({ error: "Inventory users may create bills, item receipts and purchase orders only." }, { status: 403 });
       if (["cancelled", "canceled", "void", "voided"].includes(String(payload.status).toLowerCase()) && !isAdministrator(authorization)) return Response.json({ error: "Only administrators can cancel documents." }, { status: 403 });
@@ -1350,7 +1350,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     for (const id of linkedInvoiceIds) await refreshInvoiceStatus(id);
     if (purchaseOrderId) await refreshPurchaseOrder(purchaseOrderId);
     if (salesSourceId) await refreshSalesSource(salesSourceId);
-    return Response.json({ record: authorization.role === "sales" && type === "proforma invoice" ? { id: record.id, number: record.number, type: record.type, status: "awaiting accountant" } : record }, { status: replacing ? 200 : 201 });
+    return Response.json({ record: authorization.role === "sales" && salesHandoffTypes.includes(type) ? { id: record.id, number: record.number, type: record.type, status: "awaiting accountant" } : record }, { status: replacing ? 200 : 201 });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: error instanceof RequestError ? error.status : 500 });
   }
@@ -1395,6 +1395,8 @@ async function handlePATCH(request: Request) {
         const [existing] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId))).for("update");
         if (!existing) return Response.json({ error: "Document not found." }, { status: 404 });
         if (!canReadDocument(authorization, existing)) return Response.json({ error: "Inventory bill access ends at midnight UAE time on the creation day." }, { status: 403 });
+        // Saved documents are read-only for sales users; an accountant or administrator makes any change.
+        if (authorization.role === "sales") return Response.json({ error: "Sales users cannot change saved documents. Ask an accountant to make the change." }, { status: 403 });
         if (authorization.role === "inventory" && existing.type === "invoice") {
           const allowed = new Set(["kind", "id", "companyId", "revision", "editMode", "lineDetails"]);
           if (payload.editMode !== "invoice-serials" || Object.keys(payload).some(key => !allowed.has(key))) return Response.json({ error: "Inventory users may add invoice serial numbers only." }, { status: 403 });
