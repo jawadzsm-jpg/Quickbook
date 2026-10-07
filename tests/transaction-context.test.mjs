@@ -242,6 +242,13 @@ test("warranty invoice items link their supplier from bills, received item bills
   // Received item bills are also offered (and accepted) as the slip's purchase bill.
   const list = await (await GET(new Request(`https://app.test/api/warranty-slips?companyId=${company}`))).json();
   assert.ok(list.purchaseBills.some((bill) => bill.number === 'RIB-1' && bill.supplierId === digitech));
+  // Saving a slip with an invoiced item but no supplier links the supplier automatically.
+  const { POST } = await vite.ssrLoadModule('/app/api/warranty-slips/route.ts');
+  const buyer = (await database.query("INSERT INTO contacts(company_id,type,name) VALUES($1,'customer','Buyer') RETURNING id", [company])).rows[0].id;
+  const saved = await POST(new Request('https://app.test/api/warranty-slips', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ companyId: company, customerId: buyer, invoiceId: invoice, invoiceLineId: byItem(multiItem).id, supplierId: null, purchaseBillId: null, slipDate: '2026-09-20', problem: 'Display', status: 'Under Process', contactName: 'Buyer', showStamp: false, stampLeft: 75, stampTop: 210 }) }));
+  assert.equal(saved.status, 201, await saved.clone().text());
+  const slip = (await saved.json()).slip;
+  assert.deepEqual([slip.supplierId, slip.supplierName, slip.purchaseNumber, slip.purchaseDate], [alpha, 'Alpha Supply', 'BILL-NEW', '2026-08-15']);
 });
 
 test("documents reject stock from another inventory or company before posting", async () => {
