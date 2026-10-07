@@ -2237,3 +2237,19 @@ body {
 :root .sales-stamp-preview-wrap > p { font-size: .72rem !important; margin-top: .35rem !important; }
 :root .sales-stamp-settings > label { grid-column: 1 / -1; }
 @media screen and (max-width: 600px) { :root .sales-stamp-settings { grid-template-columns: minmax(0, 1fr) !important; } :root .sales-stamp-preview-wrap { width: min(100%, 170px); justify-self: start; } }
+
+/* Stamp guide with real report content: wider so the page text is readable; drawn like the PDF page. */
+:root .sales-stamp-settings.has-page-preview { grid-template-columns: minmax(0, 1fr) !important; }
+:root .sales-stamp-settings.has-page-preview .sales-stamp-preview-wrap { width: min(100%, 720px); }
+.sales-stamp-page { position: absolute; inset: 0; color: #1c2b3a; font-family: Arial, Helvetica, sans-serif; }
+.sales-stamp-page-header { background: #102033; color: #fff; }
+.sales-stamp-page-abs { position: absolute; }
+.sales-stamp-page-card { background: #f4f7fa; border: 1px solid #d7dee7; border-radius: 3px; overflow: hidden; }
+.sales-stamp-page-table { border: 1px solid #d7dee7; }
+.sales-stamp-page-row { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); align-items: center; border-top: 1px solid #e2e8f0; }
+.sales-stamp-page-row > span { padding: 0 .4cqw; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.sales-stamp-page-row:nth-child(odd):not(.is-head) { background: #f4f7fa; }
+.sales-stamp-page-row.is-head { background: #102033; color: #fff; font-weight: 700; border-top: 0; }
+.sales-stamp-page-bank { border: 1px solid #94a3b8; border-radius: 2px; background: #fff; overflow: hidden; }
+.sales-stamp-page-requested { border: 1.5px dashed #b91c1c; border-radius: 2px; pointer-events: none; }
+:root .sales-stamp-settings.has-page-preview .sales-stamp-preview-image { z-index: 3; background: rgb(255 255 255 / .6) !important; }
