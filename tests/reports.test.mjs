@@ -105,6 +105,17 @@ async function report(type, location = locationId) {
   return report;
 }
 
+test("search matches every word in any order and reports merged highlight ranges", async () => {
+  const { searchTerms, matchesSearch, matchRanges } = await vite.ssrLoadModule("/lib/search.ts");
+  assert.deepEqual(searchTerms("  Dell  16gb dell latitude "), ["latitude", "dell", "16gb"]);
+  assert.equal(matchesSearch(["DELL LATITUDE 5440", "16GB RAM | 512GB SSD"], "16gb dell"), true);
+  assert.equal(matchesSearch(["DELL LATITUDE 5440"], "dell hp"), false);
+  assert.equal(matchesSearch([null, undefined, 42, { sku: "7C6051" }], "7c60"), true);
+  assert.equal(matchesSearch(["anything"], "   "), true);
+  assert.deepEqual(matchRanges("DELL 16GB | dell", ["dell", "16g", "16gb"]), [[0, 4], [5, 9], [12, 16]]);
+  assert.deepEqual(matchRanges("aaaa", ["aa"]), [[0, 4]]);
+});
+
 test("product import maps spreadsheet columns and saves rows through the normal item endpoint", async () => {
   const { parseCsv, rowsToItems, importNumber, markupTableRows } = await vite.ssrLoadModule("/lib/item-import.ts");
   // .xls files: Excel 2003 XML (this app's exports) and HTML tables are read as text, never as a web page.

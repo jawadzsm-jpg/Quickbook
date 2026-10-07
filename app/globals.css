@@ -951,6 +951,9 @@ body {
   *::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--muted-foreground) 56%, transparent); border: 3px solid transparent; background-clip: padding-box; }
 
   ::selection { background: color-mix(in srgb, var(--primary) 22%, transparent); color: var(--foreground); }
+  /* Search matches (app/search-highlighter.tsx): amber, distinct from the brand green and from text selection. */
+  ::highlight(app-search) { background-color: #fde047; color: #0f172a; }
+  [data-appearance="dark"] ::highlight(app-search) { background-color: #f59e0b; color: #0b1220; }
   :where(a, button, input, textarea, select, [role="button"]):focus-visible { outline: none; }
 
   .app-shell { isolation: auto; }

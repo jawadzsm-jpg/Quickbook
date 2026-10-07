@@ -10,7 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
-import { inventoryItemLine, inventorySocialShareText, itemSpecificationDescription } from "@/lib/item-description";
+import { inventoryItemLine, inventorySocialShareText, itemSpecificationDescription } from "@/lib/item-description";import { matchesSearch } from "@/lib/search";
+
 
 type OverviewItem = {
   id: number;
@@ -251,8 +252,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
       const locationId = filter.startsWith("location:") ? Number(filter.split(":")[1]) : null;
       const inventories = locationId === null ? record.inventories : record.inventories.filter((inventory) => inventory.locationId === locationId);
       if (!inventories.length) return [];
-      if (term && ![record.name, record.sku, record.itemNumber, record.category, record.description, record.specifications, record.companyName, ...inventories.flatMap((inventory) => [inventory.locationName, inventory.locationCode])]
-        .some((value) => String(value ?? "").toLowerCase().includes(term))) return [];
+      if (term && !matchesSearch([record.name, record.sku, record.itemNumber, record.category, record.description, record.specifications, record.companyName, ...inventories.flatMap((inventory) => [inventory.locationName, inventory.locationCode])], term)) return [];
       return [{
         ...record,
         inventories,
