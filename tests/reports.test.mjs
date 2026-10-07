@@ -124,7 +124,7 @@ test("sales postings hit revenue, VAT, COGS and inventory accounts and sales rep
     body: JSON.stringify({
       kind: "transactions", type: "invoice", companyId: cid, locationId: lid,
       number: "SALE-AUDIT-1", party: "Sales Audit Customer", salesman: "Rep Audit",
-      deliveryAddress: `Warehouse 7, Al Quoz Industrial 3\r\nDubai, United Arab Emirates\n${"Gate note. ".repeat(80)}`,
+      deliveryAddress: `Warehouse 7, Al Quoz Industrial 3\r\nDubai, United Arab Emirates\n${"Gate note. ".repeat(2500)}`,
       transactionDate: "2026-09-20", dueDate: "2026-09-30", currency: "AED", exchangeRate: 1,
       lines: [{ itemId, description: "Sales Stock", quantity: 1, unitPrice: 100, unitCost: 60, vatCode: "STANDARD" }],
     }),
@@ -132,7 +132,7 @@ test("sales postings hit revenue, VAT, COGS and inventory accounts and sales rep
   assert.equal(response.status, 201, await response.clone().text());
   const invoice = (await response.json()).record;
   // Long, multi-line delivery addresses are kept (newlines normalised) and print as Ship To lines.
-  assert.ok(invoice.deliveryAddress.startsWith("Warehouse 7, Al Quoz Industrial 3\nDubai, United Arab Emirates\nGate note.")); assert.ok(invoice.deliveryAddress.length > 800);
+  assert.ok(invoice.deliveryAddress.startsWith("Warehouse 7, Al Quoz Industrial 3\nDubai, United Arab Emirates\nGate note.")); assert.equal(invoice.deliveryAddress.length, 27561); // well past the old 10,000-character limit; nothing cut off
   const { transactionDocumentData } = await vite.ssrLoadModule("/app/layout-builder/company-data.ts");
   assert.deepEqual(transactionDocumentData(invoice, [], null, { name: "X", logoData: "", phone: "", trn: "", addressLine1: "", addressLine2: "", city: "", country: "" }).shipTo.slice(0, 2), ["Warehouse 7, Al Quoz Industrial 3", "Dubai, United Arab Emirates"]);
 

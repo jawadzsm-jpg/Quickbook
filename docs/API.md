@@ -165,7 +165,7 @@ GET lists saved sheets for `companyId`. POST creates from validated `data`; PATC
 
 Administrator-only, company-scoped GET accepts `companyId` and `employeeId` and lists eligible existing bank loan cheques. PATCH accepts these IDs and `transactionId`, locks and validates the employee, transaction and loan account, and writes only the employee link plus an audit entry. Requires an active employee, matching currency, a uniquely named active advance asset (matching the saved account if configured), positive total, zero VAT, posted debit and bank credit, and no existing employee/bill/invoice allocation. Re-linking or a stale candidate returns 409. No journals or balances change.
 
-Transactions store `deliveryAddress` (Ship To; multi-line, trimmed, up to 10,000 characters; migration 0092). Omitting it on PATCH keeps the saved value, conversions copy it from the source document, and invoice `editMode: "details"` accepts it.
+Transactions store `deliveryAddress` (Ship To; multi-line, trimmed, no practical limit — 200,000-character server safety cap shared with packing lists in `lib/delivery-address.ts`; migration 0092). Omitting it on PATCH keeps the saved value, conversions copy it from the source document, and invoice `editMode: "details"` accepts it.
 
 Vendor contact POST/PATCH accepts optional `bankName`, `bankAccountName` (up to 120 characters), `bankAccountNumber`, `bankIban` (80) and `bankSwift` (40). IBAN and SWIFT are upper-cased, omitted fields are kept on PATCH, and other contact types ignore them (`lib/vendor-bank.ts`, migration 0091). Vendor statements filtered to one vendor return that vendor's bank lines as `statement.partyBank`.
 

@@ -25,6 +25,7 @@ import { normalizeComparableText, uppercaseText } from "@/lib/text-normalization
 import { generatedItemDescription } from "@/lib/item-description";
 import { uaeChequeLayout, uaeChequeLayouts, validChequeAlignment } from "@/lib/uae-cheque-layouts";
 import { standardAccounts } from "@/lib/standard-accounts";
+import { cleanDeliveryAddress } from "@/lib/delivery-address";
 
 type RecordKind = "transactions" | "contacts" | "items" | "accounts";
 type InputLine = { pending?: boolean; comments?: string; serialNumber?: string; freightCharge?: number | string; isFreightCharge?: boolean; orderLineId?: number; sourceLineId?: number; itemId?: number | string | null; description?: string; quantity?: number | string; unitPrice?: number | string; unitCost?: number | string; vatCode?: string; vatRate?: number | string };
@@ -1174,7 +1175,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       billOfEntryNumber: usesImportGoodsVat && type === "bill" ? billOfEntryNumber : "", airwayBillNumber: usesImportGoodsVat && type === "bill" ? airwayBillNumber : "",
       transactionDate, dueDate: String(payload.dueDate ?? ""), terms, paymentMethod, referenceNo,
       // Ship To address: multi-line, up to 10,000 characters; edits without the field keep the saved address.
-      deliveryAddress: String(payload.deliveryAddress ?? replacing?.deliveryAddress ?? "").replace(/\r\n/g, "\n").trim().slice(0, 10000),
+      deliveryAddress: cleanDeliveryAddress(payload.deliveryAddress ?? replacing?.deliveryAddress),
       chequeBankKey,
       account: String(payload.account ?? "Accounts Receivable"), status: type === "pending invoice" ? "pending" : ["customer payment", "cheque", "transfer"].includes(type) && total > 0 ? "paid" : String(payload.status ?? "open"), ...(["customer payment", "cheque", "transfer"].includes(type) && total > 0 ? { paidAt: new Date().toISOString() } : {}), memo: String(payload.memo ?? ""), comments, serialNumber,
       subtotal, vatRate: Number(payload.vatRate ?? 5), vatAmount, total, currency, exchangeRate, baseTotal,
@@ -1523,7 +1524,7 @@ async function handlePATCH(request: Request) {
           const terms = String(payload.terms ?? "").trim();
           const salesman = String(payload.salesman ?? "").trim();
           const memo = String(payload.memo ?? "");
-          const deliveryAddress = payload.deliveryAddress === undefined ? existing.deliveryAddress : String(payload.deliveryAddress).replace(/\r\n/g, "\n").trim().slice(0, 10000);
+          const deliveryAddress = payload.deliveryAddress === undefined ? existing.deliveryAddress : cleanDeliveryAddress(payload.deliveryAddress);
           const paymentMethod = existing.type === "customer payment" ? String((payload.paymentMethod ?? existing.paymentMethod) || "Bank transfer").trim().slice(0, 80) : existing.paymentMethod;
           const referenceNo = existing.type === "customer payment" ? String((payload.referenceNo ?? existing.referenceNo) || number).trim().slice(0, 120) : existing.referenceNo;
           const comments = existing.type === "invoice" ? String(payload.comments ?? existing.comments) : existing.comments;
