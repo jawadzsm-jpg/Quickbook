@@ -309,6 +309,8 @@ export const transactions = pgTable("transactions", {
   status: text("status").notNull().default("open"),
   comments: text("comments").notNull().default(""),
   serialNumber: text("serial_number").notNull().default(""),
+  // Ship To / delivery address on sales documents (migration 0092).
+  deliveryAddress: text("delivery_address").notNull().default(""),
   memo: text("memo").notNull().default(""),
   subtotal: doublePrecision("subtotal").notNull().default(0),
   vatRate: doublePrecision("vat_rate").notNull().default(5),

@@ -133,7 +133,7 @@ export function DeliveryNoteTemplate({
       </div>
       <div className="dn-contact">
         <h3>Delivery Address: عنوان التسليم</h3>
-        <p>{deliveryAddress}</p>
+        <p style={{ whiteSpace: "pre-line" }}>{deliveryAddress}</p>
       </div>
     </div>
 
