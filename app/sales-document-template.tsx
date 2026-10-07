@@ -15,6 +15,7 @@ import { customerInvoiceLines, inventoryInvoiceLines } from "@/lib/invoice-stock
 import { letterheadForDocument } from "@/lib/letterhead";
 import { parseLayoutCollection } from "@/lib/layout/schema";
 import { transactionDocumentData, type CompanyBranding } from "./layout-builder/company-data";
+import type { DocumentStamp } from "@/lib/layout/document-data";
 import { LayoutPreview } from "./layout-builder/layout-preview";
 import { printLayout } from "./layout-builder/print-layout";
 import { bankForCurrency } from "@/lib/bank-accounts";
@@ -107,8 +108,9 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
   const signedInvoiceCopies = activeMode === "tax-invoice" || activeMode === "commercial-invoice";
   const letterhead = letterheadForDocument(setup.letterheadDesign, activeMode);
   const savedStamps = savedPositions[activeMode] ?? {};
-  const stamp = stampEdits[activeMode]?.company ?? savedStamps.company ?? {show: Boolean(letterhead?.showStamp), left: letterhead?.stampLeft ?? 155, top: 0};
-  const bankStamp = stampEdits[activeMode]?.bank ?? savedStamps.bank ?? { show: true, left: 0, top: 0 };
+  // Stamps start switched off unless positions were saved for this document type; tick them when needed.
+  const stamp = stampEdits[activeMode]?.company ?? savedStamps.company ?? {show: false, left: letterhead?.stampLeft ?? 155, top: 0};
+  const bankStamp = stampEdits[activeMode]?.bank ?? savedStamps.bank ?? { show: false, left: 0, top: 0 };
   const editStamps = (patch: DocumentStampPositions) => setStampEdits((edits) => ({ ...edits, [activeMode]: { company: stamp, bank: bankStamp, ...edits[activeMode], ...patch } }));
   const setPoStamp = (company: StampPlacement) => editStamps({ company });
   const showBankStamp = bankStamp.show;
@@ -201,18 +203,22 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
       return { ...layout, rows: layout.rows.map((row) => ({ ...row, sections: row.sections.map((section) => section.type === "bankDetails" ? { ...section, screen: false, print: false } : section) })) };
     } catch { return null; }
   }, [activeMode, setup.documentLayout, showBank]);
-  const builderCopies = useMemo(() => {
+  const builderCopies = (() => {
     if (!builderLayout) return null;
     const documentData = (documentLines: RecordData[]) => {
       const data = transactionDocumentData(record, documentLines, contact, setup);
-      return showBankStamp ? data : { ...data, company: { ...data.company, bank: { ...data.company.bank, stamp: "" } } };
+      // Layout Builder documents get the same movable stamp area as the classic templates.
+      const stamps: DocumentStamp[] = [];
+      if (stampOverride.show && setup.stampData) stamps.push({ kind: "company", src: setup.stampData, left: stampOverride.left, top: stampOverride.top });
+      if (bankStampShown && data.company.bank.stamp) stamps.push({ kind: "bank", src: data.company.bank.stamp, left: bankStampOverride.left, top: bankStampOverride.top });
+      return { ...data, stamps, company: { ...data.company, bank: { ...data.company.bank, stamp: "" } } };
     };
     const customer = documentData(customerLines);
     if (!signedInvoiceCopies) return { preview: customer, print: [{ data: customer }] };
     // Signed invoices print a customer copy and an inventory-team copy, each starting on its own page.
     const inventory = documentData(inventoryLines);
     return { preview: selectedCopy === "inventory" ? inventory : customer, print: [{ data: customer, label: "CUSTOMER COPY" }, { data: inventory, label: "INVENTORY TEAM COPY" }] };
-  }, [builderLayout, record, customerLines, inventoryLines, contact, setup, signedInvoiceCopies, selectedCopy, showBankStamp]);
+  })();
   const printWithBuilder = (pdf: boolean) => {
     if (!builderLayout || !builderCopies) return false;
     if (pdf) toast.info("Choose “Save as PDF” as the destination in the print dialog.");
@@ -383,7 +389,7 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
     </div>}
     {signedInvoiceCopies ? <div className="document-internal-only mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">Print creates Customer and Inventory copies with signature areas. Customer copies hide zero-price and stock-return lines. Save or download uses the selected copy.</div> : null}
     <div ref={fitRef} className="relative min-w-0">
-      {builderLayout && builderCopies ? <LayoutPreview layout={builderLayout} data={builderCopies.preview} /> : <div ref={zoomRef} style={{ zoom: previewZoom }}><div ref={screenPreviewRef} className="invoice-screen-only" data-invoice-copy={selectedCopy}>{renderDocument(selectedCopy)}</div></div>}
+      {builderLayout && builderCopies ? <LayoutPreview layout={builderLayout} data={builderCopies.preview} onMoveStamp={(kind, left, top) => kind === "bank" ? setBankStampPosition({ left, top }) : setPoStamp({ ...stamp, left, top })} /> : <div ref={zoomRef} style={{ zoom: previewZoom }}><div ref={screenPreviewRef} className="invoice-screen-only" data-invoice-copy={selectedCopy}>{renderDocument(selectedCopy)}</div></div>}
       {splitInvoiceCopies && <div ref={alternatePreviewRef} data-invoice-copy={selectedCopy === "customer" ? "inventory" : "customer"} className="invoice-screen-only pointer-events-none absolute top-0 w-full" style={{ left: -100000 }} aria-hidden="true" inert>{renderDocument(selectedCopy === "customer" ? "inventory" : "customer")}</div>}
     </div>
     <div className="invoice-print-only">{renderDocument(selectedCopy, true)}</div>
