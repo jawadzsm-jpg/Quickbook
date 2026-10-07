@@ -40,6 +40,7 @@ export function layoutCss(layout: Layout) {
 .lb-label{font-size:0.82em;font-weight:700;color:var(--lb-accent);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:1mm}
 .lb-muted{color:#475569}
 .lb-pre{white-space:pre-wrap}
+.lb-line-note{display:block;margin-top:0.8mm;font-size:0.88em;color:#334155;white-space:pre-wrap;overflow-wrap:anywhere}
 .lb-rich-line{margin:0;white-space:pre-wrap;unicode-bidi:plaintext}.lb-align-left .lb-rich-line{text-align:start}.lb-rich-heading{font-weight:700}.lb-rich-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:4mm}
 .lb-header{display:flex;align-items:center;gap:4mm}
 .lb-header-main{flex:1;min-width:0}

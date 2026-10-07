@@ -241,6 +241,27 @@ test("layouts are kept per document type and older saves load as the Invoice lay
   assert.equal(loaded.rows[0].sections[0].props.trnLabel, "TRN");
 });
 
+test("line comments and serial numbers print under the description unless they have their own column", async () => {
+  const React = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { LayoutDocument } = await vite.ssrLoadModule("/app/layout-builder/layout-document.tsx");
+  const { parseLayout } = await vite.ssrLoadModule("/lib/layout/schema.ts");
+  const layout = defaultLayout();
+  const data = mockDocument("short");
+  data.lines[0] = { ...data.lines[0], comments: "Customer asked for gift wrap", serialNumber: "VNT5500968 VNT55009MY" };
+  const render = () => renderToStaticMarkup(React.createElement(LayoutDocument, { layout, data, mode: "print" }));
+  const html = render();
+  assert.match(html, /<span class="lb-line-note">Customer asked for gift wrap<\/span><span class="lb-line-note">S\/N: VNT5500968 VNT55009MY<\/span><\/td>/);
+  const items = layout.rows.flatMap((row) => row.sections).find((section) => section.type === "lineItems");
+  items.props = { ...items.props, columns: [...items.props.columns, { key: "serialNumber", label: "Serial", width: 15 }] };
+  assert.doesNotMatch(render(), /S\/N: VNT5500968/); assert.match(render(), /Customer asked for gift wrap/);
+  items.props = { ...items.props, notesUnderDescription: false };
+  assert.doesNotMatch(render(), /lb-line-note/);
+  const legacy = structuredClone(defaultLayout());
+  for (const row of legacy.rows) for (const section of row.sections) if (section.type === "lineItems") delete section.props.notesUnderDescription;
+  assert.equal(parseLayout(JSON.stringify(legacy)).rows.flatMap((row) => row.sections).find((section) => section.type === "lineItems").props.notesUnderDescription, true);
+});
+
 test("section styles, company labels and table heading options render", async () => {
   const React = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
