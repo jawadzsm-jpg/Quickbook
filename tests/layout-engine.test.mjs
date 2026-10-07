@@ -272,6 +272,12 @@ test("section styles, company labels and table heading options render", async ()
   notes.style = { ...notes.style, fitRow: true };
   const fitted = renderToStaticMarkup(React.createElement(LayoutDocument, { layout, data: mockDocument("short"), mode: "print" }));
   assert.match(fitted, /class="lb-section[^"]* lb-fit"/); assert.match(fitted, /--lb-base-size:\d+(\.\d+)?pt/);
+  // Terms keep English and Arabic: each line picks its own direction, "**bold**" and "## heading" print without the marks.
+  notes.props = { ...notes.props, text: "## شروط الضمان\n- الضمان من **المعرض فقط**.\n- **Brand New:** 1-year warranty." };
+  const rich = renderToStaticMarkup(React.createElement(LayoutDocument, { layout, data: mockDocument("short"), mode: "print" }));
+  assert.match(rich, /<p dir="auto" class="lb-rich-line lb-rich-heading">شروط الضمان<\/p>/);
+  assert.match(rich, /<strong>المعرض فقط<\/strong>/); assert.match(rich, /<strong>Brand New:<\/strong> 1-year warranty\./);
+  assert.doesNotMatch(rich, /\*\*|## /);
   for (const row of legacy.rows) for (const section of row.sections) delete section.style.fitRow;
   assert.equal(parseLayout(JSON.stringify(legacy)).rows[0].sections[0].style.fitRow, false);
 });
