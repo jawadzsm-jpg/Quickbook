@@ -256,6 +256,16 @@ test("section styles, company labels and table heading options render", async ()
   assert.match(html, /color:#aa0000/); assert.match(html, /text-decoration:underline/); assert.match(html, /font-style:italic/); assert.match(html, /Georgia/);
   assert.match(html, /--lb-section-border:2pt solid #00aa00/); assert.match(html, /lb-valign-middle/);
   assert.match(html, /lb-grid-grid/); assert.match(html, /background:#ffee00;color:#000000;font-weight:400/);
+  assert.doesNotMatch(html, /lb-details-boxed/);
+  const details = layout.rows.flatMap((row) => row.sections).find((section) => section.type === "details");
+  details.props = { ...details.props, cellBorder: true, cellBorderColor: "#123456" };
+  const boxed = renderToStaticMarkup(React.createElement(LayoutDocument, { layout, data: mockDocument("short"), mode: "print" }));
+  assert.match(boxed, /lb-details lb-details-boxed/); assert.match(boxed, /--lb-detail-border:#123456/);
+  // Layouts saved before this option load without field borders.
+  const { parseLayout } = await vite.ssrLoadModule("/lib/layout/schema.ts");
+  const legacy = structuredClone(defaultLayout());
+  for (const row of legacy.rows) for (const section of row.sections) if (section.type === "details") { delete section.props.cellBorder; delete section.props.cellBorderColor; }
+  assert.equal(parseLayout(JSON.stringify(legacy)).rows.flatMap((row) => row.sections).find((section) => section.type === "details").props.cellBorder, false);
 });
 
 test("Layout Builder documents print the company stamp and bank details box where they were placed", async () => {

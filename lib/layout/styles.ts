@@ -48,6 +48,7 @@ export function layoutCss(layout: Layout) {
 .lb-details{display:grid;gap:2mm 4mm}
 .lb-details dt{font-size:0.82em;color:#475569;margin:0}
 .lb-details dd{margin:0;font-weight:600}
+.lb-details-boxed>div{border:0.75pt solid var(--lb-detail-border,var(--lb-border));border-radius:0.8mm;padding:1.2mm 1.6mm;break-inside:avoid}
 .lb-items{width:100%;border-collapse:collapse;table-layout:fixed}
 .lb-items th{background:var(--lb-accent);color:#fff;font-weight:700;font-size:0.9em;padding:1.4mm 1.6mm;text-align:left;vertical-align:bottom}
 .lb-items td{padding:1.4mm 1.6mm;border-bottom:0.5pt solid var(--lb-border);vertical-align:top}

@@ -51,7 +51,9 @@ const props = {
   title: z.object({ text: shortText }).strict(),
   billTo: z.object({ label: shortText }).strict(),
   shipTo: z.object({ label: shortText }).strict(),
-  details: z.object({ fields: z.array(z.object({ key: z.enum(detailFields), label: shortText }).strict()).max(detailFields.length), columns: z.number().int().min(1).max(4) }).strict(),
+  details: z.object({ fields: z.array(z.object({ key: z.enum(detailFields), label: shortText }).strict()).max(detailFields.length), columns: z.number().int().min(1).max(4),
+    // Optional box around each field (Invoice #, Date, ...); empty colour uses the theme line colour.
+    cellBorder: z.boolean().default(false), cellBorderColor: optionalColour.default("") }).strict(),
   lineItems: z.object({ columns: z.array(z.object({ key: z.enum(lineColumns), label: shortText, width: mm(3, 100) }).strict()).min(1).max(lineColumns.length), zebra: z.boolean(), repeatHeading: z.boolean(),
     headingBackground: optionalColour.default(""), headingTextColor: optionalColour.default(""), headingBold: z.boolean().default(true), gridLines: z.enum(["rows", "grid", "none"]).default("rows") }).strict(),
   totals: z.object({ rows: z.array(z.object({ key: z.enum(totalRows), label: shortText }).strict()).min(1).max(totalRows.length), widthPercent: mm(30, 100) }).strict(),

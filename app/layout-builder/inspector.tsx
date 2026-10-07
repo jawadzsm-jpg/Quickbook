@@ -92,6 +92,8 @@ function SectionProps({ section, update, onError }: { section: Section; update: 
     case "billTo": case "shipTo": case "bankDetails": return text("Heading", "label", section.props.label);
     case "details": return <div className="grid gap-3">
       <NumberField label="Columns" min={1} max={4} value={section.props.columns} onChange={(value) => props({ columns: Math.round(value) })} />
+      <Toggle label="Border around each field" checked={section.props.cellBorder} onChange={(value) => props({ cellBorder: value })} />
+      {section.props.cellBorder && <ColourField label="Field border colour" value={section.props.cellBorderColor} fallback="#cbd5e1" onChange={(value) => props({ cellBorderColor: value }, `${section.id}.cbc`)} />}
       <ListEditor items={section.props.fields} all={detailFields} names={detailNames} onChange={(fields) => props({ fields })} />
     </div>;
     case "lineItems": return <div className="grid gap-3">
