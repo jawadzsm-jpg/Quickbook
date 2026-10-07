@@ -14,7 +14,8 @@ export function SalesDailyWork({ companyId, onOpen }: { companyId: number; onOpe
   const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    if (!date) return;
+    // The company list loads after sign-in; wait for a real company instead of asking for company 0.
+    if (!date || !companyId) return;
     const controller = new AbortController();
     fetch(`/api/sales-work?companyId=${companyId}&date=${date}`, { cache: "no-store", signal: controller.signal })
       .then(async response => { const result = await response.json(); if (!response.ok) throw new Error(result.error); return result; })
