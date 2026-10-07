@@ -67,6 +67,12 @@ export function layoutCss(layout: Layout) {
 .lb-align-left .lb-totals{margin-left:0;margin-right:auto}
 .lb-align-center .lb-totals{margin-left:auto;margin-right:auto}
 .lb-empty{color:#94a3b8;font-style:italic}
+.lb-bi{display:flex;justify-content:space-between;align-items:baseline;gap:2mm}
+.lb-ar{font-family:"Geeza Pro","Noto Naskh Arabic","Segoe UI","Tahoma",Arial,sans-serif;direction:rtl;text-align:right;text-transform:none;letter-spacing:0}
+.lb-title-bi{display:inline-flex;align-items:baseline;gap:5mm;flex-wrap:wrap;justify-content:center}
+.lb-totals .lb-bi{gap:4mm}
+.lb-totals .lb-bi>span{white-space:nowrap}
+.lb-currency-symbol{display:inline-block;height:0.95em;width:auto;vertical-align:-0.1em}
 .lb-overlay{position:absolute;display:flex;align-items:center;justify-content:center;overflow:hidden;pointer-events:none}
 .lb-overlay img{width:100%;height:100%;object-fit:contain}
 .lb-overlay-text{white-space:pre-wrap;text-align:center}

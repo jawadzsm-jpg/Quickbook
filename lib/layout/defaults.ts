@@ -56,7 +56,7 @@ export function newOverlay(kind: Overlay["kind"]): Overlay {
 
 export function defaultLayout(kind: LayoutKind = "invoice"): Layout {
   const page: Layout["page"] = { size: "A4", orientation: "portrait", margins: { top: 12, right: 12, bottom: 14, left: 12 }, pageNumbers: true };
-  const theme: Layout["theme"] = { font: "Arial", baseSizePt: 9.5, accent: "#164e63", text: "#111827", border: "#cbd5e1" };
+  const theme: Layout["theme"] = { font: "Arial", baseSizePt: 9.5, accent: "#164e63", text: "#111827", border: "#cbd5e1", arabicLabels: true, currencySymbol: "" };
   if (kind === "letterhead") {
     return { version: 2, kind, enabled: false, name: "Company letterhead", page, theme, overlays: [], rows: [
       newRow([newSection("companyHeader")], { repeat: "header", spaceBeforeMm: 0 }),

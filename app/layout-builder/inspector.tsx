@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Copy, ImageUp, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -220,6 +221,8 @@ export function PageInspector({ layout, dispatch }: { layout: Layout; dispatch: 
         <NumberField label="Text size" unit="pt" min={7} max={14} step={0.5} value={theme.baseSizePt} onChange={(value) => dispatch({ type: "updateTheme", patch: { baseSizePt: value } }, "theme.size")} />
       </div>
       <div className="flex flex-wrap gap-3">{(["accent", "text", "border"] as const).map((key) => <Field key={key} label={{ accent: "Accent", text: "Text", border: "Lines" }[key]}><input type="color" className="h-9 w-14 rounded-md border bg-background p-1" value={theme[key]} onChange={(event) => dispatch({ type: "updateTheme", patch: { [key]: event.target.value } }, `theme.${key}`)} /></Field>)}</div>
+      <Toggle label="Arabic labels (English left, Arabic right)" checked={theme.arabicLabels} onChange={(value) => dispatch({ type: "updateTheme", patch: { arabicLabels: value } })} />
+      <Field label="AED currency symbol"><div className="grid gap-1.5"><ImagePicker value={theme.currencySymbol} onChange={(currencySymbol) => dispatch({ type: "updateTheme", patch: { currencySymbol } })} onError={(message) => toast.error(message)} /><p className="text-xs text-muted-foreground">Upload the official UAE dirham symbol (PNG, SVG or WebP). It replaces “AED” in the totals of AED documents.</p></div></Field>
     </Group>
     <Group title="Overlays">
       <p className="text-xs text-muted-foreground">Overlays float above the page (stamps, watermarks, free text). Everything else flows so long documents never overlap.</p>
