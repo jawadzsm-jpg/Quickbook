@@ -2,7 +2,7 @@ import type { Layout, LayoutKind, Overlay, Row, Section, SectionProps, SectionSt
 
 export const newId = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 
-export const defaultStyle: SectionStyle = { align: "left", verticalAlign: "top", paddingMm: 2, border: "none", borderColor: "", borderWidthPt: 0.75, background: "", textColor: "", font: "", fontScale: 1, bold: false, italic: false, underline: false };
+export const defaultStyle: SectionStyle = { align: "left", verticalAlign: "top", paddingMm: 2, border: "none", borderColor: "", borderWidthPt: 0.75, background: "", textColor: "", font: "", fontScale: 1, bold: false, italic: false, underline: false, fitRow: false };
 
 export const sectionLabels: Record<SectionType, string> = {
   companyHeader: "Company header", title: "Document title", billTo: "Bill to", shipTo: "Ship to", details: "Document details",
@@ -24,11 +24,11 @@ const defaultProps: { [K in SectionType]: () => SectionProps[K] } = {
     { key: "quantity", label: "Qty", width: 7 }, { key: "unitPrice", label: "Rate", width: 11 }, { key: "vatAmount", label: "VAT", width: 10 }, { key: "total", label: "Amount", width: 13 },
   ] }),
   totals: () => ({ widthPercent: 100, rows: [{ key: "subtotal", label: "Subtotal" }, { key: "vat", label: "VAT" }, { key: "total", label: "Total" }, { key: "balance", label: "Balance Due" }] }),
-  notes: () => ({ label: "Customer Message", text: "" }),
-  terms: () => ({ label: "Terms & Conditions", text: "" }),
+  notes: () => ({ label: "Customer Message", text: "", sideBySide: false }),
+  terms: () => ({ label: "Terms & Conditions", text: "", sideBySide: false }),
   bankDetails: () => ({ label: "Bank Details" }),
   signature: () => ({ label: "Authorised Signature", lineWidthMm: 60 }),
-  text: () => ({ text: "Add your text" }),
+  text: () => ({ text: "Add your text", sideBySide: false }),
   image: () => ({ src: "", heightMm: 25 }),
   spacer: () => ({ heightMm: 6 }),
   divider: () => ({ thicknessPt: 0.75 }),

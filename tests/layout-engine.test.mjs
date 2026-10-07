@@ -266,6 +266,24 @@ test("section styles, company labels and table heading options render", async ()
   const legacy = structuredClone(defaultLayout());
   for (const row of legacy.rows) for (const section of row.sections) if (section.type === "details") { delete section.props.cellBorder; delete section.props.cellBorderColor; }
   assert.equal(parseLayout(JSON.stringify(legacy)).rows.flatMap((row) => row.sections).find((section) => section.type === "details").props.cellBorder, false);
+  // "Shrink text to fit the row" marks the section and records its base size for the fitting step; older layouts load with it off.
+  assert.doesNotMatch(boxed, /lb-fit/);
+  const notes = layout.rows.flatMap((row) => row.sections).find((section) => section.type === "notes");
+  notes.style = { ...notes.style, fitRow: true };
+  const fitted = renderToStaticMarkup(React.createElement(LayoutDocument, { layout, data: mockDocument("short"), mode: "print" }));
+  assert.match(fitted, /class="lb-section[^"]* lb-fit"/); assert.match(fitted, /--lb-base-size:\d+(\.\d+)?pt/);
+  // Terms keep English and Arabic: each line picks its own direction, "**bold**" and "## heading" print without the marks.
+  notes.props = { ...notes.props, text: "## شروط الضمان\n- الضمان من **المعرض فقط**.\n- **Brand New:** 1-year warranty." };
+  const rich = renderToStaticMarkup(React.createElement(LayoutDocument, { layout, data: mockDocument("short"), mode: "print" }));
+  assert.match(rich, /<p dir="auto" class="lb-rich-line lb-rich-heading">شروط الضمان<\/p>/);
+  assert.match(rich, /<strong>المعرض فقط<\/strong>/); assert.match(rich, /<strong>Brand New:<\/strong> 1-year warranty\./);
+  assert.doesNotMatch(rich, /\*\*|## /);
+  // Side by side: English lines in the left column, Arabic lines (including mixed ones) right-to-left in the right column.
+  notes.props = { ...notes.props, sideBySide: true, text: "شروط الضمان\n* الجديد: ضمان سنة.\nOpen Box: ضمان 90 يوماً.\n\nWarranty terms\n* Brand New: 1-year warranty." };
+  const columns = renderToStaticMarkup(React.createElement(LayoutDocument, { layout, data: mockDocument("short"), mode: "print" }));
+  assert.match(columns, /<div class="lb-rich lb-rich-columns"><div><p dir="auto" class="lb-rich-line">Warranty terms<\/p>.*Brand New.*<\/div><div><p dir="rtl" class="lb-rich-line">شروط الضمان<\/p>.*Open Box: ضمان 90/);
+  for (const row of legacy.rows) for (const section of row.sections) delete section.style.fitRow;
+  assert.equal(parseLayout(JSON.stringify(legacy)).rows[0].sections[0].style.fitRow, false);
 });
 
 test("Layout Builder documents print the company stamp and bank details box where they were placed", async () => {

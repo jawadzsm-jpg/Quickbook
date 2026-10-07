@@ -1,6 +1,7 @@
 import type { DocumentData } from "@/lib/layout/document-data";
 import type { Layout } from "@/lib/layout/schema";
 import { layoutCss, layoutPageCss } from "@/lib/layout/styles";
+import { fitRowText } from "@/lib/layout/fit-rows";
 import { LayoutDocument } from "./layout-document";
 
 const escapeHtml = (value: string) => value.replace(/[&<>"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[character]!);
@@ -37,6 +38,7 @@ export async function printLayout(layout: Layout, documents: DocumentData | Prin
     const images = [...view.document.images].map((image) => image.complete ? Promise.resolve() : new Promise<void>((resolve) => { image.onload = image.onerror = () => resolve(); }));
     await Promise.race([Promise.all(images), new Promise((resolve) => setTimeout(resolve, 4000))]);
     await view.document.fonts?.ready;
+    fitRowText(view.document);
     const previousTitle = document.title;
     document.title = title; // Chrome names the saved PDF after the top-level document title.
     view.addEventListener("afterprint", () => { document.title = previousTitle; cleanup(); }, { once: true });
