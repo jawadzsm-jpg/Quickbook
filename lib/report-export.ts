@@ -35,8 +35,8 @@ export type ReportExportData = {
   openBalance?: { totalOpen: number; totalAmount: number; overdueOnly?: boolean };
   activeCustomers?: { count: number };
   statement?: { opening: number; charges: number; credits: number; closing: number };
-  /** Customer statements: the bank account for the statement currency, printed after the table (left offset in mm). */
-  bankBox?: { title: string; lines: string[]; remark?: string; left: number };
+  /** Statements: bank details boxes (company and/or supplier), printed after the table in order (left offset in mm). */
+  bankBoxes?: Array<{ title: string; lines: string[]; remark?: string; left: number }>;
 };
 
 export function reportOverview(report: ReportExportData, rows: ReportExportRow[]) {
@@ -336,9 +336,9 @@ export async function reportPdf(report: ReportExportData, company: string, inven
     autoTable(pdf, { startY: lastY + 7, margin: { top: 44, bottom: 17, left: 10, right: 10 }, head: [["Account review - review before relying on classified totals"]], body: reportReviewIssues(report).map(issue => [issue]), styles: { font: "helvetica", fontSize: 8, cellPadding: 3, overflow: "linebreak" }, headStyles: { fillColor: [120, 75, 20] }, rowPageBreak: "avoid", didDrawPage: drawHeader });
   }
   let contentBottom = (pdf as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
-  if (report.bankBox) {
+  for (const box of report.bankBoxes ?? []) {
     // Bank details box after the table, at the chosen left offset, moving to a new page when it does not fit.
-    const box = report.bankBox, width = 80, lineHeight = 3.6;
+    const width = 80, lineHeight = 3.6;
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(8);
     const remark = box.remark ? pdf.splitTextToSize(box.remark, width - 6) as string[] : [];

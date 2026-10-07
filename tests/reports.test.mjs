@@ -676,7 +676,7 @@ test("customer statements filter native currency and customer, carry opening bal
 
 test("vendor statements filter native currency and customer, carry opening balances and validate dates", async () => {
   const companyId = (await database.query("INSERT INTO companies(name) VALUES ('Vendor statement test') RETURNING id")).rows[0].id;
-  await database.query("INSERT INTO contacts(company_id,type,name,currency) VALUES ($1,'vendor','Statement Customer','USD'),($1,'vendor','Other Customer','USD')", [companyId]);
+  await database.query("INSERT INTO contacts(company_id,type,name,currency,bank_name,bank_iban) VALUES ($1,'vendor','Statement Customer','USD','Supplier Bank','AE99SUPPLIER'),($1,'vendor','Other Customer','USD','','')", [companyId]);
   const add = async (number, party, date, type, total, currency = 'USD') => database.query("INSERT INTO transactions(company_id,number,party,transaction_date,type,total,base_total,currency,exchange_rate) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,3.675)", [companyId,number,party,date,type,total,total*3.675,currency]);
   await add('OPEN','Statement Customer','2026-08-31','bill',100);
   await add('INV','Statement Customer','2026-09-02','bill',50);
@@ -689,6 +689,7 @@ test("vendor statements filter native currency and customer, carry opening balan
   const get = (changes = {}) => GET(new Request('https://app.test/api/reports?' + new URLSearchParams({...query,...changes})));
   const response = await get(); assert.equal(response.status,200);
   const {report} = await response.json();
+  assert.deepEqual(report.statement.partyBank,['Supplier Bank','IBAN: AE99SUPPLIER']); // the selected supplier's saved bank details
   assert.equal(report.currency,'USD');
   assert.equal(report.statement.partyType,'vendor');
   assert.equal(report.statement.memo,'Please review your account.');
@@ -1131,8 +1132,9 @@ test('customer statement PDFs print the bank details box with its remark after t
   const report = { key: 'customer-statements', title: 'Customer Statements', generatedAt: '2026-10-07T10:00:00.000Z', currency: 'USD', columns: [{ key: 'date', label: 'Date' }, { key: 'amount', label: 'Amount', type: 'money' }], rows: [{ date: '2026-10-01', amount: 100 }], statement: { opening: 0, charges: 100, credits: 0, closing: 100 } };
   const plain = Buffer.from(await reportPdf(report, 'Comnet', 'All inventories')).toString('latin1');
   assert.doesNotMatch(plain, /BANK DETAILS/);
-  const withBox = Buffer.from(await reportPdf({ ...report, bankBox: { title: 'Bank details', lines: ['Mashreq Bank', 'IBAN: AE0703300000191'], remark: 'Do not use Standard Chartered', left: 40 } }, 'Comnet', 'All inventories')).toString('latin1');
+  const withBox = Buffer.from(await reportPdf({ ...report, bankBoxes: [{ title: 'Bank details', lines: ['Mashreq Bank', 'IBAN: AE0703300000191'], remark: 'Do not use Standard Chartered', left: 40 }, { title: 'Supplier bank details', lines: ['Supplier Bank', 'IBAN: AE99SUPPLIER'], left: 100 }] }, 'Comnet', 'All inventories')).toString('latin1');
   assert.match(withBox, /BANK DETAILS/); assert.match(withBox, /IBAN: AE0703300000191/); assert.match(withBox, /Do not use Standard Chartered/);
+  assert.match(withBox, /SUPPLIER BANK DETAILS/); assert.match(withBox, /IBAN: AE99SUPPLIER/);
 });
 
 test('report date presets handle weeks, leap days, month ends and fiscal boundaries', async () => {

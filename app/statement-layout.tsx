@@ -14,6 +14,8 @@ export type StatementData = {
   customer: string; statementDate: string; from: string; to: string;
   opening: number; charges: number; credits: number; closing: number;
   customers: { name: string; currency: string }[];
+  /** Vendor statements for one supplier: that supplier's saved bank details. */
+  partyBank?: string[];
 };
 type Filters = { memo: string; customer: string; currency: string; statementDate: string; from: string; to: string };
 

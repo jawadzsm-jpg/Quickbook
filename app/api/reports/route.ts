@@ -1,4 +1,5 @@
 import { loadIncomeTax } from '@/lib/income-tax-data';
+import { vendorBankLines } from "@/lib/vendor-bank";
 import { defaultTaxConfig } from '@/lib/income-tax';
 import { listReportKeys } from "@/lib/list-report";
 import { accountantReportKeys, accountantAccountIssues } from "@/lib/accountant-report";
@@ -626,7 +627,7 @@ export async function GET(request: Request) {
       columns = [{ key: "customer", label: vendor ? "Vendor" : "Customer" }, { key: "date", label: "Date" }, { key: "number", label: "Reference" }, { key: "type", label: "Activity" }, { key: "memo", label: "Memo" }, { key: "debit", label: "Charges", ...money }, { key: "credit", label: "Payments / Credits", ...money }, { key: "balance", label: "Balance", ...money }];
       if (vendor) addVendorAccounts();
       return Response.json({ report: { key, period, companyId, canViewAccounts: vendor ? hasPermission(authorization, "accounting:manage") : undefined, title: vendor ? "Vendor Statements" : "Customer Statements", generatedAt: new Date().toISOString(), currency: selectedCurrency, columns, rows,
-        statement: { partyType, memo, customer, statementDate, from: periodStart, to: end, opening, charges, credits, closing: round(opening + charges - credits), customers: customers.map((contact) => ({ name: contact.name, currency: contact.currency })) }
+        statement: { partyType, memo, customer, statementDate, from: periodStart, to: end, opening, charges, credits, closing: round(opening + charges - credits), customers: customers.map((contact) => ({ name: contact.name, currency: contact.currency })), ...(vendor && customer ? { partyBank: vendorBankLines(customers.find((contact) => contact.name === customer && contact.currency === selectedCurrency) ?? customers.find((contact) => contact.name === customer) ?? {}) } : {}) }
       } }, { headers: { "Cache-Control": "no-store" } });
     } else if (key === "customer-balance-detail") {
       title = "Customer Balance Detail";
