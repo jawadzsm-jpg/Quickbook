@@ -290,3 +290,15 @@ test("stamp guide layout follows the report PDF: moves the stamp below the table
   const boxed = stampPreviewLayout({ orientation: "portrait", summaryCards: 4, noteLines: 1, rows: 3, boxes: [{ lines: 6, remarkLines: 1 }], stampTop: 60 });
   assert.ok(boxed.boxes[0].top > boxed.tableBottom); assert.ok(boxed.stamp.top >= boxed.boxes[0].top + boxed.boxes[0].height + 8);
 });
+
+test("saved stamp positions accept a movable status stamp and print it on Layout Builder documents", async () => {
+  const { parseStampPositions } = await vite.ssrLoadModule("/lib/stamp-positions.ts");
+  const parsed = parseStampPositions({ "tax-invoice": { status: { show: true, left: 120, top: 14, page: true } } });
+  assert.deepEqual(parsed["tax-invoice"].status, { show: true, left: 120, top: 14, page: true });
+  assert.throws(() => parseStampPositions({ "tax-invoice": { status: { show: true, left: -1, top: 0 } } }), /whole millimetres/);
+  const React = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { LayoutDocument } = await vite.ssrLoadModule("/app/layout-builder/layout-document.tsx");
+  const html = renderToStaticMarkup(React.createElement(LayoutDocument, { layout: defaultLayout(), data: { ...mockDocument("short"), stamps: [{ kind: "status", text: "OPEN", left: 120, top: 14 }] }, mode: "print" }));
+  assert.match(html, /page-status-stamp" style="position:absolute;left:120mm;top:14mm[^"]*rotate\(-8deg\)[^"]*">OPEN</);
+});

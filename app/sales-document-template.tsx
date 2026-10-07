@@ -97,7 +97,6 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
   const [selection, setSelection] = useState<{ source: SalesDocumentMode; output: SalesDocumentMode }>({ source: mode, output: mode });
   const [copy, setCopy] = useState<"customer" | "inventory">("customer");
   const [pdfBusy, setPdfBusy] = useState(false);
-  const [showBank, setShowBank] = useState(true);
   // Stamp placement is saved per document type; unsaved edits are kept per type until saved.
   const [savedPositions, setSavedPositions] = useState(() => readStampPositions(setup.stampPositions));
   const [stampEdits, setStampEdits] = useState<StampPositions>({});
@@ -135,21 +134,27 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
     if (!type || !setup.documentLayout) return null;
     try {
       const layout = parseLayoutCollection(setup.documentLayout)[type];
-      if (!layout?.enabled) return null;
-      if (showBank) return layout;
-      // Turning bank details off hides the layout's bank section on screen, print and PDF.
-      return { ...layout, rows: layout.rows.map((row) => ({ ...row, sections: row.sections.map((section) => section.type === "bankDetails" ? { ...section, screen: false, print: false } : section) })) };
+      return layout?.enabled ? layout : null;
     } catch { return null; }
-  }, [activeMode, setup.documentLayout, showBank]);
+  }, [activeMode, setup.documentLayout]);
+  // A Layout Builder "{status}" stamp overlay is lifted out of the fixed design so it can be moved like the other stamps.
+  const statusOverlay = builderLayout?.overlays.find((overlay) => overlay.kind === "stamp" && overlay.text.includes("{status}"));
+  const outputLayout = builderLayout && statusOverlay ? { ...builderLayout, overlays: builderLayout.overlays.filter((overlay) => overlay !== statusOverlay) } : builderLayout;
   // Stamps sit anywhere on the first page, in millimetres from the printable area's top-left corner.
   const stampArea = builderLayout ? contentBox(builderLayout.page) : pageStampAreaMm(a4Design);
   // Stamps start switched off unless positions were saved for this document type; tick them when needed.
   const stamp = stampEdits[activeMode]?.company ?? savedCompany ?? { show: false, left: stampArea.width - 40, top: stampArea.height - 30, page: true };
   const bankBox = stampEdits[activeMode]?.bank ?? savedBank ?? { show: false, left: 0, top: stampArea.height - 60, page: true };
-  const editStamps = (patch: DocumentStampPositions) => setStampEdits((edits) => ({ ...edits, [activeMode]: { company: stamp, bank: bankBox, ...edits[activeMode], ...patch } }));
+  const savedStatus = savedStamps.status?.page ? savedStamps.status : undefined;
+  const statusDefault = statusOverlay && builderLayout ? { show: statusOverlay.print, left: Math.max(0, Math.round(statusOverlay.xMm - builderLayout.page.margins.left)), top: Math.max(0, Math.round(statusOverlay.yMm - builderLayout.page.margins.top)), page: true } : undefined;
+  const statusStamp = stampEdits[activeMode]?.status ?? savedStatus ?? statusDefault;
+  const editStamps = (patch: DocumentStampPositions) => setStampEdits((edits) => ({ ...edits, [activeMode]: { company: stamp, bank: bankBox, ...(statusStamp ? { status: statusStamp } : {}), ...edits[activeMode], ...patch } }));
+  const setStatusStamp = (status: StampPlacement) => editStamps({ status: { ...status, page: true } });
   const setPoStamp = (company: StampPlacement) => editStamps({ company: { ...company, page: true } });
   const setBankBox = (bank: StampPlacement) => editStamps({ bank: { ...bank, page: true } });
-  const movePageStamp: MovePageStamp = (kind, left, top) => kind === "bank" ? setBankBox({ ...bankBox, left, top }) : setPoStamp({ ...stamp, left, top });
+  const movePageStamp: MovePageStamp = (kind, left, top) => kind === "bank" ? setBankBox({ ...bankBox, left, top }) : kind === "status" ? (statusStamp ? setStatusStamp({ ...statusStamp, left, top }) : undefined) : setPoStamp({ ...stamp, left, top });
+  const statusPlacement = statusStamp ? { ...statusStamp, ...clampPageStamp("status", statusStamp.left, statusStamp.top, stampArea.width, stampArea.height) } : undefined;
+  const statusText = statusOverlay ? statusOverlay.text.replaceAll("{status}", String(record.status || "")).trim() : "";
   const companyPlacement = { ...stamp, ...clampPageStamp("company", stamp.left, stamp.top, stampArea.width, stampArea.height) };
   const bankPlacement = { ...bankBox, ...clampPageStamp("bank", bankBox.left, bankBox.top, stampArea.width, stampArea.height) };
   const documentCurrency = String(record.currency || setup.baseCurrency || "").toUpperCase();
@@ -163,10 +168,11 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
   const bankBoxShown = Boolean(bankBoxLines) && bankBox.show;
   const pageStamps: DocumentStamp[] = [
     ...(companyPlacement.show && setup.stampData ? [{ kind: "company" as const, src: setup.stampData, left: companyPlacement.left, top: companyPlacement.top }] : []),
+    ...(statusPlacement?.show && statusText ? [{ kind: "status" as const, text: statusText, left: statusPlacement.left, top: statusPlacement.top }] : []),
     ...(bankBoxShown && bankBoxLines ? [{ kind: "bank" as const, title: bankBoxTitle, lines: bankBoxLines, remark: bankRemark, src: supplierBankMode ? undefined : bankAccount?.stampData, left: bankPlacement.left, top: bankPlacement.top }] : []),
   ];
-  const stampsToSave: DocumentStampPositions = { company: { show: stamp.show, left: companyPlacement.left, top: companyPlacement.top, page: true }, bank: { show: bankBox.show, left: bankPlacement.left, top: bankPlacement.top, page: true } };
-  const stampsDirty = JSON.stringify(stampsToSave) !== JSON.stringify({ company: savedCompany, bank: savedBank });
+  const stampsToSave: DocumentStampPositions = { company: { show: stamp.show, left: companyPlacement.left, top: companyPlacement.top, page: true }, bank: { show: bankBox.show, left: bankPlacement.left, top: bankPlacement.top, page: true }, ...(statusPlacement ? { status: { show: statusPlacement.show, left: statusPlacement.left, top: statusPlacement.top, page: true } } : {}) };
+  const stampsDirty = JSON.stringify(stampsToSave) !== JSON.stringify({ company: savedCompany, bank: savedBank, ...(statusPlacement ? { status: savedStatus } : {}) });
   // Saves one document type's stamp settings; also used by the invoice packing-list window.
   const persistStampPositions = async (type: string, entry: DocumentStampPositions, label: string) => {
     if (!setup.id) return false;
@@ -216,7 +222,7 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
   const inventoryLines = inventoryInvoiceLines(lines);
   const renderDocument = (documentCopy: "customer" | "inventory", print = false) => {
     const inventoryCopy = splitInvoiceCopies && documentCopy === "inventory";
-    const withoutBank = !bankApplies || !showBank;
+    const withoutBank = !bankApplies;
     const copyDesign = { ...a4Design, ...(inventoryCopy ? { title: `${design.title} — Inventory Copy` } : {}), ...(withoutBank ? { footer: a4Design.footer.filter((field) => field.key !== "bankDetails") } : {}) };
     const copyLines = inventoryCopy ? inventoryLines : customerLines;
     return activeMode === "delivery-note" && connectedPackingList && !design.enabled
@@ -244,7 +250,7 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
   const printWithBuilder = (pdf: boolean) => {
     if (!builderLayout || !builderCopies) return false;
     if (pdf) toast.info("Choose “Save as PDF” as the destination in the print dialog.");
-    void printLayout(builderLayout, builderCopies.print, pdfTitle).catch((error: Error) => toast.error(error.message));
+    void printLayout(outputLayout ?? builderLayout, builderCopies.print, pdfTitle).catch((error: Error) => toast.error(error.message));
     return true;
   };
 
@@ -404,15 +410,16 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
       </div>
     </div>
     {movableStamp && <div className="document-internal-only mb-4 grid gap-3 rounded-xl border bg-card p-4 text-sm text-card-foreground">
-      <div className="flex flex-wrap items-center gap-4"><label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={stamp.show} disabled={!setup.stampData} onChange={(event) => setPoStamp({ ...stamp, show: event.target.checked })} />Company stamp</label>{bankApplies && <label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={showBank} onChange={(event) => setShowBank(event.target.checked)} />Bank account details</label>}{bankBoxApplies && <label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={bankBoxShown} disabled={!bankBoxLines} onChange={(event) => setBankBox({ ...bankBox, show: event.target.checked })} />{supplierBankMode ? `Supplier bank details (${supplierName})` : `Bank details box (${documentCurrency})`}</label>}{!setup.stampData && <span className="text-muted-foreground">Upload a company stamp in Company Setup first.</span>}{bankBoxApplies && !bankBoxLines && <span className="text-muted-foreground">{supplierBankMode ? "No bank details saved for this supplier. Add them in Vendor Center → Edit." : `Add a ${documentCurrency} bank account in Company Setup → Bank account.`}</span>}{(setup.stampData || bankAccount) && setup.id ? <Button type="button" size="sm" variant={stampsDirty ? "default" : "outline"} className="ml-auto" disabled={savingStamps || !stampsDirty} onClick={() => void saveStampPositions()}><Save className="size-4" />{savingStamps ? "Saving…" : stampsDirty ? "Save stamp positions" : "Positions saved"}</Button> : null}</div>
+      <div className="flex flex-wrap items-center gap-4"><label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={stamp.show} disabled={!setup.stampData} onChange={(event) => setPoStamp({ ...stamp, show: event.target.checked })} />Company stamp</label>{statusStamp && statusText ? <label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={statusStamp.show} onChange={(event) => setStatusStamp({ ...statusStamp, show: event.target.checked })} />Status stamp ({statusText.toUpperCase()})</label> : null}{bankBoxApplies && <label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={bankBoxShown} disabled={!bankBoxLines} onChange={(event) => setBankBox({ ...bankBox, show: event.target.checked })} />{supplierBankMode ? `Supplier bank details (${supplierName})` : `Bank details box (${documentCurrency})`}</label>}{!setup.stampData && <span className="text-muted-foreground">Upload a company stamp in Company Setup first.</span>}{bankBoxApplies && !bankBoxLines && <span className="text-muted-foreground">{supplierBankMode ? "No bank details saved for this supplier. Add them in Vendor Center → Edit." : `Add a ${documentCurrency} bank account in Company Setup → Bank account.`}</span>}{(setup.stampData || bankAccount) && setup.id ? <Button type="button" size="sm" variant={stampsDirty ? "default" : "outline"} className="ml-auto" disabled={savingStamps || !stampsDirty} onClick={() => void saveStampPositions()}><Save className="size-4" />{savingStamps ? "Saving…" : stampsDirty ? "Save stamp positions" : "Positions saved"}</Button> : null}</div>
       {companyPlacement.show && setup.stampData && <div className="flex flex-wrap items-center gap-4"><span className="w-32 font-medium">Company stamp</span><label className="flex items-center gap-2">Left (mm)<input type="number" min="0" max={Math.floor(stampArea.width - PAGE_STAMP_SIZE.company.width)} className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={companyPlacement.left} onChange={(event) => setPoStamp({ ...stamp, left: Math.max(0, Number(event.target.value) || 0) })} /></label><label className="flex items-center gap-2">Top (mm)<input type="number" min="0" max={Math.floor(stampArea.height - PAGE_STAMP_SIZE.company.height)} className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={companyPlacement.top} onChange={(event) => setPoStamp({ ...stamp, top: Math.max(0, Number(event.target.value) || 0) })} /></label></div>}
+      {statusPlacement?.show && statusText && statusStamp && <div className="flex flex-wrap items-center gap-4"><span className="w-32 font-medium">Status stamp</span><label className="flex items-center gap-2">Left (mm)<input type="number" min="0" max={Math.floor(stampArea.width - PAGE_STAMP_SIZE.status.width)} className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={statusPlacement.left} onChange={(event) => setStatusStamp({ ...statusStamp, left: Math.max(0, Number(event.target.value) || 0) })} /></label><label className="flex items-center gap-2">Top (mm)<input type="number" min="0" max={Math.floor(stampArea.height - PAGE_STAMP_SIZE.status.height)} className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={statusPlacement.top} onChange={(event) => setStatusStamp({ ...statusStamp, top: Math.max(0, Number(event.target.value) || 0) })} /></label></div>}
       {bankBoxShown && <div className="flex flex-wrap items-center gap-4"><span className="w-32 font-medium">{supplierBankMode ? "Supplier bank box" : `Bank box (${documentCurrency})`}</span><label className="flex items-center gap-2">Left (mm)<input type="number" min="0" max={Math.floor(stampArea.width - PAGE_STAMP_SIZE.bank.width)} className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={bankPlacement.left} onChange={(event) => setBankBox({ ...bankBox, left: Math.max(0, Number(event.target.value) || 0) })} /></label><label className="flex items-center gap-2">Top (mm)<input type="number" min="0" max={Math.floor(stampArea.height - PAGE_STAMP_SIZE.bank.height)} className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={bankPlacement.top} onChange={(event) => setBankBox({ ...bankBox, top: Math.max(0, Number(event.target.value) || 0) })} /></label></div>}
       {bankBoxShown && <label className="grid gap-1"><span className="font-medium">{supplierBankMode ? "Note on this document" : "Remark on this document"}</span><textarea rows={2} maxLength={500} className="w-full rounded-md border bg-background px-3 py-2 text-foreground" value={bankRemark} placeholder="Payment note, correspondent bank instructions…" onChange={(event) => setBankRemarkEdit(event.target.value)} /><span className="text-xs text-muted-foreground">{supplierBankMode ? "Optional note printed under the supplier's bank details, for this document only." : <>Starts with the {documentCurrency} account&apos;s remark from Company Setup. Changes here apply to this document only.</>}</span></label>}
       {companyPlacement.show && setup.stampData || bankBoxShown ? <span className="text-xs text-muted-foreground">Drag the company stamp and the bank box anywhere on the first page, or type Left / Top in mm from the top-left of the printable area. {supplierBankMode ? "The supplier bank box shows the bank details saved on this vendor." : <>The bank box shows the {documentCurrency} account from Company Setup.</>} Save stamp positions to use these settings on every {salesDocumentTitles[activeMode]}.</span> : null}
     </div>}
     {signedInvoiceCopies ? <div className="document-internal-only mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">Print creates Customer and Inventory copies with signature areas. Customer copies hide zero-price and stock-return lines. Save or download uses the selected copy.</div> : null}
     <div ref={fitRef} className="relative min-w-0">
-      {builderLayout && builderCopies ? <LayoutPreview layout={builderLayout} data={builderCopies.preview} onMoveStamp={movePageStamp} /> : <div ref={zoomRef} style={{ zoom: previewZoom }}><div ref={screenPreviewRef} className="invoice-screen-only" data-invoice-copy={selectedCopy}>{renderDocument(selectedCopy)}</div></div>}
+      {builderLayout && builderCopies ? <LayoutPreview layout={outputLayout ?? builderLayout} data={builderCopies.preview} onMoveStamp={movePageStamp} /> : <div ref={zoomRef} style={{ zoom: previewZoom }}><div ref={screenPreviewRef} className="invoice-screen-only" data-invoice-copy={selectedCopy}>{renderDocument(selectedCopy)}</div></div>}
       {splitInvoiceCopies && <div ref={alternatePreviewRef} data-invoice-copy={selectedCopy === "customer" ? "inventory" : "customer"} className="invoice-screen-only pointer-events-none absolute top-0 w-full" style={{ left: -100000 }} aria-hidden="true" inert>{renderDocument(selectedCopy === "customer" ? "inventory" : "customer")}</div>}
     </div>
     <div className="invoice-print-only">{renderDocument(selectedCopy, true)}</div>
