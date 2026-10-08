@@ -1,8 +1,10 @@
-import { eq } from "drizzle-orm";
+import { and, desc, eq, like } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { auditLog, companies, companySettings } from "../../../db/schema";
 import { hashAdminPin, isValidAdminPin, verifyAdminPin } from "../../../lib/admin-pin";
-import { requireApiUser } from "@/lib/auth";
+import { requireCompanyAccess } from "@/lib/auth";
+
+const json = (data: unknown, status = 200) => Response.json(data, { status, headers: { "Cache-Control": "private, no-store" } });
 
 function errorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : "Unexpected database error";
@@ -10,36 +12,45 @@ function errorMessage(error: unknown) {
 }
 
 export async function GET(request: Request) {
-  const authorization = await requireApiUser(request, true);
+  const companyId = Number(new URL(request.url).searchParams.get("companyId"));
+  const authorization = await requireCompanyAccess(request, companyId, true);
   if (authorization instanceof Response) return authorization;
   try {
-    const companyId = Number(new URL(request.url).searchParams.get("companyId"));
-    if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     const db = getDb();
     const [settings] = await db.select({ pinHash: companySettings.negativeStockPinHash }).from(companySettings).where(eq(companySettings.companyId, companyId)).limit(1);
-    return Response.json({ configured: Boolean(settings?.pinHash) });
+    const [lastChange] = await db.select({ action: auditLog.action, createdAt: auditLog.createdAt }).from(auditLog)
+      .where(and(eq(auditLog.companyId, companyId), eq(auditLog.entityType, "negative_stock_admin_pin"))).orderBy(desc(auditLog.createdAt)).limit(1);
+    const overrides = await db.select({ id: auditLog.id, entityId: auditLog.entityId, details: auditLog.details, createdAt: auditLog.createdAt }).from(auditLog)
+      .where(and(eq(auditLog.companyId, companyId), eq(auditLog.entityType, "transaction"), like(auditLog.details, "%admin negative-stock override used%"))).orderBy(desc(auditLog.createdAt)).limit(10);
+    return json({ configured: Boolean(settings?.pinHash), lastChange: lastChange ?? null, overrides });
   } catch (error) {
-    return Response.json({ error: errorMessage(error) }, { status: 500 });
+    return json({ error: errorMessage(error) }, 500);
   }
 }
 
 export async function POST(request: Request) {
-  const authorization = await requireApiUser(request, true, true);
+  let payload: Record<string, unknown>;
+  try { payload = (await request.json()) as Record<string, unknown>; } catch { return json({ error: "Invalid request." }, 400); }
+  const companyId = Number(payload?.companyId);
+  const authorization = await requireCompanyAccess(request, companyId, true, true);
   if (authorization instanceof Response) return authorization;
   try {
-    const payload = (await request.json()) as Record<string, unknown>;
-    const companyId = Number(payload.companyId);
+    const action = payload.action === "clear" ? "clear" : "set";
     const currentPin = String(payload.currentPin ?? "");
     const newPin = String(payload.newPin ?? "");
-    if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
-    if (!isValidAdminPin(newPin)) return Response.json({ error: "The new PIN must contain 4 to 12 numbers." }, { status: 400 });
+    if (action === "set" && !isValidAdminPin(newPin)) return json({ error: "The new PIN must contain 4 to 12 numbers." }, 400);
 
     const db = getDb();
     const [company] = await db.select({ id: companies.id }).from(companies).where(eq(companies.id, companyId)).limit(1);
-    if (!company) return Response.json({ error: "Company not found." }, { status: 404 });
+    if (!company) return json({ error: "Company not found." }, 404);
     const [existing] = await db.select({ pinHash: companySettings.negativeStockPinHash }).from(companySettings).where(eq(companySettings.companyId, companyId)).limit(1);
-    if (existing?.pinHash && !verifyAdminPin(currentPin, existing.pinHash)) {
-      return Response.json({ error: "The current admin PIN is incorrect." }, { status: 403 });
+    if (existing?.pinHash && !verifyAdminPin(currentPin, existing.pinHash)) return json({ error: "The current admin PIN is incorrect." }, 403);
+
+    if (action === "clear") {
+      if (!existing?.pinHash) return json({ configured: false });
+      await db.update(companySettings).set({ negativeStockPinHash: "", updatedAt: new Date().toISOString() }).where(eq(companySettings.companyId, companyId));
+      await db.insert(auditLog).values({ companyId, action: "removed", entityType: "negative_stock_admin_pin", entityId: companyId, details: `Negative-stock override PIN removed by ${authorization.email}; overrides are disabled` });
+      return json({ configured: false });
     }
 
     const pinHash = hashAdminPin(newPin);
@@ -47,9 +58,9 @@ export async function POST(request: Request) {
       target: companySettings.companyId,
       set: { negativeStockPinHash: pinHash, updatedAt: new Date().toISOString() },
     });
-    await db.insert(auditLog).values({ companyId, action: existing?.pinHash ? "changed" : "configured", entityType: "negative_stock_admin_pin", entityId: companyId, details: "Negative-stock override PIN updated from Management > Admin Controls" });
-    return Response.json({ configured: true });
+    await db.insert(auditLog).values({ companyId, action: existing?.pinHash ? "changed" : "configured", entityType: "negative_stock_admin_pin", entityId: companyId, details: `Negative-stock override PIN updated by ${authorization.email} from Management > Admin Controls` });
+    return json({ configured: true });
   } catch (error) {
-    return Response.json({ error: errorMessage(error) }, { status: 500 });
+    return json({ error: errorMessage(error) }, 500);
   }
 }

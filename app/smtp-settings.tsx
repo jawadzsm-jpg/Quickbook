@@ -1,0 +1,86 @@
+"use client";
+
+import { FormEvent, useEffect, useState } from "react";
+import { Eye, EyeOff, Mail, Send, Server } from "lucide-react";
+import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+type SmtpForm = { host: string; port: string; secure: boolean; username: string; password: string; fromName: string; fromEmail: string; passwordConfigured: boolean };
+
+const initialSmtp: SmtpForm = { host: "smtp.gmail.com", port: "465", secure: true, username: "", password: "", fromName: "ComNet Accounting", fromEmail: "", passwordConfigured: false };
+const presets = [
+  { label: "Gmail / Google Workspace", host: "smtp.gmail.com", port: "465", secure: true },
+  { label: "Microsoft 365 / Outlook", host: "smtp.office365.com", port: "587", secure: false },
+  { label: "Zoho Mail", host: "smtp.zoho.com", port: "465", secure: true },
+];
+
+export function SmtpSettings({ onStatus }: { onStatus?: (configured: boolean) => void }) {
+  const [form, setForm] = useState<SmtpForm>(initialSmtp);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/email-settings", { cache: "no-store" }).then(async (response) => {
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not load email server settings");
+      if (!active) return;
+      setForm({ ...initialSmtp, ...data.settings, port: String(data.settings.port), password: "" });
+      onStatus?.(Boolean(data.settings.passwordConfigured));
+    }).catch((error) => { if (active) toast.error(error instanceof Error ? error.message : "Could not load email server settings"); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [onStatus]);
+
+  function update(patch: Partial<SmtpForm>) { setForm((current) => ({ ...current, ...patch })); setDirty(true); }
+
+  async function save(event: FormEvent) {
+    event.preventDefault(); setSaving(true);
+    try {
+      const response = await fetch("/api/email-settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, port: Number(form.port) }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not save email server settings");
+      setForm((current) => ({ ...current, password: "", passwordConfigured: true }));
+      setDirty(false);
+      onStatus?.(true);
+      toast.success("Email server settings saved securely");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save email server settings"); }
+    finally { setSaving(false); }
+  }
+
+  async function testConnection() {
+    setTesting(true);
+    try {
+      const response = await fetch("/api/email-settings", { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "SMTP connection failed");
+      toast.success("Connection successful — the email server accepted the saved login");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "SMTP connection failed"); }
+    finally { setTesting(false); }
+  }
+
+  return <section className="min-w-0 rounded-2xl border bg-card text-card-foreground shadow-sm" aria-label="Email server">
+    <header className="flex flex-wrap items-start justify-between gap-3 border-b p-4 sm:p-5"><div className="flex gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-lg bg-sky-500/10 text-sky-700 dark:text-sky-300"><Server className="size-5" /></div><div><h2 className="text-lg font-semibold">Email server (SMTP)</h2><p className="mt-1 text-sm text-muted-foreground">Used to send new-user invitations and password-reset emails. Shared by all companies.</p></div></div><Badge variant="secondary" className={form.passwordConfigured ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "bg-amber-500/15 text-amber-800 dark:text-amber-300"}>{loading ? "Checking…" : form.passwordConfigured ? "Configured" : "Not configured"}</Badge></header>
+    <form onSubmit={save} className="space-y-5 p-4 sm:p-5">
+      <div className="flex flex-wrap items-center gap-2 text-sm"><span className="text-muted-foreground">Quick setup:</span>{presets.map((preset) => <Button key={preset.host} type="button" size="sm" variant={form.host === preset.host ? "secondary" : "outline"} disabled={loading} onClick={() => update({ host: preset.host, port: preset.port, secure: preset.secure })}>{preset.label}</Button>)}</div>
+      <fieldset disabled={loading || saving} className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="space-y-2 xl:col-span-2"><Label htmlFor="smtp-host">SMTP host</Label><Input id="smtp-host" value={form.host} onChange={(event) => update({ host: event.target.value })} placeholder="smtp.gmail.com" required /></div>
+        <div className="space-y-2"><Label htmlFor="smtp-port">Port</Label><Input id="smtp-port" type="number" min={1} max={65535} value={form.port} onChange={(event) => update({ port: event.target.value })} required /></div>
+        <div className="space-y-2"><Label>Security</Label><Select value={form.secure ? "tls" : "starttls"} onValueChange={(value) => update({ secure: value === "tls", port: value === "tls" ? "465" : "587" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="tls">TLS · Port 465</SelectItem><SelectItem value="starttls">STARTTLS · Port 587</SelectItem></SelectContent></Select></div>
+        <div className="space-y-2 xl:col-span-2"><Label htmlFor="smtp-username">SMTP username</Label><Input id="smtp-username" type="email" value={form.username} onChange={(event) => update({ username: event.target.value, fromEmail: form.fromEmail || event.target.value })} placeholder="accounts@company.com" required /></div>
+        <div className="space-y-2 xl:col-span-2"><Label htmlFor="smtp-password">SMTP password / app password</Label><div className="relative"><Input id="smtp-password" type={showPassword ? "text" : "password"} autoComplete="new-password" value={form.password} onChange={(event) => update({ password: event.target.value })} placeholder={form.passwordConfigured ? "Saved — leave blank to keep it" : "Enter password"} className="pr-10" /><button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground" aria-label={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword((value) => !value)}>{showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button></div></div>
+        <div className="space-y-2 xl:col-span-2"><Label htmlFor="smtp-from-name">Sender name</Label><Input id="smtp-from-name" value={form.fromName} onChange={(event) => update({ fromName: event.target.value })} required /></div>
+        <div className="space-y-2 xl:col-span-2"><Label htmlFor="smtp-from-email">Sender email</Label><Input id="smtp-from-email" type="email" value={form.fromEmail} onChange={(event) => update({ fromEmail: event.target.value })} required /></div>
+      </fieldset>
+      <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-muted-foreground">{dirty ? "Unsaved changes — save before testing." : "Test connection checks the saved settings."}</p><div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={loading || testing || dirty || !form.passwordConfigured} onClick={() => void testConnection()}><Mail className="size-4" />{testing ? "Testing…" : "Test connection"}</Button><Button type="submit" disabled={loading || saving}><Send className="size-4" />{saving ? "Saving…" : "Save email settings"}</Button></div></div>
+      <p className="text-xs leading-5 text-muted-foreground">For Gmail, enable two-step verification and use a Google app password—not your normal Gmail password. The saved secret is encrypted and never shown again.</p>
+    </form>
+  </section>;
+}
