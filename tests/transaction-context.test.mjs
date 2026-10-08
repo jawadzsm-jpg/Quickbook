@@ -41,7 +41,7 @@ const vite = await createServer({
           const user = globalThis.__transferTestUser ?? { id: 1, email: "test@example.test", role: "all_admin", companyIds: [], mustChangePassword: false };
           if (user instanceof Response) return user;
           if (user.role === "sales" && !salesRouteAllowed(new URL(request.url).pathname, request.method)) return Response.json({ error: "Sales workspace only." }, { status: 403 });
-          if ((request.method === "DELETE" && !["/api/auth/session", "/api/sku-locks"].includes(new URL(request.url).pathname) || required === true) && !isAdministrator(user)) return Response.json({ error: "Administrator required." }, { status: 403 });
+          if ((request.method === "DELETE" && !["/api/auth/session", "/api/sku-locks"].includes(new URL(request.url).pathname) && !(user.role === "inventory" && new URL(request.url).pathname === "/api/records") || required === true) && !isAdministrator(user)) return Response.json({ error: "Administrator required." }, { status: 403 });
           if (typeof required === "string" && !hasPermission(user, required)) return Response.json({ error: "Permission denied." }, { status: 403 });
           return user;
         };
@@ -2427,10 +2427,11 @@ test('logistics override migration supports individual prepared queries and retr
   }
 });
 
-test('inventory bill access expires by UAE creation day and serial edits cannot change finances', async () => {
-  const { dubaiDay, canReadDocument } = await vite.ssrLoadModule('/lib/document-access.ts');
-  assert.equal(canReadDocument({ role: 'inventory' }, { type: 'bill', createdAt: '2026-10-04T19:59:00Z' }, new Date('2026-10-04T20:00:00Z')), false);
-  assert.equal(canReadDocument({ role: 'inventory' }, { type: 'bill', createdAt: '2026-10-04T00:01:00Z' }, new Date('2026-10-04T19:59:00Z')), true);
+test('inventory bill edits end with the UAE creation day, later serials append only, and serial edits cannot change finances', async () => {
+  const { dubaiDay, canReadDocument, canEditInventoryDocument } = await vite.ssrLoadModule('/lib/document-access.ts');
+  assert.equal(canEditInventoryDocument({ role: 'inventory' }, { type: 'bill', createdAt: '2026-10-04T19:59:00Z' }, new Date('2026-10-04T20:00:00Z')), false);
+  assert.equal(canEditInventoryDocument({ role: 'inventory' }, { type: 'bill', createdAt: '2026-10-04T00:01:00Z' }, new Date('2026-10-04T19:59:00Z')), true);
+  assert.equal(canReadDocument({ role: 'inventory' }, { type: 'bill', createdAt: '2020-01-01T00:00:00Z' }), true);
   const c = (await database.query("INSERT INTO companies(name) VALUES ('Inventory role rules') RETURNING id")).rows[0].id;
   const loc = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'ROLEINV','Role inventory','RIV') RETURNING id", [c])).rows[0].id;
   const item = (await database.query("INSERT INTO items(company_id,location_id,sku,name,quantity,cost) VALUES($1,$2,'ROLEITEM','Role item',10,40) RETURNING id", [c, loc])).rows[0].id;
@@ -2451,14 +2452,24 @@ test('inventory bill access expires by UAE creation day and serial edits cannot 
     assert.equal((await write('POST', { ...billInput, number: 'ROLE-BACKDATE', transactionDate: '2020-01-01' })).status, 403);
     data = await (await detail(bill.id)).json();
     await database.query("UPDATE transactions SET created_at=now()-interval '2 days' WHERE id=$1", [bill.id]);
-    assert.equal((await detail(bill.id)).status, 404);
+    assert.equal((await detail(bill.id)).status, 200);
     const rows = (await (await route.GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${c}`))).json()).records;
-    assert.ok(!rows.some(row => row.id === bill.id));
+    assert.ok(rows.some(row => row.id === bill.id));
     assert.equal((await write('PATCH', { ...billInput, id: bill.id, revision: data.revision })).status, 403);
     const serial = await vite.ssrLoadModule('/app/api/serial-search/route.ts');
-    assert.equal((await (await serial.GET(new Request(`https://app.test/api/serial-search?companyId=${c}&q=ROLE-BILL-SERIAL`))).json()).results.length, 0);
+    assert.equal((await (await serial.GET(new Request(`https://app.test/api/serial-search?companyId=${c}&q=ROLE-BILL-SERIAL`))).json()).results.length, 1);
     const attachments = await vite.ssrLoadModule('/app/api/attachments/route.ts');
-    assert.equal((await attachments.GET(new Request(`https://app.test/api/attachments?companyId=${c}&entityType=transaction&entityId=${bill.id}`))).status, 403);
+    assert.equal((await attachments.GET(new Request(`https://app.test/api/attachments?companyId=${c}&entityType=transaction&entityId=${bill.id}`))).status, 200);
+    // After the creation day, serial numbers can only be appended; quantities and existing serials stay fixed.
+    data = await (await detail(bill.id)).json();
+    const billStock = (await database.query('SELECT quantity FROM items WHERE id=$1', [item])).rows[0].quantity;
+    const billSerials = { locationId: undefined, id: bill.id, revision: data.revision, editMode: 'purchase-serials', lineDetails: [{ id: data.lines[0].id, serialNumber: 'ROLE-BILL-SERIAL\nLATER-SERIAL' }] };
+    assert.equal((await write('PATCH', { ...billSerials, lineDetails: [{ id: data.lines[0].id, serialNumber: 'REPLACED' }] })).status, 403);
+    assert.equal((await write('PATCH', { ...billSerials, lineDetails: [{ id: data.lines[0].id, serialNumber: 'ROLE-BILL-SERIAL\nX', quantity: 9 }] })).status, 403);
+    const laterSerial = await write('PATCH', billSerials);
+    assert.equal(laterSerial.status, 200, JSON.stringify(await laterSerial.clone().json()));
+    assert.equal((await database.query('SELECT serial_number FROM transaction_lines WHERE id=$1', [data.lines[0].id])).rows[0].serial_number, 'ROLE-BILL-SERIAL\nLATER-SERIAL');
+    assert.equal((await database.query('SELECT quantity FROM items WHERE id=$1', [item])).rows[0].quantity, billStock);
     const purchaseOrder = await write('POST', { ...billInput, type: 'purchase order', number: 'ROLE-PO' });
     assert.equal(purchaseOrder.status, 201);
     assert.equal((await write('POST', { ...billInput, type: 'vendor credit' })).status, 403);
@@ -2491,6 +2502,49 @@ test('inventory bill access expires by UAE creation day and serial edits cannot 
     assert.equal(slip.status, 'Returned to Supplier');
     assert.equal((await warranty.DELETE(new Request('https://app.test/api/warranty-slips', { method: 'DELETE', headers: { origin: 'https://app.test', 'content-type': 'application/json' }, body: JSON.stringify({ companyId: c, id: slip.id, revision: slip.updatedAt }) }))).status, 403);
 
+  } finally { delete globalThis.__transferTestUser; }
+});
+
+test('inventory users change invoice items and add zero-price lines without changing totals, and may delete items only', async () => {
+  const c = (await database.query("INSERT INTO companies(name) VALUES ('Inventory invoice edits') RETURNING id")).rows[0].id;
+  const loc = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'INVEDIT','Edit inventory','IED') RETURNING id", [c])).rows[0].id;
+  const addItem = async (sku, quantity, cost) => (await database.query("INSERT INTO items(company_id,location_id,sku,name,quantity,cost,item_type) VALUES($1,$2,$3,$3,$4,$5,'stock-part') RETURNING id", [c, loc, sku, quantity, cost])).rows[0].id;
+  const wrong = await addItem('WRONG-SKU', 10, 40), right = await addItem('RIGHT-SKU', 1, 55), cable = await addItem('FREE-CABLE', 5, 3);
+  await database.query("INSERT INTO contacts(company_id,type,name,currency) VALUES($1,'customer','Edit Customer','AED')", [c]);
+  const route = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const call = (method, body) => route[method](new Request('https://app.test/api/records', { method, headers: { origin: 'https://app.test', 'content-type': 'application/json' }, body: JSON.stringify({ companyId: c, kind: 'transactions', ...body }) }));
+  const detail = async id => (await route.GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${c}&id=${id}`))).json();
+  const stock = async id => Number((await database.query('SELECT quantity FROM items WHERE id=$1', [id])).rows[0].quantity);
+  const journalBalance = async id => (await database.query('SELECT round(sum(jl.debit)::numeric,2) AS d, round(sum(jl.credit)::numeric,2) AS cr FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.transaction_id=$1', [id])).rows[0];
+  try {
+    const created = await call('POST', { locationId: loc, type: 'invoice', number: 'INV-EDIT-1', party: 'Edit Customer', transactionDate: '2026-10-01', currency: 'AED', exchangeRate: 1, account: 'Sales Revenue', lines: [{ itemId: wrong, description: 'WRONG-SKU', quantity: 1, unitPrice: 100, vatCode: 'STANDARD' }] });
+    assert.equal(created.status, 201, JSON.stringify(await created.clone().json()));
+    const invoice = (await created.json()).record;
+    let data = await detail(invoice.id);
+    globalThis.__transferTestUser = { id: 1, role: 'inventory', companyIds: [c] };
+    const base = { id: invoice.id, revision: data.revision, editMode: 'inventory-invoice' };
+    const line = data.lines[0];
+    assert.equal((await call('PATCH', { ...base, appendLines: [{ itemId: cable, quantity: 1, unitPrice: 5 }] })).status, 403, 'charged lines are refused');
+    assert.equal((await call('PATCH', { ...base, total: 1 })).status, 403, 'financial fields are refused');
+    assert.equal((await call('PATCH', { ...base, lineDetails: [{ id: line.id, itemId: right, fromItemId: cable }] })).status, 409, 'stale item is refused');
+    assert.equal((await call('PATCH', { ...base, appendLines: [{ itemId: right, quantity: 2 }] })).status, 409, 'stock shortage is refused');
+    const saved = await call('PATCH', { ...base, comments: 'Packed by stores', lineDetails: [{ id: line.id, itemId: right, fromItemId: wrong, serialNumber: 'SN-RIGHT-1' }], appendLines: [{ itemId: cable, quantity: 2, serialNumber: '', comments: 'Free cable' }] });
+    assert.equal(saved.status, 200, JSON.stringify(await saved.clone().json()));
+    assert.deepEqual([await stock(wrong), await stock(right), await stock(cable)], [10, 0, 3]);
+    const after = await detail(invoice.id);
+    assert.equal(Number(after.record.total), Number(invoice.total));
+    assert.equal(after.record.comments, 'Packed by stores');
+    assert.equal(after.lines.length, 2);
+    assert.equal(Number(after.lines.find(row => row.id === line.id).itemId), right);
+    assert.equal(after.lines.find(row => row.id === line.id).serialNumber, 'SN-RIGHT-1');
+    assert.equal(Number(after.lines.find(row => row.id !== line.id).unitPrice), 0);
+    const balance = await journalBalance(invoice.id);
+    assert.equal(balance.d, balance.cr);
+    assert.equal((await call('DELETE', { id: invoice.id, deletionReason: 'not allowed' })).status, 403);
+    const contact = (await database.query("SELECT id FROM contacts WHERE company_id=$1 AND name='Edit Customer'", [c])).rows[0].id;
+    assert.equal((await call('DELETE', { kind: 'contacts', id: contact, deletionReason: 'not allowed' })).status, 403);
+    const spare = await addItem('SPARE-ITEM', 0, 0);
+    assert.equal((await call('DELETE', { kind: 'items', id: spare, deletionReason: 'duplicate item' })).status, 200);
   } finally { delete globalThis.__transferTestUser; }
 });
 
@@ -3010,7 +3064,7 @@ test('Insights entry-day activity uses UAE boundaries, complete pagination and s
     globalThis.__transferTestUser.role='purchasing';
     const purchasing = await (await get()).json(); assert.equal(purchasing.total,2); assert.deepEqual(new Set(purchasing.records.map(row=>row.type)),new Set(['purchase order','bill']));
     globalThis.__transferTestUser.role='inventory';
-    const inventory = await (await get()).json(); assert.equal(inventory.total,58); assert.ok(inventory.records.every(row=>['invoice','purchase order'].includes(row.type)));
+    const inventory = await (await get()).json(); assert.equal(inventory.total,59); assert.ok(inventory.records.every(row=>['invoice','purchase order','bill'].includes(row.type)));
     globalThis.__transferTestUser.role='viewer';
     const viewer = await (await get({page:'2'})).json(); assert.equal(viewer.total,60); assert.ok(viewer.records.every(row=>row.type!=='pending invoice'));
     globalThis.__transferTestUser.role='accountant'; assert.equal((await (await get()).json()).total,61);

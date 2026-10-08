@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { transactions } from "@/db/schema";
 import { documentVisibility } from "@/lib/document-access-sql";
-import { canReadDocument } from "@/lib/document-access";
+import { canEditInventoryDocument, canReadDocument } from "@/lib/document-access";
 import { sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { hasPermission, isAdministrator, requireCompanyAccess } from "@/lib/auth";
@@ -25,7 +25,7 @@ export async function GET(request: Request) {
   if (entityType === "transaction" && authorization.role === "inventory") {
     const result = await getDb().execute(sql`SELECT type, created_at AS "createdAt" FROM transactions WHERE id = ${entityId} AND company_id = ${companyId}`);
     const document = result.rows[0];
-    if (!document || !canReadDocument(authorization, { type: String(document.type), createdAt: String(document.createdAt) })) return Response.json({ error: "Bill access has expired." }, { status: 403 });
+    if (!document || !canReadDocument(authorization, { type: String(document.type), createdAt: String(document.createdAt) })) return Response.json({ error: "You cannot open this document." }, { status: 403 });
   }
   if (!allowedTypes.has(entityType) || !Number.isInteger(entityId) || entityId <= 0) return Response.json({ error: "Select a valid record." }, { status: 400 });
   if (entityType === "staff_salary_sheet") {
@@ -72,7 +72,7 @@ export async function POST(request: Request) {
   if (entityType === "transaction" && authorization.role === "inventory") {
     const result = await getDb().execute(sql`SELECT type, created_at AS "createdAt" FROM transactions WHERE id = ${entityId} AND company_id = ${companyId}`);
     const document = result.rows[0];
-    if (!document || !canReadDocument(authorization, { type: String(document.type), createdAt: String(document.createdAt) })) return Response.json({ error: "Bill access has expired." }, { status: 403 });
+    if (!document || !canEditInventoryDocument(authorization, { type: String(document.type), createdAt: String(document.createdAt) })) return Response.json({ error: "Attachments can be added to bills only on the day they were created." }, { status: 403 });
   }
   if (!allowedTypes.has(entityType) || !Number.isInteger(entityId) || entityId <= 0) return Response.json({ error: "Select a valid record." }, { status: 400 });
   const files = Array.isArray(payload.attachments) ? payload.attachments as AttachmentInput[] : [];
