@@ -2550,6 +2550,23 @@ test('inventory users change invoice items and add zero-price lines without chan
     assert.equal(Number(after.lines.find(row => row.id !== line.id).unitPrice), 0);
     const balance = await journalBalance(invoice.id);
     assert.equal(balance.d, balance.cr);
+    // Stock return: a negative zero-price line brings the item back into stock without changing the total.
+    data = await detail(invoice.id);
+    assert.equal((await call('PATCH', { id: invoice.id, revision: data.revision, editMode: 'inventory-invoice', appendLines: [{ itemId: cable, quantity: -1, unitPrice: 5 }] })).status, 403);
+    const returned = await call('PATCH', { id: invoice.id, revision: data.revision, editMode: 'inventory-invoice', appendLines: [{ itemId: cable, quantity: -1, serialNumber: '', comments: 'Returned cable' }] });
+    assert.equal(returned.status, 200, JSON.stringify(await returned.clone().json()));
+    assert.equal(await stock(cable), 4);
+    assert.equal(Number((await detail(invoice.id)).record.total), Number(invoice.total));
+    const returnBalance = await journalBalance(invoice.id);
+    assert.equal(returnBalance.d, returnBalance.cr);
+    // Delivery: inventory marks it delivered, cannot undo; an administrator can.
+    const delivered = await call('PATCH', { id: invoice.id, editMode: 'delivery', delivered: true });
+    assert.equal(delivered.status, 200, JSON.stringify(await delivered.clone().json()));
+    assert.ok((await delivered.json()).record.deliveredAt);
+    assert.equal((await call('PATCH', { id: invoice.id, editMode: 'delivery', delivered: false })).status, 403);
+    globalThis.__transferTestUser = { id: 1, role: 'admin', companyIds: [c] };
+    assert.equal((await (await call('PATCH', { id: invoice.id, editMode: 'delivery', delivered: false })).json()).record.deliveredAt, null);
+    globalThis.__transferTestUser = { id: 1, role: 'inventory', companyIds: [c] };
     assert.equal((await call('DELETE', { id: invoice.id, deletionReason: 'not allowed' })).status, 403);
     const contact = (await database.query("SELECT id FROM contacts WHERE company_id=$1 AND name='Edit Customer'", [c])).rows[0].id;
     assert.equal((await call('DELETE', { kind: 'contacts', id: contact, deletionReason: 'not allowed' })).status, 403);

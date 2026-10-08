@@ -311,6 +311,10 @@ export const transactions = pgTable("transactions", {
   serialNumber: text("serial_number").notNull().default(""),
   // Ship To / delivery address on sales documents (migration 0092).
   deliveryAddress: text("delivery_address").notNull().default(""),
+  // Invoice marked as delivered by inventory staff (migration 0094); printed as a DELIVERED stamp.
+  deliveredAt: timestamp("delivered_at", { withTimezone: true, mode: "string" }),
+  deliveredByUserId: integer("delivered_by_user_id").references(() => appUsers.id, { onDelete: "set null" }),
+  deliveredByName: text("delivered_by_name").notNull().default(""),
   memo: text("memo").notNull().default(""),
   subtotal: doublePrecision("subtotal").notNull().default(0),
   vatRate: doublePrecision("vat_rate").notNull().default(5),

@@ -21,6 +21,7 @@ import { bankForCurrency, bankLines } from "@/lib/bank-accounts";
 import { vendorBankLines } from "@/lib/vendor-bank";
 import { contentBox, parseLayoutCollection } from "@/lib/layout/schema";
 import { PAGE_STAMP_SIZE, clampPageStamp, type MovePageStamp } from "./page-stamps";
+import { useRecordRole } from "./record-permissions";
 import { readStampPositions, type DocumentStampPositions, type StampPlacement, type StampPositions } from "@/lib/stamp-positions";
 
 type RecordData = Record<string, string | number | boolean>;
@@ -115,6 +116,8 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
   const savedCompany = savedStamps.company?.page ? savedStamps.company : undefined;
   const savedBank = savedStamps.bank?.page ? savedStamps.bank : undefined;
   const movableStamp = true;
+  // Inventory users print with the saved stamp settings but cannot change or move them.
+  const canEditStamps = useRecordRole() !== "inventory";
   // The company's bank details belong on customer documents asking for payment: not on delivery notes,
   // packing lists or HS summaries, and not on purchase documents (bills, purchase orders, purchase returns).
   const bankApplies = !["delivery-note", "packing-list", "hs-code-summary", "bill", "purchase-order", "purchase-return"].includes(activeMode);
@@ -156,7 +159,7 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
   const setCopyLabel = (copy: StampPlacement) => editStamps({ copy: { ...copy, page: true } });
   const setPoStamp = (company: StampPlacement) => editStamps({ company: { ...company, page: true } });
   const setBankBox = (bank: StampPlacement) => editStamps({ bank: { ...bank, page: true } });
-  const movePageStamp: MovePageStamp = (kind, left, top) => kind === "bank" ? setBankBox({ ...bankBox, left, top }) : kind === "status" ? (statusStamp ? setStatusStamp({ ...statusStamp, left, top }) : undefined) : kind === "copy" ? (copyLabel ? setCopyLabel({ ...copyLabel, left, top }) : undefined) : setPoStamp({ ...stamp, left, top });
+  const movePageStamp: MovePageStamp = (kind, left, top) => kind === "delivered" ? undefined : kind === "bank" ? setBankBox({ ...bankBox, left, top }) : kind === "status" ? (statusStamp ? setStatusStamp({ ...statusStamp, left, top }) : undefined) : kind === "copy" ? (copyLabel ? setCopyLabel({ ...copyLabel, left, top }) : undefined) : setPoStamp({ ...stamp, left, top });
   const copyPlacement = copyLabel ? { ...copyLabel, ...clampPageStamp("copy", copyLabel.left, copyLabel.top, stampArea.width, stampArea.height) } : undefined;
   const copyLabelText = (documentCopy: "customer" | "inventory") => documentCopy === "inventory" ? "INVENTORY TEAM COPY" : "CUSTOMER COPY";
   const stampsFor = (documentCopy: "customer" | "inventory"): DocumentStamp[] => copyPlacement?.show ? [...pageStamps, { kind: "copy", text: copyLabelText(documentCopy), left: copyPlacement.left, top: copyPlacement.top }] : pageStamps;
@@ -173,9 +176,15 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
   const bankBoxTitle = supplierBankMode ? "Supplier bank details" : "Bank details";
   const bankRemark = bankRemarkEdit ?? (supplierBankMode ? "" : bankAccount?.remark ?? "");
   const bankBoxShown = Boolean(bankBoxLines) && bankBox.show;
+  // A delivered invoice prints DELIVERED (with the delivery date) below the status stamp, on the right.
+  const deliveredAt = String(record.type) === "invoice" && record.deliveredAt ? String(record.deliveredAt) : "";
+  const deliveredDate = deliveredAt ? new Date(deliveredAt.replace(" ", "T").replace(/([+-]\d{2})$/, "$1:00")).toLocaleDateString("en-GB", { timeZone: "Asia/Dubai", day: "2-digit", month: "short", year: "numeric" }) : "";
+  const deliveredPosition = clampPageStamp("delivered", stampArea.width - PAGE_STAMP_SIZE.delivered.width - 2, statusPlacement?.show ? statusPlacement.top + PAGE_STAMP_SIZE.status.height + 4 : 21, stampArea.width, stampArea.height);
+  const deliveredStamp: DocumentStamp | null = deliveredAt ? { kind: "delivered", text: deliveredDate, left: deliveredPosition.left, top: deliveredPosition.top } : null;
   const pageStamps: DocumentStamp[] = [
     ...(companyPlacement.show && setup.stampData ? [{ kind: "company" as const, src: setup.stampData, left: companyPlacement.left, top: companyPlacement.top }] : []),
     ...(statusPlacement?.show && statusText ? [{ kind: "status" as const, text: statusText, left: statusPlacement.left, top: statusPlacement.top }] : []),
+    ...(deliveredStamp ? [deliveredStamp] : []),
     ...(bankBoxShown && bankBoxLines ? [{ kind: "bank" as const, title: bankBoxTitle, lines: bankBoxLines, remark: bankRemark, src: supplierBankMode ? undefined : bankAccount?.stampData, left: bankPlacement.left, top: bankPlacement.top }] : []),
   ];
   const stampsToSave: DocumentStampPositions = { company: { show: stamp.show, left: companyPlacement.left, top: companyPlacement.top, page: true }, bank: { show: bankBox.show, left: bankPlacement.left, top: bankPlacement.top, page: true }, ...(statusPlacement ? { status: { show: statusPlacement.show, left: statusPlacement.left, top: statusPlacement.top, page: true } } : {}), ...(copyPlacement ? { copy: { show: copyPlacement.show, left: copyPlacement.left, top: copyPlacement.top, page: true } } : {}) };
@@ -233,8 +242,8 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
     const copyDesign = { ...a4Design, ...(inventoryCopy ? { title: `${design.title} — Inventory Copy` } : {}), ...(withoutBank ? { footer: a4Design.footer.filter((field) => field.key !== "bankDetails") } : {}) };
     const copyLines = inventoryCopy ? inventoryLines : customerLines;
     return activeMode === "delivery-note" && connectedPackingList && !design.enabled
-      ? <DeliveryNoteTemplate record={record} lines={copyLines} contact={contact} setup={setup} letterhead={letterhead} stampOverride={{ show: false, left: 0, top: 0 }} pageStamps={pageStamps} pageStampArea={stampArea} onMovePageStamp={!print ? movePageStamp : undefined} />
-      : <CustomInvoiceTemplate design={copyDesign} record={record} lines={copyLines} contact={contact} setup={setup} letterhead={design.enabled ? undefined : letterhead} stampOverride={{ show: false, left: 0, top: 0 }} stampPlacement="footer" showBankStamp={false} pageStamps={signedInvoiceCopies ? stampsFor(documentCopy) : pageStamps} onMovePageStamp={!print ? movePageStamp : undefined} showItemNumberAtEnd={inventoryCopy} target="print" onMoveStamp={!print && movableStamp ? (left, top) => setPoStamp({ ...stamp, left, top }) : undefined} />;
+      ? <DeliveryNoteTemplate record={record} lines={copyLines} contact={contact} setup={setup} letterhead={letterhead} stampOverride={{ show: false, left: 0, top: 0 }} pageStamps={pageStamps} pageStampArea={stampArea} onMovePageStamp={!print && canEditStamps ? movePageStamp : undefined} />
+      : <CustomInvoiceTemplate design={copyDesign} record={record} lines={copyLines} contact={contact} setup={setup} letterhead={design.enabled ? undefined : letterhead} stampOverride={{ show: false, left: 0, top: 0 }} stampPlacement="footer" showBankStamp={false} pageStamps={signedInvoiceCopies ? stampsFor(documentCopy) : pageStamps} onMovePageStamp={!print && canEditStamps ? movePageStamp : undefined} showItemNumberAtEnd={inventoryCopy} target="print" onMoveStamp={!print && movableStamp ? (left, top) => setPoStamp({ ...stamp, left, top }) : undefined} />;
   };
   const customerName = String(contact?.billingName || contact?.company || record.party || "Customer");
   const referenceNumber = String(record.number || "Document");
@@ -416,7 +425,7 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
         </Button>
       </div>
     </div>
-    {movableStamp && <div className="document-internal-only mb-4 grid gap-3 rounded-xl border bg-card p-4 text-sm text-card-foreground">
+    {movableStamp && canEditStamps && <div className="document-internal-only mb-4 grid gap-3 rounded-xl border bg-card p-4 text-sm text-card-foreground">
       <div className="flex flex-wrap items-center gap-4"><label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={stamp.show} disabled={!setup.stampData} onChange={(event) => setPoStamp({ ...stamp, show: event.target.checked })} />Company stamp</label>{copyLabel ? <label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={copyLabel.show} onChange={(event) => setCopyLabel({ ...copyLabel, show: event.target.checked })} />Copy label</label> : null}{statusStamp && statusText ? <label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={statusStamp.show} onChange={(event) => setStatusStamp({ ...statusStamp, show: event.target.checked })} />Status stamp ({statusText.toUpperCase()})</label> : null}{bankBoxApplies && <label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={bankBoxShown} disabled={!bankBoxLines} onChange={(event) => setBankBox({ ...bankBox, show: event.target.checked })} />{supplierBankMode ? `Supplier bank details (${supplierName})` : `Bank details box (${documentCurrency})`}</label>}{!setup.stampData && <span className="text-muted-foreground">Upload a company stamp in Company Setup first.</span>}{bankBoxApplies && !bankBoxLines && <span className="text-muted-foreground">{supplierBankMode ? "No bank details saved for this supplier. Add them in Vendor Center → Edit." : `Add a ${documentCurrency} bank account in Company Setup → Bank account.`}</span>}{(setup.stampData || bankAccount) && setup.id ? <Button type="button" size="sm" variant={stampsDirty ? "default" : "outline"} className="ml-auto" disabled={savingStamps || !stampsDirty} onClick={() => void saveStampPositions()}><Save className="size-4" />{savingStamps ? "Saving…" : stampsDirty ? "Save stamp positions" : "Positions saved"}</Button> : null}</div>
       {companyPlacement.show && setup.stampData && <div className="flex flex-wrap items-center gap-4"><span className="w-32 font-medium">Company stamp</span><label className="flex items-center gap-2">Left (mm)<input type="number" min="0" max={Math.floor(stampArea.width - PAGE_STAMP_SIZE.company.width)} className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={companyPlacement.left} onChange={(event) => setPoStamp({ ...stamp, left: Math.max(0, Number(event.target.value) || 0) })} /></label><label className="flex items-center gap-2">Top (mm)<input type="number" min="0" max={Math.floor(stampArea.height - PAGE_STAMP_SIZE.company.height)} className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={companyPlacement.top} onChange={(event) => setPoStamp({ ...stamp, top: Math.max(0, Number(event.target.value) || 0) })} /></label></div>}
       {copyPlacement?.show && copyLabel && <div className="flex flex-wrap items-center gap-4"><span className="w-32 font-medium">Copy label</span><label className="flex items-center gap-2">Left (mm)<input type="number" min="0" max={Math.floor(stampArea.width - PAGE_STAMP_SIZE.copy.width)} className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={copyPlacement.left} onChange={(event) => setCopyLabel({ ...copyLabel, left: Math.max(0, Number(event.target.value) || 0) })} /></label><label className="flex items-center gap-2">Top (mm)<input type="number" min="0" max={Math.floor(stampArea.height - PAGE_STAMP_SIZE.copy.height)} className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={copyPlacement.top} onChange={(event) => setCopyLabel({ ...copyLabel, top: Math.max(0, Number(event.target.value) || 0) })} /></label></div>}
@@ -427,7 +436,7 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
     </div>}
     {signedInvoiceCopies ? <div className="document-internal-only mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">Print creates Customer and Inventory copies with signature areas. Customer copies hide zero-price and stock-return lines. Save or download uses the selected copy.</div> : null}
     <div ref={fitRef} className="relative min-w-0">
-      {builderLayout && builderCopies ? <LayoutPreview layout={outputLayout ?? builderLayout} data={builderCopies.preview} onMoveStamp={movePageStamp} /> : <div ref={zoomRef} style={{ zoom: previewZoom }}><div ref={screenPreviewRef} className="invoice-screen-only" data-invoice-copy={selectedCopy}>{renderDocument(selectedCopy)}</div></div>}
+      {builderLayout && builderCopies ? <LayoutPreview layout={outputLayout ?? builderLayout} data={builderCopies.preview} onMoveStamp={canEditStamps ? movePageStamp : undefined} /> : <div ref={zoomRef} style={{ zoom: previewZoom }}><div ref={screenPreviewRef} className="invoice-screen-only" data-invoice-copy={selectedCopy}>{renderDocument(selectedCopy)}</div></div>}
       {splitInvoiceCopies && <div ref={alternatePreviewRef} data-invoice-copy={selectedCopy === "customer" ? "inventory" : "customer"} className="invoice-screen-only pointer-events-none absolute top-0 w-full" style={{ left: -100000 }} aria-hidden="true" inert>{renderDocument(selectedCopy === "customer" ? "inventory" : "customer")}</div>}
     </div>
     <div className="invoice-print-only">{renderDocument(selectedCopy, true)}</div>

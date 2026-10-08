@@ -3,7 +3,8 @@ import { getDb } from "@/db";
 import { accounts, auditLog, companies, inventoryMovements, items, journalEntries, journalLines, packingListLines, transactionLines, transactions, vatCodes, warrantySlips } from "@/db/schema";
 import { fullItemDescription } from "./item-description";
 
-// Inventory users may correct which product was sold, add free (zero-price) lines such as accessories, and record serial
+// Inventory users may correct which product was sold, add free (zero-price) lines such as accessories, add stock returns
+// (negative quantity, zero price), and record serial
 // numbers and comments on a saved invoice. Quantities, prices, VAT, the customer and the invoice total never change, so the
 // customer balance, VAT and revenue totals are untouched; only stock, cost of sales and the revenue account split move.
 
@@ -63,7 +64,8 @@ export async function applyInventoryInvoiceEdit(db: Db, input: { companyId: numb
   });
   if (appended.some((line) => line.keys.some((key) => !["itemId", "quantity", "comments", "serialNumber", "unitPrice"].includes(key)))) return fail("New lines take an item, quantity, serial numbers and comments only.");
   if (appended.some((line) => line.unitPrice !== 0)) return fail("Inventory users may add zero-price lines only. Ask an accountant to add charged items.", 403);
-  if (appended.some((line) => !Number.isInteger(line.itemId) || line.itemId <= 0 || !Number.isFinite(line.quantity) || line.quantity <= 0 || line.quantity > 1_000_000)) return fail("Select an item and a positive quantity for every new line.");
+  // A negative quantity is a stock return: the item comes back into stock at zero selling price.
+  if (appended.some((line) => !Number.isInteger(line.itemId) || line.itemId <= 0 || !Number.isFinite(line.quantity) || line.quantity === 0 || Math.abs(line.quantity) > 1_000_000)) return fail("Select an item and a quantity for every new line.");
   if (!swaps.length && !appended.length && !textUpdates.length && invoiceComments === invoice.comments) return fail("Nothing to save.");
 
   if (swaps.length) {
@@ -86,6 +88,7 @@ export async function applyInventoryInvoiceEdit(db: Db, input: { companyId: numb
     if (item.status === "inactive") return fail(`${item.sku} ${item.name} is inactive.`, 409);
     if (!lineItemTypes.has(item.itemType)) return fail("Select stock, non-stock, service or other-charge items only.");
   }
+  if (appended.some((line) => line.quantity < 0 && itemById.get(line.itemId)?.itemType !== "stock-part")) return fail("Stock returns require a stock item.");
 
   const exchangeRate = Number(invoice.exchangeRate || 1);
   const configured = await db.select({ code: vatCodes.code, rate: vatCodes.rate }).from(vatCodes).where(and(eq(vatCodes.companyId, companyId), eq(vatCodes.active, true)));
@@ -145,7 +148,8 @@ export async function applyInventoryInvoiceEdit(db: Db, input: { companyId: numb
   if (appended.length) {
     const rows = appended.map((line) => {
       const item = itemById.get(line.itemId)!;
-      return { transactionId: invoice.id, itemId: item.id, description: fullItemDescription(item) || item.name, comments: line.comments, serialNumber: line.serialNumber, quantity: line.quantity, unitPrice: 0, freightCharge: 0, isFreightCharge: false, unitCost: unitCostFor(item), vatCode: documentVatCode, vatRate: documentVatRate, subtotal: 0, vatAmount: 0, total: 0 };
+      const isReturn = line.quantity < 0;
+      return { transactionId: invoice.id, itemId: item.id, description: fullItemDescription(item) || item.name, comments: line.comments, serialNumber: line.serialNumber, quantity: line.quantity, unitPrice: 0, freightCharge: 0, isFreightCharge: false, unitCost: unitCostFor(item), vatCode: isReturn ? "ZERO" : documentVatCode, vatRate: isReturn ? 0 : documentVatRate, subtotal: 0, vatAmount: 0, total: 0 };
     });
     await db.insert(transactionLines).values(rows);
     for (const row of rows) {
@@ -173,7 +177,7 @@ export async function applyInventoryInvoiceEdit(db: Db, input: { companyId: numb
   await db.insert(auditLog).values({ companyId, action: "updated", entityType: "transaction", entityId: invoice.id, details: JSON.stringify({
     mode: "inventory-invoice", actorId,
     itemChanges: swaps.map((swap) => ({ lineId: swap.line.id, from: swap.line.itemId, to: swap.itemId, quantity: Number(swap.line.quantity) })),
-    addedLines: appended.map((line) => ({ itemId: line.itemId, quantity: line.quantity })),
+    addedLines: appended.map((line) => ({ itemId: line.itemId, quantity: line.quantity, stockReturn: line.quantity < 0 })),
     textChanges: textUpdates.map((update) => ({ lineId: update.line.id, before: { comments: update.line.comments, serialNumber: update.line.serialNumber } })),
     commentsChanged: invoiceComments !== invoice.comments,
   }) });
