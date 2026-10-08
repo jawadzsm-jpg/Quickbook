@@ -37,7 +37,7 @@
   --accent-foreground: #047857;
   --destructive: #e7000b;
   --border: #dfe4ea;
-  --input: #d4dbe3;
+  --input: #94a3b8;
   --ring: #10b981;
   --chart-1: #10b981;
   --chart-2: #38bdf8;
@@ -202,7 +202,7 @@ body {
   --accent: #1b2c3f;
   --accent-foreground: #f8fafc;
   --border: #29384b;
-  --input: #34445a;
+  --input: #52667f;
   --user-workspace: #0a1220;
 }
 
@@ -991,7 +991,7 @@ body {
   [data-slot="dialog-footer"] { padding-top: .25rem; }
   [data-slot="popover-content"], [data-slot="dropdown-menu-content"] { border-color: color-mix(in srgb, var(--border) 85%, transparent); box-shadow: 0 16px 40px rgb(15 23 42 / .13); }
 
-  :where(textarea, select):not([data-slot]) { border-color: var(--input); background: var(--background); color: var(--foreground); box-shadow: 0 1px 2px rgb(15 23 42 / .04); transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease; }
+  :where(textarea, select):not([data-slot]) { border-color: var(--input); background: var(--card); color: var(--foreground); box-shadow: 0 1px 2px rgb(15 23 42 / .04); transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease; }
   :where(textarea, select):not([data-slot]):focus { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 18%, transparent); outline: none; }
   :where(label) { text-wrap: pretty; }
   :where(h1, h2, h3) { text-wrap: balance; }
@@ -1142,7 +1142,7 @@ body {
 .inventory-report-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .8rem; padding: 1rem; border: 1px solid #d7e0e7; border-radius: .8rem; background: #f8fafc; }
 .inventory-report-filters label { display: grid; gap: .4rem; flex: 1 1 10rem; min-width: 0; font-size: .75rem; font-weight: 650; color: #475569; }
 .inventory-report-filters label.inventory-report-search { flex-basis: 18rem; }
-.inventory-report-filters select { width: 100%; min-width: 0; height: 2.5rem; border: 1px solid #cbd5e1; border-radius: .4rem; background: #fff; color: #0f172a; padding: 0 .6rem; font-size: .8rem; }
+.inventory-report-filters select { width: 100%; min-width: 0; height: 2.5rem; border: 1px solid var(--input); border-radius: .4rem; background: #fff; color: #0f172a; padding: 0 .6rem; font-size: .8rem; }
 .inventory-report-filter-count { display: flex; justify-content: space-between; align-items: center; gap: .5rem; width: 100%; color: #64748b; font-size: .75rem; }
 .inventory-report-data { min-width: 0; width: 100%; }
 .inventory-report-dialog .inventory-report-table-desktop { overflow: hidden; border-color: #d7e0e7; }
@@ -1235,7 +1235,7 @@ body {
 .purchase-report-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .8rem; padding: 1rem; border: 1px solid #d7e0e7; border-radius: .8rem; background: #f8fafc; }
 .purchase-report-filters label { display: grid; gap: .4rem; flex: 1 1 10rem; min-width: 0; font-size: .75rem; font-weight: 650; color: #475569; }
 .purchase-report-filters label.purchase-report-search { flex-basis: 18rem; }
-.purchase-report-filters select { width: 100%; min-width: 0; height: 2.5rem; border: 1px solid #cbd5e1; border-radius: .4rem; background: #fff; color: #0f172a; padding: 0 .6rem; font-size: .8rem; }
+.purchase-report-filters select { width: 100%; min-width: 0; height: 2.5rem; border: 1px solid var(--input); border-radius: .4rem; background: #fff; color: #0f172a; padding: 0 .6rem; font-size: .8rem; }
 .purchase-report-filter-count { display: flex; justify-content: space-between; align-items: center; gap: .5rem; width: 100%; color: #64748b; font-size: .75rem; }
 .purchase-report-data { min-width: 0; width: 100%; }
 .purchase-report-dialog .purchase-report-table-desktop { overflow: hidden; border-color: #d7e0e7; }
@@ -1328,7 +1328,7 @@ body {
 .sales-report-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .8rem; padding: 1rem; border: 1px solid #d7e0e7; border-radius: .8rem; background: #f8fafc; }
 .sales-report-filters label { display: grid; gap: .4rem; flex: 1 1 10rem; min-width: 0; font-size: .75rem; font-weight: 650; color: #475569; }
 .sales-report-filters label.sales-report-search { flex-basis: 18rem; }
-.sales-report-filters select { width: 100%; min-width: 0; height: 2.5rem; border: 1px solid #cbd5e1; border-radius: .4rem; background: #fff; color: #0f172a; padding: 0 .6rem; font-size: .8rem; }
+.sales-report-filters select { width: 100%; min-width: 0; height: 2.5rem; border: 1px solid var(--input); border-radius: .4rem; background: #fff; color: #0f172a; padding: 0 .6rem; font-size: .8rem; }
 .sales-report-filter-count { display: flex; justify-content: space-between; align-items: center; gap: .5rem; width: 100%; color: #64748b; font-size: .75rem; }
 .sales-report-data { min-width: 0; width: 100%; }
 .sales-report-dialog .sales-report-table-desktop { overflow: hidden; border-color: #d7e0e7; }
@@ -1406,7 +1406,7 @@ body {
 .sales-stamp-controls h3 { font-size: .95rem; font-weight: 750; color: #16344c; }
 .sales-stamp-controls p, .sales-stamp-preview-wrap > p { margin-top: .4rem; font-size: .75rem; line-height: 1.6; color: #557086; }
 .sales-stamp-controls label { display: flex; align-items: center; gap: .5rem; color: #36556b; font-size: .8rem; font-weight: 650; }
-.sales-stamp-controls input[type="number"] { width: 5.3rem; padding: .5rem; border: 1px solid #bccbd8; border-radius: .4rem; background: #fff; color: #0f172a; }
+.sales-stamp-controls input[type="number"] { width: 5.3rem; padding: .5rem; border: 1px solid var(--input); border-radius: .4rem; background: #fff; color: #0f172a; }
 .sales-stamp-preview { position: relative; width: 100%; border: 1px solid #b8cad8; border-radius: .3rem; background: #fff; box-shadow: 0 3px 10px rgb(15 23 42 / .06); overflow: hidden; }
 .sales-stamp-preview > span { display: block; padding: .6rem; text-align: center; color: #557086; font-size: .65rem; }
 .sales-stamp-preview-lines { position: absolute; inset: 13% 9% 13%; pointer-events: none; opacity: .5; background: repeating-linear-gradient(to bottom, #e2e8f0 0, #e2e8f0 1px, transparent 1px, transparent 8%); }
@@ -1444,7 +1444,7 @@ body {
 .vat-report-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .8rem; padding: 1rem; border: 1px solid #d7e0e7; border-radius: .8rem; background: #f8fafc; }
 .vat-report-filters label { display: grid; gap: .4rem; flex: 1 1 10rem; min-width: 0; font-size: .75rem; font-weight: 650; color: #475569; }
 .vat-report-filters label.vat-report-search { flex-basis: 18rem; }
-.vat-report-filters select { width: 100%; min-width: 0; height: 2.5rem; border: 1px solid #cbd5e1; border-radius: .4rem; background: #fff; color: #0f172a; padding: 0 .6rem; font-size: .8rem; }
+.vat-report-filters select { width: 100%; min-width: 0; height: 2.5rem; border: 1px solid var(--input); border-radius: .4rem; background: #fff; color: #0f172a; padding: 0 .6rem; font-size: .8rem; }
 .vat-report-filter-count { display: flex; justify-content: space-between; align-items: center; gap: .5rem; width: 100%; color: #64748b; font-size: .75rem; }
 .vat-report-data { min-width: 0; width: 100%; }
 .vat-report-dialog .vat-report-table-desktop { overflow: hidden; border-color: #d7e0e7; }
@@ -1558,7 +1558,7 @@ body {
 .vendor-report-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .8rem; padding: 1rem; border: 1px solid #d7e0e7; border-radius: .8rem; background: #f8fafc; }
 .vendor-report-filters label { display: grid; gap: .4rem; flex: 1 1 10rem; min-width: 0; font-size: .75rem; font-weight: 650; color: #475569; }
 .vendor-report-filters label.vendor-report-search { flex-basis: 18rem; }
-.vendor-report-filters select { width: 100%; min-width: 0; height: 2.5rem; border: 1px solid #cbd5e1; border-radius: .4rem; background: #fff; color: #0f172a; padding: 0 .6rem; font-size: .8rem; }
+.vendor-report-filters select { width: 100%; min-width: 0; height: 2.5rem; border: 1px solid var(--input); border-radius: .4rem; background: #fff; color: #0f172a; padding: 0 .6rem; font-size: .8rem; }
 .vendor-report-filter-count { display: flex; justify-content: space-between; align-items: center; gap: .5rem; width: 100%; color: #64748b; font-size: .75rem; }
 .vendor-report-data { min-width: 0; width: 100%; }
 .vendor-report-dialog .vendor-report-table-desktop { overflow: hidden; border-color: #d7e0e7; }
@@ -1879,7 +1879,7 @@ body {
 .accountant-filters { border: 1px solid #ddd8eb; border-radius: .75rem; padding: 1rem; background: #faf9ff; }
 .accountant-filter-controls { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto; gap: .8rem; align-items: end; }
 .accountant-filter-controls label { display: grid; min-width: 0; gap: .4rem; font-size: .75rem; font-weight: 650; }
-.accountant-filter-controls input, .accountant-filter-controls select, .accountant-filter-controls button { min-width: 0; width: 100%; min-height: 42px; border: 1px solid #cbd5e1; border-radius: .45rem; background: #fff; color: #0f172a; padding: .55rem .7rem; }
+.accountant-filter-controls input, .accountant-filter-controls select, .accountant-filter-controls button { min-width: 0; width: 100%; min-height: 42px; border: 1px solid var(--input); border-radius: .45rem; background: #fff; color: #0f172a; padding: .55rem .7rem; }
 .accountant-filter-controls button { font-size: .8rem; font-weight: 650; }
 .accountant-filter-controls button:disabled { opacity: .5; }
 .accountant-filter-controls :is(input, select, button):focus-visible { outline: 2px solid #7c3aed; outline-offset: 2px; }
@@ -1954,7 +1954,7 @@ body {
 .employee-hr-fields h3 { font-size: .95rem; font-weight: 700; }
 .employee-hr-fields p { font-size: .75rem; line-height: 1.6; color: #64748b; margin: .5rem 0 1rem; }
 .employee-hr-fields label { display: grid; gap: .4rem; min-width: 0; font-size: .8rem; font-weight: 600; }
-.employee-hr-fields :is(input,select) { width: 100%; min-width: 0; min-height: 42px; background: #fff; color: #0f172a; border: 1px solid #cbd5e1; border-radius: .4rem; padding: .5rem; }
+.employee-hr-fields :is(input,select) { width: 100%; min-width: 0; min-height: 42px; background: #fff; color: #0f172a; border: 1px solid var(--input); border-radius: .4rem; padding: .5rem; }
 .employee-hr-fields :is(input,select):focus-visible { outline: 2px solid #059669; outline-offset: 2px; }
 .employee-hr-details { display: grid; gap: .3rem; margin-top: .75rem; font-size: .72rem; min-width: 220px; }
 .employee-hr-details > div { display: flex; flex-wrap: wrap; gap: .4rem; }
@@ -2276,3 +2276,6 @@ body {
 [data-appearance="dark"] .logistics-editor .logistics-row :is([data-slot="input"], button[data-variant="outline"]) { background-color: #0b1220; border-color: #52667f; }
 [data-appearance="dark"] .logistics-editor .logistics-row :is([data-slot="input"], button[data-variant="outline"]):hover:not(:disabled) { border-color: #7a8ea6; }
 [data-appearance="dark"] .logistics-editor .logistics-row [data-slot="input"]:read-only { background-color: #142033; }
+
+/* Form fields across the app: a clearly visible border that darkens on hover (focus keeps the theme ring). */
+:where([data-slot="input"], [data-slot="select-trigger"], [data-slot="textarea"], [data-slot="native-select"], textarea, select):hover:not(:disabled):not(:focus-visible) { border-color: color-mix(in srgb, var(--input) 65%, var(--foreground)); }
