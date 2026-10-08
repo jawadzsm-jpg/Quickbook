@@ -146,7 +146,7 @@ export function ItemLogisticsCenter({ companyId, companyName, locationId, locati
               </div>
               <div className="grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-4">
                 {([["lengthCm", "Length (cm)"], ["widthCm", "Width (cm)"], ["heightCm", "Height (cm)"], ["weightKg", "Weight (kg)"]] as const).map(([field, label]) => (
-                  <label key={field} className="min-w-0 space-y-1 text-sm"><span>{label}</span><Input type="number" min="0" max="1000000" step="0.01" value={record[field]} disabled={!canEdit || skuLock.blocked || saving || choiceBusy} onChange={(event) => update(record.id, field, Number(event.target.value))} className="min-w-0" /></label>
+                  <label key={field} className="min-w-0 space-y-1 text-sm"><span>{label}</span><MeasureInput value={Number(record[field]) || 0} disabled={!canEdit || skuLock.blocked || saving || choiceBusy} onChange={(value) => update(record.id, field, value)} /></label>
                 ))}
               </div>
             </div>
@@ -156,4 +156,12 @@ export function ItemLogisticsCenter({ companyId, companyName, locationId, locati
       <div className="flex flex-wrap items-center justify-between gap-3 border-t p-4 text-sm text-slate-500"><span>Showing {visible.length ? (safePage - 1) * size + 1 : 0} to {Math.min(safePage * size, filtered.length)} of {filtered.length}</span><div className="flex gap-1"><Button size="sm" variant="outline" disabled={safePage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous</Button><Badge className="grid min-w-9 place-items-center">{safePage}</Badge><Button size="sm" variant="outline" disabled={safePage >= pages} onClick={() => setPage((value) => Math.min(pages, value + 1))}>Next</Button></div></div>
     </section>
   </div>;
+}
+
+// Measurement box that starts empty instead of showing 0, keeps what is typed (e.g. "0.5") and reports the number.
+function MeasureInput({ value, onChange, disabled }: { value: number; onChange: (value: number) => void; disabled: boolean }) {
+  const [draft, setDraft] = useState({ text: value ? String(value) : "", value });
+  const text = draft.value === value ? draft.text : value ? String(value) : "";
+  return <Input type="number" inputMode="decimal" min="0" max="1000000" step="0.01" placeholder="0" value={text} disabled={disabled} className="min-w-0"
+    onChange={(event) => { const next = Number(event.target.value) || 0; setDraft({ text: event.target.value, value: next }); onChange(next); }} />;
 }
