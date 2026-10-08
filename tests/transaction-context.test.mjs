@@ -1926,6 +1926,31 @@ test('named letterheads save per company and reject overlapping document assignm
   } finally { delete globalThis.__transferTestUser; }
 });
 
+test('company clearing can reset stock to zero while keeping items, only together with transactions', async () => {
+  const { POST } = await vite.ssrLoadModule('/app/api/company-setup/clear/route.ts');
+  const { hashPassword } = await vite.ssrLoadModule('/lib/password.ts');
+  const password = 'Company-stock-reset-123';
+  const userId = (await database.query("INSERT INTO app_users (email,password_hash,role) VALUES ('stock-reset@example.test',$1,'admin') RETURNING id", [await hashPassword(password)])).rows[0].id;
+  const company = (await database.query("INSERT INTO companies (name) VALUES ('Stock Reset Test') RETURNING id")).rows[0].id;
+  const location = (await database.query("INSERT INTO inventory_locations (company_id,name,code,invoice_prefix) VALUES ($1,'RESET','RESET','RST') RETURNING id", [company])).rows[0].id;
+  const item = (await database.query("INSERT INTO items (company_id,location_id,sku,name,quantity,cost,sales_price) VALUES ($1,$2,'KEEP-SKU','Kept item',7,40,99) RETURNING id", [company, location])).rows[0].id;
+  const invoice = (await database.query("INSERT INTO transactions (company_id,number,type,party,transaction_date) VALUES ($1,'RESET-1','invoice','Customer','2026-10-01') RETURNING id", [company])).rows[0].id;
+  await database.query("INSERT INTO inventory_movements (item_id,transaction_id,movement_date,movement_type,quantity,reference) VALUES ($1,$2,'2026-10-01','invoice',-1,'RESET-1')", [item, invoice]);
+  const request = (sections) => new Request('http://localhost/api/company-setup/clear', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ companyId: company, sections, password, confirmation: 'Stock Reset Test' }) });
+  try {
+    globalThis.__transferTestUser = { id: userId, email: 'stock-reset@example.test', role: 'admin', companyIds: [company] };
+    assert.equal((await POST(request(['stock']))).status, 400);
+    assert.equal(Number((await database.query('SELECT quantity FROM items WHERE id=$1', [item])).rows[0].quantity), 7);
+    const response = await POST(request(['transactions', 'stock']));
+    assert.equal(response.status, 200, JSON.stringify(await response.clone().json()));
+    const kept = (await database.query('SELECT sku, quantity, sales_price FROM items WHERE id=$1', [item])).rows[0];
+    assert.deepEqual([kept.sku, Number(kept.quantity), Number(kept.sales_price)], ['KEEP-SKU', 0, 99]);
+    assert.equal((await database.query('SELECT id FROM inventory_movements WHERE item_id=$1', [item])).rows.length, 0);
+    assert.equal((await database.query('SELECT id FROM transactions WHERE company_id=$1', [company])).rows.length, 0);
+    assert.equal((await database.query('SELECT active FROM inventory_locations WHERE id=$1', [location])).rows[0].active, true);
+  } finally { delete globalThis.__transferTestUser; }
+});
+
 test('company clearing requires administrator password and company access, preserves audit and rolls back linked data', async () => {
   const { POST } = await vite.ssrLoadModule('/app/api/company-setup/clear/route.ts');
   const { hashPassword } = await vite.ssrLoadModule('/lib/password.ts');

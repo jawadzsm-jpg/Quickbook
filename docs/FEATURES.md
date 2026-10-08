@@ -349,3 +349,7 @@ Company Home → Insights includes an Entry date selector (today in UAE time by 
 Product dropdowns on sales and invoice lines, bill lines, Stock Transfers and the Inventory invoice editor have a search box. It matches SKU, item number, name, description, model / part number, UPC, item serial number, category and specifications; each option also shows its item number, part number and UPC. Up to 200 matches are listed at a time.
 
 When the same product is on several lines of one form, each line shows the stock left after the other lines: Stock Transfers (option label, Available and the quantity limit, with a check before saving), new sales-side documents such as invoices (Stock in the picker and Available under the item, flagged when a line asks for more), and the Inventory invoice editor (item changes and free lines take stock; stock returns give it back). Saved documents being edited already have their own quantities deducted, so their picker shows current stock.
+
+## Clear company data
+
+Company Setup → Clear lets the assigned company Administrator clear selected data with their password and a confirmation. Besides transactions, items and inventory, contacts, reports, VAT/currency controls and company setup, the **Reset stock to zero, keep items** option keeps every item (name, SKU, prices, specifications, HS code and inventory location) and sets all stock quantities to zero. It runs together with Transactions, which it selects automatically; choosing *Items and inventory data* (which deletes items) replaces it.

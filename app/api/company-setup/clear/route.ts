@@ -6,7 +6,7 @@ import { verifyPassword } from "@/lib/password";
 import { consumeRateLimit } from "@/lib/rate-limit";
 import { standardVatCodes } from "@/lib/standard-vat-codes";
 
-const allowedSections = ["transactions", "inventory", "contacts", "reports", "settings", "setup"] as const;
+const allowedSections = ["transactions", "stock", "inventory", "contacts", "reports", "settings", "setup"] as const;
 type ClearSection = typeof allowedSections[number];
 type ClearRequest = { companyId: number; password: string; confirmation: string; sections: ClearSection[] };
 
@@ -44,6 +44,8 @@ export async function POST(request: Request) {
     return await withWriteTransaction(async () => {
       const db = getDb();
       const selected = new Set(sections as ClearSection[]);
+      // Stock movements belong to transactions, so stock can only be reset to zero together with the transaction history.
+      if (selected.has("stock") && !selected.has("transactions")) return Response.json({ error: "Select Transactions as well to reset stock while keeping items." }, { status: 400 });
       // Serialize this rare destructive operation with writes, including new child rows.
       await db.execute(sql`LOCK TABLE companies, stock_transfers, transactions, transaction_lines, inventory_movements, journal_entries, journal_lines, invoice_payment_allocations, bill_payment_allocations, sales_invoice_allocations, purchase_receipt_allocations, inventory_locations, items, contacts, accounts, record_attachments, memorised_reports, income_tax_working_papers, inventory_check_reports, inventory_check_lines, vat_returns, vat_adjustments, vat_codes, exchange_rates, company_settings, idempotency_requests IN SHARE ROW EXCLUSIVE MODE`);
       const [company] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1);
@@ -85,6 +87,12 @@ export async function POST(request: Request) {
         await db.execute(sql`UPDATE contacts SET balance=0 WHERE company_id=${companyId}`);
       }
 
+      if (selected.has("stock") && !selected.has("inventory")) {
+        // Keep every item (names, SKUs, prices, specifications, HS codes) and its inventory location; only on-hand stock
+        // starts again from zero. Movements were removed with the transactions above.
+        await db.execute(sql`UPDATE items SET quantity=0 WHERE company_id=${companyId}`);
+      }
+
       if (selected.has("inventory")) {
         await db.execute(sql`DELETE FROM inventory_check_reports WHERE company_id=${companyId}`);
         await db.execute(sql`DELETE FROM items WHERE company_id=${companyId}`);
@@ -117,7 +125,7 @@ export async function POST(request: Request) {
       if (selected.has("setup")) {
         [record] = await db.update(companies).set({ logoData: "", rightLogoData: "", loginLogoData: "", loginCompanyLogoData: "", loginDisplayName: "", loginCopyrightYears: "1996-2021", loginBackgroundData: "", loginBackgroundColor: "#f3f6fa", stampData: "", documentDesign: "", letterheadDesign: "", addressLine1: "", addressLine2: "", city: "", country: "", phone: "", email: "", trn: "", bankName: "", bankAccountName: "", bankAccountNumber: "", bankIban: "", bankSwift: "", bankAccounts: "", bankStampData: "", bankRemark: "", stampPositions: "", bankCurrency: company.baseCurrency, documentTemplate: "modern", documentColor: "#10b981" }).where(eq(companies.id, companyId)).returning();
       }
-      await db.insert(auditLog).values({ companyId, action: "cleared", entityType: "company_setup", entityId: companyId, details: `Selected company data (${sections.join(", ")}) cleared by assigned company Administrator ${user.id} (${user.email}) for ${company.name}; original Chart of Accounts and all sub-accounts retained with transaction-derived balances reset to zero. Company identity, base currency, user access, audit history and cross-company stock-transfer history retained.` });
+      await db.insert(auditLog).values({ companyId, action: "cleared", entityType: "company_setup", entityId: companyId, details: `Selected company data (${sections.join(", ")}) cleared${selected.has("stock") && !selected.has("inventory") ? " (items kept with stock reset to zero)" : ""} by assigned company Administrator ${user.id} (${user.email}) for ${company.name}; original Chart of Accounts and all sub-accounts retained with transaction-derived balances reset to zero. Company identity, base currency, user access, audit history and cross-company stock-transfer history retained.` });
       return Response.json({ record, cleared: sections }, { headers: { "Cache-Control": "no-store" } });
     });
   } catch (error) {
