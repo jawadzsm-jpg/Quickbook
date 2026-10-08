@@ -2590,7 +2590,17 @@ test('inventory users change invoice items and add zero-price lines without chan
     assert.equal(returnBalance.d, returnBalance.cr);
     // Delivery: only accountants and administrators mark an invoice delivered or not delivered.
     assert.equal((await call('PATCH', { id: invoice.id, editMode: 'delivery', delivered: true })).status, 403);
-    assert.equal((await call('PATCH', { id: invoice.id, editMode: 'delivery-address', deliveryAddress: 'Not allowed' })).status, 403);
+    const inventoryShipTo = await call('PATCH', { id: invoice.id, editMode: 'delivery-address', deliveryAddress: 'Inventory dock' });
+    assert.equal(inventoryShipTo.status, 200, JSON.stringify(await inventoryShipTo.clone().json()));
+    // Sales users change the Ship To of their own invoices only.
+    globalThis.__transferTestUser = { id: 1, role: 'sales', companyIds: [c] };
+    assert.equal((await call('PATCH', { id: invoice.id, editMode: 'delivery-address', deliveryAddress: 'Not my invoice' })).status, 403);
+    await database.query('UPDATE transactions SET created_by_user_id=1 WHERE id=$1', [invoice.id]);
+    await database.query("UPDATE contacts SET sales_owner_id=1 WHERE company_id=$1 AND name='Edit Customer'", [c]);
+    const salesShipTo = await call('PATCH', { id: invoice.id, editMode: 'delivery-address', deliveryAddress: 'Sales customer site' });
+    assert.equal(salesShipTo.status, 200, JSON.stringify(await salesShipTo.clone().json()));
+    assert.equal((await call('PATCH', { id: invoice.id, editMode: 'delivery', delivered: true })).status, 403);
+    globalThis.__transferTestUser = { id: 1, role: 'inventory', companyIds: [c] };
     globalThis.__transferTestUser = { id: 1, role: 'accountant', companyIds: [c] };
     const delivered = await call('PATCH', { id: invoice.id, editMode: 'delivery', delivered: true });
     assert.equal(delivered.status, 200, JSON.stringify(await delivered.clone().json()));
