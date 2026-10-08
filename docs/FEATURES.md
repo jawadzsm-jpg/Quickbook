@@ -343,3 +343,7 @@ Authorized users can also Activate/Make inactive directly from a contact row. Th
 ### Insights daily transaction activity
 
 Company Home → Insights includes an Entry date selector (today in UAE time by default), Today and Refresh actions, a matching entry count and paginated access to every permitted transaction entered that day. Rows show entry time, original document date, type/reference, party, inventory, creator, status and amount in the recorded currency, with View to open the source. Backdated documents appear on their actual entry day. Company, inventory and server-side role restrictions apply. Current balance and financial overview cards remain clearly labelled as unfiltered current figures; sales representatives retain their dedicated My daily work screen.
+
+## Product search in item pickers
+
+Product dropdowns on sales and invoice lines, bill lines, Stock Transfers and the Inventory invoice editor have a search box. It matches SKU, item number, name, description, model / part number, UPC, item serial number, category and specifications; each option also shows its item number, part number and UPC. Up to 200 matches are listed at a time.
