@@ -2559,12 +2559,12 @@ test('inventory users change invoice items and add zero-price lines without chan
     assert.equal(Number((await detail(invoice.id)).record.total), Number(invoice.total));
     const returnBalance = await journalBalance(invoice.id);
     assert.equal(returnBalance.d, returnBalance.cr);
-    // Delivery: inventory marks it delivered, cannot undo; an administrator can.
+    // Delivery: only accountants and administrators mark an invoice delivered or not delivered.
+    assert.equal((await call('PATCH', { id: invoice.id, editMode: 'delivery', delivered: true })).status, 403);
+    globalThis.__transferTestUser = { id: 1, role: 'accountant', companyIds: [c] };
     const delivered = await call('PATCH', { id: invoice.id, editMode: 'delivery', delivered: true });
     assert.equal(delivered.status, 200, JSON.stringify(await delivered.clone().json()));
     assert.ok((await delivered.json()).record.deliveredAt);
-    assert.equal((await call('PATCH', { id: invoice.id, editMode: 'delivery', delivered: false })).status, 403);
-    globalThis.__transferTestUser = { id: 1, role: 'admin', companyIds: [c] };
     assert.equal((await (await call('PATCH', { id: invoice.id, editMode: 'delivery', delivered: false })).json()).record.deliveredAt, null);
     globalThis.__transferTestUser = { id: 1, role: 'inventory', companyIds: [c] };
     assert.equal((await call('DELETE', { id: invoice.id, deletionReason: 'not allowed' })).status, 403);
