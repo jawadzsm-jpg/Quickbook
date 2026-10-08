@@ -2988,6 +2988,7 @@ test('invoice Pending Cart splits drafts atomically and reverses posted stock, V
   let response = await call('POST', { ...base, lines: [line, { ...line, quantity: 3, pending: true }] });
   assert.equal(response.status, 201, JSON.stringify(await response.clone().json()));
   const { record: invoice, pendingRecord: pending } = await response.json();
+  assert.equal(pending.number, 'PEND-0001');
   assert.equal(invoice.total, 210); assert.equal(pending.total, 315);
   assert.equal(await stock(), 18); assert.equal(await balance(), 210);
   const pendingDetail = await detail(pending.id);
@@ -3003,6 +3004,7 @@ test('invoice Pending Cart splits drafts atomically and reverses posted stock, V
   assert.equal(response.status, 200, JSON.stringify(await response.clone().json()));
   const moved = await response.json();
   assert.equal(moved.record.total, 105); assert.equal(moved.pendingRecord.total, 210);
+  assert.equal(moved.pendingRecord.number, 'PEND-0002');
   assert.equal(await stock(), 19); assert.equal(await balance(), 105);
   saved = await detail(invoice.id); assert.equal(saved.lines.length, 1); assert.equal(saved.lines[0].quantity, 1);
   assert.equal((await call('PATCH', editBody)).status, 409, 'stale retry cannot move a line twice');
