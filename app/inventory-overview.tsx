@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, BadgeDollarSign, Boxes, ChevronDown, Download, Eye, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PackageOpen, PlaneLanding, RefreshCw, Rocket, Search, Send, ShoppingCart, UserRound, Warehouse } from "lucide-react";
+import { AlertTriangle, Lock, BadgeDollarSign, Boxes, ChevronDown, Download, Eye, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PackageOpen, PlaneLanding, RefreshCw, Rocket, Search, Send, ShoppingCart, UserRound, Warehouse } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
+import { StockHoldDialog, StockHoldsPanel, heldTotals, type StockHold } from "./stock-holds";
 import { inventoryItemLine, inventorySocialShareText, itemSpecificationDescription } from "@/lib/item-description";import { matchesSearch } from "@/lib/search";
 
 
@@ -143,6 +144,9 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   const [showPrice, setShowPrice] = useState(true);
   const [includeVat, setIncludeVat] = useState(false);
   const [detailRecord, setDetailRecord] = useState<ConsolidatedItem | null>(null);
+  const [holds, setHolds] = useState<StockHold[]>([]);
+  const [canManageHolds, setCanManageHolds] = useState(false);
+  const [holdTarget, setHoldTarget] = useState<ConsolidatedItem | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -156,6 +160,8 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
       setActivity({ ...emptyActivity, ...(data.activity as Partial<InventoryActivity> | undefined) });
       setCanSelectItems(data.canSelectItems === true);
       setCanBulkSelect(data.canBulkSelect === true);
+      setHolds((data.holds ?? []) as StockHold[]);
+      setCanManageHolds(data.canManageHolds === true);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not load inventory overview");
     } finally {
@@ -239,6 +245,10 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     return [...grouped.values()].sort((a, b) => a.company.localeCompare(b.company) || a.location.localeCompare(b.location));
   }, [inStockRecords]);
 
+  // Held quantity per stock row, summed for a consolidated product; names for the "Stock on hold" list.
+  const heldByItem = useMemo(() => heldTotals(holds), [holds]);
+  const heldOn = (record: ConsolidatedItem) => record.recordIds.reduce((sum, id) => sum + (heldByItem.get(id) ?? 0), 0);
+  const holdNames = useMemo(() => new Map(records.map((item) => [item.id, `${item.name} · ${item.sku} · ${item.locationName}`])), [records]);
   const totals = useMemo(() => ({
     quantity: inStockRecords.reduce((sum, record) => sum + Number(record.quantity), 0),
     inStock: consolidatedRecords.length,
@@ -423,6 +433,8 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
       </div>
     </section>
 
+    <StockHoldsPanel holds={holds} names={holdNames} canManage={canManageHolds} onReleased={() => void load()} />
+
     <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
       <div className="flex items-center gap-3 border-b border-slate-200 px-3 py-2.5">
         <div className="flex min-w-0 shrink items-center gap-2 whitespace-nowrap"><h2 className="text-sm font-bold text-slate-950">Consolidated stock</h2><p className="hidden truncate text-xs text-slate-500 lg:block">All companies, inventories, item details, quantities and selling prices.</p></div>
@@ -462,8 +474,8 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
                 const description = inventoryItemLine(record.name, record.sku, specificationText(record), record.itemNumber);
                 return <TableRow key={record.id} data-state={selectedIds.has(record.id) ? "selected" : undefined} className="align-top data-[state=selected]:bg-sky-50 hover:bg-slate-50/80">
                   <TableCell className="py-5"><span className="inline-flex rounded-lg border bg-white p-1.5"><Checkbox disabled={!canSelectItems || loading} aria-label={`Select ${record.name}`} checked={selectedIds.has(record.id)} onCheckedChange={(checked) => toggleSelected(record.id, checked === true)} /></span></TableCell>
-                  <TableCell className="min-w-0 overflow-hidden py-4"><div className="flex min-w-0 max-w-full flex-col items-start gap-2 xl:flex-row xl:flex-wrap xl:items-center"><span className="block w-full max-w-full whitespace-normal break-words text-base font-bold text-blue-700 underline decoration-blue-300 underline-offset-2 [overflow-wrap:anywhere]">{description}</span>{out ? <Badge className="bg-rose-600 text-white hover:bg-rose-600">Out of stock</Badge> : low ? <Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">Low stock</Badge> : null}<TooltipProvider>{record.inventories.map((inventory) => <Tooltip key={inventory.locationId}><TooltipTrigger asChild><Badge tabIndex={0} variant="outline" className="max-w-full cursor-help whitespace-normal border-sky-200 bg-sky-50 text-sky-800"><Warehouse className="mr-1 size-3 shrink-0" />{inventory.locationName}{inventory.locationCode ? ` · ${inventory.locationCode}` : ""}</Badge></TooltipTrigger><TooltipContent sideOffset={6}>Qty: {Number(inventory.quantity).toLocaleString()}</TooltipContent></Tooltip>)}</TooltipProvider></div><div className="mt-3 flex min-w-0 flex-wrap items-center gap-2"><Button type="button" size="sm" variant="outline" onClick={() => setDetailRecord(record)} aria-label={`View product customization details for ${record.name}`}><PackageOpen className="size-4" />Customization Details</Button><Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">{receivedAge(record.latestReceivedAt)}</Badge></div></TableCell>
-                  {showQuantity && <TableCell responsiveColumn="quantity" className={`py-4 text-sm font-black sm:text-base ${out ? "text-rose-600" : low ? "text-amber-600" : "text-slate-900"}`}>{Number(record.quantity).toLocaleString()}</TableCell>}
+                  <TableCell className="min-w-0 overflow-hidden py-4"><div className="flex min-w-0 max-w-full flex-col items-start gap-2 xl:flex-row xl:flex-wrap xl:items-center"><span className="block w-full max-w-full whitespace-normal break-words text-base font-bold text-blue-700 underline decoration-blue-300 underline-offset-2 [overflow-wrap:anywhere]">{description}</span>{out ? <Badge className="bg-rose-600 text-white hover:bg-rose-600">Out of stock</Badge> : low ? <Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">Low stock</Badge> : null}<TooltipProvider>{record.inventories.map((inventory) => <Tooltip key={inventory.locationId}><TooltipTrigger asChild><Badge tabIndex={0} variant="outline" className="max-w-full cursor-help whitespace-normal border-sky-200 bg-sky-50 text-sky-800"><Warehouse className="mr-1 size-3 shrink-0" />{inventory.locationName}{inventory.locationCode ? ` · ${inventory.locationCode}` : ""}</Badge></TooltipTrigger><TooltipContent sideOffset={6}>Qty: {Number(inventory.quantity).toLocaleString()}</TooltipContent></Tooltip>)}</TooltipProvider></div><div className="mt-3 flex min-w-0 flex-wrap items-center gap-2"><Button type="button" size="sm" variant="outline" onClick={() => setDetailRecord(record)} aria-label={`View product customization details for ${record.name}`}><PackageOpen className="size-4" />Customization Details</Button>{canManageHolds && Number(record.quantity) > 0 && <Button type="button" size="sm" variant="outline" onClick={() => setHoldTarget(record)} aria-label={`Put ${record.name} on hold`}><Lock className="size-4" />Hold</Button>}{heldOn(record) > 0 && <Badge className="bg-amber-100 text-amber-900 hover:bg-amber-100"><Lock className="mr-1 size-3" />{heldOn(record).toLocaleString()} on hold</Badge>}<Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">{receivedAge(record.latestReceivedAt)}</Badge></div></TableCell>
+                  {showQuantity && <TableCell responsiveColumn="quantity" className={`py-4 text-sm font-black sm:text-base ${out ? "text-rose-600" : low ? "text-amber-600" : "text-slate-900"}`}>{Number(record.quantity).toLocaleString()}{heldOn(record) > 0 && <span className="mt-1 block whitespace-nowrap text-[11px] font-semibold text-amber-700">{heldOn(record).toLocaleString()} on hold · {Math.max(0, Number(record.quantity) - heldOn(record)).toLocaleString()} free</span>}</TableCell>}
                   {showPrice && <TableCell responsiveColumn="price" className="py-4 text-sm font-black text-rose-600 sm:text-base">{money(Number(record.salesPrice) * (includeVat ? 1.05 : 1), record.currency)}{includeVat && <span className="mt-1 block whitespace-normal text-[11px] font-semibold text-emerald-600">VAT included</span>}</TableCell>}
                 </TableRow>;
               }),
@@ -474,6 +486,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
       <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-slate-50 px-4 py-3 text-xs text-slate-500"><span>Showing {filtered.length} products</span><span>{totals.healthy} healthy · {totals.low} low stock</span></div>
     </section>
 
+    <StockHoldDialog key={holdTarget?.id ?? "none"} target={holdTarget} holds={holds} onClose={() => setHoldTarget(null)} onSaved={() => { setHoldTarget(null); void load(); }} />
     <Dialog open={Boolean(detailRecord)} onOpenChange={(open) => { if (!open) setDetailRecord(null); }}><DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl"><DialogHeader><DialogTitle>Product Customization Details</DialogTitle><DialogDescription>{detailRecord ? `${detailRecord.name} · SKU ${detailRecord.sku} · Item #${detailRecord.itemNumber || "—"}` : "Product details"}</DialogDescription></DialogHeader>{detailRecord ? <div className="space-y-5"><div className="flex flex-wrap items-center gap-2"><Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">{receivedAge(detailRecord.latestReceivedAt)}</Badge>{detailRecord.inventories.map((inventory) => <Badge key={inventory.locationId} variant="outline">{inventory.locationName} · Qty {Number(inventory.quantity).toLocaleString()}</Badge>)}</div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{[["RAM", detailRecord.customizationRam || specificationValue(detailRecord, ["RAM", "Memory"])], ["Storage", detailRecord.customizationStorage || specificationValue(detailRecord, ["Storage", "SSD", "Hard Drive"])], ["Part Number", detailRecord.partNumber || specificationValue(detailRecord, ["Part Number", "MPN"])], ["Serial", detailRecord.itemSerialNumber], ["UPC No.", detailRecord.upcNumber], ["Quantity on hand", Number(detailRecord.quantity).toLocaleString()]].map(([label, value]) => <div key={label} className="rounded-lg border bg-muted/20 p-3"><span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{label}</span><p className="mt-1 break-words font-semibold">{value || "Not entered"}</p></div>)}</div><div className="rounded-lg border p-4"><h4 className="font-semibold">Full product specifications</h4><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">{specificationText(detailRecord) || "No specifications entered."}</p></div><div className="rounded-lg border p-4"><h4 className="font-semibold">Details for users</h4><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">{detailRecord.customizationDetails || "No customization details entered."}</p></div></div> : null}</DialogContent></Dialog>
   </div>;
 }

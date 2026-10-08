@@ -2621,6 +2621,46 @@ test('inventory users change invoice items and add zero-price lines without chan
   } finally { delete globalThis.__transferTestUser; }
 });
 
+test('stock holds reserve quantity for one sales rep until released', async () => {
+  const c = (await database.query("INSERT INTO companies(name) VALUES ('Stock hold test') RETURNING id")).rows[0].id;
+  const loc = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'HOLD','Hold stock','HLD') RETURNING id", [c])).rows[0].id;
+  const other = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'HOLD2','Hold other','HL2') RETURNING id", [c])).rows[0].id;
+  const item = (await database.query("INSERT INTO items(company_id,location_id,sku,name,quantity,cost,item_type) VALUES($1,$2,'HOLD-SKU','Held laptop',10,40,'stock-part') RETURNING id", [c, loc])).rows[0].id;
+  await database.query("INSERT INTO contacts(company_id,type,name,currency) VALUES($1,'customer','Hold Customer','AED'),($1,'employee','Ali Rep','AED'),($1,'employee','Sara Rep','AED')", [c]);
+  const holds = await vite.ssrLoadModule('/app/api/stock-holds/route.ts');
+  const records = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const transfers = await vite.ssrLoadModule('/app/api/transfers/route.ts');
+  const req = (path, method, body) => new Request(`https://app.test/api/${path}`, { method, headers: { origin: 'https://app.test', 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const invoice = (salesman, quantity, number) => records.POST(req('records', 'POST', { kind: 'transactions', companyId: c, locationId: loc, type: 'invoice', number, party: 'Hold Customer', salesman, transactionDate: '2026-10-01', currency: 'AED', exchangeRate: 1, account: 'Sales Revenue', lines: [{ itemId: item, description: 'Held laptop', quantity, unitPrice: 100, vatCode: 'STANDARD' }] }));
+  try {
+    globalThis.__transferTestUser = { id: 1, role: 'inventory', companyIds: [c] };
+    assert.equal((await holds.POST(req('stock-holds', 'POST', { companyId: c, itemId: item, quantity: 6, hours: 4, salesRep: 'Ali Rep' }))).status, 403);
+    globalThis.__transferTestUser = { id: 1, role: 'accountant', companyIds: [c] };
+    assert.deepEqual((await (await holds.GET(new Request(`https://app.test/api/stock-holds?companyId=${c}`))).json()).salesReps, ['Ali Rep', 'Sara Rep']);
+    assert.equal((await holds.POST(req('stock-holds', 'POST', { companyId: c, itemId: item, quantity: 11, hours: 4, salesRep: 'Ali Rep' }))).status, 409);
+    const created = await holds.POST(req('stock-holds', 'POST', { companyId: c, itemId: item, quantity: 6, hours: 4, salesRep: 'Ali Rep', note: 'Collecting tomorrow' }));
+    assert.equal(created.status, 201, JSON.stringify(await created.clone().json()));
+    const hold = (await created.json()).hold;
+    globalThis.__transferTestUser = { id: 1, role: 'admin', companyIds: [c] };
+    // 10 in stock, 6 held for Ali: Sara can sell only 4; Ali can sell the held stock.
+    const blocked = await invoice('Sara Rep', 5, 'HOLD-INV-1');
+    assert.equal(blocked.status, 409);
+    assert.match((await blocked.json()).error, /on hold for another sales rep/);
+    assert.equal((await invoice('Sara Rep', 4, 'HOLD-INV-2')).status, 201);
+    assert.equal((await invoice('Ali Rep', 6, 'HOLD-INV-3')).status, 201);
+    await database.query('UPDATE items SET quantity=10 WHERE id=$1', [item]);
+    assert.equal((await transfers.POST(req('transfers', 'POST', { reference: 'HOLD-TRF-1', salesman: 'Sara Rep', lines: [{ itemId: item, sourceLocationId: loc, destinationLocationId: other, quantity: 5 }] }))).status, 409);
+    globalThis.__transferTestUser = { id: 1, role: 'accountant', companyIds: [c] };
+    assert.equal((await (await holds.PATCH(req('stock-holds', 'PATCH', { companyId: c, id: hold.id }))).json()).released, 1);
+    globalThis.__transferTestUser = { id: 1, role: 'admin', companyIds: [c] };
+    assert.equal((await invoice('Sara Rep', 8, 'HOLD-INV-4')).status, 201);
+    // Expired holds no longer reserve stock.
+    await database.query("INSERT INTO stock_holds(company_id,item_id,quantity,sales_rep,expires_at) VALUES($1,$2,2,'Ali Rep',now() - interval '1 hour')", [c, item]);
+    await database.query('UPDATE items SET quantity=2 WHERE id=$1', [item]);
+    assert.equal((await invoice('Sara Rep', 2, 'HOLD-INV-5')).status, 201);
+  } finally { delete globalThis.__transferTestUser; }
+});
+
 test('pending invoices remain unposted until an administrator or accountant converts them once', async () => {
   const c = (await database.query("INSERT INTO companies(name) VALUES ('Pending invoice roles') RETURNING id")).rows[0].id;
   const loc = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'PENDROLE','Pending inventory','PEND') RETURNING id", [c])).rows[0].id;
