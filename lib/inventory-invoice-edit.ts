@@ -2,6 +2,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
 import { accounts, auditLog, companies, inventoryMovements, items, journalEntries, journalLines, packingListLines, transactionLines, transactions, vatCodes, warrantySlips } from "@/db/schema";
 import { fullItemDescription } from "./item-description";
+import { heldByOthers, heldStockMessage } from "./stock-holds";
 
 // Inventory users may correct which product was sold, add free (zero-price) lines such as accessories, add stock returns
 // (negative quantity, zero price), and record serial
@@ -106,6 +107,10 @@ export async function applyInventoryInvoiceEdit(db: Db, input: { companyId: numb
   for (const line of appended) take(line.itemId, line.quantity);
   const shortage = [...requested].map(([id, quantity]) => ({ item: itemById.get(id)!, quantity })).find(({ item, quantity }) => item?.itemType === "stock-part" && quantity > 0 && quantity > Number(item.quantity));
   if (shortage) return fail(`Not enough stock. ${shortage.item.sku} ${shortage.item.name}: available ${shortage.item.quantity}, needed ${shortage.quantity}.`, 409);
+  // Stock on hold for another sales rep stays reserved; the invoice's own sales rep may use it.
+  const held = await heldByOthers([...requested.keys()], invoice.salesman);
+  const heldShortage = [...requested].map(([id, quantity]) => ({ item: itemById.get(id)!, quantity })).find(({ item, quantity }) => item?.itemType === "stock-part" && quantity > 0 && quantity > Number(item.quantity) - (held.get(item.id) ?? 0));
+  if (heldShortage) return fail(`Stock is on hold for another sales rep. ${heldStockMessage(heldShortage.item, held.get(heldShortage.item.id) ?? 0, heldShortage.quantity)}`, 409);
 
   const accountRows = await db.select().from(accounts).where(eq(accounts.companyId, companyId));
   const [company] = await db.select({ baseCurrency: companies.baseCurrency }).from(companies).where(eq(companies.id, companyId)).limit(1);

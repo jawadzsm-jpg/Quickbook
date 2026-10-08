@@ -5,6 +5,7 @@ import { salesDocumentTypes, salesHandoffTypes } from "@/lib/sales-access";
 import { documentVatCodes, usesSingleVatCode } from "@/lib/document-vat";
 import { canEditInventoryDocument, canManagePendingInvoices, canReadDocument, dubaiDay } from "@/lib/document-access";
 import { applyInventoryInvoiceEdit } from "@/lib/inventory-invoice-edit";
+import { heldByOthers, heldStockMessage } from "@/lib/stock-holds";
 import { documentVisibility } from "@/lib/document-access-sql";
 import { employeeHrForSave } from "@/lib/employee-hr-save";
 import { employeeHrValues, employeeLoanAccount, redactEmployeeHr } from "@/lib/employee-hr";
@@ -1036,6 +1037,10 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
             const detail = shortages.map((item) => `${item.sku} ${item.name}: available ${item.quantity}, requested ${requestedByItem.get(item.id)}`).join("; ");
             return Response.json({ error: `${type === "vendor credit" ? "Purchase return" : "Invoice"} blocked to prevent negative stock. ${detail}` }, { status: 409 });
           }
+          // Stock on hold for another sales rep is not available to this document.
+          const held = await heldByOthers(itemIds, type === "vendor credit" ? undefined : payload.salesman);
+          const onHold = available.filter((item) => (requestedByItem.get(item.id) ?? 0) > 0 && (requestedByItem.get(item.id) ?? 0) > Number(item.quantity) - (held.get(item.id) ?? 0));
+          if (onHold.length) return Response.json({ error: `Stock is on hold for another sales rep. ${onHold.map((item) => heldStockMessage(item, held.get(item.id) ?? 0, requestedByItem.get(item.id) ?? 0)).join("; ")}` }, { status: 409 });
         }
       }
     }
@@ -1683,6 +1688,9 @@ async function handlePATCH(request: Request) {
               }
               const shortage = itemRows.find(item => item.itemType === "stock-part" && (requestedByItem.get(item.id) ?? 0) > 0 && (requestedByItem.get(item.id) ?? 0) > Number(item.quantity));
               if (shortage) return Response.json({ error: `Invoice blocked to prevent negative stock. ${shortage.sku} ${shortage.name}: available ${shortage.quantity}, additional ${requestedByItem.get(shortage.id)}.` }, { status: 409 });
+              const heldForEdit = await heldByOthers([...requestedByItem.keys()], String(payload.salesman ?? existing.salesman));
+              const heldShortage = itemRows.find(item => (requestedByItem.get(item.id) ?? 0) > 0 && (requestedByItem.get(item.id) ?? 0) > Number(item.quantity) - (heldForEdit.get(item.id) ?? 0));
+              if (heldShortage) return Response.json({ error: `Stock is on hold for another sales rep. ${heldStockMessage(heldShortage, heldForEdit.get(heldShortage.id) ?? 0, requestedByItem.get(heldShortage.id) ?? 0)}` }, { status: 409 });
               for (const [itemId, delta] of requestedByItem) if (delta) await db.update(items).set({ quantity: sql`${items.quantity} - ${delta}` }).where(eq(items.id, itemId));
               for (const line of financialChanged) {
                 const old = oldLines.find(old => old.id === line.id)!;
@@ -1738,6 +1746,9 @@ async function handlePATCH(request: Request) {
             for (const line of appended) if (line.itemId && stockIds.has(line.itemId)) requested.set(line.itemId, round((requested.get(line.itemId) ?? 0) + line.quantity));
             const shortages = itemRows.filter((item) => stockIds.has(item.id) && (requested.get(item.id) ?? 0) > 0 && Number(item.quantity) < (requested.get(item.id) ?? 0));
             if (shortages.length) return Response.json({ error: `Invoice blocked to prevent negative stock. ${shortages.map((item) => `${item.sku} ${item.name}: available ${item.quantity}, requested ${requested.get(item.id)}`).join("; ")}` }, { status: 409 });
+            const heldForAppend = await heldByOthers([...requested.keys()], String(payload.salesman ?? existing.salesman));
+            const heldShortages = itemRows.filter((item) => stockIds.has(item.id) && (requested.get(item.id) ?? 0) > 0 && (requested.get(item.id) ?? 0) > Number(item.quantity) - (heldForAppend.get(item.id) ?? 0));
+            if (heldShortages.length) return Response.json({ error: `Stock is on hold for another sales rep. ${heldShortages.map((item) => heldStockMessage(item, heldForAppend.get(item.id) ?? 0, requested.get(item.id) ?? 0)).join("; ")}` }, { status: 409 });
 
             const appendSubtotal = round(appended.reduce((sum, line) => sum + line.subtotal, 0));
             const appendVatAmount = round(appended.reduce((sum, line) => sum + line.vatAmount, 0));

@@ -5,6 +5,7 @@ import { getDb, withWriteTransaction } from "../../../db";
 import { auditLog, companies, contacts, inventoryLocations, items, stockTransfers } from "../../../db/schema";
 import { canAccessCompany, isAdministrator, requireApiUser } from "@/lib/auth";
 import { readJsonBody } from "@/lib/api";
+import { heldByOthers, heldStockMessage } from "@/lib/stock-holds";
 
 type TransferLine = { itemId?: unknown; sourceLocationId?: unknown; destinationLocationId?: unknown; quantity?: unknown };
 
@@ -148,6 +149,15 @@ async function handlePOST(request: Request) {
     if (!/^[-A-Z0-9/]{2,40}$/.test(reference)) return Response.json({ error: "Enter a valid transfer reference." }, { status: 400 });
 
     const db = getDb();
+    // Stock on hold for a sales rep cannot be transferred away, except by a transfer for that same rep.
+    const requestedByItem = new Map<number, number>();
+    for (const line of lines) requestedByItem.set(line.itemId, (requestedByItem.get(line.itemId) ?? 0) + line.quantity);
+    const held = await heldByOthers([...requestedByItem.keys()], salesman);
+    if (held.size) {
+      const stock = await db.select({ id: items.id, sku: items.sku, name: items.name, quantity: items.quantity }).from(items).where(inArray(items.id, [...held.keys()]));
+      const blocked = stock.find((item) => (requestedByItem.get(item.id) ?? 0) > Number(item.quantity) - (held.get(item.id) ?? 0));
+      if (blocked) return Response.json({ error: `Stock is on hold for another sales rep. ${heldStockMessage(blocked, held.get(blocked.id) ?? 0, requestedByItem.get(blocked.id) ?? 0)}` }, { status: 409 });
+    }
     const result = await db.execute(sql`
       with input_lines as (
         select * from jsonb_to_recordset(${JSON.stringify(lines)}::jsonb) as line("lineIndex" integer, "itemId" integer, "sourceLocationId" integer, "destinationLocationId" integer, "quantity" double precision)

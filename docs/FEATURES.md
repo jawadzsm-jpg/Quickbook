@@ -357,3 +357,7 @@ Company Setup → Clear lets the assigned company Administrator clear selected d
 ## Register row actions
 
 In transaction registers (Sales, Purchases and others) the row actions sit on one line in fixed slots (view, attachments, delivery, edit, delete), so each icon lines up down the column; a slot stays empty when that action does not apply to the row.
+
+## Stock holds
+
+Administrators and accountants can put stock on hold for a sales rep from Inventory Overview: **Hold** on a product opens a form for the inventory, quantity (up to the free stock), duration (4 hours, 1 day, 2 days or custom up to 7 days), the sales rep (an active employee) and a note. Inventory Overview shows a **Stock on hold** panel with time left and **Release**, an "on hold" badge on the product and "on hold · free" under its quantity. While a hold is active, only documents for that sales rep may use the held quantity: invoices, sales receipts and invoice edits by other reps, purchase returns and stock transfers (unless for the same rep) are blocked with a clear message. Holds end automatically when they expire; releases and creations are audited, and holds are included in company backups.

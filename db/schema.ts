@@ -403,6 +403,22 @@ export const rcmDeclarations = pgTable("rcm_declarations", {
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 }, (table) => [uniqueIndex("idx_rcm_declarations_company_number").on(table.companyId, table.number), index("idx_rcm_declarations_company_date").on(table.companyId, table.declarationDate)]);
 
+// Stock held for a sales rep until it expires or is released (migration 0096).
+export const stockHolds = pgTable("stock_holds", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  itemId: integer("item_id").notNull().references(() => items.id, { onDelete: "cascade" }),
+  quantity: doublePrecision("quantity").notNull(),
+  salesRep: text("sales_rep").notNull(),
+  note: text("note").notNull().default(""),
+  expiresAt: timestamp("expires_at", { withTimezone: true, mode: "string" }).notNull(),
+  createdByUserId: integer("created_by_user_id").references(() => appUsers.id, { onDelete: "set null" }),
+  createdByName: text("created_by_name").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  releasedAt: timestamp("released_at", { withTimezone: true, mode: "string" }),
+  releasedByName: text("released_by_name").notNull().default(""),
+}, (table) => [index("idx_stock_holds_item_active").on(table.itemId, table.expiresAt), index("idx_stock_holds_company").on(table.companyId, table.createdAt)]);
+
 export const inventoryMovements = pgTable("inventory_movements", {
   id: serial("id").primaryKey(),
   itemId: integer("item_id").notNull().references(() => items.id, { onDelete: "cascade" }),

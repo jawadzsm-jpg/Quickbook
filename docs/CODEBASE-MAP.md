@@ -194,3 +194,5 @@ Customer/vendor organization: `lib/contact-hierarchy.ts` validates parent and st
 - `lib/invoice-series.ts`: shared invoice format validation, rendering and settings revision; used by workspace settings, invoice creation and all inventory number previews. Persistent format/padding columns are introduced by migration `0083_custom_invoice_series.sql`.
 
 Insights daily activity is owned by `app/insights-activity.tsx`, mounted in the Insights tab of `app/enterprise-app.tsx`; its paginated entry-date query is in `app/api/records/route.ts`, using `lib/document-access-sql.ts` for shared document visibility.
+
+Stock holds: `lib/stock-holds.ts` (active-hold rule, `heldByOthers`), `app/api/stock-holds/route.ts` (create/release, sales reps), `app/stock-holds.tsx` (hold dialog and Stock on hold panel used by `app/inventory-overview.tsx`). Enforcement is in `app/api/records/route.ts` (new documents and invoice edits), `lib/inventory-invoice-edit.ts` and `app/api/transfers/route.ts`. Table `stock_holds`, migration 0096.
