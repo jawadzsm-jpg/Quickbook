@@ -352,4 +352,4 @@ When the same product is on several lines of one form, each line shows the stock
 
 ## Clear company data
 
-Company Setup → Clear lets the assigned company Administrator clear selected data with their password and a confirmation. Besides transactions, items and inventory, contacts, reports, VAT/currency controls and company setup, the **Reset stock to zero, keep items** option keeps every item (name, SKU, prices, specifications, HS code and inventory location) and sets all stock quantities to zero. It runs together with Transactions, which it selects automatically; choosing *Items and inventory data* (which deletes items) replaces it.
+Company Setup → Clear lets the assigned company Administrator clear selected data with their password and a confirmation. Options cover transactions, stock, contacts, saved reports, VAT/currency controls and company setup. Items and inventory locations are protected like the Chart of Accounts and are never deleted. **Reset stock to zero, keep items** sets all stock quantities to zero; it runs together with Transactions, which it selects automatically. Inventory-check reports are cleared with Saved reports.

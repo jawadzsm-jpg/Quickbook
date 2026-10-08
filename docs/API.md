@@ -33,7 +33,7 @@ Authorization labels below refer to permissions defined in `lib/auth.ts`. **Admi
 | `/api/cargos` | `GET`, `POST`, `PATCH`, `DELETE` | Any signed-in user with company access for GET/POST (sales included); the creator or an administrator for PATCH; administrators for DELETE | Shared cargo / freight agent list (`lib/cargo.ts`, table `cargos`, migration 0093). |
 | `/api/company-setup/branding` | `PATCH` | Administrator | Update login branding, login identity text, background, and logos for an assigned company. |
 | `/api/company-setup/letterhead` | `PATCH` | Administrator | Save the company letterhead design used by A4 document output. |
-| `/api/company-setup/clear` | `POST` | Administrator | Clear selected company operational data after protected confirmation while preserving required setup records. `sections` may include `transactions`, `stock`, `inventory`, `contacts`, `reports`, `settings`, `setup`; `stock` keeps every item and sets quantities to zero and requires `transactions` (stock movements belong to transactions). |
+| `/api/company-setup/clear` | `POST` | Administrator | Clear selected company operational data after protected confirmation while preserving required setup records. `sections` may include `transactions`, `stock`, `contacts`, `reports`, `settings`, `setup`. Items and inventory locations are never deleted; `stock` sets item quantities to zero and requires `transactions` (stock movements belong to transactions). |
 | `/api/login-branding` | `GET` | Public | Return safe login-page branding and the selectable company identity for optional `companyId`. |
 
 ## Core records and accounting

@@ -6,7 +6,8 @@ import { verifyPassword } from "@/lib/password";
 import { consumeRateLimit } from "@/lib/rate-limit";
 import { standardVatCodes } from "@/lib/standard-vat-codes";
 
-const allowedSections = ["transactions", "stock", "inventory", "contacts", "reports", "settings", "setup"] as const;
+// Items and inventory locations are never deleted here; "stock" resets quantities to zero while keeping them.
+const allowedSections = ["transactions", "stock", "contacts", "reports", "settings", "setup"] as const;
 type ClearSection = typeof allowedSections[number];
 type ClearRequest = { companyId: number; password: string; confirmation: string; sections: ClearSection[] };
 
@@ -87,23 +88,10 @@ export async function POST(request: Request) {
         await db.execute(sql`UPDATE contacts SET balance=0 WHERE company_id=${companyId}`);
       }
 
-      if (selected.has("stock") && !selected.has("inventory")) {
+      if (selected.has("stock")) {
         // Keep every item (names, SKUs, prices, specifications, HS codes) and its inventory location; only on-hand stock
         // starts again from zero. Movements were removed with the transactions above.
         await db.execute(sql`UPDATE items SET quantity=0 WHERE company_id=${companyId}`);
-      }
-
-      if (selected.has("inventory")) {
-        await db.execute(sql`DELETE FROM inventory_check_reports WHERE company_id=${companyId}`);
-        await db.execute(sql`DELETE FROM items WHERE company_id=${companyId}`);
-        // Cross-company transfer locations are historical records for both companies, so keep them inactive.
-        await db.execute(sql`UPDATE inventory_locations SET active=false WHERE company_id=${companyId}`);
-        await db.execute(sql`DELETE FROM inventory_locations il
-          WHERE il.company_id=${companyId}
-            AND NOT EXISTS (
-              SELECT 1 FROM stock_transfers st
-              WHERE st.source_location_id=il.id OR st.destination_location_id=il.id
-            )`);
       }
 
       if (selected.has("contacts")) {
@@ -125,7 +113,7 @@ export async function POST(request: Request) {
       if (selected.has("setup")) {
         [record] = await db.update(companies).set({ logoData: "", rightLogoData: "", loginLogoData: "", loginCompanyLogoData: "", loginDisplayName: "", loginCopyrightYears: "1996-2021", loginBackgroundData: "", loginBackgroundColor: "#f3f6fa", stampData: "", documentDesign: "", letterheadDesign: "", addressLine1: "", addressLine2: "", city: "", country: "", phone: "", email: "", trn: "", bankName: "", bankAccountName: "", bankAccountNumber: "", bankIban: "", bankSwift: "", bankAccounts: "", bankStampData: "", bankRemark: "", stampPositions: "", bankCurrency: company.baseCurrency, documentTemplate: "modern", documentColor: "#10b981" }).where(eq(companies.id, companyId)).returning();
       }
-      await db.insert(auditLog).values({ companyId, action: "cleared", entityType: "company_setup", entityId: companyId, details: `Selected company data (${sections.join(", ")}) cleared${selected.has("stock") && !selected.has("inventory") ? " (items kept with stock reset to zero)" : ""} by assigned company Administrator ${user.id} (${user.email}) for ${company.name}; original Chart of Accounts and all sub-accounts retained with transaction-derived balances reset to zero. Company identity, base currency, user access, audit history and cross-company stock-transfer history retained.` });
+      await db.insert(auditLog).values({ companyId, action: "cleared", entityType: "company_setup", entityId: companyId, details: `Selected company data (${sections.join(", ")}) cleared${selected.has("stock") ? " (stock reset to zero)" : ""} by assigned company Administrator ${user.id} (${user.email}) for ${company.name}; original Chart of Accounts and all sub-accounts retained with transaction-derived balances reset to zero; items and inventory locations retained. Company identity, base currency, user access, audit history and cross-company stock-transfer history retained.` });
       return Response.json({ record, cleared: sections }, { headers: { "Cache-Control": "no-store" } });
     });
   } catch (error) {
