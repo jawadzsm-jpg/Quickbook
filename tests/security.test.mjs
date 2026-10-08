@@ -83,13 +83,21 @@ for (const name of ["records", "reports", "journal-entries", "admin-settings", "
   });
 }
 
-test("company administrators cannot manage global identities or SMTP settings", async () => {
-  for (const name of ["admin-users", "email-settings"]) {
-    const routes = await vite.ssrLoadModule(`/app/api/${name}/route.ts`);
-    for (const method of ["GET", "POST", "PATCH", "DELETE"]) {
-      if (routes[method]) assert.equal((await routes[method](request(method, {}))).status, 403);
-    }
+test("company administrators cannot manage SMTP settings", async () => {
+  const routes = await vite.ssrLoadModule("/app/api/email-settings/route.ts");
+  for (const method of ["GET", "POST", "PATCH", "DELETE"]) {
+    if (routes[method]) assert.equal((await routes[method](request(method, {}))).status, 403);
   }
+});
+
+test("company administrators cannot add administrators or users of other companies", async () => {
+  const routes = await vite.ssrLoadModule("/app/api/admin-users/route.ts");
+  const before = globalThis.__comnetDbCalls;
+  const base = { fullName: "New user", email: "new@example.test", password: "temporary password 123" };
+  for (const payload of [{ ...base, role: "all_admin" }, { ...base, role: "admin", companyIds: [1] }, { ...base, role: "sales", companyIds: [2] }, { ...base, role: "sales", companyIds: [1, 2] }, { ...base, role: "sales", companyIds: [] }]) {
+    assert.equal((await routes.POST(request("POST", payload))).status, 403, JSON.stringify(payload));
+  }
+  assert.equal(globalThis.__comnetDbCalls, before);
 });
 
 test("API rejects malformed/non-object/oversized JSON and hides internal errors", async () => {

@@ -76,8 +76,8 @@ See [API reference](docs/API.md) for methods, authorization, parameters, and beh
 
 | Role | Typical access |
 | --- | --- |
-| `all_admin` | Global administration and all companies, and the only role that can add, edit or remove users or change the email server; represented as Administrator in the client |
-| `admin` | Full application access for assigned companies |
+| `all_admin` | Global administration and all companies, the only role that can manage Administrators and users spanning other companies, and the only role that can change the email server; represented as Administrator in the client |
+| `admin` | Full application access for assigned companies, including adding and managing non-administrator users of those companies |
 | `accountant` | Sales, purchases, banking, journals, accounts, VAT, reports, pending invoices, and document stamp/bank settings; no deletion |
 | `sales` | Own customers/balances, daily work, quotations/estimates, sales orders, proforma creation with accounting handoff, and incoming items without suppliers/costs |
 | `purchasing` | Purchases, vendors, cheques, and read-only inventory context |

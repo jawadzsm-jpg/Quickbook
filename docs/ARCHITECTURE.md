@@ -143,7 +143,7 @@ Server roles are `all_admin`, `admin`, `accountant`, `sales`, `purchasing`, `inv
 
 `all_admin` can access every company. Every other role is restricted to rows in `app_user_companies`. The client hides unavailable views for usability, while the route handlers enforce permissions and company access as the security boundary.
 
-Employee/HR reports require Administrator access. Global user administration (`/api/admin-users`) and SMTP settings (`/api/email-settings`) are restricted to `all_admin`; company-scoped `admin` users cannot list or change users or email settings. `scripts/bootstrap-admin.mjs` restores an All-Admin if none is active.
+Employee/HR reports require Administrator access. SMTP settings (`/api/email-settings`) are restricted to `all_admin`. User administration (`/api/admin-users`) is open to `all_admin` for every user, and to company-scoped `admin` users only for users who are not `admin`/`all_admin` and whose every company assignment is one of the administrator's companies; they can assign only non-administrator roles and their own companies. `scripts/bootstrap-admin.mjs` restores an All-Admin if none is active.
 
 ### Request and browser controls
 
