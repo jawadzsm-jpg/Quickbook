@@ -26,8 +26,10 @@ function ItemSelect({ items, value, onChange, label, disabled }: { items: Item[]
 
 // Inventory users correct which product was sold, add free lines (accessories, cables) and record serial numbers and
 // comments. Quantities, prices and the invoice total are fixed; the server re-checks every rule.
-export function InventoryInvoiceEditor({ companyId, locationId, invoiceId, revision, comments, lines, onSaved }: { companyId: number; locationId: number; invoiceId: number; revision: string; comments: string; lines: InvoiceLine[]; onSaved: () => void }) {
-  const [open, setOpen] = useState(false);
+export function InventoryInvoiceEditor({ companyId, locationId, invoiceId, revision, comments, lines, onSaved, defaultOpen = false, onDefaultOpened }: { companyId: number; locationId: number; invoiceId: number; revision: string; comments: string; lines: InvoiceLine[]; onSaved: () => void; defaultOpen?: boolean; onDefaultOpened?: () => void }) {
+  const [open, setOpen] = useState(defaultOpen);
+  // Opened from a list row's edit icon: open once, then let the parent forget the request.
+  useEffect(() => { if (defaultOpen) onDefaultOpened?.(); }, [defaultOpen, onDefaultOpened]);
   const [saving, setSaving] = useState(false);
   const [items, setItems] = useState<Item[]>([]);
   const [drafts, setDrafts] = useState<Record<number, LineDraft>>({});

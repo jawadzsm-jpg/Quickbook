@@ -2520,8 +2520,18 @@ test('inventory users change invoice items and add zero-price lines without chan
     const created = await call('POST', { locationId: loc, type: 'invoice', number: 'INV-EDIT-1', party: 'Edit Customer', transactionDate: '2026-10-01', currency: 'AED', exchangeRate: 1, account: 'Sales Revenue', lines: [{ itemId: wrong, description: 'WRONG-SKU', quantity: 1, unitPrice: 100, vatCode: 'STANDARD' }] });
     assert.equal(created.status, 201, JSON.stringify(await created.clone().json()));
     const invoice = (await created.json()).record;
+    const estimateResponse = await call('POST', { locationId: loc, type: 'estimate', number: 'EST-HIDDEN-1', party: 'Edit Customer', transactionDate: '2026-10-01', currency: 'AED', exchangeRate: 1, account: 'Sales Revenue', lines: [{ itemId: wrong, description: 'WRONG-SKU', quantity: 1, unitPrice: 100, vatCode: 'STANDARD' }] });
+    assert.equal(estimateResponse.status, 201, JSON.stringify(await estimateResponse.clone().json()));
+    const estimate = (await estimateResponse.json()).record;
     let data = await detail(invoice.id);
     globalThis.__transferTestUser = { id: 1, role: 'inventory', companyIds: [c] };
+    // Inventory users see invoices but not estimates or other sales-workflow documents, and not Customization Details.
+    const listed = (await (await route.GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${c}`))).json()).records;
+    assert.ok(listed.some(row => row.id === invoice.id));
+    assert.ok(!listed.some(row => row.id === estimate.id));
+    assert.notEqual((await route.GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${c}&id=${estimate.id}`))).status, 200);
+    const customization = await vite.ssrLoadModule('/app/api/item-customization/route.ts');
+    assert.equal((await (await customization.GET(new Request(`https://app.test/api/item-customization?companyId=${c}&locationId=${loc}`))).json()).canEdit, false);
     const base = { id: invoice.id, revision: data.revision, editMode: 'inventory-invoice' };
     const line = data.lines[0];
     assert.equal((await call('PATCH', { ...base, appendLines: [{ itemId: cable, quantity: 1, unitPrice: 5 }] })).status, 403, 'charged lines are refused');

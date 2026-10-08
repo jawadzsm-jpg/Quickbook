@@ -10,7 +10,7 @@ const rolePermissions: Record<AppRole, Permission[]> = {
   accountant: ["workspace:read", "inventory:read", "reports:read", "sales:write", "purchases:write", "banking:write", "accounting:manage", "customers:manage", "vendors:manage"],
   sales: ["workspace:read", "inventory:read", "sales:write", "customers:manage"],
   purchasing: ["workspace:read", "inventory:read", "purchases:write", "vendors:manage"],
-  inventory: ["workspace:read", "inventory:read", "inventory:manage", "inventory:transfer", "customization:manage", "purchases:write", "vendors:manage"],
+  inventory: ["workspace:read", "inventory:read", "inventory:manage", "inventory:transfer", "purchases:write", "vendors:manage"],
   customization: ["workspace:read", "inventory:read", "customization:manage"],
   viewer: ["workspace:read", "inventory:read", "reports:read"],
 };
