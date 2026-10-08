@@ -2590,11 +2590,18 @@ test('inventory users change invoice items and add zero-price lines without chan
     assert.equal(returnBalance.d, returnBalance.cr);
     // Delivery: only accountants and administrators mark an invoice delivered or not delivered.
     assert.equal((await call('PATCH', { id: invoice.id, editMode: 'delivery', delivered: true })).status, 403);
+    assert.equal((await call('PATCH', { id: invoice.id, editMode: 'delivery-address', deliveryAddress: 'Not allowed' })).status, 403);
     globalThis.__transferTestUser = { id: 1, role: 'accountant', companyIds: [c] };
     const delivered = await call('PATCH', { id: invoice.id, editMode: 'delivery', delivered: true });
     assert.equal(delivered.status, 200, JSON.stringify(await delivered.clone().json()));
     assert.ok((await delivered.json()).record.deliveredAt);
     assert.equal((await (await call('PATCH', { id: invoice.id, editMode: 'delivery', delivered: false })).json()).record.deliveredAt, null);
+    // Ship To: accountants paste or type the delivery address on the saved invoice; totals stay the same.
+    const shipTo = await call('PATCH', { id: invoice.id, editMode: 'delivery-address', deliveryAddress: 'Warehouse 4\r\nAl Quoz, Dubai ' });
+    assert.equal(shipTo.status, 200, JSON.stringify(await shipTo.clone().json()));
+    assert.equal((await shipTo.json()).record.deliveryAddress, 'Warehouse 4\nAl Quoz, Dubai');
+    assert.equal(Number((await detail(invoice.id)).record.total), Number(invoice.total));
+    assert.equal((await call('PATCH', { id: invoice.id, editMode: 'delivery-address', deliveryAddress: 'x', total: 1 })).status, 400);
     globalThis.__transferTestUser = { id: 1, role: 'inventory', companyIds: [c] };
     assert.equal((await call('DELETE', { id: invoice.id, deletionReason: 'not allowed' })).status, 403);
     const contact = (await database.query("SELECT id FROM contacts WHERE company_id=$1 AND name='Edit Customer'", [c])).rows[0].id;
