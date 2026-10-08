@@ -20,13 +20,19 @@ export type LetterheadTemplate = {
   showLogo: boolean; showRightLogo: boolean; showStamp: boolean;
   stampLeft: number; stampTop: number;
   bodyHtml?: string; bodyLeft?: number; bodyTop?: number; bodyWidth?: number;
+  /** Phone / email / website line under the header (default on). */
+  headerContact?: boolean;
+  /** Footer pinned to the bottom of the page: free text plus optional company address, contact line and TRN. */
+  showFooter?: boolean; footerStyle?: "line" | "band"; footerAddress?: boolean; footerContact?: boolean; footerTrn?: boolean;
 };
+export const footerStyles = [["line", "Thin line"], ["band", "Colour band"]] as const;
 export type LetterheadSettings = { templates: LetterheadTemplate[] };
 export const defaultLetterhead = (): LetterheadTemplate => ({
   id: "", name: "Company letterhead", color: "#c82424", heading: "", subtitle: "",
   website: "", body: "", footer: "", documents: [], showLogo: true,
   showRightLogo: true, showStamp: false, stampLeft: 155, stampTop: 230,
   bodyHtml: "", bodyLeft: 13, bodyTop: 48, bodyWidth: 184,
+  headerContact: true, showFooter: true, footerStyle: "line", footerAddress: true, footerContact: false, footerTrn: false,
 });
 const allowedDocuments = new Set<string>(letterheadDocuments.map(([key]) => key));
 const color = (value: unknown) => typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
@@ -49,6 +55,8 @@ export function validateLetterheadSettings(value: string): LetterheadSettings {
       || (raw.bodyTop !== undefined && (!Number.isInteger(raw.bodyTop) || raw.bodyTop < 0 || raw.bodyTop > 250))
       || (raw.bodyWidth !== undefined && (!Number.isInteger(raw.bodyWidth) || raw.bodyWidth < 20 || raw.bodyWidth > 210))
       || typeof raw.showLogo !== "boolean" || typeof raw.showRightLogo !== "boolean" || typeof raw.showStamp !== "boolean"
+      || [raw.headerContact, raw.showFooter, raw.footerAddress, raw.footerContact, raw.footerTrn].some((flag) => flag !== undefined && typeof flag !== "boolean")
+      || (raw.footerStyle !== undefined && raw.footerStyle !== "line" && raw.footerStyle !== "band")
       || !Number.isInteger(raw.stampLeft) || raw.stampLeft < 0 || raw.stampLeft > 170
       || !Number.isInteger(raw.stampTop) || raw.stampTop < 0 || raw.stampTop > 260
       || !Array.isArray(raw.documents) || raw.documents.length > allowedDocuments.size
@@ -62,6 +70,9 @@ export function validateLetterheadSettings(value: string): LetterheadSettings {
       showStamp: raw.showStamp, stampLeft: raw.stampLeft, stampTop: raw.stampTop,
       bodyHtml: raw.bodyHtml || "", bodyLeft: raw.bodyLeft ?? 13,
       bodyTop: raw.bodyTop ?? 48, bodyWidth: raw.bodyWidth ?? 184,
+      // Letterheads saved before these options existed keep their previous look.
+      headerContact: raw.headerContact ?? true, showFooter: raw.showFooter ?? true, footerStyle: raw.footerStyle ?? "line",
+      footerAddress: raw.footerAddress ?? true, footerContact: raw.footerContact ?? false, footerTrn: raw.footerTrn ?? false,
     };
   });
   return { templates };

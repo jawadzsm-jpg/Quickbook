@@ -7,21 +7,22 @@ import type { LetterheadTemplate } from "@/lib/letterhead";
 export type LetterheadCompany = {
   name: string; logoData: string; rightLogoData?: string; stampData?: string;
   phone: string; email?: string; addressLine1?: string; addressLine2?: string;
-  city?: string; country?: string;
+  city?: string; country?: string; trn?: string;
 };
 
 export function LetterheadBrand({ template, company }: { template: LetterheadTemplate; company: LetterheadCompany }) {
-  const details = [company.phone, company.email, template.website].filter(Boolean);
+  const details = template.headerContact === false ? [] : [company.phone, company.email, template.website].filter(Boolean);
   return <header className="letterhead-brand" style={{ borderBottom: "1px solid #9ca3af", paddingBottom: 13, marginBottom: 22, color: "#24282d" }}>
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, minHeight: 76 }}>
       <div style={{ flex: "1 1 45%", minWidth: 0 }}>
         {template.showLogo && company.logoData
-          ? <Image src={company.logoData} alt={company.name} width={230} height={90} unoptimized style={{ width: "auto", maxWidth: "100%", maxHeight: 85, objectFit: "contain" }} />
+          ? <Image src={company.logoData} alt={company.name} width={230} height={90} unoptimized style={{ display: "block", width: "auto", maxWidth: "100%", maxHeight: 85, objectFit: "contain" }} />
           : <strong style={{ color: template.color, fontSize: 22 }}>{company.name}</strong>}
       </div>
-      <div style={{ flex: "1 1 55%", textAlign: "right", minWidth: 0 }}>
+      {/* Images are block elements in the app's base styles, so the right column aligns its content with flexbox. */}
+      <div style={{ flex: "1 1 55%", display: "flex", flexDirection: "column", alignItems: "flex-end", textAlign: "right", minWidth: 0 }}>
         {template.showRightLogo && company.rightLogoData
-          ? <Image src={company.rightLogoData} alt={`${company.name} right logo`} width={230} height={90} unoptimized style={{ width: "auto", maxWidth: "100%", maxHeight: 85, objectFit: "contain" }} /> : null}
+          ? <Image src={company.rightLogoData} alt={`${company.name} right logo`} width={230} height={90} unoptimized style={{ display: "block", width: "auto", maxWidth: "100%", maxHeight: 85, marginLeft: "auto", objectFit: "contain" }} /> : null}
         {template.heading ? <div dir="auto" style={{ color: template.color, fontWeight: 800, fontSize: 26, lineHeight: 1.2, overflowWrap: "anywhere" }}>{template.heading}</div> : null}
         {template.subtitle ? <div dir="auto" style={{ color: template.color, fontWeight: 700, fontSize: 14, overflowWrap: "anywhere" }}>{template.subtitle}</div> : null}
       </div>
@@ -91,10 +92,26 @@ export function LetterheadPage({ template, company, onMoveStamp, onMoveBody }: {
       {onMoveBody && <div className="letterhead-drag-handle" onPointerDown={beginBodyDrag} style={{ cursor: "grab", touchAction: "none", border: "1px dashed #94a3b8", borderRadius: 4, padding: "3px 7px", marginBottom: 5, color: "#475569", fontSize: 11 }}>Drag here to move text</div>}
       {template.bodyHtml ? <div className="letterhead-body-text" dangerouslySetInnerHTML={{ __html: template.bodyHtml }} /> : <div className="letterhead-body-text" style={{ whiteSpace: "pre-wrap" }}>{template.body}</div>}
     </div>
-    <div className="letterhead-footer-area" style={{ position: "absolute", left: "13mm", right: "13mm", top: "228mm" }}>
-      {template.footer ? <footer style={{ borderTop: `1px solid ${template.color}`, paddingTop: 8, color: template.color, textAlign: "center", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{template.footer}</footer> : null}
-      {address ? <p style={{ textAlign: "center", fontSize: 11, marginTop: 10, overflowWrap: "anywhere" }}>{address}</p> : null}
-    </div>
+    <LetterheadFooter template={template} company={company} address={address} />
     <LetterheadStamp template={template} company={company} onMove={onMoveStamp} />
   </article>;
+}
+
+// Footer pinned to the bottom of the A4 page: free text, then the company address, contact line and TRN when enabled.
+function LetterheadFooter({ template, company, address }: { template: LetterheadTemplate; company: LetterheadCompany; address: string }) {
+  if (template.showFooter === false) return null;
+  const contact = [company.phone ? `Tel ${company.phone}` : "", company.email || "", template.website || ""].filter(Boolean).join("   ·   ");
+  const lines = [
+    template.footerAddress !== false && address ? address : "",
+    template.footerContact && contact ? contact : "",
+    template.footerTrn && company.trn ? `TRN ${company.trn}` : "",
+  ].filter(Boolean);
+  if (!template.footer && !lines.length) return null;
+  const band = template.footerStyle === "band";
+  return <footer className="letterhead-footer-area" style={band
+    ? { position: "absolute", left: 0, right: 0, bottom: 0, padding: "5mm 13mm 6mm", background: template.color, color: "#fff", textAlign: "center", fontSize: 11, lineHeight: 1.5, overflowWrap: "anywhere", printColorAdjust: "exact", WebkitPrintColorAdjust: "exact" }
+    : { position: "absolute", left: "13mm", right: "13mm", bottom: "10mm", borderTop: `1.5px solid ${template.color}`, paddingTop: "3mm", textAlign: "center", fontSize: 11, lineHeight: 1.5, color: "#475569", overflowWrap: "anywhere" }}>
+    {template.footer ? <div dir="auto" style={{ whiteSpace: "pre-wrap", fontWeight: 700, fontSize: 12, color: band ? "#fff" : template.color }}>{template.footer}</div> : null}
+    {lines.map((line) => <div key={line} dir="auto">{line}</div>)}
+  </footer>;
 }

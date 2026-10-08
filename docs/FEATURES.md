@@ -93,7 +93,7 @@
 
 - Classic, modern, and minimal company document templates with configurable color.
 - Tax invoice, proforma invoice, commercial invoice, delivery note, packing list, and HS-code summary views.
-- Company letterhead builder and named A4 letterhead documents.
+- Company letterhead builder and named A4 letterhead documents. The editor is grouped into Letterhead (name, colour presets), Header (left/right logos, optional phone/email/website line, heading, subtitle, website), Letter content (rich text, optional text position), Company stamp, Footer and document assignment. The right logo is aligned to the right margin on the letterhead and on every document that uses its header. The footer is pinned to the bottom of the page in a thin-line or colour-band style, with optional footer text, company address, contact line and TRN. Save is enabled only when there are unsaved changes.
 - Company logos, bank details, VAT identity, extra fields, line comments, serial numbers, and payment terms.
 - Item lines on invoices, pending invoices, bills, purchase orders, item receipts and received item bills have Comments and Serial Number boxes under the description, on create and edit (`lib/line-extras.ts`). Receiving a purchase order pre-fills each line's comments and serial numbers on the bill, still editable.
 - Paid and company stamp overlays that can be moved before printing/export where supported.
