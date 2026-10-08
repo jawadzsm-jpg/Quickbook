@@ -129,12 +129,13 @@ function SecurityPanel({ companyId, companyName, currentUserEmail, onPinStatus }
   </div>;
 }
 
-export function AdminControlsCenter({ companyId, companyName, currentUserEmail, canManageUsers }: { companyId: number; companyName: string; currentUserEmail: string; canManageUsers: boolean }) {
-  // Users and the email server are shared by every company, so only an All-Admin sees them; the APIs enforce the same rule.
-  const visibleTabs = canManageUsers ? tabs : tabs.filter((entry) => entry.id !== "users" && entry.id !== "email");
+export function AdminControlsCenter({ companyId, companyName, currentUserEmail, canManageEmail }: { companyId: number; companyName: string; currentUserEmail: string; canManageEmail: boolean }) {
+  // Every administrator sees Users & access (company Administrators only for their own companies). The email server is
+  // shared by every company, so only an All-Admin sees it; the APIs enforce the same rules.
+  const visibleTabs = canManageEmail ? tabs : tabs.filter((entry) => entry.id !== "email");
   // Admin Controls only mounts after the user opens it, so reading the remembered tab here never runs during server rendering.
   const [tab, setTab] = useState<Tab>(() => {
-    const fallback: Tab = canManageUsers ? "users" : "security";
+    const fallback: Tab = "users";
     try { const saved = window.localStorage.getItem(tabStorageKey); return visibleTabs.some((entry) => entry.id === saved) ? saved as Tab : fallback; } catch { return fallback; }
   });
   const [users, setUsers] = useState<UserSummary | null>(null);
@@ -156,12 +157,12 @@ export function AdminControlsCenter({ companyId, companyName, currentUserEmail, 
   const cards = allCards.filter((card) => visibleTabs.some((entry) => entry.id === card.id));
 
   return <div className="min-w-0 space-y-5">
-    <div className={`grid gap-3 sm:grid-cols-2 ${cards.length === 4 ? "xl:grid-cols-4" : "xl:grid-cols-2"}`}>{cards.map((card) => <button key={card.id} type="button" onClick={() => select(card.id)} className={`min-w-0 rounded-xl border bg-card p-4 text-left text-card-foreground shadow-sm transition hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${tab === card.id ? "border-primary/60 ring-1 ring-primary/30" : ""}`}><p className="flex items-center justify-between gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">{card.label}{card.warn && <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-amber-800 dark:text-amber-300">Action needed</span>}</p><p className="mt-2 truncate text-lg font-semibold tabular-nums">{card.value}</p><p className="mt-1 truncate text-xs text-muted-foreground">{card.detail}</p></button>)}</div>
+    <div className={`grid gap-3 sm:grid-cols-2 ${cards.length === 4 ? "xl:grid-cols-4" : "xl:grid-cols-3"}`}>{cards.map((card) => <button key={card.id} type="button" onClick={() => select(card.id)} className={`min-w-0 rounded-xl border bg-card p-4 text-left text-card-foreground shadow-sm transition hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${tab === card.id ? "border-primary/60 ring-1 ring-primary/30" : ""}`}><p className="flex items-center justify-between gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">{card.label}{card.warn && <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-amber-800 dark:text-amber-300">Action needed</span>}</p><p className="mt-2 truncate text-lg font-semibold tabular-nums">{card.value}</p><p className="mt-1 truncate text-xs text-muted-foreground">{card.detail}</p></button>)}</div>
     <div role="tablist" aria-label="Admin Controls sections" className="flex gap-1 overflow-x-auto rounded-xl border bg-muted/40 p-1">{visibleTabs.map((entry) => { const Icon = entry.icon; return <button key={entry.id} role="tab" type="button" id={`admin-tab-${entry.id}`} aria-selected={tab === entry.id} aria-controls={`admin-panel-${entry.id}`} onClick={() => select(entry.id)} className={`flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${tab === entry.id ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}><Icon className="size-4" />{entry.label}</button>; })}</div>
     {/* Panels stay mounted so unsaved edits survive switching tabs and the summary cards stay current. */}
-    {canManageUsers ? <div role="tabpanel" id="admin-panel-users" aria-labelledby="admin-tab-users" hidden={tab !== "users"}><UserRoleCenter onSummary={setUsers} /></div> : <p className="rounded-xl border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">Users, their company access and the email server are managed by an All-Admin. Ask an All-Admin to add users, change roles, reset passwords or change email settings.</p>}
+    <div role="tabpanel" id="admin-panel-users" aria-labelledby="admin-tab-users" hidden={tab !== "users"}><UserRoleCenter onSummary={setUsers} /></div>
     <div role="tabpanel" id="admin-panel-security" aria-labelledby="admin-tab-security" hidden={tab !== "security"}><SecurityPanel key={companyId} companyId={companyId} companyName={companyName} currentUserEmail={currentUserEmail} onPinStatus={setPinConfigured} /></div>
-    {canManageUsers && <div role="tabpanel" id="admin-panel-email" aria-labelledby="admin-tab-email" hidden={tab !== "email"}><SmtpSettings onStatus={setSmtpConfigured} /></div>}
+    {canManageEmail && <div role="tabpanel" id="admin-panel-email" aria-labelledby="admin-tab-email" hidden={tab !== "email"}><SmtpSettings onStatus={setSmtpConfigured} /></div>}
     <div role="tabpanel" id="admin-panel-backups" aria-labelledby="admin-tab-backups" hidden={tab !== "backups"}><AdminBackupCenter key={companyId} companyId={companyId} companyName={companyName} onStatus={setBackup} /></div>
   </div>;
 }

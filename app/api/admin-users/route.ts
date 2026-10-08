@@ -2,7 +2,7 @@ import { isValidEmail } from "@/lib/email-validation";
 import { and, asc, count, eq, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { appUsers, authSessions, companies } from "@/db/schema";
-import { appRoles, hashPassword, requireApiUser, type AppRole } from "@/lib/auth";
+import { appRoles, hashPassword, requireApiUser, type AppRole, type SessionUser } from "@/lib/auth";
 import { sendUserInvitation } from "@/lib/smtp";
 
 const validRole = (value: string): value is AppRole => appRoles.includes(value as AppRole);
@@ -19,13 +19,21 @@ async function activeAllAdminCount() {
   return Number(result.rows[0]?.value ?? 0);
 }
 
-async function publicUser(user: typeof appUsers.$inferSelect, currentUserId: number) {
+// A company Administrator manages only operational users (not Administrators or All-Admins) whose every company is one
+// of their own; an All-Admin manages everyone.
+const elevatedRoles: AppRole[] = ["all_admin", "admin"];
+const isCompanyAdmin = (manager: SessionUser) => manager.role !== "all_admin";
+const withinCompanies = (manager: SessionUser, companyIds: number[]) => companyIds.length > 0 && companyIds.every((id) => manager.companyIds.includes(id));
+const canManage = (manager: SessionUser, role: AppRole, companyIds: number[]) => !isCompanyAdmin(manager) || (!elevatedRoles.includes(role) && withinCompanies(manager, companyIds));
+
+async function publicUser(user: typeof appUsers.$inferSelect, manager: SessionUser) {
   const userRole = user.role as AppRole;
+  const companyIds = userRole === "all_admin" ? [] : await companyIdsForUser(user.id);
   return {
     id: user.id, fullName: user.fullName, email: user.email, phone: user.phone, whatsapp: user.whatsapp, avatarData: user.avatarData,
     themeColor: user.themeColor, appearanceMode: user.appearanceMode, role: userRole, active: user.active, mustChangePassword: user.mustChangePassword, createdAt: user.createdAt,
-    lastLoginAt: user.lastLoginAt, lastLoginIp: user.lastLoginIp, lastLoginUserAgent: user.lastLoginUserAgent, isCurrent: user.id === currentUserId,
-    companyIds: userRole === "all_admin" ? [] : await companyIdsForUser(user.id),
+    lastLoginAt: user.lastLoginAt, lastLoginIp: user.lastLoginIp, lastLoginUserAgent: user.lastLoginUserAgent, isCurrent: user.id === manager.id,
+    companyIds, manageable: canManage(manager, userRole, companyIds),
   };
 }
 
@@ -47,24 +55,27 @@ async function replaceCompanies(userId: number, companyIds: number[]) {
   for (const companyId of companyIds) await db.execute(sql`INSERT INTO app_user_companies (user_id, company_id) VALUES (${userId}, ${companyId}) ON CONFLICT DO NOTHING`);
 }
 
-// User management is global (identities span companies), so only an All-Admin may use it. If no active All-Admin
-// remains, `scripts/bootstrap-admin.mjs` restores one.
-async function requireAllAdmin(request: Request, mutating = false) {
-  const user = await requireApiUser(request, true, mutating);
-  if (user instanceof Response) return user;
-  return user.role === "all_admin" ? user : Response.json({ error: "Only an All-Admin can manage users." }, { status: 403 });
+// All-Admins manage every user. Company Administrators manage operational users of their own companies only (see
+// `canManage`). If no active All-Admin remains, `scripts/bootstrap-admin.mjs` restores one.
+async function requireUserManager(request: Request, mutating = false) {
+  return requireApiUser(request, true, mutating);
 }
 
+const outOfScope = () => Response.json({ error: "Company Administrators can only manage non-administrator users of their own companies." }, { status: 403 });
+
 export async function GET(request: Request) {
-  const administrator = await requireAllAdmin(request);
+  const administrator = await requireUserManager(request);
   if (administrator instanceof Response) return administrator;
   const users = await getDb().select().from(appUsers).orderBy(asc(appUsers.fullName), asc(appUsers.email));
-  const companyRows = await getDb().select({ id: companies.id, name: companies.name }).from(companies).where(eq(companies.active, true)).orderBy(asc(companies.name));
-  return Response.json({ users: await Promise.all(users.map((user) => publicUser(user, administrator.id))), companies: companyRows });
+  const companyRows = (await getDb().select({ id: companies.id, name: companies.name }).from(companies).where(eq(companies.active, true)).orderBy(asc(companies.name)))
+    .filter((company) => !isCompanyAdmin(administrator) || administrator.companyIds.includes(company.id));
+  // Company Administrators see themselves plus the users they can manage.
+  const listed = (await Promise.all(users.map((user) => publicUser(user, administrator)))).filter((user) => user.manageable || user.isCurrent);
+  return Response.json({ users: listed, companies: companyRows });
 }
 
 export async function POST(request: Request) {
-  const administrator = await requireAllAdmin(request, true);
+  const administrator = await requireUserManager(request, true);
   if (administrator instanceof Response) return administrator;
   const payload = await request.json() as Record<string, unknown>;
   const fullName = String(payload.fullName ?? "").trim();
@@ -76,6 +87,7 @@ export async function POST(request: Request) {
   const avatarData = String(payload.avatarData ?? "");
   const companyIds = parseCompanyIds(payload.companyIds);
   if (!fullName || !isValidEmail(email) || !validRole(role)) return Response.json({ error: "Enter a name, valid email and role." }, { status: 400 });
+  if (!canManage(administrator, role, companyIds)) return outOfScope();
   if (role !== "all_admin" && !(await validateCompanyIds(companyIds))) return Response.json({ error: "Assign at least one valid company to this user." }, { status: 400 });
   if (password.length < 12 || password.length > 128) return Response.json({ error: "Temporary password must contain 12 to 128 characters." }, { status: 400 });
   if (phone.length > 32 || whatsapp.length > 32) return Response.json({ error: "Phone numbers must contain 32 characters or fewer." }, { status: 400 });
@@ -103,11 +115,11 @@ export async function POST(request: Request) {
     try { await sendUserInvitation({ to: email, name: fullName, temporaryPassword: password, roleLabel: roleNames[role], loginUrl: process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin }); emailSent = true; }
     catch (error) { emailWarning = error instanceof Error ? error.message : "The user was added, but the email could not be sent."; }
   }
-  return Response.json({ user: await publicUser(created, administrator.id), emailSent, emailWarning }, { status: 201 });
+  return Response.json({ user: await publicUser(created, administrator), emailSent, emailWarning }, { status: 201 });
 }
 
 export async function PATCH(request: Request) {
-  const administrator = await requireAllAdmin(request, true);
+  const administrator = await requireUserManager(request, true);
   if (administrator instanceof Response) return administrator;
   const payload = await request.json() as Record<string, unknown>;
   const id = Number(payload.id);
@@ -118,10 +130,15 @@ export async function PATCH(request: Request) {
   const updates: Partial<typeof appUsers.$inferInsert> = { updatedAt: new Date().toISOString() };
   const nextRole = payload.role === undefined ? targetRole : String(payload.role) as AppRole;
   if (!validRole(nextRole)) return Response.json({ error: "Select a valid role." }, { status: 400 });
+  if (isCompanyAdmin(administrator)) {
+    const currentCompanyIds = await companyIdsForUser(id);
+    const nextCompanyIds = payload.companyIds !== undefined ? parseCompanyIds(payload.companyIds) : currentCompanyIds;
+    if (!canManage(administrator, targetRole, currentCompanyIds) || !canManage(administrator, nextRole, nextCompanyIds)) return outOfScope();
+  }
   const activeAdminCount = async () => Number((await getDb().select({ value: count() }).from(appUsers).where(and(eq(appUsers.role, "admin"), eq(appUsers.active, true))))[0]?.value ?? 0);
   // Validate every requested change before writing anything, so a rejected field never leaves a partial update behind.
   if (payload.role !== undefined) {
-    if (id === administrator.id && nextRole !== "all_admin") return Response.json({ error: "You cannot change your own All-Admin role." }, { status: 409 });
+    if (id === administrator.id && nextRole !== administrator.role) return Response.json({ error: "You cannot change your own role." }, { status: 409 });
     if (targetRole === "admin" && target.active && nextRole !== "admin" && nextRole !== "all_admin" && (await activeAdminCount()) <= 1) return Response.json({ error: "At least one active Administrator is required." }, { status: 409 });
     if (targetRole === "all_admin" && target.active && nextRole !== "all_admin" && (await activeAllAdminCount()) <= 1) return Response.json({ error: "At least one active All-Admin is required." }, { status: 409 });
     updates.role = nextRole as never;
@@ -169,11 +186,11 @@ export async function PATCH(request: Request) {
     try { await sendUserInvitation({ to: updated.email, name: updated.fullName || updated.email, temporaryPassword: String(payload.password), roleLabel: roleNames[updated.role as AppRole], loginUrl: process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin }); emailSent = true; }
     catch (error) { emailWarning = error instanceof Error ? error.message : "The password was reset, but the email could not be sent."; }
   }
-  return Response.json({ user: await publicUser(updated, administrator.id), emailSent, emailWarning });
+  return Response.json({ user: await publicUser(updated, administrator), emailSent, emailWarning });
 }
 
 export async function DELETE(request: Request) {
-  const administrator = await requireAllAdmin(request, true);
+  const administrator = await requireUserManager(request, true);
   if (administrator instanceof Response) return administrator;
   const payload = await request.json() as Record<string, unknown>;
   const id = Number(payload.id);
@@ -182,6 +199,7 @@ export async function DELETE(request: Request) {
   const [target] = await getDb().select().from(appUsers).where(eq(appUsers.id, id)).limit(1);
   if (!target) return Response.json({ error: "User not found." }, { status: 404 });
   const targetRole = target.role as AppRole;
+  if (!canManage(administrator, targetRole, await companyIdsForUser(id))) return outOfScope();
   if (targetRole === "admin" && target.active) {
     const [admins] = await getDb().select({ value: count() }).from(appUsers).where(and(eq(appUsers.role, "admin"), eq(appUsers.active, true)));
     if (Number(admins.value) <= 1) return Response.json({ error: "At least one active Administrator is required." }, { status: 409 });

@@ -16,7 +16,7 @@ type Role = "all_admin" | "admin" | "accountant" | "sales" | "purchasing" | "inv
 type Company = { id: number; name: string };
 type ManagedUser = {
   id: number; fullName: string; email: string; phone: string; whatsapp: string; avatarData: string; role: Role; companyIds: number[];
-  active: boolean; mustChangePassword: boolean; lastLoginAt: string | null; lastLoginIp: string; lastLoginUserAgent: string; isCurrent: boolean;
+  active: boolean; mustChangePassword: boolean; lastLoginAt: string | null; lastLoginIp: string; lastLoginUserAgent: string; isCurrent: boolean; manageable: boolean;
 };
 type Draft = { role: Role; companyIds: number[] };
 export type UserSummary = { total: number; active: number; inactive: number; pendingPassword: number };
@@ -116,6 +116,8 @@ export function UserRoleCenter({ onSummary }: { onSummary?: (summary: UserSummar
 
   const currentRole = users.find((user) => user.isCurrent)?.role;
   const canManageAllAdmin = currentRole === "all_admin";
+  // Company Administrators add and manage operational users of their own companies only; the API enforces the same rule.
+  const assignableRole = (role: Role) => canManageAllAdmin || (role !== "all_admin" && role !== "admin");
   const dirtyCount = Object.keys(drafts).length;
 
   const visibleUsers = useMemo(() => {
@@ -230,11 +232,11 @@ export function UserRoleCenter({ onSummary }: { onSummary?: (summary: UserSummar
     setCreateOpen(true);
   }
 
-  const roleOptions = (selected: Role) => roles.filter((role) => role.value !== "all_admin" || canManageAllAdmin || selected === "all_admin");
+  const roleOptions = (selected: Role) => roles.filter((role) => assignableRole(role.value) || selected === role.value);
 
   return <section className="min-w-0 rounded-2xl border bg-card text-card-foreground shadow-sm" aria-label="Users and access">
     <header className="flex flex-wrap items-start justify-between gap-4 border-b p-4 sm:p-5">
-      <div className="min-w-0"><h2 className="text-lg font-semibold">Users & access</h2><p className="mt-1 text-sm text-muted-foreground">Add staff, choose their role and companies, and manage sign-in. Role and company changes sign the user out so the new access applies immediately.</p></div>
+      <div className="min-w-0"><h2 className="text-lg font-semibold">Users & access</h2><p className="mt-1 text-sm text-muted-foreground">Add staff, choose their role and companies, and manage sign-in. Role and company changes sign the user out so the new access applies immediately.{currentRole && !canManageAllAdmin ? " As a company Administrator you can add and manage non-administrator users of your companies; an All-Admin manages Administrators." : ""}</p></div>
       <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={loading} onClick={() => { if (dirtyCount && !window.confirm("Discard unsaved access changes and reload?")) return; void loadUsers(); }}><RefreshCw className="size-4" />Refresh</Button><Button type="button" onClick={openCreate}><Plus className="size-4" />Add user</Button></div>
     </header>
 
@@ -254,8 +256,8 @@ export function UserRoleCenter({ onSummary }: { onSummary?: (summary: UserSummar
       const role = draft?.role ?? user.role;
       const companyIds = draft?.companyIds ?? user.companyIds;
       const busy = busyId === user.id;
-      const lockedAllAdmin = user.role === "all_admin" && !canManageAllAdmin;
-      const accessLocked = busy || user.isCurrent || lockedAllAdmin;
+      const locked = !user.manageable;
+      const accessLocked = busy || user.isCurrent || locked;
       return <article key={user.id} className={`grid gap-4 p-4 sm:p-5 xl:grid-cols-[minmax(240px,1fr)_minmax(320px,1.4fr)_auto] ${user.active ? "" : "bg-muted/30"}`}>
         <div className="flex min-w-0 gap-3">
           <UserAvatar user={user} />
@@ -272,7 +274,7 @@ export function UserRoleCenter({ onSummary }: { onSummary?: (summary: UserSummar
         </div>
         <div className="flex flex-wrap content-start gap-2 xl:w-44 xl:flex-col">
           {draft && <><Button type="button" size="sm" disabled={busy} onClick={() => void saveAccess(user)}><Save className="size-4" />{busy ? "Saving…" : "Save access"}</Button><Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => discardDraft(user.id)}><RotateCcw className="size-4" />Discard</Button></>}
-          <Button type="button" size="sm" variant="outline" disabled={busy || lockedAllAdmin} onClick={() => { setProfile({ fullName: user.fullName, phone: user.phone, whatsapp: user.whatsapp, avatarData: user.avatarData }); setProfileUser(user); }}><Pencil className="size-4" />Edit profile</Button>
+          <Button type="button" size="sm" variant="outline" disabled={busy || locked} onClick={() => { setProfile({ fullName: user.fullName, phone: user.phone, whatsapp: user.whatsapp, avatarData: user.avatarData }); setProfileUser(user); }}><Pencil className="size-4" />Edit profile</Button>
           <Button type="button" size="sm" variant="outline" disabled={accessLocked} onClick={() => { setResetUser(user); setResetPassword(generatePassword()); setEmailReset(true); }}><KeyRound className="size-4" />Reset password</Button>
           <Button type="button" size="sm" variant="outline" disabled={accessLocked} onClick={() => void toggleActive(user)}>{user.active ? <UserX className="size-4" /> : <UserCheck className="size-4" />}{user.active ? "Deactivate" : "Activate"}</Button>
           <Button type="button" size="sm" variant="outline" className="text-destructive" title={user.isCurrent ? "You cannot delete your own account" : "Delete user"} disabled={accessLocked} onClick={() => void deleteUser(user)}><Trash2 className="size-4" />Delete</Button>
