@@ -53,7 +53,9 @@ type StockFilter = "all" | "in" | "low" | "out" | "hold" | "recent7" | "recent30
 type PriceAdjust = { mode: "percent" | "amount"; value: string };
 // Brand: a well-known brand found in the item name, then its description/specifications; otherwise the name's first word.
 const knownBrands = ["DELL", "HP", "HPE", "LENOVO", "ASUS", "ACER", "APPLE", "MSI", "SAMSUNG", "MICROSOFT", "TOSHIBA", "HUAWEI", "GIGABYTE", "LG", "SONY", "PANASONIC", "FUJITSU", "ALIENWARE", "RAZER", "KINGSTON", "CRUCIAL", "ADATA", "IMATION", "SANDISK", "SEAGATE", "WD", "WESTERN DIGITAL", "TRANSCEND", "CORSAIR", "INTEL", "AMD", "NVIDIA", "LOGITECH", "EPSON", "CANON", "BROTHER", "XEROX", "CISCO", "TP-LINK", "D-LINK", "NETGEAR", "UBIQUITI", "APC", "BENQ", "VIEWSONIC", "PHILIPS", "AOC", "SYNOLOGY", "QNAP", "ZEBRA", "HONEYWELL", "XIAOMI"];
-const brandPattern = new RegExp(`(?:^|[^A-Z0-9])(${[...knownBrands].sort((a, b) => b.length - a.length).map((brand) => brand.replace(/[-]/g, "\\-")).join("|")})(?=$|[^A-Z0-9])`);
+// Escape every regular-expression metacharacter (including backslash) before building the brand pattern.
+const escapeRegExp = (value: string) => value.replace(/[\\^$.*+?()[\]{}|-]/g, "\\$&");
+const brandPattern = new RegExp(`(?:^|[^A-Z0-9])(${[...knownBrands].sort((a, b) => b.length - a.length).map(escapeRegExp).join("|")})(?=$|[^A-Z0-9])`);
 const brandOf = (record: { name: string; description?: string; specifications?: string }) => {
   for (const text of [record.name, record.description, record.specifications]) {
     const match = String(text ?? "").toUpperCase().match(brandPattern);
