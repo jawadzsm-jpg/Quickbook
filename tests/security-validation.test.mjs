@@ -577,7 +577,7 @@ test("Customization Details has a dedicated role, secure writes, centered summar
   const auth = readFileSync(new URL("../lib/auth.ts", import.meta.url), "utf8");
   const migration = readFileSync(new URL("../drizzle/0067_item_customization_details.sql", import.meta.url), "utf8");
   assert.match(app, /"customization-details", label: "Customization Details"/);
-  assert.match(app, /customization: \["cargos", "dashboard", "inventory-overview", "customization-details"\]/);
+  assert.match(app, /customization: \["customization-details"\]/);
   assert.match(auth, /customization: \["workspace:read", "inventory:read", "customization:manage"\]/);
   assert.match(api, /requireCompanyAccess\(request, companyId, "customization:manage", true\)/);
   assert.match(api, /skuWrite\("item-customization", handlePatch\)/);
