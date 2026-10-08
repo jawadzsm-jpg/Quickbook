@@ -1992,11 +1992,22 @@ body {
 .account-balance[data-negative="true"] { color: var(--user-color-700, #047857) !important; }
 [data-appearance="dark"] .account-balance[data-negative="true"] { color: var(--user-color-300, #6ee7b7) !important; }
 .account-table { width: 100%; table-layout: fixed; }
-.account-table th, .account-table td { min-width: 0; overflow-wrap: anywhere; }
+.account-table th, .account-table td { min-width: 0; overflow-wrap: break-word; }
 .account-table th { white-space: normal; }
-.account-table th:nth-child(2) { width: 16%; }
-.account-table th:nth-child(9) { width: 15%; }
-.account-table th:nth-child(10) { width: 12%; }
+/* Column widths: Code, Account name, Linked use, Currency, Sub-account of, Type, Document area, Status, Balance, Actions. */
+.account-table th:nth-child(1) { width: 7%; }
+.account-table th:nth-child(2) { width: 14%; }
+.account-table th:nth-child(3) { width: 13%; }
+.account-table th:nth-child(4) { width: 5.5rem; }
+.account-table th:nth-child(5) { width: 8%; }
+.account-table th:nth-child(6) { width: 10%; }
+.account-table th:nth-child(7) { width: 10%; }
+.account-table th:nth-child(8) { width: 6rem; }
+/* Badges (linked use, currency) wrap inside their own column instead of spilling over the next one. */
+.account-table td [data-slot="badge"] { max-width: 100%; height: auto; white-space: normal; overflow-wrap: anywhere; text-align: left; line-height: 1.3; }
+.account-table td[data-label="Document area"] :is(a, button) { max-width: 100%; height: auto; white-space: normal; text-align: left; }
+.account-table th:nth-child(9) { width: 12%; }
+.account-table th:nth-child(10) { width: 9rem; }
 .account-table td[data-responsive-column="amount"] { max-width: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
 @media screen and (max-width: 1279px) {
   .account-table, .account-table tbody { display: block; width: 100%; }
