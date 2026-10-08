@@ -1974,6 +1974,8 @@ test('company clearing requires administrator password and company access, prese
     assert.equal((await POST(request(['setup'],{password:'wrong'}))).status,403);
     assert.equal((await POST(request(['setup'],{confirmation:'yes'}))).status,400);
     assert.equal((await POST(request(['bad']))).status,400);
+    // Items are never deleted by a company clear, so the old "inventory" section no longer exists.
+    assert.equal((await POST(request(['inventory']))).status,400);
     assert.equal((await POST(request([]))).status,400);
     assert.equal((await POST(request(['setup']))).status,200);
     assert.equal((await database.query('SELECT logo_data,right_logo_data FROM companies WHERE id=$1',[company])).rows[0].logo_data,'');
@@ -1998,19 +2000,21 @@ test('company clearing requires administrator password and company access, prese
     await database.query("INSERT INTO record_attachments (company_id,entity_type,entity_id,file_name,file_data) VALUES ($1,'transaction',$2,'test','data')",[company,first]);
     // A restrict reference from another company must abort the whole clear transaction.
     await database.query('INSERT INTO bill_payment_allocations (payment_id,bill_id,amount) VALUES ($1,$2,10)',[untouched,first]);
-    assert.equal((await POST(request(['transactions','inventory','contacts','reports','settings','setup']))).status,409);
+    const keptItem=(await database.query("INSERT INTO items (company_id,location_id,sku,name,quantity) VALUES ($1,$2,'CLEAR-ITEM','Kept item',3) RETURNING id",[company,source])).rows[0].id;
+    assert.equal((await POST(request(['transactions','contacts','reports','settings','setup']))).status,409);
     assert.equal((await database.query('SELECT id FROM transactions WHERE company_id=$1',[company])).rows.length,4);
     assert.equal((await database.query('SELECT id FROM invoice_payment_allocations WHERE payment_id=$1',[invoice])).rows.length,1);
     await database.query('DELETE FROM bill_payment_allocations WHERE payment_id=$1',[untouched]);
-    assert.equal((await POST(request(['transactions','inventory','contacts','reports','settings','setup']))).status,200);
+    assert.equal((await POST(request(['transactions','contacts','reports','settings','setup']))).status,200);
     for (const table of ['transactions','record_attachments']) assert.equal((await database.query(`SELECT * FROM ${table} WHERE company_id=$1`,[company])).rows.length,0);
     for (const table of ['contacts','warranty_slips','packing_lists']) assert.equal((await database.query(`SELECT * FROM ${table} WHERE company_id=$1`,[company])).rows.length,0);
-    assert.equal((await database.query('SELECT * FROM inventory_locations WHERE company_id=$1 AND active=true',[company])).rows.length,0);
+    assert.equal((await database.query('SELECT * FROM inventory_locations WHERE company_id=$1 AND active=true',[company])).rows.length,1);
+    assert.equal(Number((await database.query('SELECT quantity FROM items WHERE id=$1',[keptItem])).rows[0].quantity),3);
     const preservedTransfer=(await database.query("SELECT source_location_id,destination_location_id FROM stock_transfers WHERE reference='CLEAR-X'")).rows[0];
     assert.ok(preservedTransfer);
     assert.equal(Number(preservedTransfer.source_location_id),Number(source));
     assert.equal(Number(preservedTransfer.destination_location_id),Number(dest));
-    assert.equal((await database.query('SELECT active FROM inventory_locations WHERE id=$1',[source])).rows[0].active,false);
+    assert.equal((await database.query('SELECT active FROM inventory_locations WHERE id=$1',[source])).rows[0].active,true);
     assert.equal((await database.query('SELECT active FROM inventory_locations WHERE id=$1',[dest])).rows[0].active,true);
     assert.equal((await database.query('SELECT id FROM transactions WHERE id=$1',[untouched])).rows.length,1);
     assert.deepEqual((await database.query('SELECT id,balance FROM accounts WHERE id=$1',[keptAccount])).rows,[{id:keptAccount,balance:0}]);
