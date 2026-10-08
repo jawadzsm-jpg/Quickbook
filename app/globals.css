@@ -2261,3 +2261,18 @@ body {
 /* Document paper in previews and the Layout Builder canvas is always white with dark text, in light and dark
    mode (the dark-mode .bg-white remap must not turn the page margins dark). */
 .layout-paper { background-color: #fff !important; color: #111827; color-scheme: light; }
+
+/* HS Code, COO & Dimensions: white fields with a clearly visible border, and separated item rows. */
+.app-content section.logistics-editor { border-color: #cbd5e1; }
+.logistics-editor .logistics-row { border-bottom-color: #cbd5e1; }
+.logistics-editor .logistics-row:nth-child(even):not([data-dirty]) { background-color: #f8fafc; }
+.logistics-editor .logistics-row :is([data-slot="input"], button[data-variant="outline"]) { background-color: #fff; border-color: #94a3b8; box-shadow: 0 1px 2px rgb(15 23 42 / .06); }
+.logistics-editor .logistics-row :is([data-slot="input"], button[data-variant="outline"]):hover:not(:disabled) { border-color: #64748b; }
+.logistics-editor .logistics-row [data-slot="input"]:focus-visible { border-color: var(--ring); }
+.logistics-editor .logistics-row [data-slot="input"]:read-only { background-color: #f1f5f9; }
+[data-appearance="dark"] .app-content section.logistics-editor,
+[data-appearance="dark"] .logistics-editor .logistics-row { border-color: #3b4d63; }
+[data-appearance="dark"] .logistics-editor .logistics-row:nth-child(even):not([data-dirty]) { background-color: #0c1522; }
+[data-appearance="dark"] .logistics-editor .logistics-row :is([data-slot="input"], button[data-variant="outline"]) { background-color: #0b1220; border-color: #52667f; }
+[data-appearance="dark"] .logistics-editor .logistics-row :is([data-slot="input"], button[data-variant="outline"]):hover:not(:disabled) { border-color: #7a8ea6; }
+[data-appearance="dark"] .logistics-editor .logistics-row [data-slot="input"]:read-only { background-color: #142033; }
