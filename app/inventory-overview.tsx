@@ -471,12 +471,12 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     </section>
 
     <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-      <div className="flex gap-2 overflow-x-auto pb-1">
+      <div className="flex flex-wrap gap-2">
         <Button variant="outline" onClick={() => setFilter("all")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "all")}`}>
           <Boxes className="size-5" /><span className="font-semibold">All inventory</span><Badge className="bg-sky-400 text-slate-950 hover:bg-sky-400">{totals.quantity.toLocaleString()}</Badge>
         </Button>
-        {locations.map((location) => <Button key={location.id} variant="outline" onClick={() => setFilter(`location:${location.id}`)} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === `location:${location.id}`)}`}>
-          <Warehouse className="size-5" /><span className="font-semibold">{location.company}</span><span className="text-xs opacity-70">{location.location}</span><Badge variant="secondary">{location.quantity.toLocaleString()}</Badge>
+        {locations.map((location) => <Button key={location.id} variant="outline" onClick={() => setFilter(`location:${location.id}`)} title={location.company} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === `location:${location.id}`)}`}>
+          <Warehouse className="size-5" /><span className="font-semibold">{location.location || location.company}</span><Badge variant="secondary">{location.quantity.toLocaleString()}</Badge>
         </Button>)}
         <Button variant="outline" onClick={() => setFilter("in")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "in")}`}><PackageCheck className="size-5" /><span className="font-semibold">In stock</span><Badge className="bg-emerald-400 text-slate-950 hover:bg-emerald-400">{totals.inStock}</Badge></Button>
         <Button variant="outline" onClick={() => setFilter("low")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "low")}`}><AlertTriangle className="size-5" /><span className="font-semibold">Low stock</span><Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">{totals.low}</Badge></Button>
