@@ -10,7 +10,7 @@ import { PrintOrientationSelect, type PrintOrientation } from "@/components/prin
 import { createA4LetterheadPdfBlob, downloadPdfBlob } from "@/lib/document-output";
 import { defaultLetterhead, letterheadForDocument } from "@/lib/letterhead";
 import { normalizeWarrantyStatus, warrantyStatuses, type WarrantyStatus } from "@/lib/warranty-status";
-import { LetterheadBrand, LetterheadStamp, type LetterheadCompany } from "./letterhead-page";
+import { LetterheadBrand, LetterheadFooter, LetterheadStamp, type LetterheadCompany } from "./letterhead-page";
 import { toast } from "sonner";
 
 type Company = LetterheadCompany & { letterheadDesign?: string; documentColor?: string };
@@ -305,7 +305,7 @@ export function WarrantyCenter({ companyId, company, canWrite, canDelete = false
           <table style={{ borderCollapse: "collapse", width: "100%", tableLayout: "fixed", marginBottom: 16 }}><tbody>{documentRows.map(([label, value]) => <tr key={label}><th style={{ width: "29%", padding: 6, border: "1px solid #cbd5e1", background: "#f8fafc", textAlign: "left", verticalAlign: "top" }}>{label}</th><td style={{ padding: 6, border: "1px solid #cbd5e1", overflowWrap: "anywhere", whiteSpace: "pre-wrap" }}>{printable(value)}</td></tr>)}</tbody></table>
           <div className="letterhead-footer-area" style={{ position: "absolute", left: "13mm", right: "13mm", bottom: "12mm", borderTop: "1px solid #cbd5e1", paddingTop: 9, color: "#475569", fontSize: 11 }}><p style={{ margin: "0 0 5px" }}>{supplierReceipt ? "Supplier received by: ____________________　 Signature / stamp: ____________________" : "Received by: ____________________　 Customer signature: ____________________"}</p>{activeLetterhead.footer ? <p style={{ margin: 0 }}>{activeLetterhead.footer}</p> : <p style={{ margin: 0 }}>{company.name} · {supplierReceipt ? "Supplier return receipt" : "Warranty service record"}</p>}</div>
           <LetterheadStamp template={activeLetterhead} company={company} maxLeft={orientation === "landscape" ? 257 : 170} maxTop={orientation === "landscape" ? 173 : 260} pageWidthMm={orientation === "landscape" ? 297 : 210} onMove={canWrite ? (left, top) => setForm((old) => ({ ...old, stampLeft: left, stampTop: top })) : undefined} />
-        </article></div><Button type="button" variant="outline" onClick={backToList} disabled={busy}>Back to warranty list</Button>
+        {letterhead ? <LetterheadFooter template={letterhead} company={company} /> : null}</article></div><Button type="button" variant="outline" onClick={backToList} disabled={busy}>Back to warranty list</Button>
       </div>
     </>}
   </section>;

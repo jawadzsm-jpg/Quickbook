@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { createA4LetterheadPdfBlob, downloadPdfBlob } from "@/lib/document-output";
 import { defaultLetterhead, letterheadForDocument } from "@/lib/letterhead";
 import { InvoiceAttachments } from "./invoice-attachments";
-import { LetterheadBrand, LetterheadStamp, type LetterheadCompany } from "./letterhead-page";
+import { LetterheadBrand, LetterheadFooter, LetterheadStamp, type LetterheadCompany } from "./letterhead-page";
 
 type RecordData = Record<string, string | number | boolean | null | undefined>;
 type PaymentCompany = LetterheadCompany & {
@@ -123,7 +123,7 @@ export function CustomerPaymentReceipt({ record, lines, company, canEditAttachme
         {record.memo ? <section className="mt-5 rounded-xl bg-slate-50 p-4 text-sm"><p className="text-xs font-bold uppercase tracking-wider text-slate-500">Memo</p><p className="mt-2 whitespace-pre-wrap">{String(record.memo)}</p></section> : null}
         <footer className="absolute bottom-[18mm] left-[13mm] right-[13mm] grid grid-cols-2 gap-10 border-t pt-8 text-sm text-slate-600"><div>Received by: __________________________</div><div>Authorized signature: __________________________</div></footer>
         <LetterheadStamp template={receiptTemplate} company={company} maxLeft={170} maxTop={260} onMove={(left, top) => setStamp({ ...stamp, left, top })} />
-      </article>
+      {assigned ? <LetterheadFooter template={assigned} company={company} /> : null}</article>
       </div>
     </div>
     <InvoiceAttachments companyId={Number(record.companyId)} invoiceId={Number(record.id)} canEdit={canEditAttachments} documentLabel="Customer Payment" />
