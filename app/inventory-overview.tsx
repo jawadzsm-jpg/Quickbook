@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Lock, BadgeDollarSign, Boxes, ChevronDown, Download, Eye, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PackageOpen, PlaneLanding, RefreshCw, Rocket, Search, Send, ShoppingCart, UserRound, Warehouse } from "lucide-react";
+import { AlertTriangle, PackageX, CalendarClock, Lock, BadgeDollarSign, Boxes, ChevronDown, Download, Eye, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PackageOpen, PlaneLanding, RefreshCw, Rocket, Search, Send, ShoppingCart, UserRound, Warehouse } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -49,7 +49,19 @@ type ConsolidatedItem = OverviewItem & {
   recordIds: number[];
 };
 
-type StockFilter = "all" | "in" | "low" | `location:${number}`;
+type StockFilter = "all" | "in" | "low" | "out" | "hold" | "recent7" | "recent30" | `location:${number}`;
+type PriceAdjust = { mode: "percent" | "amount"; value: string };
+// Brand: a well-known brand found in the item name, then its description/specifications; otherwise the name's first word.
+const knownBrands = ["DELL", "HP", "HPE", "LENOVO", "ASUS", "ACER", "APPLE", "MSI", "SAMSUNG", "MICROSOFT", "TOSHIBA", "HUAWEI", "GIGABYTE", "LG", "SONY", "PANASONIC", "FUJITSU", "ALIENWARE", "RAZER", "KINGSTON", "CRUCIAL", "ADATA", "IMATION", "SANDISK", "SEAGATE", "WD", "WESTERN DIGITAL", "TRANSCEND", "CORSAIR", "INTEL", "AMD", "NVIDIA", "LOGITECH", "EPSON", "CANON", "BROTHER", "XEROX", "CISCO", "TP-LINK", "D-LINK", "NETGEAR", "UBIQUITI", "APC", "BENQ", "VIEWSONIC", "PHILIPS", "AOC", "SYNOLOGY", "QNAP", "ZEBRA", "HONEYWELL", "XIAOMI"];
+const brandPattern = new RegExp(`(?:^|[^A-Z0-9])(${[...knownBrands].sort((a, b) => b.length - a.length).map((brand) => brand.replace(/[-]/g, "\\-")).join("|")})(?=$|[^A-Z0-9])`);
+const brandOf = (record: { name: string; description?: string; specifications?: string }) => {
+  for (const text of [record.name, record.description, record.specifications]) {
+    const match = String(text ?? "").toUpperCase().match(brandPattern);
+    if (match) return match[1];
+  }
+  return (String(record.name).trim().split(/\s+/)[0] || "").toUpperCase();
+};
+const receivedWithin = (record: { latestReceivedAt: string | null }, days: number, now: number) => Boolean(record.latestReceivedAt) && now - new Date(String(record.latestReceivedAt).replace(" ", "T").replace(/([+-]\d{2})$/, "$1:00")).getTime() <= days * 86_400_000;
 type ShareChannel = "whatsapp" | "telegram" | "email";
 type ActivityView = "incoming" | "launched" | "priceChanges" | "sold";
 type ActivityRecord = {
@@ -143,6 +155,13 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   const [showQuantity, setShowQuantity] = useState(true);
   const [showPrice, setShowPrice] = useState(true);
   const [includeVat, setIncludeVat] = useState(false);
+  const [category, setCategory] = useState("");
+  const [brand, setBrand] = useState("");
+  const [priceMin, setPriceMin] = useState("");
+  const [priceMax, setPriceMax] = useState("");
+  // Price adjustment for what is shown and shared (WhatsApp, Telegram, email, Excel); saved prices never change.
+  const [priceAdjust, setPriceAdjust] = useState<PriceAdjust>({ mode: "percent", value: "" });
+  const [loadedAt, setLoadedAt] = useState(() => Date.now());
   const [detailRecord, setDetailRecord] = useState<ConsolidatedItem | null>(null);
   const [holds, setHolds] = useState<StockHold[]>([]);
   const [canManageHolds, setCanManageHolds] = useState(false);
@@ -157,6 +176,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not load inventory overview");
       setRecords(data.records as OverviewItem[]);
+      setLoadedAt(Date.now());
       setActivity({ ...emptyActivity, ...(data.activity as Partial<InventoryActivity> | undefined) });
       setCanSelectItems(data.canSelectItems === true);
       setCanBulkSelect(data.canBulkSelect === true);
@@ -191,9 +211,10 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
 
   const inStockRecords = useMemo(() => records.filter((record) => Number(record.quantity) > 0), [records]);
 
-  const consolidatedRecords = useMemo(() => {
+  // Group stock rows for the same product (item number or SKU) within a company into one line.
+  const consolidate = useCallback((list: OverviewItem[]) => {
     const grouped = new Map<string, ConsolidatedItem>();
-    for (const record of inStockRecords) {
+    for (const record of list) {
       const identity = record.itemNumber?.trim() || record.sku.trim().toLowerCase();
       const key = `${record.companyId}:${identity}`;
       const inventory: InventoryPresence = {
@@ -229,7 +250,10 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
       }
     }
     return [...grouped.values()];
-  }, [inStockRecords]);
+  }, []);
+  const consolidatedRecords = useMemo(() => consolidate(inStockRecords), [consolidate, inStockRecords]);
+  // Products with no stock in any inventory (for the Out of stock filter).
+  const outOfStockRecords = useMemo(() => consolidate(records).filter((record) => Number(record.quantity) <= 0), [consolidate, records]);
 
   const locations = useMemo(() => {
     const grouped = new Map<number, { id: number; company: string; location: string; quantity: number; itemCount: number }>();
@@ -256,10 +280,34 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     low: consolidatedRecords.filter((record) => Number(record.quantity) <= Number(record.reorderPoint)).length,
   }), [consolidatedRecords, inStockRecords]);
 
+  const adjustValue = Number(priceAdjust.value) || 0;
+  const priceFor = (record: { salesPrice: number | string }, withVat = includeVat) => {
+    const base = Number(record.salesPrice);
+    const adjusted = priceAdjust.mode === "percent" ? base * (1 + adjustValue / 100) : base + adjustValue;
+    return Math.round(Math.max(0, adjusted) * (withVat ? 1.05 : 1) * 100) / 100;
+  };
+  const adjustLabel = adjustValue ? (priceAdjust.mode === "percent" ? ` +${adjustValue}%` : ` +${adjustValue}`) : "";
+  const categoryOptions = useMemo(() => [...new Set(records.map((record) => record.category).filter(Boolean))].sort(), [records]);
+  const brandOptions = useMemo(() => [...new Set(records.map((record) => brandOf(record)).filter(Boolean))].sort(), [records]);
+  const statusCounts = useMemo(() => ({
+    out: outOfStockRecords.length,
+    hold: consolidatedRecords.filter((record) => record.recordIds.some((id) => heldByItem.has(id))).length,
+  }), [outOfStockRecords, consolidatedRecords, heldByItem]);
+  const extraFilters = Boolean(category || brand || priceMin || priceMax);
+  const clearExtraFilters = () => { setCategory(""); setBrand(""); setPriceMin(""); setPriceMax(""); };
+
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return consolidatedRecords.flatMap((record) => {
+    const min = priceMin === "" ? null : Number(priceMin), max = priceMax === "" ? null : Number(priceMax);
+    return (filter === "out" ? outOfStockRecords : consolidatedRecords).flatMap((record) => {
       if (filter === "low" && !(Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint))) return [];
+      if (filter === "hold" && !record.recordIds.some((id) => heldByItem.has(id))) return [];
+      if (filter === "recent7" && !receivedWithin(record, 7, loadedAt)) return [];
+      if (filter === "recent30" && !receivedWithin(record, 30, loadedAt)) return [];
+      if (category && record.category !== category) return [];
+      if (brand && brandOf(record) !== brand) return [];
+      if (min !== null && Number.isFinite(min) && Number(record.salesPrice) < min) return [];
+      if (max !== null && Number.isFinite(max) && Number(record.salesPrice) > max) return [];
       const locationId = filter.startsWith("location:") ? Number(filter.split(":")[1]) : null;
       const inventories = locationId === null ? record.inventories : record.inventories.filter((inventory) => inventory.locationId === locationId);
       if (!inventories.length) return [];
@@ -271,7 +319,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
         reorderPoint: inventories.reduce((sum, inventory) => sum + Number(inventory.reorderPoint), 0),
       }];
     });
-  }, [consolidatedRecords, filter, search]);
+  }, [consolidatedRecords, outOfStockRecords, filter, search, category, brand, priceMin, priceMax, heldByItem, loadedAt]);
 
   const categories = useMemo(() => {
     const grouped = new Map<string, ConsolidatedItem[]>();
@@ -323,7 +371,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
         details.push(channel === "telegram" ? `📦 Qty: ${quantity}` : channel === "email" ? `Quantity: ${quantity}` : `Qty: ${quantity}`);
       }
       if (showPrice) {
-        const price = Number(record.salesPrice) * (includeVat ? 1.05 : 1);
+        const price = priceFor(record);
         const value = `${record.currency} ${plainMoney(price)}${includeVat ? " (VAT included)" : " (VAT excluded)"}`;
         details.push(channel === "telegram" ? `💰 ${value}` : channel === "email" ? `Price: ${value}` : value);
       }
@@ -358,7 +406,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     if (!selectedRecords.length) return toast.error("Select at least one item to export.");
     const headers = ["Company", "Inventory", "Category", "Item No.", "SKU", "Item", "Specifications"];
     if (showQuantity) headers.push("Quantity");
-    if (showPrice) headers.push(withVat ? "Price including 5% VAT" : "Export price excluding VAT", "Currency");
+    if (showPrice) headers.push(`${withVat ? "Price including 5% VAT" : "Export price excluding VAT"}${adjustLabel ? ` (${adjustLabel.trim()})` : ""}`, "Currency");
     const headerRow = headers.map((header) => `<Cell ss:StyleID="Header"><Data ss:Type="String">${xml(header)}</Data></Cell>`).join("");
     const bodyRows = selectedRecords.map((record) => {
       const values: Array<{ value: unknown; type?: "Number"; style?: string }> = [
@@ -366,7 +414,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
         { value: record.itemNumber ?? "" }, { value: record.sku }, { value: record.name }, { value: specificationText(record) },
       ];
       if (showQuantity) values.push({ value: Number(record.quantity), type: "Number", style: "Number" });
-      if (showPrice) values.push({ value: Number(record.salesPrice) * (withVat ? 1.05 : 1), type: "Number", style: "Money" }, { value: record.currency });
+      if (showPrice) values.push({ value: priceFor(record, withVat), type: "Number", style: "Money" }, { value: record.currency });
       return `<Row>${values.map((entry) => `<Cell${entry.style ? ` ss:StyleID="${entry.style}"` : ""}><Data ss:Type="${entry.type ?? "String"}">${xml(entry.value)}</Data></Cell>`).join("")}</Row>`;
     }).join("");
     const workbook = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Styles><Style ss:ID="Default"><Alignment ss:Vertical="Top"/><Font ss:FontName="Arial" ss:Size="10"/></Style><Style ss:ID="Header"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#0F172A" ss:Pattern="Solid"/></Style><Style ss:ID="Number"><NumberFormat ss:Format="#,##0.##"/></Style><Style ss:ID="Money"><NumberFormat ss:Format="#,##0.00"/></Style></Styles><Worksheet ss:Name="Stock List"><Table><Column ss:Width="120"/><Column ss:Width="110"/><Column ss:Width="90"/><Column ss:Width="75"/><Column ss:Width="90"/><Column ss:Width="190"/><Column ss:Width="420"/><Row>${headerRow}</Row>${bodyRows}</Table></Worksheet></Workbook>`;
@@ -430,7 +478,19 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
         </Button>)}
         <Button variant="outline" onClick={() => setFilter("in")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "in")}`}><PackageCheck className="size-5" /><span className="font-semibold">In stock</span><Badge className="bg-emerald-400 text-slate-950 hover:bg-emerald-400">{totals.inStock}</Badge></Button>
         <Button variant="outline" onClick={() => setFilter("low")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "low")}`}><AlertTriangle className="size-5" /><span className="font-semibold">Low stock</span><Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">{totals.low}</Badge></Button>
+        <Button variant="outline" onClick={() => setFilter("out")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "out")}`}><PackageX className="size-5" /><span className="font-semibold">Out of stock</span><Badge className="bg-rose-500 text-white hover:bg-rose-500">{statusCounts.out}</Badge></Button>
+        <Button variant="outline" onClick={() => setFilter("hold")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "hold")}`}><Lock className="size-5" /><span className="font-semibold">On hold</span><Badge className="bg-amber-300 text-slate-950 hover:bg-amber-300">{statusCounts.hold}</Badge></Button>
+        <Button variant="outline" onClick={() => setFilter("recent7")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "recent7")}`}><CalendarClock className="size-5" /><span className="font-semibold">Received 7 days</span></Button>
+        <Button variant="outline" onClick={() => setFilter("recent30")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "recent30")}`}><CalendarClock className="size-5" /><span className="font-semibold">Received 30 days</span></Button>
       </div>
+    </section>
+
+    <section className="flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm" aria-label="Filters">
+      <label className="grid min-w-40 flex-1 gap-1 text-xs font-medium text-slate-600 sm:flex-none">Category<select className="h-9 rounded-lg border border-input bg-card px-2 text-sm" value={category} onChange={(event) => setCategory(event.target.value)}><option value="">All categories</option>{categoryOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+      <label className="grid min-w-36 flex-1 gap-1 text-xs font-medium text-slate-600 sm:flex-none">Brand<select className="h-9 rounded-lg border border-input bg-card px-2 text-sm" value={brand} onChange={(event) => setBrand(event.target.value)}><option value="">All brands</option>{brandOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+      <div className="grid gap-1 text-xs font-medium text-slate-600">Selling price (excl. VAT)<div className="flex items-center gap-1.5"><Input aria-label="Minimum price" type="number" min="0" inputMode="decimal" placeholder="Min" value={priceMin} onChange={(event) => setPriceMin(event.target.value)} className="h-9 w-24" /><span className="text-slate-400">–</span><Input aria-label="Maximum price" type="number" min="0" inputMode="decimal" placeholder="Max" value={priceMax} onChange={(event) => setPriceMax(event.target.value)} className="h-9 w-24" /></div></div>
+      {extraFilters && <Button type="button" variant="ghost" size="sm" onClick={clearExtraFilters}>Clear filters</Button>}
+      <span className="ml-auto text-xs text-slate-500">Showing {filtered.length} products</span>
     </section>
 
     <StockHoldsPanel holds={holds} names={holdNames} canManage={canManageHolds} onReleased={() => void load()} />
@@ -449,6 +509,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
         <Badge className="bg-slate-950 text-white hover:bg-slate-950">{selectedRecords.length} selected</Badge>
         <label className="flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md border bg-white px-1.5 text-xs font-medium text-slate-700"><Checkbox checked={!showQuantity} onCheckedChange={(checked) => setShowQuantity(checked !== true)} />Hide quantity</label>
         <label className="flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md border bg-white px-1.5 text-xs font-medium text-slate-700"><Checkbox checked={!showPrice} onCheckedChange={(checked) => setShowPrice(checked !== true)} />Hide price</label>
+        <div className="flex h-7 shrink-0 items-center gap-1 rounded-md border bg-white px-1.5 text-xs font-medium text-slate-700" role="group" aria-label="Increase shown and shared prices" title="Adds to the prices shown here and in WhatsApp, Telegram, email and Excel. Saved selling prices do not change.">Price +<Input aria-label="Price increase" type="number" min="0" step="0.01" inputMode="decimal" disabled={!showPrice} value={priceAdjust.value} onChange={(event) => setPriceAdjust({ ...priceAdjust, value: event.target.value })} placeholder="0" className="h-6 w-16 px-1.5 text-xs" /><select aria-label="Increase as percent or amount" disabled={!showPrice} value={priceAdjust.mode} onChange={(event) => setPriceAdjust({ ...priceAdjust, mode: event.target.value as PriceAdjust["mode"] })} className="h-6 rounded border border-input bg-card px-1 text-xs"><option value="percent">%</option><option value="amount">amount</option></select></div>
         <div className="flex shrink-0 rounded-md border bg-white p-0.5 [&_[data-slot=button]]:h-6" role="group" aria-label="Shared price VAT format">
           <Button type="button" size="sm" variant={!includeVat ? "default" : "ghost"} aria-pressed={!includeVat} disabled={!showPrice} onClick={() => setIncludeVat(false)} className={!includeVat ? "bg-slate-950 text-white hover:bg-slate-800" : ""}>No VAT</Button>
           <Button type="button" size="sm" variant={includeVat ? "default" : "ghost"} aria-pressed={includeVat} disabled={!showPrice} onClick={() => setIncludeVat(true)} className={includeVat ? "bg-emerald-500 text-[#022c22] hover:bg-emerald-400" : ""}>Including VAT</Button>
@@ -476,7 +537,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
                   <TableCell className="py-5"><span className="inline-flex rounded-lg border bg-white p-1.5"><Checkbox disabled={!canSelectItems || loading} aria-label={`Select ${record.name}`} checked={selectedIds.has(record.id)} onCheckedChange={(checked) => toggleSelected(record.id, checked === true)} /></span></TableCell>
                   <TableCell className="min-w-0 overflow-hidden py-4"><div className="flex min-w-0 max-w-full flex-col items-start gap-2 xl:flex-row xl:flex-wrap xl:items-center"><span className="block w-full max-w-full whitespace-normal break-words text-base font-bold text-blue-700 underline decoration-blue-300 underline-offset-2 [overflow-wrap:anywhere]">{description}</span>{out ? <Badge className="bg-rose-600 text-white hover:bg-rose-600">Out of stock</Badge> : low ? <Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">Low stock</Badge> : null}<TooltipProvider>{record.inventories.map((inventory) => <Tooltip key={inventory.locationId}><TooltipTrigger asChild><Badge tabIndex={0} variant="outline" className="max-w-full cursor-help whitespace-normal border-sky-200 bg-sky-50 text-sky-800"><Warehouse className="mr-1 size-3 shrink-0" />{inventory.locationName}{inventory.locationCode ? ` · ${inventory.locationCode}` : ""}</Badge></TooltipTrigger><TooltipContent sideOffset={6}>Qty: {Number(inventory.quantity).toLocaleString()}</TooltipContent></Tooltip>)}</TooltipProvider></div><div className="mt-3 flex min-w-0 flex-wrap items-center gap-2"><Button type="button" size="sm" variant="outline" onClick={() => setDetailRecord(record)} aria-label={`View product customization details for ${record.name}`}><PackageOpen className="size-4" />Customization Details</Button>{canManageHolds && Number(record.quantity) > 0 && <Button type="button" size="sm" variant="outline" onClick={() => setHoldTarget(record)} aria-label={`Put ${record.name} on hold`}><Lock className="size-4" />Hold</Button>}{heldOn(record) > 0 && <Badge className="bg-amber-100 text-amber-900 hover:bg-amber-100"><Lock className="mr-1 size-3" />{heldOn(record).toLocaleString()} on hold</Badge>}<Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">{receivedAge(record.latestReceivedAt)}</Badge></div></TableCell>
                   {showQuantity && <TableCell responsiveColumn="quantity" className={`py-4 text-sm font-black sm:text-base ${out ? "text-rose-600" : low ? "text-amber-600" : "text-slate-900"}`}>{Number(record.quantity).toLocaleString()}{heldOn(record) > 0 && <span className="mt-1 block whitespace-nowrap text-[11px] font-semibold text-amber-700">{heldOn(record).toLocaleString()} on hold · {Math.max(0, Number(record.quantity) - heldOn(record)).toLocaleString()} free</span>}</TableCell>}
-                  {showPrice && <TableCell responsiveColumn="price" className="py-4 text-sm font-black text-rose-600 sm:text-base">{money(Number(record.salesPrice) * (includeVat ? 1.05 : 1), record.currency)}{includeVat && <span className="mt-1 block whitespace-normal text-[11px] font-semibold text-emerald-600">VAT included</span>}</TableCell>}
+                  {showPrice && <TableCell responsiveColumn="price" className="py-4 text-sm font-black text-rose-600 sm:text-base">{money(priceFor(record), record.currency)}{includeVat && <span className="mt-1 block whitespace-normal text-[11px] font-semibold text-emerald-600">VAT included</span>}</TableCell>}
                 </TableRow>;
               }),
             ])}
