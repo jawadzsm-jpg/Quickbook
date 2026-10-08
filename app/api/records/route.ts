@@ -51,6 +51,8 @@ const compatibleAccountTypes: Record<string, Set<string>> = {
 };
 const itemTypeValues = new Set(["service", "stock-part", "non-stock-part", "other-charge", "subtotal", "group", "discount", "payment", "vat-item", "vat-group"]);
 const documentLineItemTypes = new Set(["service", "stock-part", "non-stock-part", "other-charge"]);
+// Sales-side documents that print a Ship To (delivery) address.
+const shipToDocumentTypes = ["quotation", "estimate", "proforma invoice", "sales order", "invoice", "pending invoice", "sales receipt", "credit memo"];
 const normalizedItemType = (value: unknown) => itemTypeValues.has(String(value ?? "")) ? String(value) : "stock-part";
 const optionalId = (value: unknown) => { const id = Number(value); return Number.isInteger(id) && id > 0 ? id : null; };
 
@@ -1401,6 +1403,19 @@ async function handlePATCH(request: Request) {
         // Saved documents are read-only for sales users; an accountant or administrator makes any change.
         if (authorization.role === "sales") return Response.json({ error: "Sales users cannot change saved documents. Ask an accountant to make the change." }, { status: 403 });
         // Only accountants and administrators mark an invoice delivered or undo it.
+        // Ship To on a saved sales document: accountants and administrators paste or type the delivery address without
+        // reopening the whole document. Amounts, lines and stock are untouched.
+        if (payload.editMode === "delivery-address") {
+          if (Object.keys(payload).some(key => !["kind", "id", "companyId", "editMode", "deliveryAddress"].includes(key)) || typeof payload.deliveryAddress !== "string") return Response.json({ error: "Send the delivery address only." }, { status: 400 });
+          if (!shipToDocumentTypes.includes(existing.type)) return Response.json({ error: "This document has no Ship To address." }, { status: 400 });
+          if (authorization.role !== "accountant" && !isAdministrator(authorization)) return Response.json({ error: "Only an accountant or administrator can change the Ship To address." }, { status: 403 });
+          if (["cancelled", "canceled", "void", "voided"].includes(String(existing.status).toLowerCase())) return Response.json({ error: "Cancelled or void documents cannot be changed." }, { status: 409 });
+          const deliveryAddress = cleanDeliveryAddress(payload.deliveryAddress);
+          if (deliveryAddress === existing.deliveryAddress) return Response.json({ record: existing });
+          const [record] = await db.update(transactions).set({ deliveryAddress }).where(eq(transactions.id, id)).returning();
+          await db.insert(auditLog).values({ companyId, action: "updated", entityType: "transaction", entityId: id, details: JSON.stringify({ mode: "delivery-address", actorId: authorization.id, number: existing.number, before: existing.deliveryAddress, after: deliveryAddress }) });
+          return Response.json({ record });
+        }
         if (payload.editMode === "delivery") {
           if (Object.keys(payload).some(key => !["kind", "id", "companyId", "editMode", "delivered"].includes(key)) || typeof payload.delivered !== "boolean") return Response.json({ error: "Send delivered: true or false only." }, { status: 400 });
           if (existing.type !== "invoice") return Response.json({ error: "Only invoices can be marked as delivered." }, { status: 400 });

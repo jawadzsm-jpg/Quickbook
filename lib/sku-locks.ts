@@ -31,8 +31,8 @@ export async function skuKeys(input: LockInput, user: SessionUser) {
       itemIds.push(...ids([input.id, input.duplicateItemId]));
       if (typeof input.sku === "string") await add(Number(input.locationId), input.sku);
     }
-    // Marking an invoice delivered changes no stock, so it never waits on another user's stock edit.
-    if (input.kind === "transactions" && input.editMode === "delivery") return [...found];
+    // Marking an invoice delivered or changing its Ship To changes no stock, so it never waits on another user's stock edit.
+    if (input.kind === "transactions" && (input.editMode === "delivery" || input.editMode === "delivery-address")) return [...found];
     if (input.kind === "transactions") {
       const documents = ids([input.id, input.sourceTransactionId]);
       const lineIds = ids(objects(input.lines).flatMap((l) => [l.sourceLineId, l.orderLineId]));

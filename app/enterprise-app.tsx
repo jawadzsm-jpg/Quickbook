@@ -2101,6 +2101,35 @@ async function setInvoiceDelivered(record: DataRecord, next: boolean) {
     return true;
   } catch (error) { toast.error(error instanceof Error ? error.message : "Could not update delivery"); return false; }
 }
+// Ship To on a saved sales document: accountants and administrators paste or type the delivery address here; it prints
+// in the Ship To box. Everyone else sees the document as before.
+const shipToTypes = ["quotation", "estimate", "proforma invoice", "sales order", "invoice", "pending invoice", "sales receipt", "credit memo"];
+function ShipToEditor({ record, role, onChanged }: { record: DataRecord; role: string; onChanged: () => void }) {
+  const saved = String(record.deliveryAddress || "");
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(saved);
+  const [busy, setBusy] = useState(false);
+  if (!canChangeDelivery(role)) return null;
+  async function save() {
+    setBusy(true);
+    try {
+      const response = await fetch("/api/records", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "transactions", editMode: "delivery-address", companyId: Number(record.companyId), id: record.id, deliveryAddress: text }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not save the Ship To address");
+      toast.success(text.trim() ? "Ship To address saved" : "Ship To address cleared");
+      setEditing(false);
+      onChanged();
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save the Ship To address"); }
+    finally { setBusy(false); }
+  }
+  if (!editing) return <div className="flex flex-wrap items-start gap-2 rounded-lg border bg-card px-3 py-2 text-sm"><Truck className="mt-0.5 size-4 shrink-0 text-muted-foreground" /><div className="min-w-0 flex-1"><span className="font-medium">Ship To</span>{saved ? <p className="whitespace-pre-line break-words text-muted-foreground">{saved}</p> : <p className="text-muted-foreground">No delivery address yet.</p>}</div><Button type="button" size="sm" variant="outline" onClick={() => { setText(saved); setEditing(true); }}><Pencil className="size-4" />{saved ? "Edit Ship To" : "Add Ship To"}</Button></div>;
+  return <div className="space-y-2 rounded-lg border bg-card p-3 text-sm">
+    <Label htmlFor={`ship-to-${record.id}`}>Ship To (delivery address)</Label>
+    <Textarea id={`ship-to-${record.id}`} autoFocus rows={4} className="resize-y" disabled={busy} value={text} onChange={(event) => setText(event.target.value)} placeholder="Paste or type the full delivery address. Each line prints on its own line." />
+    <div className="flex flex-wrap justify-end gap-2"><Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setEditing(false)}>Cancel</Button><Button type="button" size="sm" disabled={busy || text.trim() === saved.trim()} onClick={() => void save()}>{busy ? "Saving…" : "Save Ship To"}</Button></div>
+  </div>;
+}
+
 function InvoiceDeliveryControl({ record, role, onChanged }: { record: DataRecord; role: string; onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
   const delivered = Boolean(record.deliveredAt);
@@ -2139,6 +2168,7 @@ function DocumentDialog({ deliveryRole, inventorySerials, autoEditInvoiceId = nu
   const convertible = ((purchaseOrder && record.status !== "received") || ["quotation", "pending invoice"].includes(String(record.type))) && record.status !== "converted" && !record.convertedInvoiceId;
   const showsPrices = documentMode === "tax-invoice" || documentMode === "commercial-invoice";
   return <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}><DialogContent className="max-h-[94vh] overflow-y-auto sm:max-w-[1400px]">
+    {shipToTypes.includes(String(record.type)) && <ShipToEditor record={record} role={deliveryRole} onChanged={() => onOpenInvoice(record.id)} />}
     {record.type === "invoice" && <InvoiceDeliveryControl record={record} role={deliveryRole} onChanged={() => onOpenInvoice(record.id)} />}
     {inventorySerials && record.type === "invoice" && <InventoryInvoiceEditor defaultOpen={autoEditInvoiceId === record.id} onDefaultOpened={onAutoEditOpened} companyId={Number(record.companyId)} locationId={Number(record.locationId || 0)} invoiceId={record.id} revision={detail.revision || ""} comments={String(record.comments || "")} lines={detail.lines.map(line => ({ id: line.id, itemId: line.itemId ? Number(line.itemId) : null, description: String(line.description), serialNumber: String(line.serialNumber || ""), comments: String(line.comments || ""), quantity: Number(line.quantity), isFreightCharge: Boolean(line.isFreightCharge) }))} onSaved={() => onOpenInvoice(record.id)} />}
     {inventorySerials && ["bill", "received item bill", "item receipt"].includes(String(record.type)) && <InvoiceSerialEditor mode="purchase-serials" label={String(record.type) === "item receipt" ? "item receipt" : "bill"} companyId={Number(record.companyId)} invoiceId={record.id} revision={detail.revision || ""} lines={detail.lines.filter(line => !line.isFreightCharge).map(line => ({ id: line.id, itemId: line.itemId ? Number(line.itemId) : null, description: String(line.description), serialNumber: String(line.serialNumber || "") }))} onSaved={() => onOpenInvoice(record.id)} />}
