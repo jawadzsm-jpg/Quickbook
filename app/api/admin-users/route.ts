@@ -2,7 +2,7 @@ import { isValidEmail } from "@/lib/email-validation";
 import { and, asc, count, eq, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { appUsers, authSessions, companies } from "@/db/schema";
-import { appRoles, hashPassword, isAdministrator, requireApiUser, type AppRole } from "@/lib/auth";
+import { appRoles, hashPassword, requireApiUser, type AppRole } from "@/lib/auth";
 import { sendUserInvitation } from "@/lib/smtp";
 
 const validRole = (value: string): value is AppRole => appRoles.includes(value as AppRole);
@@ -47,8 +47,16 @@ async function replaceCompanies(userId: number, companyIds: number[]) {
   for (const companyId of companyIds) await db.execute(sql`INSERT INTO app_user_companies (user_id, company_id) VALUES (${userId}, ${companyId}) ON CONFLICT DO NOTHING`);
 }
 
+// User management is global (identities span companies), so only an All-Admin may use it. If no active All-Admin
+// remains, `scripts/bootstrap-admin.mjs` restores one.
+async function requireAllAdmin(request: Request, mutating = false) {
+  const user = await requireApiUser(request, true, mutating);
+  if (user instanceof Response) return user;
+  return user.role === "all_admin" ? user : Response.json({ error: "Only an All-Admin can manage users." }, { status: 403 });
+}
+
 export async function GET(request: Request) {
-  const administrator = await requireApiUser(request, true);
+  const administrator = await requireAllAdmin(request);
   if (administrator instanceof Response) return administrator;
   const users = await getDb().select().from(appUsers).orderBy(asc(appUsers.fullName), asc(appUsers.email));
   const companyRows = await getDb().select({ id: companies.id, name: companies.name }).from(companies).where(eq(companies.active, true)).orderBy(asc(companies.name));
@@ -56,7 +64,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const administrator = await requireApiUser(request, true, true);
+  const administrator = await requireAllAdmin(request, true);
   if (administrator instanceof Response) return administrator;
   const payload = await request.json() as Record<string, unknown>;
   const fullName = String(payload.fullName ?? "").trim();
@@ -68,7 +76,6 @@ export async function POST(request: Request) {
   const avatarData = String(payload.avatarData ?? "");
   const companyIds = parseCompanyIds(payload.companyIds);
   if (!fullName || !isValidEmail(email) || !validRole(role)) return Response.json({ error: "Enter a name, valid email and role." }, { status: 400 });
-  if (role === "all_admin" && administrator.role !== "all_admin" && (await activeAllAdminCount()) > 0) return Response.json({ error: "Only an All-Admin can create another All-Admin." }, { status: 403 });
   if (role !== "all_admin" && !(await validateCompanyIds(companyIds))) return Response.json({ error: "Assign at least one valid company to this user." }, { status: 400 });
   if (password.length < 12 || password.length > 128) return Response.json({ error: "Temporary password must contain 12 to 128 characters." }, { status: 400 });
   if (phone.length > 32 || whatsapp.length > 32) return Response.json({ error: "Phone numbers must contain 32 characters or fewer." }, { status: 400 });
@@ -100,7 +107,7 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const administrator = await requireApiUser(request, true, true);
+  const administrator = await requireAllAdmin(request, true);
   if (administrator instanceof Response) return administrator;
   const payload = await request.json() as Record<string, unknown>;
   const id = Number(payload.id);
@@ -111,11 +118,10 @@ export async function PATCH(request: Request) {
   const updates: Partial<typeof appUsers.$inferInsert> = { updatedAt: new Date().toISOString() };
   const nextRole = payload.role === undefined ? targetRole : String(payload.role) as AppRole;
   if (!validRole(nextRole)) return Response.json({ error: "Select a valid role." }, { status: 400 });
-  if ((targetRole === "all_admin" || nextRole === "all_admin") && administrator.role !== "all_admin") return Response.json({ error: "Only an All-Admin can change All-Admin access." }, { status: 403 });
   const activeAdminCount = async () => Number((await getDb().select({ value: count() }).from(appUsers).where(and(eq(appUsers.role, "admin"), eq(appUsers.active, true))))[0]?.value ?? 0);
   // Validate every requested change before writing anything, so a rejected field never leaves a partial update behind.
   if (payload.role !== undefined) {
-    if (id === administrator.id && !isAdministrator({ role: nextRole })) return Response.json({ error: "You cannot remove your own administrator role." }, { status: 409 });
+    if (id === administrator.id && nextRole !== "all_admin") return Response.json({ error: "You cannot change your own All-Admin role." }, { status: 409 });
     if (targetRole === "admin" && target.active && nextRole !== "admin" && nextRole !== "all_admin" && (await activeAdminCount()) <= 1) return Response.json({ error: "At least one active Administrator is required." }, { status: 409 });
     if (targetRole === "all_admin" && target.active && nextRole !== "all_admin" && (await activeAllAdminCount()) <= 1) return Response.json({ error: "At least one active All-Admin is required." }, { status: 409 });
     updates.role = nextRole as never;
@@ -167,7 +173,7 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const administrator = await requireApiUser(request, true, true);
+  const administrator = await requireAllAdmin(request, true);
   if (administrator instanceof Response) return administrator;
   const payload = await request.json() as Record<string, unknown>;
   const id = Number(payload.id);
@@ -176,7 +182,6 @@ export async function DELETE(request: Request) {
   const [target] = await getDb().select().from(appUsers).where(eq(appUsers.id, id)).limit(1);
   if (!target) return Response.json({ error: "User not found." }, { status: 404 });
   const targetRole = target.role as AppRole;
-  if (targetRole === "all_admin" && administrator.role !== "all_admin") return Response.json({ error: "Only an All-Admin can delete an All-Admin." }, { status: 403 });
   if (targetRole === "admin" && target.active) {
     const [admins] = await getDb().select({ value: count() }).from(appUsers).where(and(eq(appUsers.role, "admin"), eq(appUsers.active, true)));
     if (Number(admins.value) <= 1) return Response.json({ error: "At least one active Administrator is required." }, { status: 409 });
