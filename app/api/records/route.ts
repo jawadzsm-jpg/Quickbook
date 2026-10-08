@@ -3,7 +3,8 @@ import { contactOrganization } from "@/lib/contact-hierarchy";
 import { validInvoiceQuantity, isInvoiceStockReturn } from "@/lib/invoice-stock-lines";
 import { salesDocumentTypes, salesHandoffTypes } from "@/lib/sales-access";
 import { documentVatCodes, usesSingleVatCode } from "@/lib/document-vat";
-import { canManagePendingInvoices, canReadDocument, dubaiDay } from "@/lib/document-access";
+import { canEditInventoryDocument, canManagePendingInvoices, canReadDocument, dubaiDay } from "@/lib/document-access";
+import { applyInventoryInvoiceEdit } from "@/lib/inventory-invoice-edit";
 import { documentVisibility } from "@/lib/document-access-sql";
 import { employeeHrForSave } from "@/lib/employee-hr-save";
 import { employeeHrValues, employeeLoanAccount, redactEmployeeHr } from "@/lib/employee-hr";
@@ -1396,9 +1397,30 @@ async function handlePATCH(request: Request) {
         const db = getDb();
         const [existing] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId))).for("update");
         if (!existing) return Response.json({ error: "Document not found." }, { status: 404 });
-        if (!canReadDocument(authorization, existing)) return Response.json({ error: "Inventory bill access ends at midnight UAE time on the creation day." }, { status: 403 });
+        if (!canReadDocument(authorization, existing)) return Response.json({ error: "You cannot open this document." }, { status: 403 });
         // Saved documents are read-only for sales users; an accountant or administrator makes any change.
         if (authorization.role === "sales") return Response.json({ error: "Sales users cannot change saved documents. Ask an accountant to make the change." }, { status: 403 });
+        if (authorization.role === "inventory" && existing.type === "invoice" && payload.editMode === "inventory-invoice") {
+          const oldLines = await db.select().from(transactionLines).where(eq(transactionLines.transactionId, id)).orderBy(asc(transactionLines.id));
+          if (payload.revision !== purchaseRevision(existing, oldLines)) return Response.json({ error: "Invoice changed. Reopen it before saving." }, { status: 409 });
+          return applyInventoryInvoiceEdit(db, { companyId, actorId: authorization.id, invoice: existing, lines: oldLines, payload });
+        }
+        // After the creation day an inventory user may still append serial numbers to a bill or item receipt.
+        if (authorization.role === "inventory" && payload.editMode === "purchase-serials" && ["bill", "received item bill", "item receipt"].includes(existing.type)) {
+          const allowed = new Set(["kind", "id", "companyId", "revision", "editMode", "lineDetails"]);
+          if (Object.keys(payload).some(key => !allowed.has(key))) return Response.json({ error: "Only serial numbers can be added here." }, { status: 403 });
+          const oldLines = await db.select().from(transactionLines).where(eq(transactionLines.transactionId, id)).orderBy(asc(transactionLines.id));
+          if (payload.revision !== purchaseRevision(existing, oldLines)) return Response.json({ error: "This document changed. Reopen it before saving." }, { status: 409 });
+          const details = Array.isArray(payload.lineDetails) ? payload.lineDetails as Record<string, unknown>[] : [];
+          if (!details.length || new Set(details.map(line => Number(line.id))).size !== details.length) return Response.json({ error: "Select unique lines." }, { status: 400 });
+          for (const line of details) {
+            const old = oldLines.find(entry => entry.id === Number(line.id));
+            if (!old || Object.keys(line).some(key => !["id", "serialNumber"].includes(key)) || typeof line.serialNumber !== "string" || line.serialNumber.length > 20000 || (old.serialNumber && line.serialNumber !== old.serialNumber && !line.serialNumber.startsWith(old.serialNumber + "\n"))) return Response.json({ error: "Keep existing serial numbers; you can only add new ones." }, { status: 403 });
+          }
+          for (const line of details) await db.update(transactionLines).set({ serialNumber: String(line.serialNumber) }).where(eq(transactionLines.id, Number(line.id)));
+          await db.insert(auditLog).values({ companyId, action: "updated", entityType: "transaction", entityId: id, details: JSON.stringify({ mode: "purchase-serials", actorId: authorization.id, lines: details, before: oldLines.map(line => ({ id: line.id, serialNumber: line.serialNumber })) }) });
+          return Response.json({ record: existing });
+        }
         if (authorization.role === "inventory" && existing.type === "invoice") {
           const allowed = new Set(["kind", "id", "companyId", "revision", "editMode", "lineDetails"]);
           if (payload.editMode !== "invoice-serials" || Object.keys(payload).some(key => !allowed.has(key))) return Response.json({ error: "Inventory users may add invoice serial numbers only." }, { status: 403 });
@@ -1414,6 +1436,7 @@ async function handlePATCH(request: Request) {
           await db.insert(auditLog).values({ companyId, action: "updated", entityType: "transaction", entityId: id, details: JSON.stringify({ mode: "invoice-serials", actorId: authorization.id, lines: details, before: oldLines.map(line => ({ id: line.id, serialNumber: line.serialNumber })) }) });
           return Response.json({ record: existing });
         }
+        if (!canEditInventoryDocument(authorization, existing)) return Response.json({ error: "Inventory users can change bills only on the day they were created. You can still add serial numbers." }, { status: 403 });
         const inventoryEdit = authorization.role === "inventory" && ["bill", "received item bill", "item receipt", "purchase order"].includes(existing.type);
         const pendingEdit = existing.type === "pending invoice" && canManagePendingInvoices(authorization);
         if (!isAdministrator(authorization) && !inventoryEdit && !pendingEdit) return Response.json({ error: "Your role cannot edit this document." }, { status: 403 });
@@ -2044,10 +2067,12 @@ function postingLines(type: string, account: string, party: string, subtotal: nu
 }
 
 async function handleDELETE(request: Request) {
-  const authorization = await requireApiUser(request, true, true);
+  // Administrators delete any record; inventory users may delete inventory items only (checked once the kind is known).
+  const authorization = await requireApiUser(request, false, true);
   if (authorization instanceof Response) return authorization;
   try {
     const { kind, id, companyId, deletionReason: reasonInput } = (await request.json()) as { kind: RecordKind; id: number; companyId: number; deletionReason?: unknown };
+    if (!isAdministrator(authorization) && !(authorization.role === "inventory" && kind === "items")) return Response.json({ error: "Only administrators can delete saved records." }, { status: 403 });
     const deletionReason = typeof reasonInput === "string" ? reasonInput.trim() : "";
     if (!deletionReason || deletionReason.length > 2000) return Response.json({ error: "Write a reason for deletion (maximum 2000 characters)." }, { status: 400 });
     if (!["transactions", "contacts", "items", "accounts"].includes(kind)) return Response.json({ error: "Select a valid record type." }, { status: 400 });

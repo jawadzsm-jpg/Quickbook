@@ -157,7 +157,7 @@ Every report view supports a centered professional layout with category/search n
 | Accountant | Home, inventory context, sales, customers, warranties, purchases, vendors, banking, journals, accounts, VAT, reports |
 | Sales | My daily work, own customers/balances, quotations/sales orders/proforma creation, incoming items |
 | Purchasing | Home, inventory context, purchases, cheques, vendors |
-| Inventory Manager | Home, inventory, logistics, counts, and transfers |
+| Inventory Manager | Home, purchases (PO/receipt/bill), read-only invoices with item changes, inventory, logistics, counts, transfers, packing lists, cargo list and serial search |
 | Viewer | Home, serial search, inventory overview/check reports, and Report Center |
 
 The API permission model is authoritative; navigation visibility is a matching user experience layer.
@@ -247,7 +247,7 @@ Administrators alone delete saved records or cancel business documents. Users ma
 
 Admins and accountants can create, edit and reopen Pending Invoices from Sales. These are drafts with no stock, VAT journal or customer-balance posting. Convert to Invoice posts once through the normal invoice validation and numbering workflow.
 
-Inventory users can add/edit items, change inventory details, transfer stock, create purchase orders and vendors, and create/print warranty and supplier receipts. They can view/edit bills and receipts only on their creation day in UAE time. The deadline is based on creation time, not the invoice date; opening an old URL or attachment cannot bypass it. Their sales view is read-only except for Add serial numbers on saved invoices, which appends serials while preserving existing serials, quantities, prices and accounting.
+Inventory users can add, edit and delete items, change inventory details (HS code, COO, dimensions), run inventory checks, transfer stock, make packing lists, use the cargo list and serial number search, create purchase orders and vendors, and create/print warranty and supplier receipts. Their home page shows only Purchase Orders, Receive Stock, Enter Supplier Bill, Invoices, Warranty / RMA and Inventory Center. They can enter bills and item receipts and change them on their creation day in UAE time (based on creation time, not the document date); afterwards they can still open them and use Add serial numbers, which only appends serials. They cannot create invoices; on a saved invoice, Items & serial numbers lets them change the product on an item line (same quantity and price — the old item returns to stock and the new one is taken from stock, with cost of sales and the revenue account split adjusted), add zero-price lines such as accessories, append serial numbers and edit line and invoice comments. Invoice totals, VAT and the customer balance never change. Lines on packing lists, with warranty slips, or on sales-order/estimate-linked invoices cannot change item. Inventory users cannot delete anything except items.
 
 Shared dialogs retain explicit Minimize/Restore. Pending-invoice quantity and price fields use the existing responsive transaction editor. Serial entry and stamp/bank settings reflow across desktop, tablet and phone widths. Warranty lists become labeled cards on tablets and phones, keeping receipt actions visible.
 

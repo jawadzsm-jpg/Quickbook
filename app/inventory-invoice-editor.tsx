@@ -1,0 +1,121 @@
+"use client";
+import { useEffect, useMemo, useState } from "react";
+import { PackagePlus, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useSkuLock, SkuLockNotice } from "./use-sku-lock";
+
+type InvoiceLine = { id: number; itemId: number | null; description: string; serialNumber: string; comments: string; quantity: number; isFreightCharge: boolean };
+type Item = { id: number; sku: string; name: string; quantity: number; itemType: string; status: string };
+type LineDraft = { itemId: number | null; addSerials: string; serials: string; comments: string };
+type NewLine = { key: number; itemId: number | null; quantity: string; serialNumber: string; comments: string };
+
+const sellable = new Set(["service", "stock-part", "non-stock-part", "other-charge"]);
+const itemLabel = (item: Item) => `${item.sku} · ${item.name}${item.itemType === "stock-part" ? ` (stock ${item.quantity})` : ""}`;
+
+function ItemSelect({ items, value, onChange, label, disabled }: { items: Item[]; value: number | null; onChange: (id: number | null) => void; label: string; disabled?: boolean }) {
+  return <select aria-label={label} disabled={disabled} className="h-10 w-full min-w-0 rounded-lg border border-input bg-background px-3 text-sm" value={value ?? ""} onChange={(event) => onChange(event.target.value ? Number(event.target.value) : null)}>
+    <option value="">Select an item…</option>
+    {items.map((item) => <option key={item.id} value={item.id}>{itemLabel(item)}</option>)}
+  </select>;
+}
+
+// Inventory users correct which product was sold, add free lines (accessories, cables) and record serial numbers and
+// comments. Quantities, prices and the invoice total are fixed; the server re-checks every rule.
+export function InventoryInvoiceEditor({ companyId, locationId, invoiceId, revision, comments, lines, onSaved }: { companyId: number; locationId: number; invoiceId: number; revision: string; comments: string; lines: InvoiceLine[]; onSaved: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [items, setItems] = useState<Item[]>([]);
+  const [drafts, setDrafts] = useState<Record<number, LineDraft>>({});
+  const [newLines, setNewLines] = useState<NewLine[]>([]);
+  const [invoiceComments, setInvoiceComments] = useState(comments);
+  const editable = lines.filter((line) => !line.isFreightCharge);
+
+  useEffect(() => {
+    if (!open || !locationId) return;
+    let active = true;
+    fetch(`/api/records?kind=items&companyId=${companyId}&locationId=${locationId}`, { cache: "no-store" }).then(async (response) => {
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not load items");
+      if (active) setItems((data.records as Item[]).filter((item) => item.status !== "inactive" && sellable.has(item.itemType)).sort((a, b) => a.sku.localeCompare(b.sku)));
+    }).catch((error) => { if (active) toast.error(error instanceof Error ? error.message : "Could not load items"); });
+    return () => { active = false; };
+  }, [open, companyId, locationId]);
+
+  const lockLines = useMemo(() => [...editable.map((line) => ({ itemId: drafts[line.id]?.itemId ?? line.itemId })), ...editable.map((line) => ({ itemId: line.itemId })), ...newLines.map((line) => ({ itemId: line.itemId }))].filter((line) => line.itemId), [editable, drafts, newLines]);
+  const lock = useSkuLock(open ? { resource: "records", kind: "transactions", companyId, id: invoiceId, lines: lockLines } : null);
+
+  function draft(line: InvoiceLine) { return drafts[line.id] ?? { itemId: line.itemId, addSerials: "", serials: "", comments: line.comments }; }
+  function setDraft(line: InvoiceLine, patch: Partial<LineDraft>) { setDrafts((current) => ({ ...current, [line.id]: { ...draft(line), ...patch } })); }
+  function reset() { setDrafts({}); setNewLines([]); setInvoiceComments(comments); }
+
+  const lineDetails = editable.flatMap((line) => {
+    const entry = drafts[line.id];
+    if (!entry) return [];
+    const swapped = entry.itemId !== line.itemId;
+    const detail: Record<string, unknown> = { id: line.id };
+    if (swapped) { detail.itemId = entry.itemId; detail.fromItemId = line.itemId; detail.serialNumber = entry.serials.trim(); }
+    else if (entry.addSerials.trim()) detail.serialNumber = [line.serialNumber, entry.addSerials.trim()].filter(Boolean).join("\n");
+    if (entry.comments !== line.comments) detail.comments = entry.comments;
+    return Object.keys(detail).length > 1 ? [detail] : [];
+  });
+  const readyNewLines = newLines.filter((line) => line.itemId && Number(line.quantity) > 0);
+  const incompleteNewLine = newLines.some((line) => !line.itemId || !(Number(line.quantity) > 0));
+  const changed = lineDetails.length > 0 || newLines.length > 0 || invoiceComments !== comments;
+
+  async function save() {
+    if (!lock.ready || incompleteNewLine) return;
+    setSaving(true);
+    try {
+      const payload: Record<string, unknown> = { kind: "transactions", editMode: "inventory-invoice", companyId, id: invoiceId, revision };
+      if (lineDetails.length) payload.lineDetails = lineDetails;
+      if (readyNewLines.length) payload.appendLines = readyNewLines.map((line) => ({ itemId: line.itemId, quantity: Number(line.quantity), serialNumber: line.serialNumber.trim(), comments: line.comments, unitPrice: 0 }));
+      if (invoiceComments !== comments) payload.comments = invoiceComments;
+      const response = await fetch("/api/records", { method: "PATCH", headers: { "Content-Type": "application/json", ...lock.headers }, body: JSON.stringify(payload) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not save the invoice");
+      toast.success("Invoice items updated");
+      setOpen(false); reset(); onSaved();
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save the invoice"); }
+    finally { setSaving(false); }
+  }
+
+  return <>
+    <Button onClick={() => setOpen(true)}><PackagePlus className="size-4" />Items &amp; serial numbers</Button>
+    <Dialog open={open} onOpenChange={(next) => { if (!saving) { setOpen(next); if (!next) reset(); } }}>
+      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-4xl">
+        <DialogHeader><DialogTitle>Invoice items &amp; serial numbers</DialogTitle><DialogDescription>Change the product on a line, add free (zero-price) lines, and record serial numbers and comments. Quantities, prices and the invoice total stay the same; stock updates automatically.</DialogDescription></DialogHeader>
+        <SkuLockNotice message={lock.message} />
+        <div className="space-y-3">
+          {editable.map((line) => {
+            const entry = draft(line);
+            const swapped = entry.itemId !== line.itemId;
+            return <article key={line.id} className={`min-w-0 space-y-3 rounded-xl border p-3 text-sm ${swapped ? "border-amber-500/50 bg-amber-500/5" : ""}`}>
+              <div className="flex flex-wrap items-start justify-between gap-2"><p className="min-w-0 whitespace-pre-wrap break-words font-semibold">{line.description}</p><span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs">Qty {line.quantity}</span></div>
+              {line.itemId && line.quantity > 0 ? <div className="space-y-1"><Label className="text-xs text-muted-foreground">Item</Label><ItemSelect label={`Item for ${line.description}`} items={items.some((item) => item.id === line.itemId) ? items : [{ id: line.itemId, sku: "Current", name: line.description.split("\n")[0], quantity: 0, itemType: "", status: "active" }, ...items]} value={entry.itemId} disabled={saving} onChange={(itemId) => setDraft(line, { itemId: itemId ?? line.itemId })} />{swapped && <p className="text-xs text-amber-800 dark:text-amber-300">Item will change. The original item returns to stock; the new item is taken from stock at the same quantity and price.</p>}</div> : null}
+              {swapped ? <div className="space-y-1"><Label className="text-xs text-muted-foreground">Serial numbers for the new item</Label><Textarea disabled={saving} value={entry.serials} onChange={(event) => setDraft(line, { serials: event.target.value })} placeholder="One per line" /></div>
+                : <div className="space-y-1"><Label className="text-xs text-muted-foreground">Serial numbers</Label>{line.serialNumber && <p className="whitespace-pre-wrap break-words rounded-md bg-muted/50 px-2 py-1 text-xs text-muted-foreground">{line.serialNumber}</p>}<Textarea disabled={saving} value={entry.addSerials} onChange={(event) => setDraft(line, { addSerials: event.target.value })} placeholder={line.serialNumber ? "Add more serial numbers" : "One per line"} /></div>}
+              <div className="space-y-1"><Label className="text-xs text-muted-foreground">Line comments</Label><Input disabled={saving} value={entry.comments} onChange={(event) => setDraft(line, { comments: event.target.value })} maxLength={2000} /></div>
+            </article>;
+          })}
+        </div>
+        <section className="space-y-3 rounded-xl border border-dashed p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-sm font-semibold">Add free lines</h3><p className="text-xs text-muted-foreground">Zero-price items such as accessories or cables. Ask an accountant to add charged items.</p></div><Button type="button" size="sm" variant="outline" disabled={saving} onClick={() => setNewLines((current) => [...current, { key: Date.now(), itemId: null, quantity: "1", serialNumber: "", comments: "" }])}><Plus className="size-4" />Add line</Button></div>
+          {newLines.map((line) => <div key={line.key} className="grid min-w-0 gap-2 rounded-lg border p-3 sm:grid-cols-[1fr_100px_auto]">
+            <ItemSelect label="New line item" items={items} value={line.itemId} disabled={saving} onChange={(itemId) => setNewLines((current) => current.map((entry) => entry.key === line.key ? { ...entry, itemId } : entry))} />
+            <Input aria-label="New line quantity" type="number" min="1" step="1" disabled={saving} value={line.quantity} onChange={(event) => setNewLines((current) => current.map((entry) => entry.key === line.key ? { ...entry, quantity: event.target.value } : entry))} />
+            <Button type="button" size="icon" variant="ghost" aria-label="Remove new line" disabled={saving} onClick={() => setNewLines((current) => current.filter((entry) => entry.key !== line.key))}><Trash2 className="size-4" /></Button>
+            <Textarea className="sm:col-span-3" aria-label="New line serial numbers" disabled={saving} value={line.serialNumber} onChange={(event) => setNewLines((current) => current.map((entry) => entry.key === line.key ? { ...entry, serialNumber: event.target.value } : entry))} placeholder="Serial numbers (optional)" />
+            <Input className="sm:col-span-3" aria-label="New line comments" disabled={saving} value={line.comments} onChange={(event) => setNewLines((current) => current.map((entry) => entry.key === line.key ? { ...entry, comments: event.target.value } : entry))} placeholder="Comments (optional)" maxLength={2000} />
+          </div>)}
+        </section>
+        <div className="space-y-1"><Label htmlFor="inventory-invoice-comments">Invoice comments</Label><Textarea id="inventory-invoice-comments" disabled={saving} value={invoiceComments} onChange={(event) => setInvoiceComments(event.target.value)} maxLength={5000} /></div>
+        <DialogFooter><Button type="button" variant="outline" disabled={saving} onClick={() => { setOpen(false); reset(); }}>Cancel</Button><Button type="button" disabled={saving || !lock.ready || !changed || incompleteNewLine} onClick={() => void save()}>{saving ? "Saving…" : "Save changes"}</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
+  </>;
+}

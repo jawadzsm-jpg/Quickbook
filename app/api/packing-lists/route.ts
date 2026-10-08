@@ -2,7 +2,7 @@ import { dimensionText } from "@/lib/item-logistics";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { appUsers, auditLog, contacts, items, packingListLines, packingLists, transactionLines, transactions } from "@/db/schema";
-import { requireCompanyAccess } from "@/lib/auth";
+import { hasPermission, requireCompanyAccess } from "@/lib/auth";
 import { cleanDeliveryAddress } from "@/lib/delivery-address";
 
 const clean = (value: unknown, max = 240) => String(value ?? "").trim().slice(0, max);
@@ -97,8 +97,10 @@ async function savePackingList(request: Request, editing: boolean) {
     const deliveryAddress = cleanDeliveryAddress(payload.deliveryAddress);
     const memo = clean(payload.memo, 1_000);
     const requested = Array.isArray(payload.lines) ? payload.lines.slice(0, 500) as Array<Record<string, unknown>> : [];
-    const user = await requireCompanyAccess(request, companyId, "sales:write", true);
+    const user = await requireCompanyAccess(request, companyId, "inventory:read", true);
     if (user instanceof Response) return user;
+    // Sales-capable roles and inventory users (who pack the goods) may create and edit packing lists.
+    if (!hasPermission(user, "sales:write") && user.role !== "inventory") return Response.json({ error: "Your role cannot create packing lists." }, { status: 403 });
     if (!Number.isInteger(invoiceId) || invoiceId <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(packingDate)) return Response.json({ error: "Select an invoice and packing date." }, { status: 400 });
     if (editing && (!Number.isInteger(packingListId) || packingListId <= 0)) return Response.json({ error: "Select a saved packing list to edit." }, { status: 400 });
     if (!requested.length) return Response.json({ error: "Select at least one invoice item to pack." }, { status: 400 });
