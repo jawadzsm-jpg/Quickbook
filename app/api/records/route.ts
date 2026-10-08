@@ -11,7 +11,7 @@ import { employeeHrValues, employeeLoanAccount, redactEmployeeHr } from "@/lib/e
 import { RequestError } from "@/lib/errors";
 import { skuWrite } from "@/lib/sku-locks";
 import { refreshSalesSource, salesSourceLines, salesInventoryLines } from "@/lib/sales-invoicing";
-import { randomUUID, createHash } from "node:crypto";
+import { createHash } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { vendorBankChanges } from "@/lib/vendor-bank";
 import { getDb, withWriteTransaction } from "../../../db";
@@ -517,10 +517,16 @@ function recordRequest(request: Request, payload: Record<string, unknown>) {
   return new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify(payload) });
 }
 
+// Pending Cart drafts get readable running numbers per company (PEND-0001, PEND-0002, ...).
+async function nextPendingNumber(companyId: unknown) {
+  const result = await getDb().execute(sql`SELECT COALESCE(MAX(CAST(substring(number from '^PEND-([0-9]+)$') AS integer)), 0) AS last FROM transactions WHERE company_id = ${Number(companyId)} AND number ~ '^PEND-[0-9]+$'`);
+  return `PEND-${String(Number(result.rows[0]?.last ?? 0) + 1).padStart(4, "0")}`;
+}
+
 async function savePendingCart(request: Request, context: Record<string, unknown>, lines: InputLine[]) {
   return saveNewRecord(recordRequest(request, {
     kind: "transactions", companyId: context.companyId, locationId: context.locationId,
-    type: "pending invoice", number: `PEND-${randomUUID()}`, status: "pending",
+    type: "pending invoice", number: await nextPendingNumber(context.companyId), status: "pending",
     party: context.party, currency: context.currency, exchangeRate: context.exchangeRate,
     transactionDate: context.transactionDate, dueDate: context.dueDate, terms: context.terms,
     account: context.account, salesman: context.salesman,
