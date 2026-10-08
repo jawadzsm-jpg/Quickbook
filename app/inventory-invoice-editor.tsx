@@ -8,9 +8,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useSkuLock, SkuLockNotice } from "./use-sku-lock";
+import { ItemSearchSelect, itemSearchDetail, itemSearchFields } from "./item-search-select";
 
 type InvoiceLine = { id: number; itemId: number | null; description: string; serialNumber: string; comments: string; quantity: number; isFreightCharge: boolean };
-type Item = { id: number; sku: string; name: string; quantity: number; itemType: string; status: string };
+type Item = { id: number; sku: string; name: string; quantity: number; itemType: string; status: string; itemNumber?: string | null; partNumber?: string; upcNumber?: string; description?: string };
 type LineDraft = { itemId: number | null; addSerials: string; serials: string; comments: string };
 type NewLine = { key: number; itemId: number | null; quantity: string; serialNumber: string; comments: string; isReturn: boolean };
 
@@ -18,10 +19,7 @@ const sellable = new Set(["service", "stock-part", "non-stock-part", "other-char
 const itemLabel = (item: Item) => `${item.sku} · ${item.name}${item.itemType === "stock-part" ? ` (stock ${item.quantity})` : ""}`;
 
 function ItemSelect({ items, value, onChange, label, disabled }: { items: Item[]; value: number | null; onChange: (id: number | null) => void; label: string; disabled?: boolean }) {
-  return <select aria-label={label} disabled={disabled} className="h-10 w-full min-w-0 rounded-lg border border-input bg-background px-3 text-sm" value={value ?? ""} onChange={(event) => onChange(event.target.value ? Number(event.target.value) : null)}>
-    <option value="">Select an item…</option>
-    {items.map((item) => <option key={item.id} value={item.id}>{itemLabel(item)}</option>)}
-  </select>;
+  return <ItemSearchSelect ariaLabel={label} placeholder="Select an item…" disabled={disabled} value={value ? String(value) : ""} onValueChange={(next) => onChange(next ? Number(next) : null)} options={items.map((item) => ({ value: String(item.id), label: itemLabel(item), detail: itemSearchDetail(item), search: itemSearchFields(item) }))} />;
 }
 
 // Inventory users correct which product was sold, add free lines (accessories, cables) and record serial numbers and
