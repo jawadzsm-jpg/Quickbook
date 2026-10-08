@@ -1400,13 +1400,12 @@ async function handlePATCH(request: Request) {
         if (!canReadDocument(authorization, existing)) return Response.json({ error: "You cannot open this document." }, { status: 403 });
         // Saved documents are read-only for sales users; an accountant or administrator makes any change.
         if (authorization.role === "sales") return Response.json({ error: "Sales users cannot change saved documents. Ask an accountant to make the change." }, { status: 403 });
-        // Inventory staff, accountants and administrators mark an invoice delivered; only administrators undo it.
+        // Only accountants and administrators mark an invoice delivered or undo it.
         if (payload.editMode === "delivery") {
           if (Object.keys(payload).some(key => !["kind", "id", "companyId", "editMode", "delivered"].includes(key)) || typeof payload.delivered !== "boolean") return Response.json({ error: "Send delivered: true or false only." }, { status: 400 });
           if (existing.type !== "invoice") return Response.json({ error: "Only invoices can be marked as delivered." }, { status: 400 });
-          if (!["inventory", "accountant"].includes(authorization.role) && !isAdministrator(authorization)) return Response.json({ error: "Your role cannot mark invoices as delivered." }, { status: 403 });
+          if (authorization.role !== "accountant" && !isAdministrator(authorization)) return Response.json({ error: "Only an accountant or administrator can change delivery." }, { status: 403 });
           if (["cancelled", "canceled", "void", "voided"].includes(String(existing.status).toLowerCase())) return Response.json({ error: "Cancelled or void invoices cannot be delivered." }, { status: 409 });
-          if (!payload.delivered && !isAdministrator(authorization)) return Response.json({ error: "Only an administrator can undo a delivery." }, { status: 403 });
           if (Boolean(existing.deliveredAt) === payload.delivered) return Response.json({ record: existing });
           const updates = payload.delivered
             ? { deliveredAt: new Date().toISOString(), deliveredByUserId: authorization.id, deliveredByName: authorization.fullName || authorization.email }
