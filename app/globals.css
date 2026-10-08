@@ -116,7 +116,7 @@ body {
 
 /* Light theme: accent and hint text on white must reach WCAG AA (4.5:1) for small sizes.
    #10b981 / emerald-600 / slate-400 measure 2.5–3.8:1 on white. Dark surfaces keep their own colours. */
-:root:not([data-appearance="dark"]) :is(.text-primary, .hover\:text-primary:hover):not(:is([data-sidebar], .bg-slate-900, .bg-slate-950, [class*="bg-[#0"]) *) { color: #047857; }
+:root:not([data-appearance="dark"]) :is(.text-primary, .hover\:text-primary:hover):not(:is([data-sidebar], .bg-slate-900, .bg-slate-950, [class*="bg-[#0"]) *) { color: var(--user-color-700); }
 :root:not([data-appearance="dark"]) .text-emerald-600:not(:is([data-sidebar], .bg-slate-900, .bg-slate-950) *) { color: #047857; }
 :root:not([data-appearance="dark"]) .text-slate-400:not(:is([data-sidebar], .bg-slate-800, .bg-slate-900, .bg-slate-950, [class*="bg-[#0"]) *):not(svg, [data-slot=checkbox] *) { color: #64748b; }
 
@@ -158,7 +158,8 @@ body {
 .metric-amber { color: #b45309; background: #fef3c7; }
 .metric-violet { color: #6d28d9; background: #ede9fe; }
 
-/* One fixed brand palette for the whole app (light and dark); users choose only light or dark mode. */
+/* Brand palette. Emerald is the default; each user can pick another accent colour (saved as `themeColor`), applied
+   through `data-user-theme` on <html> so dialogs and popovers follow it in light and dark mode. */
 :root {
   --primary: var(--user-color-400);
   --primary-foreground: var(--user-color-contrast);
@@ -183,6 +184,12 @@ body {
   --user-hero-start: #10241f;
   --user-hero-end: #173b31;
 }
+
+[data-user-theme="ocean"] { --user-color-50: #f0f9ff; --user-color-100: #e0f2fe; --user-color-200: #bae6fd; --user-color-300: #7dd3fc; --user-color-400: #38bdf8; --user-color-500: #0ea5e9; --user-color-600: #0284c7; --user-color-700: #0369a1; --user-color-950: #082f49; --user-color-contrast: #082f49; --user-hero-start: #102238; --user-hero-end: #123e5a; }
+[data-user-theme="indigo"] { --user-color-50: #eef2ff; --user-color-100: #e0e7ff; --user-color-200: #c7d2fe; --user-color-300: #a5b4fc; --user-color-400: #818cf8; --user-color-500: #6366f1; --user-color-600: #4f46e5; --user-color-700: #4338ca; --user-color-950: #1e1b4b; --user-color-contrast: #1e1b4b; --user-hero-start: #181c36; --user-hero-end: #2b2d61; }
+[data-user-theme="violet"] { --user-color-50: #f5f3ff; --user-color-100: #ede9fe; --user-color-200: #ddd6fe; --user-color-300: #c4b5fd; --user-color-400: #a78bfa; --user-color-500: #8b5cf6; --user-color-600: #7c3aed; --user-color-700: #6d28d9; --user-color-950: #2e1065; --user-color-contrast: #2e1065; --user-hero-start: #211735; --user-hero-end: #43255d; }
+[data-user-theme="rose"] { --user-color-50: #fff1f2; --user-color-100: #ffe4e6; --user-color-200: #fecdd3; --user-color-300: #fda4af; --user-color-400: #fb7185; --user-color-500: #f43f5e; --user-color-600: #e11d48; --user-color-700: #be123c; --user-color-950: #4c0519; --user-color-contrast: #4c0519; --user-hero-start: #301723; --user-hero-end: #5a2037; }
+[data-user-theme="amber"] { --user-color-50: #fffbeb; --user-color-100: #fef3c7; --user-color-200: #fde68a; --user-color-300: #fcd34d; --user-color-400: #fbbf24; --user-color-500: #f59e0b; --user-color-600: #d97706; --user-color-700: #b45309; --user-color-950: #451a03; --user-color-contrast: #451a03; --user-hero-start: #2d2414; --user-hero-end: #55401a; }
 
 
 [data-appearance="light"] { color-scheme: light; }
