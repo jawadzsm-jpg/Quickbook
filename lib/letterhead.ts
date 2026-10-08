@@ -83,3 +83,15 @@ export function readLetterheads(value?: string): LetterheadSettings {
 export function letterheadForDocument(value: string | undefined, document: LetterheadDocument): LetterheadTemplate | undefined {
   return readLetterheads(value).templates.find((template) => template.documents.includes(document));
 }
+
+type FooterCompany = { addressLine1?: string; addressLine2?: string; city?: string; country?: string; phone?: string; email?: string; trn?: string };
+/** Footer lines (address, contact, TRN) a letterhead prints under its footer text, in on-screen, print and PDF output. */
+export function letterheadFooterLines(template: LetterheadTemplate, company: FooterCompany) {
+  const address = [company.addressLine1, company.addressLine2, company.city, company.country].filter(Boolean).join(", ");
+  const contact = [company.phone ? `Tel ${company.phone}` : "", company.email || "", template.website || ""].filter(Boolean).join("   ·   ");
+  return [
+    template.footerAddress !== false && address ? address : "",
+    template.footerContact && contact ? contact : "",
+    template.footerTrn && company.trn ? `TRN ${company.trn}` : "",
+  ].filter(Boolean);
+}

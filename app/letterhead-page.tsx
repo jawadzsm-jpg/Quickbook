@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import type { PointerEvent as ReactPointerEvent } from "react";
-import type { LetterheadTemplate } from "@/lib/letterhead";
+import { letterheadFooterLines, type LetterheadTemplate } from "@/lib/letterhead";
 
 export type LetterheadCompany = {
   name: string; logoData: string; rightLogoData?: string; stampData?: string;
@@ -65,7 +65,6 @@ export function LetterheadStamp({ template, company, onMove, maxLeft = 170, maxT
 }
 
 export function LetterheadPage({ template, company, onMoveStamp, onMoveBody }: { template: LetterheadTemplate; company: LetterheadCompany; onMoveStamp?: (left: number, top: number) => void; onMoveBody?: (left: number, top: number) => void }) {
-  const address = [company.addressLine1, company.addressLine2, company.city, company.country].filter(Boolean).join(", ");
   const bodyLeft = template.bodyLeft ?? 13, bodyTop = template.bodyTop ?? 48, bodyWidth = Math.min(template.bodyWidth ?? 184, 210 - bodyLeft);
   const beginBodyDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!onMoveBody || event.button !== 0) return;
@@ -92,25 +91,23 @@ export function LetterheadPage({ template, company, onMoveStamp, onMoveBody }: {
       {onMoveBody && <div className="letterhead-drag-handle" onPointerDown={beginBodyDrag} style={{ cursor: "grab", touchAction: "none", border: "1px dashed #94a3b8", borderRadius: 4, padding: "3px 7px", marginBottom: 5, color: "#475569", fontSize: 11 }}>Drag here to move text</div>}
       {template.bodyHtml ? <div className="letterhead-body-text" dangerouslySetInnerHTML={{ __html: template.bodyHtml }} /> : <div className="letterhead-body-text" style={{ whiteSpace: "pre-wrap" }}>{template.body}</div>}
     </div>
-    <LetterheadFooter template={template} company={company} address={address} />
+    <LetterheadFooter template={template} company={company} />
     <LetterheadStamp template={template} company={company} onMove={onMoveStamp} />
   </article>;
 }
 
-// Footer pinned to the bottom of the A4 page: free text, then the company address, contact line and TRN when enabled.
-function LetterheadFooter({ template, company, address }: { template: LetterheadTemplate; company: LetterheadCompany; address: string }) {
+// Letterhead footer: free text, then the company address, contact line and TRN when enabled. "page" pins it to the bottom
+// of a fixed-height A4 page (letterhead, warranty slip, payment receipt); "flow" places it after the content of a document
+// whose length varies (statements and reports).
+export function LetterheadFooter({ template, company, placement = "page" }: { template: LetterheadTemplate; company: LetterheadCompany; placement?: "page" | "flow" }) {
   if (template.showFooter === false) return null;
-  const contact = [company.phone ? `Tel ${company.phone}` : "", company.email || "", template.website || ""].filter(Boolean).join("   ·   ");
-  const lines = [
-    template.footerAddress !== false && address ? address : "",
-    template.footerContact && contact ? contact : "",
-    template.footerTrn && company.trn ? `TRN ${company.trn}` : "",
-  ].filter(Boolean);
+  const lines = letterheadFooterLines(template, company);
   if (!template.footer && !lines.length) return null;
   const band = template.footerStyle === "band";
+  const flow = placement === "flow";
   return <footer className="letterhead-footer-area" style={band
-    ? { position: "absolute", left: 0, right: 0, bottom: 0, padding: "5mm 13mm 6mm", background: template.color, color: "#fff", textAlign: "center", fontSize: 11, lineHeight: 1.5, overflowWrap: "anywhere", printColorAdjust: "exact", WebkitPrintColorAdjust: "exact" }
-    : { position: "absolute", left: "13mm", right: "13mm", bottom: "10mm", borderTop: `1.5px solid ${template.color}`, paddingTop: "3mm", textAlign: "center", fontSize: 11, lineHeight: 1.5, color: "#475569", overflowWrap: "anywhere" }}>
+    ? { ...(flow ? { marginTop: "8mm", breakInside: "avoid" } : { position: "absolute", left: 0, right: 0, bottom: 0 }), padding: flow ? "4mm 6mm" : "5mm 13mm 6mm", background: template.color, color: "#fff", textAlign: "center", fontSize: 11, lineHeight: 1.5, overflowWrap: "anywhere", printColorAdjust: "exact", WebkitPrintColorAdjust: "exact" }
+    : { ...(flow ? { marginTop: "8mm", breakInside: "avoid" } : { position: "absolute", left: "13mm", right: "13mm", bottom: "10mm" }), borderTop: `1.5px solid ${template.color}`, paddingTop: "3mm", textAlign: "center", fontSize: 11, lineHeight: 1.5, color: "#475569", overflowWrap: "anywhere" }}>
     {template.footer ? <div dir="auto" style={{ whiteSpace: "pre-wrap", fontWeight: 700, fontSize: 12, color: band ? "#fff" : template.color }}>{template.footer}</div> : null}
     {lines.map((line) => <div key={line} dir="auto">{line}</div>)}
   </footer>;

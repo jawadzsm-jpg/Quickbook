@@ -1,12 +1,16 @@
 import type { StaffSalaryRecord } from "./staff-salary-sheet";
 import { staffSalaryTotals } from "./staff-salary-sheet";
-import { defaultLetterhead, letterheadForDocument } from "./letterhead";
+import { defaultLetterhead, letterheadFooterLines, letterheadForDocument } from "./letterhead";
 
 export async function staffSalaryPdf(record: StaffSalaryRecord, print = false) {
   const [{ jsPDF }, { default: autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
   const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const { data, letterhead: company } = record;
-  const template = letterheadForDocument(company.letterheadDesign, "staff-salary-sheet") ?? { ...defaultLetterhead(), color: company.documentColor || "#164e63" };
+  const assigned = letterheadForDocument(company.letterheadDesign, "staff-salary-sheet");
+  const template = assigned ?? { ...defaultLetterhead(), color: company.documentColor || "#164e63" };
+  // The assigned letterhead's footer prints at the bottom of every page, above the page number.
+  const footerLines = assigned && assigned.showFooter !== false ? [assigned.footer, ...letterheadFooterLines(assigned, company)].flatMap((line) => line ? line.split("\n") : []).slice(0, 5) : [];
+  const footerHeight = footerLines.length ? footerLines.length * 3.6 + 4 : 0;
   const color = /^#[a-f0-9]{6}$/i.test(template.color) ? template.color : "#164e63";
   const amount = (value: number) => value.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const totals = staffSalaryTotals(data);
@@ -34,7 +38,7 @@ export async function staffSalaryPdf(record: StaffSalaryRecord, print = false) {
     pdf.text(`Salary month: ${data.month}     Start: ${data.startDate}     End: ${data.endDate}`, 12, tableTop - 10);
     pdf.text(`Company code: ${data.companyCode || "-"}     Tel./Mob.: ${data.phone || company.phone || "-"}`, 12, tableTop - 5, { maxWidth: 270 });
   };
-  autoTable(pdf, { tableWidth: pdf.internal.pageSize.getWidth() - 24, startY: tableTop, margin: { top: tableTop, left: 12, right: 12, bottom: 17 }, theme: "grid", styles: { font: "helvetica", fontSize: 7.5, cellPadding: 1.2, textColor: 20, lineColor: [180, 190, 200], overflow: "linebreak" }, headStyles: { fillColor: color, textColor: 255, fontStyle: "bold" }, columnStyles: { 0: { cellWidth: 12 }, 1: { cellWidth: 80 }, 2: { cellWidth: 32 }, 3: { cellWidth: 25 }, 4: { cellWidth: 32 }, 5: { cellWidth: 58 }, 6: { cellWidth: 34, halign: "right" } }, head: [["Sl. No.", "Employee name", "Emp. personal no.", "Card details", "Bank name", "IBAN", `Salary (${data.currency})`]], body: data.lines.map((line, index) => [index + 1, line.name, line.personalNumber, line.cardDetails, line.bankName, line.iban, amount(line.salary)]), foot: [
+  autoTable(pdf, { tableWidth: pdf.internal.pageSize.getWidth() - 24, startY: tableTop, margin: { top: tableTop, left: 12, right: 12, bottom: 17 + footerHeight }, theme: "grid", styles: { font: "helvetica", fontSize: 7.5, cellPadding: 1.2, textColor: 20, lineColor: [180, 190, 200], overflow: "linebreak" }, headStyles: { fillColor: color, textColor: 255, fontStyle: "bold" }, columnStyles: { 0: { cellWidth: 12 }, 1: { cellWidth: 80 }, 2: { cellWidth: 32 }, 3: { cellWidth: 25 }, 4: { cellWidth: 32 }, 5: { cellWidth: 58 }, 6: { cellWidth: 34, halign: "right" } }, head: [["Sl. No.", "Employee name", "Emp. personal no.", "Card details", "Bank name", "IBAN", `Salary (${data.currency})`]], body: data.lines.map((line, index) => [index + 1, line.name, line.personalNumber, line.cardDetails, line.bankName, line.iban, amount(line.salary)]), foot: [
     [{ content: `Service charges: ${data.lines.length} employees · Service fee per employee: ${amount(data.serviceFee)}`, colSpan: 6 }, ""],
     [{ content: `TOTAL ${data.currency}`, colSpan: 6 }, amount(totals.salary)],
     [{ content: "CHARGES", colSpan: 6 }, amount(totals.charges)],
@@ -42,6 +46,16 @@ export async function staffSalaryPdf(record: StaffSalaryRecord, print = false) {
     ...(data.notes ? [[{ content: data.notes, colSpan: 7 }]] : []),
   ], footStyles: { fillColor: [240, 245, 248], textColor: 20, fontStyle: "bold", halign: "right" }, showFoot: "lastPage", rowPageBreak: "avoid", didDrawPage: header });
   const pages = pdf.getNumberOfPages();
+  for (let page = 1; page <= pages && footerLines.length; page++) {
+    pdf.setPage(page);
+    const top = 198 - (footerLines.length - 1) * 3.6;
+    pdf.setDrawColor(color); pdf.line(12, top - 4, 285, top - 4);
+    footerLines.forEach((line, index) => {
+      pdf.setFont("helvetica", index === 0 && assigned?.footer ? "bold" : "normal"); pdf.setFontSize(index === 0 && assigned?.footer ? 8 : 7.5);
+      pdf.setTextColor(index === 0 && assigned?.footer ? color : "#475569");
+      pdf.text(line, 148.5, top + index * 3.6, { align: "center", maxWidth: 260 });
+    });
+  }
   for (let page = 1; page <= pages; page++) { pdf.setPage(page); pdf.setFont("helvetica", "normal"); pdf.setFontSize(7); pdf.setTextColor(90); pdf.text(`Salary sheet ${record.id ? `HR-${record.id}` : "preview"}  |  Page ${page} of ${pages}`, 285, 202, { align: "right" }); if (template.footer) pdf.text(template.footer, 12, 198, { maxWidth: 195 }); }
   if (print) pdf.autoPrint();
   return pdf.output("blob");

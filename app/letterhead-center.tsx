@@ -168,7 +168,7 @@ export function LetterheadCenter({ company, onSaved }: { company: Company; onSav
             </div>
           </>}
         </EditorSection>
-        <EditorSection title="Use this letterhead on" description="One letterhead per document type. Its header and stamp appear on the selected documents; letter content and footer stay on this page.">
+        <EditorSection title="Use this letterhead on" description="One letterhead per document type. Its header, stamp and footer appear on the selected documents; letter content stays on this page.">
           <div className="grid grid-cols-2 gap-2 text-sm">{letterheadDocuments.map(([key, label]) => <label key={key} className="flex items-center gap-2"><input type="checkbox" checked={current.documents.includes(key)} onChange={(event) => assign(key, event.target.checked)} />{label}</label>)}</div>
         </EditorSection>
       </div>
