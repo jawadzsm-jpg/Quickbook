@@ -9,6 +9,7 @@ import { toast } from "sonner";
 
 const clearOptions = [
   { id: "transactions", label: "Transactions, payments and cheques", detail: "Clears transaction history only. The original Chart of Accounts, including every sub-account, is kept and all account balances are reset to zero." },
+  { id: "stock", label: "Reset stock to zero, keep items", detail: "Keeps every item with its name, SKU, prices, specifications and HS code, and sets all stock quantities to zero. Clears together with Transactions, so they are selected together." },
   { id: "inventory", label: "Items and inventory data", detail: "Clears items, stock movements, inventory checks and active inventory locations. Locations required by cross-company transfers are retained as inactive." },
   { id: "contacts", label: "Customers, vendors and employees", detail: "Clears contact records, employee attachments and their linked warranty/RMA records." },
   { id: "reports", label: "Saved reports and attachments", detail: "Clears memorised reports, inventory-check reports and remaining record attachments." },
@@ -32,7 +33,14 @@ export function CompanyClearButton({ companyId, companyName, disabled }: { compa
     setSections(["transactions"]);
   };
   const toggleSection = (section: ClearSection, checked: boolean) => {
-    setSections((current) => checked ? [...new Set([...current, section])] : current.filter((value) => value !== section));
+    setSections((current) => {
+      let next = checked ? [...new Set([...current, section])] : current.filter((value) => value !== section);
+      // Resetting stock needs the transaction history cleared too; deleting items makes the stock reset unnecessary.
+      if (section === "stock" && checked) next = [...new Set([...next, "transactions" as ClearSection])].filter((value) => value !== "inventory");
+      if (section === "transactions" && !checked) next = next.filter((value) => value !== "stock");
+      if (section === "inventory" && checked) next = next.filter((value) => value !== "stock");
+      return next;
+    });
     setConfirmed(false);
   };
   const clear = async () => {
