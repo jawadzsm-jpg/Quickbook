@@ -3074,12 +3074,12 @@ function ContactFields({ form, setForm, accounts, onLoansChanged }: { onLoansCha
   return <div className="space-y-5">
     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
       <p className="text-sm font-bold text-slate-900">Customer details</p>
-      <p className="mt-1 text-xs text-slate-500">Add billing, contact and tax information for this customer.</p>
+      <p className="mt-1 text-xs text-slate-500">Add company, contact and tax information for this customer. The company name is also used as the billing name.</p>
     </div>
     <div className="grid gap-x-5 gap-y-4 md:grid-cols-2">
-      <Field label="Company Name" name="company" form={form} setForm={setForm} required placeholder="Enter company name" />
+      {/* The customer's name and billing name follow the company name; there is no separate Billing Name box. */}
+      <Field label="Company Name" name="company" form={form} setForm={(next) => setForm({ ...next, name: next.company, billingName: next.company })} required placeholder="Enter company name" />
       <SearchableCountryChoice form={form} setForm={setForm} />
-      <Field label="Billing Name" name="name" form={form} setForm={(next) => setForm({ ...next, billingName: next.name })} required placeholder="Enter billing name" />
       <Field label="TRN (15 digits)" name="trn" form={form} setForm={setForm} placeholder="15 digits, if registered" />
       <Field label="Contact Number" name="phone" form={form} setForm={setForm} required placeholder="Format +9713456789" />
       <Choice label="Reseller *" name="reseller" values={["Reseller", "End User"]} form={form} setForm={setForm} />

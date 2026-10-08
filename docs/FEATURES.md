@@ -365,3 +365,7 @@ Administrators and accountants can put stock on hold for a sales rep from Invent
 ## Inventory Overview filters and price adjustment
 
 Besides search and the All / per-inventory / In stock / Low stock buttons, Inventory Overview filters by **Out of stock** (products with no stock in any inventory), **On hold**, **Received 7 days** and **Received 30 days**, and by **Category**, **Brand** and **Selling price (excl. VAT)** range, with Clear filters. Brand is a well-known brand found in the item name, then its description or specifications, otherwise the first word of the name. **Price +** adds a percentage or a fixed amount to the prices shown and shared (WhatsApp, Telegram, email and Excel, whose price column notes the increase), on top of which Including VAT still applies; saved selling prices never change.
+
+## New customer form
+
+The New Customer form has no separate Billing Name box: the customer's name and billing name are taken from Company Name. Editing an existing customer still shows its Name and Billing name fields.
