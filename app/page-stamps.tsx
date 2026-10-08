@@ -7,7 +7,7 @@ import type { DocumentStamp } from "@/lib/layout/document-data";
 // and their static print markup all share it; dragging only runs in pointer handlers.
 
 export type MovePageStamp = (kind: DocumentStamp["kind"], left: number, top: number) => void;
-export const PAGE_STAMP_SIZE = { company: { width: 34, height: 25 }, bank: { width: 80, height: 40 }, status: { width: 40, height: 14 }, copy: { width: 52, height: 8 } } as const;
+export const PAGE_STAMP_SIZE = { company: { width: 34, height: 25 }, bank: { width: 80, height: 40 }, status: { width: 40, height: 14 }, copy: { width: 52, height: 8 }, delivered: { width: 46, height: 16 } } as const;
 
 /** Keep a stamp inside the area it is placed in. */
 export function clampPageStamp(kind: DocumentStamp["kind"], left: number, top: number, widthMm: number, heightMm: number) {
@@ -45,9 +45,16 @@ export function PageStamps({ stamps, widthMm, heightMm, mm, onMove }: {
     const size = PAGE_STAMP_SIZE[stamp.kind];
     const position = clampPageStamp(stamp.kind, stamp.left, stamp.top, widthMm, heightMm);
     const style: CSSProperties = { position: "absolute", left: mm(position.left), top: mm(position.top), zIndex: 6, touchAction: "none", cursor: onMove ? "move" : undefined };
-    const drag = onMove ? { onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => begin(stamp, event), title: "Drag to move" } : {};
+    // The DELIVERED stamp records a saved delivery, so it stays where it is placed.
+    const movable = Boolean(onMove) && stamp.kind !== "delivered";
+    if (!movable) style.cursor = undefined;
+    const drag = movable ? { onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => begin(stamp, event), title: "Drag to move" } : {};
     // Document status stamp (e.g. OPEN, PAID) lifted from a Layout Builder overlay so it can be moved.
     if (stamp.kind === "status") return <div key="status" className="page-stamp page-status-stamp" style={{ ...style, width: mm(size.width), height: mm(size.height), display: "flex", alignItems: "center", justifyContent: "center", border: `${mm(0.9)} solid #1f4e66`, borderRadius: mm(2), color: "#1f4e66", fontFamily: "Arial, sans-serif", fontWeight: 800, fontSize: "14pt", letterSpacing: "0.08em", textTransform: "uppercase", transform: "rotate(-8deg)", opacity: 0.85, background: "transparent" }} {...drag}>{stamp.text}</div>;
+    if (stamp.kind === "delivered") return <div key="delivered" className="page-stamp page-delivered-stamp" style={{ ...style, width: mm(size.width), height: mm(size.height), display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", border: `${mm(0.9)} solid #15803d`, borderRadius: mm(2), color: "#15803d", fontFamily: "Arial, sans-serif", lineHeight: 1.1, transform: "rotate(-6deg)", background: "rgba(255,255,255,0.75)" }}>
+      <span style={{ fontWeight: 800, fontSize: "14pt", letterSpacing: "0.08em" }}>DELIVERED</span>
+      {stamp.text ? <span style={{ fontWeight: 600, fontSize: "7pt", marginTop: mm(0.6) }}>{stamp.text}</span> : null}
+    </div>;
     // "CUSTOMER COPY" / "INVENTORY TEAM COPY" label on signed invoice copies.
     if (stamp.kind === "copy") return <div key="copy" className="page-stamp page-copy-label" style={{ ...style, height: mm(size.height), display: "inline-flex", alignItems: "center", padding: `0 ${mm(3)}`, border: "1px solid #0f172a", borderRadius: 999, background: "#fff", color: "#0f172a", fontFamily: "Arial, sans-serif", fontWeight: 700, fontSize: "8pt", letterSpacing: "0.08em", whiteSpace: "nowrap" }} {...drag}>{stamp.text}</div>;
     if (stamp.kind === "company") return <div key="company" className="page-stamp page-company-stamp" style={style} {...drag}>

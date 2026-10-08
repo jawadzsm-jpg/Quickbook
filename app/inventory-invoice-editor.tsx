@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { PackagePlus, Plus, Trash2 } from "lucide-react";
+import { PackagePlus, Plus, Trash2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,7 @@ import { useSkuLock, SkuLockNotice } from "./use-sku-lock";
 type InvoiceLine = { id: number; itemId: number | null; description: string; serialNumber: string; comments: string; quantity: number; isFreightCharge: boolean };
 type Item = { id: number; sku: string; name: string; quantity: number; itemType: string; status: string };
 type LineDraft = { itemId: number | null; addSerials: string; serials: string; comments: string };
-type NewLine = { key: number; itemId: number | null; quantity: string; serialNumber: string; comments: string };
+type NewLine = { key: number; itemId: number | null; quantity: string; serialNumber: string; comments: string; isReturn: boolean };
 
 const sellable = new Set(["service", "stock-part", "non-stock-part", "other-charge"]);
 const itemLabel = (item: Item) => `${item.sku} · ${item.name}${item.itemType === "stock-part" ? ` (stock ${item.quantity})` : ""}`;
@@ -75,7 +75,8 @@ export function InventoryInvoiceEditor({ companyId, locationId, invoiceId, revis
     try {
       const payload: Record<string, unknown> = { kind: "transactions", editMode: "inventory-invoice", companyId, id: invoiceId, revision };
       if (lineDetails.length) payload.lineDetails = lineDetails;
-      if (readyNewLines.length) payload.appendLines = readyNewLines.map((line) => ({ itemId: line.itemId, quantity: Number(line.quantity), serialNumber: line.serialNumber.trim(), comments: line.comments, unitPrice: 0 }));
+      // Stock returns are sent as negative quantities; the server returns the item to stock at zero price.
+      if (readyNewLines.length) payload.appendLines = readyNewLines.map((line) => ({ itemId: line.itemId, quantity: line.isReturn ? -Number(line.quantity) : Number(line.quantity), serialNumber: line.serialNumber.trim(), comments: line.comments, unitPrice: 0 }));
       if (invoiceComments !== comments) payload.comments = invoiceComments;
       const response = await fetch("/api/records", { method: "PATCH", headers: { "Content-Type": "application/json", ...lock.headers }, body: JSON.stringify(payload) });
       const result = await response.json();
@@ -106,10 +107,11 @@ export function InventoryInvoiceEditor({ companyId, locationId, invoiceId, revis
           })}
         </div>
         <section className="space-y-3 rounded-xl border border-dashed p-3">
-          <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-sm font-semibold">Add free lines</h3><p className="text-xs text-muted-foreground">Zero-price items such as accessories or cables. Ask an accountant to add charged items.</p></div><Button type="button" size="sm" variant="outline" disabled={saving} onClick={() => setNewLines((current) => [...current, { key: Date.now(), itemId: null, quantity: "1", serialNumber: "", comments: "" }])}><Plus className="size-4" />Add line</Button></div>
-          {newLines.map((line) => <div key={line.key} className="grid min-w-0 gap-2 rounded-lg border p-3 sm:grid-cols-[1fr_100px_auto]">
-            <ItemSelect label="New line item" items={items} value={line.itemId} disabled={saving} onChange={(itemId) => setNewLines((current) => current.map((entry) => entry.key === line.key ? { ...entry, itemId } : entry))} />
-            <Input aria-label="New line quantity" type="number" min="1" step="1" disabled={saving} value={line.quantity} onChange={(event) => setNewLines((current) => current.map((entry) => entry.key === line.key ? { ...entry, quantity: event.target.value } : entry))} />
+          <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-sm font-semibold">Add free lines or stock returns</h3><p className="text-xs text-muted-foreground">Free lines are zero-price items such as accessories. A stock return brings an item back into stock at zero price. Ask an accountant to add charged items.</p></div><div className="flex flex-wrap gap-2"><Button type="button" size="sm" variant="outline" disabled={saving} onClick={() => setNewLines((current) => [...current, { key: Date.now(), itemId: null, quantity: "1", serialNumber: "", comments: "", isReturn: false }])}><Plus className="size-4" />Add line</Button><Button type="button" size="sm" variant="outline" disabled={saving} onClick={() => setNewLines((current) => [...current, { key: Date.now(), itemId: null, quantity: "1", serialNumber: "", comments: "", isReturn: true }])}><Plus className="size-4" />Add stock return</Button></div></div>
+          {newLines.map((line) => <div key={line.key} className={`grid min-w-0 gap-2 rounded-lg border p-3 sm:grid-cols-[1fr_100px_auto] ${line.isReturn ? "border-sky-500/40 bg-sky-500/5" : ""}`}>
+            {line.isReturn && <p className="flex items-center gap-1.5 text-xs font-semibold text-sky-800 sm:col-span-3 dark:text-sky-300"><Undo2 className="size-3.5" />Stock return · the quantity comes back into stock</p>}
+            <ItemSelect label={line.isReturn ? "Stock return item" : "New line item"} items={line.isReturn ? items.filter((item) => item.itemType === "stock-part") : items} value={line.itemId} disabled={saving} onChange={(itemId) => setNewLines((current) => current.map((entry) => entry.key === line.key ? { ...entry, itemId } : entry))} />
+            <Input aria-label={line.isReturn ? "Quantity returned" : "New line quantity"} type="number" min="1" step="1" disabled={saving} value={line.quantity} onChange={(event) => setNewLines((current) => current.map((entry) => entry.key === line.key ? { ...entry, quantity: event.target.value } : entry))} />
             <Button type="button" size="icon" variant="ghost" aria-label="Remove new line" disabled={saving} onClick={() => setNewLines((current) => current.filter((entry) => entry.key !== line.key))}><Trash2 className="size-4" /></Button>
             <Textarea className="sm:col-span-3" aria-label="New line serial numbers" disabled={saving} value={line.serialNumber} onChange={(event) => setNewLines((current) => current.map((entry) => entry.key === line.key ? { ...entry, serialNumber: event.target.value } : entry))} placeholder="Serial numbers (optional)" />
             <Input className="sm:col-span-3" aria-label="New line comments" disabled={saving} value={line.comments} onChange={(event) => setNewLines((current) => current.map((entry) => entry.key === line.key ? { ...entry, comments: event.target.value } : entry))} placeholder="Comments (optional)" maxLength={2000} />
