@@ -171,6 +171,17 @@ import { SerialNumberSearch } from "./serial-number-search";
 type View = "cargos" | "serial-search" | "stock-pricing" | "dashboard" | "inventory-overview" | "sales" | "receive-payment" | "purchases" | "write-cheque" | "customers" | "warranties" | "vendors" | "inventory" | "customization-details" | "item-logistics" | "inventory-check-reports" | "transfers" | "banking" | "journal-entries" | "accounts" | "vat-management" | "rcm-declaration" | "employees" | "reports" | "companies" | "company-setup" | "letterhead" | "inventories" | "invoice-series" | "currencies" | "vat-codes" | "admin-controls";
 type AppRole = "admin" | "accountant" | "sales" | "purchasing" | "inventory" | "customization" | "viewer";
 type AppearanceMode = "light" | "dark";
+type UserTheme = "emerald" | "ocean" | "indigo" | "violet" | "rose" | "amber";
+// Accent colours a user can pick; the values match `/api/user-preferences` and the `data-user-theme` rules in globals.css.
+const userThemes: Array<{ value: UserTheme; label: string; color: string }> = [
+  { value: "emerald", label: "Emerald", color: "#10b981" },
+  { value: "ocean", label: "Ocean", color: "#0ea5e9" },
+  { value: "indigo", label: "Indigo", color: "#6366f1" },
+  { value: "violet", label: "Violet", color: "#8b5cf6" },
+  { value: "rose", label: "Rose", color: "#f43f5e" },
+  { value: "amber", label: "Amber", color: "#f59e0b" },
+];
+const isUserTheme = (value: string): value is UserTheme => userThemes.some((theme) => theme.value === value);
 type CurrentUser = { isAllAdmin?: boolean; id: number; fullName: string; email: string; avatarData: string; themeColor: string; appearanceMode: AppearanceMode; role: AppRole; mustChangePassword: boolean };
 type Kind = "transactions" | "contacts" | "items" | "accounts";
 type DataRecord = Record<string, string | number | boolean> & { id: number };
@@ -259,7 +270,7 @@ const roleViews: Record<AppRole, readonly View[]> = {
   sales: ["cargos", "dashboard", "sales", "customers", "inventory-overview"],
   purchasing: ["cargos", "serial-search", "dashboard", "inventory-overview", "inventory-check-reports", "purchases", "write-cheque", "vendors", "rcm-declaration"],
   inventory: ["cargos", "purchases", "vendors", "warranties", "sales", "serial-search", "dashboard", "inventory-overview", "inventory", "item-logistics", "inventory-check-reports", "transfers"],
-  customization: ["cargos", "dashboard", "inventory-overview", "customization-details"],
+  customization: ["customization-details"],
   viewer: ["cargos", "serial-search", "dashboard", "inventory-overview", "inventory-check-reports", "reports"],
 };
 
@@ -535,7 +546,8 @@ const itemDisplayDescription = (item: DataRecord) => {
 const documentItemLineDescription = (item: DataRecord) => inventoryItemLine(item.name, item.sku, inventoryShareDescription(itemDisplayDescription(item), item.itemNumber)) || String(item.name ?? "");
 
 export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUser }) {
-  const [view, setView] = useState<View>("dashboard");
+  // Roles without Company Home (Product Customization) start on their first permitted page.
+  const [view, setView] = useState<View>(() => roleViews[currentUser.role].includes("dashboard") ? "dashboard" : roleViews[currentUser.role][0]);
   const [records, setRecords] = useState<Record<Kind, DataRecord[]>>({ transactions: [], contacts: [], items: [], accounts: [] });
   const [loading, setLoading] = useState(true);
   const [documentInventory, setDocumentInventory] = useState<{ key: string; items: DataRecord[]; error?: string }>({ key: "", items: [] });
@@ -568,6 +580,8 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   const [exchangeRates, setExchangeRates] = useState<ExchangeRateRecord[]>([]);
   const [appearanceMode, setAppearanceMode] = useState<AppearanceMode>(currentUser.appearanceMode === "dark" ? "dark" : "light");
   const [appearanceSaving, setAppearanceSaving] = useState(false);
+  const [themeColor, setThemeColor] = useState<UserTheme>(isUserTheme(currentUser.themeColor) ? currentUser.themeColor : "emerald");
+  const [themeSaving, setThemeSaving] = useState(false);
   const [minimizedWarranty, setMinimizedWarranty] = useState<{ companyId: number; label: string } | null>(null);
   const [warrantySourceBillId, setWarrantySourceBillId] = useState<number | null>(null);
   const [minimizedEditors, setMinimizedEditors] = useState<MinimizedEditorWindow[]>([]);
@@ -576,6 +590,11 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     document.documentElement.dataset.appearance = appearanceMode;
     return () => { delete document.documentElement.dataset.appearance; };
   }, [appearanceMode]);
+
+  useEffect(() => {
+    document.documentElement.dataset.userTheme = themeColor;
+    return () => { delete document.documentElement.dataset.userTheme; };
+  }, [themeColor]);
 
 
   useEffect(() => {
@@ -643,6 +662,22 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
       setAppearanceMode(previousMode);
       toast.error(error instanceof Error ? error.message : "Could not save appearance mode");
     } finally { setAppearanceSaving(false); }
+  }
+
+  async function changeTheme(nextTheme: UserTheme) {
+    if (nextTheme === themeColor || themeSaving) return;
+    const previousTheme = themeColor;
+    setThemeColor(nextTheme);
+    setThemeSaving(true);
+    try {
+      const response = await fetch("/api/user-preferences", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ themeColor: nextTheme }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not save colour");
+      toast.success(`${userThemes.find((theme) => theme.value === nextTheme)?.label} colour saved`);
+    } catch (error) {
+      setThemeColor(previousTheme);
+      toast.error(error instanceof Error ? error.message : "Could not save colour");
+    } finally { setThemeSaving(false); }
   }
 
   const loadWorkspaces = useCallback(async () => {
@@ -1303,10 +1338,13 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
                 <Button type="button" variant="ghost" size="icon" aria-label="Appearance" title="Appearance"><Palette className="size-4" /></Button>
               </PopoverTrigger>
               <PopoverContent align="end" className="w-80 max-w-[calc(100vw-2rem)] space-y-4">
-                <div><p className="font-semibold">Appearance</p><p className="text-sm text-muted-foreground">Saved to your account across the app.</p></div>
+                <div><p className="font-semibold">Appearance</p><p className="text-sm text-muted-foreground">Mode and colour are saved to your account across the app.</p></div>
                 <div className="grid grid-cols-2 gap-2" role="group" aria-label="Display mode">
                   {(["light", "dark"] as const).map((mode) => <Button key={mode} type="button" variant={appearanceMode === mode ? "default" : "outline"} disabled={appearanceSaving} aria-pressed={appearanceMode === mode} onClick={() => changeAppearance(mode)}>{mode === "light" ? <Sun className="size-4" /> : <Moon className="size-4" />}{mode === "light" ? "Light" : "Dark"}</Button>)}
                 </div>
+                <div className="space-y-2"><p className="text-sm font-medium">Colour</p><div className="grid grid-cols-3 gap-2" role="group" aria-label="Interface colour">
+                  {userThemes.map((theme) => <button key={theme.value} type="button" disabled={themeSaving} aria-pressed={themeColor === theme.value} onClick={() => changeTheme(theme.value)} className={`flex min-h-10 items-center gap-2 rounded-lg border px-2.5 py-2 text-sm font-medium transition disabled:opacity-60 ${themeColor === theme.value ? "border-primary bg-accent text-foreground ring-1 ring-primary" : "border-border hover:bg-muted"}`}><span className="grid size-5 shrink-0 place-items-center rounded-full" style={{ backgroundColor: theme.color }}>{themeColor === theme.value ? <Check className="size-3 text-white" /> : null}</span>{theme.label}</button>)}
+                </div></div>
               </PopoverContent>
             </Popover>
             <Badge variant="outline" className="hidden sm:inline-flex">{baseCurrency}</Badge>

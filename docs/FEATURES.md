@@ -7,7 +7,7 @@
 - Company and inventory selectors that scope forms, lists, dashboard data, and most reports.
 - Per-user company assignments, global administration, company administration, and six operational roles.
 - Configurable login branding, company logos, background, display name, copyright text, document colors, templates, and letterhead.
-- Light and dark appearance modes using one fixed app-wide colour palette (users choose only light or dark), plus a live header panel, available to every role including Sales, showing online users with their last-activity date and time (UAE) on one line; only administrators also see sign-in IP addresses.
+- Light and dark appearance modes plus a per-user accent colour (Emerald, Ocean, Indigo, Violet, Rose or Amber), both chosen in the header Appearance menu and saved to the user's account, plus a live header panel, available to every role including Sales, showing online users with their last-activity date and time (UAE) on one line; only administrators also see sign-in IP addresses.
 
 ## Sales and customers
 
@@ -159,6 +159,7 @@ Every report view supports a centered professional layout with category/search n
 | Purchasing | Home, inventory context, purchases, cheques, vendors |
 | Inventory Manager | Home, purchases (PO/receipt/bill), invoices only on the sales page (with item changes, serials and comments), inventory, logistics, counts, transfers, packing lists, cargo list and serial search; no Customization Details |
 | Viewer | Home, serial search, inventory overview/check reports, and Report Center |
+| Product Customization | Customization Details only (opens there on sign-in) |
 
 The API permission model is authoritative; navigation visibility is a matching user experience layer.
 
