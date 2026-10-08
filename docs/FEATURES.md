@@ -356,7 +356,7 @@ Company Setup → Clear lets the assigned company Administrator clear selected d
 
 ## Register row actions
 
-In transaction registers (Sales, Purchases and others) the row actions sit on one line in fixed slots (view, attachments, delivery, edit, delete), so each icon lines up down the column; a slot stays empty when that action does not apply to the row.
+In transaction registers (Sales, Purchases and others) the row actions sit on one line in fixed slots (view, attachments, delivery, edit, delete), so each icon lines up down the column; a slot stays empty when that action does not apply to the row. Every saved document has the attachments (paperclip) action: quotations, estimates, proformas, sales orders, invoices, pending invoices, sales receipts, credit memos and customer payments can be changed by users who write sales documents; bills, item receipts, purchase orders, purchase returns, expenses and supplier payments by users who write purchases; cheques, deposits and transfers by users who write banking. Administrators can change any; everyone else with access can view and download.
 
 ## Stock holds
 
