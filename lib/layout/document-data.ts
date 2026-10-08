@@ -1,3 +1,5 @@
+import type { LetterheadTemplate } from "@/lib/letterhead";
+import type { LetterheadCompany } from "@/app/letterhead-page";
 import type { DetailField } from "./schema";
 
 /** The company stamp or the bank details box, placed freely on the first page (millimetres from the content area's top-left). */
@@ -17,6 +19,8 @@ export type DocumentData = {
   terms: string;
   status: string;
   stamps?: DocumentStamp[];
+  /** Letterhead assigned to this document type: replaces the company header and adds its footer on every page. */
+  letterhead?: { template: LetterheadTemplate; company: LetterheadCompany };
 };
 
 export type MockSize = "short" | "medium" | "long";

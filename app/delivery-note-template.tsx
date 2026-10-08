@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import type { CSSProperties } from "react";
-import { LetterheadBrand, LetterheadStamp } from "./letterhead-page";
+import { LetterheadBrand, LetterheadFooter, LetterheadStamp } from "./letterhead-page";
 import { defaultLetterhead, type LetterheadTemplate } from "@/lib/letterhead";
 import type { DocumentStamp } from "@/lib/layout/document-data";
 import { PAGE_STAMP_SIZE, PageStamps, type MovePageStamp } from "./page-stamps";
@@ -157,10 +157,10 @@ export function DeliveryNoteTemplate({
 
     <div className="total-row"><div>Total QTY</div><div>{totalQty.toLocaleString("en-AE", { maximumFractionDigits: 2 })}</div></div>
 
-    <div className="dn-footer">
+    {letterhead && letterhead.showFooter !== false ? <LetterheadFooter placement="flow" template={letterhead} company={setup} /> : <div className="dn-footer">
       {address ? <div>{address}</div> : null}
       <strong>{[setup.phone, setup.email].filter(Boolean).join(" · ")}</strong>
-    </div>
+    </div>}
     {stampOverride?.show && setup.stampData && <div className="ci-stamp-footer" style={{position:'relative',marginTop:'8mm',height:`${stampOverride.top+25}mm`,breakInside:'avoid'}}><LetterheadStamp template={{...(letterhead ?? defaultLetterhead()),showStamp:true,stampLeft:Math.min(140,stampOverride.left),stampTop:stampOverride.top}} company={setup} onMove={onMoveStamp} maxLeft={140} maxTop={20} responsive pageWidthMm={180} /></div>}
     {pageStamps?.length ? <PageStamps stamps={pageStamps} widthMm={pageStampArea.width} heightMm={pageStampArea.height} mm={(value) => `${value * pageStampPx}px`} onMove={onMovePageStamp} /> : null}
   </article>;

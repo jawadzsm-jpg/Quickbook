@@ -2,6 +2,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import type { DocumentData } from "@/lib/layout/document-data";
 import { PageStamps, type MovePageStamp } from "../page-stamps";
+import { LetterheadBrand, LetterheadFooter } from "../letterhead-page";
 import { contentBox, type Layout, type LineColumn, type Overlay, type Row, type Section } from "@/lib/layout/schema";
 import { fontStacks } from "@/lib/layout/styles";
 import { arabicColumnLabel, arabicLabel, arabicTitle } from "@/lib/layout/arabic-labels";
@@ -80,6 +81,7 @@ export function SectionBody({ section, data, theme }: { section: Section; data: 
   const currencyMark: ReactNode = theme?.currencySymbol && data.currency.toUpperCase() === "AED" ? <img className="lb-currency-symbol" src={theme.currencySymbol} alt="AED" /> : data.currency;
   switch (section.type) {
     case "companyHeader": {
+      if (data.letterhead) return <LetterheadBrand template={data.letterhead.template} company={data.letterhead.company} />;
       const { props } = section; const { company } = data;
       const logo = (src: string, side: string) => src ? <img className="lb-logo" src={src} alt={`${company.name} ${side} logo`} style={{ height: `${props.logoHeightMm}mm` }} /> : null;
       return <div className="lb-header">
@@ -170,6 +172,11 @@ export function LayoutDocument({ layout, data, mode, onMoveStamp }: { layout: La
   const group = (repeat: Row["repeat"]) => layout.rows.filter((row) => row.repeat === repeat).map((row) => <RowView key={row.id} row={row} layout={layout} data={data} mode={mode} />);
   const header = group("header");
   const footer = group("footer");
+  // An assigned letterhead shows its header even when the layout has no company header block, and its footer in the
+  // footer rows, which repeat on every printed page.
+  const hasCompanyHeader = layout.rows.some((row) => row.sections.some((section) => section.type === "companyHeader"));
+  if (data.letterhead && !hasCompanyHeader) header.unshift(<LetterheadBrand key="letterhead-brand" template={data.letterhead.template} company={data.letterhead.company} />);
+  if (data.letterhead && data.letterhead.template.showFooter !== false) footer.push(<LetterheadFooter key="letterhead-footer" placement="flow" template={data.letterhead.template} company={data.letterhead.company} />);
   return <div className="lb-doc">
     <table className="lb-frame">
       {header.length > 0 && <thead><tr><td>{header}</td></tr></thead>}
