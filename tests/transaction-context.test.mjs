@@ -2621,6 +2621,25 @@ test('inventory users change invoice items and add zero-price lines without chan
   } finally { delete globalThis.__transferTestUser; }
 });
 
+test('every saved document type accepts attachments from the role that writes it', async () => {
+  const c = (await database.query("INSERT INTO companies(name) VALUES ('Attachment roles') RETURNING id")).rows[0].id;
+  const doc = async (type, number) => (await database.query("INSERT INTO transactions (company_id,number,type,party,transaction_date) VALUES ($1,$2,$3,'Someone','2026-10-01') RETURNING id", [c, number, type])).rows[0].id;
+  const estimate = await doc('estimate', 'ATT-EST'), payment = await doc('customer payment', 'ATT-PAY'), order = await doc('purchase order', 'ATT-PO');
+  const route = await vite.ssrLoadModule('/app/api/attachments/route.ts');
+  const upload = (entityId) => route.POST(new Request('https://app.test/api/attachments', { method: 'POST', headers: { origin: 'https://app.test', 'content-type': 'application/json' }, body: JSON.stringify({ companyId: c, entityType: 'transaction', entityId, attachments: [{ fileName: 'note.txt', mimeType: 'text/plain', fileData: 'data:text/plain;base64,aGVsbG8=', fileSize: 5 }] }) }));
+  try {
+    globalThis.__transferTestUser = { id: 1, role: 'accountant', companyIds: [c] };
+    assert.equal((await upload(estimate)).status, 201);
+    assert.equal((await upload(payment)).status, 201);
+    assert.equal((await upload(order)).status, 201);
+    globalThis.__transferTestUser = { id: 1, role: 'viewer', companyIds: [c] };
+    assert.equal((await upload(estimate)).status, 403);
+    globalThis.__transferTestUser = { id: 1, role: 'purchasing', companyIds: [c] };
+    assert.equal((await upload(estimate)).status, 403);
+    assert.equal((await upload(order)).status, 201);
+  } finally { delete globalThis.__transferTestUser; }
+});
+
 test('stock holds reserve quantity for one sales rep until released', async () => {
   const c = (await database.query("INSERT INTO companies(name) VALUES ('Stock hold test') RETURNING id")).rows[0].id;
   const loc = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'HOLD','Hold stock','HLD') RETURNING id", [c])).rows[0].id;

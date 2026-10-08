@@ -10,6 +10,17 @@ import { MAX_FILES, parseAttachment } from "@/lib/attachments";
 type AttachmentInput = { fileName?: string; mimeType?: string; fileData?: string; fileSize?: number };
 
 const allowedTypes = new Set(["transaction", "employee", "vat_code", "report", "rcm_declaration", "staff_salary_sheet"]);
+// Who may add or remove attachments on a saved document: the permission that writes that kind of document.
+const salesAttachmentTypes = new Set(["invoice", "pending invoice", "quotation", "estimate", "proforma invoice", "sales order", "sales receipt", "credit memo", "statement charge", "finance charge", "customer payment"]);
+const purchaseAttachmentTypes = new Set(["bill", "received item bill", "item receipt", "purchase order", "vendor credit", "bill payment", "vendor payment", "expense"]);
+const bankingAttachmentTypes = new Set(["cheque", "cheque order", "deposit", "transfer", "credit card charge"]);
+function canAttachToTransaction(user: Parameters<typeof hasPermission>[0], type: string) {
+  if (salesAttachmentTypes.has(type)) return hasPermission(user, "sales:write");
+  if (purchaseAttachmentTypes.has(type)) return hasPermission(user, "purchases:write");
+  if (bankingAttachmentTypes.has(type)) return hasPermission(user, "banking:write");
+  return false;
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const companyId = Number(url.searchParams.get("companyId"));
@@ -104,7 +115,7 @@ export async function POST(request: Request) {
         : { rows: [{ id: entityId }] };
   if (!target.rows.length) return Response.json({ error: "Record not found." }, { status: 404 });
   const transactionType = String("type" in target.rows[0] ? target.rows[0].type ?? "" : "");
-  const canChangeTransaction = entityType === "transaction" && ((transactionType === "invoice" && hasPermission(authorization, "sales:write")) || (transactionType === "bill" && hasPermission(authorization, "purchases:write")));
+  const canChangeTransaction = entityType === "transaction" && canAttachToTransaction(authorization, transactionType);
   const canChangeReport = entityType === "report" && hasPermission(authorization, "reports:read");
   const canChangeRcm = entityType === "rcm_declaration" && hasPermission(authorization, "purchases:write");
   if (!canChangeTransaction && !canChangeReport && !canChangeRcm && !isAdministrator(authorization)) return Response.json({ error: "You cannot change attachments on this record." }, { status: 403 });
@@ -129,7 +140,7 @@ export async function DELETE(request: Request) {
   const existing = await getDb().execute(sql`SELECT a.entity_type, t.type AS transaction_type FROM record_attachments a LEFT JOIN transactions t ON a.entity_type = 'transaction' AND t.id = a.entity_id AND t.company_id = a.company_id WHERE a.id = ${id} AND a.company_id = ${companyId} LIMIT 1`);
   if (!existing.rows.length) return Response.json({ error: "Attachment not found." }, { status: 404 });
   const transactionType = String(existing.rows[0].transaction_type ?? "");
-  const canChangeTransaction = (transactionType === "invoice" && hasPermission(authorization, "sales:write")) || (transactionType === "bill" && hasPermission(authorization, "purchases:write"));
+  const canChangeTransaction = canAttachToTransaction(authorization, transactionType);
   const canChangeReport = String(existing.rows[0].entity_type) === "report" && hasPermission(authorization, "reports:read");
   const canChangeRcm = String(existing.rows[0].entity_type) === "rcm_declaration" && hasPermission(authorization, "purchases:write");
   if (!canChangeTransaction && !canChangeReport && !canChangeRcm && !isAdministrator(authorization)) return Response.json({ error: "You cannot change attachments on this record." }, { status: 403 });

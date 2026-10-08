@@ -756,14 +756,14 @@ test("supplier bills have direct attachments and A4 template output with a movab
   const template = readFileSync(new URL("../app/sales-document-template.tsx", import.meta.url), "utf8");
   const attachmentApi = readFileSync(new URL("../app/api/attachments/route.ts", import.meta.url), "utf8");
   assert.match(app, /\["bill", "Bills"\]/);
-  assert.match(app, /title="View"[\s\S]{0,900}Customer Payment.*attachments/);
-  assert.match(app, /documentLabel=\{attachmentRecord\.type === "customer payment" \? "Customer Payment" : "Bill"\}/);
+  assert.match(app, /title="View"[\s\S]{0,900}documentTypeLabel\(r\.type\)\} attachments/);
+  assert.match(app, /documentLabel=\{documentTypeLabel\(attachmentRecord\.type\)\}/);
   assert.match(app, /"bill", "purchase order"/);
   assert.match(template, /bill: "Supplier Bill"/);
   assert.match(template, /case "bill": return "bill"/);
   assert.match(template, /const movableStamp = true/);
   assert.match(template, /createA4PdfBlob/);
-  assert.match(attachmentApi, /transactionType === "bill" && hasPermission\(authorization, "purchases:write"\)/);
+  assert.match(attachmentApi, /purchaseAttachmentTypes\.has\(type\)\) return hasPermission\(user, "purchases:write"\)/);
 });
 
 test("complete business final report links executive measures to detailed report areas", () => {
