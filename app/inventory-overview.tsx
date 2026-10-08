@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, PackageX, CalendarClock, Lock, BadgeDollarSign, Boxes, ChevronDown, Download, Eye, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PackageOpen, PlaneLanding, RefreshCw, Rocket, Search, Send, ShoppingCart, UserRound, Warehouse } from "lucide-react";
+import { Lock, BadgeDollarSign, ChevronDown, Download, Eye, FileSpreadsheet, Mail, MessageCircle, PackageOpen, PlaneLanding, RefreshCw, Rocket, Search, Send, ShoppingCart, UserRound, Warehouse } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -470,20 +470,21 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
       <div className="border-t bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">Incoming shows outstanding Purchase Order quantities. Open the PO to convert the remaining items to a Bill. New Arrival shows stock received through Enter Bill for 12 hours after saving. Price Change shows each item once with its latest change for 12 hours. Just Sold keeps the sales representative from the original sale.</div></> : null}
     </section>
 
-    <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-      <div className="flex flex-wrap gap-2">
-        <Button variant="outline" onClick={() => setFilter("all")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "all")}`}>
-          <Boxes className="size-5" /><span className="font-semibold">All inventory</span><Badge className="bg-sky-400 text-slate-950 hover:bg-sky-400">{totals.quantity.toLocaleString()}</Badge>
+    <section className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+      {/* One compact line from tablet width up: status buttons keep their size and only inventory names shorten with "…" when space runs out; phones wrap. */}
+      <div className="flex flex-wrap gap-1 md:flex-nowrap">
+        <Button variant="outline" onClick={() => setFilter("all")} title="All inventory" className={`h-8 min-w-0 shrink gap-1 rounded-lg px-1.5 text-xs ${summaryButton(filter === "all")}`}>
+          <span className="truncate font-semibold">All</span><Badge className="h-5 shrink-0 px-1.5 text-[11px] bg-sky-400 text-slate-950 hover:bg-sky-400">{totals.quantity.toLocaleString()}</Badge>
         </Button>
-        {locations.map((location) => <Button key={location.id} variant="outline" onClick={() => setFilter(`location:${location.id}`)} title={location.company} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === `location:${location.id}`)}`}>
-          <Warehouse className="size-5" /><span className="font-semibold">{location.location || location.company}</span><Badge variant="secondary">{location.quantity.toLocaleString()}</Badge>
+        {locations.map((location) => <Button key={location.id} variant="outline" onClick={() => setFilter(`location:${location.id}`)} title={location.company} className={`h-8 min-w-0 shrink gap-1 rounded-lg px-1.5 text-xs ${summaryButton(filter === `location:${location.id}`)}`}>
+          <span className="truncate font-semibold">{location.location || location.company}</span><Badge variant="secondary" className="h-5 shrink-0 px-1.5 text-[11px]">{location.quantity.toLocaleString()}</Badge>
         </Button>)}
-        <Button variant="outline" onClick={() => setFilter("in")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "in")}`}><PackageCheck className="size-5" /><span className="font-semibold">In stock</span><Badge className="bg-emerald-400 text-slate-950 hover:bg-emerald-400">{totals.inStock}</Badge></Button>
-        <Button variant="outline" onClick={() => setFilter("low")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "low")}`}><AlertTriangle className="size-5" /><span className="font-semibold">Low stock</span><Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">{totals.low}</Badge></Button>
-        <Button variant="outline" onClick={() => setFilter("out")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "out")}`}><PackageX className="size-5" /><span className="font-semibold">Out of stock</span><Badge className="bg-rose-500 text-white hover:bg-rose-500">{statusCounts.out}</Badge></Button>
-        <Button variant="outline" onClick={() => setFilter("hold")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "hold")}`}><Lock className="size-5" /><span className="font-semibold">On hold</span><Badge className="bg-amber-300 text-slate-950 hover:bg-amber-300">{statusCounts.hold}</Badge></Button>
-        <Button variant="outline" onClick={() => setFilter("recent7")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "recent7")}`}><CalendarClock className="size-5" /><span className="font-semibold">Received 7 days</span></Button>
-        <Button variant="outline" onClick={() => setFilter("recent30")} className={`h-12 shrink-0 gap-2 rounded-xl ${summaryButton(filter === "recent30")}`}><CalendarClock className="size-5" /><span className="font-semibold">Received 30 days</span></Button>
+        <Button variant="outline" onClick={() => setFilter("in")} className={`h-8 shrink-0 gap-1 rounded-lg px-1.5 text-xs ${summaryButton(filter === "in")}`}><span className="truncate font-semibold">In stock</span><Badge className="h-5 shrink-0 px-1.5 text-[11px] bg-emerald-400 text-slate-950 hover:bg-emerald-400">{totals.inStock}</Badge></Button>
+        <Button variant="outline" onClick={() => setFilter("low")} className={`h-8 shrink-0 gap-1 rounded-lg px-1.5 text-xs ${summaryButton(filter === "low")}`}><span className="truncate font-semibold">Low stock</span><Badge className="h-5 shrink-0 px-1.5 text-[11px] bg-amber-400 text-slate-950 hover:bg-amber-400">{totals.low}</Badge></Button>
+        <Button variant="outline" onClick={() => setFilter("out")} className={`h-8 shrink-0 gap-1 rounded-lg px-1.5 text-xs ${summaryButton(filter === "out")}`}><span className="truncate font-semibold">Out of stock</span><Badge className="h-5 shrink-0 px-1.5 text-[11px] bg-rose-500 text-white hover:bg-rose-500">{statusCounts.out}</Badge></Button>
+        <Button variant="outline" onClick={() => setFilter("hold")} className={`h-8 shrink-0 gap-1 rounded-lg px-1.5 text-xs ${summaryButton(filter === "hold")}`}><span className="truncate font-semibold">On hold</span><Badge className="h-5 shrink-0 px-1.5 text-[11px] bg-amber-300 text-slate-950 hover:bg-amber-300">{statusCounts.hold}</Badge></Button>
+        <Button variant="outline" onClick={() => setFilter("recent7")} title="Received in the last 7 days" className={`h-8 shrink-0 gap-1 rounded-lg px-1.5 text-xs ${summaryButton(filter === "recent7")}`}><span className="truncate font-semibold">7 days</span></Button>
+        <Button variant="outline" onClick={() => setFilter("recent30")} title="Received in the last 30 days" className={`h-8 shrink-0 gap-1 rounded-lg px-1.5 text-xs ${summaryButton(filter === "recent30")}`}><span className="truncate font-semibold">30 days</span></Button>
       </div>
     </section>
 
