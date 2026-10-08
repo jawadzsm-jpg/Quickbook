@@ -75,7 +75,7 @@ test('staff creation assigns company access through the form', async ({ page }) 
   await dialog.getByRole('button', { name: 'Add user', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'User login created' })).toBeVisible();
   await page.getByRole('button', { name: 'Done', exact: true }).click();
-  await expect(page.getByText(email, { exact: true })).toHaveCount(2);
+  await expect(page.getByText(email, { exact: true })).toHaveCount(1);
   const result = await page.evaluate(async (email) => {
     const {users} = await (await fetch('/api/admin-users')).json();
     const user = users.find((entry) => entry.email === email);

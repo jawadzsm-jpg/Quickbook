@@ -112,22 +112,24 @@ export async function PATCH(request: Request) {
   const nextRole = payload.role === undefined ? targetRole : String(payload.role) as AppRole;
   if (!validRole(nextRole)) return Response.json({ error: "Select a valid role." }, { status: 400 });
   if ((targetRole === "all_admin" || nextRole === "all_admin") && administrator.role !== "all_admin") return Response.json({ error: "Only an All-Admin can change All-Admin access." }, { status: 403 });
+  const activeAdminCount = async () => Number((await getDb().select({ value: count() }).from(appUsers).where(and(eq(appUsers.role, "admin"), eq(appUsers.active, true))))[0]?.value ?? 0);
+  // Validate every requested change before writing anything, so a rejected field never leaves a partial update behind.
   if (payload.role !== undefined) {
     if (id === administrator.id && !isAdministrator({ role: nextRole })) return Response.json({ error: "You cannot remove your own administrator role." }, { status: 409 });
-    if (targetRole === "admin" && nextRole !== "admin" && nextRole !== "all_admin") {
-      const [admins] = await getDb().select({ value: count() }).from(appUsers).where(and(eq(appUsers.role, "admin"), eq(appUsers.active, true)));
-      if (Number(admins.value) <= 1) return Response.json({ error: "At least one active Administrator is required." }, { status: 409 });
-    }
+    if (targetRole === "admin" && target.active && nextRole !== "admin" && nextRole !== "all_admin" && (await activeAdminCount()) <= 1) return Response.json({ error: "At least one active Administrator is required." }, { status: 409 });
+    if (targetRole === "all_admin" && target.active && nextRole !== "all_admin" && (await activeAllAdminCount()) <= 1) return Response.json({ error: "At least one active All-Admin is required." }, { status: 409 });
     updates.role = nextRole as never;
   }
+  let companyIds: number[] | null = null;
   if (payload.companyIds !== undefined || payload.role !== undefined) {
-    const companyIds = parseCompanyIds(payload.companyIds !== undefined ? payload.companyIds : await companyIdsForUser(id));
+    companyIds = parseCompanyIds(payload.companyIds !== undefined ? payload.companyIds : await companyIdsForUser(id));
     if (nextRole !== "all_admin" && !(await validateCompanyIds(companyIds))) return Response.json({ error: "Assign at least one valid company to this user." }, { status: 400 });
-    await replaceCompanies(id, nextRole === "all_admin" ? [] : companyIds);
   }
   if (payload.active !== undefined) {
     const active = payload.active === true;
     if (id === administrator.id && !active) return Response.json({ error: "You cannot deactivate your own account." }, { status: 409 });
+    if (!active && target.active && nextRole === "admin" && (await activeAdminCount()) <= 1) return Response.json({ error: "At least one active Administrator is required." }, { status: 409 });
+    if (!active && target.active && nextRole === "all_admin" && (await activeAllAdminCount()) <= 1) return Response.json({ error: "At least one active All-Admin is required." }, { status: 409 });
     updates.active = active;
   }
   if (payload.password !== undefined) {
@@ -135,11 +137,27 @@ export async function PATCH(request: Request) {
     if (password.length < 12 || password.length > 128) return Response.json({ error: "Temporary password must contain 12 to 128 characters." }, { status: 400 });
     updates.passwordHash = hashPassword(password); updates.mustChangePassword = true;
   }
-  if (payload.phone !== undefined) updates.phone = String(payload.phone).trim().slice(0, 32);
-  if (payload.whatsapp !== undefined) updates.whatsapp = String(payload.whatsapp).trim().slice(0, 32);
+  if (payload.fullName !== undefined) {
+    const fullName = String(payload.fullName).trim();
+    if (!fullName || fullName.length > 120) return Response.json({ error: "Enter a name of 120 characters or fewer." }, { status: 400 });
+    updates.fullName = fullName;
+  }
+  if (payload.phone !== undefined || payload.whatsapp !== undefined) {
+    if (String(payload.phone ?? "").trim().length > 32 || String(payload.whatsapp ?? "").trim().length > 32) return Response.json({ error: "Phone numbers must contain 32 characters or fewer." }, { status: 400 });
+    if (payload.phone !== undefined) updates.phone = String(payload.phone).trim();
+    if (payload.whatsapp !== undefined) updates.whatsapp = String(payload.whatsapp).trim();
+  }
   if (payload.avatarData !== undefined) { const avatarData = String(payload.avatarData); if (!validAvatar(avatarData)) return Response.json({ error: "Use a PNG, JPEG or WebP picture smaller than 800 KB." }, { status: 400 }); updates.avatarData = avatarData; }
-  const [updated] = await getDb().update(appUsers).set(updates).where(eq(appUsers.id, id)).returning();
-  await getDb().delete(authSessions).where(eq(authSessions.userId, id));
+  // Access and password changes sign the user out; profile-only edits (name, phone, picture) keep their sessions.
+  const revokeSessions = updates.role !== undefined || companyIds !== null || updates.active !== undefined || updates.passwordHash !== undefined;
+  let updated!: typeof appUsers.$inferSelect;
+  const saved = await withWriteTransaction(async () => {
+    [updated] = await getDb().update(appUsers).set(updates).where(eq(appUsers.id, id)).returning();
+    if (companyIds !== null) await replaceCompanies(id, nextRole === "all_admin" ? [] : companyIds);
+    if (revokeSessions) await getDb().delete(authSessions).where(eq(authSessions.userId, id));
+    return Response.json({ ok: true });
+  });
+  if (!saved.ok) return saved;
   let emailSent = false; let emailWarning = "";
   if (payload.sendEmail === true && payload.password !== undefined) {
     try { await sendUserInvitation({ to: updated.email, name: updated.fullName || updated.email, temporaryPassword: String(payload.password), roleLabel: roleNames[updated.role as AppRole], loginUrl: process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin }); emailSent = true; }
@@ -163,9 +181,12 @@ export async function DELETE(request: Request) {
     const [admins] = await getDb().select({ value: count() }).from(appUsers).where(and(eq(appUsers.role, "admin"), eq(appUsers.active, true)));
     if (Number(admins.value) <= 1) return Response.json({ error: "At least one active Administrator is required." }, { status: 409 });
   }
-  const db = getDb();
-  await db.delete(authSessions).where(eq(authSessions.userId, id));
-  await db.execute(sql`DELETE FROM app_user_companies WHERE user_id = ${id}`);
-  await db.delete(appUsers).where(eq(appUsers.id, id));
-  return Response.json({ success: true });
+  if (targetRole === "all_admin" && target.active && (await activeAllAdminCount()) <= 1) return Response.json({ error: "At least one active All-Admin is required." }, { status: 409 });
+  return withWriteTransaction(async () => {
+    const db = getDb();
+    await db.delete(authSessions).where(eq(authSessions.userId, id));
+    await db.execute(sql`DELETE FROM app_user_companies WHERE user_id = ${id}`);
+    await db.delete(appUsers).where(eq(appUsers.id, id));
+    return Response.json({ success: true });
+  });
 }

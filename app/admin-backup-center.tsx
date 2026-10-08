@@ -7,10 +7,11 @@ import { Input } from '@/components/ui/input';
 import { type BackupSchedule } from '@/lib/backup-schedule';
 
 type Backup={id:string;source:string;status:string;created_at:string;completed_at:string|null;filename:string;sha256:string|null;size_bytes:number|null;row_count:number|null;table_count:number|null;verified_at:string|null;error:string|null;expires_at:string|null};
+export type BackupStatus={lastCompletedAt:string|null;scheduleEnabled:boolean;nextRunAt:string|null};
 type State={storageReady:boolean;workerLastSeen:string|null;schedule:(BackupSchedule&{revision:number;nextRunAt:string|null})|null;backups:Backup[]};
 const stamp=(date:string|null)=>date?new Date(date).toLocaleString('en-GB',{timeZone:'Asia/Dubai',dateStyle:'medium',timeStyle:'short'}):'—';
 const bytes=(size:number|null)=>size===null?'—':size<1024*1024?`${(size/1024).toFixed(1)} KB`:`${(size/1024/1024).toFixed(1)} MB`;
-export function AdminBackupCenter({companyId,companyName}:{companyId:number;companyName:string}) {
+export function AdminBackupCenter({companyId,companyName,onStatus}:{companyId:number;companyName:string;onStatus?:(status:BackupStatus)=>void}) {
   const [state,setState]=useState<State|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState('');
   const [form,setForm]=useState<BackupSchedule>({enabled:false,frequency:'daily',startDate:new Date(Date.now()+4*3600000).toISOString().slice(0,10),time:'03:00',retentionDays:30});
   const [revision,setRevision]=useState(0),[dirty,setDirty]=useState(false);
@@ -25,6 +26,7 @@ export function AdminBackupCenter({companyId,companyName}:{companyId:number;comp
     catch(e){toast.error(e instanceof Error?e.message:'Backup action failed.');await load();}finally{setBusy('');}
   }
   const completed=state?.backups.filter(b=>b.status==='completed')??[],latest=completed[0],running=state?.backups.some(b=>b.status==='running');
+  useEffect(()=>{if(state)onStatus?.({lastCompletedAt:latest?.completed_at??null,scheduleEnabled:Boolean(state.schedule?.enabled),nextRunAt:state.schedule?.nextRunAt??null});},[state,latest,onStatus]);
   const heartbeatOld=state?.schedule?.enabled&&(!state.workerLastSeen||Date.now()-new Date(state.workerLastSeen).getTime()>30*60000);
   return <section className="min-w-0 space-y-5 rounded-2xl border bg-card p-4 text-card-foreground shadow-sm sm:p-6" aria-label="Company backups">
     <header className="flex flex-wrap items-start justify-between gap-4"><div className="flex min-w-0 gap-3"><div className="rounded-xl bg-primary/10 p-3 text-primary"><Archive className="size-6" /></div><div><h2 className="text-xl font-semibold">Backup & recovery</h2><p className="mt-1 break-words text-sm text-muted-foreground">{companyName} · Private company backups · UAE time (UTC+04:00)</p></div></div><div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={Boolean(busy)} onClick={()=>void refresh()}><RefreshCw className="size-4" />Refresh</Button><Button type="button" disabled={!state?.storageReady||Boolean(busy)||running} onClick={()=>void action('create')}><Archive className="size-4" />{busy==='create'||running?'Creating backup…':'Back up now'}</Button></div></header>

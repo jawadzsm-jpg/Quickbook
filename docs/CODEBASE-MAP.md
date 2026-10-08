@@ -50,7 +50,7 @@ Use this file to locate implementation ownership without rescanning the whole re
 | Letterhead/design | `letterhead-center.tsx`, `letterhead-page.tsx`, `company-template-designer.tsx` | `company-setup/*` |
 | Attachments | `invoice-attachments.tsx`, `record-attachments.tsx`, `attachment-capture.tsx` | `attachments` |
 | UAE cheque | `uae-bank-cheque.tsx` | `records` |
-| User/admin controls | `user-role-center.tsx`, management UI in `enterprise-app.tsx` | `admin-users`, `admin-settings`, `email-settings` |
+| User/admin controls | `admin-controls.tsx` (tabbed shell, security PIN/password), `user-role-center.tsx` (users & access), `smtp-settings.tsx`, `admin-backup-center.tsx` | `admin-users`, `admin-settings`, `email-settings`, `admin-backups` |
 
 ## Domain module ownership
 
