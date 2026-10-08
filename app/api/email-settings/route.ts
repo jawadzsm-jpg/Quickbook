@@ -2,9 +2,16 @@ import { isValidEmail } from "@/lib/email-validation";
 import { getEmailSettings, saveEmailSettings, verifySmtpConnection } from "@/lib/smtp";
 import { requireApiUser } from "@/lib/auth";
 
+// SMTP settings are shared by every company, so only an All-Admin may read or change them.
+async function requireAllAdmin(request: Request, mutating = false) {
+  const user = await requireApiUser(request, true, mutating);
+  if (user instanceof Response) return user;
+  return user.role === "all_admin" ? user : Response.json({ error: "Only an All-Admin can manage the email server." }, { status: 403 });
+}
+
 
 export async function GET(request: Request) {
-  const administrator = await requireApiUser(request, true);
+  const administrator = await requireAllAdmin(request);
   if (administrator instanceof Response) return administrator;
   const settings = await getEmailSettings();
   return Response.json({ settings: settings ? {
@@ -14,7 +21,7 @@ export async function GET(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const administrator = await requireApiUser(request, true, true);
+  const administrator = await requireAllAdmin(request, true);
   if (administrator instanceof Response) return administrator;
   try {
     const payload = await request.json() as Record<string, unknown>;
@@ -36,7 +43,7 @@ export async function PATCH(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const administrator = await requireApiUser(request, true, true);
+  const administrator = await requireAllAdmin(request, true);
   if (administrator instanceof Response) return administrator;
   try {
     await verifySmtpConnection();

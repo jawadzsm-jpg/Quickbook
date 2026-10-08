@@ -295,9 +295,9 @@ Responsive calculation rows, light/dark styling, shared Minimize/Restore dialog 
 
 Management > Admin Controls opens with four status cards (active users, override PIN, email server, last backup) that flag items needing action and jump to their tab. The remembered tab is per browser.
 
-- **Users & access:** one list of every user with search, role filter and Active/Inactive/Password-change-pending filters. Role and company access are edited inline (with Select all/Clear for companies) and saved per user or with Save all; unsaved rows are marked and can be discarded. Each user also has Edit profile (name, phone, WhatsApp, picture — does not sign them out), Reset password (temporary password, optional email, copyable login details), Activate/Deactivate and Delete. Last sign-in time is shown in UAE time with IP and device. Only an All-Admin sees the All-Admin role option.
+- **Users & access (All-Admin only):** one list of every user with search, role filter and Active/Inactive/Password-change-pending filters. Role and company access are edited inline (with Select all/Clear for companies) and saved per user or with Save all; unsaved rows are marked and can be discarded. Each user also has Edit profile (name, phone, WhatsApp, picture — does not sign them out), Reset password (temporary password, optional email, copyable login details), Activate/Deactivate and Delete. Last sign-in time is shown in UAE time with IP and device. Company Administrators do not see this tab or the Email server tab; they see a note that an All-Admin manages users and email.
 - **Security:** set, change or remove the company's negative-stock override PIN (removing it blocks overrides), see when it last changed and the recent overrides, and change your own login password with a strength hint.
-- **Email server:** SMTP settings with Gmail, Microsoft 365 and Zoho presets, show/hide password and a connection test of the saved settings.
+- **Email server (All-Admin only):** SMTP settings with Gmail, Microsoft 365 and Zoho presets, show/hide password and a connection test of the saved settings.
 - **Backups:** described below.
 
 ## Admin backup controls
