@@ -2101,15 +2101,15 @@ async function setInvoiceDelivered(record: DataRecord, next: boolean) {
     return true;
   } catch (error) { toast.error(error instanceof Error ? error.message : "Could not update delivery"); return false; }
 }
-// Ship To on a saved sales document: accountants and administrators paste or type the delivery address here; it prints
-// in the Ship To box. Everyone else sees the document as before.
+// Ship To on a saved sales document: accountants, administrators, inventory users and sales users paste or type the
+// delivery address here; it prints in the Ship To box. The server limits sales users to their own invoices.
 const shipToTypes = ["quotation", "estimate", "proforma invoice", "sales order", "invoice", "pending invoice", "sales receipt", "credit memo"];
 function ShipToEditor({ record, role, onChanged }: { record: DataRecord; role: string; onChanged: () => void }) {
   const saved = String(record.deliveryAddress || "");
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(saved);
   const [busy, setBusy] = useState(false);
-  if (!canChangeDelivery(role)) return null;
+  if (!["accountant", "admin", "all_admin", "inventory", "sales"].includes(role)) return null;
   async function save() {
     setBusy(true);
     try {

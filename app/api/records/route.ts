@@ -1400,15 +1400,17 @@ async function handlePATCH(request: Request) {
         const [existing] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId))).for("update");
         if (!existing) return Response.json({ error: "Document not found." }, { status: 404 });
         if (!canReadDocument(authorization, existing)) return Response.json({ error: "You cannot open this document." }, { status: 403 });
-        // Saved documents are read-only for sales users; an accountant or administrator makes any change.
-        if (authorization.role === "sales") return Response.json({ error: "Sales users cannot change saved documents. Ask an accountant to make the change." }, { status: 403 });
-        // Only accountants and administrators mark an invoice delivered or undo it.
-        // Ship To on a saved sales document: accountants and administrators paste or type the delivery address without
-        // reopening the whole document. Amounts, lines and stock are untouched.
+        // Ship To on a saved sales document: accountants, administrators, inventory users and sales users (their own
+        // documents only) paste or type the delivery address without reopening the document. Amounts, lines and stock
+        // are untouched.
         if (payload.editMode === "delivery-address") {
           if (Object.keys(payload).some(key => !["kind", "id", "companyId", "editMode", "deliveryAddress"].includes(key)) || typeof payload.deliveryAddress !== "string") return Response.json({ error: "Send the delivery address only." }, { status: 400 });
           if (!shipToDocumentTypes.includes(existing.type)) return Response.json({ error: "This document has no Ship To address." }, { status: 400 });
-          if (authorization.role !== "accountant" && !isAdministrator(authorization)) return Response.json({ error: "Only an accountant or administrator can change the Ship To address." }, { status: 403 });
+          if (!["accountant", "inventory", "sales"].includes(authorization.role) && !isAdministrator(authorization)) return Response.json({ error: "Your role cannot change the Ship To address." }, { status: 403 });
+          if (authorization.role === "sales") {
+            const [own] = await db.select({ id: transactions.id }).from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId), documentVisibility(authorization)));
+            if (!own) return Response.json({ error: "Sales users can change the Ship To of their own invoices only." }, { status: 403 });
+          }
           if (["cancelled", "canceled", "void", "voided"].includes(String(existing.status).toLowerCase())) return Response.json({ error: "Cancelled or void documents cannot be changed." }, { status: 409 });
           const deliveryAddress = cleanDeliveryAddress(payload.deliveryAddress);
           if (deliveryAddress === existing.deliveryAddress) return Response.json({ record: existing });
@@ -1416,6 +1418,9 @@ async function handlePATCH(request: Request) {
           await db.insert(auditLog).values({ companyId, action: "updated", entityType: "transaction", entityId: id, details: JSON.stringify({ mode: "delivery-address", actorId: authorization.id, number: existing.number, before: existing.deliveryAddress, after: deliveryAddress }) });
           return Response.json({ record });
         }
+        // Saved documents are otherwise read-only for sales users; an accountant or administrator makes any change.
+        if (authorization.role === "sales") return Response.json({ error: "Sales users cannot change saved documents. Ask an accountant to make the change." }, { status: 403 });
+        // Only accountants and administrators mark an invoice delivered or undo it.
         if (payload.editMode === "delivery") {
           if (Object.keys(payload).some(key => !["kind", "id", "companyId", "editMode", "delivered"].includes(key)) || typeof payload.delivered !== "boolean") return Response.json({ error: "Send delivered: true or false only." }, { status: 400 });
           if (existing.type !== "invoice") return Response.json({ error: "Only invoices can be marked as delivered." }, { status: 400 });
