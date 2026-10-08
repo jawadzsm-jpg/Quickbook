@@ -243,7 +243,7 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
     const copyLines = inventoryCopy ? inventoryLines : customerLines;
     return activeMode === "delivery-note" && connectedPackingList && !design.enabled
       ? <DeliveryNoteTemplate record={record} lines={copyLines} contact={contact} setup={setup} letterhead={letterhead} stampOverride={{ show: false, left: 0, top: 0 }} pageStamps={pageStamps} pageStampArea={stampArea} onMovePageStamp={!print && canEditStamps ? movePageStamp : undefined} />
-      : <CustomInvoiceTemplate design={copyDesign} record={record} lines={copyLines} contact={contact} setup={setup} letterhead={design.enabled ? undefined : letterhead} stampOverride={{ show: false, left: 0, top: 0 }} stampPlacement="footer" showBankStamp={false} pageStamps={signedInvoiceCopies ? stampsFor(documentCopy) : pageStamps} onMovePageStamp={!print && canEditStamps ? movePageStamp : undefined} showItemNumberAtEnd={inventoryCopy} target="print" onMoveStamp={!print && movableStamp ? (left, top) => setPoStamp({ ...stamp, left, top }) : undefined} />;
+      : <CustomInvoiceTemplate design={copyDesign} record={record} lines={copyLines} contact={contact} setup={setup} letterhead={letterhead} stampOverride={{ show: false, left: 0, top: 0 }} stampPlacement="footer" showBankStamp={false} pageStamps={signedInvoiceCopies ? stampsFor(documentCopy) : pageStamps} onMovePageStamp={!print && canEditStamps ? movePageStamp : undefined} showItemNumberAtEnd={inventoryCopy} target="print" onMoveStamp={!print && movableStamp ? (left, top) => setPoStamp({ ...stamp, left, top }) : undefined} />;
   };
   const customerName = String(contact?.billingName || contact?.company || record.party || "Customer");
   const referenceNumber = String(record.number || "Document");
@@ -255,7 +255,7 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
     const documentData = (documentLines: RecordData[], documentCopy: "customer" | "inventory" = "customer") => {
       const data = transactionDocumentData(record, documentLines, contact, setup);
       // Layout Builder documents get the same freely placed stamps, bank box and (on signed invoices) copy label.
-      return { ...data, stamps: signedInvoiceCopies ? stampsFor(documentCopy) : pageStamps, company: { ...data.company, bank: { ...data.company.bank, stamp: "" } } };
+      return { ...data, stamps: signedInvoiceCopies ? stampsFor(documentCopy) : pageStamps, company: { ...data.company, bank: { ...data.company.bank, stamp: "" } }, letterhead: letterhead ? { template: letterhead, company: setup } : undefined };
     };
     const customer = documentData(customerLines, "customer");
     if (!signedInvoiceCopies) return { preview: customer, print: [{ data: customer }] };

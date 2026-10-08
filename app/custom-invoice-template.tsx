@@ -3,7 +3,7 @@ import Image from 'next/image';
 import { PaidInvoiceStamp } from './paid-invoice-stamp';
 import { PAGE_STAMP_SIZE, PageStamps, type MovePageStamp } from './page-stamps';
 import type { DocumentStamp } from '@/lib/layout/document-data';
-import { LetterheadBrand, LetterheadStamp } from './letterhead-page';
+import { LetterheadBrand, LetterheadFooter, LetterheadStamp } from './letterhead-page';
 import { defaultLetterhead, type LetterheadTemplate } from '@/lib/letterhead';
 import { defaultElementProperties, type DocumentDesign } from '@/lib/document-design';
 import { invoiceItemDescription } from '@/lib/item-description';
@@ -164,5 +164,5 @@ export function CustomInvoiceTemplate({content,design,record,lines,setup,contact
   {design.customBoxes.filter(box=>box[layoutTarget]).map(box=>{const key=`customBoxes.${box.id}`;return <div key={box.id} className={editableClass(key,'ci-custom-box')} onPointerDown={e=>startCustomBoxInteraction(box,e)} onDoubleClick={e=>openProperties(key,e)} onContextMenu={e=>openProperties(key,e)} style={{...properties(key),position:'absolute',left:`${box.left/7.6}%`,top:box.down,width:`${box.width/7.6}%`,height:box.height,maxWidth:`${Math.max(0,(760-box.left)/7.6)}%`,padding:6,overflow:'hidden',whiteSpace:'pre-wrap',overflowWrap:'anywhere',fontSize:design.properties?.[key]?.size||box.fontSize,fontWeight:design.properties?.[key]?.bold?700:box.bold?700:400,border:design.properties?.[key]?(undefined):box.border?'1px solid #94a3b8':'none',background:design.properties?.[key]?.fill?design.properties[key].background:'#fff',zIndex:5,cursor:editable?'move':undefined,touchAction:editable?'none':undefined,transform:'none'}}>{box.text}</div>})}
   {(companyFooterStamp||movableBankStamp)&&<div className="ci-stamp-footer" style={{position:'relative',marginTop:'8mm',height:`${Math.max(companyFooterStamp?Math.min(20,companyFooterStamp.stampTop):0,movableBankStamp?Math.min(20,movableBankStamp.top):0)+25}mm`,breakInside:'avoid',pageBreakInside:'avoid'}}>{companyFooterStamp&&<LetterheadStamp template={{...companyFooterStamp,stampLeft:Math.min(stampMaxLeft,companyFooterStamp.stampLeft),stampTop:Math.min(20,companyFooterStamp.stampTop)}} company={setup} onMove={onMoveStamp} maxLeft={stampMaxLeft} maxTop={20} responsive pageWidthMm={stampAreaWidth-10} />}{movableBankStamp&&<LetterheadStamp template={{...(stampTemplate??defaultLetterhead()),showStamp:true,stampLeft:Math.min(stampMaxLeft,movableBankStamp.left),stampTop:Math.min(20,movableBankStamp.top)}} company={setup} imageData={bankStamp} alt="Bank stamp" onMove={onMoveBankStamp} maxLeft={stampMaxLeft} maxTop={20} responsive pageWidthMm={stampAreaWidth-10} />}</div>}
  {pageStamps?.length?<PageStamps stamps={pageStamps} widthMm={pageStampArea.width} heightMm={pageStampArea.height} mm={value=>`${value*pageStampPx}px`} onMove={onMovePageStamp}/>:null}
- </article>;
+ {letterhead ? <LetterheadFooter placement="flow" template={letterhead} company={setup} /> : null}</article>;
 }

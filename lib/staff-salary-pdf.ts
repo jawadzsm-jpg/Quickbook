@@ -26,11 +26,14 @@ export async function staffSalaryPdf(record: StaffSalaryRecord, print = false) {
     pdf.text(pdf.splitTextToSize(company.name, 190).slice(0, 2), 148.5, 13, { align: "center" });
     pdf.setFontSize(8); pdf.setFont("helvetica", "normal"); pdf.setTextColor(60);
     let brandY = 21;
-    if (template.heading) { pdf.text(template.heading, 148.5, brandY, { align: "center", maxWidth: 190 }); brandY += 5; }
-    if (template.subtitle) pdf.text(template.subtitle, 148.5, brandY, { align: "center", maxWidth: 190 });
+    // The letterhead's heading and subtitle print in its colour, like the letterhead page.
+    pdf.setTextColor(color);
+    if (template.heading) { pdf.setFont("helvetica", "bold"); pdf.setFontSize(10); pdf.text(template.heading, 148.5, brandY, { align: "center", maxWidth: 190 }); brandY += 5; }
+    if (template.subtitle) { pdf.setFont("helvetica", "bold"); pdf.setFontSize(8); pdf.text(template.subtitle, 148.5, brandY, { align: "center", maxWidth: 190 }); }
+    pdf.setFont("helvetica", "normal"); pdf.setFontSize(8); pdf.setTextColor(60);
     const address = [company.addressLine1, company.addressLine2, company.city, company.country].filter(Boolean).join(", ");
     pdf.text(pdf.splitTextToSize(address, 200).slice(0, 2), 148.5, 24 + brandingExtra, { align: "center" });
-    pdf.text([company.phone, company.email, template.website].filter(Boolean).join(" | "), 148.5, 33 + brandingExtra, { align: "center", maxWidth: 270 });
+    if (template.headerContact !== false) pdf.text([company.phone, company.email, template.website].filter(Boolean).join(" | "), 148.5, 33 + brandingExtra, { align: "center", maxWidth: 270 });
     pdf.setDrawColor(color); pdf.line(12, 36 + brandingExtra, 285, 36 + brandingExtra);
     pdf.setFontSize(11); pdf.setFont("helvetica", "bold"); pdf.setTextColor(20); pdf.text(titleLines, 12, 42 + brandingExtra);
     pdf.setFontSize(8); pdf.setFont("helvetica", "normal");
@@ -56,7 +59,7 @@ export async function staffSalaryPdf(record: StaffSalaryRecord, print = false) {
       pdf.text(line, 148.5, top + index * 3.6, { align: "center", maxWidth: 260 });
     });
   }
-  for (let page = 1; page <= pages; page++) { pdf.setPage(page); pdf.setFont("helvetica", "normal"); pdf.setFontSize(7); pdf.setTextColor(90); pdf.text(`Salary sheet ${record.id ? `HR-${record.id}` : "preview"}  |  Page ${page} of ${pages}`, 285, 202, { align: "right" }); if (template.footer) pdf.text(template.footer, 12, 198, { maxWidth: 195 }); }
+  for (let page = 1; page <= pages; page++) { pdf.setPage(page); pdf.setFont("helvetica", "normal"); pdf.setFontSize(7); pdf.setTextColor(90); pdf.text(`Salary sheet ${record.id ? `HR-${record.id}` : "preview"}  |  Page ${page} of ${pages}`, 285, 202, { align: "right" }); }
   if (print) pdf.autoPrint();
   return pdf.output("blob");
 }

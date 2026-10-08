@@ -2015,6 +2015,11 @@ test("staff salary sheets save, edit, isolate companies, preserve letterhead and
   await database.query("UPDATE companies SET name = $1 WHERE id = $2", ["Changed company branding", c.id]);
   const changed = await route.PATCH(request("PATCH", { companyId: c.id, id: record.id, revision: 1, data: { ...data, referenceNo: "SAL-UPDATED", charges: 20 } })); assert.equal(changed.status, 200); const updated = (await changed.json()).record; assert.equal(updated.data.referenceNo, "SAL-UPDATED"); assert.equal(updated.revision, 2); assert.equal(updated.letterhead.name, c.name);
   assert.equal((await route.PATCH(request("PATCH", { companyId: c.id, id: record.id, revision: 1, data }))).status, 409);
+  // A letterhead ticked for Staff Salary Sheet after the sheet was saved still applies to it; the saved branding stays.
+  const assignedDesign = JSON.stringify({ templates: [{ id: "salary-letterhead", name: "Salary", color: "#0f4c81", heading: "Payroll", subtitle: "", website: "", body: "", footer: "Payroll footer", documents: ["staff-salary-sheet"], showLogo: true, showRightLogo: true, showStamp: false, stampLeft: 155, stampTop: 230 }] });
+  await database.query("UPDATE companies SET letterhead_design = $1, trn = $2 WHERE id = $3", [assignedDesign, "100000000000003", c.id]);
+  const listed = (await (await route.GET(new Request(`https://app.test/api/staff-salary-sheets?companyId=${c.id}`))).json()).records.find((sheet) => sheet.id === record.id);
+  assert.equal(listed.letterhead.letterheadDesign, assignedDesign); assert.equal(listed.letterhead.name, c.name); assert.equal(listed.letterhead.trn, "100000000000003");
   globalThis.__reportTestUser = { id: 2, email: "viewer@example.test", role: "viewer", companyIds: [c.id], mustChangePassword: false };
   try { assert.equal((await route.GET(new Request(`https://app.test/api/staff-salary-sheets?companyId=${c.id}`))).status, 403); assert.equal((await route.POST(request("POST", { companyId: c.id, data }))).status, 403); } finally { delete globalThis.__reportTestUser; }
   globalThis.__reportTestUser = { id: 3, email: "admin@example.test", role: "admin", companyIds: [c.id + 999], mustChangePassword: false };

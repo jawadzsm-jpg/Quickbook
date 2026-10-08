@@ -18,7 +18,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { createA4PdfBlob, downloadPdfBlob } from "@/lib/document-output";
 import { PrintOrientationSelect, type PrintOrientation } from "@/components/print-orientation-select";
-import { defaultLetterhead, letterheadForDocument, type LetterheadDocument } from "@/lib/letterhead";
+import { defaultLetterhead, letterheadFooterLines, letterheadForDocument, type LetterheadDocument } from "@/lib/letterhead";
 import type { LetterheadCompany } from "./letterhead-page";
 
 import { dimensionText } from "@/lib/item-logistics";
@@ -242,7 +242,8 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
   }
 
   function linkedLetterhead(type: LetterheadDocument, landscape: boolean) {
-    const template = letterheadForDocument(setup.letterheadDesign, type) ?? defaultLetterhead();
+    const assigned = letterheadForDocument(setup.letterheadDesign, type);
+    const template = assigned ?? defaultLetterhead();
     const safeImage = (value?: string) => value && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(value) ? value : "";
     const image = template.showLogo ? safeImage(setup.logoData) : "";
     const rightImage = template.showRightLogo ? safeImage(setup.rightLogoData) : "";
@@ -254,7 +255,13 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
     const left = Math.min(landscape?265:178,position.left);
     const top = Math.min(landscape?187:274,position.top);
     const stamp = stampData ? `<img src="${stampData}" alt="Company stamp" style="position:absolute;left:${left}mm;top:${top}mm;max-width:32mm;max-height:23mm;object-fit:contain">` : "";
-    return { html: header, stamp };
+    // The assigned letterhead's footer (text, address, contact line, TRN) closes the printed page.
+    const footerLines = assigned && assigned.showFooter !== false ? letterheadFooterLines(assigned, setup) : [];
+    const band = assigned?.footerStyle === "band";
+    const footer = assigned && assigned.showFooter !== false && (assigned.footer || footerLines.length)
+      ? `<footer class="letterhead-footer-area" style="margin-top:8mm;break-inside:avoid;text-align:center;font-size:9pt;line-height:1.5;${band ? `background:${assigned.color};color:#fff;padding:4mm 6mm;print-color-adjust:exact;-webkit-print-color-adjust:exact` : `border-top:1.5px solid ${assigned.color};padding-top:3mm;color:#475569`}">${assigned.footer ? `<div style="white-space:pre-wrap;font-weight:700;font-size:10pt;color:${band ? "#fff" : assigned.color}">${escapeHtml(assigned.footer)}</div>` : ""}${footerLines.map((line) => `<div>${escapeHtml(line)}</div>`).join("")}</footer>`
+      : "";
+    return { html: header, stamp, footer };
   }
 
   function packingListDocument(list: PackingList) {
@@ -289,7 +296,7 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
     const bankAccount = packingBank.show ? bankForCurrency(setup, data.invoice.currency || "AED") : null;
     const limits = bankBoxLimits(packingOrientation);
     const bank = bankAccount ? bankBoxHtml(bankLines(bankAccount), packingBank.remark ?? bankAccount.remark ?? "", Math.max(0, Math.min(limits.maxLeft, packingBank.left)), Math.max(0, Math.min(limits.maxTop, packingBank.top)), escapeHtml) : "";
-    const html = `<div class="packing-page" style="position:relative">${letterhead.html}${letterhead.stamp}${bank}<h1>PACKING LIST</h1><div class="meta"><div><strong>Customer Name:</strong> ${escapeHtml(data.invoice.party)}</div><div><strong>Delivery Address:</strong> ${escapeHtml(list.deliveryAddress || "—").replace(/\n/g, "<br>")}</div><div><strong>Date:</strong> ${escapeHtml(list.packingDate)}</div><div><strong>Invoice #:</strong> ${escapeHtml(data.invoice.number)}</div><div><strong>Packing List:</strong> ${escapeHtml(list.number)}</div></div><table><colgroup><col class="no"><col class="description"><col class="qty"><col class="gross"><col class="origin"><col class="hs"><col class="ctn"><col class="ref"><col class="weight"><col class="dimension"><col class="cbm"></colgroup><thead><tr><th>#</th><th>DESCRIPTION</th><th>QTY</th><th>TOTAL GROSS<br>WEIGHT/KG</th><th>MADE IN</th><th>HS CODE</th><th>CTN</th><th>CTN #</th><th>CTN WEIGHT/KG</th><th>CTN DIMENSION/CM</th><th>TOTAL CTN CBM</th></tr></thead><tbody>${rows}</tbody></table><div class="totals"><div>Total Qty → ${display(quantity, 2)} PCS</div><div>Total CTN(s) → ${cartons}</div><div>Total Weight → ${display(weight)} KG</div><div>Total CBM → ${display(cbm)} m³</div></div>${list.memo ? `<p class="memo"><strong>Memo:</strong> ${escapeHtml(list.memo)}</p>` : ""}</div>`;
+    const html = `<div class="packing-page" style="position:relative">${letterhead.html}${letterhead.stamp}${bank}<h1>PACKING LIST</h1><div class="meta"><div><strong>Customer Name:</strong> ${escapeHtml(data.invoice.party)}</div><div><strong>Delivery Address:</strong> ${escapeHtml(list.deliveryAddress || "—").replace(/\n/g, "<br>")}</div><div><strong>Date:</strong> ${escapeHtml(list.packingDate)}</div><div><strong>Invoice #:</strong> ${escapeHtml(data.invoice.number)}</div><div><strong>Packing List:</strong> ${escapeHtml(list.number)}</div></div><table><colgroup><col class="no"><col class="description"><col class="qty"><col class="gross"><col class="origin"><col class="hs"><col class="ctn"><col class="ref"><col class="weight"><col class="dimension"><col class="cbm"></colgroup><thead><tr><th>#</th><th>DESCRIPTION</th><th>QTY</th><th>TOTAL GROSS<br>WEIGHT/KG</th><th>MADE IN</th><th>HS CODE</th><th>CTN</th><th>CTN #</th><th>CTN WEIGHT/KG</th><th>CTN DIMENSION/CM</th><th>TOTAL CTN CBM</th></tr></thead><tbody>${rows}</tbody></table><div class="totals"><div>Total Qty → ${display(quantity, 2)} PCS</div><div>Total CTN(s) → ${cartons}</div><div>Total Weight → ${display(weight)} KG</div><div>Total CBM → ${display(cbm)} m³</div></div>${list.memo ? `<p class="memo"><strong>Memo:</strong> ${escapeHtml(list.memo)}</p>` : ""}${letterhead.footer}</div>`;
     return { styles, html };
   }
 
@@ -328,7 +335,7 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
     const hsBankAccount = hsBank.show ? bankForCurrency(setup, data.invoice.currency || "AED") : null;
     const hsLimits = bankBoxLimits(hsOrientation);
     const hsBankBox = hsBankAccount ? bankBoxHtml(bankLines(hsBankAccount), hsBank.remark ?? hsBankAccount.remark ?? "", Math.max(0, Math.min(hsLimits.maxLeft, hsBank.left)), Math.max(0, Math.min(hsLimits.maxTop, hsBank.top)), escapeHtml) : "";
-    const html = `<div class="hs-summary-page" style="position:relative">${letterhead.html}${letterhead.stamp}${hsBankBox}<h1>DETAILED COMMODITY CLASSIFICATION FORM</h1><div class="meta"><div><strong>Customer Name:</strong> ${escapeHtml(customerName)}</div><div><strong>Delivery Address:</strong> ${escapeHtml(list.deliveryAddress || "—").replace(/\n/g, "<br>")}</div><div><strong>Date:</strong> ${escapeHtml(list.packingDate)}</div><div><strong>Invoice #:</strong> ${escapeHtml(data.invoice.number)}</div><div><strong>Packing List:</strong> ${escapeHtml(list.number)}</div></div><div class="stat">(FOR STATISTICAL USE)</div><table><colgroup><col style="width:5%"><col style="width:19%"><col style="width:25%"><col style="width:14%"><col style="width:12%"><col style="width:12%"><col style="width:13%"></colgroup><thead><tr><th>#</th><th>COUNTRY OF ORIGIN</th><th>DESCRIPTION OF GOODS</th><th>H.S.CODE</th><th>WEIGHT /KG</th><th>NO. OF UNITS</th><th>VALUE</th></tr></thead><tbody>${rows}</tbody></table><div class="totals"><div>Total Qty → ${display(totalQty, 2)} PCS</div><div>Total Weight → ${display(totalWeight, 2)} KG(s)</div><div>Total Value → ${totalValue.toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${escapeHtml(currency)}</div></div></div>`;
+    const html = `<div class="hs-summary-page" style="position:relative">${letterhead.html}${letterhead.stamp}${hsBankBox}<h1>DETAILED COMMODITY CLASSIFICATION FORM</h1><div class="meta"><div><strong>Customer Name:</strong> ${escapeHtml(customerName)}</div><div><strong>Delivery Address:</strong> ${escapeHtml(list.deliveryAddress || "—").replace(/\n/g, "<br>")}</div><div><strong>Date:</strong> ${escapeHtml(list.packingDate)}</div><div><strong>Invoice #:</strong> ${escapeHtml(data.invoice.number)}</div><div><strong>Packing List:</strong> ${escapeHtml(list.number)}</div></div><div class="stat">(FOR STATISTICAL USE)</div><table><colgroup><col style="width:5%"><col style="width:19%"><col style="width:25%"><col style="width:14%"><col style="width:12%"><col style="width:12%"><col style="width:13%"></colgroup><thead><tr><th>#</th><th>COUNTRY OF ORIGIN</th><th>DESCRIPTION OF GOODS</th><th>H.S.CODE</th><th>WEIGHT /KG</th><th>NO. OF UNITS</th><th>VALUE</th></tr></thead><tbody>${rows}</tbody></table><div class="totals"><div>Total Qty → ${display(totalQty, 2)} PCS</div><div>Total Weight → ${display(totalWeight, 2)} KG(s)</div><div>Total Value → ${totalValue.toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${escapeHtml(currency)}</div></div>${letterhead.footer}</div>`;
     return { styles, html };
   }
 

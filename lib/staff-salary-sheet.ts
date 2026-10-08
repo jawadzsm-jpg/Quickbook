@@ -3,7 +3,7 @@ import { isIsoDate } from "./validation";
 
 export type StaffSalaryLine = { employeeId: number | null; name: string; personalNumber: string; cardDetails: string; bankName: string; iban: string; salary: number };
 export type StaffSalaryData = { title: string; referenceNo: string; month: string; startDate: string; endDate: string; companyCode: string; phone: string; currency: string; serviceFee: number; charges: number; notes: string; lines: StaffSalaryLine[] };
-export type StaffLetterhead = { name: string; logoData: string; rightLogoData: string; addressLine1: string; addressLine2: string; city: string; country: string; phone: string; email: string; letterheadDesign: string; documentColor: string };
+export type StaffLetterhead = { name: string; logoData: string; rightLogoData: string; addressLine1: string; addressLine2: string; city: string; country: string; phone: string; email: string; trn?: string; letterheadDesign: string; documentColor: string };
 export type StaffSalaryRecord = { id: number; revision: number; data: StaffSalaryData; letterhead: StaffLetterhead };
 const money = (value: unknown) => { const n = Number(value); if (!Number.isFinite(n) || n < 0 || n > 1e10) throw new RequestError("Enter valid non-negative salary and charge amounts."); return Math.round(n * 100) / 100; };
 export function staffSalaryTotals(data: StaffSalaryData) { const salary = Math.round(data.lines.reduce((sum, line) => sum + line.salary, 0) * 100) / 100; return { salary, charges: data.charges, grandTotal: Math.round((salary + data.charges) * 100) / 100 }; }
