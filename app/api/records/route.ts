@@ -475,7 +475,9 @@ export async function GET(request: Request) {
         const records = await db.select({ id: accounts.id, code: accounts.code, name: accounts.name, type: accounts.type, currency: accounts.currency, active: accounts.active, systemRole: accounts.systemRole }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, true), eq(accounts.systemRole, "AR")));
         return Response.json({ records });
       }
-      const journalFilter = Number.isInteger(locationId) && locationId > 0 ? and(eq(journalEntries.companyId, companyId), eq(journalEntries.locationId, locationId)) : eq(journalEntries.companyId, companyId);
+      // Account balances are company-wide (like Account History and the opening balance), from posted entries only;
+      // the selected inventory does not filter them.
+      const journalFilter = and(eq(journalEntries.companyId, companyId), eq(journalEntries.posted, true));
       const [accountRows, [accountCompany], currentRates, balanceLines] = await Promise.all([
         db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(asc(accounts.code)),
         db.select({ baseCurrency: companies.baseCurrency }).from(companies).where(eq(companies.id, companyId)).limit(1),
@@ -496,8 +498,11 @@ export async function GET(request: Request) {
         const activity = matched.reduce((total, line) => {
           const entryCurrency = String(line.entryCurrency || baseCurrency).toUpperCase();
           const rate = Number(line.exchangeRate || 1);
-          const nativeDebit = accountCurrency === baseCurrency ? Number(line.debit) : entryCurrency === accountCurrency ? Number(line.originalDebit ?? (rate > 0 ? Number(line.debit) / rate : line.debit)) : 0;
-          const nativeCredit = accountCurrency === baseCurrency ? Number(line.credit) : entryCurrency === accountCurrency ? Number(line.originalCredit ?? (rate > 0 ? Number(line.credit) / rate : line.credit)) : 0;
+          // A posting in another currency (e.g. an AED journal to a USD bank) has no native amount saved; convert its
+          // home amount at the account currency's current rate instead of dropping it from the native balance.
+          const accountRate = rateMap.get(accountCurrency) ?? 0;
+          const nativeDebit = accountCurrency === baseCurrency ? Number(line.debit) : entryCurrency === accountCurrency ? Number(line.originalDebit ?? (rate > 0 ? Number(line.debit) / rate : line.debit)) : accountRate > 0 ? Number(line.debit) / accountRate : 0;
+          const nativeCredit = accountCurrency === baseCurrency ? Number(line.credit) : entryCurrency === accountCurrency ? Number(line.originalCredit ?? (rate > 0 ? Number(line.credit) / rate : line.credit)) : accountRate > 0 ? Number(line.credit) / accountRate : 0;
           return { debit: total.debit + nativeDebit, credit: total.credit + nativeCredit, baseDebit: total.baseDebit + Number(line.debit), baseCredit: total.baseCredit + Number(line.credit) };
         }, { debit: 0, credit: 0, baseDebit: 0, baseCredit: 0 });
         const movement = creditNormal.has(account.type) ? activity.credit - activity.debit : activity.debit - activity.credit;
@@ -792,7 +797,13 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
         const [linked] = await db.select({ id: accounts.id }).from(accounts).where(filters).limit(1);
         if (linked) return Response.json({ error: systemRole === "AR" || systemRole === "AP" ? `That ${currency} control account is already linked.` : "That system use is already linked to another account." }, { status: 409 });
       }
-      const [record] = await db.insert(accounts).values({ companyId, code, name, type: String(payload.type ?? "Expense"), systemRole, currency, parentAccountId: Number.isInteger(parentAccountId) && parentAccountId > 0 ? parentAccountId : null, balance: Number(payload.balance ?? 0) }).returning();
+      const type = String(payload.type ?? "Expense").trim();
+      if (!accountTypeValues.has(type)) return Response.json({ error: "Select a valid account type." }, { status: 400 });
+      const compatible = systemRole ? compatibleAccountTypes[systemRole] : undefined;
+      if (compatible && !compatible.has(type)) return Response.json({ error: `The linked system use ${systemRole} requires account type: ${[...compatible].join(" or ")}.` }, { status: 409 });
+      const openingBalance = Number(payload.balance ?? 0);
+      if (!Number.isFinite(openingBalance)) return Response.json({ error: "Enter a valid opening balance." }, { status: 400 });
+      const [record] = await db.insert(accounts).values({ companyId, code, name, type, systemRole, currency, parentAccountId: Number.isInteger(parentAccountId) && parentAccountId > 0 ? parentAccountId : null, balance: openingBalance }).returning();
       if (systemRole === "AR" || systemRole === "AP") {
         await db.update(contacts).set({ ledgerAccountId: record.id }).where(and(eq(contacts.companyId, companyId), eq(contacts.type, systemRole === "AR" ? "customer" : "vendor"), eq(contacts.currency, currency), sql`${contacts.ledgerAccountId} IS NULL`));
       }
@@ -1952,6 +1963,8 @@ async function handlePATCH(request: Request) {
         const [record] = await db.update(accounts).set({ code, name, type }).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId))).returning();
         if (name !== existing.name) {
           await db.update(transactions).set({ account: name }).where(and(eq(transactions.companyId, companyId), eq(transactions.account, existing.name)));
+          // A transfer stores its destination bank in party; keep it pointing at the renamed account.
+          await db.update(transactions).set({ party: name }).where(and(eq(transactions.companyId, companyId), eq(transactions.type, "transfer"), eq(transactions.party, existing.name)));
           // Rename only this account's journal lines; a same-named account in another currency keeps its own lines.
           await db.update(journalLines).set({ accountName: name }).where(and(or(eq(journalLines.accountId, id), and(isNull(journalLines.accountId), eq(journalLines.accountName, existing.name))), inArray(journalLines.journalEntryId, db.select({ id: journalEntries.id }).from(journalEntries).where(eq(journalEntries.companyId, companyId)))));
         }
@@ -2160,14 +2173,17 @@ async function handleDELETE(request: Request) {
     });
     else if (kind === "accounts") return await withWriteTransaction(async () => {
       const db = getDb();
-      const [account] = await db.select({ name: accounts.name, systemRole: accounts.systemRole, parentAccountId: accounts.parentAccountId }).from(accounts).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId))).limit(1);
+      const [account] = await db.select({ name: accounts.name, systemRole: accounts.systemRole, parentAccountId: accounts.parentAccountId, balance: accounts.balance }).from(accounts).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId))).limit(1);
       if (!account) return Response.json({ error: "Account not found." }, { status: 404 });
       if (!account.parentAccountId) return Response.json({ error: "Only sub-accounts can be deleted. Main Chart of Accounts entries must be kept." }, { status: 409 });
       if (account.systemRole) return Response.json({ error: "Linked system accounts cannot be deleted." }, { status: 409 });
       const [child] = await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.parentAccountId, id))).limit(1);
       if (child) return Response.json({ error: "Move or delete this account's sub-accounts first." }, { status: 409 });
-      const [activity] = await db.select({ id: journalLines.id }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(and(eq(journalEntries.companyId, companyId), eq(journalLines.accountName, account.name))).limit(1);
+      const [activity] = await db.select({ id: journalLines.id }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(and(eq(journalEntries.companyId, companyId), or(eq(journalLines.accountId, id), eq(journalLines.accountName, account.name)))).limit(1);
       if (activity) return Response.json({ error: "Sub-accounts with journal activity cannot be deleted." }, { status: 409 });
+      if (Math.abs(Number(account.balance) || 0) > 0.005) return Response.json({ error: "This sub-account has an opening balance. Set it to zero or make the account inactive instead." }, { status: 409 });
+      const linked = await db.execute(sql`SELECT id FROM contacts WHERE company_id = ${companyId} AND (ledger_account_id = ${id} OR salary_expense_account_id = ${id} OR loan_account_id = ${id} OR payment_bank_account_id = ${id}) UNION ALL SELECT id FROM items WHERE company_id = ${companyId} AND (cogs_account_id = ${id} OR income_account_id = ${id} OR asset_account_id = ${id}) LIMIT 1`);
+      if (linked.rows.length) return Response.json({ error: "Reassign this account on linked customers, vendors, employees or items before deleting it." }, { status: 409 });
       await db.delete(accounts).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId)));
       await db.insert(auditLog).values({ companyId, action: "deleted", entityType: "account", entityId: id, details: JSON.stringify({ ...actor, name: account.name }) });
       return Response.json({ ok: true });
