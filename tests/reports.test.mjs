@@ -884,6 +884,26 @@ test('customer open balance uses allocations, preserves unused credits, and link
   } finally { delete globalThis.__reportTestUser; }
 });
 
+test("A/P aging is as of the report date: later payments ignored, bills without a due date age from the bill date, drafts excluded", async () => {
+  const response = await workspaces.POST(post({ type: "company", name: "AP as-of audit", baseCurrency: "AED" }));
+  const { company: c } = await response.json(); const loc = c.locations[0].id;
+  const base = { companyId: c.id, locationId: loc, party: "Aged Supplier", currency: "AED", exchangeRate: 1 };
+  const [paidLater] = await db.insert(schema.transactions).values({ ...base, type: "bill", number: "AP-PAID-LATER", status: "paid", transactionDate: "2026-05-20", dueDate: "2026-06-15", subtotal: 1000, total: 1000, baseTotal: 1000 }).returning();
+  await db.insert(schema.transactions).values([
+    { ...base, type: "cheque", number: "AP-PAY-SEP", billId: paidLater.id, transactionDate: "2026-09-15", subtotal: 1000, total: 1000, baseTotal: 1000 },
+    { ...base, type: "bill", number: "AP-NO-DUE", transactionDate: "2026-04-01", subtotal: 300, total: 300, baseTotal: 300 },
+    { ...base, type: "bill", number: "AP-DRAFT", status: "draft", transactionDate: "2026-06-01", dueDate: "2026-06-01", subtotal: 999, total: 999, baseTotal: 999 },
+  ]);
+  const res = await GET(new Request(`https://app.test/api/reports?type=ap-aging-detail&companyId=${c.id}&currency=AED&periodStart=2026-06-01&periodEnd=2026-06-30`));
+  assert.equal(res.status, 200, await res.clone().text());
+  const rows = (await res.json()).report.rows;
+  const row = (number) => rows.find((entry) => entry.number === number);
+  // On 30 June the bill paid in September was still open (15 days past due); the undated bill is 90 days old; no draft.
+  assert.deepEqual([row("AP-PAID-LATER")?.amount, row("AP-PAID-LATER")?.age, row("AP-PAID-LATER")?.ageBand], [1000, 15, "1–30"]);
+  assert.deepEqual([row("AP-NO-DUE")?.age, row("AP-NO-DUE")?.ageBand], [90, "61–90"]);
+  assert.equal(row("AP-DRAFT"), undefined);
+});
+
 test("VAT reports: bill freight taxed once, UAE treatment exceptions, manual adjustments and ledger reconciliation", async () => {
   const response = await workspaces.POST(post({ type: "company", name: "VAT audit", baseCurrency: "AED" }));
   const { company: c } = await response.json(); const loc = c.locations[0].id;
@@ -1230,8 +1250,8 @@ test('customer summaries provide receivable KPIs and export every Customer repor
 test('vendor summaries provide payable KPIs and export Vendor reports to fitted A4 PDF', async () => {
   const { vendorReportKeys, vendorSummary, vendorDetailTarget } = await vite.ssrLoadModule('/lib/vendor-report.ts');
   assert.equal(vendorReportKeys.size, 10);
-  const aging = vendorSummary({ key: 'ap-aging-summary', rows: [{ name: 'A', current: 100, days30: 50, days60: 25, days90: 10, total: 185 }] });
-  assert.deepEqual(aging.cards.map(card => card.value), [100, 50, 25, 10, 185]);
+  const aging = vendorSummary({ key: 'ap-aging-summary', rows: [{ name: 'A', current: 100, days30: 50, days60: 25, days90: 10, days90plus: 5, total: 190, unapplied: -40, supplierBalance: 150 }] });
+  assert.deepEqual(aging.cards.map(card => card.value), [100, 50, 25, 10, 5, -40, 150]);
   assert.equal(vendorDetailTarget('ap-aging-summary'), 'ap-aging-detail');
   const detail = vendorSummary({ key: 'unpaid-bills-detail', rows: [{ supplier: 'A', amount: 500, overdueDays: 12 }, { supplier: 'B', amount: 200, overdueDays: 0 }] });
   assert.deepEqual(detail.cards.map(card => card.value), [700, 2, 2, 1]);
@@ -1809,18 +1829,23 @@ test("vendor API links posted currency controls, excludes void activity and keep
  const [supplier]=await db.insert(schema.contacts).values({companyId:cid,name:'Design Supplier',type:'vendor',currency:'USD'}).returning();
  const [ap]=await db.insert(schema.accounts).values({companyId:cid,code:'2099',name:'Design USD Payable',type:'Accounts Payable',currency:'USD',systemRole:'AP',active:true}).returning();
  const [bill,credit]=await db.insert(schema.transactions).values([{companyId:cid,locationId:lid,type:'bill',number:'V-DESIGN-BILL',party:supplier.name,account:'Wrong saved payable',currency:'USD',exchangeRate:3.67,transactionDate:'2026-10-01',dueDate:'2026-10-01',subtotal:100,total:100,baseTotal:367},{companyId:cid,locationId:lid,type:'vendor credit',number:'V-DESIGN-CREDIT',party:supplier.name,currency:'USD',exchangeRate:3.67,transactionDate:'2026-10-02',subtotal:20,total:20,baseTotal:73.4},{companyId:cid,locationId:lid,type:'bill',status:'void',number:'V-DESIGN-VOID',party:supplier.name,currency:'USD',exchangeRate:3.67,transactionDate:'2026-10-01',subtotal:500,total:500,baseTotal:1835}]).returning();
- for(const transaction of [bill,credit]){const [entry]=await db.insert(schema.journalEntries).values({companyId:cid,locationId:lid,transactionId:transaction.id,entryDate:transaction.transactionDate,reference:transaction.number,posted:true}).returning();await db.insert(schema.journalLines).values({journalEntryId:entry.id,accountName:ap.name,debit:transaction.id===credit.id?73.4:0,credit:transaction.id===bill.id?367:0});}
- const [prior]=await db.insert(schema.transactions).values({companyId:cid,locationId:lid,type:'bill',number:'V-DESIGN-PRIOR',party:supplier.name,currency:'USD',exchangeRate:3.67,transactionDate:'2026-09-01',subtotal:40,total:40,baseTotal:146.8}).returning();const [priorEntry]=await db.insert(schema.journalEntries).values({companyId:cid,locationId:lid,transactionId:prior.id,entryDate:prior.transactionDate,reference:prior.number,posted:true}).returning();await db.insert(schema.journalLines).values({journalEntryId:priorEntry.id,accountName:ap.name,debit:0,credit:146.8});
+ for(const transaction of [bill,credit]){const [entry]=await db.insert(schema.journalEntries).values({companyId:cid,locationId:lid,transactionId:transaction.id,entryDate:transaction.transactionDate,reference:transaction.number,posted:true,currency:'USD',exchangeRate:3.67}).returning();await db.insert(schema.journalLines).values({journalEntryId:entry.id,accountName:ap.name,debit:transaction.id===credit.id?73.4:0,credit:transaction.id===bill.id?367:0});}
+ const [prior]=await db.insert(schema.transactions).values({companyId:cid,locationId:lid,type:'bill',number:'V-DESIGN-PRIOR',party:supplier.name,currency:'USD',exchangeRate:3.67,transactionDate:'2026-09-01',subtotal:40,total:40,baseTotal:146.8}).returning();const [priorEntry]=await db.insert(schema.journalEntries).values({companyId:cid,locationId:lid,transactionId:prior.id,entryDate:prior.transactionDate,reference:prior.number,posted:true,currency:'USD',exchangeRate:3.67}).returning();await db.insert(schema.journalLines).values({journalEntryId:priorEntry.id,accountName:ap.name,debit:0,credit:146.8});
  const [bank]=await db.insert(schema.accounts).values({companyId:cid,code:'1099',name:'Design USD Bank',type:'Bank',currency:'USD',active:true}).returning();
  const [expense,payment]=await db.insert(schema.transactions).values([{companyId:cid,locationId:lid,type:'expense',number:'V-DESIGN-CASH',party:supplier.name,account:bank.name,currency:'USD',exchangeRate:3.67,transactionDate:'2026-10-02',subtotal:10,total:10,baseTotal:36.7},{companyId:cid,locationId:lid,type:'cheque',number:'V-DESIGN-PAY',billId:bill.id,party:supplier.name,account:bank.name,currency:'USD',exchangeRate:3.67,transactionDate:'2026-10-02',subtotal:30,total:30,baseTotal:110.1}]).returning();
- for(const transaction of [expense,payment]){const [entry]=await db.insert(schema.journalEntries).values({companyId:cid,locationId:lid,transactionId:transaction.id,entryDate:transaction.transactionDate,reference:transaction.number,posted:true}).returning();await db.insert(schema.journalLines).values({journalEntryId:entry.id,accountName:bank.name,debit:0,credit:transaction.baseTotal});if(transaction.id===payment.id)await db.insert(schema.journalLines).values({journalEntryId:entry.id,accountName:ap.name,debit:110.1,credit:0});}
+ for(const transaction of [expense,payment]){const [entry]=await db.insert(schema.journalEntries).values({companyId:cid,locationId:lid,transactionId:transaction.id,entryDate:transaction.transactionDate,reference:transaction.number,posted:true,currency:'USD',exchangeRate:3.67}).returning();await db.insert(schema.journalLines).values({journalEntryId:entry.id,accountName:bank.name,debit:0,credit:transaction.baseTotal});if(transaction.id===payment.id)await db.insert(schema.journalLines).values({journalEntryId:entry.id,accountName:ap.name,debit:110.1,credit:0});}
  await db.insert(schema.transactions).values({companyId:cid,locationId:lid,type:'cheque',status:'void',number:'V-DESIGN-VOID-PAY',billId:bill.id,party:supplier.name,currency:'USD',exchangeRate:3.67,transactionDate:'2026-10-02',total:25,baseTotal:91.75});
  const get=async(type,extra='')=>{const r=await GET(new Request(`https://app.test/api/reports?type=${type}&companyId=${cid}&currency=USD&supplierId=${supplier.id}&periodStart=2026-10-01&periodEnd=2026-10-03${extra}`));assert.equal(r.status,200,await r.clone().text());return(await r.json()).report;};
  const detail=await get('supplier-transactions');assert.deepEqual(detail.rows.map(row=>row.amount),[100,-20,0,-30]);assert.equal(detail.rows.find(row=>row.number===expense.number).accountAccountId,bank.id);assert.ok(detail.rows.filter(row=>row.number!==expense.number).every(row=>row.accountAccountId===ap.id));assert.equal(detail.canViewAccounts,true);
  const balance=await get('vendor-balances');assert.equal(balance.rows[0].amount,90);assert.equal(balance.rows[0].accountAccountId,ap.id);
  const running=await get('supplier-balance-detail');assert.equal(running.rows[0].balance,40);assert.equal(running.rows.at(-1).balance,90);assert.equal(running.rows.length,5);
  const statement=await get('vendor-statements',`&customer=${encodeURIComponent(supplier.name)}&statementDate=2026-10-03`);assert.equal(statement.statement.closing,90);assert.equal(statement.statement.opening,40);assert.equal(statement.statement.charges,100);assert.equal(statement.statement.credits,50);assert.ok(statement.rows.every(row=>row.accountAccountId===ap.id));
- for(const type of ['ap-aging-summary','ap-aging-detail','unpaid-bills-detail','supplier-open-balance']){const report=await get(type);assert.equal(report.rows.length,type==='supplier-open-balance'?2:1);assert.equal(report.rows.reduce((sum,row)=>sum+Number(row.total ?? row.amount),0),type==='supplier-open-balance'?110:70);assert.ok(report.columns.some(column=>column.key==='account'));}
+ // Aging is as of the To date: the unpaid September bill (40) stays open alongside the October bill (100 − 30 paid),
+ // and the unlinked vendor credit (−20) is unapplied, so aging totals the supplier balance of 90.
+ for(const type of ['ap-aging-detail','unpaid-bills-detail','supplier-open-balance']){const report=await get(type);assert.ok(report.columns.some(column=>column.key==='account'));const bills=report.rows.filter(row=>row.type!=='unapplied credits / payments');assert.equal(bills.length,2);assert.equal(bills.reduce((sum,row)=>sum+Number(row.amount),0),110);}
+ const agingSummary=await get('ap-aging-summary');assert.equal(agingSummary.rows.length,1);assert.deepEqual([agingSummary.rows[0].total,agingSummary.rows[0].unapplied,agingSummary.rows[0].supplierBalance],[110,-20,90]);
+ assert.equal((await get('ap-aging-detail')).rows.reduce((sum,row)=>sum+Number(row.amount),0),90);
+ assert.deepEqual([agingSummary.apLedger.supplierTotal,agingSummary.apLedger.ledgerBalance,agingSummary.apLedger.difference],[90,90,0]);
  globalThis.__reportTestUser={id:10,email:'viewer@example.test',role:'viewer',companyIds:[cid],mustChangePassword:false};try{assert.equal((await get('supplier-transactions')).canViewAccounts,false);assert.equal((await get('vendor-statements',`&statementDate=2026-10-03`)).canViewAccounts,false);}finally{delete globalThis.__reportTestUser;}
 });
 
