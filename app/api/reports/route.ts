@@ -27,9 +27,6 @@ const money = { type: "money" as const };
 const inactiveVendorStatuses = new Set(["cancelled", "canceled", "void", "voided", "deleted", "draft"]);
 const vendorCurrencyReportKeys = new Set(["supplier-quickreport", "supplier-open-balance", "vendor-statements", "ap-aging-summary", "ap-aging-detail", "vendor-balances", "supplier-balance-detail", "unpaid-bills-detail", "accounts-payable-graph", "supplier-transactions"]);
 
-const amountColumns = (first = "Account") => [
-  { key: "name", label: first }, { key: "debit", label: "Debit", ...money }, { key: "credit", label: "Credit", ...money }, { key: "balance", label: "Balance", ...money },
-];
 
 export async function GET(request: Request) {
   const key = new URL(request.url).searchParams.get("type") ?? "profit-loss";
@@ -69,7 +66,9 @@ export async function GET(request: Request) {
     const currency = reportCompany.baseCurrency;
     // UAE VAT is filed by the VAT-registered company, not separately by inventory.
     // Bank accounts belong to the company, so bank reports are company-wide like their Chart of Accounts balances.
-    const scoped = key !== "income-tax" && !vatReportKeys.has(key) && !bankingReportKeys.has(key) && Number.isInteger(locationId) && locationId > 0;
+    // The trial balance, ledgers and journals describe company-level accounts, so they are company-wide too.
+    const companyLedgerKeys = new Set(["trial-balance", "general-ledger", "transaction-detail-account", "journal", "transaction-journal"]);
+    const scoped = key !== "income-tax" && !vatReportKeys.has(key) && !bankingReportKeys.has(key) && !companyLedgerKeys.has(key) && Number.isInteger(locationId) && locationId > 0;
     if (scoped) {
       const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).limit(1);
       if (!location) return Response.json({ error: "Select an inventory in this company." }, { status: 400 });
@@ -119,7 +118,10 @@ export async function GET(request: Request) {
     const allTransactions = rawTransactions.filter(row => statements ? (!period.to || row.transactionDate <= period.to) : inPeriod(row.transactionDate));
     const journal = rawJournal.filter(row => key.startsWith("budget-") ? true : runningLedger ? (!period.to || row.date <= period.to) : inPeriod(row.date));
     const lines = rawLines.filter(row => inPeriod(row.date));
-    const auditRows = rawAuditRows.filter(row => inPeriod(String(row.createdAt).slice(0,10)));
+    // Audit timestamps are filtered and shown on the Dubai calendar, not UTC.
+    const dubaiStamp = (value: unknown) => { const date = new Date(String(value).replace(" ", "T").replace(/([+-]\d{2})$/, "$1:00")); if (Number.isNaN(date.getTime())) return { day: String(value).slice(0, 10), text: String(value) }; const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(date).replace(",", ""); return { day: parts.slice(0, 10), text: parts }; };
+    const auditActor = (details: unknown) => { try { const parsed = JSON.parse(String(details || "")) as Record<string, unknown>; return String(parsed.actorName || parsed.actorEmail || parsed.by || "") || "—"; } catch { const match = /by ([^\s,;]+@[^\s,;]+)/.exec(String(details || "")); return match?.[1] ?? "—"; } };
+    const auditRows = rawAuditRows.filter(row => inPeriod(dubaiStamp(row.createdAt).day));
     const accountCandidates = new Map<string, typeof allAccounts>();
     for (const account of allAccounts) accountCandidates.set(account.name, [...(accountCandidates.get(account.name) ?? []), account]);
     const accountsById = new Map(allAccounts.map((account) => [account.id, account]));
@@ -149,6 +151,17 @@ export async function GET(request: Request) {
       datedLedger.set(key, total);
     }
     const ledgerRows = [...datedLedger.values()].sort((a, b) => a.name.localeCompare(b.name) || a.currency.localeCompare(b.currency)).map((row) => ({ ...row, nameAccountId: row.accountId, balance: row.debit - row.credit }));
+    // Account opening balances (saved on the account, in its currency, without a journal) as a home-currency debit-positive
+    // amount: debit-normal accounts (assets, expenses) positive, credit-normal accounts negative.
+    const debitNormalTypes = new Set(["Bank", "Accounts Receivable", "Other Current Asset", "Fixed Asset", "Other Asset", "Expense", "Cost of Goods Sold", "Other Expense"]);
+    const openingDebit = (account: typeof allAccounts[number]) => {
+      const amount = Number(account.balance) || 0;
+      if (!amount) return 0;
+      const code = String(account.currency || currency).toUpperCase();
+      const rate = code === String(currency).toUpperCase() ? 1 : Number(currentRates.find((entry) => String(entry.currencyCode).toUpperCase() === code)?.rate) || 0;
+      return (debitNormalTypes.has(account.type) ? 1 : -1) * amount * rate;
+    };
+    const documentAccountId = (row: { account: string; currency: string }) => { const candidates = accountCandidates.get(row.account) ?? []; const match = candidates.length === 1 ? candidates[0] : candidates.find((account) => String(account.currency).toUpperCase() === String(row.currency).toUpperCase()); return match?.id ?? 0; };
     const incomeTypes = new Set(["Income", "Other Income"]);
     const expenseTypes = new Set(["Expense", "Cost of Goods Sold", "Other Expense"]);
     const assetTypes = new Set(["Bank", "Accounts Receivable", "Other Current Asset", "Fixed Asset", "Other Asset"]);
@@ -616,43 +629,71 @@ export async function GET(request: Request) {
       columns = [{ key: "month", label: "Month" }, { key: "budget", label: "Prior-year baseline", ...money }, { key: "actual", label: "Actual", ...money }, { key: "variance", label: "Variance", ...money }, { key: "cumulativeBudget", label: "Cumulative baseline", ...money }, { key: "cumulativeActual", label: "Cumulative actual", ...money }, { key: "cumulativeVariance", label: "Cumulative variance", ...money }];
       chart = { labelKey: "month", incomeKey: "actual", expenseKey: "budget", incomeLabel: "Actual", expenseLabel: "Prior-year baseline" };
     } else if (key === "trial-balance") {
-      title = "Trial Balance"; rows = ledgerRows; columns = amountColumns();
+      title = "Trial Balance";
+      // Opening balance + posted debits/credits = closing balance, shown on the account's normal side. Openings saved
+      // without a journal are offset by an equity line so total debits equal total credits.
+      const cents = (value: number) => Math.round(value * 100) / 100;
+      const byAccount = new Map(ledgerRows.filter((row) => row.accountId).map((row) => [row.accountId, row]));
+      const accountRows = allAccounts.map((account) => {
+        const ledger = byAccount.get(account.id), opening = openingDebit(account), periodDebit = ledger?.debit ?? 0, periodCredit = ledger?.credit ?? 0, net = opening + periodDebit - periodCredit;
+        return { name: ledger?.name ?? account.name, nameAccountId: account.id, accountId: account.id, type: account.type, currency: account.currency, opening: cents(opening), periodDebit: cents(periodDebit), periodCredit: cents(periodCredit), debit: cents(Math.max(0, net)), credit: cents(Math.max(0, -net)), balance: cents(net) };
+      }).filter((row) => Math.abs(row.opening) > 0.005 || row.periodDebit > 0.005 || row.periodCredit > 0.005);
+      const unmatched = ledgerRows.filter((row) => !row.accountId).map((row) => ({ name: row.name, nameAccountId: 0, accountId: 0, type: "Unclassified", currency: row.currency, opening: 0, periodDebit: cents(row.debit), periodCredit: cents(row.credit), debit: cents(Math.max(0, row.debit - row.credit)), credit: cents(Math.max(0, row.credit - row.debit)), balance: cents(row.debit - row.credit) }));
+      const openingOffset = -allAccounts.reduce((total, account) => total + openingDebit(account), 0);
+      rows = [...accountRows, ...unmatched].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+      if (Math.abs(openingOffset) > 0.005) rows.push({ name: "Opening balances not posted to the ledger", synthetic: 1, nameAccountId: 0, accountId: 0, type: "Equity", currency, opening: cents(openingOffset), periodDebit: 0, periodCredit: 0, debit: cents(Math.max(0, openingOffset)), credit: cents(Math.max(0, -openingOffset)), balance: cents(openingOffset) });
+      columns = [{ key: "name", label: "Account" }, { key: "type", label: "Type" }, { key: "opening", label: "Opening (Dr + / Cr −)", ...money }, { key: "periodDebit", label: "Debits", ...money }, { key: "periodCredit", label: "Credits", ...money }, { key: "debit", label: "Closing Debit", ...money }, { key: "credit", label: "Closing Credit", ...money }];
     } else if (key === "general-ledger" || key === "journal") {
       title = key === "journal" ? "Journal" : "General Ledger";
-      const balances = new Map<string, number>();
+      // Running balances start from each account's opening balance (home value, debit positive).
+      const balances = new Map<string, number>(allAccounts.map((account) => [`account:${account.id}`, openingDebit(account)]));
       rows = journal.map((entry) => { const account = journalAccount(entry); const accountKey = account ? `account:${account.id}` : `unmatched:${String(entry.entryCurrency || currency)}:${entry.account}`; const balance = (balances.get(accountKey) ?? 0) + Number(entry.debit) - Number(entry.credit); balances.set(accountKey, balance); return { ...entry, referenceTransactionId: entry.transactionId ?? 0, account: journalAccountLabel(entry), accountAccountId: account?.id ?? 0, accountCurrency: account?.currency ?? String(entry.entryCurrency || currency), balance }; }).filter(row => inPeriod(row.date));
       columns = [{ key: "date", label: "Date" }, { key: "reference", label: "Reference" }, { key: "description", label: "Description" }, { key: "account", label: "Account" }, { key: "debit", label: "Debit", ...money }, { key: "credit", label: "Credit", ...money }, ...(key === "general-ledger" ? [{ key: "balance", label: "Running Balance", ...money }] : [])];
     } else if (key === "transaction-detail-account") {
       title = "Transaction Detail by Account";
-      const balances = new Map<string, number>();
-      rows = journal.map((entry) => { const account = journalAccount(entry); const accountKey = account ? `account:${account.id}` : `unmatched:${String(entry.entryCurrency || currency)}:${entry.account}`; const balance = (balances.get(accountKey) ?? 0) + Number(entry.debit) - Number(entry.credit); balances.set(accountKey, balance); return { transactionId: entry.transactionId ?? 0, account: journalAccountLabel(entry), accountAccountId: account?.id ?? 0, accountCurrency: account?.currency ?? String(entry.entryCurrency || currency), date: entry.date, reference: entry.reference, referenceTransactionId: entry.transactionId ?? 0, description: entry.description, debit: entry.debit, credit: entry.credit, balance }; }).filter(row => inPeriod(row.date)).sort((a, b) => a.account.localeCompare(b.account) || a.date.localeCompare(b.date));
+      const balances = new Map<string, number>(allAccounts.map((account) => [`account:${account.id}`, openingDebit(account)]));
+      rows = journal.map((entry) => { const account = journalAccount(entry); const accountKey = account ? `account:${account.id}` : `unmatched:${String(entry.entryCurrency || currency)}:${entry.account}`; const balance = (balances.get(accountKey) ?? 0) + Number(entry.debit) - Number(entry.credit); balances.set(accountKey, balance); return { transactionId: entry.transactionId ?? 0, account: journalAccountLabel(entry), accountAccountId: account?.id ?? 0, accountCurrency: account?.currency ?? String(entry.entryCurrency || currency), date: entry.date, reference: entry.reference, referenceTransactionId: entry.transactionId ?? 0, description: entry.description, debit: entry.debit, credit: entry.credit, balance }; });
+      // Balance forward: each account's balance before the From date (opening balance plus earlier postings).
+      const before = new Map<string, { account: string; accountAccountId: number; accountCurrency: string; balance: number }>();
+      for (const account of allAccounts) if (Math.abs(openingDebit(account)) > 0.005) before.set(`id:${account.id}`, { account: (accountCandidates.get(account.name)?.length ?? 0) > 1 ? `${account.code} · ${account.name}` : account.name, accountAccountId: account.id, accountCurrency: account.currency, balance: openingDebit(account) });
+      for (const row of rows) if (period.from && String(row.date) < period.from) before.set(row.accountAccountId ? `id:${row.accountAccountId}` : `name:${row.account}`, { account: String(row.account), accountAccountId: Number(row.accountAccountId), accountCurrency: String(row.accountCurrency), balance: Number(row.balance) });
+      const forward = period.from || [...before.keys()].length ? [...before.values()].map((value) => ({ transactionId: 0, account: value.account, accountAccountId: value.accountAccountId, accountCurrency: value.accountCurrency, date: period.from || "", reference: "Balance forward", referenceTransactionId: 0, description: period.from ? `Balance before ${period.from}` : "Opening balance", debit: 0, credit: 0, balance: value.balance })) : [];
+      rows = [...forward, ...rows.filter((row) => inPeriod(String(row.date)))].sort((a, b) => String(a.account).localeCompare(String(b.account)) || String(a.date).localeCompare(String(b.date)) || (a.reference === "Balance forward" ? -1 : b.reference === "Balance forward" ? 1 : 0));
       columns = [{ key: "account", label: "Account" }, { key: "date", label: "Date" }, { key: "reference", label: "Reference" }, { key: "description", label: "Description" }, { key: "debit", label: "Debit", ...money }, { key: "credit", label: "Credit", ...money }, { key: "balance", label: "Running Balance", ...money }];
     } else if (key === "audit-trail") {
       title = "Audit Trail";
-      rows = auditRows.map((entry) => ({ date: String(entry.createdAt), action: entry.action, entity: entry.entityType.replaceAll("_", " "), entityId: entry.entityId, details: entry.details || "—" })).reverse();
-      columns = [{ key: "date", label: "Date / Time" }, { key: "action", label: "Action" }, { key: "entity", label: "Record Type" }, { key: "entityId", label: "Record ID" }, { key: "details", label: "Details" }];
+      rows = auditRows.map((entry) => ({ date: dubaiStamp(entry.createdAt).text, action: entry.action, entity: entry.entityType.replaceAll("_", " "), entityId: entry.entityId, actor: auditActor(entry.details), details: entry.details || "—" })).reverse();
+      columns = [{ key: "date", label: "Date / Time (Dubai)" }, { key: "action", label: "Action" }, { key: "entity", label: "Record Type" }, { key: "entityId", label: "Record ID" }, { key: "actor", label: "By" }, { key: "details", label: "Details" }];
     } else if (key === "customer-credit-card-audit") {
       title = "Customer Credit Card Audit Trail";
-      rows = scopedTransactions.filter((row) => row.type === "credit card charge" || row.account.toLowerCase().includes("credit card")).map((row) => ({ transactionId: row.id, date: row.transactionDate, number: row.number, numberTransactionId: row.id, customer: row.party || "—", account: row.account, status: row.status, currency: row.currency, amount: row.baseTotal }));
-      columns = [{ key: "date", label: "Date" }, { key: "number", label: "Reference" }, { key: "customer", label: "Customer / Payee" }, { key: "account", label: "Credit Card Account" }, { key: "status", label: "Status" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Amount", ...money }];
-    } else if (key === "deleted-transactions-summary") {
-      title = "Voided/Deleted Transactions Summary";
-      const grouped = new Map<string, { records: number; details: string }>();
-      auditRows.filter((entry) => entry.entityType === "transaction" && ["deleted", "voided"].includes(entry.action)).forEach((entry) => { const action = entry.action === "voided" ? "Voided" : "Deleted"; const old = grouped.get(action) ?? { records: 0, details: "Transaction records preserved in audit history" }; old.records += 1; grouped.set(action, old); });
-      rows = [...grouped].map(([action, value]) => ({ action, ...value }));
-      columns = [{ key: "action", label: "Action" }, { key: "records", label: "Transactions" }, { key: "details", label: "Audit Status" }];
-    } else if (key === "deleted-transactions-detail") {
-      title = "Voided/Deleted Transactions Detail";
-      rows = auditRows.filter((entry) => entry.entityType === "transaction" && ["deleted", "voided"].includes(entry.action)).map((entry) => ({ date: String(entry.createdAt), action: entry.action === "voided" ? "Voided" : "Deleted", transactionId: entry.entityId, details: entry.details || "—" })).reverse();
-      columns = [{ key: "date", label: "Date / Time" }, { key: "action", label: "Action" }, { key: "transactionId", label: "Transaction ID" }, { key: "details", label: "Transaction Details" }];
+      // Charges add to the card balance; payments to the card reduce it.
+      rows = scopedTransactions.filter((row) => !closedDocument(row.status) && (row.type === "credit card charge" || row.account.toLowerCase().includes("credit card"))).map((row) => ({ transactionId: row.id, date: row.transactionDate, number: row.number, numberTransactionId: row.id, type: row.type, customer: row.party || "—", account: row.account, accountAccountId: documentAccountId(row), status: row.status, currency: row.currency, amount: row.type === "credit card charge" ? row.baseTotal : -row.baseTotal }));
+      columns = [{ key: "date", label: "Date" }, { key: "number", label: "Reference" }, { key: "type", label: "Type" }, { key: "customer", label: "Payee / Customer" }, { key: "account", label: "Credit Card Account" }, { key: "status", label: "Status" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Charge (+) / Payment (−)", ...money }];
+    } else if (key === "deleted-transactions-summary" || key === "deleted-transactions-detail") {
+      // Deleted documents and manual journals come from the audit log; voided / cancelled documents from their status.
+      const parse = (details: unknown) => { try { return JSON.parse(String(details || "")) as Record<string, unknown>; } catch { return {} as Record<string, unknown>; } };
+      const deleted = auditRows.filter((entry) => ["transaction", "journal_entry"].includes(entry.entityType) && ["deleted", "voided"].includes(entry.action)).map((entry) => { const details = parse(entry.details); return { date: dubaiStamp(entry.createdAt).text, action: entry.action === "voided" ? "Voided" : entry.entityType === "journal_entry" ? "Deleted journal" : "Deleted", transactionId: 0, recordId: entry.entityId, number: String(details.number ?? details.reference ?? `#${entry.entityId}`), type: String(details.type ?? entry.entityType.replaceAll("_", " ")), party: String(details.party ?? "—"), actor: auditActor(entry.details), reason: String(details.deletionReason ?? "—"), amount: Number(details.total ?? details.amount ?? 0) || 0, details: entry.details || "—" }; });
+      const voided = scopedTransactions.filter((row) => ["void", "voided", "cancelled", "canceled"].includes(String(row.status).toLowerCase())).map((row) => ({ date: row.transactionDate, action: "Voided / cancelled", transactionId: row.id, recordId: row.id, number: row.number, type: row.type, party: row.party || "—", actor: "—", reason: row.memo || "—", amount: row.baseTotal, details: `Status ${row.status}` }));
+      if (key === "deleted-transactions-summary") {
+        title = "Voided/Deleted Transactions Summary";
+        const grouped = new Map<string, { records: number; amount: number; details: string }>();
+        [...deleted, ...voided].forEach((row) => { const old = grouped.get(row.action) ?? { records: 0, amount: 0, details: row.action === "Voided / cancelled" ? "Document kept with a voided / cancelled status" : "Removed; preserved in audit history" }; old.records += 1; old.amount += Number(row.amount) || 0; grouped.set(row.action, old); });
+        rows = [...grouped].map(([action, value]) => ({ action, ...value }));
+        columns = [{ key: "action", label: "Action" }, { key: "records", label: "Transactions" }, { key: "amount", label: "Recorded amount", ...money }, { key: "details", label: "Audit Status" }];
+      } else {
+        title = "Voided/Deleted Transactions Detail";
+        rows = [...deleted, ...voided].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+        columns = [{ key: "date", label: "Date" }, { key: "action", label: "Action" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "party", label: "Name" }, { key: "actor", label: "By" }, { key: "reason", label: "Reason" }, { key: "amount", label: "Amount", ...money }, { key: "details", label: "Details" }];
+      }
     } else if (key === "transactions") {
       title = "Transaction List by Date";
-      rows = scopedTransactions.map((row) => ({ transactionId: row.id, date: row.transactionDate, number: row.number, numberTransactionId: row.id, type: row.type, name: row.party || "—", account: row.account, status: row.status, currency: row.currency, amount: row.baseTotal }));
-      columns = [{ key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "name", label: "Name" }, { key: "account", label: "Account" }, { key: "status", label: "Status" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Amount", ...money }];
+      const nonPostingTypes = new Set(["quotation", "estimate", "proforma invoice", "sales order", "pending invoice", "purchase order"]);
+      rows = scopedTransactions.map((row) => ({ transactionId: row.id, date: row.transactionDate, number: row.number, numberTransactionId: row.id, type: row.type, name: row.party || "—", account: row.account, accountAccountId: documentAccountId(row), status: row.status, ledger: closedDocument(row.status) ? "Void / not posted" : nonPostingTypes.has(row.type) ? "Not posted" : "Posted", currency: row.currency, amount: row.baseTotal }));
+      columns = [{ key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "name", label: "Name" }, { key: "account", label: "Account" }, { key: "status", label: "Status" }, { key: "ledger", label: "Ledger effect" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Amount", ...money }];
     } else if (key === "transaction-history") {
       title = "Transaction History";
       const documentHistory: Row[] = scopedTransactions.map((row) => ({ transactionId: row.id, date: row.transactionDate, event: "Document", reference: row.number, referenceTransactionId: row.id, type: row.type, name: row.party || "—", details: row.memo || row.status, amount: row.baseTotal }));
-      const auditHistory: Row[] = auditRows.map((entry) => ({ date: String(entry.createdAt), event: entry.action.replace(/^./, (letter) => letter.toUpperCase()), reference: `${entry.entityType.replaceAll("_", " ")} #${entry.entityId}`, type: entry.entityType.replaceAll("_", " "), name: "—", details: entry.details || "—", amount: 0 }));
+      const auditHistory: Row[] = auditRows.map((entry) => ({ date: dubaiStamp(entry.createdAt).text, event: entry.action.replace(/^./, (letter) => letter.toUpperCase()), reference: `${entry.entityType.replaceAll("_", " ")} #${entry.entityId}`, type: entry.entityType.replaceAll("_", " "), name: "—", details: entry.details || "—", amount: 0 }));
       rows = [...documentHistory, ...auditHistory].sort((a, b) => String(b.date).localeCompare(String(a.date)));
       columns = [{ key: "date", label: "Date / Time" }, { key: "event", label: "Event" }, { key: "reference", label: "Reference" }, { key: "type", label: "Record Type" }, { key: "name", label: "Name" }, { key: "details", label: "Details" }, { key: "amount", label: "Amount", ...money }];
     } else if (key === "transaction-journal") {
