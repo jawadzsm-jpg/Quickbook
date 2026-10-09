@@ -37,7 +37,39 @@ export type ReportExportData = {
   statement?: { opening: number; charges: number; credits: number; closing: number };
   /** Statements: bank details boxes (company and/or supplier), printed after the table in order (left offset in mm). */
   bankBoxes?: Array<{ title: string; lines: string[]; remark?: string; left: number }>;
+  /** Statements: the letterhead assigned to statements, drawn as the PDF page header and footer instead of the generic report band. */
+  letterhead?: ReportLetterhead;
 };
+export type ReportLetterhead = {
+  name: string; color: string; logo?: string; rightLogo?: string; heading?: string; subtitle?: string;
+  /** Phone / email / website line under the header. */
+  contact: string[];
+  /** Footer text and company lines printed at the bottom of every page. */
+  footer: string[];
+  /** Replaces the summary note, e.g. who the statement is for and its period. */
+  note?: string;
+};
+
+// Any image the browser can draw (PNG, JPEG, WebP, SVG data URL) as a PNG jsPDF can embed, with its pixel size.
+function pngImage(src: string) {
+  return new Promise<{ data: string; width: number; height: number }>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("Could not prepare the image.");
+        context.drawImage(image, 0, 0);
+        resolve({ data: canvas.toDataURL("image/png"), width: image.naturalWidth, height: image.naturalHeight });
+      } catch (error) { reject(error); }
+    };
+    image.onerror = () => reject(new Error("Could not read the image."));
+    image.src = src;
+  });
+}
+const hexRgb = (hex: string): [number, number, number] => /^#[0-9a-f]{6}$/i.test(hex) ? [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16)) as [number, number, number] : [16, 32, 51];
 
 export function reportOverview(report: ReportExportData, rows: ReportExportRow[]) {
   if (report.key === "purchase-document-register") return { cards: [
@@ -250,7 +282,24 @@ export async function reportPdf(report: ReportExportData, company: string, inven
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
   const summary = reportOverview(report, rows);
+  const brand = report.letterhead;
+  const [leftLogo, rightLogo] = brand ? await Promise.all([brand.logo, brand.rightLogo].map((src) => src ? pngImage(src).catch(() => null) : Promise.resolve(null))) : [null, null];
+  const brandColor = hexRgb(brand?.color ?? "");
+  // Letterhead header in the same 38 mm band as the generic header, so the stamp guide and table positions are unchanged.
+  const drawLetterhead = (letterhead: ReportLetterhead) => {
+    const fit = (image: { width: number; height: number }, maxWidth: number, maxHeight: number) => { const scale = Math.min(maxWidth / image.width, maxHeight / image.height); return { width: image.width * scale, height: image.height * scale }; };
+    if (leftLogo) { const size = fit(leftLogo, 75, 23); pdf.addImage(leftLogo.data, "PNG", 12, 5 + (23 - size.height) / 2, size.width, size.height); }
+    else { pdf.setFont("helvetica", "bold"); pdf.setFontSize(16); pdf.setTextColor(...brandColor); pdf.text(letterhead.name, 12, 19, { maxWidth: pageWidth / 2 - 14 }); }
+    const headingLines = [letterhead.heading, letterhead.subtitle].filter(Boolean) as string[];
+    const rightHeight = headingLines.length ? 15 : 23;
+    if (rightLogo) { const size = fit(rightLogo, 75, rightHeight); pdf.addImage(rightLogo.data, "PNG", pageWidth - 12 - size.width, 5 + (rightHeight - size.height) / 2, size.width, size.height); }
+    pdf.setTextColor(...brandColor);
+    headingLines.forEach((line, index) => { pdf.setFont("helvetica", "bold"); pdf.setFontSize(index === 0 ? 12 : 8.5); pdf.text(line, pageWidth - 12, (rightLogo ? 24 : 13) + index * 5, { align: "right", maxWidth: pageWidth / 2 - 14 }); });
+    if (letterhead.contact.length) { pdf.setFont("helvetica", "bold"); pdf.setFontSize(8); pdf.setTextColor(36, 40, 45); pdf.text(letterhead.contact.join("     "), pageWidth / 2, 33, { align: "center", maxWidth: pageWidth - 24 }); }
+    pdf.setDrawColor(156, 163, 175); pdf.setLineWidth(0.3); pdf.line(12, 36.5, pageWidth - 12, 36.5);
+  };
   const drawHeader = () => {
+    if (brand) return drawLetterhead(brand);
     pdf.setFillColor(16, 32, 51);
     pdf.rect(0, 0, pageWidth, 38, "F");
     pdf.setTextColor(255, 255, 255);
@@ -279,7 +328,7 @@ export async function reportPdf(report: ReportExportData, company: string, inven
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(10);
     pdf.setTextColor(16, 32, 51);
-    pdf.text("Summary", pageWidth / 2, 43, { align: "center" });
+    pdf.text(brand ? "Statement of Account" : "Summary", pageWidth / 2, 43, { align: "center" });
     const gap = 3;
     const summaryColumns = Math.max(1, Math.min(3, summary.cards.length));
     const cardWidth = (pageWidth - 20 - gap * (summaryColumns - 1)) / summaryColumns;
@@ -300,7 +349,7 @@ export async function reportPdf(report: ReportExportData, company: string, inven
     });
     tableStart = 47 + Math.ceil(summary.cards.length / summaryColumns) * 18 + 3;
     pdf.setFont("helvetica", "normal"); pdf.setFontSize(7); pdf.setTextColor(90, 104, 119);
-    const note = pdf.splitTextToSize(summary.note, pageWidth - 20);
+    const note = pdf.splitTextToSize(brand?.note ?? summary.note, pageWidth - 20);
     pdf.text(note, 10, tableStart); tableStart += note.length * 3.2 + 4;
   }
   const inventoryWeight = report.columns.reduce((total, column) => total + columnWeight(column), 0);
@@ -311,7 +360,7 @@ export async function reportPdf(report: ReportExportData, company: string, inven
     body: rows.map((row) => report.columns.map((column) => columnKind(column) === "quantity" && typeof row[column.key] === "number" ? Number(row[column.key]).toLocaleString("en-US", { maximumFractionDigits: 6 }) : displayValue(row[column.key], column.type === "money"))),
     theme: "grid",
     styles: { font: "helvetica", fontSize: report.columns.length > 8 ? 6.5 : 8, cellPadding: 2.2, overflow: "linebreak", lineColor: [215, 222, 231], lineWidth: 0.15, textColor: [28, 43, 58] },
-    headStyles: { fillColor: [16, 32, 51], textColor: [255, 255, 255], fontStyle: "bold", valign: "middle", ...(isVat || isVendor ? { cellPadding: 1 } : {}) },
+    headStyles: { fillColor: brand ? [234, 242, 245] : [16, 32, 51], textColor: brand ? [23, 43, 64] : [255, 255, 255], fontStyle: "bold", valign: "middle", ...(isVat || isVendor ? { cellPadding: 1 } : {}) },
     alternateRowStyles: { fillColor: [244, 247, 250] },
     columnStyles: Object.fromEntries(report.columns.map((column, index) => [index, { halign: columnKind(column) === "text" ? "left" : "right", cellWidth: (pageWidth - 20) * columnWeight(column) / inventoryWeight }])),
     foot: isOperational && rows.length && (!isVat || report.columns.some((column) => columnTotal(rows, column) !== null)) ? [report.columns.map((column, index) => index === 0 ? (isPurchase || isSales || isVat || isVendor ? "Report total" : "Net total") : displayValue(columnTotal(rows, column), column.type === "money"))] : undefined,
@@ -359,22 +408,7 @@ export async function reportPdf(report: ReportExportData, company: string, inven
     contentBottom = top + height;
   }
   if (stamp?.data) {
-    const stampImage = await new Promise<{ data: string; width: number; height: number }>((resolve, reject) => {
-      const image = new Image();
-      image.onload = () => {
-        try {
-          const canvas = document.createElement("canvas");
-          canvas.width = image.naturalWidth;
-          canvas.height = image.naturalHeight;
-          const context = canvas.getContext("2d");
-          if (!context) throw new Error("Could not prepare the company stamp.");
-          context.drawImage(image, 0, 0);
-          resolve({ data: canvas.toDataURL("image/png"), width: image.naturalWidth, height: image.naturalHeight });
-        } catch (error) { reject(error); }
-      };
-      image.onerror = () => reject(new Error("Could not read the company stamp."));
-      image.src = stamp.data;
-    });
+    const stampImage = await pngImage(stamp.data).catch(() => { throw new Error("Could not read the company stamp."); });
     const scale = Math.min(32 / stampImage.width, 23 / stampImage.height);
     const placement = reportStampAfterTable(pageHeight, contentBottom, stamp.top, stampImage.height * scale);
     if (placement.newPage) { pdf.addPage(); drawHeader(); }
@@ -383,6 +417,15 @@ export async function reportPdf(report: ReportExportData, company: string, inven
   const pages = pdf.getNumberOfPages();
   for (let page = 1; page <= pages; page++) {
     pdf.setPage(page);
+    if (brand) {
+      // Letterhead footer: its text and company lines centred under a line in the letterhead colour, page number on the right.
+      pdf.setDrawColor(...brandColor); pdf.setLineWidth(0.4); pdf.line(10, pageHeight - 13, pageWidth - 10, pageHeight - 13);
+      pdf.setFont("helvetica", "bold"); pdf.setFontSize(7); pdf.setTextColor(71, 85, 105);
+      const lines = brand.footer.flatMap((line) => pdf.splitTextToSize(line, pageWidth - 60) as string[]).slice(0, 3);
+      lines.forEach((line, index) => pdf.text(line, pageWidth / 2, pageHeight - 9 + index * 3.2, { align: "center" }));
+      pdf.setFont("helvetica", "normal"); pdf.text(`Page ${page} of ${pages}`, pageWidth - 10, pageHeight - 9, { align: "right" });
+      continue;
+    }
     pdf.setDrawColor(5, 150, 105);
     pdf.line(10, pageHeight - 13, pageWidth - 10, pageHeight - 13);
     pdf.setFont("helvetica", "normal");
