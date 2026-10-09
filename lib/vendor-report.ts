@@ -42,10 +42,11 @@ export function vendorSummary(report: VendorReportLike): { cards: VendorSummaryC
   if (!vendorReportKeys.has(key)) return null;
 
   if (key === "ap-aging-summary") {
-    return { cards: [money("Current", sum(rows, "current")), money("1–30 days", sum(rows, "days30")), money("31–60 days", sum(rows, "days60")), money("61+ days", sum(rows, "days90"), "negative"), money("Total payable", sum(rows, "total"), "accent")], note: "Aging shows remaining supplier bills in the selected transaction currency. Supplier names open Vendor Center." };
+    return { cards: [money("Current", sum(rows, "current")), money("1–30 days", sum(rows, "days30")), money("31–60 days", sum(rows, "days60")), money("61–90 days", sum(rows, "days90"), "negative"), money("91+ days", sum(rows, "days90plus"), "negative"), money("Unapplied credits / payments", sum(rows, "unapplied"), "positive"), money("Supplier balances", sum(rows, "supplierBalance"), "accent")], note: "Open bills as of the report date, aged by days past due (bills without a due date age from the bill date), in the selected transaction currency. Unapplied credits and payments bring the total to each supplier's balance. Supplier names open Vendor Center." };
   }
   if (key === "ap-aging-detail") {
-    return { cards: [money("Open payable", sum(rows, "amount"), "accent"), number("Open bills", rows.length), number("Suppliers", new Set(rows.map(vendorSupplier).filter(Boolean)).size), number("Past due", rows.filter((row) => Number(row.age) > 0).length, "negative")], note: "Select an underlined bill number to open the source purchase document." };
+    const bills = rows.filter((row) => row.type !== "unapplied credits / payments");
+    return { cards: [money("Supplier balances", sum(rows, "amount"), "accent"), money("Open bills", sum(bills, "amount")), money("Unapplied credits / payments", sum(rows.filter((row) => row.type === "unapplied credits / payments"), "amount"), "positive"), number("Bills", bills.length), number("Past due", bills.filter((row) => Number(row.age) > 0).length, "negative")], note: "Open bills as of the report date with their aging band, plus each supplier's unapplied credits and payments. Select an underlined bill number to open the source purchase document." };
   }
   if (key === "vendor-balances") {
     const total = sum(rows, "amount");
