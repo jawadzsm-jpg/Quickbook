@@ -368,6 +368,9 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
         ? `***${inventoryItemLine(record.name, record.sku, description, record.itemNumber)}***`
         : inventorySocialShareText(record.name, record.sku, description, channel, record.itemNumber);
       const lines = [title];
+      // Screen Details entered in Product Customization Details (the spec fallback is already in the description).
+      const screen = record.customizationScreen?.trim();
+      if (screen) lines.push(channel === "telegram" ? `🖥 Screen: ${screen}` : `Screen: ${screen}`);
       const details: string[] = [];
       if (showQuantity) {
         const quantity = plainMoney(Number(record.quantity));
@@ -407,20 +410,20 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   const exportExcel = (withVat: boolean) => {
     if (!canSelectItems || loading) return;
     if (!selectedRecords.length) return toast.error("Select at least one item to export.");
-    const headers = ["Company", "Inventory", "Category", "Item No.", "SKU", "Item", "Specifications"];
+    const headers = ["Company", "Inventory", "Category", "Item No.", "SKU", "Item", "Specifications", "Screen Details"];
     if (showQuantity) headers.push("Quantity");
     if (showPrice) headers.push(`${withVat ? "Price including 5% VAT" : "Export price excluding VAT"}${adjustLabel ? ` (${adjustLabel.trim()})` : ""}`, "Currency");
     const headerRow = headers.map((header) => `<Cell ss:StyleID="Header"><Data ss:Type="String">${xml(header)}</Data></Cell>`).join("");
     const bodyRows = selectedRecords.map((record) => {
       const values: Array<{ value: unknown; type?: "Number"; style?: string }> = [
         { value: record.companyName }, { value: record.inventories.map((inventory) => inventory.locationName).join(", ") }, { value: record.category },
-        { value: record.itemNumber ?? "" }, { value: record.sku }, { value: record.name }, { value: specificationText(record) },
+        { value: record.itemNumber ?? "" }, { value: record.sku }, { value: record.name }, { value: specificationText(record) }, { value: record.customizationScreen ?? "" },
       ];
       if (showQuantity) values.push({ value: Number(record.quantity), type: "Number", style: "Number" });
       if (showPrice) values.push({ value: priceFor(record, withVat), type: "Number", style: "Money" }, { value: record.currency });
       return `<Row>${values.map((entry) => `<Cell${entry.style ? ` ss:StyleID="${entry.style}"` : ""}><Data ss:Type="${entry.type ?? "String"}">${xml(entry.value)}</Data></Cell>`).join("")}</Row>`;
     }).join("");
-    const workbook = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Styles><Style ss:ID="Default"><Alignment ss:Vertical="Top"/><Font ss:FontName="Arial" ss:Size="10"/></Style><Style ss:ID="Header"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#0F172A" ss:Pattern="Solid"/></Style><Style ss:ID="Number"><NumberFormat ss:Format="#,##0.##"/></Style><Style ss:ID="Money"><NumberFormat ss:Format="#,##0.00"/></Style></Styles><Worksheet ss:Name="Stock List"><Table><Column ss:Width="120"/><Column ss:Width="110"/><Column ss:Width="90"/><Column ss:Width="75"/><Column ss:Width="90"/><Column ss:Width="190"/><Column ss:Width="420"/><Row>${headerRow}</Row>${bodyRows}</Table></Worksheet></Workbook>`;
+    const workbook = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Styles><Style ss:ID="Default"><Alignment ss:Vertical="Top"/><Font ss:FontName="Arial" ss:Size="10"/></Style><Style ss:ID="Header"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#0F172A" ss:Pattern="Solid"/></Style><Style ss:ID="Number"><NumberFormat ss:Format="#,##0.##"/></Style><Style ss:ID="Money"><NumberFormat ss:Format="#,##0.00"/></Style></Styles><Worksheet ss:Name="Stock List"><Table><Column ss:Width="120"/><Column ss:Width="110"/><Column ss:Width="90"/><Column ss:Width="75"/><Column ss:Width="90"/><Column ss:Width="190"/><Column ss:Width="420"/><Column ss:Width="160"/><Row>${headerRow}</Row>${bodyRows}</Table></Worksheet></Workbook>`;
     const blob = new Blob([workbook], { type: "application/vnd.ms-excel;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
