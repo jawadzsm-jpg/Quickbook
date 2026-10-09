@@ -1,4 +1,4 @@
-import { vatTaxableValue } from "@/lib/vat-report";
+import { freightLineDocuments, vatTaxableValue } from "@/lib/vat-report";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { accounts, auditLog, companies, inventoryLocations, journalEntries, journalLines, transactionLines, transactions, vatAdjustments, vatCodes, vatReturns } from "@/db/schema";
@@ -8,7 +8,7 @@ const round = (value: number) => Math.round((value + Number.EPSILON) * 100) / 10
 const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
 const salesTypes = new Set(["invoice", "sales receipt", "statement charge", "credit memo"]);
 const purchaseTypes = new Set(["bill", "received item bill", "expense", "cheque", "credit card charge", "vendor credit"]);
-const excludedStatuses = new Set(["cancelled", "canceled", "void", "voided", "deleted"]);
+const excludedStatuses = new Set(["cancelled", "canceled", "void", "voided", "deleted", "draft"]);
 const reverseChargeCodes = new Set(["REVERSE", "REVERSE_CHARGE", "RCM"]);
 
 type VatBox = { amount: number; vat: number };
@@ -28,6 +28,8 @@ async function calculateVat(companyId: number, periodStart: string, periodEnd: s
   const db = getDb();
   const [lines, adjustments, configuredCodes, companyRows] = await Promise.all([
     db.select({
+      transactionId: transactions.id,
+      isFreightCharge: transactionLines.isFreightCharge,
       type: transactions.type,
       status: transactions.status,
       isImport: transactions.isImport,
@@ -60,6 +62,7 @@ async function calculateVat(companyId: number, periodStart: string, periodEnd: s
   const warnings: string[] = [];
   let exceptionLines = 0;
   let transactionLineCount = 0;
+  const freightLines = freightLineDocuments(lines);
 
   for (const line of lines) {
     if (excludedStatuses.has(String(line.status).toLowerCase())) continue;
@@ -70,7 +73,7 @@ async function calculateVat(companyId: number, periodStart: string, periodEnd: s
     if (line.type === "cheque" && line.billId) continue;
     const sign = ["credit memo", "vendor credit"].includes(line.type) ? -1 : 1;
     const rate = Number(line.exchangeRate) || 1;
-    const taxableAmount = vatTaxableValue({ subtotal: line.taxableAmount, freightCharge: line.freightCharge });
+    const taxableAmount = vatTaxableValue({ subtotal: line.taxableAmount, freightCharge: line.freightCharge, transactionId: line.transactionId }, freightLines);
     const amount = round(sign * taxableAmount * rate);
     const vat = round(sign * Number(line.vatAmount) * rate);
     const code = String(line.vatCode || "").trim().toUpperCase();

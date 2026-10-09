@@ -385,14 +385,14 @@ export async function GET(request: Request) {
     };
     const vatDocumentTypes = new Set(["invoice", "sales receipt", "statement charge", "credit memo", "bill", "received item bill", "expense", "cheque", "credit card charge", "vendor credit"]);
     const reverseCodes = new Set(["REVERSE", "REVERSE_CHARGE", "RCM"]);
-    const vatLines = lines.filter((line) => vatDocumentTypes.has(line.type) && !["cancelled", "canceled", "void", "voided", "deleted"].includes(line.status.toLowerCase()) && !(line.type === "cheque" && line.billId) && (!periodStart || line.date >= periodStart) && (!periodEnd || line.date <= periodEnd));
+    const vatLines = lines.filter((line) => vatDocumentTypes.has(line.type) && !closedDocument(line.status) && !(Number(line.quantity) < 0 && Number(line.unitPrice) === 0) && !(line.type === "cheque" && line.billId) && (!periodStart || line.date >= periodStart) && (!periodEnd || line.date <= periodEnd));
     const outputVat = vatLines.reduce((sum, line) => {
       const sign = ["credit memo", "vendor credit"].includes(line.type) ? -1 : 1;
       const salesOutput = ["invoice", "sales receipt", "statement charge", "credit memo"].includes(line.type);
       const reverseChargeOutput = ["bill", "received item bill", "expense", "cheque", "credit card charge", "vendor credit"].includes(line.type) && (line.isImport || reverseCodes.has(line.vatCode.toUpperCase()));
-      return sum + (salesOutput || reverseChargeOutput ? sign * line.vatAmount * line.exchangeRate : 0);
+      return sum + (salesOutput || reverseChargeOutput ? sign * Math.round(line.vatAmount * line.exchangeRate * 100) / 100 : 0);
     }, 0);
-    const inputVat = vatLines.reduce((sum, line) => sum + (["bill", "received item bill", "expense", "cheque", "credit card charge", "vendor credit"].includes(line.type) ? (line.type === "vendor credit" ? -1 : 1) * line.vatAmount * line.exchangeRate : 0), 0);
+    const inputVat = vatLines.reduce((sum, line) => sum + (["bill", "received item bill", "expense", "cheque", "credit card charge", "vendor credit"].includes(line.type) ? (line.type === "vendor credit" ? -1 : 1) * Math.round(line.vatAmount * line.exchangeRate * 100) / 100 : 0), 0);
     let summary: { income: number; expenses: number; netIncome: number } | undefined;
     let title = "Transaction List by Date";
     let columns: Array<{ key: string; label: string; type?: "money" }> = txColumns;
@@ -1131,7 +1131,7 @@ export async function GET(request: Request) {
       columns = [{ key: "job", label: "Job / Inventory" }, { key: "orders", label: "Open Orders" }, { key: "suppliers", label: "Suppliers" }, { key: "amount", label: "Open Amount ex VAT", ...money }];
     }
     else if (vatReportKeys.has(key)) {
-      const vatReport = buildVatReport(key, vatLines, allAccounts, rawJournal, configuredVatCodes, outputVat, inputVat);
+      const vatReport = buildVatReport(key, vatLines, allAccounts, rawJournal, configuredVatCodes, outputVat, inputVat, { start: periodStart, end: periodEnd });
       title = vatReport.title; rows = vatReport.rows; columns = vatReport.columns;
     }
 
