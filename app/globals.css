@@ -2329,3 +2329,33 @@ body {
 
 /* Form fields across the app: a clearly visible border that darkens on hover (focus keeps the theme ring). */
 :where([data-slot="input"], [data-slot="select-trigger"], [data-slot="textarea"], [data-slot="native-select"], textarea, select):hover:not(:disabled):not(:focus-visible) { border-color: color-mix(in srgb, var(--input) 65%, var(--foreground)); }
+
+/* Inventory reports: stock value reconciled to inventory asset accounts. */
+.inventory-ledger { border: 1px solid var(--border); border-radius: .85rem; background: var(--card); color: var(--card-foreground); padding: 1rem; display: grid; gap: .75rem; break-inside: avoid; }
+.inventory-ledger-heading { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: .75rem; }
+.inventory-ledger-status { border-radius: 999px; padding: .2rem .7rem; font-size: .75rem; font-weight: 700; background: color-mix(in srgb, #f59e0b 18%, var(--card)); color: #92400e; }
+.inventory-ledger-status[data-balanced="true"] { background: color-mix(in srgb, #10b981 18%, var(--card)); color: #065f46; }
+[data-appearance="dark"] .inventory-ledger-status { color: #fcd34d; }
+[data-appearance="dark"] .inventory-ledger-status[data-balanced="true"] { color: #6ee7b7; }
+.inventory-ledger-table { overflow-x: auto; border: 1px solid var(--border); border-radius: .6rem; }
+.inventory-ledger-table table { width: 100%; min-width: 560px; border-collapse: collapse; font-size: .82rem; }
+.inventory-ledger-table th { text-align: left; padding: .5rem .7rem; background: var(--muted); color: var(--muted-foreground); font-weight: 600; }
+.inventory-ledger-table td { padding: .5rem .7rem; border-top: 1px solid var(--border); }
+.inventory-ledger-table tfoot th, .inventory-ledger-table tfoot td { border-top: 2px solid var(--border); font-weight: 700; color: var(--foreground); }
+.inventory-ledger-table [data-numeric] { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.inventory-ledger-table [data-difference="true"] { color: #b45309; font-weight: 700; }
+.inventory-ledger-note { font-size: .75rem; line-height: 1.55; color: var(--muted-foreground); }
+@media print { .inventory-ledger { background: #fff !important; color: #0f172a !important; border-color: #cbd5e1 !important; } .inventory-ledger-table th { background: #f1f5f9 !important; color: #334155 !important; } .inventory-ledger-note { color: #475569 !important; } }
+.inventory-aging-bands { border: 1px solid var(--border); border-radius: .85rem; background: var(--card); color: var(--card-foreground); padding: 1rem; break-inside: avoid; }
+.inventory-aging-bands h3 { font-size: .85rem; font-weight: 700; margin-bottom: .6rem; }
+.inventory-aging-bands > div { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .5rem; }
+.inventory-aging-band { position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: .6rem; padding: .6rem .7rem .9rem; display: grid; gap: .15rem; }
+.inventory-aging-band span { font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted-foreground); }
+.inventory-aging-band strong { font-variant-numeric: tabular-nums; }
+.inventory-aging-band small { font-size: .7rem; color: var(--muted-foreground); }
+.inventory-aging-band i { position: absolute; left: 0; bottom: 0; height: 4px; background: #10b981; }
+.inventory-aging-band[data-age="2"] i { background: #eab308; }
+.inventory-aging-band[data-age="3"] i { background: #f59e0b; }
+.inventory-aging-band[data-age="4"] i { background: #f97316; }
+.inventory-aging-band[data-age="5"] i { background: #e11d48; }
+@media print { .inventory-aging-bands, .inventory-aging-band { background: #fff !important; color: #0f172a !important; border-color: #cbd5e1 !important; } .inventory-aging-band i { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }

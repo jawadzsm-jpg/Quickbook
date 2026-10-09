@@ -6,6 +6,7 @@ import { accountantReportKeys, accountantAccountIssues } from "@/lib/accountant-
 import { vendorDocumentAccount, vendorReportKeys } from "@/lib/vendor-report";
 import { buildVatReport, vatReportKeys } from "@/lib/vat-report";
 import { bankingReportKeys } from "@/lib/banking-report";
+import { heldByOthers } from "@/lib/stock-holds";
 import { financialKeys, financialReport } from "@/lib/financial-reports";
 import { reportPeriod, validReportDate, reportMonths, previousYearDate } from "@/lib/report-period";
 import { profitLoss } from "@/lib/profit-loss";
@@ -160,7 +161,8 @@ export async function GET(request: Request) {
     const entryAccountType = (entry: typeof journal[number]) => journalAccount(entry)?.type ?? "Unclassified";
     const inventoryAccountLinkFor = (item: typeof allItems[number]) => inventoryAssetAccountLink(item, allAccounts, currency);
     const weightedInventoryCosts = new Map<number, { quantity: number; value: number }>();
-    for (const line of rawLines.filter((entry) => entry.itemId && !entry.isFreightCharge && ["bill", "item receipt"].includes(entry.type))) {
+    const closedDocument = (status: string) => ["cancelled", "canceled", "void", "voided", "deleted", "draft"].includes(String(status).toLowerCase());
+    for (const line of rawLines.filter((entry) => entry.itemId && !entry.isFreightCharge && ["bill", "item receipt"].includes(entry.type) && !closedDocument(entry.status))) {
       const quantity = Number(line.quantity);
       if (!line.itemId || quantity <= 0) continue;
       const old = weightedInventoryCosts.get(line.itemId) ?? { quantity: 0, value: 0 };
@@ -174,7 +176,8 @@ export async function GET(request: Request) {
       const amount = weighted && weighted.quantity > 0 ? weighted.value / weighted.quantity : Number(item.lastPurchasePrice) || Number(item.cost) || 0;
       return Math.round(amount * 100) / 100;
     };
-    const stockItems = allItems.filter((item) => item.status === "active" && item.itemType === "stock-part");
+    const stockItems = allItems.filter((item) => item.itemType === "stock-part" && (item.status === "active" || Math.abs(Number(item.quantity)) > 0.000001));
+    let inventoryAging: Array<{ band: string; items: number; quantity: number; value: number }> | undefined;
     const pnlAmount = (entry: typeof journal[number]) => incomeTypes.has(entryAccountType(entry)) ? Number(entry.credit) - Number(entry.debit) : expenseTypes.has(entryAccountType(entry)) ? Number(entry.debit) - Number(entry.credit) : 0;
     const periodProfit = (start: string, end: string) => journal.filter((entry) => entry.date >= start && entry.date <= end).reduce((sum, entry) => sum + (incomeTypes.has(entryAccountType(entry)) ? Number(entry.credit) - Number(entry.debit) : -(expenseTypes.has(entryAccountType(entry)) ? Number(entry.debit) - Number(entry.credit) : 0)), 0);
     const reportYear = new Date().getUTCFullYear();
@@ -890,34 +893,46 @@ export async function GET(request: Request) {
       columns = [{ key: "account", label: "Inventory Asset Account" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "category", label: "Category" }, { key: "quantity", label: "On Hand" }, { key: "cost", label: "Avg. Cost", ...money }, { key: "value", label: "Stock Value", ...money }];
     } else if (key === "inventory-status") {
       title = "Stock Status by Item";
-      rows = stockItems.map((row) => ({ itemId: row.id, ...inventoryAccountLinkFor(row), itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, quantity: row.quantity, reorder: row.reorderPoint, available: Math.max(0, row.quantity), status: row.quantity <= 0 ? "Out of Stock" : row.quantity <= row.reorderPoint ? "Low Stock" : "In Stock", value: row.quantity * inventoryCostFor(row) }));
-      columns = [{ key: "account", label: "Inventory Asset Account" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "quantity", label: "On Hand" }, { key: "available", label: "Available" }, { key: "reorder", label: "Reorder" }, { key: "status", label: "Status" }, { key: "value", label: "Stock Value", ...money }];
+      // Available = on hand less stock held for sales reps (active holds).
+      const held = await heldByOthers(stockItems.map((row) => row.id));
+      rows = stockItems.map((row) => ({ itemId: row.id, ...inventoryAccountLinkFor(row), itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, inventory: locations.find((location) => location.id === row.locationId)?.name || "—", quantity: row.quantity, onHold: held.get(row.id) ?? 0, available: Math.max(0, row.quantity - (held.get(row.id) ?? 0)), reorder: row.reorderPoint, status: row.status !== "active" ? "Inactive" : row.quantity <= 0 ? "Out of Stock" : row.quantity <= row.reorderPoint ? "Low Stock" : "In Stock", unitCost: inventoryCostFor(row), value: row.quantity * inventoryCostFor(row) }));
+      columns = [{ key: "account", label: "Inventory Asset Account" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "inventory", label: "Inventory" }, { key: "quantity", label: "On Hand" }, { key: "onHold", label: "On Hold" }, { key: "available", label: "Available" }, { key: "reorder", label: "Reorder" }, { key: "status", label: "Status" }, { key: "unitCost", label: "Unit Cost", ...money }, { key: "value", label: "Stock Value", ...money }];
     } else if (key === "inventory-status-supplier") {
       title = "Stock Status by Supplier";
-      const latestSupplier = new Map<number, { date: string; supplier: string }>();
-      rawLines.filter((line) => line.itemId && !line.isFreightCharge && ["bill", "item receipt"].includes(line.type)).forEach((line) => { const itemId = Number(line.itemId); const old = latestSupplier.get(itemId); if (!old || line.date >= old.date) latestSupplier.set(itemId, { date: line.date, supplier: line.party }); });
+      const latestSupplier = new Map<number, { date: string; supplier: string; transactionId: number }>();
+      rawLines.filter((line) => line.itemId && !line.isFreightCharge && ["bill", "item receipt"].includes(line.type) && !closedDocument(line.status)).forEach((line) => { const itemId = Number(line.itemId); const old = latestSupplier.get(itemId); if (!old || line.date > old.date || (line.date === old.date && line.transactionId > old.transactionId)) latestSupplier.set(itemId, { date: line.date, supplier: line.party, transactionId: line.transactionId }); });
       const grouped = new Map<string, { account: string; accountAccountId: number; supplier: string; items: number; quantity: number; lowStock: number; outOfStock: number; value: number }>();
       stockItems.forEach((row) => { const { account, accountAccountId } = inventoryAccountLinkFor(row); const supplier = latestSupplier.get(row.id)?.supplier ?? "Unassigned"; const groupKey = `${accountAccountId}\u0000${supplier}`; const old = grouped.get(groupKey) ?? { account, accountAccountId, supplier, items: 0, quantity: 0, lowStock: 0, outOfStock: 0, value: 0 }; grouped.set(groupKey, { ...old, items: old.items + 1, quantity: old.quantity + row.quantity, lowStock: old.lowStock + (row.quantity > 0 && row.quantity <= row.reorderPoint ? 1 : 0), outOfStock: old.outOfStock + (row.quantity <= 0 ? 1 : 0), value: old.value + row.quantity * inventoryCostFor(row) }); });
       rows = [...grouped.values()].sort((a, b) => a.account.localeCompare(b.account) || b.value - a.value);
       columns = [{ key: "account", label: "Inventory Asset Account" }, { key: "supplier", label: "Latest Supplier" }, { key: "items", label: "Items" }, { key: "quantity", label: "On Hand" }, { key: "lowStock", label: "Low Stock" }, { key: "outOfStock", label: "Out of Stock" }, { key: "value", label: "Stock Value", ...money }];
     } else if (key === "inventory-stock-aging") {
       title = "Inventory Stock Aging Report";
-      const latestReceipt = new Map<number, { date: string; reference: string; transactionId: number }>();
-      rawLines.filter((line) => line.itemId && Number(line.quantity) > 0 && !line.isFreightCharge && ["bill", "received item bill", "item receipt"].includes(line.type) && !["cancelled", "canceled", "void", "voided", "deleted"].includes(line.status.toLowerCase())).forEach((line) => {
+      // FIFO aging: on-hand stock is matched to the most recent receipts first; anything older than the receipts on
+      // file ages from the item's creation date. Bills and item receipts only (a received-item bill is not a receipt).
+      const receipts = new Map<number, Array<{ date: string; quantity: number; reference: string; transactionId: number }>>();
+      rawLines.filter((line) => line.itemId && Number(line.quantity) > 0 && !line.isFreightCharge && ["bill", "item receipt"].includes(line.type) && !closedDocument(line.status)).forEach((line) => {
         const itemId = Number(line.itemId);
-        const previous = latestReceipt.get(itemId);
-        if (!previous || line.date > previous.date || (line.date === previous.date && line.transactionId > previous.transactionId)) latestReceipt.set(itemId, { date: line.date, reference: line.number, transactionId: line.transactionId });
+        receipts.set(itemId, [...(receipts.get(itemId) ?? []), { date: line.date, quantity: Number(line.quantity), reference: line.number, transactionId: line.transactionId }]);
       });
       const todayUtc = Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate());
-      const ageBand = (days: number) => days <= 30 ? "0–30 days" : days <= 60 ? "31–60 days" : days <= 90 ? "61–90 days" : days <= 180 ? "91–180 days" : days <= 365 ? "181–365 days" : "366+ days";
+      const ageOf = (date: string) => { const time = Date.parse(`${date}T00:00:00Z`); return Number.isFinite(time) ? Math.max(0, Math.floor((todayUtc - time) / 86400000)) : 0; };
+      const bandNames = ["0–30 days", "31–60 days", "61–90 days", "91–180 days", "181–365 days", "366+ days"];
+      const ageBand = (days: number) => bandNames[days <= 30 ? 0 : days <= 60 ? 1 : days <= 90 ? 2 : days <= 180 ? 3 : days <= 365 ? 4 : 5];
+      const bandTotals = new Map(bandNames.map((band) => [band, { items: new Set<number>(), quantity: 0, value: 0 }]));
       rows = stockItems.filter((row) => Number(row.quantity) > 0).map((row) => {
-        const receipt = latestReceipt.get(row.id);
-        const basisDate = receipt?.date || String(row.createdAt).slice(0, 10);
-        const basisTime = Date.parse(`${basisDate}T00:00:00Z`);
-        const ageDays = Number.isFinite(basisTime) ? Math.max(0, Math.floor((todayUtc - basisTime) / 86400000)) : 0;
-        return { itemId: row.id, ...inventoryAccountLinkFor(row), itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, inventory: locations.find((location) => location.id === row.locationId)?.name || "—", quantity: row.quantity, value: row.quantity * inventoryCostFor(row), lastReceipt: basisDate, ageDays, ageBand: ageBand(ageDays), sourceReference: receipt?.reference || "Item created", sourceReferenceTransactionId: receipt?.transactionId || 0 };
+        const unitCost = inventoryCostFor(row);
+        const layers = (receipts.get(row.id) ?? []).sort((a, b) => b.date.localeCompare(a.date) || b.transactionId - a.transactionId);
+        let remaining = Number(row.quantity);
+        const allocated: Array<{ date: string; quantity: number; reference: string; transactionId: number }> = [];
+        for (const layer of layers) { if (remaining <= 0) break; const quantity = Math.min(remaining, layer.quantity); allocated.push({ ...layer, quantity }); remaining -= quantity; }
+        if (remaining > 0) allocated.push({ date: String(row.createdAt).slice(0, 10), quantity: remaining, reference: "Item created", transactionId: 0 });
+        for (const layer of allocated) { const band = bandTotals.get(ageBand(ageOf(layer.date)))!; band.items.add(row.id); band.quantity += layer.quantity; band.value += layer.quantity * unitCost; }
+        const oldest = allocated[allocated.length - 1], newest = allocated[0];
+        const ageDays = ageOf(oldest.date);
+        return { itemId: row.id, ...inventoryAccountLinkFor(row), itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, inventory: locations.find((location) => location.id === row.locationId)?.name || "—", quantity: row.quantity, unitCost, value: row.quantity * unitCost, lastReceipt: newest.date, oldestLayer: oldest.date, ageDays, ageBand: ageBand(ageDays), layers: allocated.length, sourceReference: oldest.reference, sourceReferenceTransactionId: oldest.transactionId };
       }).sort((a, b) => b.ageDays - a.ageDays || b.value - a.value);
-      columns = [{ key: "account", label: "Inventory Asset Account" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "inventory", label: "Inventory" }, { key: "quantity", label: "On Hand" }, { key: "value", label: "Stock Value", ...money }, { key: "lastReceipt", label: "Latest Receipt" }, { key: "ageDays", label: "Age (Days)" }, { key: "ageBand", label: "Aging Band" }, { key: "sourceReference", label: "Age Source" }];
+      inventoryAging = bandNames.map((band) => { const total = bandTotals.get(band)!; return { band, items: total.items.size, quantity: Math.round(total.quantity * 1000) / 1000, value: Math.round(total.value * 100) / 100 }; });
+      columns = [{ key: "account", label: "Inventory Asset Account" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "inventory", label: "Inventory" }, { key: "quantity", label: "On Hand" }, { key: "unitCost", label: "Unit Cost", ...money }, { key: "value", label: "Stock Value", ...money }, { key: "lastReceipt", label: "Latest Receipt" }, { key: "oldestLayer", label: "Oldest Stock From" }, { key: "ageDays", label: "Oldest Age (Days)" }, { key: "ageBand", label: "Aging Band" }, { key: "sourceReference", label: "Oldest Layer Source" }];
     } else if (key === "negative-item-list") {
       title = "Negative Item List";
       rows = stockItems.filter((row) => Number(row.quantity) < 0).map((row) => ({ itemId: row.id, ...inventoryAccountLinkFor(row), itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, category: row.category || "General", inventory: locations.find((location) => location.id === row.locationId)?.name || "—", quantity: row.quantity, shortageQuantity: Math.abs(row.quantity), shortageValue: Math.abs(row.quantity) * inventoryCostFor(row), status: "Negative stock" })).sort((a, b) => a.quantity - b.quantity || a.name.localeCompare(b.name));
@@ -928,7 +943,7 @@ export async function GET(request: Request) {
       columns = [{ key: "account", label: "Inventory Asset Account" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "category", label: "Category" }, { key: "quantity", label: "System Qty" }, { key: "count", label: "Physical Count" }, { key: "difference", label: "Difference" }];
     } else if (key === "pending-builds") {
       title = "Pending Builds";
-      rows = stockItems.filter((row) => row.quantity < row.reorderPoint).map((row) => ({ itemId: row.id, ...inventoryAccountLinkFor(row), itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, category: row.category, onHand: row.quantity, buildLevel: row.reorderPoint, required: Math.max(0, row.reorderPoint - row.quantity), status: row.quantity <= 0 ? "Required" : "Below Level" }));
+      rows = stockItems.filter((row) => row.status === "active" && row.reorderPoint > 0 && row.quantity <= row.reorderPoint).map((row) => ({ itemId: row.id, ...inventoryAccountLinkFor(row), itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, category: row.category, onHand: row.quantity, buildLevel: row.reorderPoint, required: Math.max(0, row.reorderPoint - row.quantity), status: row.quantity <= 0 ? "Required" : "Below Level" }));
       columns = [{ key: "account", label: "Inventory Asset Account" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item / Assembly" }, { key: "category", label: "Category" }, { key: "onHand", label: "On Hand" }, { key: "buildLevel", label: "Build Level" }, { key: "required", label: "Required Qty" }, { key: "status", label: "Status" }];
     } else if (key === "customer-document-summary") {
       title = "Customer Document Summary";
@@ -1010,11 +1025,33 @@ export async function GET(request: Request) {
     if (key === "bank-register") rows = rows.filter(row => inPeriod(String(row.date)));
     if (["accounts-receivable-graph", "accounts-payable-graph", "net-worth-graph"].includes(key)) rows = rows.filter(row => (!periodStart || String(row.month) >= periodStart.slice(0,7)) && (!periodEnd || String(row.month) <= periodEnd.slice(0,7)));
     if (vendorReportKeys.has(key) && key !== "accounts-payable-graph") addVendorAccounts();
+    // Stock valuation reports reconcile stock value to each inventory asset account's posted ledger balance.
+    const inventoryLedger = ["inventory-valuation", "inventory-valuation-detail", "inventory-status", "inventory-status-supplier", "inventory-stock-aging"].includes(key) ? (() => {
+      const stockByAccount = new Map<number, { account: string; stock: number }>();
+      for (const item of stockItems) {
+        const link = inventoryAccountLinkFor(item);
+        const entry = stockByAccount.get(link.accountAccountId) ?? { account: link.account, stock: 0 };
+        entry.stock += Number(item.quantity) * inventoryCostFor(item);
+        stockByAccount.set(link.accountAccountId, entry);
+      }
+      const ledger = new Map<number, number>();
+      for (const row of rawJournal) {
+        const account = journalAccount(row);
+        if (account && stockByAccount.has(account.id)) ledger.set(account.id, (ledger.get(account.id) ?? 0) + Number(row.debit) - Number(row.credit));
+      }
+      return [...stockByAccount].map(([accountId, { account, stock }]) => {
+        // Opening balances are company-wide, so they are only added when the report is not limited to one inventory.
+        const opening = !scoped && accountId ? Number(accountsById.get(accountId)?.balance) || 0 : 0;
+        const ledgerBalance = Math.round(((ledger.get(accountId) ?? 0) + opening) * 100) / 100;
+        const stockValue = Math.round(stock * 100) / 100;
+        return { accountId, account, stockValue, ledgerBalance, difference: Math.round((stockValue - ledgerBalance) * 100) / 100 };
+      }).sort((a, b) => a.account.localeCompare(b.account));
+    })() : undefined;
     const linkedAccounts = linkReportAccounts(rows, columns, allAccounts);
     const budget = key.startsWith("budget-") ? { from: budgetStart, to: budgetEnd, baselineFrom: priorBudgetStart, baselineTo: priorBudgetEnd } : undefined;
     const budgetIssues = budget ? [...new Set(journal.filter(entry => ((entry.date >= budgetStart && entry.date <= budgetEnd) || (entry.date >= priorBudgetStart && entry.date <= priorBudgetEnd)) && !journalAccount(entry)).map(entry => `Account “${entry.account}” has no unique Chart of Accounts match. Its postings are excluded from baseline and actual totals; review the account mapping.`))] : [];
 
-    return Response.json({ report: { key, period, companyId, supplierId: supplierReport ? supplierId : undefined, canViewAccounts: hasPermission(authorization, "accounting:manage"), budget, accountLinkIssues: [...linkedAccounts.issues, ...budgetIssues, ...((accountantReportKeys.has(key) || listReportKeys.has(key)) ? accountantAccountIssues(linkedAccounts.rows, columns) : [])], vatCodes: vatReportKeys.has(key) ? configuredVatCodes.map(({ code, name, rate }) => ({ code, name, rate })) : undefined, title, generatedAt: new Date().toISOString(), currency: reportCurrency, columns, rows: linkedAccounts.rows, chart, summary } }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ report: { key, period, companyId, supplierId: supplierReport ? supplierId : undefined, canViewAccounts: hasPermission(authorization, "accounting:manage"), budget, accountLinkIssues: [...linkedAccounts.issues, ...budgetIssues, ...((accountantReportKeys.has(key) || listReportKeys.has(key)) ? accountantAccountIssues(linkedAccounts.rows, columns) : [])], vatCodes: vatReportKeys.has(key) ? configuredVatCodes.map(({ code, name, rate }) => ({ code, name, rate })) : undefined, title, generatedAt: new Date().toISOString(), currency: reportCurrency, columns, rows: linkedAccounts.rows, chart, summary, inventoryLedger, inventoryAging, inventoryScope: inventoryLedger ? (scoped ? "inventory" : "company") : undefined } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not generate report." }, { status: 500 });
   }
