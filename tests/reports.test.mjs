@@ -885,6 +885,31 @@ test('customer open balance uses allocations, preserves unused credits, and link
   } finally { delete globalThis.__reportTestUser; }
 });
 
+test("Financial reports: opening balances on a company-wide balance sheet that balances, supplier expenses exclude sales cost, business final balances", async () => {
+  const response = await workspaces.POST(post({ type: "company", name: "Financial statements audit", baseCurrency: "AED" }));
+  const { company: c } = await response.json(); const loc = c.locations[0].id;
+  const [storeB] = await db.insert(schema.inventoryLocations).values({ companyId: c.id, name: "Store FB", code: "FB", invoicePrefix: "FB" }).returning();
+  const [bank, revenue, cogs] = await db.insert(schema.accounts).values([
+    { companyId: c.id, code: "1098", name: "Opening Bank", type: "Bank", currency: "AED", balance: 50000 },
+    { companyId: c.id, code: "4098", name: "Audit Revenue", type: "Income", currency: "AED" },
+    { companyId: c.id, code: "5098", name: "Audit COGS", type: "Cost of Goods Sold", currency: "AED" },
+  ]).returning();
+  const [invoice] = await db.insert(schema.transactions).values({ companyId: c.id, locationId: storeB.id, type: "sales receipt", number: "FIN-SR", party: "Customer F", transactionDate: "2026-09-10", subtotal: 1000, total: 1000, baseTotal: 1000 }).returning();
+  const [j] = await db.insert(schema.journalEntries).values({ companyId: c.id, locationId: storeB.id, transactionId: invoice.id, entryDate: "2026-09-10", reference: "FIN-SR", posted: true }).returning();
+  await db.insert(schema.journalLines).values([{ journalEntryId: j.id, accountName: bank.name, accountId: bank.id, debit: 1000 }, { journalEntryId: j.id, accountName: revenue.name, accountId: revenue.id, credit: 1000 }, { journalEntryId: j.id, accountName: cogs.name, accountId: cogs.id, debit: 600 }, { journalEntryId: j.id, accountName: "Inventory Asset", credit: 600 }]);
+  const get = async (type, extra = "") => { const res = await GET(new Request(`https://app.test/api/reports?type=${type}&companyId=${c.id}&locationId=${loc}&periodStart=2026-09-01&periodEnd=2026-09-30${extra}`)); assert.equal(res.status, 200, await res.clone().text()); return (await res.json()).report; };
+  // Store A selected, but the balance sheet is company-wide: Opening Bank = 50,000 opening + 1,000 receipt in Store B.
+  const sheet = await get("balance-sheet");
+  assert.equal(sheet.rows.find((row) => row.accountId === bank.id).amount, 51000);
+  const total = (section) => sheet.rows.filter((row) => row.section === section).reduce((sum, row) => sum + Number(row.amount), 0);
+  assert.ok(Math.abs(total("Assets") - total("Liabilities") - total("Equity")) < 0.01, `assets ${total("Assets")} = liabilities ${total("Liabilities")} + equity ${total("Equity")}`);
+  assert.equal(sheet.rows.find((row) => row.name === "Opening balances not posted to the ledger")?.amount >= 50000, true);
+  // A sale's cost of goods is not a supplier expense.
+  assert.equal((await get("expenses-supplier-summary", "")).rows.some((row) => row.name === "Customer F"), false);
+  const final = Object.fromEntries((await get("business-final")).rows.map((row) => [row.metric, row.amount]));
+  assert.equal(final["Closing bank balance"], 51000);
+});
+
 test("Customer reports: cash sales are not receivables, closed documents excluded, open invoices and collections as of the report date", async () => {
   const response = await workspaces.POST(post({ type: "company", name: "AR audit", baseCurrency: "AED" }));
   const { company: c } = await response.json(); const loc = c.locations[0].id;

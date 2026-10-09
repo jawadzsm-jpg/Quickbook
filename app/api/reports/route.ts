@@ -418,20 +418,31 @@ export async function GET(request: Request) {
 
     if (key === "business-final") {
       title = "Complete Business Final Report";
-      const sales = scopedTransactions.filter((row) => salesTypes.has(row.type) || row.type === "credit memo").reduce((sum, row) => sum + (row.type === "credit memo" ? -baseSubtotal(row) : baseSubtotal(row)), 0);
-      const purchases = scopedTransactions.filter((row) => purchaseTypes.has(row.type)).reduce((sum, row) => sum + purchaseSubtotal(row), 0);
+      // Same bases as the Sales and Purchases reports: closed documents excluded, returns netted; a cheque that pays a
+      // bill is a payment, not a second purchase.
+      const sales = salesWithReturns.reduce((sum, row) => sum + salesSign(row) * baseSubtotal(row), 0);
+      const purchases = scopedTransactions.filter((row) => purchaseTypes.has(row.type) && !closedDocument(row.status) && !(row.type === "cheque" && row.billId)).reduce((sum, row) => sum + purchaseSubtotal(row), 0);
       const income = ledgerRows.filter((row) => incomeTypes.has(row.type)).reduce((sum, row) => sum - row.balance, 0);
       const expenses = ledgerRows.filter((row) => expenseTypes.has(row.type)).reduce((sum, row) => sum + row.balance, 0);
       const netIncome = income - expenses;
-      const receivables = customerActivities.reduce((sum, row) => sum + customerImpact(row), 0);
-      const payables = supplierActivities.reduce((sum, row) => sum + supplierImpact(row), 0);
+      // Receivables and payables are balances at the period end (all history up to it), not activity inside the period.
+      const balanceDate = period.to || new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+      const upToEnd = rawTransactions.filter((row) => row.transactionDate <= balanceDate && !closedDocument(row.status));
+      const receivables = upToEnd.filter((row) => customerTypes.has(row.type)).reduce((sum, row) => sum + customerImpact(row), 0);
+      const payables = upToEnd.filter((row) => supplierTypes.has(row.type) && !(row.type === "expense" && !payableAccounts.has(row.account))).reduce((sum, row) => sum + (row.type === "cheque" && row.billId ? -row.baseTotal : supplierImpact(row)), 0);
+      // Closing bank balance: bank opening balances (home value) plus every posted bank movement up to the period end.
+      const homeCode = String(currency).toUpperCase();
+      const bankOpening = allAccounts.filter((account) => account.systemRole === "BANK" || account.type === "Bank").reduce((sum, account) => { const code = String(account.currency || currency).toUpperCase(); const rate = code === homeCode ? 1 : Number(currentRates.find((entry) => String(entry.currencyCode).toUpperCase() === code)?.rate) || 0; return sum + (Number(account.balance) || 0) * rate; }, 0);
+      // Bank accounts are company-level, so their closing balance uses every inventory's postings.
+      const bankJournal = scoped ? await db.select({ transactionId: journalEntries.transactionId, date: journalEntries.entryDate, reference: journalEntries.reference, description: journalEntries.description, account: journalLines.accountName, accountId: journalLines.accountId, debit: journalLines.debit, credit: journalLines.credit, originalDebit: journalLines.originalDebit, originalCredit: journalLines.originalCredit, entryCurrency: journalEntries.currency, exchangeRate: journalEntries.exchangeRate }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(and(eq(journalEntries.companyId, companyId), eq(journalEntries.posted, true))) : rawJournal;
+      const bankClosing = bankOpening + bankJournal.filter((row) => row.date <= balanceDate).reduce((sum, row) => { const account = journalAccount(row); return account && (account.systemRole === "BANK" || account.type === "Bank") ? sum + Number(row.debit) - Number(row.credit) : sum; }, 0);
       const bankMovement = ledgerRows.filter((row) => { const account = accountsById.get(row.accountId); return account?.systemRole === "BANK" || account?.type === "Bank"; }).reduce((sum, row) => sum + row.balance, 0);
       const stockQuantity = stockItems.reduce((sum, item) => sum + Number(item.quantity), 0);
       const stockValue = stockItems.reduce((sum, item) => sum + Number(item.quantity) * inventoryCostFor(item), 0);
       const lowStock = stockItems.filter((item) => Number(item.quantity) > 0 && Number(item.quantity) <= Number(item.reorderPoint)).length;
       const outOfStock = stockItems.filter((item) => Number(item.quantity) <= 0).length;
-      const openSalesOrders = scopedTransactions.filter((row) => row.type === "sales order" && !["paid", "closed", "cancelled", "converted"].includes(row.status)).length;
-      const openPurchaseOrders = scopedTransactions.filter((row) => row.type === "purchase order" && !["paid", "closed", "received", "cancelled", "converted"].includes(row.status)).length;
+      const openSalesOrders = scopedTransactions.filter((row) => row.type === "sales order" && !closedDocument(row.status) && !["paid", "closed", "converted", "invoiced"].includes(String(row.status).toLowerCase())).length;
+      const openPurchaseOrders = scopedTransactions.filter((row) => row.type === "purchase order" && isOpenOrder(row.status)).length;
       const activeCustomers = allContacts.filter((contact) => contact.type === "customer" && contact.status === "active").length;
       const activeSuppliers = allContacts.filter((contact) => contact.type === "vendor" && contact.status === "active").length;
       const finalRow = (section: string, metric: string, detailReport: string, reportKey: string, amount: number | null, count: number | null, status: string): Row => ({ section, metric, amount, count, status, detailReport, reportKey });
@@ -444,9 +455,10 @@ export async function GET(request: Request) {
         finalRow("VAT", "Output VAT", "VAT Summary Report", "vat-summary", outputVat, null, "Collected"),
         finalRow("VAT", "Recoverable input VAT", "VAT Summary Report", "vat-summary", inputVat, null, "Recoverable"),
         finalRow("VAT", "Net VAT position", "VAT Summary Report", "vat-summary", outputVat - inputVat, null, outputVat - inputVat >= 0 ? "Payable" : "Recoverable"),
-        finalRow("Working Capital", "Customer receivables", "A/R Aging Summary", "ar-aging-summary", receivables, null, receivables > 0.005 ? "Outstanding" : "Clear"),
-        finalRow("Working Capital", "Supplier payables", "A/P Aging Summary", "ap-aging-summary", payables, null, payables > 0.005 ? "Outstanding" : "Clear"),
+        finalRow("Working Capital", "Customer receivables", "A/R Aging Summary", "ar-aging-summary", receivables, null, `${receivables > 0.005 ? "Outstanding" : receivables < -0.005 ? "Customer credit" : "Clear"} at ${balanceDate}`),
+        finalRow("Working Capital", "Supplier payables", "A/P Aging Summary", "ap-aging-summary", payables, null, `${payables > 0.005 ? "Outstanding" : payables < -0.005 ? "Supplier credit" : "Clear"} at ${balanceDate}`),
         finalRow("Banking", "Net bank movement", "Statement of Cash Flows", "cash-flow", bankMovement, null, bankMovement >= 0 ? "Net inflow" : "Net outflow"),
+        finalRow("Banking", "Closing bank balance", "Bank Register", "bank-register", bankClosing, null, `${bankClosing >= 0 ? "In funds" : "Overdrawn"} at ${balanceDate}`),
         finalRow("Inventory", "Current stock value", "Stock Valuation Summary", "inventory-valuation", stockValue, null, "Current snapshot"),
         finalRow("Inventory", "Current on-hand quantity", "Stock Status by Item", "inventory-status", null, stockQuantity, "Current snapshot"),
         finalRow("Inventory", "Low-stock items", "Stock Status by Item", "inventory-status", null, lowStock, lowStock ? "Review" : "OK"),
