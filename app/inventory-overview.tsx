@@ -1,17 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Lock, BadgeDollarSign, ChevronDown, Download, Eye, FileSpreadsheet, Mail, MessageCircle, PackageOpen, PlaneLanding, RefreshCw, Rocket, Search, Send, ShoppingCart, UserRound, Warehouse } from "lucide-react";
+import { Lock, BadgeDollarSign, Boxes, CalendarClock, ChevronDown, Clock, Download, Eye, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PackageOpen, PackageX, PlaneLanding, RefreshCw, Rocket, Search, Send, ShoppingCart, TriangleAlert, UserRound, Warehouse, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { StockHoldDialog, StockHoldsPanel, heldTotals, type StockHold } from "./stock-holds";
-import { inventoryItemLine, inventorySocialShareText, itemSpecificationDescription } from "@/lib/item-description";import { matchesSearch } from "@/lib/search";
+import { inventoryItemLine, inventorySocialShareText, itemSpecificationDescription } from "@/lib/item-description";
+import { matchesSearch } from "@/lib/search";
 
 
 type OverviewItem = {
@@ -430,10 +430,17 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     toast.success(`${selectedRecords.length} items exported for Excel`);
   };
 
-  const summaryButton = (active: boolean) => active
-    ? "border-slate-950 bg-slate-950 text-white shadow-sm hover:bg-slate-800 hover:text-white"
-    : "border-slate-200 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50";
+  // Quiet chip styling shared by the inventory and "received" filters; the active chip uses the user's accent colour.
+  const chip = (active: boolean) => `inline-flex h-9 min-w-0 flex-1 basis-auto items-center justify-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition-colors ${active ? "border-primary bg-primary/15 text-foreground" : "border-border bg-card text-muted-foreground hover:border-foreground/30 hover:text-foreground"}`;
+  const toggleFilter = (next: StockFilter) => setFilter((current) => current === next ? "all" : next);
   const columnCount = 2 + Number(showQuantity) + Number(showPrice);
+  const kpis = [
+    { id: "all" as const, label: "Units in stock", value: totals.quantity, hint: `${locations.length} ${locations.length === 1 ? "inventory" : "inventories"}`, Icon: Boxes, tone: "text-sky-500" },
+    { id: "in" as const, label: "Products in stock", value: totals.inStock, hint: `${totals.healthy} healthy`, Icon: PackageCheck, tone: "text-emerald-500" },
+    { id: "low" as const, label: "Low stock", value: totals.low, hint: "At or below reorder point", Icon: TriangleAlert, tone: "text-amber-500" },
+    { id: "out" as const, label: "Out of stock", value: statusCounts.out, hint: "No stock anywhere", Icon: PackageX, tone: "text-rose-500" },
+    { id: "hold" as const, label: "On hold", value: statusCounts.hold, hint: "Reserved for sales reps", Icon: Lock, tone: "text-amber-500" },
+  ];
   const activityTabs = [
     { id: "incoming" as const, label: "Incoming", Icon: PlaneLanding, count: activity.incoming.length, badge: "bg-amber-400 text-slate-950" },
     { id: "launched" as const, label: "New Arrival", Icon: Rocket, count: activity.launched.length, badge: "bg-rose-600 text-white" },
@@ -441,12 +448,22 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     { id: "sold" as const, label: "Just Sold", Icon: ShoppingCart, count: activity.sold.length, badge: "bg-emerald-400 text-slate-950" },
   ];
   const activityEmpty = activityView === "incoming" ? "No open purchase-order quantities." : activityView === "launched" ? "No bill receipts in the last 12 hours." : activityView === "priceChanges" ? "No selling-price changes in the last 12 hours." : "No recent invoice or sales-receipt lines.";
+  const shareDisabled = !canSelectItems || loading || !selectedRecords.length;
 
-  return <div className="space-y-5">
-    <section className="overflow-hidden rounded-2xl border bg-card text-card-foreground shadow-sm">
-      <div className={`grid grid-cols-2 bg-muted/40 sm:grid-cols-4 ${activityOpen ? "border-b" : ""}`}>
-        {activityTabs.map(({ id, label, Icon, count, badge }) => <button key={id} type="button" onClick={() => { if (activityOpen && activityView === id) setActivityOpen(false); else { setActivityView(id); setActivityOpen(true); } }} className={`flex min-h-14 min-w-0 items-center justify-center gap-2 border-r border-b px-3 text-sm font-semibold transition-colors even:border-r-0 sm:min-h-20 sm:gap-3 sm:border-b-0 sm:px-4 sm:text-lg sm:even:border-r sm:last:border-r-0 ${activityOpen && activityView === id ? "bg-card text-foreground shadow-[inset_0_-3px_0_var(--primary)]" : "text-muted-foreground hover:bg-card/70 hover:text-foreground"}`} aria-expanded={activityOpen && activityView === id}>
-          <Icon className="size-5 shrink-0 sm:size-6" /><span className="truncate">{label}</span><Badge className={`${badge} min-w-7 justify-center hover:opacity-90`}>{count}</Badge><ChevronDown className={`size-4 shrink-0 transition-transform ${activityOpen && activityView === id ? "rotate-180" : ""}`} />
+  return <div className="space-y-4">
+    {/* Stock at a glance: each card is also the matching status filter. */}
+    <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5" aria-label="Stock summary">
+      {kpis.map(({ id, label, value, hint, Icon, tone }) => <button key={id} type="button" onClick={() => setFilter(id)} aria-pressed={filter === id} className={`group flex min-w-0 flex-col gap-1 rounded-xl border bg-card p-3 text-left shadow-sm transition-colors last:col-span-2 sm:last:col-span-1 sm:p-4 ${filter === id ? "border-primary ring-1 ring-primary" : "hover:border-foreground/25"}`}>
+        <span className="flex items-center justify-between gap-2 text-xs font-medium text-muted-foreground"><span className="truncate">{label}</span><Icon className={`size-4 shrink-0 ${tone}`} /></span>
+        <span className="text-2xl font-bold tabular-nums text-foreground">{loading ? "—" : value.toLocaleString()}</span>
+        <span className="truncate text-[11px] text-muted-foreground">{hint}</span>
+      </button>)}
+    </section>
+
+    <section className="overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm">
+      <div className={`grid grid-cols-2 sm:grid-cols-4 ${activityOpen ? "border-b" : ""}`}>
+        {activityTabs.map(({ id, label, Icon, count, badge }) => <button key={id} type="button" onClick={() => { if (activityOpen && activityView === id) setActivityOpen(false); else { setActivityView(id); setActivityOpen(true); } }} className={`flex min-h-12 min-w-0 items-center justify-center gap-2 border-r border-b px-3 text-sm font-semibold transition-colors even:border-r-0 sm:border-b-0 sm:even:border-r sm:last:border-r-0 ${activityOpen && activityView === id ? "bg-muted/40 text-foreground shadow-[inset_0_-2px_0_var(--primary)]" : "text-muted-foreground hover:bg-muted/30 hover:text-foreground"}`} aria-expanded={activityOpen && activityView === id}>
+          <Icon className="size-4 shrink-0" /><span className="truncate">{label}</span><Badge className={`${badge} h-5 min-w-6 justify-center px-1.5 text-[11px] hover:opacity-90`}>{count}</Badge><ChevronDown className="size-4 shrink-0 opacity-60 transition-transform data-[open=true]:rotate-180" data-open={activityOpen && activityView === id} />
         </button>)}
       </div>
       {activityOpen ? <><div className="overflow-x-auto">
@@ -470,84 +487,92 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
       <div className="border-t bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">Incoming shows outstanding Purchase Order quantities. Open the PO to convert the remaining items to a Bill. New Arrival shows stock received through Enter Bill for 12 hours after saving. Price Change shows each item once with its latest change for 12 hours. Just Sold keeps the sales representative from the original sale.</div></> : null}
     </section>
 
-    <section className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-      {/* One compact line from tablet width up: status buttons keep their size and only inventory names shorten with "…" when space runs out; phones wrap. */}
-      <div className="flex flex-wrap gap-1 md:flex-nowrap">
-        <Button variant="outline" onClick={() => setFilter("all")} title="All inventory" className={`h-8 min-w-0 shrink gap-1 rounded-lg px-1.5 text-xs ${summaryButton(filter === "all")}`}>
-          <span className="truncate font-semibold">All</span><Badge className="h-5 shrink-0 px-1.5 text-[11px] bg-sky-400 text-slate-950 hover:bg-sky-400">{totals.quantity.toLocaleString()}</Badge>
-        </Button>
-        {locations.map((location) => <Button key={location.id} variant="outline" onClick={() => setFilter(`location:${location.id}`)} title={location.company} className={`h-8 min-w-0 shrink gap-1 rounded-lg px-1.5 text-xs ${summaryButton(filter === `location:${location.id}`)}`}>
-          <span className="truncate font-semibold">{location.location || location.company}</span><Badge variant="secondary" className="h-5 shrink-0 px-1.5 text-[11px]">{location.quantity.toLocaleString()}</Badge>
-        </Button>)}
-        <Button variant="outline" onClick={() => setFilter("in")} className={`h-8 shrink-0 gap-1 rounded-lg px-1.5 text-xs ${summaryButton(filter === "in")}`}><span className="truncate font-semibold">In stock</span><Badge className="h-5 shrink-0 px-1.5 text-[11px] bg-emerald-400 text-slate-950 hover:bg-emerald-400">{totals.inStock}</Badge></Button>
-        <Button variant="outline" onClick={() => setFilter("low")} className={`h-8 shrink-0 gap-1 rounded-lg px-1.5 text-xs ${summaryButton(filter === "low")}`}><span className="truncate font-semibold">Low stock</span><Badge className="h-5 shrink-0 px-1.5 text-[11px] bg-amber-400 text-slate-950 hover:bg-amber-400">{totals.low}</Badge></Button>
-        <Button variant="outline" onClick={() => setFilter("out")} className={`h-8 shrink-0 gap-1 rounded-lg px-1.5 text-xs ${summaryButton(filter === "out")}`}><span className="truncate font-semibold">Out of stock</span><Badge className="h-5 shrink-0 px-1.5 text-[11px] bg-rose-500 text-white hover:bg-rose-500">{statusCounts.out}</Badge></Button>
-        <Button variant="outline" onClick={() => setFilter("hold")} className={`h-8 shrink-0 gap-1 rounded-lg px-1.5 text-xs ${summaryButton(filter === "hold")}`}><span className="truncate font-semibold">On hold</span><Badge className="h-5 shrink-0 px-1.5 text-[11px] bg-amber-300 text-slate-950 hover:bg-amber-300">{statusCounts.hold}</Badge></Button>
-        <Button variant="outline" onClick={() => setFilter("recent7")} title="Received in the last 7 days" className={`h-8 shrink-0 gap-1 rounded-lg px-1.5 text-xs ${summaryButton(filter === "recent7")}`}><span className="truncate font-semibold">7 days</span></Button>
-        <Button variant="outline" onClick={() => setFilter("recent30")} title="Received in the last 30 days" className={`h-8 shrink-0 gap-1 rounded-lg px-1.5 text-xs ${summaryButton(filter === "recent30")}`}><span className="truncate font-semibold">30 days</span></Button>
-      </div>
-    </section>
-
-    <section className="flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm" aria-label="Filters">
-      <label className="grid min-w-40 flex-1 gap-1 text-xs font-medium text-slate-600 sm:flex-none">Category<select className="h-9 rounded-lg border border-input bg-card px-2 text-sm" value={category} onChange={(event) => setCategory(event.target.value)}><option value="">All categories</option>{categoryOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
-      <label className="grid min-w-36 flex-1 gap-1 text-xs font-medium text-slate-600 sm:flex-none">Brand<select className="h-9 rounded-lg border border-input bg-card px-2 text-sm" value={brand} onChange={(event) => setBrand(event.target.value)}><option value="">All brands</option>{brandOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
-      <div className="grid gap-1 text-xs font-medium text-slate-600">Selling price (excl. VAT)<div className="flex items-center gap-1.5"><Input aria-label="Minimum price" type="number" min="0" inputMode="decimal" placeholder="Min" value={priceMin} onChange={(event) => setPriceMin(event.target.value)} className="h-9 w-24" /><span className="text-slate-400">–</span><Input aria-label="Maximum price" type="number" min="0" inputMode="decimal" placeholder="Max" value={priceMax} onChange={(event) => setPriceMax(event.target.value)} className="h-9 w-24" /></div></div>
-      {extraFilters && <Button type="button" variant="ghost" size="sm" onClick={clearExtraFilters}>Clear filters</Button>}
-      <span className="ml-auto text-xs text-slate-500">Showing {filtered.length} products</span>
-    </section>
-
     <StockHoldsPanel holds={holds} names={holdNames} canManage={canManageHolds} onReleased={() => void load()} />
 
-    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex items-center gap-3 border-b border-slate-200 px-3 py-2.5">
-        <div className="flex min-w-0 shrink items-center gap-2 whitespace-nowrap"><h2 className="text-sm font-bold text-slate-950">Consolidated stock</h2><p className="hidden truncate text-xs text-slate-500 lg:block">All companies, inventories, item details, quantities and selling prices.</p></div>
-        <div className="ml-auto flex min-w-0 shrink gap-2">
-          <div className="relative min-w-0 sm:w-80"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search SKU, item, specs or inventory…" className="pl-9" /></div>
-          <Button variant="outline" size="icon" onClick={load} disabled={loading} aria-label="Refresh inventory overview"><RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} /></Button>
+    <section className="overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm">
+      {/* Header: title, search and refresh. */}
+      <div className="flex flex-wrap items-center gap-3 border-b px-4 py-3">
+        <div className="min-w-0"><h2 className="text-base font-bold text-foreground">Consolidated stock</h2><p className="hidden truncate text-xs text-muted-foreground sm:block">All companies, inventories, item details, quantities and selling prices.</p></div>
+        <div className="ml-auto flex w-full min-w-0 gap-2 sm:w-auto">
+          <div className="relative min-w-0 flex-1 sm:w-96 sm:flex-none"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search SKU, item, specs or inventory…" className="h-9 pl-9" /></div>
+          <Button variant="outline" size="icon" className="size-9" onClick={load} disabled={loading} aria-label="Refresh inventory overview"><RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} /></Button>
         </div>
       </div>
 
-      {/* Container query: action labels collapse to icons before the row wraps, so the toolbar stays on one line on typical laptop widths. */}
-      <div className="@container flex flex-wrap items-center gap-1.5 border-b bg-slate-50 px-3 py-1.5 whitespace-nowrap [&_[data-slot=button]]:h-7 [&_[data-slot=button]]:gap-1 [&_[data-slot=button]]:px-2 [&_[data-slot=button]]:text-xs [&_[data-slot=button]_svg]:size-3.5">
-        <Badge className="bg-slate-950 text-white hover:bg-slate-950">{selectedRecords.length} selected</Badge>
-        <label className="flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md border bg-white px-1.5 text-xs font-medium text-slate-700"><Checkbox checked={!showQuantity} onCheckedChange={(checked) => setShowQuantity(checked !== true)} />Hide quantity</label>
-        <label className="flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md border bg-white px-1.5 text-xs font-medium text-slate-700"><Checkbox checked={!showPrice} onCheckedChange={(checked) => setShowPrice(checked !== true)} />Hide price</label>
-        <div className="flex h-7 shrink-0 items-center gap-1 rounded-md border bg-white px-1.5 text-xs font-medium text-slate-700" role="group" aria-label="Increase shown and shared prices" title="Adds to the prices shown here and in WhatsApp, Telegram, email and Excel. Saved selling prices do not change.">Price +<Input aria-label="Price increase" type="number" min="0" step="0.01" inputMode="decimal" disabled={!showPrice} value={priceAdjust.value} onChange={(event) => setPriceAdjust({ ...priceAdjust, value: event.target.value })} placeholder="0" className="h-6 w-16 px-1.5 text-xs" /><select aria-label="Increase as percent or amount" disabled={!showPrice} value={priceAdjust.mode} onChange={(event) => setPriceAdjust({ ...priceAdjust, mode: event.target.value as PriceAdjust["mode"] })} className="h-6 rounded border border-input bg-card px-1 text-xs"><option value="percent">%</option><option value="amount">amount</option></select></div>
-        <div className="flex shrink-0 rounded-md border bg-white p-0.5 [&_[data-slot=button]]:h-6" role="group" aria-label="Shared price VAT format">
-          <Button type="button" size="sm" variant={!includeVat ? "default" : "ghost"} aria-pressed={!includeVat} disabled={!showPrice} onClick={() => setIncludeVat(false)} className={!includeVat ? "bg-slate-950 text-white hover:bg-slate-800" : ""}>No VAT</Button>
-          <Button type="button" size="sm" variant={includeVat ? "default" : "ghost"} aria-pressed={includeVat} disabled={!showPrice} onClick={() => setIncludeVat(true)} className={includeVat ? "bg-emerald-500 text-[#022c22] hover:bg-emerald-400" : ""}>Including VAT</Button>
+      {/* Filters: inventory and received-date chips, then category, brand and price range. */}
+      <div className="space-y-3 border-b bg-muted/20 px-4 py-3" aria-label="Filters">
+        <div className="flex w-full flex-wrap items-center gap-1.5">
+          <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Inventory</span>
+          <button type="button" onClick={() => setFilter("all")} className={chip(filter === "all")} title="All inventory">All<span className="tabular-nums opacity-70">{totals.quantity.toLocaleString()}</span></button>
+          {locations.map((location) => <button key={location.id} type="button" onClick={() => toggleFilter(`location:${location.id}`)} title={location.company} className={chip(filter === `location:${location.id}`)}><Warehouse className="size-3.5 shrink-0" /><span className="max-w-40 truncate">{location.location || location.company}</span><span className="tabular-nums opacity-70">{location.quantity.toLocaleString()}</span></button>)}
+          <span className="mx-1 hidden h-6 w-px bg-border sm:block" aria-hidden />
+          <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Received</span>
+          <button type="button" onClick={() => toggleFilter("recent7")} title="Received in the last 7 days" className={chip(filter === "recent7")}><CalendarClock className="size-3.5" />7 days</button>
+          <button type="button" onClick={() => toggleFilter("recent30")} title="Received in the last 30 days" className={chip(filter === "recent30")}><CalendarClock className="size-3.5" />30 days</button>
         </div>
-        <div className="ml-auto flex shrink-0 items-center gap-1">
-          <Button size="sm" disabled={!canSelectItems || loading || !selectedRecords.length} onClick={() => copyForChannel("whatsapp")} title="Copy WhatsApp format" aria-label="Copy WhatsApp format" className="bg-[#25D366] text-[#052e16] hover:bg-[#1fb558]"><MessageCircle /><span className="@max-[62rem]:hidden">WhatsApp</span></Button>
-          <Button size="sm" disabled={!canSelectItems || loading || !selectedRecords.length} onClick={() => copyForChannel("telegram")} title="Copy Telegram format" aria-label="Copy Telegram format" className="bg-[#1a77ad] text-white hover:bg-[#15638f]"><Send /><span className="@max-[62rem]:hidden">Telegram</span></Button>
-          <Button size="sm" variant="outline" disabled={!canSelectItems || loading || !selectedRecords.length} onClick={() => copyForChannel("email")} title="Copy email format" aria-label="Copy email format"><Mail /><span className="@max-[62rem]:hidden">Email</span></Button>
-          <Button size="sm" variant="outline" disabled={!canSelectItems || loading || !selectedRecords.length} onClick={() => exportExcel(false)} title="Export Excel without VAT" aria-label="Export Excel without VAT"><Download /><span className="@max-[62rem]:hidden">Excel no VAT</span></Button>
-          <Button size="sm" variant="outline" disabled={!canSelectItems || loading || !selectedRecords.length} onClick={() => exportExcel(true)} title="Export Excel including VAT" aria-label="Export Excel including VAT"><FileSpreadsheet /><span className="@max-[62rem]:hidden">Excel + VAT</span></Button>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="grid min-w-40 flex-1 gap-1 text-xs font-medium text-muted-foreground sm:flex-none">Category<select className="h-9 rounded-lg border border-input bg-card px-2 text-sm text-foreground" value={category} onChange={(event) => setCategory(event.target.value)}><option value="">All categories</option>{categoryOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+          <label className="grid min-w-36 flex-1 gap-1 text-xs font-medium text-muted-foreground sm:flex-none">Brand<select className="h-9 rounded-lg border border-input bg-card px-2 text-sm text-foreground" value={brand} onChange={(event) => setBrand(event.target.value)}><option value="">All brands</option>{brandOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+          <div className="grid gap-1 text-xs font-medium text-muted-foreground">Selling price (excl. VAT)<div className="flex items-center gap-1.5"><Input aria-label="Minimum price" type="number" min="0" inputMode="decimal" placeholder="Min" value={priceMin} onChange={(event) => setPriceMin(event.target.value)} className="h-9 w-24" /><span>–</span><Input aria-label="Maximum price" type="number" min="0" inputMode="decimal" placeholder="Max" value={priceMax} onChange={(event) => setPriceMax(event.target.value)} className="h-9 w-24" /></div></div>
+          {(extraFilters || filter !== "all") && <Button type="button" variant="ghost" size="sm" className="h-9" onClick={() => { clearExtraFilters(); setFilter("all"); }}><X className="size-4" />Clear filters</Button>}
+          <span className="ml-auto self-center text-xs text-muted-foreground"><strong className="text-foreground tabular-nums">{filtered.length}</strong> {filtered.length === 1 ? "product" : "products"}</span>
+        </div>
+      </div>
+
+      {/* Share bar: price display options on the left, copy and export actions on the right. Labels collapse to icons before the row wraps. */}
+      <div className="@container flex flex-wrap items-center gap-2 border-b px-4 py-2 whitespace-nowrap [&_[data-slot=button]]:h-8 [&_[data-slot=button]]:gap-1.5 [&_[data-slot=button]]:px-2.5 [&_[data-slot=button]]:text-xs [&_[data-slot=button]_svg]:size-3.5">
+        <span className={`inline-flex h-8 items-center rounded-md px-2.5 text-xs font-semibold tabular-nums ${selectedRecords.length ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>{selectedRecords.length} selected</span>
+        <label className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-xs font-medium text-muted-foreground"><Checkbox checked={!showQuantity} onCheckedChange={(checked) => setShowQuantity(checked !== true)} />Hide quantity</label>
+        <label className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-xs font-medium text-muted-foreground"><Checkbox checked={!showPrice} onCheckedChange={(checked) => setShowPrice(checked !== true)} />Hide price</label>
+        <div className="flex h-8 shrink-0 items-center gap-1 rounded-md border px-2 text-xs font-medium text-muted-foreground" role="group" aria-label="Increase shown and shared prices" title="Adds to the prices shown here and in WhatsApp, Telegram, email and Excel. Saved selling prices do not change.">Price +<Input aria-label="Price increase" type="number" min="0" step="0.01" inputMode="decimal" disabled={!showPrice} value={priceAdjust.value} onChange={(event) => setPriceAdjust({ ...priceAdjust, value: event.target.value })} placeholder="0" className="h-6 w-16 px-1.5 text-xs" /><select aria-label="Increase as percent or amount" disabled={!showPrice} value={priceAdjust.mode} onChange={(event) => setPriceAdjust({ ...priceAdjust, mode: event.target.value as PriceAdjust["mode"] })} className="h-6 rounded border border-input bg-card px-1 text-xs text-foreground"><option value="percent">%</option><option value="amount">amount</option></select></div>
+        <div className="flex shrink-0 rounded-md border p-0.5 [&_[data-slot=button]]:h-6" role="group" aria-label="Shared price VAT format">
+          <Button type="button" size="sm" variant={!includeVat ? "default" : "ghost"} aria-pressed={!includeVat} disabled={!showPrice} onClick={() => setIncludeVat(false)}>No VAT</Button>
+          <Button type="button" size="sm" variant={includeVat ? "default" : "ghost"} aria-pressed={includeVat} disabled={!showPrice} onClick={() => setIncludeVat(true)}>Including VAT</Button>
+        </div>
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          <Button size="sm" disabled={shareDisabled} onClick={() => copyForChannel("whatsapp")} title="Copy WhatsApp format" aria-label="Copy WhatsApp format" className="bg-[#25D366] text-[#052e16] hover:bg-[#1fb558]"><MessageCircle /><span className="@max-[62rem]:hidden">WhatsApp</span></Button>
+          <Button size="sm" disabled={shareDisabled} onClick={() => copyForChannel("telegram")} title="Copy Telegram format" aria-label="Copy Telegram format" className="bg-[#1a77ad] text-white hover:bg-[#15638f]"><Send /><span className="@max-[62rem]:hidden">Telegram</span></Button>
+          <Button size="sm" variant="outline" disabled={shareDisabled} onClick={() => copyForChannel("email")} title="Copy email format" aria-label="Copy email format"><Mail /><span className="@max-[62rem]:hidden">Email</span></Button>
+          <Button size="sm" variant="outline" disabled={shareDisabled} onClick={() => exportExcel(false)} title="Export Excel without VAT" aria-label="Export Excel without VAT"><Download /><span className="@max-[62rem]:hidden">Excel no VAT</span></Button>
+          <Button size="sm" variant="outline" disabled={shareDisabled} onClick={() => exportExcel(true)} title="Export Excel including VAT" aria-label="Export Excel including VAT"><FileSpreadsheet /><span className="@max-[62rem]:hidden">Excel + VAT</span></Button>
         </div>
       </div>
 
       <div className="overflow-hidden">
         <Table className="w-full table-fixed">
-          <TableHeader><TableRow className="bg-slate-50"><TableHead className="w-12"><span className="inline-flex rounded-lg border bg-white p-1.5"><Checkbox disabled={!canBulkSelect || loading || !filtered.length} aria-label="Select all visible items" checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false} onCheckedChange={(checked) => toggleAllVisible(checked === true)} /></span></TableHead><TableHead className="min-w-0 font-bold text-slate-900">Product specifications</TableHead>{showQuantity && <TableHead responsiveColumn="quantity" className="font-bold text-slate-900">Qty</TableHead>}{showPrice && <TableHead responsiveColumn="price" className="font-bold text-slate-900">Price</TableHead>}</TableRow></TableHeader>
+          <TableHeader><TableRow className="bg-muted/40 hover:bg-muted/40"><TableHead className="w-12"><Checkbox disabled={!canBulkSelect || loading || !filtered.length} aria-label="Select all visible items" checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false} onCheckedChange={(checked) => toggleAllVisible(checked === true)} /></TableHead><TableHead className="min-w-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Product</TableHead>{showQuantity && <TableHead responsiveColumn="quantity" className="text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Qty</TableHead>}{showPrice && <TableHead responsiveColumn="price" className="text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Price{adjustLabel}</TableHead>}</TableRow></TableHeader>
           <TableBody>
-            {loading ? <TableRow><TableCell colSpan={columnCount} className="h-40 text-center text-slate-500"><RefreshCw className="mx-auto mb-2 size-5 animate-spin" />Loading all inventories…</TableCell></TableRow> : categories.length === 0 ? <TableRow><TableCell colSpan={columnCount} className="h-40 text-center text-slate-500">No products match this view.</TableCell></TableRow> : categories.flatMap(([category, items]) => [
-              <TableRow key={`category-${category}`} className="border-slate-800 bg-slate-950 hover:bg-slate-950"><TableCell colSpan={columnCount} className="py-3 font-bold text-white"><span className="mr-2 text-emerald-400">●</span>{category}<Badge className="ml-3 bg-white/15 text-white hover:bg-white/15">{items.length} items</Badge></TableCell></TableRow>,
+            {loading ? <TableRow><TableCell colSpan={columnCount} className="h-40 text-center text-muted-foreground"><RefreshCw className="mx-auto mb-2 size-5 animate-spin" />Loading all inventories…</TableCell></TableRow> : categories.length === 0 ? <TableRow><TableCell colSpan={columnCount} className="h-40 text-center text-muted-foreground"><PackageX className="mx-auto mb-2 size-6 opacity-60" />No products match this view.</TableCell></TableRow> : categories.flatMap(([category, items]) => [
+              <TableRow key={`category-${category}`} className="bg-muted/60 hover:bg-muted/60"><TableCell colSpan={columnCount} className="py-2 text-xs font-bold uppercase tracking-wide text-foreground"><span className="mr-2 inline-block size-2 rounded-full bg-primary align-middle" />{category}<span className="ml-2 font-medium normal-case tracking-normal text-muted-foreground">{items.length} {items.length === 1 ? "item" : "items"}</span></TableCell></TableRow>,
               ...items.map((record) => {
                 const out = Number(record.quantity) <= 0;
                 const low = Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint);
+                const held = heldOn(record);
                 const description = inventoryItemLine(record.name, record.sku, specificationText(record), record.itemNumber);
-                return <TableRow key={record.id} data-state={selectedIds.has(record.id) ? "selected" : undefined} className="align-top data-[state=selected]:bg-sky-50 hover:bg-slate-50/80">
-                  <TableCell className="py-5"><span className="inline-flex rounded-lg border bg-white p-1.5"><Checkbox disabled={!canSelectItems || loading} aria-label={`Select ${record.name}`} checked={selectedIds.has(record.id)} onCheckedChange={(checked) => toggleSelected(record.id, checked === true)} /></span></TableCell>
-                  <TableCell className="min-w-0 overflow-hidden py-4"><div className="flex min-w-0 max-w-full flex-col items-start gap-2 xl:flex-row xl:flex-wrap xl:items-center"><span className="block w-full max-w-full whitespace-normal break-words text-base font-bold text-blue-700 underline decoration-blue-300 underline-offset-2 [overflow-wrap:anywhere]">{description}</span>{out ? <Badge className="bg-rose-600 text-white hover:bg-rose-600">Out of stock</Badge> : low ? <Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">Low stock</Badge> : null}<TooltipProvider>{record.inventories.map((inventory) => <Tooltip key={inventory.locationId}><TooltipTrigger asChild><Badge tabIndex={0} variant="outline" className="max-w-full cursor-help whitespace-normal border-sky-200 bg-sky-50 text-sky-800"><Warehouse className="mr-1 size-3 shrink-0" />{inventory.locationName}</Badge></TooltipTrigger><TooltipContent sideOffset={6}>Qty: {Number(inventory.quantity).toLocaleString()}</TooltipContent></Tooltip>)}</TooltipProvider></div><div className="mt-3 flex min-w-0 flex-wrap items-center gap-2"><Button type="button" size="sm" variant="outline" onClick={() => setDetailRecord(record)} aria-label={`View product customization details for ${record.name}`}><PackageOpen className="size-4" />Customization Details</Button>{canManageHolds && Number(record.quantity) > 0 && <Button type="button" size="sm" variant="outline" onClick={() => setHoldTarget(record)} aria-label={`Put ${record.name} on hold`}><Lock className="size-4" />Hold</Button>}{heldOn(record) > 0 && <Badge className="bg-amber-100 text-amber-900 hover:bg-amber-100"><Lock className="mr-1 size-3" />{heldOn(record).toLocaleString()} on hold</Badge>}<Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">{receivedAge(record.latestReceivedAt)}</Badge></div></TableCell>
-                  {showQuantity && <TableCell responsiveColumn="quantity" className={`py-4 text-sm font-black sm:text-base ${out ? "text-rose-600" : low ? "text-amber-600" : "text-slate-900"}`}>{Number(record.quantity).toLocaleString()}{heldOn(record) > 0 && <span className="mt-1 block"><span className="inline-block whitespace-nowrap rounded-md border border-amber-300 bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900">{heldOn(record).toLocaleString()} on hold · {Math.max(0, Number(record.quantity) - heldOn(record)).toLocaleString()} free</span></span>}</TableCell>}
-                  {showPrice && <TableCell responsiveColumn="price" className="py-4 text-sm font-black text-rose-600 sm:text-base">{money(priceFor(record), record.currency)}{includeVat && <span className="mt-1 block whitespace-normal text-[11px] font-semibold text-emerald-600">VAT included</span>}</TableCell>}
+                return <TableRow key={record.id} data-state={selectedIds.has(record.id) ? "selected" : undefined} className="align-top hover:bg-muted/30 data-[state=selected]:bg-primary/10">
+                  <TableCell className="py-4"><Checkbox className="mt-0.5" disabled={!canSelectItems || loading} aria-label={`Select ${record.name}`} checked={selectedIds.has(record.id)} onCheckedChange={(checked) => toggleSelected(record.id, checked === true)} /></TableCell>
+                  <TableCell className="min-w-0 overflow-hidden py-4">
+                    <button type="button" onClick={() => setDetailRecord(record)} className="block w-full max-w-full whitespace-normal break-words text-left text-sm font-semibold leading-snug text-foreground hover:text-primary sm:text-[15px] [overflow-wrap:anywhere]" title="Open product details">{description}</button>
+                    <div className="mt-2.5 flex min-w-0 flex-wrap items-center gap-1.5 text-xs">
+                      <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-semibold ${out ? "bg-rose-500/15 text-rose-600 dark:text-rose-300" : low ? "bg-amber-500/15 text-amber-700 dark:text-amber-300" : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"}`}><span className={`size-1.5 rounded-full ${out ? "bg-rose-500" : low ? "bg-amber-500" : "bg-emerald-500"}`} />{out ? "Out of stock" : low ? "Low stock" : "In stock"}</span>
+                      {record.inventories.map((inventory) => <span key={inventory.locationId} className="inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 font-medium text-muted-foreground" title={`${inventory.companyName} · Qty ${Number(inventory.quantity).toLocaleString()}`}><Warehouse className="size-3 shrink-0" /><span className="truncate">{inventory.locationName}</span>{record.inventories.length > 1 && <span className="font-semibold tabular-nums text-foreground">{Number(inventory.quantity).toLocaleString()}</span>}</span>)}
+                      {held > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 font-semibold text-amber-700 dark:text-amber-300"><Lock className="size-3" />{held.toLocaleString()} on hold</span>}
+                      <span className="inline-flex items-center gap-1 text-muted-foreground"><Clock className="size-3" />{receivedAge(record.latestReceivedAt)}</span>
+                      <span className="ml-auto flex shrink-0 items-center gap-1">
+                        <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setDetailRecord(record)} aria-label={`View product customization details for ${record.name}`}><PackageOpen className="size-3.5" />Details</Button>
+                        {canManageHolds && Number(record.quantity) > 0 && <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setHoldTarget(record)} aria-label={`Put ${record.name} on hold`}><Lock className="size-3.5" />Hold</Button>}
+                      </span>
+                    </div>
+                  </TableCell>
+                  {showQuantity && <TableCell responsiveColumn="quantity" className="py-4 text-right"><span className={`block text-lg font-bold leading-tight tabular-nums ${out ? "text-rose-600 dark:text-rose-400" : low ? "text-amber-600 dark:text-amber-400" : "text-foreground"}`}>{Number(record.quantity).toLocaleString()}</span>{held > 0 ? <span className="mt-0.5 block whitespace-nowrap text-[11px] font-medium text-amber-700 dark:text-amber-300">{Math.max(0, Number(record.quantity) - held).toLocaleString()} free · {held.toLocaleString()} held</span> : <span className="mt-0.5 block text-[11px] text-muted-foreground">units</span>}</TableCell>}
+                  {showPrice && <TableCell responsiveColumn="price" className="py-4 text-right"><span className="block text-base font-bold leading-tight tabular-nums text-foreground">{money(priceFor(record), record.currency)}</span><span className={`mt-0.5 block whitespace-normal text-[11px] ${includeVat ? "font-semibold text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}>{includeVat ? "VAT included" : "excl. VAT"}</span></TableCell>}
                 </TableRow>;
               }),
             ])}
           </TableBody>
         </Table>
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-slate-50 px-4 py-3 text-xs text-slate-500"><span>Showing {filtered.length} products</span><span>{totals.healthy} healthy · {totals.low} low stock</span></div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-muted/20 px-4 py-2.5 text-xs text-muted-foreground"><span>Showing {filtered.length} products</span><span>{totals.healthy} healthy · {totals.low} low stock</span></div>
     </section>
 
     <StockHoldDialog key={holdTarget?.id ?? "none"} target={holdTarget} holds={holds} onClose={() => setHoldTarget(null)} onSaved={() => { setHoldTarget(null); void load(); }} />

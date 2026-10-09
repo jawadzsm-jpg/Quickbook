@@ -108,7 +108,7 @@ export function StockHoldsPanel({ holds, names, canManage, onReleased }: { holds
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not release the hold"); }
     finally { setBusyId(null); }
   }
-  return <section className="rounded-2xl border border-amber-500/30 bg-card shadow-sm" aria-label="Stock on hold">
+  return <section className="overflow-hidden rounded-xl border border-amber-500/40 bg-amber-500/5 shadow-sm" aria-label="Stock on hold">
     <header className="flex items-center gap-2 border-b px-4 py-3"><Lock className="size-4 text-amber-600" /><h2 className="text-sm font-bold">Stock on hold</h2><Badge variant="secondary">{active.length}</Badge><p className="ml-2 hidden text-xs text-muted-foreground sm:block">Reserved for a sales rep; other sales cannot use it until the hold ends.</p></header>
     <ul className="divide-y">{active.map((hold) => <li key={hold.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 text-sm">
       <span className="min-w-0 flex-1 font-semibold">{names.get(hold.itemId) ?? `Item ${hold.itemId}`}</span>
