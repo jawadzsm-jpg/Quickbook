@@ -38,6 +38,9 @@ function Lines({ lines, empty }: { lines: string[]; empty: string }) {
   return filled.length ? <>{filled.map((line, index) => <p key={index}>{line}</p>)}</> : <p className="lb-empty">{empty}</p>;
 }
 
+// Serial numbers typed one per line (or separated by commas) print side by side, wrapping across the column.
+const serialText = (value: string) => value.split(/[\n,;]+/).map((serial) => serial.trim()).filter(Boolean).join(", ");
+
 function lineValue(data: DocumentData, column: LineColumn, index: number) {
   const line = data.lines[index];
   switch (column) {
@@ -45,6 +48,7 @@ function lineValue(data: DocumentData, column: LineColumn, index: number) {
     case "quantity": return line.quantity.toLocaleString("en", { maximumFractionDigits: 3 });
     case "unitPrice": case "subtotal": case "vatAmount": case "total": return money(line[column]);
     case "vatRate": return `${line.vatRate}%`;
+    case "serialNumber": return serialText(line.serialNumber);
     default: return line[column];
   }
 }
@@ -110,7 +114,7 @@ export function SectionBody({ section, data, theme }: { section: Section; data: 
         <thead><tr>{columns.map((column) => <th key={column.key} className={numeric.has(column.key) ? "lb-num" : undefined} style={heading}>{column.label}{arabic && arabicColumnLabel(column.key) ? <span className="lb-th-ar" dir="rtl" lang="ar">{arabicColumnLabel(column.key)}</span> : null}</th>)}</tr></thead>
         <tbody>{data.lines.length ? data.lines.map((line, index) => <tr key={index}>{columns.map((column) => <td key={column.key} className={numeric.has(column.key) ? "lb-num" : column.key === "description" || column.key === "comments" || column.key === "serialNumber" ? "lb-pre" : undefined}>{lineValue(data, column.key, index)}{column.key === "description" && section.props.notesUnderDescription ? <>
           {line.comments.trim() && !columns.some((entry) => entry.key === "comments") ? <span className="lb-line-note">{line.comments.trim()}</span> : null}
-          {line.serialNumber.trim() && !columns.some((entry) => entry.key === "serialNumber") ? <span className="lb-line-note">S/N: {line.serialNumber.trim()}</span> : null}
+          {line.serialNumber.trim() && !columns.some((entry) => entry.key === "serialNumber") ? <span className="lb-line-note lb-serials"><strong>S/N:</strong> {serialText(line.serialNumber)}</span> : null}
         </> : null}</td>)}</tr>)
           : <tr><td colSpan={columns.length} className="lb-empty">No lines</td></tr>}</tbody>
       </table>;

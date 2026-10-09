@@ -19,7 +19,6 @@ export function SalesSourceInvoicing({ sourceId, companyId, onSaved, onViewInvoi
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [memo, setMemo] = useState("");
   const [lineExtras, setLineExtras] = useState<Record<number, DocumentExtra>>({});
-  const [extra, setExtra] = useState({ comments: "", serialNumber: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -50,7 +49,7 @@ export function SalesSourceInvoicing({ sourceId, companyId, onSaved, onViewInvoi
     if (!lines.length) return setError("Enter quantities to invoice, or choose Fill available quantities.");
     setSaving(true); setError("");
     try {
-      const response = await fetch("/api/records", { method: "POST", headers: { "Content-Type": "application/json", ...skuLock.headers }, body: JSON.stringify({ kind: "transactions", type: "invoice", companyId, locationId: data.locationId, salesSourceId: sourceId, transactionDate: date, memo, ...extra, lines }) });
+      const response = await fetch("/api/records", { method: "POST", headers: { "Content-Type": "application/json", ...skuLock.headers }, body: JSON.stringify({ kind: "transactions", type: "invoice", companyId, locationId: data.locationId, salesSourceId: sourceId, transactionDate: date, memo, lines }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Could not save invoice.");
       toast.success(`Invoice ${result.record.number} saved. Remaining quantities stay on the source document.`);
@@ -73,7 +72,6 @@ export function SalesSourceInvoicing({ sourceId, companyId, onSaved, onViewInvoi
         <label className="grid gap-2 text-sm">Invoice date<Input type="date" required disabled={saving} value={date} onChange={(event) => setDate(event.target.value)} /></label>
       </div>
       <div className="space-y-3">{data.lines.map((line) => <article key={line.id} className="min-w-0 rounded-xl border bg-card p-3 text-card-foreground sm:p-4"><div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]"><div className="min-w-0"><p className="whitespace-pre-wrap break-words font-medium [overflow-wrap:anywhere]">{line.description}</p><p className="mt-2 text-xs text-muted-foreground">Unit price · {data.source.currency} <span className="font-semibold tabular-nums">{line.unitPrice.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></p></div><div className="grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-5">{[['Ordered',line.quantity],['Invoiced',line.invoiced],['Remaining',line.remaining],['Available',line.itemId?line.available:'—']].map(([label,value])=><div key={label} className="min-w-0 rounded-lg bg-muted/30 p-2"><span className="block text-xs text-muted-foreground">{label}</span><strong className="mt-1 block break-words tabular-nums">{value}</strong></div>)}<label className="grid min-w-0 gap-1 text-xs">Invoice now<Input className="min-w-0 tabular-nums" aria-label={`Invoice quantity for ${line.description}`} type="number" min="0" step="any" max={Math.min(line.remaining,line.available)} disabled={skuLock.blocked || !inventoryReady || saving || line.remaining <= 0 || line.available <= 0} onFocus={()=>setActiveLines(old=>old.includes(line.id)?old:[...old,line.id])} value={quantities[line.id] || ''} placeholder="0" onChange={event=>setQuantities(old=>({...old,[line.id]:event.target.value}))} /></label></div></div>{Number(quantities[line.id])>0&&<div className="mt-3 border-t pt-3"><DocumentExtraFields value={lineExtras[line.id] || {comments:'',serialNumber:''}} onChange={value=>setLineExtras(old=>({...old,[line.id]:value}))} disabled={saving}/></div>}</article>)}</div>
-      <DocumentExtraFields value={extra} onChange={setExtra} disabled={saving} />
       <label className="grid gap-2 text-sm">Additional invoice notes<Input disabled={saving} value={memo} onChange={(event) => setMemo(event.target.value)} /></label>
       <label className="grid gap-2 text-sm">Invoice memo<textarea readOnly className="min-h-20 w-full rounded-md border bg-background p-3" value={[data.source.memo, memo, `Invoiced from ${data.source.type} ${data.source.number}`].filter(Boolean).join(" · ")} /><span className="text-muted-foreground">The source document number is included automatically when you save.</span></label>
       <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={!inventoryReady || saving} onClick={() => setQuantities(Object.fromEntries(data.lines.map((line) => [line.id, String(limits.get(line.id) ?? 0)])))}>Fill available quantities</Button><Button type="submit" disabled={!skuLock.ready || !inventoryReady || saving || !data.lines.some((line) => line.remaining > 0 && line.available > 0)}><Save className="size-4" />{saving ? "Saving…" : "Save Invoice"}</Button></div>

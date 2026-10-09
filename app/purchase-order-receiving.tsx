@@ -24,7 +24,6 @@ export function PurchaseOrderReceiving({ orderId, companyId, onSaved, documentTy
   const [locationId, setLocationId] = useState(0);
   const [memo, setMemo] = useState("");
   const [lineExtras, setLineExtras] = useState<Record<number, DocumentExtra>>({});
-  const [extra, setExtra] = useState({ comments: "", serialNumber: "" });
   const [billOfEntryNumber, setBillOfEntryNumber] = useState("");
   const [airwayBillNumber, setAirwayBillNumber] = useState("");
   const [attachments, setAttachments] = useState<PendingFile[]>([]);
@@ -61,7 +60,7 @@ export function PurchaseOrderReceiving({ orderId, companyId, onSaved, documentTy
     if (usesImportGoodsVat && (!billOfEntryNumber.trim() || !airwayBillNumber.trim())) return setError("Enter the Bill of Entry No. and Airway Bill No. for imported goods.");
     setSaving(true); setError("");
     try {
-      const response = await fetch("/api/records", { method: "POST", headers: { "Content-Type": "application/json", ...skuLock.headers }, body: JSON.stringify({ kind: "transactions", type: documentType, account, companyId, locationId, purchaseOrderId: orderId, transactionDate: date, memo, ...extra, billOfEntryNumber, airwayBillNumber, lines, ...(isBill ? { number: number.trim(), salesman, vatCode } : {}) }) });
+      const response = await fetch("/api/records", { method: "POST", headers: { "Content-Type": "application/json", ...skuLock.headers }, body: JSON.stringify({ kind: "transactions", type: documentType, account, companyId, locationId, purchaseOrderId: orderId, transactionDate: date, memo, billOfEntryNumber, airwayBillNumber, lines, ...(isBill ? { number: number.trim(), salesman, vatCode } : {}) }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Could not create item receipt.");
       let attachmentError = "";
@@ -104,7 +103,6 @@ export function PurchaseOrderReceiving({ orderId, companyId, onSaved, documentTy
       {documentType === "bill" && <div className="rounded-md border p-3 text-sm"><p>Prices are taken from the purchase order; the VAT code above applies to every line.</p><p className="mt-2 font-bold">Bill total: {data.order.currency} {data.lines.reduce((sum, line) => sum + Number((Number(quantities[line.id] || 0) * line.unitPrice).toFixed(2)) + Number((Number((Number(quantities[line.id] || 0) * line.unitPrice).toFixed(2)) * lineVat(line).rate / 100).toFixed(2)), 0).toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p></div>}
       {hasImportGoodsVat && <section className="grid gap-4 rounded-xl border border-sky-200 bg-sky-50 p-4 sm:grid-cols-2 dark:border-sky-900 dark:bg-sky-950/30"><div className="sm:col-span-2"><h4 className="font-semibold">UAE import documents</h4><p className="mt-1 text-xs text-muted-foreground">This purchase order uses the Goods imported into the UAE VAT code. Bill of Entry No. and Airway Bill No. are required when an import line is included in this bill.</p></div><label className="grid gap-2 text-sm">Bill of Entry No.{usesImportGoodsVat ? " *" : ""}<Input required={usesImportGoodsVat} maxLength={120} value={billOfEntryNumber} onChange={(event) => setBillOfEntryNumber(event.target.value)} placeholder="Enter Bill of Entry number" /></label><label className="grid gap-2 text-sm">Airway Bill No.{usesImportGoodsVat ? " *" : ""}<Input required={usesImportGoodsVat} maxLength={120} value={airwayBillNumber} onChange={(event) => setAirwayBillNumber(event.target.value)} placeholder="Enter Airway Bill number" /></label></section>}
       {hasImportGoodsVat && <InvoiceAttachments companyId={companyId} pending={attachments} onPendingChange={setAttachments} documentLabel="Bill" />}
-      {documentType === "bill" && <DocumentExtraFields value={extra} onChange={setExtra} disabled={saving} />}
       <label className="grid gap-2 text-sm">{documentType === "bill" ? "Additional bill notes" : "Receipt memo"}<Input disabled={saving} value={memo} onChange={(event) => setMemo(event.target.value)} /></label>
       {documentType === "bill" && <label className="grid gap-2 text-sm">Bill memo<textarea readOnly className="min-h-20 w-full rounded-md border bg-background p-3" value={[data.order.memo, memo, `Received from PO ${data.order.number}`].filter(Boolean).join(" · ")} /><span className="text-muted-foreground">The purchase order number is included automatically when you save.</span></label>}
       <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={saving} onClick={() => setQuantities(Object.fromEntries(data.lines.map((line) => [line.id, String(line.remaining)])))}>Fill remaining quantities</Button><Button disabled={!skuLock.ready || saving || !data.lines.some((line) => line.remaining > 0)} type="submit"><Save className="size-4" />{saving ? "Saving…" : documentType === "bill" ? "Save Bill" : "Save Receipt"}</Button></div>
