@@ -431,7 +431,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   };
 
   // Quiet chip styling shared by the inventory and "received" filters; the active chip uses the user's accent colour.
-  const chip = (active: boolean) => `inline-flex h-8 min-w-0 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-colors ${active ? "border-primary bg-primary/15 text-foreground" : "border-border bg-card text-muted-foreground hover:border-foreground/30 hover:text-foreground"}`;
+  const chip = (active: boolean) => `inline-flex h-9 min-w-0 flex-1 basis-auto items-center justify-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition-colors ${active ? "border-primary bg-primary/15 text-foreground" : "border-border bg-card text-muted-foreground hover:border-foreground/30 hover:text-foreground"}`;
   const toggleFilter = (next: StockFilter) => setFilter((current) => current === next ? "all" : next);
   const columnCount = 2 + Number(showQuantity) + Number(showPrice);
   const kpis = [
@@ -501,11 +501,11 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
 
       {/* Filters: inventory and received-date chips, then category, brand and price range. */}
       <div className="space-y-3 border-b bg-muted/20 px-4 py-3" aria-label="Filters">
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex w-full flex-wrap items-center gap-1.5">
           <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Inventory</span>
           <button type="button" onClick={() => setFilter("all")} className={chip(filter === "all")} title="All inventory">All<span className="tabular-nums opacity-70">{totals.quantity.toLocaleString()}</span></button>
           {locations.map((location) => <button key={location.id} type="button" onClick={() => toggleFilter(`location:${location.id}`)} title={location.company} className={chip(filter === `location:${location.id}`)}><Warehouse className="size-3.5 shrink-0" /><span className="max-w-40 truncate">{location.location || location.company}</span><span className="tabular-nums opacity-70">{location.quantity.toLocaleString()}</span></button>)}
-          <span className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden />
+          <span className="mx-1 hidden h-6 w-px bg-border sm:block" aria-hidden />
           <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Received</span>
           <button type="button" onClick={() => toggleFilter("recent7")} title="Received in the last 7 days" className={chip(filter === "recent7")}><CalendarClock className="size-3.5" />7 days</button>
           <button type="button" onClick={() => toggleFilter("recent30")} title="Received in the last 30 days" className={chip(filter === "recent30")}><CalendarClock className="size-3.5" />30 days</button>
