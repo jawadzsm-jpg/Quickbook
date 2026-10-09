@@ -117,7 +117,7 @@ import {
   AlertTriangle, ArrowRightLeft, BadgeDollarSign, BookOpen, BookOpenCheck, BookmarkPlus, Boxes, Building2, CheckCircle2, Copy,
   Check, ChevronDown, ChevronRight, CircleDollarSign, Clock3, Download, FileBarChart2, FileSpreadsheet, FileText, Landmark, Minus, Maximize2, Power,
   Eye, ImageUp, LayoutDashboard, LogOut, PackageCheck, PackageSearch, PackageX, Palette, Paperclip, Pencil, Plus, Printer, ReceiptText, RefreshCw,
-  Search, Settings, ShieldCheck, ShoppingCart, Stamp, Sun, Moon, Table2, Trash2, Users, WalletCards, Percent, X,
+  Search, Settings, ShieldCheck, ShoppingCart, ClipboardList, Stamp, Sun, Moon, Table2, Trash2, Users, WalletCards, Percent, X,
   Truck,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -1636,10 +1636,10 @@ function CustomerCenter({ companyId, onEdit, records, accounts, currency, loadin
     { label: "Create Sales Orders", detail: "Confirm an order before invoicing", type: "sales order", icon: ShoppingCart },
     { label: "Create Invoices", detail: "Post sales and accounts receivable", type: "invoice", shortcut: "Ctrl+I", icon: ReceiptText },
     { label: "Enter Sales Receipts", detail: "Record an immediate customer sale", type: "sales receipt", icon: CircleDollarSign },
-    { label: "Enter Statement Charges", detail: "Add a charge directly to a statement", type: "statement charge", icon: Plus },
+    { label: "Create Quotations", detail: "Quote products and prices for a customer", type: "quotation", icon: FileText },
     { label: "Create Statements", detail: "Review and print customer activity", report: "customer-statements", icon: FileBarChart2 },
     { label: "Customer Document Summary", detail: "Count estimates, proforma invoices, and sales orders by customer", report: "customer-document-summary", icon: Table2 },
-    { label: "Assess Finance Charges", detail: "Post a finance charge to receivables", type: "finance charge", icon: BadgeDollarSign },
+    { label: "Create Proforma Invoices", detail: "Request advance payment before the final invoice", type: "proforma invoice", icon: ClipboardList },
     { label: "Receive Payments", detail: "Reduce the customer's open balance", type: "customer payment", icon: WalletCards },
     { label: "Active Customers", detail: "Active contacts, balances and receivable accounts", report: "active-customers", icon: Users },
     { label: "Customers with Overdue Invoices", detail: "Past-due invoices and remaining amounts to collect", report: "customers-overdue-invoices", icon: Clock3 },
