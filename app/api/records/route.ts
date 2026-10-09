@@ -1346,9 +1346,13 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
         );
       }
       const pnlRoleTypes: Record<string, string[]> = { SALES: ["Income"], OTHER_INCOME: ["Other Income", "Income"], COGS: ["Cost of Goods Sold"], PURCHASES: ["Expense", "Cost of Goods Sold"], EXPENSE: ["Expense", "Other Expense"], PAYROLL: ["Expense"] };
+      // Names with no Chart of Accounts entry keep posting (companies without a full chart use default names), but a
+      // name that belongs only to an inactive account must not receive new postings.
+      const inactiveNames = new Set((await db.select({ name: accounts.name }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, false)))).map((account) => account.name));
       for (const line of baseLines) {
         const matches = linkedRows.filter(a => a.name === line.accountName);
         if (matches.length > 1) return Response.json({ error: `Posting account ${line.accountName} must match one active Chart of Accounts entry. Correct the account link before posting.` }, { status: 409 });
+        if (!matches.length && inactiveNames.has(line.accountName)) return Response.json({ error: `Account ${line.accountName} is inactive. Reactivate it in Chart of Accounts or choose another account before posting.` }, { status: 409 });
         if (!matches.length) continue;
         const linked = matches[0]; const allowed = pnlRoleTypes[linked.systemRole || ""];
         if (allowed && !allowed.includes(linked.type)) return Response.json({ error: `${linked.name} (${linked.systemRole}) must use account type ${allowed.join(" or ")}. Correct it in Chart of Accounts before posting.` }, { status: 409 });
