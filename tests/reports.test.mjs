@@ -565,9 +565,9 @@ test("customer summary matches detail in home currency after payments and credit
 test("customer document summary counts each pre-sale document and keeps zero-count customers", async () => {
   await db.insert(schema.contacts).values({ companyId, name: "No Documents Customer", type: "customer", currency: "AED", balance: 0 });
   const result = await report("customer-document-summary");
-  assert.deepEqual(result.columns.map((column) => column.key), ["customer", "estimates", "proformaInvoices", "salesOrders", "totalDocuments"]);
-  assert.deepEqual(result.rows.find((row) => row.customer === "USD Customer"), { customer: "USD Customer", estimates: 2, proformaInvoices: 1, salesOrders: 1, totalDocuments: 4 });
-  assert.deepEqual(result.rows.find((row) => row.customer === "No Documents Customer"), { customer: "No Documents Customer", estimates: 0, proformaInvoices: 0, salesOrders: 0, totalDocuments: 0 });
+  assert.deepEqual(result.columns.map((column) => column.key), ["customer", "quotations", "estimates", "proformaInvoices", "salesOrders", "totalDocuments"]);
+  assert.deepEqual(result.rows.find((row) => row.customer === "USD Customer"), { customer: "USD Customer", quotations: 0, estimates: 2, proformaInvoices: 1, salesOrders: 1, totalDocuments: 4 });
+  assert.deepEqual(result.rows.find((row) => row.customer === "No Documents Customer"), { customer: "No Documents Customer", quotations: 0, estimates: 0, proformaInvoices: 0, salesOrders: 0, totalDocuments: 0 });
 });
 
 test("purchase order summary counts supplier statuses within the selected inventory and dates", async () => {
@@ -868,7 +868,8 @@ test('customer open balance uses allocations, preserves unused credits, and link
   assert.equal(active.rows[1].openBalance, 12);
   assert.equal(active.rows[2].openBalance, 0);
   const allOverdue = (await (await get({ type: 'customers-overdue-invoices', customer: '' })).json()).report;
-  assert.equal(allOverdue.rows.length, 2); // Inactive customers still owe their overdue invoices.
+  // Inactive customers still owe their overdue invoices; an invoice without a due date is due on its invoice date.
+  assert.deepEqual(allOverdue.rows.map(row => row.number).sort(), ['INACTIVE-DEBT', 'OPEN-INV', 'OTHER-CUSTOMER']);
   assert.equal((await get({ statementDate: '2026-02-30' })).status, 400);
   assert.equal((await get({ currency: 'NOT-A-CURRENCY' })).status, 400);
   assert.equal((await get({ customer: 'Not in company' })).status, 400);
@@ -882,6 +883,28 @@ test('customer open balance uses allocations, preserves unused credits, and link
     assert.equal((await get({ type: 'customers-overdue-invoices' })).status, 403);
     assert.equal((await get({ type: 'active-customers' })).status, 403);
   } finally { delete globalThis.__reportTestUser; }
+});
+
+test("Customer reports: cash sales are not receivables, closed documents excluded, open invoices and collections as of the report date", async () => {
+  const response = await workspaces.POST(post({ type: "company", name: "AR audit", baseCurrency: "AED" }));
+  const { company: c } = await response.json(); const loc = c.locations[0].id;
+  const base = { companyId: c.id, locationId: loc, party: "Client R", currency: "AED", exchangeRate: 1 };
+  const doc = async (values) => (await db.insert(schema.transactions).values({ ...base, baseTotal: values.total, ...values }).returning())[0];
+  const march = await doc({ type: "invoice", number: "AR-MARCH", status: "paid", transactionDate: "2026-03-01", dueDate: "2026-03-31", subtotal: 1000, total: 1000 });
+  const payment = await doc({ type: "customer payment", number: "AR-PAY-OCT", transactionDate: "2026-10-05", subtotal: 1000, total: 1000 });
+  await db.insert(schema.invoicePaymentAllocations).values({ paymentId: payment.id, invoiceId: march.id, amount: 1000 });
+  await doc({ type: "sales receipt", number: "AR-CASH", transactionDate: "2026-09-10", subtotal: 500, total: 500 });
+  await doc({ type: "invoice", number: "AR-VOID", status: "voided", transactionDate: "2026-09-10", subtotal: 5000, total: 5000 });
+  await doc({ type: "customer payment", number: "AR-PAY-VOID", status: "void", transactionDate: "2026-09-12", subtotal: 50, total: 50 });
+  const get = async (type, from = "2026-09-01", to = "2026-09-30") => { const res = await GET(new Request(`https://app.test/api/reports?type=${type}&companyId=${c.id}&periodStart=${from}&periodEnd=${to}`)); assert.equal(res.status, 200, await res.clone().text()); return (await res.json()).report; };
+  // As of 30 September the March invoice was still open (paid in October): 1,000, 183 days overdue.
+  const open = (await get("open-invoices")).rows.find((row) => row.number === "AR-MARCH");
+  assert.deepEqual([open?.amount, open?.daysOverdue, open?.ageBand], [1000, 183, "91+"]);
+  const collections = (await get("collections-report")).rows.find((row) => row.customer === "Client R");
+  assert.deepEqual([collections?.balance, collections?.overdueAmount, collections?.openInvoices], [1000, 1000, 1]);
+  // Balance: the March invoice only — the cash sale and the voided invoice are not receivables.
+  assert.equal((await get("customer-balances")).rows.find((row) => row.name === "Client R")?.amount, 1000);
+  assert.equal((await get("online-received-payments", "2026-09-01", "2026-10-31")).rows.some((row) => row.number === "AR-PAY-VOID"), false);
 });
 
 test("A/P aging is as of the report date: later payments ignored, bills without a due date age from the bill date, drafts excluded", async () => {
@@ -1235,11 +1258,11 @@ test('sales summaries provide report-specific KPIs and export every Sales report
 test('customer summaries provide receivable KPIs and export every Customer report to A4 portrait by default', async () => {
   const { customerReportKeys, customerSummary, customerDetailTarget } = await vite.ssrLoadModule('/lib/customer-report.ts');
   assert.equal(customerReportKeys.size, 16);
-  const aging = customerSummary({ key: 'ar-aging-summary', rows: [{ name: 'A', current: 100, days30: 50, days60: 25, days90: 10, total: 185 }] });
-  assert.deepEqual(aging.cards.map(card => card.value), [100, 50, 25, 10, 185]);
+  const aging = customerSummary({ key: 'ar-aging-summary', rows: [{ name: 'A', current: 100, days30: 50, days60: 25, days90: 10, days90plus: 5, total: 190 }] });
+  assert.deepEqual(aging.cards.map(card => card.value), [100, 50, 25, 10, 5, 190]);
   assert.equal(customerDetailTarget('ar-aging-summary'), 'ar-aging-detail');
-  const collections = customerSummary({ key: 'collections-report', rows: [{ customer: 'A', balance: 500, openInvoices: 3, overdueInvoices: 2 }] });
-  assert.deepEqual(collections.cards.map(card => card.value), [500, 1, 3, 2]);
+  const collections = customerSummary({ key: 'collections-report', rows: [{ customer: 'A', balance: 500, overdueAmount: 300, openInvoices: 3, overdueInvoices: 2 }] });
+  assert.deepEqual(collections.cards.map(card => card.value), [500, 300, 1, 3, 2]);
   const { reportPdf } = await vite.ssrLoadModule('/lib/report-export.ts');
   const report = { key: 'collections-report', title: 'Collections Report', generatedAt: '2026-09-27T10:00:00.000Z', currency: 'AED', columns: [{ key: 'customer', label: 'Customer' }, { key: 'balance', label: 'Balance', type: 'money' }], rows: [{ customer: 'A', balance: 500 }] };
   const pdf = Buffer.from(await reportPdf(report, 'Customer Company', 'Main Inventory')).toString('latin1');

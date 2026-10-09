@@ -55,7 +55,7 @@ export function customerSummary(report: CustomerReportLike): { cards: CustomerSu
   if (!customerReportKeys.has(key)) return null;
 
   if (key === "ar-aging-summary") {
-    return { cards: [money("Current", sum(rows, "current")), money("1–30 days", sum(rows, "days30")), money("31–60 days", sum(rows, "days60")), money("61+ days", sum(rows, "days90"), "negative"), money("Total receivable", sum(rows, "total"), "accent")], note: "Aging uses remaining allocated balances in home currency. Select a customer to open its customer area." };
+    return { cards: [money("Current", sum(rows, "current")), money("1–30 days", sum(rows, "days30")), money("31–60 days", sum(rows, "days60")), money("61–90 days", sum(rows, "days90"), "negative"), money("91+ days", sum(rows, "days90plus"), "negative"), money("Total receivable", sum(rows, "total"), "accent")], note: "Aging uses remaining allocated balances in home currency as of the report date; an invoice without a due date ages from its invoice date. Select a customer to open its customer area." };
   }
   if (key === "ar-aging-detail") {
     return { cards: [money("Open receivable", sum(rows, "amount"), "accent"), number("Open documents", rows.length), number("Customers", unique(rows, "customer")), number("Past due", rows.filter((row) => Number(row.age) > 0).length, "negative")], note: "Select an underlined document number to open the source transaction." };
@@ -76,11 +76,11 @@ export function customerSummary(report: CustomerReportLike): { cards: CustomerSu
     return { cards: [money("Charges", sum(rows, "charge")), money("Payments / credits", sum(rows, "payment"), "positive"), money("Closing balance", [...ending.values()].reduce((total, value) => total + value, 0), "accent"), number("Transactions", rows.length)], note: "Select an underlined transaction number to open the originating customer document." };
   }
   if (key === "open-invoices") {
-    const today = new Date().toISOString().slice(0, 10);
-    return { cards: [money("Open invoice value", sum(rows, "amount"), "accent"), number("Open invoices", rows.length), number("Customers", unique(rows, "customer")), number("Past due", rows.filter((row) => String(row.dueDate || "") !== "—" && String(row.dueDate) < today).length, "negative")], note: "Open amounts reflect recorded allocations. Select a number to open its invoice." };
+    const overdue = rows.filter((row) => Number(row.daysOverdue) > 0);
+    return { cards: [money("Open invoice value", sum(rows, "amount"), "accent"), money("Past due value", sum(overdue, "amount"), "negative"), number("Open invoices", rows.length), number("Past due", overdue.length, "negative"), number("Customers", unique(rows, "customer"))], note: "Open as of the report date: payments dated later, and cancelled payments, do not reduce the open amount; an invoice without a due date is due on its invoice date. Select a number to open its invoice." };
   }
   if (key === "collections-report") {
-    return { cards: [money("Amount to collect", sum(rows, "balance"), "accent"), number("Customers", rows.length), number("Open invoices", sum(rows, "openInvoices")), number("Overdue invoices", sum(rows, "overdueInvoices"), "negative")], note: "Customer names open the linked customer area; overdue figures reconcile to open receivables." };
+    return { cards: [money("Amount to collect", sum(rows, "balance"), "accent"), money("Overdue amount", sum(rows, "overdueAmount"), "negative"), number("Customers", rows.length), number("Open invoices", sum(rows, "openInvoices")), number("Overdue invoices", sum(rows, "overdueInvoices"), "negative")], note: "Balances and overdue invoices as of the report date, sorted by overdue amount. Customer names open the linked customer area." };
   }
   if (key === "average-days-to-pay-summary" || key === "average-days-to-pay-detail") {
     const invoices = key === "average-days-to-pay-summary" ? sum(rows, "invoices") : rows.length;
@@ -102,7 +102,7 @@ export function customerSummary(report: CustomerReportLike): { cards: CustomerSu
     return { cards: [money("Opening balance", report.statement?.opening ?? 0), money("Charges", report.statement?.charges ?? 0), money("Payments / credits", report.statement?.credits ?? 0, "positive"), money("Closing balance", report.statement?.closing ?? 0, "accent")], note: "Statement references open their source transactions. Filters preserve customer, currency and statement dates." };
   }
   if (key === "customer-document-summary") {
-    return { cards: [number("Estimates", sum(rows, "estimates")), number("Proforma invoices", sum(rows, "proformaInvoices")), number("Sales orders", sum(rows, "salesOrders")), number("Total documents", sum(rows, "totalDocuments"), "accent"), number("Customers", rows.length)], note: "Select a document count to open that customer’s matching sales-document area." };
+    return { cards: [number("Quotations", sum(rows, "quotations")), number("Estimates", sum(rows, "estimates")), number("Proforma invoices", sum(rows, "proformaInvoices")), number("Sales orders", sum(rows, "salesOrders")), number("Total documents", sum(rows, "totalDocuments"), "accent"), number("Customers", rows.length)], note: "Select a document count to open that customer’s matching sales-document area." };
   }
   return null;
 }
