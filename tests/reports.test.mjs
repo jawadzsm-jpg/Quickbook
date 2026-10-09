@@ -885,6 +885,37 @@ test('customer open balance uses allocations, preserves unused credits, and link
   } finally { delete globalThis.__reportTestUser; }
 });
 
+test("Accountant reports: company-wide trial balance with openings that balances, balance forward, voided documents, ledger effect", async () => {
+  const response = await workspaces.POST(post({ type: "company", name: "Accountant audit", baseCurrency: "AED" }));
+  const { company: c } = await response.json(); const loc = c.locations[0].id;
+  const [storeB] = await db.insert(schema.inventoryLocations).values({ companyId: c.id, name: "Store AB", code: "AB", invoicePrefix: "AB" }).returning();
+  const [bank, sales] = await db.insert(schema.accounts).values([
+    { companyId: c.id, code: "1097", name: "TB Bank", type: "Bank", currency: "AED", balance: 50000 },
+    { companyId: c.id, code: "4097", name: "TB Sales", type: "Income", currency: "AED" },
+  ]).returning();
+  const entry = async (date, locationId, lines) => { const [j] = await db.insert(schema.journalEntries).values({ companyId: c.id, locationId, entryDate: date, reference: `TB-${date}`, posted: true }).returning(); await db.insert(schema.journalLines).values(lines.map((line) => ({ journalEntryId: j.id, ...line }))); };
+  await entry("2026-08-20", storeB.id, [{ accountName: bank.name, accountId: bank.id, debit: 2000 }, { accountName: sales.name, accountId: sales.id, credit: 2000 }]);
+  await entry("2026-09-10", storeB.id, [{ accountName: bank.name, accountId: bank.id, debit: 1000 }, { accountName: sales.name, accountId: sales.id, credit: 1000 }]);
+  await db.insert(schema.transactions).values([
+    { companyId: c.id, locationId: loc, type: "invoice", number: "TB-VOID", party: "Client T", status: "void", transactionDate: "2026-09-12", subtotal: 700, total: 700, baseTotal: 700 },
+    { companyId: c.id, locationId: loc, type: "quotation", number: "TB-QUOTE", party: "Client T", transactionDate: "2026-09-12", subtotal: 900, total: 900, baseTotal: 900 },
+  ]);
+  const get = async (type, from = "2026-09-01") => { const res = await GET(new Request(`https://app.test/api/reports?type=${type}&companyId=${c.id}&locationId=${loc}&periodStart=${from}&periodEnd=2026-09-30`)); assert.equal(res.status, 200, await res.clone().text()); return (await res.json()).report; };
+  // Store A selected, yet company-wide: bank = 50,000 opening + 3,000 posted in Store B, and debits equal credits.
+  const tb = await get("trial-balance");
+  const bankRow = tb.rows.find((row) => row.accountId === bank.id);
+  assert.deepEqual([bankRow.opening, bankRow.periodDebit, bankRow.debit, bankRow.credit], [50000, 3000, 53000, 0]);
+  assert.ok(Math.abs(tb.rows.reduce((total, row) => total + row.debit - row.credit, 0)) < 0.01);
+  assert.ok(tb.rows.some((row) => row.name === "Opening balances not posted to the ledger" && row.credit === 50000));
+  // Transaction detail starts September with the balance brought forward (50,000 + 2,000 in August).
+  const detail = (await get("transaction-detail-account")).rows.filter((row) => row.accountAccountId === bank.id);
+  assert.deepEqual(detail.map((row) => [row.reference, row.balance]), [["Balance forward", 52000], ["TB-2026-09-10", 53000]]);
+  const voided = (await get("deleted-transactions-detail")).rows.find((row) => row.number === "TB-VOID");
+  assert.deepEqual([voided?.action, voided?.amount], ["Voided / cancelled", 700]);
+  const list = (await get("transactions")).rows;
+  assert.deepEqual([list.find((row) => row.number === "TB-VOID").ledger, list.find((row) => row.number === "TB-QUOTE").ledger], ["Void / not posted", "Not posted"]);
+});
+
 test("Financial reports: opening balances on a company-wide balance sheet that balances, supplier expenses exclude sales cost, business final balances", async () => {
   const response = await workspaces.POST(post({ type: "company", name: "Financial statements audit", baseCurrency: "AED" }));
   const { company: c } = await response.json(); const loc = c.locations[0].id;
@@ -1389,7 +1420,7 @@ test('accountant summaries provide control KPIs and export all 11 Accountant rep
   ] });
   assert.deepEqual(ledger.cards.map(card => card.value), [1000, 1000, 0, 3, 2]);
   const deleted = accountantSummary({ key: 'deleted-transactions-summary', rows: [{ action: 'Deleted', records: 2 }, { action: 'Voided', records: 1 }] });
-  assert.deepEqual(deleted.cards.map(card => card.value), [3, 2, 1, 2]);
+  assert.deepEqual(deleted.cards.map(card => card.value), [3, 2, 1, 0]);
   assert.equal(accountantDetailTarget('trial-balance'), 'general-ledger');
   const { reportPdf } = await vite.ssrLoadModule('/lib/report-export.ts');
   const report = { key: 'trial-balance', title: 'Trial Balance', generatedAt: '2026-09-27T10:00:00.000Z', currency: 'AED', columns: [{ key: 'name', label: 'Account' }, { key: 'debit', label: 'Debit', type: 'money' }, { key: 'credit', label: 'Credit', type: 'money' }], rows: [{ name: 'Cash', debit: 1000, credit: 0, balance: 1000 }] };

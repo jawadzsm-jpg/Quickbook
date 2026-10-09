@@ -56,7 +56,7 @@ export function accountantSummary(report: AccountantReportLike): { cards: Accoun
     const credit = sum(rows, "credit");
     return {
       cards: [money("Total debits", debit, "positive"), money("Total credits", credit, "negative"), money("Debit / credit variance", debit - credit, Math.abs(debit - credit) < 0.005 ? "positive" : "negative"), number("Accounts", rows.length), number("Debit-balance accounts", rows.filter((row) => Number(row.balance) > 0).length), number("Credit-balance accounts", rows.filter((row) => Number(row.balance) < 0).length)],
-      note: "Totals cover the displayed posted entries; opening master balances are not included. A filtered subset may not balance even when the complete journal balances. Select an account to open its complete Chart of Accounts history.",
+      note: "Company-wide. Each account shows its opening balance, posted debits and credits, and its closing balance on the normal side; openings saved without a journal are offset by an equity line, so total debits equal total credits. A filtered subset may not balance. Select an account to open its complete Chart of Accounts history.",
     };
   }
 
@@ -75,9 +75,10 @@ export function accountantSummary(report: AccountantReportLike): { cards: Accoun
   }
 
   if (key === "deleted-transactions-summary" || key === "deleted-transactions-detail") {
-    const deleted = key === "deleted-transactions-summary" ? rows.filter((row) => String(row.action) === "Deleted").reduce((total, row) => total + Number(row.records ?? 0), 0) : count(rows, "action", "Deleted");
-    const voided = key === "deleted-transactions-summary" ? rows.filter((row) => String(row.action) === "Voided").reduce((total, row) => total + Number(row.records ?? 0), 0) : count(rows, "action", "Voided");
-    return { cards: [number("Preserved audit records", deleted + voided, "accent"), number("Deleted", deleted, "negative"), number("Voided", voided, "negative"), number("Action types", Number(deleted > 0) + Number(voided > 0))], note: "Deleted and voided records remain preserved in the audit history. The detail report shows the recorded transaction ID and change information." };
+    const countOf = (match: (action: string) => boolean) => key === "deleted-transactions-summary" ? rows.filter((row) => match(String(row.action))).reduce((total, row) => total + Number(row.records ?? 0), 0) : rows.filter((row) => match(String(row.action))).length;
+    const deleted = countOf((action) => action.startsWith("Deleted"));
+    const voided = countOf((action) => action.startsWith("Voided"));
+    return { cards: [number("Records", deleted + voided, "accent"), number("Deleted", deleted, "negative"), number("Voided / cancelled", voided, "negative"), money("Recorded amount", sum(rows, "amount"))], note: "Deleted documents and manual journals are taken from the audit history (their postings were removed); voided and cancelled documents remain with that status. Amounts are those recorded at the time." };
   }
 
   if (key === "transaction-history") {
@@ -85,7 +86,8 @@ export function accountantSummary(report: AccountantReportLike): { cards: Accoun
     return { cards: [money("Document value", sum(documents, "amount"), "accent"), number("Timeline events", rows.length), number("Documents", documents.length, "positive"), number("Audit events", rows.length - documents.length), number("Record types", unique(rows, "type"))], note: "The timeline combines business documents and audit activity; document values are not a ledger balance. Underlined document references open the original record." };
   }
 
-  return { cards: [money("Transaction value", sum(rows, "amount"), "accent"), number("Documents", rows.length), number("Open", count(rows, "status", "open"), "negative"), number("Paid / cleared", rows.filter((row) => ["paid", "cleared"].includes(String(row.status).toLowerCase())).length, "positive"), number("Transaction types", unique(rows, "type"))], note: "Amounts are shown in home-currency equivalents. Select an underlined document number to open its source record." };
+  const posted = rows.filter((row) => row.ledger === undefined || row.ledger === "Posted");
+  return { cards: [money(rows.some((row) => row.ledger !== undefined) ? "Posted document value" : "Transaction value", sum(posted, "amount"), "accent"), number("Documents", rows.length), number("Open", count(rows, "status", "open"), "negative"), number("Paid / cleared", rows.filter((row) => ["paid", "cleared"].includes(String(row.status).toLowerCase())).length, "positive"), number("Transaction types", unique(rows, "type"))], note: "Amounts are shown in home-currency equivalents. Select an underlined document number to open its source record." };
 }
 
 export type AccountantFilters = { query: string; account: string };
@@ -101,5 +103,5 @@ export function filterAccountantRows(rows: ReportRow[], columns: ReportColumn[],
 }
 export function accountantAccountIssues(rows: ReportRow[], columns: ReportColumn[]) {
   const accountColumns = columns.filter(column => column.key === "account" || (column.key === "name" && column.label === "Account"));
-  return [...new Set(rows.flatMap(row => accountColumns.filter(column => row[column.key] && row[column.key] !== "—" && !(Number(row[`${column.key}AccountId`]) > 0)).map(column => `Account “${row[column.key]}” has no verified Chart of Accounts link. The recorded amounts are retained; review the account mapping.`)))];
+  return [...new Set(rows.filter(row => !row.synthetic).flatMap(row => accountColumns.filter(column => row[column.key] && row[column.key] !== "—" && !(Number(row[`${column.key}AccountId`]) > 0)).map(column => `Account “${row[column.key]}” has no verified Chart of Accounts link. The recorded amounts are retained; review the account mapping.`)))];
 }
