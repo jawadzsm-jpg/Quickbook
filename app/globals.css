@@ -1765,6 +1765,27 @@ body {
 .pnl-table-desktop tr[data-kind="total"] { font-weight: 800; background: #d1fae5; border-top: 2px solid #047857; }
 .pnl-table-mobile { display: none; }
 .pnl-ledger { border: 1px solid #d7e0e7; border-radius: .75rem; padding: 1rem; }
+/* Profit & Loss by Item: per-item sales invoices and purchases. */
+.pnl-item-cell { display: inline-flex; flex-wrap: wrap; align-items: center; gap: .35rem .6rem; }
+.pnl-item-view { display: inline-flex; align-items: center; gap: .25rem; border: 1px solid var(--border); border-radius: 999px; padding: .1rem .55rem; font-size: .72rem; font-weight: 600; color: var(--muted-foreground); background: var(--card); }
+.pnl-item-view:hover, .pnl-item-view[aria-pressed="true"] { border-color: var(--primary); color: var(--foreground); background: color-mix(in srgb, var(--primary) 12%, var(--card)); }
+.pnl-item-activity { border: 1px solid var(--border); border-radius: .75rem; padding: 1rem; background: var(--card); color: var(--card-foreground); display: grid; gap: .75rem; }
+.pnl-item-activity header { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
+.pnl-item-activity h3 { font-weight: 700; margin-top: .15rem; }
+.pnl-item-activity h4 { font-size: .85rem; font-weight: 700; margin-top: .25rem; }
+.pnl-item-check { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .5rem; }
+.pnl-item-check > div { border: 1px solid var(--border); border-radius: .5rem; padding: .5rem .65rem; background: color-mix(in srgb, var(--muted) 45%, var(--card)); }
+.pnl-item-check span { display: block; font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted-foreground); }
+.pnl-item-check strong { display: block; margin-top: .2rem; font-variant-numeric: tabular-nums; }
+.pnl-item-check[data-mismatch="true"] > div:nth-last-child(-n+2) { border-color: #f59e0b; }
+.pnl-item-warning { border: 1px solid #f59e0b; background: color-mix(in srgb, #f59e0b 12%, var(--card)); border-radius: .5rem; padding: .5rem .75rem; font-size: .8rem; }
+.pnl-item-table { overflow-x: auto; border: 1px solid var(--border); border-radius: .5rem; }
+.pnl-item-table table { width: 100%; min-width: 760px; border-collapse: collapse; font-size: .8rem; }
+.pnl-item-table th { background: var(--muted); color: var(--muted-foreground); text-align: left; font-weight: 600; padding: .45rem .6rem; white-space: nowrap; }
+.pnl-item-table td { border-top: 1px solid var(--border); padding: .45rem .6rem; }
+.pnl-item-table [data-numeric] { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pnl-item-table [data-negative="true"] { color: var(--report-negative, #be123c); }
+.pnl-item-table [data-warning="true"] { color: #b45309; font-weight: 700; }
 .pnl-ledger summary { cursor: pointer; font-weight: 650; font-size: .85rem; }
 .pnl-ledger .pnl-note { margin: .75rem 0; }
 .pnl-empty { padding: 2rem; text-align: center; border: 1px dashed #94a3b8; border-radius: .75rem; color: #64748b; }

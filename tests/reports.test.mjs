@@ -891,6 +891,9 @@ test("P&L reports reconcile item, rep, inventory and class to posted ledger with
   ]);
   const [credit] = await db.insert(schema.transactions).values({ companyId: c.id, locationId: loc, type: "credit memo", number: "PNL-CREDIT", party: "Customer", salesman: "Rep A", transactionDate: "2026-09-11", subtotal: 50, total: 50 }).returning();
   await db.insert(schema.transactionLines).values({ transactionId: credit.id, itemId: first.id, description: "Same laptop", quantity: 1, subtotal: 50, unitCost: 60 });
+  // A purchase bill (no P&L posting) appears in the item's purchase list with its unit cost.
+  const [bill] = await db.insert(schema.transactions).values({ companyId: c.id, locationId: loc, type: "bill", number: "PNL-BILL", party: "Supplier", transactionDate: "2026-09-01", subtotal: 100, total: 100 }).returning();
+  await db.insert(schema.transactionLines).values({ transactionId: bill.id, itemId: first.id, description: "Same laptop", quantity: 2, unitPrice: 50, subtotal: 100 });
   async function entry(date, transactionId, values, posted = true) {
     const [j] = await db.insert(schema.journalEntries).values({ companyId: c.id, locationId: loc, transactionId, entryDate: date, reference: `J-${date}`, posted }).returning();
     await db.insert(schema.journalLines).values(values.map(v => ({ journalEntryId: j.id, ...v })));
@@ -925,6 +928,11 @@ test("P&L reports reconcile item, rep, inventory and class to posted ledger with
   assert.equal(byItem.rows.find(r => r.name.startsWith("PNL-A")).linkArea, "inventory");
   assert.equal(byItem.rows.find(r => r.name.startsWith("PNL-A")).cost, 220.5);
   assert.equal(byItem.rows.find(r => r.name.startsWith("PNL-B")).cost, 441);
+  // Item documents: invoice lines in home currency (USD × 3.675) and purchases with unit cost.
+  const firstActivity = byItem.pnl.itemActivity[String(first.id)];
+  assert.deepEqual(firstActivity.sales.map(r => [r.reference, r.quantity, r.unitCost, r.sales, r.cost, r.transactionId]), [["PNL-USD", 1, 220.5, 367.5, 220.5, invoice.id]]);
+  assert.deepEqual(firstActivity.purchases.map(r => [r.reference, r.quantity, r.unitCost, r.amount, r.transactionId]), [["PNL-BILL", 2, 50, 100, bill.id]]);
+  assert.equal(byItem.pnl.itemActivity[String(second.id)].sales[0].cost, 441);
   assert.equal(byItem.rows.find(r => r.name === "Unallocated").expenses, 100);
   const byRep = await get("profit-loss-rep");
   assert.equal(byRep.rows.find(r => r.name === "Rep A").income, 1052.5);
