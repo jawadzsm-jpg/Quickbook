@@ -620,7 +620,7 @@ test("all 2 Banking reports have professional summaries, one export control, A4 
   assert.match(app, /stampReport = [^;]+isBankingReport/);
   assert.match(app, /accountId > 0[\s\S]*setLinkedAccount/);
   assert.match(api, /referenceTransactionId: row\.transactionId/);
-  assert.match(api, /referenceTransactionId: transaction\.id/);
+  assert.match(api, /referenceTransactionId: transaction\?\.id \?\? 0/);
   assert.match(banking, /export const bankingReportKeys = new Set/);
   assert.match(sharedExport, /orientation: PrintOrientation = "portrait"/);
   assert.match(sharedExport, /bankingSummary/);
