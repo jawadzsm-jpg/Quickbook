@@ -906,7 +906,10 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   function openListEdit(record: DataRecord) {
     setInvoiceFiles([]);
     setEditingItemId(null); setEditingRecordId(record.id); setEditorKind(currentKind);
-    setForm(Object.fromEntries(Object.entries(record).map(([key, value]) => [key, value == null ? "" : String(value)])));
+    const values: Record<string, string> = Object.fromEntries(Object.entries(record).map(([key, value]) => [key, value == null ? "" : String(value)]));
+    // Older customer documents saved without terms open as due on receipt.
+    if (currentKind === "transactions" && customerTermsTypes.includes(values.type) && !values.terms?.trim()) values.terms = defaultPaymentTerms;
+    setForm(values);
     setDialogOpen(true);
   }
 
@@ -1203,7 +1206,9 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
       setEditingItemId(null);
       setEditorKind("transactions");
       setActiveLocationId(locationId);
-      setForm({ ...Object.fromEntries(Object.entries(purchase).map(([key, value]) => [key, String(value ?? "")])), revision: data.revision, billLocationId: String(locationId), transactionLocationId: String(locationId), freightCharges: "0" });
+      const values: Record<string, string> = Object.fromEntries(Object.entries(purchase).map(([key, value]) => [key, String(value ?? "")]));
+      if (customerTermsTypes.includes(values.type) && !values.terms?.trim()) values.terms = defaultPaymentTerms;
+      setForm({ ...values, revision: data.revision, billLocationId: String(locationId), transactionLocationId: String(locationId), freightCharges: "0" });
       setLines(data.lines.filter((line: DataRecord) => !line.isFreightCharge).map((line: DataRecord) => ({ id: line.id, sourceLineId: line.sourceLineId ? Number(line.sourceLineId) : undefined, orderLineId: line.orderLineId ? Number(line.orderLineId) : undefined, comments: String(line.comments ?? ""), serialNumber: String(line.serialNumber ?? ""), freightCharge: String(line.freightCharge || 0), itemId: line.itemId ? String(line.itemId) : "", description: String(line.description ?? ""), quantity: String(line.quantity), unitPrice: String(line.unitPrice), unitCost: String(Math.round((Number(line.unitPrice || 0) + Number(line.freightCharge || 0) / Math.max(Number(line.quantity || 0), Number.EPSILON)) * 100) / 100), vatCode: String(line.vatCode), vatRate: String(line.vatRate) })));
       setDetail(null);
       setDialogOpen(true);
@@ -1229,7 +1234,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     } : {
       type: "invoice", sourceTransactionId: String(record.id), sourceDocumentLabel: `${String(record.type)} ${String(record.number)}`,
       number: invoiceNumberPreview(activeCompanyId, location), party: String(record.party), salesman: String(record.salesman ?? ""),
-      transactionDate: today(), dueDate: String(record.dueDate || today()), status: "open", account: String(record.account),
+      transactionDate: today(), dueDate: String(record.dueDate || today()), terms: String(record.terms || defaultPaymentTerms), status: "open", account: String(record.account),
       vatRate: String(record.vatRate ?? "5"), currency: String(record.currency || baseCurrency), exchangeRate: String(record.exchangeRate || "1"),
       transactionLocationId: String(locationId), allowNegativeStock: "false", adminOverridePin: "", memo: String(record.memo ?? ""),
     });
@@ -1936,6 +1941,9 @@ function attachmentHint(type: unknown) {
   if (["bill", "received item bill", "item receipt", "purchase order", "vendor credit", "expense"].includes(kind)) return "Add supplier invoices, delivery notes, receipts or other supporting files.";
   return "Add customer purchase orders, signed copies, delivery proof or other supporting files.";
 }
+// Customer documents without payment terms are due on receipt (the server applies the same default).
+const defaultPaymentTerms = "Due on receipt";
+const customerTermsTypes = ["invoice", "sales receipt", "pending invoice", "quotation", "estimate", "proforma invoice", "sales order", "credit memo", "statement charge", "finance charge"];
 const voidStatuses = ["cancelled", "canceled", "void", "voided"];
 const isVoidDocument = (record: DataRecord) => voidStatuses.includes(String(record.status).toLowerCase());
 const dubaiDateTime = (value: unknown) => { const date = new Date(String(value).replace(" ", "T").replace(/([+-]\d{2})$/, "$1:00")); return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Dubai", dateStyle: "medium", timeStyle: "short" }).format(date) : ""; };

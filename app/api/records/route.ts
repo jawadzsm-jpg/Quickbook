@@ -32,6 +32,8 @@ import { cleanDeliveryAddress } from "@/lib/delivery-address";
 import { lineExtraTypes } from "@/lib/line-extras";
 
 type RecordKind = "transactions" | "contacts" | "items" | "accounts";
+const defaultPaymentTerms = "Due on receipt";
+const customerTermsTypes = ["invoice", "sales receipt", "pending invoice", "quotation", "estimate", "proforma invoice", "sales order", "credit memo", "statement charge", "finance charge"];
 type InputLine = { pending?: boolean; comments?: string; serialNumber?: string; freightCharge?: number | string; isFreightCharge?: boolean; orderLineId?: number; sourceLineId?: number; itemId?: number | string | null; description?: string; quantity?: number | string; unitPrice?: number | string; unitCost?: number | string; vatCode?: string; vatRate?: number | string };
 
 function errorMessage(error: unknown) {
@@ -1206,7 +1208,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       createdByUserId: replacing?.createdByUserId ?? (authorization.role === "sales" ? authorization.id : null), companyId, locationId: Number.isInteger(locationId) ? locationId : null, number, type, party, employeeLoanContactId, billId, invoiceId, purchaseOrderId, salesSourceId,
       salesman: String(payload.salesman ?? ""), isImport: payload.isImport === true || String(payload.isImport) === "true" || usesImportGoodsVat,
       billOfEntryNumber: usesImportGoodsVat && type === "bill" ? billOfEntryNumber : "", airwayBillNumber: usesImportGoodsVat && type === "bill" ? airwayBillNumber : "",
-      transactionDate, dueDate: String(payload.dueDate ?? ""), terms, paymentMethod, referenceNo,
+      // Conversions copy the source's terms into the payload after the check above; blank customer terms mean due on receipt.
+      transactionDate, dueDate: String(payload.dueDate ?? ""), terms: String(payload.terms ?? "").trim().slice(0, 200) || (customerTermsTypes.includes(type) ? defaultPaymentTerms : ""), paymentMethod, referenceNo,
       // Ship To address: multi-line, up to 10,000 characters; edits without the field keep the saved address.
       deliveryAddress: cleanDeliveryAddress(payload.deliveryAddress ?? replacing?.deliveryAddress),
       chequeBankKey,
