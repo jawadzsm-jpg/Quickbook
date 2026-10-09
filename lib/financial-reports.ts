@@ -16,6 +16,9 @@ export type FinancialReportData = { key?:string; companyId:number; currency:stri
 
 export async function financialReport(companyId:number,locationId:number,currency:string,params:URLSearchParams,canViewAccounts:boolean) {
  const key=params.get('type')!; const from=params.get('periodStart')||''; const to=params.get('periodEnd')||'';
+ // Balance sheets, cash and exchange reports describe the whole company (bank, receivable and payable accounts and
+ // opening balances are company-level), so the selected inventory does not split them.
+ if(key.startsWith('balance-sheet')||['net-worth-graph','cash-flow','cash-flow-forecast','realised-gains-losses','unrealised-gains-losses'].includes(key))locationId=0;
  const db=getDb();
  const [chart,entries,docs,rates,invoiceAllocations,billAllocations]=await Promise.all([
   db.select().from(accounts).where(eq(accounts.companyId,companyId)).orderBy(asc(accounts.code)),
@@ -48,6 +51,9 @@ export async function financialReport(companyId:number,locationId:number,currenc
   return undefined;
  };
  const selected=entries.filter(e=>!locationId||e.locationId===locationId);
+ // Account opening balances (saved on the account, in its currency, without a journal) in home currency at today's rate.
+ const rateFor=(code:string)=>Number(rates.find(r=>String(r.currencyCode).toUpperCase()===String(code).toUpperCase())?.rate)||0;
+ const openingHome=(a:typeof chart[number])=>{const amount=Number(a.balance)||0;if(!amount)return 0;if(String(a.currency||currency).toUpperCase()===String(currency).toUpperCase())return amount;const rate=rateFor(a.currency);if(!rate)issues.add(`No active ${a.currency} exchange rate; the opening balance of ${a.name} is left out.`);return amount*rate;};
  const inRange=(date:string)=> (!from||date>=from)&&(!to||date<=to);
  const docMap=new Map(docs.map(d=>[d.id,d]));
  const issues=new Set<string>();
@@ -60,7 +66,9 @@ export async function financialReport(companyId:number,locationId:number,currenc
  const pnlValue=(e:typeof entries[number])=>income.has(accountFor(e.account,e.entryCurrency,e.accountId)?.type||'')?e.credit-e.debit:e.debit-e.credit;
  if(key.startsWith('income-customer')||key.startsWith('expenses-supplier')||key==='income-expense-graph') {
   const wantIncome=key.startsWith('income-customer');
-  const details:Row[]=selected.filter(e=>inRange(e.date)&&isPnl(e)&&(key==='income-expense-graph'||(wantIncome?income:expense).has(accountFor(e.account,e.entryCurrency,e.accountId)!.type))).map(e=>({...linked(e),amount:round(pnlValue(e)),section:income.has(accountFor(e.account,e.entryCurrency,e.accountId)!.type)?'Income':'Expenses'}));
+  // Expenses by Supplier: purchase-side postings only (an invoice's cost of sales belongs to the customer sale).
+  const salesDocument=(e:typeof entries[number])=>['invoice','sales receipt','credit memo','statement charge','finance charge'].includes(String(docMap.get(e.transactionId||0)?.type||''));
+  const details:Row[]=selected.filter(e=>inRange(e.date)&&isPnl(e)&&!(key.startsWith('expenses-supplier')&&salesDocument(e))&&(key==='income-expense-graph'||(wantIncome?income:expense).has(accountFor(e.account,e.entryCurrency,e.accountId)!.type))).map(e=>({...linked(e),amount:round(pnlValue(e)),section:income.has(accountFor(e.account,e.entryCurrency,e.accountId)!.type)?'Income':'Expenses'}));
   result.financial.details=details;
   if(key==='income-expense-graph') {
    result.title='Income & Expense Graph';const groups=new Map<string,{month:string;income:number;expenses:number}>();
@@ -75,8 +83,19 @@ export async function financialReport(companyId:number,locationId:number,currenc
   const balances=(end:string)=>{
    const totals=new Map<number,{debit:number;credit:number}>();let earnings=0;
    for(const e of selected.filter(e=>!end||e.date<=end)){const a=accountFor(e.account,e.entryCurrency,e.accountId);if(!a)continue;const b=totals.get(a.id)||{debit:0,credit:0};b.debit+=e.debit;b.credit+=e.credit;totals.set(a.id,b);if(isPnl(e))earnings+=e.credit-e.debit;}
-   const rows:Row[]=chart.filter(a=>assets.has(a.type)||liabilities.has(a.type)||a.type==='Equity').map(a=>{const b=totals.get(a.id)||{debit:0,credit:0};const duplicate=(byName.get(a.name)?.length||0)>1;return {name:duplicate?`${a.name} (${a.currency})`:a.name,account:a.name,accountId:a.id,currency:a.currency,section:assets.has(a.type)?'Assets':liabilities.has(a.type)?'Liabilities':'Equity',debit:round(b.debit),credit:round(b.credit),amount:round((assets.has(a.type)?1:-1)*(b.debit-b.credit))};});
-   rows.push({name:'Accumulated earnings',section:'Equity',amount:round(earnings),debit:0,credit:round(earnings)});return rows;
+   // Opening balances are in each account's normal direction; income/expense openings belong to earnings.
+   let unpostedOpenings=0;
+   // Offset = asset openings − liability and equity openings − net income/expense openings (which go to earnings).
+   for(const a of chart){const opening=openingHome(a);if(!opening)continue;
+    if(assets.has(a.type))unpostedOpenings+=opening;
+    else if(income.has(a.type)){earnings+=opening;unpostedOpenings-=opening;}
+    else if(expense.has(a.type)){earnings-=opening;unpostedOpenings+=opening;}
+    else unpostedOpenings-=opening;}
+   const rows:Row[]=chart.filter(a=>assets.has(a.type)||liabilities.has(a.type)||a.type==='Equity').map(a=>{const b=totals.get(a.id)||{debit:0,credit:0};const duplicate=(byName.get(a.name)?.length||0)>1;const opening=openingHome(a);return {name:duplicate?`${a.name} (${a.currency})`:a.name,account:a.name,accountId:a.id,currency:a.currency,section:assets.has(a.type)?'Assets':liabilities.has(a.type)?'Liabilities':'Equity',opening:round(opening),debit:round(b.debit),credit:round(b.credit),amount:round(opening+(assets.has(a.type)?1:-1)*(b.debit-b.credit))};});
+   rows.push({name:'Accumulated earnings',section:'Equity',amount:round(earnings),debit:0,credit:round(earnings)});
+   // Opening balances were saved on accounts without a journal; this equity line keeps assets = liabilities + equity.
+   if(Math.abs(unpostedOpenings)>=0.005)rows.push({name:'Opening balances not posted to the ledger',section:'Equity',amount:round(unpostedOpenings),debit:0,credit:round(unpostedOpenings)});
+   return rows;
   };
   const current=balances(to);
   result.financial.details=selected.filter(e=>!to||e.date<=to).map(linked);
@@ -89,7 +108,7 @@ export async function financialReport(companyId:number,locationId:number,currenc
   }else{result.title=key==='balance-sheet-detail'?'Balance Sheet Detail':'Balance Sheet Standard';result.rows=current;result.columns=[col('section','Section'),col('name','Account'),...(key==='balance-sheet-detail'?[money('debit','Debit'),money('credit','Credit')]:[]),money('amount','Balance')];}
  }else if(key==='cash-flow'){
   result.title='Statement of Cash Flows';const bank=(e:typeof entries[number])=>accountFor(e.account,e.entryCurrency,e.accountId)?.type==='Bank';
-  const opening=round(selected.filter(e=>bank(e)&&from&&e.date<from).reduce((n,e)=>n+e.debit-e.credit,0));
+  const opening=round(chart.filter(a=>a.type==='Bank').reduce((n,a)=>n+openingHome(a),0)+selected.filter(e=>bank(e)&&from&&e.date<from).reduce((n,e)=>n+e.debit-e.credit,0));
   const groups=new Map<number,typeof entries>();for(const e of selected.filter(e=>inRange(e.date)))groups.set(e.entryId,[...(groups.get(e.entryId)||[]),e]);
   const details:Row[]=[];
   for(const group of groups.values()){
@@ -108,16 +127,17 @@ export async function financialReport(companyId:number,locationId:number,currenc
   const postingsByDocument=new Map<number,typeof entries>();
   for(const e of postedEntries)if(e.transactionId)postingsByDocument.set(e.transactionId,[...(postingsByDocument.get(e.transactionId)||[]),e]);
   const postedIds=new Set(postingsByDocument.keys());
-  const validDocs=docs.filter(d=>d.transactionDate<=asOf&&postedIds.has(d.id)&&!['draft','void','voided','cancelled','canceled'].includes(d.status));
+  const validDocs=docs.filter(d=>d.transactionDate<=asOf&&postedIds.has(d.id)&&!['draft','void','voided','cancelled','canceled','deleted'].includes(String(d.status).toLowerCase()));
   const validMap=new Map(validDocs.map(d=>[d.id,d]));
   const control=(d:typeof docs[number])=>{const names=new Set((postingsByDocument.get(d.id)||[]).filter(e=>['Accounts Receivable','Accounts Payable'].includes(accountFor(e.account,e.entryCurrency,e.accountId)?.type||'')).map(e=>e.account));return names.size===1?accountFor([...names][0]):undefined;};
   const allocations=[...invoiceAllocations,...billAllocations];
   for(const d of validDocs){const documentId=d.billId||d.invoiceId;if(documentId&&!allocations.some(a=>a.paymentId===d.id))allocations.push({paymentId:d.id,documentId,amount:d.total});}
   const used=new Map<number,number>();const settled:Row[]=[];
   for(const allocation of allocations){const payment=validMap.get(allocation.paymentId),document=validMap.get(allocation.documentId);if(!payment||!document||payment.currency!==document.currency||payment.party!==document.party)continue;
-   const a=control(document),p=control(payment);if(!a||!p||a.id!==p.id||!['customer payment','bill payment','vendor payment','cheque'].includes(payment.type)||!['invoice','bill','received item bill','statement charge','finance charge'].includes(document.type))continue;
+   const a=control(document),p=control(payment);if(!a||!p||a.id!==p.id||!['customer payment','bill payment','vendor payment','cheque','credit memo','vendor credit'].includes(payment.type)||!['invoice','bill','received item bill','statement charge','finance charge'].includes(document.type))continue;
    const amount=Math.min(allocation.amount,Math.max(0,document.total-(used.get(document.id)||0)),Math.max(0,payment.total-(used.get(payment.id)||0)));if(amount<=0)continue;
    used.set(document.id,(used.get(document.id)||0)+amount);used.set(payment.id,(used.get(payment.id)||0)+amount);
+   if(document.currency!==currency&&(Number(document.exchangeRate)===1||Number(payment.exchangeRate)===1)){issues.add(`${document.number} / ${payment.number} are in ${document.currency} but one is saved at exchange rate 1; its realised difference is left out.`);continue;}
    if(document.currency!==currency&&inRange(payment.transactionDate)&&(!locationId||document.locationId===locationId))settled.push({date:payment.transactionDate,reference:payment.number,name:document.party,document:document.number,account:a.name,accountId:a.id,transactionId:payment.id,currency:document.currency,bookedRate:document.exchangeRate,currentRate:payment.exchangeRate,bookedValue:round(amount*document.exchangeRate),currentValue:round(amount*payment.exchangeRate),gainLoss:round(amount*(payment.exchangeRate-document.exchangeRate)*(a.type==='Accounts Receivable'?1:-1))});
   }
   const positions:Row[]=[];
@@ -126,12 +146,13 @@ export async function financialReport(companyId:number,locationId:number,currenc
    const remaining=Math.max(0,d.total-(used.get(d.id)||0));if(remaining<0.005)continue;
    const posting=(postingsByDocument.get(d.id)||[]).filter(e=>e.account===a.name).reduce((n,e)=>n+e.debit-e.credit,0);
    const sign=Math.sign(posting);if(!sign)continue;
-   const currentRate=d.currency===currency?1:rates.find(r=>r.currencyCode===d.currency)?.rate;
+   if(d.currency!==currency&&Number(d.exchangeRate)===1){issues.add(`${d.number} is in ${d.currency} but saved at exchange rate 1; correct its rate before relying on its revaluation.`);continue;}
+   const currentRate=d.currency===currency?1:(rateFor(d.currency)||undefined);
    if(currentRate===undefined&&d.currency!==currency)issues.add(`No active ${d.currency} exchange rate; ${d.number} cannot be revalued.`);
    positions.push({date:d.transactionDate,reference:d.number,dueDate:d.dueDate||d.transactionDate,name:d.party,account:a.name,accountId:a.id,transactionId:d.id,currency:d.currency,bookedRate:d.exchangeRate,currentRate:currentRate??'',bookedValue:round(sign*remaining*d.exchangeRate),currentValue:currentRate===undefined?'':round(sign*remaining*currentRate),gainLoss:currentRate===undefined?'':round(sign*remaining*(currentRate-d.exchangeRate))});
   }
   if(key==='cash-flow-forecast'){
-   result.title='Cash Flow Forecast';let projected=round(selected.filter(e=>e.date<=asOf&&accountFor(e.account,e.entryCurrency,e.accountId)?.type==='Bank').reduce((n,e)=>n+e.debit-e.credit,0));
+   result.title='Cash Flow Forecast';let projected=round(chart.filter(a=>a.type==='Bank').reduce((n,a)=>n+openingHome(a),0)+selected.filter(e=>e.date<=asOf&&accountFor(e.account,e.entryCurrency,e.accountId)?.type==='Bank').reduce((n,e)=>n+e.debit-e.credit,0));
    result.financial.details=positions.map(r=>({...r,amount:r.bookedValue}));const groups=new Map<string,{month:string;inflow:number;outflow:number}>();
    for(const r of positions){const month=String(r.dueDate)<asOf?asOf.slice(0,7):String(r.dueDate).slice(0,7),g=groups.get(month)||{month,inflow:0,outflow:0};if(Number(r.bookedValue)>0)g.inflow+=Number(r.bookedValue);else g.outflow-=Number(r.bookedValue);groups.set(month,g);}
    result.rows=[{month:'Opening cash',inflow:0,outflow:0,projected},...[...groups.values()].sort((a,b)=>a.month.localeCompare(b.month)).map(g=>{projected=round(projected+g.inflow-g.outflow);return {...g,inflow:round(g.inflow),outflow:round(g.outflow),projected};})];result.columns=[col('month','Due Month'),money('inflow','Expected Inflow'),money('outflow','Expected Outflow'),money('projected','Projected Cash')];
