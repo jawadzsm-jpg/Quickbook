@@ -133,7 +133,7 @@ Layout Builder documents show bilingual labels by default: English on the left a
 | Accountant | 11 | Trial balance, general ledger, journal, transaction detail, audit trail |
 | Lists | 14 | Accounts, contacts, terms, transactions, memorised reports, currencies |
 | Employees & HR | 2 | Employee balances and payment detail |
-| Banking | 2 | Bank register and cheque detail |
+| Banking | 2 | Bank Register and Bank Reconciliation |
 | VAT | 7 | Summary, detail, exceptions, reverse charge, items, codes |
 | Customers | 16 | Open balance, aging, statements, income, payments, invoices |
 | Sales | 12 | Sales by customer, item, rep, transaction detail, pending documents |
@@ -176,6 +176,8 @@ The generic table-export toolbar is suppressed inside Report Center dialogs, whi
 ### Profit & Loss presentation and account reconciliation
 
 The Profit & Loss library groups statements/comparisons, profitability analysis, and cost/account review. Reports use clear currency-labeled summary cards, section/subtotal/net-result styling, light/dark colors, and labeled mobile/tablet cards below 1024 px; A4 printing restores the complete table. A single export menu provides PDF, Excel and CSV. Account warnings are visible and included with the reporting basis and summary in every export; Excel also includes a formatted ledger-detail sheet. Detail and COGS reports avoid repeating the same ledger table below the main report. Existing shared stamp controls support mouse/touch dragging, arrow keys and millimetre offsets, with A4 portrait/landscape print and PDF placement.
+
+Banking reports are company-wide (bank accounts belong to the company; the selected inventory does not filter them). **Bank Register** starts each bank account's running balance at its opening balance and shows amounts in the bank's own currency: home-currency banks use the home amount; a foreign-currency bank uses the original amount of postings in its currency and converts postings made in another currency at its current rate. Its closing card uses home values, with the opening balance at the current rate. **Bank Reconciliation** lists every posted line on a bank account, including sales receipts, expenses, vendor payments and manual journals ("journal entry"), so it adds up to the bank's ledger movement; Cleared is taken from the source document's status.
 
 Profit & Loss reports read posted journal amounts in home currency: invoices and sales receipts credit each item's income account at line subtotal × exchange rate and debit its COGS account at quantity × unit cost × exchange rate; bills debit the inventory asset (stock items) or COGS/purchase account. Manual journals in another currency are converted when saved; the original amount is kept separately. The cost-of-sales review warning only flags stock items sold with no positive unit cost, not services. **Item Profitability** shows Sales ex VAT, Cost of sales and Gross Profit per item from invoice and sales-receipt lines at each document's exchange rate, excluding void, voided, cancelled, canceled and draft documents. **Stock Pricing & Profit/Loss** converts each supplier bill at its own exchange rate.
 

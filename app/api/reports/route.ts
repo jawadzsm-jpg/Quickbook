@@ -5,6 +5,7 @@ import { listReportKeys } from "@/lib/list-report";
 import { accountantReportKeys, accountantAccountIssues } from "@/lib/accountant-report";
 import { vendorDocumentAccount, vendorReportKeys } from "@/lib/vendor-report";
 import { buildVatReport, vatReportKeys } from "@/lib/vat-report";
+import { bankingReportKeys } from "@/lib/banking-report";
 import { financialKeys, financialReport } from "@/lib/financial-reports";
 import { reportPeriod, validReportDate, reportMonths, previousYearDate } from "@/lib/report-period";
 import { profitLoss } from "@/lib/profit-loss";
@@ -65,7 +66,8 @@ export async function GET(request: Request) {
     // Report amounts are stored/converted in home currency; never relabel them from a query parameter.
     const currency = reportCompany.baseCurrency;
     // UAE VAT is filed by the VAT-registered company, not separately by inventory.
-    const scoped = key !== "income-tax" && !vatReportKeys.has(key) && Number.isInteger(locationId) && locationId > 0;
+    // Bank accounts belong to the company, so bank reports are company-wide like their Chart of Accounts balances.
+    const scoped = key !== "income-tax" && !vatReportKeys.has(key) && !bankingReportKeys.has(key) && Number.isInteger(locationId) && locationId > 0;
     if (scoped) {
       const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).limit(1);
       if (!location) return Response.json({ error: "Select an inventory in this company." }, { status: 400 });
@@ -557,14 +559,32 @@ export async function GET(request: Request) {
       title = "Bank Register";
       const balances = new Map<number, number>();
       const baseBalances = new Map<number, number>();
+      const homeCurrency = String(currency).toUpperCase();
+      const bankRates = new Map(currentRates.map((rate) => [String(rate.currencyCode).toUpperCase(), Number(rate.rate)]));
+      // Running balances start from each bank account's opening balance (home value at the current rate), like the Chart of Accounts.
+      const opening = (account: typeof allAccounts[number]) => {
+        const bankCurrency = String(account.currency || currency).toUpperCase();
+        if (!balances.has(account.id)) balances.set(account.id, Number(account.balance) || 0);
+        if (!baseBalances.has(account.id)) baseBalances.set(account.id, (Number(account.balance) || 0) * (bankCurrency === homeCurrency ? 1 : bankRates.get(bankCurrency) ?? 0));
+      };
+      // Amounts in the bank's own currency: home banks use the home amount; a foreign bank uses the original amount of
+      // postings in its currency, and converts postings made in another currency at its current rate.
+      const native = (row: typeof journal[number], bankCurrency: string, side: "debit" | "credit") => {
+        const home = Number(row[side]);
+        if (bankCurrency === homeCurrency) return home;
+        const entryCurrency = String(row.entryCurrency || currency).toUpperCase();
+        const rate = Number(row.exchangeRate || 1);
+        if (entryCurrency === bankCurrency) { const original = side === "debit" ? row.originalDebit : row.originalCredit; return original != null ? Number(original) : rate > 0 ? home / rate : home; }
+        const bankRate = bankRates.get(bankCurrency) ?? 0;
+        return bankRate > 0 ? home / bankRate : 0;
+      };
       rows = journal.flatMap((row) => {
         const account = journalAccount(row);
         if (!account || !(account.systemRole === "BANK" || account.type === "Bank")) return [];
         const bankCurrency = String(account.currency || currency).toUpperCase();
-        const entryCurrency = String(row.entryCurrency || currency).toUpperCase();
-        const rate = Number(row.exchangeRate || 1);
-        const debit = row.originalDebit != null ? Number(row.originalDebit) : entryCurrency === bankCurrency && bankCurrency !== currency && rate > 0 ? Number(row.debit) / rate : Number(row.debit);
-        const credit = row.originalCredit != null ? Number(row.originalCredit) : entryCurrency === bankCurrency && bankCurrency !== currency && rate > 0 ? Number(row.credit) / rate : Number(row.credit);
+        opening(account);
+        const debit = native(row, bankCurrency, "debit");
+        const credit = native(row, bankCurrency, "credit");
         const balance = (balances.get(account.id) ?? 0) + debit - credit;
         balances.set(account.id, balance);
         const baseBalance = (baseBalances.get(account.id) ?? 0) + Number(row.debit) - Number(row.credit);
@@ -575,16 +595,17 @@ export async function GET(request: Request) {
       columns = [{ key: "account", label: "Bank Account" }, { key: "currency", label: "Currency" }, { key: "date", label: "Date" }, { key: "reference", label: "Reference" }, { key: "description", label: "Description" }, { key: "debit", label: "Debit" }, { key: "credit", label: "Credit" }, { key: "balance", label: "Balance" }];
     } else if (key === "bank-reconciliation") {
       title = "Bank Reconciliation";
-      const bankingTypes = new Set(["deposit", "cheque", "transfer", "credit card charge", "customer payment", "bill payment"]);
-      const transactionsById = new Map(scopedTransactions.map((row) => [row.id, row]));
+      // Every posted line on a bank account (payments, receipts, expenses, transfers and manual journals) so the
+      // reconciliation adds up to the bank's ledger movement.
+      const transactionsById = new Map(rawTransactions.map((row) => [row.id, row]));
       rows = journal.flatMap((row) => {
         const transaction = row.transactionId ? transactionsById.get(row.transactionId) : undefined;
         const account = journalAccount(row);
-        if (!transaction || !bankingTypes.has(transaction.type) || !account || !(account.systemRole === "BANK" || account.type === "Bank")) return [];
+        if (!account || !(account.systemRole === "BANK" || account.type === "Bank")) return [];
         const duplicateName = (accountCandidates.get(account.name)?.length ?? 0) > 1;
         const debit = Number(row.debit);
         const credit = Number(row.credit);
-        return [{ transactionId: transaction.id, account: duplicateName ? `${account.code} · ${account.name}` : account.name, accountAccountId: account.id, date: row.date, reference: row.reference, referenceTransactionId: transaction.id, type: transaction.type, party: transaction.party || "—", status: transaction.status === "cleared" ? "Cleared" : "Uncleared", debit, credit, amount: debit - credit, absoluteAmount: Math.abs(debit - credit) }];
+        return [{ transactionId: transaction?.id ?? 0, account: duplicateName ? `${account.code} · ${account.name}` : account.name, accountAccountId: account.id, date: row.date, reference: row.reference, referenceTransactionId: transaction?.id ?? 0, type: transaction?.type ?? "journal entry", party: transaction?.party || row.description || "—", status: transaction?.status === "cleared" ? "Cleared" : "Uncleared", debit, credit, amount: debit - credit, absoluteAmount: Math.abs(debit - credit) }];
       });
       columns = [{ key: "account", label: "Bank Account" }, { key: "date", label: "Date" }, { key: "reference", label: "Reference" }, { key: "type", label: "Type" }, { key: "party", label: "Name / Account" }, { key: "status", label: "Reconciliation Status" }, { key: "debit", label: "Money In", ...money }, { key: "credit", label: "Money Out", ...money }, { key: "amount", label: "Net", ...money }];
     } else if (key === "ap-aging-summary") {

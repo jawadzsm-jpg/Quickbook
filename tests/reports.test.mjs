@@ -877,6 +877,27 @@ test('customer open balance uses allocations, preserves unused credits, and link
   } finally { delete globalThis.__reportTestUser; }
 });
 
+test("Bank Register starts at the opening balance, is company-wide and keeps each bank's currency; reconciliation lists every bank posting", async () => {
+  const response = await workspaces.POST(post({ type: "company", name: "Banking audit", baseCurrency: "AED" }));
+  const { company: c } = await response.json(); const storeA = c.locations[0].id;
+  const [storeB] = await db.insert(schema.inventoryLocations).values({ companyId: c.id, name: "Store B", code: "BB", invoicePrefix: "BB" }).returning();
+  const [bank] = await db.insert(schema.accounts).values({ companyId: c.id, code: "1199", name: "Audit Bank", type: "Bank", currency: "AED", balance: 1000 }).returning();
+  const [receipt] = await db.insert(schema.transactions).values({ companyId: c.id, locationId: storeB.id, type: "sales receipt", number: "SR-1", party: "Walk-in", transactionDate: "2026-09-05", subtotal: 200, total: 200 }).returning();
+  async function entry(locationId, transactionId, date, values, extra = {}) {
+    const [j] = await db.insert(schema.journalEntries).values({ companyId: c.id, locationId, transactionId, entryDate: date, reference: `B-${date}`, posted: true, ...extra }).returning();
+    await db.insert(schema.journalLines).values(values.map(v => ({ journalEntryId: j.id, ...v })));
+  }
+  await entry(storeB.id, receipt.id, "2026-09-05", [{ accountName: "Audit Bank", accountId: bank.id, debit: 200 }, { accountName: "Sales Revenue", credit: 200 }]);
+  // A USD manual journal into the AED bank: the register shows the AED amount, not the USD original.
+  await entry(storeA, null, "2026-09-06", [{ accountName: "Audit Bank", accountId: bank.id, debit: 367.25, originalDebit: 100 }, { accountName: "Owner Capital", credit: 367.25, originalCredit: 100 }], { currency: "USD", exchangeRate: 3.6725 });
+  const get = async (type) => { const res = await GET(new Request(`https://app.test/api/reports?type=${type}&companyId=${c.id}&locationId=${storeA}&periodStart=2026-09-01&periodEnd=2026-09-30`)); assert.equal(res.status, 200); return (await res.json()).report; };
+  const register = (await get("bank-register")).rows.filter(r => r.accountAccountId === bank.id);
+  assert.deepEqual(register.map(r => [r.debit, r.balance]), [["200.00 AED", "1200.00 AED"], ["367.25 AED", "1567.25 AED"]]);
+  assert.equal(register.at(-1).baseBalance, 1567.25);
+  const reconciliation = (await get("bank-reconciliation")).rows.filter(r => r.accountAccountId === bank.id);
+  assert.deepEqual(reconciliation.map(r => [r.type, r.amount]), [["sales receipt", 200], ["journal entry", 367.25]]);
+});
+
 test("P&L reports reconcile item, rep, inventory and class to posted ledger with dates and credits", async () => {
   const response = await workspaces.POST(post({ type: "company", name: "Profit reconciliation", baseCurrency: "AED" }));
   const { company: c } = await response.json(); const loc = c.locations[0].id;
