@@ -28,7 +28,7 @@ export function uniqueSalesReports<T extends { key: string }>(reports: T[]) {
 }
 export function salesColumnKind(column: SalesReportColumn): "text" | "quantity" | "price" | "amount" {
   if (column.type === "money") return /price|cost/i.test(column.key) ? "price" : "amount";
-  return ["quantity", "fulfilledQuantity", "remainingQuantity", "documents", "customers"].includes(column.key) ? "quantity" : "text";
+  return ["quantity", "returned", "fulfilledQuantity", "remainingQuantity", "documents", "customers"].includes(column.key) ? "quantity" : "text";
 }
 export function salesColumnWeight(column: SalesReportColumn) {
   if (column.key === "item") return 5;
@@ -38,7 +38,7 @@ export function salesColumnWeight(column: SalesReportColumn) {
   return column.type === "money" ? 2.2 : 1.8;
 }
 export function salesColumnTotal(rows: SalesReportRow[], column: SalesReportColumn) {
-  if (!["quantity", "fulfilledQuantity", "remainingQuantity", "documents", "amount", "sales", "vat", "total", "refunds", "netSales"].includes(column.key)) return null;
+  if (!["quantity", "returned", "fulfilledQuantity", "remainingQuantity", "documents", "amount", "sales", "returns", "faceValue", "remainingValue", "vat", "total", "refunds", "netSales"].includes(column.key)) return null;
   return rows.reduce((total, row) => total + Number(row[column.key] ?? 0), 0);
 }
 export function salesCustomer(row: SalesReportRow, key = "") {
@@ -112,19 +112,21 @@ export function salesSummary(report: SalesReportLike): { cards: SalesSummaryCard
   if (!salesReportKeys.has(key)) return null;
 
   if (key === "daily-sales-summary") {
-    return { cards: [moneyCard("Sales before VAT", sum(rows, "sales"), "positive"), moneyCard("VAT", sum(rows, "vat")), moneyCard("Gross total", sum(rows, "total"), "accent"), numberCard("Documents", sum(rows, "documents")), numberCard("Quantity sold", sum(rows, "quantity"))], note: "Daily totals use unique invoices and sales receipts, before VAT, in home currency. Freight-only lines are excluded from quantity counts. Credit memo returns are shown separately in Sales Graph." };
+    return { cards: [moneyCard("Net sales before VAT", sum(rows, "netSales"), "positive"), moneyCard("Sales", sum(rows, "sales")), moneyCard("Returns", sum(rows, "returns"), "negative"), moneyCard("Net total inc VAT", sum(rows, "total"), "accent"), numberCard("Documents", sum(rows, "documents")), numberCard("Net quantity", sum(rows, "quantity"))], note: "Invoices and sales receipts less credit-note returns, in home currency. Cancelled, void and draft documents and stock-return lines are excluded." };
   }
   if (key === "sales-by-customer-detail") {
     return { cards: [moneyCard("Sales before VAT", sum(rows, "amount"), "positive"), moneyCard("VAT", sum(rows, "vat")), moneyCard("Gross total", sum(rows, "total"), "accent"), numberCard("Documents", rows.length), numberCard("Customers", unique(rows, "customer"))], note: "Sales exclude VAT and credit memo returns. Original document links open sales; receivable/receipt and revenue accounts open posted Chart of Accounts history. Customer names open their account area." };
   }
   if (key === "sales-by-customer") {
     const total = sum(rows, "amount");
-    return { cards: [moneyCard("Sales before VAT", total, "positive"), numberCard("Customers", rows.length), moneyCard("Average per customer", rows.length ? total / rows.length : 0), moneyCard("Top customer sales", Math.max(0, ...rows.map((row) => Number(row.amount ?? 0))), "accent")], note: "Customer totals show invoices and sales receipts before VAT, in home currency. Credit memo returns are shown separately in Sales Graph. Select a customer to open its account area." };
+    return { cards: [moneyCard("Net sales before VAT", total, "positive"), moneyCard("Returns", sum(rows, "returns"), "negative"), numberCard("Customers", rows.length), moneyCard("Average per customer", rows.length ? total / rows.length : 0), moneyCard("Top customer sales", Math.max(0, ...rows.map((row) => Number(row.amount ?? 0))), "accent")], note: "Invoices and sales receipts less credit-note returns, before VAT, in home currency; % of Net Sales shows each customer's share." };
   }
   if (key === "sales-by-item" || key === "sales-by-item-detail") {
     const quantity = sum(rows, "quantity");
     const sales = sum(rows, "amount");
-    return { cards: [moneyCard("Sales before VAT", sales, "positive"), numberCard("Quantity sold", quantity), numberCard(key === "sales-by-item" ? "Items" : "Sales lines", rows.length), moneyCard("Average unit value", quantity ? sales / quantity : 0)], note: "Sales exclude VAT and credit memo returns. Unit prices are per-line averages before VAT; they are not added in totals. Source numbers open original sales documents, and detail account links open posted receivable/receipt and revenue accounts." };
+    const cards = [moneyCard("Net sales before VAT", sales, "positive"), numberCard("Net quantity", quantity), numberCard(key === "sales-by-item" ? "Items" : "Sales lines", rows.length)];
+    if (key === "sales-by-item") { const paid = sum(rows, "paidQuantity"); cards.push(moneyCard("Average selling price", paid ? sum(rows, "sales") / paid : 0), moneyCard("Returns", sum(rows, "returns"), "negative")); }
+    return { cards, note: "Invoice and sales-receipt lines less credit-note returns, before VAT, in home currency. Stock-return lines are stock corrections and are excluded; the average selling price ignores zero-price lines." };
   }
   if (key === "sales-by-rep-summary" || key === "sales-by-rep-detail") {
     const sales = sum(rows, "amount");
@@ -133,7 +135,7 @@ export function salesSummary(report: SalesReportLike): { cards: SalesSummaryCard
   }
   if (key === "sales-by-ship-to") {
     const sales = sum(rows, "amount");
-    return { cards: [moneyCard("Sales before VAT", sales, "positive"), numberCard("Destinations", rows.length), numberCard("Customer groups", sum(rows, "customers")), numberCard("Documents", sum(rows, "documents"))], note: "Destinations use the current country/address of the customer record, rather than the historical shipping address. A customer may appear in multiple groups; sales exclude VAT and credit memo returns." };
+    return { cards: [moneyCard("Sales before VAT", sales, "positive"), numberCard("Destinations", rows.length), numberCard("Customer groups", sum(rows, "customers")), numberCard("Documents", sum(rows, "documents"))], note: "Destinations use each document's delivery address (its country, else its last line), falling back to the current country/address of the customer record, rather than the historical shipping address. A customer may appear in multiple groups; sales exclude VAT and credit memo returns." };
   }
   if (key === "sales-graph") {
     const sales = sum(rows, "sales");
@@ -143,10 +145,10 @@ export function salesSummary(report: SalesReportLike): { cards: SalesSummaryCard
   if (key === "pending-sales") {
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
     const overdue = rows.filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(String(row.dueDate || "")) && String(row.dueDate) < today).length;
-    return { cards: [moneyCard("Document face value", sum(rows, "amount"), "accent"), numberCard("Open documents", rows.length), numberCard("Customers", unique(rows, "customer")), { label: "Past due", value: overdue, format: "number", tone: overdue ? "negative" : "positive" }], note: "Face values include VAT and combine unposted pipeline documents with unpaid invoice original amounts. This is not an open receivables balance or a revenue forecast. Invoice payments are reflected in Customer Open Balance. Account links show saved planned accounts for unposted documents and actual posted accounts for invoices." };
+    return { cards: [moneyCard("Open value", sum(rows, "amount"), "accent"), numberCard("Open documents", rows.length), numberCard("Customers", unique(rows, "customer")), { label: "Past due", value: overdue, format: "number", tone: overdue ? "negative" : "positive" }, moneyCard("Unpaid invoices", sum(rows.filter((row) => row.type === "invoice"), "amount"))], note: "Open quotations, estimates, proformas, pending invoices, the uninvoiced part of sales orders and the unpaid balance of invoices, including VAT, in home currency. A current snapshot regardless of document date." };
   }
   if (key === "sales-orders") {
-    return { cards: [moneyCard("Order value", sum(rows, "amount"), "accent"), numberCard("Sales orders", rows.length), numberCard("Customers", unique(rows, "party")), numberCard("Statuses", unique(rows, "status"))], note: "Order face values include VAT; orders are unposted commitments. Ordered, invoiced and remaining quantities use all current saved fulfilment allocations, including invoices after the selected order date range. Select an order to open fulfilment." };
+    return { cards: [moneyCard("Backlog inc VAT", sum(rows, "remainingValue"), "accent"), moneyCard("Order value", sum(rows, "amount")), numberCard("Sales orders", rows.length), numberCard("Remaining quantity", sum(rows, "remainingQuantity")), numberCard("Customers", unique(rows, "party"))], note: "Invoiced quantities come from saved invoices (cancelled invoices excluded); fully converted orders count as invoiced. Backlog is the remaining quantity at the order's price including VAT. A current snapshot." };
   }
 
   const sales = sum(rows, "amount");
