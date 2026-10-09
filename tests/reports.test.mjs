@@ -885,6 +885,39 @@ test('customer open balance uses allocations, preserves unused credits, and link
   } finally { delete globalThis.__reportTestUser; }
 });
 
+test("Lists: account and fixed-asset balances include openings, VAT-aware prices and margins, other names grouped, void notes hidden", async () => {
+  const response = await workspaces.POST(post({ type: "company", name: "Lists audit", baseCurrency: "AED" }));
+  const { company: c } = await response.json(); const loc = c.locations[0].id;
+  const [storeB] = await db.insert(schema.inventoryLocations).values({ companyId: c.id, name: "Store LB", code: "LB", invoicePrefix: "LB" }).returning();
+  const [bank, building, depreciation] = await db.insert(schema.accounts).values([
+    { companyId: c.id, code: "1096", name: "List Bank", type: "Bank", currency: "AED", balance: 10000 },
+    { companyId: c.id, code: "1596", name: "List Building", type: "Fixed Asset", currency: "AED", balance: 100000 },
+    { companyId: c.id, code: "1597", name: "List Accumulated Depreciation", type: "Fixed Asset", currency: "AED", balance: -20000 },
+  ]).returning();
+  const [j] = await db.insert(schema.journalEntries).values({ companyId: c.id, locationId: storeB.id, entryDate: "2026-09-10", reference: "LIST", posted: true }).returning();
+  await db.insert(schema.journalLines).values([{ journalEntryId: j.id, accountName: bank.name, accountId: bank.id, debit: 5000 }, { journalEntryId: j.id, accountName: "Owner Capital", credit: 5000 }]);
+  await db.insert(schema.items).values({ companyId: c.id, locationId: loc, sku: "LIST-A", name: "VAT inclusive item", itemType: "service", salesPrice: 105, cost: 80, amountsIncludeVat: true, salesVatCode: "STANDARD" });
+  await db.insert(schema.transactions).values([
+    { companyId: c.id, locationId: loc, type: "invoice", number: "LN-1", party: "Walk In", transactionDate: "2026-09-10", subtotal: 10, total: 10, baseTotal: 10 },
+    { companyId: c.id, locationId: loc, type: "invoice", number: "LN-2", party: "WALK  IN ", transactionDate: "2026-09-11", subtotal: 10, total: 10, baseTotal: 10 },
+    { companyId: c.id, locationId: loc, type: "invoice", number: "LN-VOID", party: "Ghost", status: "void", memo: "call back", transactionDate: "2026-09-11", subtotal: 10, total: 10, baseTotal: 10 },
+  ]);
+  const get = async (type) => { const res = await GET(new Request(`https://app.test/api/reports?type=${type}&companyId=${c.id}&locationId=${loc}`)); assert.equal(res.status, 200, await res.clone().text()); return (await res.json()).report; };
+  // Account Listing matches the Chart of Accounts: 10,000 opening + 5,000 posted in another inventory.
+  assert.equal((await get("account-listing")).rows.find((row) => row.nameAccountId === bank.id).balance, 15000);
+  const assets = (await get("fixed-asset-listing")).rows;
+  assert.equal(assets.find((row) => row.name === "Net book value").balance, 80000);
+  assert.equal(assets.find((row) => row.nameAccountId === depreciation.id).group, "Accumulated depreciation");
+  assert.ok(assets.some((row) => row.nameAccountId === building.id));
+  // 105 including 5% VAT is 100 ex VAT; margin on cost 80 is 20%, markup 25%.
+  const priced = (await get("item-price-level-list")).rows.find((row) => row.sku === "LIST-A");
+  assert.deepEqual([priced.priceExVat, priced.priceIncVat, priced.margin, priced.markup], [100, 105, "20.0%", "25.0%"]);
+  const others = (await get("other-names-contact-list")).rows;
+  assert.deepEqual(others.filter((row) => /walk/i.test(row.name)).map((row) => row.transactions), [2]);
+  assert.equal(others.some((row) => row.name === "Ghost"), false);
+  assert.equal((await get("to-do-notes")).rows.some((row) => row.number === "LN-VOID"), false);
+});
+
 test("Accountant reports: company-wide trial balance with openings that balances, balance forward, voided documents, ledger effect", async () => {
   const response = await workspaces.POST(post({ type: "company", name: "Accountant audit", baseCurrency: "AED" }));
   const { company: c } = await response.json(); const loc = c.locations[0].id;
@@ -1439,8 +1472,8 @@ test('Lists summaries provide master-data KPIs and export all 14 reports to fitt
   ] });
   assert.deepEqual(accounts.cards.map(card => card.value), [3, 2, 1, 1, 2, 1200]);
   const items = listSummary({ key: 'item-listing', rows: [
-    { category: 'Hardware', quantity: 5, reorder: 2, cost: 100, status: 'active' },
-    { category: 'Hardware', quantity: 1, reorder: 2, cost: 50, status: 'inactive' },
+    { category: 'Hardware', itemType: 'stock-part', quantity: 5, reorder: 2, cost: 100, status: 'active' },
+    { category: 'Hardware', itemType: 'stock-part', quantity: 1, reorder: 2, cost: 50, status: 'inactive' },
   ] });
   assert.deepEqual(items.cards.map(card => card.value), [550, 2, 6, 1, 1, 1]);
   const contacts = listSummary({ key: 'customer-contact-list', rows: [

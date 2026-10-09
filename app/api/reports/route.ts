@@ -67,7 +67,7 @@ export async function GET(request: Request) {
     // UAE VAT is filed by the VAT-registered company, not separately by inventory.
     // Bank accounts belong to the company, so bank reports are company-wide like their Chart of Accounts balances.
     // The trial balance, ledgers and journals describe company-level accounts, so they are company-wide too.
-    const companyLedgerKeys = new Set(["trial-balance", "general-ledger", "transaction-detail-account", "journal", "transaction-journal"]);
+    const companyLedgerKeys = new Set(["trial-balance", "general-ledger", "transaction-detail-account", "journal", "transaction-journal", "account-listing", "fixed-asset-listing"]);
     const scoped = key !== "income-tax" && !vatReportKeys.has(key) && !bankingReportKeys.has(key) && !companyLedgerKeys.has(key) && Number.isInteger(locationId) && locationId > 0;
     if (scoped) {
       const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).limit(1);
@@ -704,13 +704,18 @@ export async function GET(request: Request) {
     } else if (key === "account-listing") {
       title = "Account Listing";
       const namesById = new Map(allAccounts.map((account) => [account.id, account.name]));
-      rows = allAccounts.map((account) => ({ code: account.code, name: account.name, nameAccountId: account.id, parent: account.parentAccountId ? namesById.get(account.parentAccountId) ?? "—" : "—", parentAccountId: account.parentAccountId ?? 0, type: account.type, role: account.systemRole ?? "—", currency: account.currency, status: account.active ? "Active" : "Inactive", balance: account.balance }));
-      columns = [{ key: "code", label: "Code" }, { key: "name", label: "Account" }, { key: "type", label: "Type" }, { key: "parent", label: "Sub-account Of" }, { key: "role", label: "System Link" }, { key: "currency", label: "Currency" }, { key: "status", label: "Status" }, { key: "balance", label: "Opening Balance", ...money }];
+      // Balance = opening balance + posted movement, company-wide, in home currency on the account's normal side.
+      const postedById = new Map(ledgerRows.filter((row) => row.accountId).map((row) => [row.accountId, row.debit - row.credit]));
+      rows = allAccounts.map((account) => { const sign = debitNormalTypes.has(account.type) ? 1 : -1; const opening = sign * openingDebit(account), posted = sign * (postedById.get(account.id) ?? 0); return { code: account.code, name: account.name, nameAccountId: account.id, parent: account.parentAccountId ? namesById.get(account.parentAccountId) ?? "—" : "—", parentAccountId: account.parentAccountId ?? 0, type: account.type, role: account.systemRole ?? "—", currency: account.currency, status: account.active ? "Active" : "Inactive", opening: Math.round(opening * 100) / 100, posted: Math.round(posted * 100) / 100, balance: Math.round((opening + posted) * 100) / 100 }; });
+      columns = [{ key: "code", label: "Code" }, { key: "name", label: "Account" }, { key: "type", label: "Type" }, { key: "parent", label: "Sub-account Of" }, { key: "role", label: "System Link" }, { key: "currency", label: "Currency" }, { key: "status", label: "Status" }, { key: "opening", label: "Opening (home)", ...money }, { key: "posted", label: "Posted movement", ...money }, { key: "balance", label: "Balance (home)", ...money }];
     } else if (key === "fixed-asset-listing") {
       title = "Fixed Asset Listing";
       const balancesByAccount = new Map(ledgerRows.map((row) => [row.accountId, row]));
-      rows = allAccounts.filter((account) => account.type === "Fixed Asset").map((account) => { const posted = balancesByAccount.get(account.id); return { code: account.code, name: account.name, nameAccountId: account.id, currency: account.currency, debit: posted?.debit ?? 0, credit: posted?.credit ?? 0, balance: (posted?.balance ?? 0) + account.balance, status: account.active ? "Active" : "Inactive" }; });
-      columns = [{ key: "code", label: "Code" }, { key: "name", label: "Fixed Asset Account" }, { key: "currency", label: "Currency" }, { key: "debit", label: "Debit", ...money }, { key: "credit", label: "Credit", ...money }, { key: "balance", label: "Book Balance", ...money }, { key: "status", label: "Status" }];
+      // Opening balance (home value) + posted debits − credits. Accumulated depreciation accounts are contra assets.
+      rows = allAccounts.filter((account) => account.type === "Fixed Asset").map((account) => { const posted = balancesByAccount.get(account.id); const opening = openingDebit(account); const depreciation = /depreciation|amortis|amortiz/i.test(account.name); return { code: account.code, name: account.name, nameAccountId: account.id, currency: account.currency, group: depreciation ? "Accumulated depreciation" : "Cost", opening: Math.round(opening * 100) / 100, debit: posted?.debit ?? 0, credit: posted?.credit ?? 0, balance: Math.round((opening + (posted?.balance ?? 0)) * 100) / 100, status: account.active ? "Active" : "Inactive" }; }).sort((a, b) => (a.group === b.group ? 0 : a.group === "Cost" ? -1 : 1) || a.code.localeCompare(b.code));
+      const cost = rows.filter((row) => row.group === "Cost").reduce((total, row) => total + Number(row.balance), 0), accumulated = rows.filter((row) => row.group !== "Cost").reduce((total, row) => total + Number(row.balance), 0);
+      if (rows.length) rows.push({ code: "", name: "Net book value", nameAccountId: 0, synthetic: 1, currency, group: "Total", opening: 0, debit: 0, credit: 0, balance: Math.round((cost + accumulated) * 100) / 100, status: "" });
+      columns = [{ key: "code", label: "Code" }, { key: "name", label: "Fixed Asset Account" }, { key: "group", label: "Group" }, { key: "currency", label: "Currency" }, { key: "opening", label: "Opening (home)", ...money }, { key: "debit", label: "Debit", ...money }, { key: "credit", label: "Credit", ...money }, { key: "balance", label: "Book Balance", ...money }, { key: "status", label: "Status" }];
     } else if (key === "cash-flow") {
       title = "Statement of Cash Flows";
       const bankAccounts = new Set(allAccounts.filter((account) => account.systemRole === "BANK" || account.type === "Bank").map((account) => account.name));
@@ -886,24 +891,28 @@ export async function GET(request: Request) {
       columns = [{ key: "date", label: "Date" }, { key: "number", label: "Payment No." }, { key: "customer", label: "Customer" }, { key: "method", label: "Method" }, { key: "reference", label: "Reference" }, { key: "account", label: "Deposit Account" }, { key: "status", label: "Status" }, { key: "documentAmount", label: "Amount (payment currency)" }, { key: "amount", label: "Amount", ...money }];
     } else if (key === "customer-phone-list") {
       title = "Customer Phone List";
-      rows = allContacts.filter((row) => row.type === "customer").map((row) => ({ customer: row.name, company: row.company || "—", phone: row.phone || "—", whatsapp: row.whatsapp || "—", country: row.country || "—" }));
-      columns = [{ key: "customer", label: "Customer" }, { key: "company", label: "Company" }, { key: "phone", label: "Phone" }, { key: "whatsapp", label: "WhatsApp" }, { key: "country", label: "Country" }];
+      rows = allContacts.filter((row) => row.type === "customer").map((row) => ({ customer: row.name, company: row.company || "—", phone: row.phone || "—", whatsapp: row.whatsapp || "—", country: row.country || "—", currency: row.currency, status: row.status }));
+      columns = [{ key: "customer", label: "Customer" }, { key: "company", label: "Company" }, { key: "phone", label: "Phone" }, { key: "whatsapp", label: "WhatsApp" }, { key: "country", label: "Country" }, { key: "currency", label: "Currency" }, { key: "status", label: "Status" }];
     } else if (key === "customer-contact-list") {
       title = "Customer Contact List";
-      rows = allContacts.filter((row) => row.type === "customer").map((row) => ({ customer: row.name, company: row.company || "—", email: row.email || "—", phone: row.phone || "—", whatsapp: row.whatsapp || "—", country: row.country || "—", currency: row.currency, status: row.status }));
-      columns = [{ key: "customer", label: "Customer" }, { key: "company", label: "Company" }, { key: "email", label: "Email" }, { key: "phone", label: "Phone" }, { key: "whatsapp", label: "WhatsApp" }, { key: "country", label: "Country" }, { key: "currency", label: "Currency" }, { key: "status", label: "Status" }];
-    } else if (key === "item-price-list") {
-      title = "Item Price List";
-      rows = allItems.filter((row) => row.status === "active").map((row) => ({ ...(row.itemType === "stock-part" ? inventoryAccountLinkFor(row) : { account: "—", accountAccountId: 0 }), itemId: row.id, itemNumber: row.itemNumber || "—", sku: row.sku, item: row.name, category: row.category, quantity: row.quantity, price: row.salesPrice }));
-      columns = [{ key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "item", label: "Item" }, { key: "account", label: "Inventory Asset Account" }, { key: "category", label: "Category" }, { key: "quantity", label: "On Hand" }, { key: "price", label: "Sales Price", ...money }];
-    } else if (key === "item-price-level-list") {
-      title = "Item Price List for Price Level";
-      rows = allItems.map((item) => ({ ...(item.itemType === "stock-part" ? inventoryAccountLinkFor(item) : { account: "—", accountAccountId: 0 }), itemId: item.id, itemNumber: item.itemNumber || "—", sku: item.sku, item: item.name, level: "Default Selling Price", cost: item.cost, price: item.salesPrice, margin: item.salesPrice ? `${((item.salesPrice - item.cost) / item.salesPrice * 100).toFixed(1)}%` : "—", status: item.status }));
-      columns = [{ key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "item", label: "Item" }, { key: "account", label: "Inventory Asset Account" }, { key: "level", label: "Price Level" }, { key: "cost", label: "Cost", ...money }, { key: "price", label: "Selling Price", ...money }, { key: "margin", label: "Margin" }, { key: "status", label: "Status" }];
-    } else if (key === "item-listing") {
-      title = "Item Listing";
-      rows = allItems.map((item) => ({ ...(item.itemType === "stock-part" ? inventoryAccountLinkFor(item) : { account: "—", accountAccountId: 0 }), itemId: item.id, itemNumber: item.itemNumber || "—", sku: item.sku, item: item.name, category: item.category, quantity: item.quantity, reorder: item.reorderPoint, cost: item.cost, price: item.salesPrice, status: item.status }));
-      columns = [{ key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "item", label: "Item" }, { key: "account", label: "Inventory Asset Account" }, { key: "category", label: "Category" }, { key: "quantity", label: "On Hand" }, { key: "reorder", label: "Reorder" }, { key: "cost", label: "Cost", ...money }, { key: "price", label: "Selling Price", ...money }, { key: "status", label: "Status" }];
+      rows = allContacts.filter((row) => row.type === "customer").map((row) => ({ customer: row.name, company: row.company || "—", email: row.email || "—", phone: row.phone || "—", whatsapp: row.whatsapp || "—", country: row.country || "—", trn: row.trn || "—", currency: row.currency, status: row.status }));
+      columns = [{ key: "customer", label: "Customer" }, { key: "company", label: "Company" }, { key: "email", label: "Email" }, { key: "phone", label: "Phone" }, { key: "whatsapp", label: "WhatsApp" }, { key: "country", label: "Country" }, { key: "trn", label: "TRN" }, { key: "currency", label: "Currency" }, { key: "status", label: "Status" }];
+    } else if (key === "item-price-list" || key === "item-price-level-list" || key === "item-listing") {
+      // Prices ex and inc VAT from the item's sales VAT code (prices saved "including VAT" are split back out); cost is
+      // the average purchase cost used by the stock reports (saved cost for non-stock items); margin and markup are
+      // calculated before VAT.
+      const vatRate = (code: string) => { const configured = configuredVatCodes.find((entry) => entry.code.toUpperCase() === String(code || "").toUpperCase()); return configured ? Number(configured.rate) : String(code || "STANDARD").toUpperCase() === "STANDARD" ? 5 : 0; };
+      const listed = key === "item-price-list" ? allItems.filter((item) => item.status === "active" || Math.abs(Number(item.quantity)) > 0.000001) : allItems;
+      const accountName = (id: number | null) => { const account = id ? accountsById.get(id) : undefined; return account ? `${account.code} · ${account.name}` : "—"; };
+      rows = listed.map((item) => {
+        const rate = vatRate(item.salesVatCode), price = Number(item.salesPrice) || 0;
+        const priceExVat = item.amountsIncludeVat && rate ? price / (1 + rate / 100) : price, priceIncVat = item.amountsIncludeVat ? price : price * (1 + rate / 100);
+        const cost = item.itemType === "stock-part" ? inventoryCostFor(item) : Number(item.cost) || 0;
+        return { ...(item.itemType === "stock-part" ? inventoryAccountLinkFor(item) : { account: "—", accountAccountId: 0 }), itemId: item.id, itemNumber: item.itemNumber || "—", sku: item.sku, item: item.name, itemType: item.itemType, inventory: locations.find((location) => location.id === item.locationId)?.name || "—", category: item.category, quantity: item.quantity, reorder: item.reorderPoint, vatCode: item.salesVatCode || "STANDARD", priceExVat: Math.round(priceExVat * 100) / 100, priceIncVat: Math.round(priceIncVat * 100) / 100, price: Math.round(priceExVat * 100) / 100, cost: Math.round(cost * 100) / 100, margin: priceExVat > 0 ? `${((priceExVat - cost) / priceExVat * 100).toFixed(1)}%` : "—", markup: cost > 0 ? `${((priceExVat - cost) / cost * 100).toFixed(1)}%` : "—", level: "Default Selling Price", incomeAccount: accountName(item.incomeAccountId), incomeAccountAccountId: item.incomeAccountId ?? 0, cogsAccount: accountName(item.cogsAccountId), cogsAccountAccountId: item.cogsAccountId ?? 0, status: item.status };
+      });
+      if (key === "item-price-list") { title = "Item Price List"; columns = [{ key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "item", label: "Item" }, { key: "inventory", label: "Inventory" }, { key: "category", label: "Category" }, { key: "quantity", label: "On Hand" }, { key: "vatCode", label: "VAT Code" }, { key: "priceExVat", label: "Price ex VAT", ...money }, { key: "priceIncVat", label: "Price inc VAT", ...money }, { key: "account", label: "Inventory Asset Account" }, { key: "status", label: "Status" }]; }
+      else if (key === "item-price-level-list") { title = "Item Price List for Price Level"; columns = [{ key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "item", label: "Item" }, { key: "inventory", label: "Inventory" }, { key: "level", label: "Price Level" }, { key: "cost", label: "Avg Cost", ...money }, { key: "priceExVat", label: "Price ex VAT", ...money }, { key: "priceIncVat", label: "Price inc VAT", ...money }, { key: "margin", label: "Margin" }, { key: "markup", label: "Markup" }, { key: "account", label: "Inventory Asset Account" }, { key: "status", label: "Status" }]; }
+      else { title = "Item Listing"; columns = [{ key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "item", label: "Item" }, { key: "itemType", label: "Type" }, { key: "inventory", label: "Inventory" }, { key: "category", label: "Category" }, { key: "quantity", label: "On Hand" }, { key: "reorder", label: "Reorder" }, { key: "cost", label: "Avg Cost", ...money }, { key: "priceExVat", label: "Price ex VAT", ...money }, { key: "account", label: "Inventory Asset Account" }, { key: "incomeAccount", label: "Income Account" }, { key: "cogsAccount", label: "COGS / Purchase Account" }, { key: "status", label: "Status" }]; }
     } else if (key === "employee-contact-list") {
       title = "Employee Contact List";
       rows = allContacts.filter((contact) => contact.type === "employee").map((contact) => ({ employeeId: contact.id, name: contact.name, company: contact.company || "—", phone: contact.phone || "—", whatsapp: contact.whatsapp || "—", email: contact.email || "—", country: contact.country || "—", status: contact.status }));
@@ -920,23 +929,31 @@ export async function GET(request: Request) {
     } else if (key === "other-names-contact-list") {
       title = "Other Names Contact List";
       const savedNames = new Set(allContacts.map((contact) => contact.name.trim().toLowerCase()));
-      const names = new Map<string, { transactions: number; lastActivity: string }>();
-      scopedTransactions.filter((row) => row.party.trim() && !savedNames.has(row.party.trim().toLowerCase())).forEach((row) => { const old = names.get(row.party) ?? { transactions: 0, lastActivity: "" }; names.set(row.party, { transactions: old.transactions + 1, lastActivity: row.transactionDate > old.lastActivity ? row.transactionDate : old.lastActivity }); });
-      rows = [...names].map(([name, value]) => ({ name, ...value })).sort((a, b) => a.name.localeCompare(b.name));
-      columns = [{ key: "name", label: "Other Name" }, { key: "transactions", label: "Transactions" }, { key: "lastActivity", label: "Last Activity" }];
+      // Names are grouped case- and space-insensitively (the first spelling is shown); cancelled and draft documents ignored.
+      const names = new Map<string, { name: string; transactions: number; lastActivity: string; types: Set<string> }>();
+      scopedTransactions.filter((row) => row.party.trim() && !closedDocument(row.status) && !savedNames.has(row.party.trim().toLowerCase())).forEach((row) => { const normal = row.party.trim().replace(/\s+/g, " ").toLowerCase(); const old = names.get(normal) ?? { name: row.party.trim(), transactions: 0, lastActivity: "", types: new Set<string>() }; old.transactions += 1; old.types.add(row.type); if (row.transactionDate > old.lastActivity) old.lastActivity = row.transactionDate; names.set(normal, old); });
+      rows = [...names.values()].map((value) => ({ name: value.name, transactions: value.transactions, documentTypes: [...value.types].sort().join(", "), lastActivity: value.lastActivity })).sort((a, b) => a.name.localeCompare(b.name));
+      columns = [{ key: "name", label: "Other Name" }, { key: "transactions", label: "Transactions" }, { key: "documentTypes", label: "Document Types" }, { key: "lastActivity", label: "Last Activity" }];
     } else if (key === "terms-listing") {
       title = "Terms Listing";
-      const grouped = new Map<number, { documents: number; names: Set<string> }>();
-      scopedTransactions.filter((row) => row.dueDate).forEach((row) => { const days = Math.max(0, Math.round((new Date(row.dueDate).getTime() - new Date(row.transactionDate).getTime()) / 86400000)); const old = grouped.get(days) ?? { documents: 0, names: new Set<string>() }; old.documents += 1; old.names.add(row.party); grouped.set(days, old); });
-      rows = [...grouped].sort(([a], [b]) => a - b).map(([days, value]) => ({ terms: days === 0 ? "Due on receipt" : `Net ${days}`, days, documents: value.documents, names: value.names.size }));
-      columns = [{ key: "terms", label: "Terms" }, { key: "days", label: "Due Days" }, { key: "documents", label: "Documents" }, { key: "names", label: "Customers / Suppliers" }];
+      // The terms saved on the document win; otherwise they are derived from its due date.
+      const grouped = new Map<string, { days: number | null; source: string; documents: number; names: Set<string> }>();
+      scopedTransactions.filter((row) => !closedDocument(row.status) && (String(row.terms || "").trim() || row.dueDate)).forEach((row) => {
+        const saved = String(row.terms || "").trim();
+        const days = row.dueDate ? Math.max(0, Math.round((Date.parse(`${row.dueDate}T00:00:00Z`) - Date.parse(`${row.transactionDate}T00:00:00Z`)) / 86400000)) : null;
+        const label = saved || (days === 0 ? "Due on receipt" : `Net ${days}`);
+        const old = grouped.get(label) ?? { days: saved ? null : days, source: saved ? "Saved terms" : "Derived from due date", documents: 0, names: new Set<string>() };
+        old.documents += 1; old.names.add(row.party); grouped.set(label, old);
+      });
+      rows = [...grouped].sort(([a, x], [b, y]) => (x.days ?? 9999) - (y.days ?? 9999) || a.localeCompare(b)).map(([terms, value]) => ({ terms, days: value.days ?? "—", source: value.source, documents: value.documents, names: value.names.size }));
+      columns = [{ key: "terms", label: "Terms" }, { key: "days", label: "Due Days" }, { key: "source", label: "Source" }, { key: "documents", label: "Documents" }, { key: "names", label: "Customers / Suppliers" }];
     } else if (key === "to-do-notes") {
       title = "To Do Notes";
-      rows = scopedTransactions.filter((row) => row.memo.trim() && !["paid", "cleared", "closed", "cancelled"].includes(row.status)).map((row) => ({ transactionId: row.id, dueDate: row.dueDate || "—", date: row.transactionDate, number: row.number, numberTransactionId: row.id, type: row.type, name: row.party || "—", note: row.memo, status: row.status }));
+      rows = scopedTransactions.filter((row) => row.memo.trim() && !closedDocument(row.status) && !["paid", "cleared", "closed", "converted", "invoiced"].includes(String(row.status).toLowerCase())).map((row) => ({ transactionId: row.id, dueDate: row.dueDate || "—", date: row.transactionDate, number: row.number, numberTransactionId: row.id, type: row.type, name: row.party || "—", note: row.memo, status: row.status }));
       columns = [{ key: "dueDate", label: "Due Date" }, { key: "date", label: "Created" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "name", label: "Name" }, { key: "note", label: "Note" }, { key: "status", label: "Status" }];
     } else if (key === "memorised-transactions") {
       title = "Memorised Transaction Listing";
-      rows = scopedTransactions.filter((row) => /memorised|memorized|recurring|template/i.test(row.memo)).map((row) => ({ transactionId: row.id, date: row.transactionDate, number: row.number, numberTransactionId: row.id, type: row.type, name: row.party || "—", account: row.account, memo: row.memo, currency: row.currency, amount: row.baseTotal }));
+      rows = scopedTransactions.filter((row) => !closedDocument(row.status) && /memorised|memorized|recurring|template/i.test(row.memo)).map((row) => ({ transactionId: row.id, date: row.transactionDate, number: row.number, numberTransactionId: row.id, type: row.type, name: row.party || "—", account: row.account, memo: row.memo, currency: row.currency, amount: row.baseTotal }));
       columns = [{ key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "name", label: "Name" }, { key: "account", label: "Account" }, { key: "memo", label: "Template / Frequency" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Amount", ...money }];
     } else if (key === "daily-sales-summary") {
       title = "Daily Sales Summary";
@@ -1100,8 +1117,8 @@ export async function GET(request: Request) {
       columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "status", label: "Status" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Payable Impact", ...money }];
     } else if (key === "supplier-phone-list") {
       title = "Supplier Phone List";
-      rows = allContacts.filter((row) => row.type === "vendor").map((row) => ({ supplier: row.name, company: row.company || "—", phone: row.phone || "—", whatsapp: row.whatsapp || "—", country: row.country || "—" }));
-      columns = [{ key: "supplier", label: "Supplier" }, { key: "company", label: "Company" }, { key: "phone", label: "Phone" }, { key: "whatsapp", label: "WhatsApp" }, { key: "country", label: "Country" }];
+      rows = allContacts.filter((row) => row.type === "vendor").map((row) => ({ supplier: row.name, company: row.company || "—", phone: row.phone || "—", whatsapp: row.whatsapp || "—", country: row.country || "—", currency: row.currency, status: row.status }));
+      columns = [{ key: "supplier", label: "Supplier" }, { key: "company", label: "Company" }, { key: "phone", label: "Phone" }, { key: "whatsapp", label: "WhatsApp" }, { key: "country", label: "Country" }, { key: "currency", label: "Currency" }, { key: "status", label: "Status" }];
     } else if (key === "supplier-contact-list") {
       title = "Supplier Contact List";
       rows = allContacts.filter((row) => row.type === "vendor").map((row) => ({ supplier: row.name, company: row.company || "—", email: row.email || "—", phone: row.phone || "—", whatsapp: row.whatsapp || "—", country: row.country || "—", trn: row.trn || "—", currency: row.currency, status: row.status }));
