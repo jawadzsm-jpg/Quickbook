@@ -691,13 +691,14 @@ test("purchase returns reduce the linked supplier bill and appear in the supplie
 
 test("UAE VAT reports include all company inventories, expense cheques and foreign card charges", async () => {
   const summary = await report("vat-summary");
-  assert.equal(summary.rows[1].amount, 273.375);
+  // VAT is rounded to cents per line, like posting and the VAT return.
+  assert.equal(summary.rows[1].amount, 273.38);
   const detail = await report("vat-detail");
   assert.ok(detail.rows.some(row => row.number === "CHQ-DEWA"));
   assert.ok(detail.rows.some(row => row.number === "CHQ-INTERNET"));
   assert.ok(detail.rows.some(row => row.number === "CARD-USD"));
   assert.ok(detail.rows.some(row => row.number === "CHQ-OTHER"));
-  assert.equal((await report("vat-summary", 0)).rows[1].amount, 273.375);
+  assert.equal((await report("vat-summary", 0)).rows[1].amount, 273.38);
 });
 
 test("live P&L totals are the same ledger figures as the standard report", async () => {
@@ -881,6 +882,35 @@ test('customer open balance uses allocations, preserves unused credits, and link
     assert.equal((await get({ type: 'customers-overdue-invoices' })).status, 403);
     assert.equal((await get({ type: 'active-customers' })).status, 403);
   } finally { delete globalThis.__reportTestUser; }
+});
+
+test("VAT reports: bill freight taxed once, UAE treatment exceptions, manual adjustments and ledger reconciliation", async () => {
+  const response = await workspaces.POST(post({ type: "company", name: "VAT audit", baseCurrency: "AED" }));
+  const { company: c } = await response.json(); const loc = c.locations[0].id;
+  const { eq } = await import("drizzle-orm");
+  const accounts = await db.select().from(schema.accounts).where(eq(schema.accounts.companyId, c.id));
+  const payable = accounts.find((account) => account.systemRole === "OUTPUT_VAT"), recoverable = accounts.find((account) => account.systemRole === "INPUT_VAT");
+  assert.ok(payable && recoverable, "standard VAT control accounts");
+  await db.insert(schema.vatCodes).values({ companyId: c.id, code: "REDUCED3", name: "Reduced 3%", rate: 3 }).onConflictDoNothing();
+  const doc = async (values, lineValues) => { const [row] = await db.insert(schema.transactions).values({ companyId: c.id, locationId: loc, party: "VAT party", transactionDate: "2026-09-10", ...values }).returning(); await db.insert(schema.transactionLines).values(lineValues.map((line) => ({ transactionId: row.id, description: "Line", ...line }))); return row; };
+  // Bill: item 1,000 with 100 line freight saved again as a separate freight line; VAT 50 + 5.
+  const bill = await doc({ type: "bill", number: "VB-1", subtotal: 1100, vatAmount: 55, total: 1155 }, [{ quantity: 1, unitPrice: 1000, subtotal: 1000, freightCharge: 100, vatCode: "STANDARD", vatRate: 5, vatAmount: 50 }, { description: "Freight Charges", quantity: 1, unitPrice: 100, subtotal: 100, isFreightCharge: true, vatCode: "STANDARD", vatRate: 5, vatAmount: 5 }]);
+  const invoice = await doc({ type: "invoice", number: "VI-1", subtotal: 2000, vatAmount: 100, total: 2100 }, [{ quantity: 1, unitPrice: 2000, subtotal: 2000, vatCode: "STANDARD", vatRate: 5, vatAmount: 100 }]);
+  await doc({ type: "invoice", number: "VI-3PCT", subtotal: 100, vatAmount: 3, total: 103 }, [{ quantity: 1, unitPrice: 100, subtotal: 100, vatCode: "REDUCED3", vatRate: 3, vatAmount: 3 }]);
+  const entry = async (transactionId, lines) => { const [j] = await db.insert(schema.journalEntries).values({ companyId: c.id, locationId: loc, transactionId, entryDate: "2026-09-10", reference: "VAT", posted: true }).returning(); await db.insert(schema.journalLines).values(lines.map((line) => ({ journalEntryId: j.id, ...line }))); };
+  await entry(invoice.id, [{ accountName: payable.name, accountId: payable.id, credit: 100 }]);
+  await entry(bill.id, [{ accountName: recoverable.name, accountId: recoverable.id, debit: 55 }]);
+  await entry(null, [{ accountName: payable.name, accountId: payable.id, credit: 20 }]); // manual adjustment
+  const get = async (type) => { const res = await GET(new Request(`https://app.test/api/reports?type=${type}&companyId=${c.id}&periodStart=2026-09-01&periodEnd=2026-09-30`)); assert.equal(res.status, 200); return (await res.json()).report; };
+  // Freight is taxable once (1,100), and the item line is not a false "VAT calculation differs" exception.
+  const detail = (await get("vat-detail")).rows.filter((row) => row.number === "VB-1");
+  assert.equal(detail.reduce((total, row) => total + row.taxable, 0), 1100);
+  const exceptions = (await get("vat-exceptions")).rows;
+  assert.equal(exceptions.some((row) => row.number === "VB-1"), false);
+  assert.match(exceptions.find((row) => row.number === "VI-3PCT").issue, /not a UAE VAT treatment/);
+  // Summary: output 103, input 55; manual +20; VAT Payable ledger 120 → difference 3 (the 3% invoice was never posted here).
+  const summary = Object.fromEntries((await get("vat-summary")).rows.map((row) => [row.position, row.amount]));
+  assert.deepEqual([summary.output, summary.input, summary.adjustments, summary.netAdjusted, summary.ledgerOutput, summary.outputDifference, summary.ledgerInput, summary.inputDifference], [103, 55, 20, 68, 120, 3, 55, 0]);
 });
 
 test("Sales reports: shared status filter, returns netted, stock-return lines, pending and fulfilment open values, ship-to address", async () => {
