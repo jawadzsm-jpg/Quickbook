@@ -109,6 +109,7 @@ async function savePackingList(request: Request, editing: boolean) {
       await db.execute(sql`SELECT id FROM transactions WHERE id = ${invoiceId} FOR UPDATE`);
       const invoice = await invoiceForCompany(invoiceId, companyId);
       if (!invoice) return Response.json({ error: "Customer invoice not found." }, { status: 404 });
+      if (["void", "voided", "cancelled", "canceled"].includes(invoice.status.toLowerCase())) return Response.json({ error: "This invoice is void. Packing lists cannot be created or changed for it." }, { status: 409 });
       const [existingList] = editing ? await db.select().from(packingLists).where(and(eq(packingLists.id, packingListId), eq(packingLists.invoiceId, invoiceId), eq(packingLists.companyId, companyId))).limit(1) : [];
       if (editing && !existingList) return Response.json({ error: "Packing list not found." }, { status: 404 });
       if (existingList) await db.execute(sql`SELECT id FROM packing_lists WHERE id = ${packingListId} FOR UPDATE`);

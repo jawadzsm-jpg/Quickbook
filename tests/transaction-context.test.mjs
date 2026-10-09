@@ -2267,6 +2267,11 @@ test('invoice packing lists preserve logistics, calculate cartons and expose onl
   const refreshed=await GET(new Request(`https://app.test/api/packing-lists?companyId=${company}&invoiceId=${invoice}`));
   assert.equal(refreshed.status,200);
   assert.equal((await refreshed.json()).lines[0].remainingQuantity,0);
+  // A void invoice keeps its saved packing lists viewable but blocks new or edited ones.
+  await database.query("UPDATE transactions SET status='void' WHERE id=$1",[invoice]);
+  const blocked=await save(1); assert.equal(blocked.status,409); assert.match((await blocked.json()).error,/void/);
+  const viewed=await GET(new Request(`https://app.test/api/packing-lists?companyId=${company}&invoiceId=${invoice}`));
+  assert.equal(viewed.status,200); assert.ok((await viewed.json()).packingLists.length>0);
 });
 
 
