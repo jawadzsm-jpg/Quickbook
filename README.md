@@ -151,6 +151,7 @@ It applies migrations, creates a local global administrator on first run, stores
 | `node scripts/dev-local.mjs` | Start isolated local development with PGlite |
 | `node scripts/remove-imported-items.mjs --file <csv> --company <name or id> [--apply]` | Remove items an Inventory Import created from that file; dry run unless `--apply`, keeps items edited since or used on documents |
 | `node scripts/reset-duplicate-item-costs.mjs [--company <name or id>] [--apply]` | Reset Cost to 0 on items made with Duplicate item before duplicates started at 0; dry run unless `--apply`, skips items with their own bills or item receipts |
+| `node scripts/fix-invoice-cost-of-sales.mjs [--company <name or id>] [--invoice <number>] [--apply]` | Correct the cost of sales on posted invoices/sales receipts to the average purchase cost on or before the invoice date (line cost, sale movement, COGS and inventory journal lines, audit entry); dry run unless `--apply`; edited invoices and unmatched journals are listed for review |
 | `npm run lint` | Lint the complete source with zero warnings allowed |
 | `npm test` | Run the release-gate, security, transaction, pricing, currency, report, and document tests |
 | `npm run typecheck` | Run strict TypeScript checks without emitting files |

@@ -975,11 +975,11 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     const itemForm: Record<string, string> = {
       itemType: itemTypeOf(item.itemType), category: String(item.category ?? "LAPTOP").toLocaleUpperCase("en"),
       itemNumber: duplicateIdentity?.itemNumber ?? String(item.itemNumber ?? ""), sku: duplicateIdentity?.sku ?? String(item.sku ?? ""), quantity: duplicateIdentity ? "0" : String(item.quantity ?? 0),
-      reorderPoint: String(item.reorderPoint ?? 0), salesPrice: String(item.salesPrice ?? 0), cost: duplicateIdentity ? "0" : String(item.averageCost ?? item.cost ?? 0),
+      reorderPoint: duplicateIdentity ? "0" : String(item.reorderPoint ?? 0), salesPrice: duplicateIdentity ? "0" : String(item.salesPrice ?? 0), cost: duplicateIdentity ? "0" : String(item.averageCost ?? item.cost ?? 0),
       lastPurchasePrice: duplicateIdentity ? "0" : String(item.lastPurchasePrice ?? item.cost ?? 0), onPo: duplicateIdentity ? "0" : String(item.onPo ?? 0),
       purchaseVatCode: String(item.purchaseVatCode ?? "STANDARD"), salesVatCode: String(item.salesVatCode ?? "STANDARD"),
       cogsAccountId: item.cogsAccountId ? String(item.cogsAccountId) : (defaultCogs ? String(defaultCogs.id) : ""), incomeAccountId: item.incomeAccountId ? String(item.incomeAccountId) : (defaultIncome ? String(defaultIncome.id) : ""),
-      assetAccountId: item.assetAccountId ? String(item.assetAccountId) : (defaultAsset ? String(defaultAsset.id) : ""), preferredSupplierId: item.preferredSupplierId ? String(item.preferredSupplierId) : "",
+      assetAccountId: item.assetAccountId ? String(item.assetAccountId) : (defaultAsset ? String(defaultAsset.id) : ""), preferredSupplierId: !duplicateIdentity && item.preferredSupplierId ? String(item.preferredSupplierId) : "",
       status: String(item.status ?? "active"), amountsIncludeVat: item.amountsIncludeVat === true || String(item.amountsIncludeVat) === "true" ? "true" : "false",
       specCount: String(Math.min(30, specifications.length)), ...(duplicateIdentity ? { duplicateOfItemId: String(item.id) } : {}),
     };
@@ -2008,7 +2008,7 @@ function ItemTable({ records, currency, companyId, onStatusChanged, empty, onDel
         <TableCell responsiveColumn="quantity" className={`font-semibold ${!inactive && out ? "text-rose-600" : ""}`}>{String(r.quantity)}</TableCell>
         <TableCell responsiveColumn="quantity">{String(r.reorderPoint)}</TableCell>
         <TableCell responsiveColumn="price">{formatMoney(r.salesPrice, currency)}</TableCell>
-        <TableCell responsiveColumn="price">{formatMoney(r.cost, currency)}</TableCell>
+        <TableCell responsiveColumn="price">{formatMoney(r.averageCost ?? r.cost, currency)}</TableCell>
         <TableCell><div className="flex">{onDuplicate && <Button type="button" variant="ghost" size="icon" onClick={() => onDuplicate(r.id)} aria-label={`Duplicate ${String(r.name)}`} title="Duplicate item" className="text-slate-400 hover:text-violet-600"><Copy className="size-4" /></Button>}{onEdit && <Button type="button" variant="ghost" size="icon" onClick={() => onEdit(r)} aria-label={`Edit ${String(r.name)}`} className="text-slate-400 hover:text-sky-600"><Pencil className="size-4" /></Button>}<DeleteButton id={r.id} onDelete={onDelete} /></div></TableCell>
       </TableRow>;
     })}</TableBody>

@@ -739,7 +739,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       }
       const activeVatCodes = await db.select({ code: vatCodes.code }).from(vatCodes).where(and(eq(vatCodes.companyId, companyId), eq(vatCodes.active, true)));
       if (activeVatCodes.length && [purchaseVatCode, salesVatCode].some((code) => !activeVatCodes.some((entry) => entry.code === code))) return Response.json({ error: "Select active purchase and sales VAT codes for this company." }, { status: 400 });
-      const quantity = itemType === "stock-part" ? Number(payload.quantity ?? 0) : 0;
+      // A duplicate copies only the item's description; it starts with no stock and no purchase history.
+      const quantity = itemType === "stock-part" && !duplicateSource ? Number(payload.quantity ?? 0) : 0;
       const reorderPoint = itemType === "stock-part" ? Number(payload.reorderPoint ?? 0) : 0;
       const salesPrice = Number(payload.salesPrice ?? 0);
       // A duplicate starts with no purchase history, so its cost is 0 until its own bills or receipts.
