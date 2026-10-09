@@ -20,7 +20,7 @@
 - Customer center with balances, activity, open balances, statements, overdue analysis, and source document drill-down.
 - Customer and supplier statements can include a movable bank details box: the Company Setup bank account for the statement currency (bank, account name, number, IBAN, SWIFT, currency) and its remark, editable for that statement. It prints after the statement table at the chosen left offset in screen print, standard PDF and custom-template PDF output, with the company stamp placed after it.
 - Customer and supplier statements use the letterhead assigned to **Statement** in every output. Screen print shows its header (logos, heading, contact line) and footer, prints customer and reference cells as plain text, leaves out the on-screen reporting-basis and summary panels (the statement heading carries the totals), stays light in dark mode, and prints the company stamp after the table and bank boxes at its Left offset. The A4 PDF export draws the same letterhead header and footer on every page with a "Statement of Account" summary, a "Statement for … · period" line and a light table; the stamp position guide shows that header. Without an assigned letterhead the generic report PDF layout is used.
-- Payment terms and calculated due dates.
+- Payment terms and calculated due dates. **Due on receipt** is the default on every customer document: new documents, invoices converted from quotations, estimates, proformas and sales orders without terms, and older documents opened for editing with blank terms. The server saves blank customer-document terms as Due on receipt; bills and other vendor documents are unchanged.
 
 ## Purchasing and vendors
 

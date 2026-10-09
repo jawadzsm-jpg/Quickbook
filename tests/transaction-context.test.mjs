@@ -979,6 +979,8 @@ test('purchase to sale inventory lifecycle blocks shortages and safely reverses 
   assert.equal((await stock()).quantity, 10);
   const invoiceResponse = await create('invoice', 3, { sourceTransactionId: order.id }); assert.equal(invoiceResponse.status, 201);
   const invoice = (await invoiceResponse.json()).record;
+  // Documents saved without payment terms, and invoices converted from them, are due on receipt; bills stay blank.
+  assert.equal(order.terms, 'Due on receipt'); assert.equal(invoice.terms, 'Due on receipt'); assert.equal(bill.terms, '');
   assert.equal((await stock()).quantity, 7);
   assert.equal((await create('invoice', 3, { sourceTransactionId: order.id })).status, 409);
   assert.equal((await create('invoice', 8)).status, 409);
