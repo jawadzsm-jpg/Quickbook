@@ -181,9 +181,12 @@ export async function GET(request: Request) {
     let inventoryAging: Array<{ band: string; items: number; quantity: number; value: number }> | undefined;
     const pnlAmount = (entry: typeof journal[number]) => incomeTypes.has(entryAccountType(entry)) ? Number(entry.credit) - Number(entry.debit) : expenseTypes.has(entryAccountType(entry)) ? Number(entry.debit) - Number(entry.credit) : 0;
     const periodProfit = (start: string, end: string) => journal.filter((entry) => entry.date >= start && entry.date <= end).reduce((sum, entry) => sum + (incomeTypes.has(entryAccountType(entry)) ? Number(entry.credit) - Number(entry.debit) : -(expenseTypes.has(entryAccountType(entry)) ? Number(entry.debit) - Number(entry.credit) : 0)), 0);
-    const reportYear = new Date().getUTCFullYear();
+    // Budgets default to year to date (1 January to today in Dubai) against the same dates last year, so a part-year is
+    // never compared with a full prior year.
+    const dubaiToday = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    const reportYear = Number(dubaiToday.slice(0, 4));
     const budgetStart = periodStart || `${reportYear}-01-01`;
-    const budgetEnd = periodEnd || `${reportYear}-12-31`;
+    const budgetEnd = periodEnd || (periodStart ? `${periodStart.slice(0, 4)}-12-31` : dubaiToday);
     if (key.startsWith("budget-")) Object.assign(period, reportPeriod(key, budgetStart, budgetEnd));
     const priorBudgetStart = previousYearDate(budgetStart);
     const priorBudgetEnd = previousYearDate(budgetEnd);
@@ -569,8 +572,27 @@ export async function GET(request: Request) {
       title = key === "budget-overview" ? "Budget Overview" : "Budget vs. Actual";
       const budget = budgetAccountTotals(priorBudgetStart, priorBudgetEnd);
       const actual = budgetAccountTotals(budgetStart, budgetEnd);
-      rows = allAccounts.filter((account) => incomeTypes.has(account.type) || expenseTypes.has(account.type)).map((account) => { const budgetAmount = budget.get(account.id) ?? 0; const actualAmount = actual.get(account.id) ?? 0; return { code: account.code, account: account.name, accountAccountId: account.id, section: incomeTypes.has(account.type) ? "Income" : "Expenses", budget: budgetAmount, actual: actualAmount, variance: incomeTypes.has(account.type) ? actualAmount - budgetAmount : budgetAmount - actualAmount, performance: budgetAmount ? `${(actualAmount / budgetAmount * 100).toFixed(1)}%` : "—" }; });
-      columns = [{ key: "code", label: "Code" }, { key: "account", label: "Account" }, { key: "section", label: "Section" }, { key: "budget", label: "Prior-year baseline", ...money }, { key: "actual", label: "Actual", ...money }, { key: "variance", label: "Favourable Variance", ...money }, { key: "performance", label: "Actual / baseline" }];
+      // Full prior calendar year (for context) and a run-rate projection of the actual to the end of the period.
+      const priorYear = Number(budgetStart.slice(0, 4)) - 1;
+      const fullPrior = budgetAccountTotals(`${priorYear}-01-01`, `${priorYear}-12-31`);
+      const days = (from: string, to: string) => Math.max(1, Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1);
+      const elapsed = days(budgetStart, dubaiToday < budgetEnd ? dubaiToday : budgetEnd), totalDays = days(budgetStart, budgetEnd);
+      const project = (amount: number) => dubaiToday >= budgetEnd || dubaiToday < budgetStart ? amount : amount * totalDays / elapsed;
+      const pct = (actualAmount: number, budgetAmount: number) => budgetAmount ? `${(actualAmount / budgetAmount * 100).toFixed(1)}%` : "—";
+      const varianceRate = (variance: number, budgetAmount: number) => budgetAmount ? `${(variance / Math.abs(budgetAmount) * 100).toFixed(1)}%` : "—";
+      const accountRows = allAccounts.filter((account) => incomeTypes.has(account.type) || expenseTypes.has(account.type)).map((account) => {
+        const budgetAmount = budget.get(account.id) ?? 0, actualAmount = actual.get(account.id) ?? 0, isIncome = incomeTypes.has(account.type);
+        const variance = isIncome ? actualAmount - budgetAmount : budgetAmount - actualAmount;
+        return { code: account.code, account: account.name, accountAccountId: account.id, section: isIncome ? "Income" : "Expenses", fullYear: fullPrior.get(account.id) ?? 0, budget: budgetAmount, actual: actualAmount, variance, varianceRate: varianceRate(variance, budgetAmount), performance: pct(actualAmount, budgetAmount), projected: Math.round(project(actualAmount) * 100) / 100 };
+      }).filter((row) => Math.abs(row.budget) > 0.005 || Math.abs(row.actual) > 0.005 || Math.abs(row.fullYear) > 0.005).sort((a, b) => (a.section === b.section ? 0 : a.section === "Income" ? -1 : 1) || String(a.code).localeCompare(String(b.code)));
+      const sumOf = (section: string, field: "budget" | "actual" | "fullYear" | "projected") => accountRows.filter((row) => row.section === section).reduce((total, row) => total + row[field], 0);
+      const totalRow = (account: string, budgetAmount: number, actualAmount: number, fullYear: number, projected: number, favourableWhenHigher: boolean) => { const variance = favourableWhenHigher ? actualAmount - budgetAmount : budgetAmount - actualAmount; return { code: "", account, accountAccountId: 0, section: "Total", fullYear, budget: budgetAmount, actual: actualAmount, variance, varianceRate: varianceRate(variance, budgetAmount), performance: pct(actualAmount, budgetAmount), projected: Math.round(projected * 100) / 100 }; };
+      const income = (field: "budget" | "actual" | "fullYear" | "projected") => sumOf("Income", field), expenses = (field: "budget" | "actual" | "fullYear" | "projected") => sumOf("Expenses", field);
+      rows = [...accountRows,
+        totalRow("Total income", income("budget"), income("actual"), income("fullYear"), income("projected"), true),
+        totalRow("Total expenses", expenses("budget"), expenses("actual"), expenses("fullYear"), expenses("projected"), false),
+        totalRow("Net profit", income("budget") - expenses("budget"), income("actual") - expenses("actual"), income("fullYear") - expenses("fullYear"), income("projected") - expenses("projected"), true)];
+      columns = [{ key: "code", label: "Code" }, { key: "account", label: "Account" }, { key: "section", label: "Section" }, { key: "fullYear", label: `Prior full year ${priorYear}`, ...money }, { key: "budget", label: "Prior-year baseline (same dates)", ...money }, { key: "actual", label: "Actual", ...money }, { key: "variance", label: "Favourable Variance", ...money }, { key: "varianceRate", label: "Variance %" }, { key: "performance", label: "Actual / baseline" }, { key: "projected", label: "Projected to period end", ...money }];
     } else if (key === "budget-profit-loss") {
       title = "Profit & Loss Budget Performance";
       const budget = budgetAccountTotals(priorBudgetStart, priorBudgetEnd);
@@ -585,11 +607,13 @@ export async function GET(request: Request) {
       columns = [{ key: "section", label: "Profit & Loss" }, { key: "budget", label: "Prior-year baseline", ...money }, { key: "actual", label: "Actual", ...money }, { key: "variance", label: "Favourable Variance", ...money }, { key: "performance", label: "Actual / baseline" }];
     } else if (key === "budget-actual-graph") {
       title = "Budget vs. Actual Graph";
+      let cumulativeBudget = 0, cumulativeActual = 0;
       rows = reportMonths(budgetStart, budgetEnd).map(({month,from,to}) => {
         const budget = periodProfit(previousYearDate(from), previousYearDate(to)), actual = periodProfit(from,to);
-        return {month,budget,actual,variance:actual-budget};
+        cumulativeBudget += budget; cumulativeActual += actual;
+        return {month,budget,actual,variance:actual-budget,cumulativeBudget,cumulativeActual,cumulativeVariance:cumulativeActual-cumulativeBudget};
       });
-      columns = [{ key: "month", label: "Month" }, { key: "budget", label: "Prior-year baseline", ...money }, { key: "actual", label: "Actual", ...money }, { key: "variance", label: "Variance", ...money }];
+      columns = [{ key: "month", label: "Month" }, { key: "budget", label: "Prior-year baseline", ...money }, { key: "actual", label: "Actual", ...money }, { key: "variance", label: "Variance", ...money }, { key: "cumulativeBudget", label: "Cumulative baseline", ...money }, { key: "cumulativeActual", label: "Cumulative actual", ...money }, { key: "cumulativeVariance", label: "Cumulative variance", ...money }];
       chart = { labelKey: "month", incomeKey: "actual", expenseKey: "budget", incomeLabel: "Actual", expenseLabel: "Prior-year baseline" };
     } else if (key === "trial-balance") {
       title = "Trial Balance"; rows = ledgerRows; columns = amountColumns();

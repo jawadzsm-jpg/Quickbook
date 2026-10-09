@@ -2034,7 +2034,11 @@ test("budget baselines identify prior dates, reconcile variance and disclose exc
   assert.deepEqual(report.budget, { from: "2026-09-01", to: "2026-09-30", baselineFrom: "2025-09-01", baselineTo: "2025-09-30" });
   assert.equal(report.rows.find(row => row.account === "Sales Revenue").variance, 200);
   assert.equal(report.rows.find(row => row.account === "Operating Expenses").variance, 50);
-  assert.ok(report.rows.every(row => row.accountAccountId > 0));
+  assert.ok(report.rows.filter(row => row.section !== "Total").every(row => row.accountAccountId > 0));
+  // Totals: income 1,000 vs 800, expenses 350 vs 400, net profit 650 vs 400 (favourable 250, +62.5%).
+  const totalRow = (name) => report.rows.find(row => row.account === name);
+  assert.deepEqual([totalRow("Total income").variance, totalRow("Total expenses").variance, totalRow("Net profit").variance, totalRow("Net profit").varianceRate], [200, 50, 250, "62.5%"]);
+  assert.equal(report.rows.find(row => row.account === "Sales Revenue").varianceRate, "25.0%");
   assert.equal(report.accountLinkIssues.length, 1);
   const { budgetSummary, budgetBar } = await vite.ssrLoadModule("/lib/budget-report.ts");
   const profit = await get("budget-profit-loss");
@@ -2046,7 +2050,11 @@ test("budget baselines identify prior dates, reconcile variance and disclose exc
   assert.deepEqual(budgetBar(25, 100), { left: 50, width: 12.5 });
   assert.deepEqual(budgetBar(0, 0), { left: 50, width: 0 });
   const monthly = await get("budget-actual-graph");
-  assert.deepEqual(monthly.rows, [{ month: "2026-09", budget: 400, actual: 650, variance: 250 }]);
+  assert.deepEqual(monthly.rows, [{ month: "2026-09", budget: 400, actual: 650, variance: 250, cumulativeBudget: 400, cumulativeActual: 650, cumulativeVariance: 250 }]);
+  // Without dates, budgets are year to date against the same dates last year (not a full calendar year).
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const ytd = (await (await GET(new Request(`https://app.test/api/reports?type=budget-actual&companyId=${c.id}`))).json()).report;
+  assert.deepEqual([ytd.budget.from, ytd.budget.to], [`${today.slice(0, 4)}-01-01`, today]);
   const { reportCsv, reportWorkbook, reportPdf } = await vite.ssrLoadModule("/lib/report-export.ts");
   const csv = reportCsv(report, "Budget audit", "Main");
   assert.match(csv, /2025-09-01 to 2025-09-30/); assert.match(csv, /Unmatched budget account/);
