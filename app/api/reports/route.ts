@@ -244,7 +244,7 @@ export async function GET(request: Request) {
     const salesAccountColumns = [{ key: "account", label: "Receivable / Receipt Account" }, { key: "revenueAccount", label: "Revenue Account" }];
     const groupLines = (types: string[]) => {
       const grouped = new Map<string, { itemId: number; sku: string; name: string; quantity: number; amount: number; cost: number; sourceIds: Set<number>; sourceTransactionId: number; sourceReference: string }>();
-      lines.filter((line) => types.includes(line.type) && !["cancelled", "void"].includes(line.status)).forEach((line) => {
+      lines.filter((line) => types.includes(line.type) && !["cancelled", "canceled", "void", "voided", "draft"].includes(line.status)).forEach((line) => {
         const key = line.itemId ? `item:${line.itemId}` : `description:${line.description}`;
         const item = allItems.find((candidate) => candidate.id === Number(line.itemId));
         const old = grouped.get(key) ?? { itemId: item?.id ?? 0, sku: item?.sku ?? "", name: item?.name ?? line.description, quantity: 0, amount: 0, cost: 0, sourceIds: new Set<number>(), sourceTransactionId: 0, sourceReference: "" };
@@ -856,7 +856,7 @@ export async function GET(request: Request) {
     } else if (["sales-by-item", "purchases-by-item", "item-profitability"].includes(key)) {
       title = key === "sales-by-item" ? "Sales by Item Summary" : key === "purchases-by-item" ? "Purchases by Item Summary" : "Item Profitability";
       rows = groupLines(key === "purchases-by-item" ? ["bill", "received item bill"] : ["invoice", "sales receipt"]);
-      columns = [{ key: "name", label: "Item" }, { key: "quantity", label: "Quantity" }, { key: "amount", label: key === "purchases-by-item" ? "Purchases ex VAT" : "Sales / Purchases", ...money }, ...(["sales-by-item", "purchases-by-item"].includes(key) ? [{ key: "sourceReference", label: "Latest source document" }] : key === "item-profitability" ? [{ key: "profit", label: "Gross Profit", ...money }, { key: "sourceReference", label: "Latest source document" }] : [])];
+      columns = [{ key: "name", label: "Item" }, { key: "quantity", label: "Quantity" }, { key: "amount", label: key === "purchases-by-item" ? "Purchases ex VAT" : "Sales ex VAT", ...money }, ...(["sales-by-item", "purchases-by-item"].includes(key) ? [{ key: "sourceReference", label: "Latest source document" }] : key === "item-profitability" ? [{ key: "cost", label: "Cost of sales", ...money }, { key: "profit", label: "Gross Profit", ...money }, { key: "sourceReference", label: "Latest source document" }] : [])];
     } else if (key === "inventory-valuation") {
       title = "Stock Valuation Summary";
       const grouped = new Map<string, { account: string; accountAccountId: number; category: string; items: number; quantity: number; value: number }>();

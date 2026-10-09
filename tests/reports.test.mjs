@@ -889,6 +889,9 @@ test("P&L reports reconcile item, rep, inventory and class to posted ledger with
     { transactionId: invoice.id, itemId: first.id, description: "Same laptop", quantity: 1, subtotal: 100, unitCost: 60 },
     { transactionId: invoice.id, itemId: second.id, description: "Same laptop", quantity: 1, subtotal: 200, unitCost: 120 },
   ]);
+  // A service line with no purchase cost must not raise the "no positive saved purchase cost" warning.
+  const [service] = await db.insert(schema.items).values({ companyId: c.id, locationId: loc, sku: "PNL-SVC", name: "Setup service", itemType: "service" }).returning();
+  await db.insert(schema.transactionLines).values({ transactionId: invoice.id, itemId: service.id, description: "Setup service", quantity: 1, subtotal: 0, unitCost: 0 });
   const [credit] = await db.insert(schema.transactions).values({ companyId: c.id, locationId: loc, type: "credit memo", number: "PNL-CREDIT", party: "Customer", salesman: "Rep A", transactionDate: "2026-09-11", subtotal: 50, total: 50 }).returning();
   await db.insert(schema.transactionLines).values({ transactionId: credit.id, itemId: first.id, description: "Same laptop", quantity: 1, subtotal: 50, unitCost: 60 });
   // A purchase bill (no P&L posting) appears in the item's purchase list with its unit cost.
@@ -922,6 +925,7 @@ test("P&L reports reconcile item, rep, inventory and class to posted ledger with
     assert.equal(r.rows.slice(0, -1).reduce((n, r) => n + r.cost, 0), 661.5);
   }
   const byItem = await get("profit-loss-item");
+  assert.ok(!byItem.pnl.warnings.some(w => w.includes("no positive saved purchase cost")), byItem.pnl.warnings.join("\n"));
   assert.equal(byItem.rows.find(r => r.name.startsWith("PNL-A")).income, 317.5);
   assert.equal(byItem.rows.find(r => r.name.startsWith("PNL-A")).itemId, first.id);
   assert.equal(byItem.rows.find(r => r.name.startsWith("PNL-A")).sku, "PNL-A");
