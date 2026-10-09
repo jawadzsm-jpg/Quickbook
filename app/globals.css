@@ -395,7 +395,9 @@ body {
 .brand-status-line:hover { border-color: var(--user-color-200); background: color-mix(in srgb, var(--user-color-50) 70%, transparent); }
 
 @media print {
-  [data-slot="sidebar"], header, button { display: none !important; }
+  [data-slot="sidebar"], header:not(.letterhead-brand), button { display: none !important; }
+  /* Underlined links inside report tables (customers, document references, accounts) print as plain text. */
+  .report-dialog .report-table td button { display: inline !important; padding: 0 !important; background: none !important; color: inherit !important; text-decoration: none !important; font-weight: inherit !important; }
   main { margin: 0 !important; }
   .document-internal-only { display: none !important; }
   body:has(.document-print-surface) [data-slot="dialog-overlay"] { display: none !important; }
@@ -904,6 +906,10 @@ body {
   .customer-statement .statement-brand p { font-size: 8pt; }
   .customer-statement .statement-totals strong { font-size: 11pt; }
   .customer-statement .statement-memo { break-inside: avoid; }
+  .customer-statement :is(.customer-report-brief, .customer-summary, .vendor-report-brief, .vendor-summary) { display: none !important; }
+  .customer-statement .sales-report-print-stamp { display: block !important; position: relative; height: 27mm; margin-top: 4mm; break-inside: avoid; }
+  /* Left is measured from the paper edge, like the PDF; the statement page margin is 12 mm. */
+  .customer-statement .sales-report-print-stamp .letterhead-stamp { top: 0 !important; margin: 0 0 0 -12mm !important; }
 }
 
 /* Keep destructive icons recognizable across user themes. */
@@ -2103,6 +2109,8 @@ body {
    Declared last with !important so it replaces the older per-category colours in both modes. */
 :root { --report-positive: #15803d; --report-negative: #be123c; --report-accent: #065f46; --report-stripe: color-mix(in srgb, var(--muted) 55%, transparent); }
 [data-appearance="dark"] { --report-positive: #86efac; --report-negative: #fda4af; --report-accent: #6ee7b7; }
+/* Screen only: printed reports keep their light print colours even when the app is in dark mode. */
+@media screen {
 .report-dialog .accountant-report-brief,
 .report-dialog .banking-report-brief,
 .report-dialog .budget-report-brief,
@@ -2242,6 +2250,7 @@ body {
 .report-category-button { color: var(--muted-foreground) !important; }
 .report-category-button:not(.report-category-active):hover { background: var(--muted) !important; color: var(--foreground) !important; }
 .report-category-button.report-category-active { background: var(--accent) !important; color: var(--accent-foreground) !important; }
+}
 .report-negative { color: var(--report-negative); }
 
 
@@ -2265,6 +2274,7 @@ body {
 :root .sales-stamp-settings.has-page-preview .sales-stamp-preview-wrap { width: min(100%, 720px); }
 .sales-stamp-page { position: absolute; inset: 0; color: #1c2b3a; font-family: Arial, Helvetica, sans-serif; }
 .sales-stamp-page-header { background: #102033; color: #fff; }
+.sales-stamp-page-header.is-letterhead { background: #fff; color: #24282d; }
 .sales-stamp-page-abs { position: absolute; }
 .sales-stamp-page-card { background: #f4f7fa; border: 1px solid #d7dee7; border-radius: 3px; overflow: hidden; }
 .sales-stamp-page-table { border: 1px solid #d7dee7; }

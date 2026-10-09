@@ -70,7 +70,7 @@ import { vendorBankFields, vendorBankLines } from "@/lib/vendor-bank";
 import { StatementFilters, StatementHeading, type StatementData } from "./statement-layout";
 import { STATEMENT_BANK_BOX_WIDTH_MM, StatementBankBox, statementContentWidthMm, type StatementBankBoxValue } from "./statement-bank-box";
 import { LetterheadBrand, LetterheadFooter, LetterheadStamp } from "./letterhead-page";
-import { defaultLetterhead, letterheadForDocument } from "@/lib/letterhead";
+import { defaultLetterhead, letterheadFooterLines, letterheadForDocument } from "@/lib/letterhead";
 import { SalesSourceInvoicing } from "./sales-source-invoicing";
 import { OpenSalesDocuments } from "./open-sales-documents";
 import { OpenPurchaseOrders } from "./open-purchase-orders";
@@ -85,7 +85,7 @@ import { LiveProfitLossSummary } from "./live-profit-loss-summary";
 import { dashboardMetrics } from "@/lib/dashboard-metrics";
 import { filterZeroQohRows, hasInventoryQohFilter } from "@/lib/inventory-report-filter";
 import { filterRecordListByDate, recordListReport } from "@/lib/record-list-export";
-import { reportCsv, reportFilename, reportOverview, reportWorkbook } from "@/lib/report-export";
+import { reportCsv, reportFilename, reportOverview, reportWorkbook, type ReportLetterhead } from "@/lib/report-export";
 import { BudgetReportLibrary, BudgetTrend } from "./budget-report-library";
 import { budgetReportKeys, budgetSummary, type BudgetBasis } from "@/lib/budget-report";
 import { emptySalesFilters, filterSalesReportRows, salesColumnKind, salesDetailTarget, salesReportKeys, salesSummary } from "@/lib/sales-report";
@@ -2356,14 +2356,25 @@ function ReportDialog({ onVatArea, canManageVatCodes, canOpenVatManagement, onPu
     ...(customerStatement && statementBank.show && statementBankLines ? [{ title: "Bank details", lines: statementBankLines, remark: statementBank.remark ?? statementBankAccount?.remark ?? "", left: boxLeft(statementBank.left) }] : []),
     ...(supplierBankLines && supplierBank.show ? [{ title: "Supplier bank details", lines: supplierBankLines, remark: supplierBank.remark ?? "", left: boxLeft(supplierBank.left) }] : []),
   ];
-  const exportReport = bankBoxes.length ? { ...report, bankBoxes } : report;
+  // Statements print and export with the letterhead assigned to statements (logos, heading, contact and footer).
+  const statementTemplate = report.statement ? letterheadForDocument(setup.letterheadDesign, "statement") : undefined;
+  const statementDate = (value: string) => value ? new Date(value + "T12:00:00Z").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }) : "Beginning";
+  const statementLetterhead: ReportLetterhead | undefined = statementTemplate && report.statement ? {
+    name: setup.name, color: statementTemplate.color, heading: statementTemplate.heading, subtitle: statementTemplate.subtitle,
+    logo: statementTemplate.showLogo ? setup.logoData || undefined : undefined, rightLogo: statementTemplate.showRightLogo ? setup.rightLogoData || undefined : undefined,
+    contact: statementTemplate.headerContact === false ? [] : [setup.phone, setup.email, statementTemplate.website].filter(Boolean),
+    footer: statementTemplate.showFooter === false ? [] : [statementTemplate.footer, ...letterheadFooterLines(statementTemplate, setup)].filter(Boolean),
+    note: `Statement for ${report.statement.customer || (report.statement.partyType === "vendor" ? "All vendors" : "All customers")} · ${statementDate(report.statement.from)} — ${statementDate(report.statement.to)} · ${report.currency}${report.statement.memo ? ` · ${report.statement.memo}` : ""}`,
+  } : undefined;
+  const exportReport = bankBoxes.length || statementLetterhead ? { ...report, ...(bankBoxes.length ? { bankBoxes } : {}), ...(statementLetterhead ? { letterhead: statementLetterhead } : {}) } : report;
   // The stamp guide draws the real page where the table ends (standard report PDF layout only).
   const guideOverview = stampReport && !isProfitLossReport && !report.financial ? reportOverview(exportReport, visibleRows) : null;
   const guideNumber = (value: number, money: boolean) => value.toLocaleString("en-AE", money ? { minimumFractionDigits: 2, maximumFractionDigits: 2 } : { maximumFractionDigits: 6 });
   const stampGuide: StampPagePreview | undefined = stampReport && !isProfitLossReport && !report.financial ? {
-    title: report.title, subtitle: companyName,
+    title: statementLetterhead ? "Statement of Account" : report.title, subtitle: companyName,
     summary: (guideOverview?.cards ?? []).map((card) => ({ label: card.label, value: card.format === "money" ? `${report.currency} ${guideNumber(Number(card.value), true)}` : typeof card.value === "number" ? guideNumber(card.value, false) : String(card.value) })),
-    note: guideOverview?.note,
+    note: statementLetterhead?.note ?? guideOverview?.note,
+    brand: statementLetterhead,
     columns: report.columns.map((column) => column.label),
     rows: visibleRows.map((row) => report.columns.map((column) => { const cell = row[column.key]; return typeof cell === "number" ? guideNumber(cell, column.type === "money") : String(cell ?? ""); })),
     bankBoxes,
@@ -2488,13 +2499,14 @@ function ReportDialog({ onVatArea, canManageVatCodes, canOpenVatManagement, onPu
     {report.key === "business-final" ? <BusinessFinalReport rows={report.rows} currency={report.currency} onOpenReport={onOpenReport} /> : report.financial ? <FinancialReport key={report.generatedAt} report={report as FinancialReportData} onOpen={onOpenSource} /> : report.pnl ? <ProfitLossReport key={report.generatedAt} report={report as PnlReport} company={companyName} loading={loading} onOpen={onOpenSource} onOpenItem={onInventoryItem} onOpenArea={onProfitLossArea} orientation={printOrientation} stamp={reportStamp.show && setup.stampData ? { data: setup.stampData, left: reportStamp.left, top: reportStamp.top } : undefined} onApply={(from, to) => onStatementApply({ from, to, currency: report.currency, customer: "", statementDate: "", memo: "" })} /> : report.activeCustomers ? <ActiveCustomersReport key={report.generatedAt} rows={report.rows} companyId={report.companyId!} canViewAccounts={report.activeCustomers.canViewAccounts} count={report.activeCustomers.count} onCustomer={onCustomer} onOpenSource={onOpenSource} /> : report.openBalance ? <CustomerOpenBalance key={report.generatedAt} data={report.openBalance} rows={report.rows} currency={report.currency} companyId={report.companyId!} loading={loading} onApply={onStatementApply} onOpen={onOpenSource} onCustomer={onCustomer} /> : isVendorReport ? <VendorReportTable rows={visibleRows} columns={report.columns} currency={report.currency} renderCell={reportCell} emptyText={report.rows.length ? "Adjust the supplier, account, status, document type or search filters." : "No vendor records match this company, inventory, currency and period."} /> : isVatReport ? <VatReportTable rows={visibleRows} columns={report.columns} currency={report.currency} renderCell={reportCell} emptyText={report.rows.length ? "Adjust the code, tax direction, account, status or search filters." : "No VAT records match this company and reporting period."} /> : isSalesReport ? <SalesReportTable rows={visibleRows} columns={report.columns} currency={report.currency} renderCell={reportCell} emptyText={report.rows.length ? "Adjust the customer, rep, account, status or search filters." : "No sales records match this company, inventory and period."} /> : isPurchaseReport ? <PurchaseReportTable rows={visibleRows} columns={report.columns} currency={report.currency} renderCell={reportCell} emptyText={report.rows.length ? "Adjust the search, supplier, account or status filters." : "No purchase records match this company, inventory and period."} /> : isInventoryReport ? <InventoryReportTable rows={visibleRows} columns={report.columns} currency={report.currency} renderCell={reportCell} emptyText={report.rows.length ? "Adjust the search, account, status or zero-QOH filters to see stock." : "No active stock items are available for this company and inventory."} /> : <ReportDataTable rows={visibleRows} columns={report.columns} currency={report.currency} renderCell={reportCell} emptyText={hideZeroQoh && report.rows.length ? "All zero-QOH rows are hidden." : "No posted data is available for this report."} />}
     {customerStatement && <StatementBankBox currency={report.currency} lines={statementBankLines} defaultRemark={statementBankAccount?.remark ?? ""} value={statementBank} onChange={setStatementBank} landscape={stampLandscape} />}
     {supplierStatement && <StatementBankBox title="Supplier bank details" currency={report.currency} lines={supplierBankLines} defaultRemark="" value={supplierBank} onChange={setSupplierBank} landscape={stampLandscape} toggleLabel={`Supplier bank details${report.statement?.customer ? ` (${report.statement.customer})` : ""}`} missingText={report.statement?.customer ? "No bank details saved for this supplier. Add them in Vendor Center → Edit." : "Select one vendor in the statement filters to include their bank details."} remarkLabel="Note on this statement" remarkHint="Optional note printed under the supplier bank details. Drag the box sideways or type Left; it prints after the statement table." />}
+    {/* Before the letterhead footer: statements print the stamp in the flow under the table; other reports place it absolutely. */}
+    {stampReport && reportStamp.show && setup.stampData && <div className="sales-report-print-stamp"><LetterheadStamp template={{ ...defaultLetterhead(), showStamp: true, stampLeft: reportStamp.left, stampTop: reportStamp.top }} company={setup} maxLeft={stampMaxLeft} maxTop={stampMaxTop} pageWidthMm={stampLandscape ? 297 : 210} onMove={(left, top) => setAgingStamp({ ...agingStamp, left, top })} /></div>}
     {(() => {
       // Statements and supplier reports print the footer of the letterhead assigned to them, after the report content.
       const footerDocument = report.statement ? "statement" : (["supplier-quickreport", "supplier-open-balance", "ap-aging-summary"] as const).find((key) => key === report.key);
       const assigned = footerDocument ? letterheadForDocument(setup.letterheadDesign, footerDocument) : undefined;
       return assigned ? <LetterheadFooter placement="flow" template={assigned} company={setup} /> : null;
     })()}
-    {stampReport && reportStamp.show && setup.stampData && <div className="sales-report-print-stamp"><LetterheadStamp template={{ ...defaultLetterhead(), showStamp: true, stampLeft: reportStamp.left, stampTop: reportStamp.top }} company={setup} maxLeft={stampMaxLeft} maxTop={stampMaxTop} pageWidthMm={stampLandscape ? 297 : 210} onMove={(left, top) => setAgingStamp({ ...agingStamp, left, top })} /></div>}
     {linkedAccount && report.companyId && !report.financial && !report.pnl && <div className="rounded-xl border p-4 print:hidden"><div className="mb-3 flex items-center justify-between gap-3"><h3 className="font-bold">{linkedAccount.name} · full account history</h3><Button variant="outline" onClick={() => setLinkedAccount(null)}>Close account</Button></div><AccountHistory accountId={linkedAccount.id} companyId={report.companyId} onOpen={onOpenSource} /></div>}
   </DialogContent></Dialog>;
 }

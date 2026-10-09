@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { moveReportStamp, reportStampPage } from "@/lib/report-stamp";
 import { PREVIEW_LAYOUT, stampPreviewLayout } from "@/lib/report-stamp-preview";
 import type { PrintOrientation } from "@/lib/document-print";
+import type { ReportLetterhead } from "@/lib/report-export";
 
 type StampPosition = { show: boolean; left: number; top: number };
 
@@ -15,6 +16,8 @@ export type StampPagePreview = {
   summary: Array<{ label: string; value: string }>; note?: string;
   columns: string[]; rows: string[][];
   bankBoxes?: Array<{ title: string; lines: string[]; remark?: string; left: number }>;
+  /** Statements: the assigned letterhead, drawn in the header band like the PDF. */
+  brand?: ReportLetterhead;
 };
 
 export function SalesReportStamp({ stampData, orientation, value, onChange, preview: pagePreview }: { stampData: string; orientation: PrintOrientation; value: StampPosition; onChange: (value: StampPosition) => void; preview?: StampPagePreview }) {
@@ -36,13 +39,22 @@ export function SalesReportStamp({ stampData, orientation, value, onChange, prev
     </div>
     {value.show && stampData && <div className="sales-stamp-preview-wrap"><div className="sales-stamp-preview" ref={preview} style={{ aspectRatio: `${page.width} / ${page.height}`, containerType: "inline-size" }}>
       {pagePreview && layout ? <div className="sales-stamp-page" aria-label={`Page ${layout.page} of the report, where the table ends`}>
-        <div className="sales-stamp-page-header" style={{ height: y(L.headerHeight), padding: `${y(3)} ${x(12)}` }}>
+        {pagePreview.brand ? <div className="sales-stamp-page-header is-letterhead" style={{ height: y(L.headerHeight), padding: `${y(5)} ${x(12)} 0`, borderBottom: "1px solid #9ca3af" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: x(4), height: y(23) }}>
+            {pagePreview.brand.logo ? <Image src={pagePreview.brand.logo} alt="" width={230} height={90} unoptimized style={{ height: "100%", width: "auto", maxWidth: "45%", objectFit: "contain" }} /> : <strong style={{ ...text(5), color: pagePreview.brand.color }}>{pagePreview.brand.name}</strong>}
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", height: "100%", maxWidth: "45%", color: pagePreview.brand.color }}>
+              {pagePreview.brand.rightLogo ? <Image src={pagePreview.brand.rightLogo} alt="" width={230} height={90} unoptimized style={{ height: pagePreview.brand.heading ? "65%" : "100%", width: "auto", maxWidth: "100%", objectFit: "contain" }} /> : null}
+              {pagePreview.brand.heading ? <strong style={text(4)}>{pagePreview.brand.heading}</strong> : null}
+            </div>
+          </div>
+          {pagePreview.brand.contact.length ? <div style={{ ...text(2.6), fontWeight: 700, textAlign: "center", marginTop: y(2) }}>{pagePreview.brand.contact.join("   ")}</div> : null}
+        </div> : <div className="sales-stamp-page-header" style={{ height: y(L.headerHeight), padding: `${y(3)} ${x(12)}` }}>
           <div style={{ ...text(3.4), fontWeight: 700 }}>{pagePreview.subtitle}</div>
           <div style={{ ...text(4.6), fontWeight: 700, marginTop: y(1.5) }}>{pagePreview.title}</div>
           {layout.page > 1 ? <div style={{ ...text(2.4), marginTop: y(1.5), opacity: .75 }}>Page {layout.page} (continued)</div> : null}
-        </div>
+        </div>}
         {layout.showSummary && <>
-          <div className="sales-stamp-page-abs" style={{ top: y(L.summaryTitleY - 3.5), left: 0, right: 0, textAlign: "center", ...text(3), fontWeight: 700 }}>Summary</div>
+          <div className="sales-stamp-page-abs" style={{ top: y(L.summaryTitleY - 3.5), left: 0, right: 0, textAlign: "center", ...text(3), fontWeight: 700 }}>{pagePreview.brand ? "Statement of Account" : "Summary"}</div>
           {pagePreview.summary.map((card, index) => { const columns = Math.max(1, Math.min(3, pagePreview.summary.length)); const width = (page.width - 20 - 3 * (columns - 1)) / columns; return <div key={card.label} className="sales-stamp-page-abs sales-stamp-page-card" style={{ left: x(10 + (index % columns) * (width + 3)), top: y(L.cardsTop + Math.floor(index / columns) * L.cardRowHeight), width: x(width), height: y(15), padding: `${y(2)} ${x(2.5)}` }}><div style={{ ...text(2), fontWeight: 700, textTransform: "uppercase", opacity: .7 }}>{card.label}</div><div style={{ ...text(3), fontWeight: 700, marginTop: y(1) }}>{card.value}</div></div>; })}
           {pagePreview.note ? <div className="sales-stamp-page-abs" style={{ left: x(10), right: x(10), top: y(layout.noteTop - 2.5), ...text(2.2), opacity: .7, overflow: "hidden", maxHeight: y(noteLines * L.noteLineHeight + 1) }}>{pagePreview.note}</div> : null}
         </>}
