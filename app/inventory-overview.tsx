@@ -430,16 +430,16 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     toast.success(`${selectedRecords.length} items exported for Excel`);
   };
 
-  // Quiet chip styling shared by the inventory and "received" filters; the active chip uses the user's accent colour.
-  const chip = (active: boolean) => `inline-flex h-9 min-w-0 flex-1 basis-auto items-center justify-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition-colors ${active ? "border-primary bg-primary/15 text-foreground" : "border-border bg-card text-muted-foreground hover:border-foreground/30 hover:text-foreground"}`;
+  // Full-width filter chips; the active chip uses the user's accent colour and each count keeps its status colour.
+  const chip = (active: boolean) => `inline-flex h-10 min-w-0 flex-1 basis-auto items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border px-2 text-[13px] font-semibold transition-colors ${active ? "border-primary bg-primary/15 text-foreground ring-1 ring-primary" : "border-border bg-card text-foreground/80 hover:border-foreground/30 hover:text-foreground"}`;
+  const countPill = "inline-flex h-5 min-w-6 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-bold tabular-nums";
   const toggleFilter = (next: StockFilter) => setFilter((current) => current === next ? "all" : next);
   const columnCount = 2 + Number(showQuantity) + Number(showPrice);
-  const kpis = [
-    { id: "all" as const, label: "Units in stock", value: totals.quantity, hint: `${locations.length} ${locations.length === 1 ? "inventory" : "inventories"}`, Icon: Boxes, tone: "text-sky-500" },
-    { id: "in" as const, label: "Products in stock", value: totals.inStock, hint: `${totals.healthy} healthy`, Icon: PackageCheck, tone: "text-emerald-500" },
-    { id: "low" as const, label: "Low stock", value: totals.low, hint: "At or below reorder point", Icon: TriangleAlert, tone: "text-amber-500" },
-    { id: "out" as const, label: "Out of stock", value: statusCounts.out, hint: "No stock anywhere", Icon: PackageX, tone: "text-rose-500" },
-    { id: "hold" as const, label: "On hold", value: statusCounts.hold, hint: "Reserved for sales reps", Icon: Lock, tone: "text-amber-500" },
+  const statusChips = [
+    { id: "in" as const, label: "In stock", value: totals.inStock, Icon: PackageCheck, icon: "text-emerald-500", pill: "bg-emerald-400 text-slate-950", title: `Products in stock (${totals.healthy} healthy)` },
+    { id: "low" as const, label: "Low stock", value: totals.low, Icon: TriangleAlert, icon: "text-amber-500", pill: "bg-amber-400 text-slate-950", title: "At or below reorder point" },
+    { id: "out" as const, label: "Out of stock", value: statusCounts.out, Icon: PackageX, icon: "text-rose-500", pill: "bg-rose-500 text-white", title: "No stock in any inventory" },
+    { id: "hold" as const, label: "On hold", value: statusCounts.hold, Icon: Lock, icon: "text-amber-500", pill: "bg-amber-300 text-slate-950", title: "Reserved for sales reps" },
   ];
   const activityTabs = [
     { id: "incoming" as const, label: "Incoming", Icon: PlaneLanding, count: activity.incoming.length, badge: "bg-amber-400 text-slate-950" },
@@ -451,13 +451,15 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   const shareDisabled = !canSelectItems || loading || !selectedRecords.length;
 
   return <div className="space-y-4">
-    {/* Stock at a glance: each card is also the matching status filter. */}
-    <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5" aria-label="Stock summary">
-      {kpis.map(({ id, label, value, hint, Icon, tone }) => <button key={id} type="button" onClick={() => setFilter(id)} aria-pressed={filter === id} className={`group flex min-w-0 flex-col gap-1 rounded-xl border bg-card p-3 text-left shadow-sm transition-colors last:col-span-2 sm:last:col-span-1 sm:p-4 ${filter === id ? "border-primary ring-1 ring-primary" : "hover:border-foreground/25"}`}>
-        <span className="flex items-center justify-between gap-2 text-xs font-medium text-muted-foreground"><span className="truncate">{label}</span><Icon className={`size-4 shrink-0 ${tone}`} /></span>
-        <span className="text-2xl font-bold tabular-nums text-foreground">{loading ? "—" : value.toLocaleString()}</span>
-        <span className="truncate text-[11px] text-muted-foreground">{hint}</span>
-      </button>)}
+    {/* Filter bar: inventories, stock status and received date in one full-width, colour-coded row. */}
+    <section className="rounded-xl border bg-card p-2 shadow-sm" aria-label="Stock filters">
+      <div className="flex w-full flex-wrap items-center gap-1.5 xl:flex-nowrap">
+        <button type="button" onClick={() => setFilter("all")} aria-pressed={filter === "all"} className={chip(filter === "all")} title="All inventory"><Boxes className="size-4 shrink-0 text-sky-500" />All<span className={`${countPill} bg-sky-400 text-slate-950`}>{totals.quantity.toLocaleString()}</span></button>
+        {locations.map((location) => <button key={location.id} type="button" onClick={() => toggleFilter(`location:${location.id}`)} aria-pressed={filter === `location:${location.id}`} title={location.company} className={chip(filter === `location:${location.id}`)}><Warehouse className="size-4 shrink-0 text-sky-500" /><span className="max-w-40 truncate">{location.location || location.company}</span><span className={`${countPill} bg-muted text-foreground`}>{location.quantity.toLocaleString()}</span></button>)}
+        {statusChips.map(({ id, label, value, Icon, icon, pill, title }) => <button key={id} type="button" onClick={() => toggleFilter(id)} aria-pressed={filter === id} title={title} className={chip(filter === id)}><Icon className={`size-4 shrink-0 ${icon}`} /><span className="truncate">{label}</span><span className={`${countPill} ${pill}`}>{value.toLocaleString()}</span></button>)}
+        <button type="button" onClick={() => toggleFilter("recent7")} aria-pressed={filter === "recent7"} title="Received in the last 7 days" className={chip(filter === "recent7")}><CalendarClock className="size-4 shrink-0 text-violet-500" />7 days</button>
+        <button type="button" onClick={() => toggleFilter("recent30")} aria-pressed={filter === "recent30"} title="Received in the last 30 days" className={chip(filter === "recent30")}><CalendarClock className="size-4 shrink-0 text-violet-500" />30 days</button>
+      </div>
     </section>
 
     <section className="overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm">
@@ -499,17 +501,8 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
         </div>
       </div>
 
-      {/* Filters: inventory and received-date chips, then category, brand and price range. */}
-      <div className="space-y-3 border-b bg-muted/20 px-4 py-3" aria-label="Filters">
-        <div className="flex w-full flex-wrap items-center gap-1.5">
-          <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Inventory</span>
-          <button type="button" onClick={() => setFilter("all")} className={chip(filter === "all")} title="All inventory">All<span className="tabular-nums opacity-70">{totals.quantity.toLocaleString()}</span></button>
-          {locations.map((location) => <button key={location.id} type="button" onClick={() => toggleFilter(`location:${location.id}`)} title={location.company} className={chip(filter === `location:${location.id}`)}><Warehouse className="size-3.5 shrink-0" /><span className="max-w-40 truncate">{location.location || location.company}</span><span className="tabular-nums opacity-70">{location.quantity.toLocaleString()}</span></button>)}
-          <span className="mx-1 hidden h-6 w-px bg-border sm:block" aria-hidden />
-          <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Received</span>
-          <button type="button" onClick={() => toggleFilter("recent7")} title="Received in the last 7 days" className={chip(filter === "recent7")}><CalendarClock className="size-3.5" />7 days</button>
-          <button type="button" onClick={() => toggleFilter("recent30")} title="Received in the last 30 days" className={chip(filter === "recent30")}><CalendarClock className="size-3.5" />30 days</button>
-        </div>
+      {/* Filters: category, brand and price range. */}
+      <div className="border-b bg-muted/20 px-4 py-3" aria-label="Filters">
         <div className="flex flex-wrap items-end gap-3">
           <label className="grid min-w-40 flex-1 gap-1 text-xs font-medium text-muted-foreground sm:flex-none">Category<select className="h-9 rounded-lg border border-input bg-card px-2 text-sm text-foreground" value={category} onChange={(event) => setCategory(event.target.value)}><option value="">All categories</option>{categoryOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
           <label className="grid min-w-36 flex-1 gap-1 text-xs font-medium text-muted-foreground sm:flex-none">Brand<select className="h-9 rounded-lg border border-input bg-card px-2 text-sm text-foreground" value={brand} onChange={(event) => setBrand(event.target.value)}><option value="">All brands</option>{brandOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
