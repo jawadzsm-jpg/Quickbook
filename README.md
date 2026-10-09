@@ -150,6 +150,7 @@ It applies migrations, creates a local global administrator on first run, stores
 | `npm run dev` | Start Next.js development mode using the configured database |
 | `node scripts/dev-local.mjs` | Start isolated local development with PGlite |
 | `node scripts/remove-imported-items.mjs --file <csv> --company <name or id> [--apply]` | Remove items an Inventory Import created from that file; dry run unless `--apply`, keeps items edited since or used on documents |
+| `node scripts/reset-duplicate-item-costs.mjs [--company <name or id>] [--apply]` | Reset Cost to 0 on items made with Duplicate item before duplicates started at 0; dry run unless `--apply`, skips items with their own bills or item receipts |
 | `npm run lint` | Lint the complete source with zero warnings allowed |
 | `npm test` | Run the release-gate, security, transaction, pricing, currency, report, and document tests |
 | `npm run typecheck` | Run strict TypeScript checks without emitting files |

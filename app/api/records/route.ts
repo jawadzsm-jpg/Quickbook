@@ -742,7 +742,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const quantity = itemType === "stock-part" ? Number(payload.quantity ?? 0) : 0;
       const reorderPoint = itemType === "stock-part" ? Number(payload.reorderPoint ?? 0) : 0;
       const salesPrice = Number(payload.salesPrice ?? 0);
-      const cost = Number(payload.cost ?? 0);
+      // A duplicate starts with no purchase history, so its cost is 0 until its own bills or receipts.
+      const cost = duplicateSource ? 0 : Number(payload.cost ?? 0);
       if (![quantity, reorderPoint, salesPrice, cost].every((value) => Number.isFinite(value) && value >= 0)) return Response.json({ error: "Quantity, reorder point, cost and sales price must be non-negative numbers." }, { status: 400 });
       const [created] = await db.insert(items).values({
         companyId, locationId, itemNumber, name, sku, category, description,
@@ -752,7 +753,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
         amountsIncludeVat: payload.amountsIncludeVat === true || String(payload.amountsIncludeVat) === "true",
         status: String(payload.status) === "inactive" ? "inactive" : "active",
       }).returning();
-      if (duplicateSource) await db.insert(auditLog).values({ companyId, action: "duplicated", entityType: "item", entityId: created.id, details: `${duplicateSource.sku} duplicated as ${created.sku}; opening quantity 0` });
+      if (duplicateSource) await db.insert(auditLog).values({ companyId, action: "duplicated", entityType: "item", entityId: created.id, details: `${duplicateSource.sku} duplicated as ${created.sku}; opening quantity 0, cost 0` });
       return Response.json({ record: created }, { status: 201 });
     }
 

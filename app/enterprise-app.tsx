@@ -975,8 +975,8 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     const itemForm: Record<string, string> = {
       itemType: itemTypeOf(item.itemType), category: String(item.category ?? "LAPTOP").toLocaleUpperCase("en"),
       itemNumber: duplicateIdentity?.itemNumber ?? String(item.itemNumber ?? ""), sku: duplicateIdentity?.sku ?? String(item.sku ?? ""), quantity: duplicateIdentity ? "0" : String(item.quantity ?? 0),
-      reorderPoint: String(item.reorderPoint ?? 0), salesPrice: String(item.salesPrice ?? 0), cost: String(item.averageCost ?? item.cost ?? 0),
-      lastPurchasePrice: String(item.lastPurchasePrice ?? item.cost ?? 0), onPo: String(item.onPo ?? 0),
+      reorderPoint: String(item.reorderPoint ?? 0), salesPrice: String(item.salesPrice ?? 0), cost: duplicateIdentity ? "0" : String(item.averageCost ?? item.cost ?? 0),
+      lastPurchasePrice: duplicateIdentity ? "0" : String(item.lastPurchasePrice ?? item.cost ?? 0), onPo: duplicateIdentity ? "0" : String(item.onPo ?? 0),
       purchaseVatCode: String(item.purchaseVatCode ?? "STANDARD"), salesVatCode: String(item.salesVatCode ?? "STANDARD"),
       cogsAccountId: item.cogsAccountId ? String(item.cogsAccountId) : (defaultCogs ? String(defaultCogs.id) : ""), incomeAccountId: item.incomeAccountId ? String(item.incomeAccountId) : (defaultIncome ? String(defaultIncome.id) : ""),
       assetAccountId: item.assetAccountId ? String(item.assetAccountId) : (defaultAsset ? String(defaultAsset.id) : ""), preferredSupplierId: item.preferredSupplierId ? String(item.preferredSupplierId) : "",
