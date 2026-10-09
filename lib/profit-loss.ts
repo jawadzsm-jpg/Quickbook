@@ -37,7 +37,7 @@ export async function profitLoss(companyId: number, locationId: number, currency
     db.select({ entryId: journalEntries.id, transactionId: journalEntries.transactionId, locationId: journalEntries.locationId, date: journalEntries.entryDate, reference: journalEntries.reference, description: journalEntries.description, account: journalLines.accountName, accountId: journalLines.accountId, debit: journalLines.debit, credit: journalLines.credit, entryCurrency: journalEntries.currency }).from(journalLines).innerJoin(journalEntries, eq(journalEntries.id, journalLines.journalEntryId)).where(and(eq(journalEntries.companyId, companyId), eq(journalEntries.posted, true), locationId ? eq(journalEntries.locationId, locationId) : undefined)).orderBy(asc(journalEntries.entryDate), asc(journalLines.id)),
     db.select().from(transactions).where(eq(transactions.companyId, companyId)),
     db.select({ id: transactionLines.id, transactionId: transactionLines.transactionId, itemId: transactionLines.itemId, description: transactionLines.description, quantity: transactionLines.quantity, unitPrice: transactionLines.unitPrice, subtotal: transactionLines.subtotal, unitCost: transactionLines.unitCost }).from(transactionLines).innerJoin(transactions, eq(transactions.id, transactionLines.transactionId)).where(eq(transactions.companyId, companyId)).orderBy(asc(transactionLines.id)),
-    db.select({ id: items.id, name: items.name, sku: items.sku }).from(items).where(eq(items.companyId, companyId)),
+    db.select({ id: items.id, name: items.name, sku: items.sku, itemType: items.itemType }).from(items).where(eq(items.companyId, companyId)),
     db.select().from(inventoryLocations).where(eq(inventoryLocations.companyId, companyId)),
   ]);
   const names = new Map<string, typeof chart>();
@@ -185,7 +185,8 @@ export async function profitLoss(companyId: number, locationId: number, currency
   const salesDocuments = new Set(details.filter(r => ["invoice", "sales receipt"].includes(String(r.documentType))).map(r => Number(r.transactionId)));
   for (const id of salesDocuments) {
     const source = docLines.get(id) || [];
-    if (source.some(l => l.itemId && l.quantity > 0 && l.unitCost <= 0)) warnings.add(`${docMap.get(id)?.number}: one or more sold items have no positive saved purchase cost. Review the source invoice cost before relying on item margins.`);
+    // Only stock items carry a purchase cost; services and non-stock lines legitimately have none.
+    if (source.some(l => l.itemId && itemMap.get(l.itemId)?.itemType === "stock-part" && l.quantity > 0 && l.unitCost <= 0)) warnings.add(`${docMap.get(id)?.number}: one or more sold items have no positive saved purchase cost. Review the source invoice cost before relying on item margins.`);
     if (source.some(l => l.quantity * l.unitCost > 0) && !details.some(r => Number(r.transactionId) === id && Number(r.cost) !== 0)) warnings.add(`${docMap.get(id)?.number}: saved line costs have no matching cost-of-sales posting in this period. Review the source journal.`);
   }
   report.pnl.warnings = [...warnings];
