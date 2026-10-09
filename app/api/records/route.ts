@@ -452,6 +452,8 @@ export async function GET(request: Request) {
           and(eq(transactions.companyId, companyId), documentVisibility(authorization)),
           eq(transactions.locationId, locationId),
           inArray(transactions.type, ["bill", "item receipt"]),
+          // Cancelled, void and draft purchases do not set the average cost.
+          sql`lower(${transactions.status}) NOT IN ('cancelled', 'canceled', 'void', 'voided', 'deleted', 'draft')`,
           sql`${transactionLines.itemId} IS NOT NULL`,
         )).groupBy(transactionLines.itemId),
         db.select({

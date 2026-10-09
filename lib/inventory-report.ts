@@ -19,18 +19,18 @@ export type InventorySummaryCard = {
 export type InventoryReportRow = Record<string, string | number | null>;
 export type InventoryReportColumn = { key: string; label: string; type?: "money" };
 export type InventoryReportFilters = { query: string; account: string; status: string; sort: string };
-const quantityKeys = new Set(["quantity", "onHand", "available", "reorder", "required", "buildLevel", "shortageQuantity", "items", "lowStock", "outOfStock", "ageDays", "count", "difference"]);
-const additiveKeys = new Set(["quantity", "onHand", "available", "required", "shortageQuantity", "items", "lowStock", "outOfStock", "value", "shortageValue"]);
+const quantityKeys = new Set(["quantity", "onHand", "onHold", "available", "reorder", "required", "buildLevel", "shortageQuantity", "items", "lowStock", "outOfStock", "ageDays", "count", "difference"]);
+const additiveKeys = new Set(["quantity", "onHand", "onHold", "available", "required", "shortageQuantity", "items", "lowStock", "outOfStock", "value", "shortageValue"]);
 
 export function inventoryColumnKind(column: InventoryReportColumn): "text" | "quantity" | "price" | "amount" {
-  if (column.type === "money") return column.key === "cost" ? "price" : "amount";
+  if (column.type === "money") return ["cost", "unitCost"].includes(column.key) ? "price" : "amount";
   return quantityKeys.has(column.key) ? "quantity" : "text";
 }
 
 export function inventoryColumnWeight(column: InventoryReportColumn) {
   if (["name", "item"].includes(column.key)) return 4.5;
   if (["account", "supplier"].includes(column.key)) return 3;
-  if (column.key === "cost") return 1.8;
+  if (["cost", "unitCost"].includes(column.key)) return 1.8;
   if (column.type === "money") return 2.2;
   if (inventoryColumnKind(column) === "quantity") return 1.2;
   return 1.8;
@@ -53,11 +53,13 @@ export function filterInventoryReportRows<T extends InventoryReportRow>(rows: T[
 
 type InventoryAccount = { id: number; code: string; name: string; active: boolean; systemRole: string | null; currency: string };
 export function inventoryAssetAccountLink(item: { assetAccountId: number | null }, accounts: InventoryAccount[], currency: string) {
-  const defaults = accounts.filter((account) => account.active && (account.systemRole === "INVENTORY" || /inventory asset/i.test(account.name)));
+  // Without a saved account, use the INVENTORY system account that posting uses; the name match is only a last resort.
+  const roleAccounts = accounts.filter((account) => account.active && account.systemRole === "INVENTORY");
+  const namedAccounts = accounts.filter((account) => account.active && /inventory asset/i.test(account.name));
   // A saved ID remains authoritative after an account is renamed or deactivated.
   const account = item.assetAccountId
     ? accounts.find((entry) => entry.id === item.assetAccountId)
-    : defaults.find((entry) => entry.currency === currency) ?? defaults[0];
+    : roleAccounts.find((entry) => entry.currency === currency) ?? roleAccounts[0] ?? namedAccounts.find((entry) => entry.currency === currency) ?? namedAccounts[0];
   return { account: account ? `${account.code} · ${account.name}` : item.assetAccountId ? "Inventory asset account link missing" : "Inventory Asset not configured", accountAccountId: account?.id ?? 0 };
 }
 
@@ -97,10 +99,12 @@ export function inventorySummary(report: InventoryReportLike): { cards: Inventor
     return { cards: [money("Stock value", sum(rows, "value"), "accent"), number("On hand", sum(rows, "quantity")), number("Stock items", sum(rows, "items")), number("Categories", unique(rows, "category")), number("Asset accounts", unique(rows, "account"))], note: "Stock value uses the current on-hand quantity and weighted average purchase cost in home currency. Account names open their ledger history." };
   }
   if (key === "inventory-valuation-detail") {
+    // Same basis as the Valuation Summary and the ledger: negative quantities reduce the total.
     const positiveRows = rows.filter((row) => Number(row.quantity) > 0);
     const quantity = sum(positiveRows, "quantity");
-    const value = sum(positiveRows, "value");
-    return { cards: [money("Stock value", value, "accent"), number("On hand", quantity), number("Stock items", rows.length), money("Average value per item", quantity ? value / quantity : 0), number("Zero / negative QOH", rows.filter((row) => Number(row.quantity) <= 0).length, "negative")], note: "Stock value includes positive quantity on hand at weighted average purchase cost. Average value per item is the stock value divided by positive units on hand; zero and negative quantities are excluded and shown separately. Select an item name to open it in Inventory. Asset accounts open the linked Chart of Accounts history." };
+    const value = sum(rows, "value");
+    const positiveValue = sum(positiveRows, "value");
+    return { cards: [money("Stock value", value, "accent"), number("On hand", quantity), number("Stock items", rows.length), money("Average value per item", quantity ? positiveValue / quantity : 0), number("Zero / negative QOH", rows.filter((row) => Number(row.quantity) <= 0).length, "negative")], note: "Stock value includes positive quantity on hand at weighted average purchase cost. Average value per item is the stock value divided by positive units on hand; zero and negative quantities are excluded and shown separately. Select an item name to open it in Inventory. Asset accounts open the linked Chart of Accounts history." };
   }
   if (key === "inventory-status") {
     return { cards: [money("Stock value", sum(rows, "value"), "accent"), number("Available quantity", sum(rows, "available"), "positive"), number("Items", rows.length), number("Low stock", rows.filter((row) => String(row.status) === "Low Stock").length, "negative"), number("Out of stock", rows.filter((row) => String(row.status) === "Out of Stock").length, "negative")], note: "Select an item to open its Inventory record. Status compares quantity on hand with the saved reorder point." };

@@ -877,6 +877,41 @@ test('customer open balance uses allocations, preserves unused credits, and link
   } finally { delete globalThis.__reportTestUser; }
 });
 
+test("Inventory reports: FIFO aging, closed purchases excluded from cost, inactive stock valued, holds and ledger reconciliation", async () => {
+  const response = await workspaces.POST(post({ type: "company", name: "Inventory audit", baseCurrency: "AED" }));
+  const { company: c } = await response.json(); const loc = c.locations[0].id;
+  const day = (offset) => new Date(Date.now() - offset * 86400000).toISOString().slice(0, 10);
+  const [asset] = await db.insert(schema.accounts).values({ companyId: c.id, code: "1399", name: "Audit Stock", type: "Other Current Asset", currency: "AED" }).returning();
+  const [a, b] = await db.insert(schema.items).values([
+    { companyId: c.id, locationId: loc, sku: "INV-A", name: "Aged laptop", quantity: 15, reorderPoint: 2, assetAccountId: asset.id, createdAt: "2024-01-01T00:00:00Z" },
+    { companyId: c.id, locationId: loc, sku: "INV-B", name: "Retired monitor", quantity: 2, cost: 50, status: "inactive", assetAccountId: asset.id },
+  ]).returning();
+  for (const [number, offset, quantity, price, status] of [["OLD", 400, 10, 100, "open"], ["NEW", 10, 10, 100, "open"], ["VOID", 5, 5, 1000, "cancelled"]]) {
+    const [bill] = await db.insert(schema.transactions).values({ companyId: c.id, locationId: loc, type: "bill", number, party: `Supplier ${number}`, transactionDate: day(offset), status, subtotal: quantity * price, total: quantity * price }).returning();
+    await db.insert(schema.transactionLines).values({ transactionId: bill.id, itemId: a.id, description: "Aged laptop", quantity, unitPrice: price, subtotal: quantity * price });
+  }
+  const [j] = await db.insert(schema.journalEntries).values({ companyId: c.id, locationId: loc, entryDate: day(10), reference: "STOCK", posted: true }).returning();
+  await db.insert(schema.journalLines).values([{ journalEntryId: j.id, accountName: "Audit Stock", accountId: asset.id, debit: 1500 }, { journalEntryId: j.id, accountName: "Accounts Payable", credit: 1500 }]);
+  await db.insert(schema.stockHolds).values({ companyId: c.id, itemId: a.id, quantity: 3, salesRep: "Rep", expiresAt: new Date(Date.now() + 3600000).toISOString() });
+  const get = async (type) => { const res = await GET(new Request(`https://app.test/api/reports?type=${type}&companyId=${c.id}`)); assert.equal(res.status, 200); return (await res.json()).report; };
+  // Cancelled bill excluded: cost 100, not (2000 + 5000) / 25. Inactive item with stock is still valued.
+  const detail = await get("inventory-valuation-detail");
+  assert.deepEqual(detail.rows.filter(r => [a.id, b.id].includes(r.itemId)).map(r => [r.sku, r.cost, r.value]).sort(), [["INV-A", 100, 1500], ["INV-B", 50, 100]]);
+  const ledger = detail.inventoryLedger.find(r => r.accountId === asset.id);
+  assert.deepEqual([ledger.stockValue, ledger.ledgerBalance, ledger.difference], [1600, 1500, 100]);
+  // FIFO: 10 units from the recent bill, 5 from the 400-day-old bill.
+  const aging = await get("inventory-stock-aging");
+  const row = aging.rows.find(r => r.itemId === a.id);
+  assert.deepEqual([row.lastReceipt, row.oldestLayer, row.ageBand, row.layers, row.sourceReference], [day(10), day(400), "366+ days", 2, "OLD"]);
+  // Bands: 10 recent units plus the inactive monitor's 2 (no receipts, aged from its creation today); 5 old units.
+  const band = (name) => aging.inventoryAging.find(entry => entry.band === name);
+  assert.deepEqual([band("0–30 days").quantity, band("0–30 days").value, band("366+ days").quantity, band("366+ days").value], [12, 1100, 5, 500]);
+  // Held stock reduces Available; the latest supplier ignores the cancelled bill.
+  const status = (await get("inventory-status")).rows.find(r => r.itemId === a.id);
+  assert.deepEqual([status.onHold, status.available, status.unitCost], [3, 12, 100]);
+  assert.equal((await get("inventory-status-supplier")).rows.some(r => r.supplier === "Supplier VOID"), false);
+});
+
 test("Bank Register starts at the opening balance, is company-wide and keeps each bank's currency; reconciliation lists every bank posting", async () => {
   const response = await workspaces.POST(post({ type: "company", name: "Banking audit", baseCurrency: "AED" }));
   const { company: c } = await response.json(); const storeA = c.locations[0].id;
@@ -1124,7 +1159,8 @@ test('inventory summaries provide stock KPIs and export all Inventory reports to
   assert.deepEqual(valuation.cards.map(card => card.value), [6000, 12, 3, 2, 1]);
   assert.equal(inventoryDetailTarget('inventory-valuation'), 'inventory-valuation-detail');
   const valuationDetail = inventorySummary({ key: 'inventory-valuation-detail', rows: [{ quantity: 100, value: 422050 }, { quantity: 0, value: 0 }, { quantity: -2, value: -5000 }] });
-  assert.deepEqual(valuationDetail.cards.map(card => card.value), [422050, 100, 3, 4220.5, 2]);
+  // Stock value includes negative stock (as the Valuation Summary and ledger do); the per-item average uses positive stock.
+  assert.deepEqual(valuationDetail.cards.map(card => card.value), [417050, 100, 3, 4220.5, 2]);
   const status = inventorySummary({ key: 'inventory-status', rows: [{ name: 'A', available: 5, status: 'In Stock', value: 500 }, { name: 'B', available: 1, status: 'Low Stock', value: 100 }, { name: 'C', available: 0, status: 'Out of Stock', value: 0 }] });
   assert.deepEqual(status.cards.map(card => card.value), [600, 6, 3, 1, 1]);
   const aging = inventorySummary({ key: 'inventory-stock-aging', rows: [{ quantity: 5, value: 500, ageDays: 45 }, { quantity: 2, value: 300, ageDays: 400 }] });
