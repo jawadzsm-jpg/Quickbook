@@ -96,7 +96,8 @@ export function salesDocumentModeForTransaction(type: string): SalesDocumentMode
 export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onStampPositionsSaved }: { mode: SalesDocumentMode; record: RecordData; lines: RecordData[]; contact?: RecordData | null; setup: Branding; onStampPositionsSaved?: (stampPositions: string) => void; showBillingName: boolean; showShipping: boolean; showHsCode: boolean; showDimensions: boolean }) {
   const outputModes = relatedDocumentOutputs[mode] ?? [mode];
   const [selection, setSelection] = useState<{ source: SalesDocumentMode; output: SalesDocumentMode }>({ source: mode, output: mode });
-  const [copy, setCopy] = useState<"customer" | "inventory">("customer");
+  // Signed invoices: which copy Print, Save as PDF and Download produce (the preview shows Customer unless Inventory is chosen).
+  const [copy, setCopy] = useState<"customer" | "inventory" | "both">("customer");
   const [pdfBusy, setPdfBusy] = useState(false);
   // Stamp placement is saved per document type; unsaved edits are kept per type until saved.
   const [savedPositions, setSavedPositions] = useState(() => readStampPositions(setup.stampPositions));
@@ -233,7 +234,8 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
   };
   const alternatePreviewRef = useRef<HTMLDivElement>(null);
   const splitInvoiceCopies = connectedPackingList && signedInvoiceCopies;
-  const selectedCopy = splitInvoiceCopies ? copy : "customer";
+  const selectedCopy: "customer" | "inventory" = signedInvoiceCopies && copy === "inventory" ? "inventory" : "customer";
+  const wantsCopy = (documentCopy: "customer" | "inventory") => !signedInvoiceCopies || copy === "both" || copy === documentCopy;
   const customerLines = connectedPackingList ? customerInvoiceLines(lines) : lines;
   const inventoryLines = inventoryInvoiceLines(lines);
   const renderDocument = (documentCopy: "customer" | "inventory", print = false) => {
@@ -250,6 +252,13 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
   const pdfFileName = documentPdfFileName(customerName, selectedCopy === "inventory" ? `${referenceNumber}_Inventory_Copy` : referenceNumber);
   const pdfTitle = pdfFileName.replace(/\.pdf$/i, "");
   const pdfElement = () => screenPreviewRef.current?.querySelector<HTMLElement>(".custom-invoice") || null;
+  // Save / Download: the chosen copy, or with "Both copies" a customer PDF and an inventory PDF.
+  const pdfTargets = () => {
+    const customer = pdfElement();
+    if (!signedInvoiceCopies || copy !== "both") return customer ? [{ element: customer, fileName: pdfFileName }] : [];
+    const inventory = alternatePreviewRef.current?.querySelector<HTMLElement>(".custom-invoice");
+    return customer && inventory ? [{ element: customer, fileName: pdfFileName }, { element: inventory, fileName: documentPdfFileName(customerName, `${referenceNumber}_Inventory_Copy`) }] : [];
+  };
   const builderCopies = (() => {
     if (!builderLayout) return null;
     const documentData = (documentLines: RecordData[], documentCopy: "customer" | "inventory" = "customer") => {
@@ -259,9 +268,9 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
     };
     const customer = documentData(customerLines, "customer");
     if (!signedInvoiceCopies) return { preview: customer, print: [{ data: customer }] };
-    // Signed invoices print a customer copy and an inventory-team copy, each starting on its own page.
+    // Signed invoices print the chosen copy, or a customer copy and an inventory-team copy each starting on its own page.
     const inventory = documentData(inventoryLines, "inventory");
-    return { preview: selectedCopy === "inventory" ? inventory : customer, print: [{ data: customer }, { data: inventory }] };
+    return { preview: selectedCopy === "inventory" ? inventory : customer, print: [...(wantsCopy("customer") ? [{ data: customer }] : []), ...(wantsCopy("inventory") ? [{ data: inventory }] : [])] };
   })();
   const printWithBuilder = (pdf: boolean) => {
     if (!builderLayout || !builderCopies) return false;
@@ -281,10 +290,10 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
     const printableWidthPx = Math.max(1, (pageWidthMm - a4Design.margin * 2) * 96 / 25.4);
     const printableHeightPx = Math.max(1, (pageHeightMm - a4Design.margin * 2) * 96 / 25.4);
     const signingSpace = signedInvoiceCopies ? 82 : 0;
-    const customerPreview = splitInvoiceCopies && selectedCopy === "inventory" ? alternatePreviewRef : screenPreviewRef;
-    const inventoryPreview = splitInvoiceCopies && selectedCopy === "customer" ? alternatePreviewRef : screenPreviewRef;
+    const customerPreview = selectedCopy === "inventory" ? alternatePreviewRef : screenPreviewRef;
+    const inventoryPreview = selectedCopy === "customer" ? alternatePreviewRef : screenPreviewRef;
     const copySources = signedInvoiceCopies
-      ? [{ label: "CUSTOMER COPY", ref: customerPreview }, { label: "INVENTORY TEAM COPY", ref: inventoryPreview }]
+      ? [{ label: "CUSTOMER COPY", ref: customerPreview, documentCopy: "customer" as const }, { label: "INVENTORY TEAM COPY", ref: inventoryPreview, documentCopy: "inventory" as const }].filter(({ documentCopy }) => wantsCopy(documentCopy))
       : Array.from({ length: a4Design.copies }, () => ({ label: "", ref: screenPreviewRef }));
     if (copySources.some(({ ref }) => !ref.current?.querySelector(".custom-invoice"))) {
       popup.close(); return toast.error("Document preview is not ready.");
@@ -341,13 +350,15 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
 
   const savePdf = async () => {
     if (printWithBuilder(true)) return;
-    const target = pdfElement();
-    if (!target) return toast.error("Document preview is not ready.");
+    const targets = pdfTargets();
+    if (!targets.length) return toast.error("Document preview is not ready.");
     setPdfBusy(true);
     try {
-      const blob = await atTrueSize(() => createA4PdfBlob(target, { orientation: a4Design.orientation, marginMm: a4Design.margin, title: pdfTitle }));
-      await savePdfBlob(blob, pdfFileName);
-      toast.success(`PDF saved as ${pdfFileName}`);
+      for (const { element, fileName } of targets) {
+        const blob = await atTrueSize(() => createA4PdfBlob(element, { orientation: a4Design.orientation, marginMm: a4Design.margin, title: fileName.replace(/\.pdf$/i, "") }));
+        await savePdfBlob(blob, fileName);
+        toast.success(`PDF saved as ${fileName}`);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not save the PDF.");
     } finally {
@@ -357,12 +368,14 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
 
   const downloadPdf = async () => {
     if (printWithBuilder(true)) return;
-    const target = pdfElement();
-    if (!target) return toast.error("Document preview is not ready.");
+    const targets = pdfTargets();
+    if (!targets.length) return toast.error("Document preview is not ready.");
     setPdfBusy(true);
     try {
-      const blob = await atTrueSize(() => createA4PdfBlob(target, { orientation: a4Design.orientation, marginMm: a4Design.margin, title: pdfTitle }));
-      downloadPdfBlob(blob, pdfFileName);
+      for (const { element, fileName } of targets) {
+        const blob = await atTrueSize(() => createA4PdfBlob(element, { orientation: a4Design.orientation, marginMm: a4Design.margin, title: fileName.replace(/\.pdf$/i, "") }));
+        downloadPdfBlob(blob, fileName);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not download the PDF.");
     } finally {
@@ -409,13 +422,13 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
         })}
       </div> : <div />}
       <div className="flex flex-wrap items-center gap-2 border-t pt-4">
-        {splitInvoiceCopies && <div className="flex w-full flex-wrap gap-2" aria-label="Invoice copy">
-          <Button type="button" variant={copy === "customer" ? "default" : "outline"} aria-pressed={copy === "customer"} onClick={() => setCopy("customer")}>Customer Copy</Button>
-          <Button type="button" variant={copy === "inventory" ? "default" : "outline"} aria-pressed={copy === "inventory"} onClick={() => setCopy("inventory")}>Inventory Copy</Button>
+        {signedInvoiceCopies && <div className="flex w-full flex-wrap items-center gap-2" aria-label="Invoice copy">
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Print / download</span>
+          {([["customer", "Customer Copy"], ["inventory", "Inventory Copy"], ["both", "Both copies"]] as const).map(([value, label]) => <Button key={value} type="button" size="sm" variant={copy === value ? "default" : "outline"} aria-pressed={copy === value} onClick={() => setCopy(value)}>{label}</Button>)}
         </div>}
         {builderLayout ? <span className="text-xs font-medium text-muted-foreground">Layout Builder design · {builderLayout.page.size} {builderLayout.page.orientation}</span> : <PrintOrientationSelect value={printOrientation} onValueChange={setPrintOrientation} />}
         <Button type="button" variant="outline" onClick={printA4}>
-          <Printer className="size-4" />{signedInvoiceCopies ? "Print 2 A4 copies" : "Print A4"}
+          <Printer className="size-4" />{signedInvoiceCopies && copy === "both" ? "Print 2 A4 copies" : "Print A4"}
         </Button>
         <Button type="button" variant="outline" onClick={() => void savePdf()} disabled={pdfBusy}>
           <FileDown className="size-4" />{pdfBusy ? "Preparing…" : "Save as PDF"}
@@ -434,10 +447,10 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
       {bankBoxShown && <label className="grid gap-1"><span className="font-medium">{supplierBankMode ? "Note on this document" : "Remark on this document"}</span><textarea rows={2} maxLength={500} className="w-full rounded-md border bg-background px-3 py-2 text-foreground" value={bankRemark} placeholder="Payment note, correspondent bank instructions…" onChange={(event) => setBankRemarkEdit(event.target.value)} /><span className="text-xs text-muted-foreground">{supplierBankMode ? "Optional note printed under the supplier's bank details, for this document only." : <>Starts with the {documentCurrency} account&apos;s remark from Company Setup. Changes here apply to this document only.</>}</span></label>}
       {companyPlacement.show && setup.stampData || bankBoxShown ? <span className="text-xs text-muted-foreground">Drag the company stamp and the bank box anywhere on the first page, or type Left / Top in mm from the top-left of the printable area. {supplierBankMode ? "The supplier bank box shows the bank details saved on this vendor." : <>The bank box shows the {documentCurrency} account from Company Setup.</>} Save stamp positions to use these settings on every {salesDocumentTitles[activeMode]}.</span> : null}
     </div>}
-    {signedInvoiceCopies ? <div className="document-internal-only mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">Print creates Customer and Inventory copies with signature areas. Customer copies hide zero-price and stock-return lines. Save or download uses the selected copy.</div> : null}
+    {signedInvoiceCopies ? <div className="document-internal-only mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">Choose Customer Copy, Inventory Copy or Both copies; Print, Save as PDF and Download use that choice (Both downloads two PDFs). Copies have signature areas. Customer copies hide zero-price and stock-return lines.</div> : null}
     <div ref={fitRef} className="relative min-w-0">
       {builderLayout && builderCopies ? <LayoutPreview layout={outputLayout ?? builderLayout} data={builderCopies.preview} onMoveStamp={canEditStamps ? movePageStamp : undefined} /> : <div ref={zoomRef} style={{ zoom: previewZoom }}><div ref={screenPreviewRef} className="invoice-screen-only" data-invoice-copy={selectedCopy}>{renderDocument(selectedCopy)}</div></div>}
-      {splitInvoiceCopies && <div ref={alternatePreviewRef} data-invoice-copy={selectedCopy === "customer" ? "inventory" : "customer"} className="invoice-screen-only pointer-events-none absolute top-0 w-full" style={{ left: -100000 }} aria-hidden="true" inert>{renderDocument(selectedCopy === "customer" ? "inventory" : "customer")}</div>}
+      {signedInvoiceCopies && <div ref={alternatePreviewRef} data-invoice-copy={selectedCopy === "customer" ? "inventory" : "customer"} className="invoice-screen-only pointer-events-none absolute top-0 w-full" style={{ left: -100000 }} aria-hidden="true" inert>{renderDocument(selectedCopy === "customer" ? "inventory" : "customer")}</div>}
     </div>
     <div className="invoice-print-only">{renderDocument(selectedCopy, true)}</div>
     {connectedPackingList ? <InvoicePackingListDialog open={packingOpen} onOpenChange={setPackingOpen} companyId={Number(record.companyId)} companyName={String(setup.name || "Company")} setup={setup} invoiceId={Number(record.id)} initialView={packingView} stampPositions={savedPositions} onSaveStampPositions={setup.id && (setup.stampData || bankForCurrency(setup, documentCurrency)) ? persistStampPositions : undefined} savingStampPositions={savingStamps} /> : null}

@@ -251,7 +251,11 @@ test("line comments and serial numbers print under the description unless they h
   data.lines[0] = { ...data.lines[0], comments: "Customer asked for gift wrap", serialNumber: "VNT5500968 VNT55009MY" };
   const render = () => renderToStaticMarkup(React.createElement(LayoutDocument, { layout, data, mode: "print" }));
   const html = render();
-  assert.match(html, /<span class="lb-line-note">Customer asked for gift wrap<\/span><span class="lb-line-note">S\/N: VNT5500968 VNT55009MY<\/span><\/td>/);
+  assert.match(html, /<span class="lb-line-note">Customer asked for gift wrap<\/span><span class="lb-line-note lb-serials"><strong>S\/N:<\/strong> VNT5500968 VNT55009MY<\/span><\/td>/);
+  // Serials entered one per line print side by side, separated by commas.
+  data.lines[0] = { ...data.lines[0], serialNumber: "SN-1\nSN-2\n\nSN-3" };
+  assert.match(render(), /<strong>S\/N:<\/strong> SN-1, SN-2, SN-3<\/span>/);
+  data.lines[0] = { ...data.lines[0], serialNumber: "VNT5500968 VNT55009MY" };
   const items = layout.rows.flatMap((row) => row.sections).find((section) => section.type === "lineItems");
   items.props = { ...items.props, columns: [...items.props.columns, { key: "serialNumber", label: "Serial", width: 15 }] };
   assert.doesNotMatch(render(), /S\/N: VNT5500968/); assert.match(render(), /Customer asked for gift wrap/);
