@@ -709,10 +709,13 @@ test("live P&L totals are the same ledger figures as the standard report", async
 test("summary destinations preserve their titles and selected inventory", async () => {
   const customers = await report("sales-by-customer");
   assert.equal(customers.title, "Sales by Customer Summary");
-  assert.equal(customers.rows[0].amount, 3675);
+  // Net of the fixture's USD credit memo (100 × 3.675 = 367.50): 3,675 − 367.50.
+  assert.deepEqual([customers.rows[0].sales, customers.rows[0].returns, customers.rows[0].amount], [3675, 367.5, 3307.5]);
   assert.equal((await report("sales-by-item")).title, "Sales by Item Summary");
-  assert.equal((await report("sales-by-item")).rows.length, 1);
-  assert.equal((await report("sales-by-item", 0)).rows.length, 2);
+  // The invoice line plus the credit memo's unlinked return line (CR-USD), which nets as a negative row.
+  const byItem = await report("sales-by-item");
+  assert.deepEqual(byItem.rows.map((row) => [row.name, row.amount]).sort(), [["CR-USD", -367.5], ["INV-USD", 3675]]);
+  assert.equal((await report("sales-by-item", 0)).rows.length, byItem.rows.length + 1);
 });
 
 test("reports reject inventory IDs outside the selected company", async () => {
@@ -878,6 +881,41 @@ test('customer open balance uses allocations, preserves unused credits, and link
     assert.equal((await get({ type: 'customers-overdue-invoices' })).status, 403);
     assert.equal((await get({ type: 'active-customers' })).status, 403);
   } finally { delete globalThis.__reportTestUser; }
+});
+
+test("Sales reports: shared status filter, returns netted, stock-return lines, pending and fulfilment open values, ship-to address", async () => {
+  const response = await workspaces.POST(post({ type: "company", name: "Sales audit", baseCurrency: "AED" }));
+  const { company: c } = await response.json(); const loc = c.locations[0].id;
+  await db.insert(schema.contacts).values({ companyId: c.id, type: "customer", name: "Client S", currency: "AED", country: "United Arab Emirates", balance: 0 });
+  const [laptop] = await db.insert(schema.items).values({ companyId: c.id, locationId: loc, sku: "SAL-A", name: "Sold laptop" }).returning();
+  const doc = async (values, lineValues = []) => { const [row] = await db.insert(schema.transactions).values({ companyId: c.id, locationId: loc, party: "Client S", transactionDate: "2026-09-10", baseTotal: values.total ?? 0, ...values }).returning(); const saved = []; for (const line of lineValues) saved.push((await db.insert(schema.transactionLines).values({ transactionId: row.id, description: "Sold laptop", ...line }).returning())[0]); return { row, lines: saved }; };
+  // 10 sold at 100 with a stock-return line (−3 at 0), shipped to Oman; a voided invoice; a credit note for 1 unit.
+  await doc({ type: "invoice", number: "SI-1", subtotal: 1000, total: 1000, deliveryAddress: "Warehouse 4\nMuscat, Oman" }, [{ itemId: laptop.id, quantity: 10, unitPrice: 100, subtotal: 1000, unitCost: 60 }, { itemId: laptop.id, quantity: -3, unitPrice: 0, subtotal: 0 }]);
+  await doc({ type: "invoice", number: "SI-VOID", status: "voided", subtotal: 9000, total: 9000 }, [{ itemId: laptop.id, quantity: 90, unitPrice: 100, subtotal: 9000 }]);
+  await doc({ type: "credit memo", number: "CN-1", subtotal: 100, total: 100 }, [{ itemId: laptop.id, quantity: 1, unitPrice: 100, subtotal: 100 }]);
+  // A pending invoice and an August quotation; a sales order half invoiced, its cancelled invoice ignored; a converted order.
+  await doc({ type: "pending invoice", number: "PEND-1", status: "pending", subtotal: 500, total: 500 });
+  await doc({ type: "quotation", number: "Q-OLD", transactionDate: "2026-08-01", status: "open", subtotal: 300, total: 300 });
+  const order = await doc({ type: "sales order", number: "SO-1", status: "partially invoiced", subtotal: 1000, total: 1000 }, [{ itemId: laptop.id, quantity: 10, unitPrice: 100, subtotal: 1000 }]);
+  const half = await doc({ type: "invoice", number: "SI-SO", subtotal: 500, total: 500 }, [{ itemId: laptop.id, quantity: 5, unitPrice: 100, subtotal: 500 }]);
+  const cancelled = await doc({ type: "invoice", number: "SI-SO-X", status: "cancelled", subtotal: 300, total: 300 });
+  await db.insert(schema.salesInvoiceAllocations).values([{ sourceLineId: order.lines[0].id, invoiceId: half.row.id, quantity: 5 }, { sourceLineId: order.lines[0].id, invoiceId: cancelled.row.id, quantity: 3 }]);
+  await doc({ type: "sales order", number: "SO-CONV", status: "converted", subtotal: 200, total: 200 }, [{ itemId: laptop.id, quantity: 2, unitPrice: 100, subtotal: 200 }]);
+  const get = async (type) => { const res = await GET(new Request(`https://app.test/api/reports?type=${type}&companyId=${c.id}&periodStart=2026-09-01&periodEnd=2026-09-30`)); assert.equal(res.status, 200, await res.clone().text()); return (await res.json()).report; };
+  const customer = (await get("sales-by-customer")).rows.find((row) => row.name === "Client S");
+  assert.deepEqual([customer.sales, customer.returns, customer.amount], [1500, 100, 1400]);
+  const item = (await get("sales-by-item")).rows.find((row) => row.itemId === laptop.id);
+  assert.deepEqual([item.quantity, item.returned, item.amount, item.averagePrice], [14, 1, 1400, 100]);
+  const daily = (await get("daily-sales-summary")).rows.find((row) => row.date === "2026-09-10");
+  assert.deepEqual([daily.quantity, daily.netSales], [14, 1400]);
+  assert.ok((await get("sales-by-ship-to")).rows.some((row) => row.address === "Oman" && row.sales === 1000));
+  const pending = await get("pending-sales");
+  const open = (number) => pending.rows.find((row) => row.number === number)?.amount;
+  assert.deepEqual([open("PEND-1"), open("Q-OLD"), open("SO-1"), open("SO-CONV")], [500, 300, 500, undefined]);
+  const fulfilment = (await get("sales-orders")).rows;
+  const so = fulfilment.find((row) => row.number === "SO-1"), converted = fulfilment.find((row) => row.number === "SO-CONV");
+  assert.deepEqual([so.fulfilledQuantity, so.remainingQuantity, so.remainingValue], [5, 5, 500]);
+  assert.deepEqual([converted.fulfilledQuantity, converted.remainingQuantity], [2, 0]);
 });
 
 test("Purchases reports: returns netted, closed documents excluded, freight as landed cost, posted accounts, open POs as a snapshot", async () => {
@@ -1133,7 +1171,7 @@ test('sales summaries provide report-specific KPIs and export every Sales report
   const { salesReportKeys, salesSummary, salesDetailTarget } = await vite.ssrLoadModule('/lib/sales-report.ts');
   assert.equal(salesReportKeys.size, 12);
   const customer = salesSummary({ key: 'sales-by-customer', rows: [{ name: 'A', amount: 100 }, { name: 'B', amount: 300 }] });
-  assert.deepEqual(customer.cards.map(card => card.value), [400, 2, 200, 300]);
+  assert.deepEqual(customer.cards.map(card => card.value), [400, 0, 2, 200, 300]);
   assert.equal(salesDetailTarget('sales-by-customer'), 'sales-by-customer-detail');
   const graph = salesSummary({ key: 'sales-graph', rows: [{ month: '2026-08', sales: 500, refunds: 50 }, { month: '2026-09', sales: 300, refunds: 20 }] });
   assert.deepEqual(graph.cards.map(card => card.value), [800, 70, 730, 2]);

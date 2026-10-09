@@ -7,6 +7,7 @@ import { vendorDocumentAccount, vendorReportKeys } from "@/lib/vendor-report";
 import { buildVatReport, vatReportKeys } from "@/lib/vat-report";
 import { bankingReportKeys } from "@/lib/banking-report";
 import { heldByOthers } from "@/lib/stock-holds";
+import { countries } from "@/lib/countries";
 import { financialKeys, financialReport } from "@/lib/financial-reports";
 import { reportPeriod, validReportDate, reportMonths, previousYearDate } from "@/lib/report-period";
 import { profitLoss } from "@/lib/profit-loss";
@@ -237,7 +238,16 @@ export async function GET(request: Request) {
     const openAmounts = new Map<number, number>();
     if (openOrderKeys.has(key)) rawLines.filter((line) => line.type === "purchase order").forEach((line) => openAmounts.set(line.transactionId, (openAmounts.get(line.transactionId) ?? 0) + remainingFor(line).amount));
     const openAmountFor = (id: number) => openAmounts.get(id) ?? 0;
-    const salesDocuments = scopedTransactions.filter((row) => ["invoice", "sales receipt"].includes(row.type) && !["cancelled", "void"].includes(row.status));
+    // Posted sales: invoices and sales receipts; credit memos are returns (negative). Cancelled, void, deleted and draft
+    // documents never count. Stock-return lines (negative quantity at zero price) are stock corrections, not sales.
+    const salesWithReturns = scopedTransactions.filter((row) => ["invoice", "sales receipt", "credit memo"].includes(row.type) && !closedDocument(row.status));
+    const salesSign = (row: { type: string }) => row.type === "credit memo" ? -1 : 1;
+    const cents = (value: number) => Math.round(value * 100) / 100;
+    const baseVat = (row: typeof allTransactions[number]) => cents(Number(row.vatAmount) * Number(row.exchangeRate));
+    const stockReturnLine = (line: { quantity: number; unitPrice: number }) => Number(line.quantity) < 0 && Number(line.unitPrice) === 0;
+    const salesLines = () => lines.filter((line) => ["invoice", "sales receipt", "credit memo"].includes(line.type) && !line.isFreightCharge && !closedDocument(line.status) && !stockReturnLine(line));
+    const documentAmountText = (row: typeof allTransactions[number]) => `${row.currency} ${(salesSign(row) * Number(row.subtotal)).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const salesDocumentType = (type: string) => type === "credit memo" ? "credit note (return)" : type;
     const salesTransactionById = new Map((salesReportKeys.has(key) ? rawTransactions : []).map((row) => [row.id, row]));
     const salesJournalById = new Map<number, typeof rawJournal>();
     if (salesReportKeys.has(key)) rawJournal.forEach((entry) => { if (entry.transactionId) salesJournalById.set(entry.transactionId, [...(salesJournalById.get(entry.transactionId) ?? []), entry]); });
@@ -249,7 +259,7 @@ export async function GET(request: Request) {
     const salesAccountColumns = [{ key: "account", label: "Receivable / Receipt Account" }, { key: "revenueAccount", label: "Revenue Account" }];
     const groupLines = (types: string[]) => {
       const grouped = new Map<string, { itemId: number; sku: string; name: string; quantity: number; amount: number; cost: number; sourceIds: Set<number>; sourceTransactionId: number; sourceReference: string }>();
-      lines.filter((line) => types.includes(line.type) && !["cancelled", "canceled", "void", "voided", "draft"].includes(line.status)).forEach((line) => {
+      lines.filter((line) => types.includes(line.type) && !closedDocument(line.status) && !stockReturnLine(line)).forEach((line) => {
         const key = line.itemId ? `item:${line.itemId}` : `description:${line.description}`;
         const item = allItems.find((candidate) => candidate.id === Number(line.itemId));
         const old = grouped.get(key) ?? { itemId: item?.id ?? 0, sku: item?.sku ?? "", name: item?.name ?? line.description, quantity: 0, amount: 0, cost: 0, sourceIds: new Set<number>(), sourceTransactionId: 0, sourceReference: "" };
@@ -286,6 +296,39 @@ export async function GET(request: Request) {
         grouped.set(groupKey, old);
       });
       return [...grouped.values()].map(({ sourceIds, ...value }) => ({ ...value, landed: value.amount + value.freight, averageUnitCost: value.quantity ? (value.amount + value.freight) / value.quantity : 0, lastPurchase: value.lastDate || "—", sourceReference: `${value.sourceReference || "—"} · ${sourceIds.size} document${sourceIds.size === 1 ? "" : "s"}`, sourceReferenceTransactionId: value.sourceTransactionId })).sort((a, b) => b.landed - a.landed);
+    };
+    const salesOrderProgress = async () => {
+      const allocations = await db.select({ sourceLineId: salesInvoiceAllocations.sourceLineId, quantity: salesInvoiceAllocations.quantity }).from(salesInvoiceAllocations).innerJoin(transactions, eq(transactions.id, salesInvoiceAllocations.invoiceId)).where(and(eq(transactions.companyId, companyId), sql`lower(${transactions.status}) NOT IN ('cancelled', 'canceled', 'void', 'voided', 'deleted', 'draft')`));
+      const fulfilledByLine = new Map<number, number>();
+      allocations.forEach((allocation) => fulfilledByLine.set(allocation.sourceLineId, (fulfilledByLine.get(allocation.sourceLineId) ?? 0) + Number(allocation.quantity)));
+      const orderStatus = new Map(rawTransactions.filter((row) => row.type === "sales order").map((row) => [row.id, String(row.status).toLowerCase()]));
+      const orderQuantities = new Map<number, { quantity: number; fulfilledQuantity: number; remainingQuantity: number }>();
+      const remainingValueByOrder = new Map<number, number>();
+      rawLines.filter((line) => line.type === "sales order" && !line.isFreightCharge).forEach((line) => {
+        const converted = ["converted", "invoiced"].includes(orderStatus.get(line.transactionId) ?? "");
+        const next = salesFulfilment(line.quantity, converted ? Math.max(Number(line.quantity), fulfilledByLine.get(line.lineId) ?? 0) : fulfilledByLine.get(line.lineId) ?? 0);
+        const old = orderQuantities.get(line.transactionId) ?? { quantity: 0, fulfilledQuantity: 0, remainingQuantity: 0 };
+        orderQuantities.set(line.transactionId, { quantity: old.quantity + next.quantity, fulfilledQuantity: old.fulfilledQuantity + next.fulfilledQuantity, remainingQuantity: old.remainingQuantity + next.remainingQuantity });
+        const unitGross = Number(line.quantity) ? (Number(line.subtotal) + Number(line.vatAmount)) * Number(line.exchangeRate) / Number(line.quantity) : 0;
+        remainingValueByOrder.set(line.transactionId, (remainingValueByOrder.get(line.transactionId) ?? 0) + next.remainingQuantity * unitGross);
+      });
+      return { orderQuantities, remainingValueByOrder };
+    };
+    const salesItemRows = () => {
+      const grouped = new Map<string, { itemId: number; sku: string; name: string; quantity: number; returned: number; paidQuantity: number; sales: number; returns: number; cost: number; sourceIds: Set<number>; sourceTransactionId: number; sourceReference: string; lastDate: string }>();
+      salesLines().forEach((line) => {
+        const groupKey = line.itemId ? `item:${line.itemId}` : `description:${line.description}`;
+        const item = line.itemId ? itemsById.get(Number(line.itemId)) : undefined;
+        const isReturn = line.type === "credit memo", sign = isReturn ? -1 : 1, rate = Number(line.exchangeRate) || 1, quantity = Number(line.quantity);
+        const old = grouped.get(groupKey) ?? { itemId: item?.id ?? 0, sku: item?.sku ?? "", name: item?.name ?? line.description, quantity: 0, returned: 0, paidQuantity: 0, sales: 0, returns: 0, cost: 0, sourceIds: new Set<number>(), sourceTransactionId: 0, sourceReference: "", lastDate: "" };
+        old.sourceIds.add(line.transactionId);
+        old.quantity += sign * quantity;
+        const amount = cents(Number(line.subtotal) * rate);
+        if (isReturn) { old.returned += quantity; old.returns += amount; } else { old.sales += amount; if (Number(line.unitPrice) > 0) old.paidQuantity += quantity; old.cost += cents(quantity * Number(line.unitCost) * rate); }
+        if (!isReturn && line.date >= old.lastDate) { old.lastDate = line.date; old.sourceTransactionId = line.transactionId; old.sourceReference = line.number; }
+        grouped.set(groupKey, old);
+      });
+      return [...grouped.values()].map(({ sourceIds, ...value }) => ({ ...value, amount: value.sales - value.returns, averagePrice: value.paidQuantity ? value.sales / value.paidQuantity : 0, margin: value.sales > 0 ? `${((value.sales - value.cost) / value.sales * 100).toFixed(1)}%` : "—", lastSale: value.lastDate || "—", sourceReference: `${value.sourceReference || "—"} · ${sourceIds.size} document${sourceIds.size === 1 ? "" : "s"}`, sourceReferenceTransactionId: value.sourceTransactionId })).sort((a, b) => b.amount - a.amount);
     };
     const billAllocations = await db.select({ billId: billPaymentAllocations.billId, amount: billPaymentAllocations.amount, status: transactions.status }).from(billPaymentAllocations).innerJoin(transactions, eq(transactions.id, billPaymentAllocations.paymentId)).where(eq(transactions.companyId, companyId));
     const openBillAmount = (row: typeof scopedTransactions[number]) => Math.max(0,
@@ -777,66 +820,95 @@ export async function GET(request: Request) {
     } else if (key === "daily-sales-summary") {
       title = "Daily Sales Summary";
       const quantities = new Map<number, number>();
-      lines.filter((line) => !line.isFreightCharge).forEach((line) => quantities.set(line.transactionId, (quantities.get(line.transactionId) ?? 0) + line.quantity));
-      const grouped = new Map<string, { documents: number; quantity: number; sales: number; vat: number; total: number }>();
-      salesDocuments.forEach((row) => { const old = grouped.get(row.transactionDate) ?? { documents: 0, quantity: 0, sales: 0, vat: 0, total: 0 }; old.documents += 1; old.quantity += quantities.get(row.id) ?? 0; old.sales += baseSubtotal(row); old.vat += row.vatAmount * row.exchangeRate; old.total += row.baseTotal; grouped.set(row.transactionDate, old); });
-      rows = [...grouped].sort(([a], [b]) => a.localeCompare(b)).map(([date, value]) => ({ date, ...value }));
-      columns = [{ key: "date", label: "Date" }, { key: "documents", label: "Documents" }, { key: "quantity", label: "Quantity" }, { key: "sales", label: "Sales ex VAT", ...money }, { key: "vat", label: "VAT", ...money }, { key: "total", label: "Gross Total", ...money }];
-    } else if (key === "daily-sales-detail") {
-      title = "Daily Sales Detail";
-      rows = salesDocuments.map((row) => ({ transactionId: row.id, ...salesAccountsFor(row.id), date: row.transactionDate, number: row.number, customer: row.party, type: row.type, salesman: row.salesman || "Unassigned", status: row.status, amount: baseSubtotal(row), vat: row.vatAmount * row.exchangeRate, total: row.baseTotal }));
-      columns = [{ key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "customer", label: "Customer" }, { key: "type", label: "Type" }, { key: "salesman", label: "Sales Rep" }, { key: "status", label: "Status" }, ...salesAccountColumns, { key: "amount", label: "Sales ex VAT", ...money }, { key: "vat", label: "VAT", ...money }, { key: "total", label: "Gross Total", ...money }];
-    } else if (key === "sales-by-customer-detail") {
-      title = "Sales by Customer Detail";
-      rows = salesDocuments.map((row) => ({ transactionId: row.id, ...salesAccountsFor(row.id), customer: row.party, date: row.transactionDate, number: row.number, type: row.type, salesman: row.salesman || "Unassigned", amount: baseSubtotal(row), vat: row.vatAmount * row.exchangeRate, total: row.baseTotal }));
-      columns = [{ key: "customer", label: "Customer" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "salesman", label: "Sales Rep" }, ...salesAccountColumns, { key: "amount", label: "Sales ex VAT", ...money }, { key: "vat", label: "VAT", ...money }, { key: "total", label: "Total", ...money }];
+      salesLines().forEach((line) => quantities.set(line.transactionId, (quantities.get(line.transactionId) ?? 0) + salesSign(line) * Number(line.quantity)));
+      const grouped = new Map<string, { documents: number; quantity: number; sales: number; returns: number; vat: number; total: number }>();
+      salesWithReturns.forEach((row) => {
+        const old = grouped.get(row.transactionDate) ?? { documents: 0, quantity: 0, sales: 0, returns: 0, vat: 0, total: 0 };
+        old.documents += 1; old.quantity += quantities.get(row.id) ?? 0;
+        if (row.type === "credit memo") old.returns += baseSubtotal(row); else old.sales += baseSubtotal(row);
+        old.vat += salesSign(row) * baseVat(row); old.total += salesSign(row) * row.baseTotal;
+        grouped.set(row.transactionDate, old);
+      });
+      rows = [...grouped].sort(([a], [b]) => a.localeCompare(b)).map(([date, value]) => ({ date, ...value, netSales: value.sales - value.returns }));
+      columns = [{ key: "date", label: "Date" }, { key: "documents", label: "Documents" }, { key: "quantity", label: "Net Quantity" }, { key: "sales", label: "Sales ex VAT", ...money }, { key: "returns", label: "Returns ex VAT", ...money }, { key: "netSales", label: "Net Sales ex VAT", ...money }, { key: "vat", label: "VAT", ...money }, { key: "total", label: "Net Total", ...money }];
+    } else if (key === "daily-sales-detail" || key === "sales-by-customer-detail") {
+      const daily = key === "daily-sales-detail";
+      title = daily ? "Daily Sales Detail" : "Sales by Customer Detail";
+      rows = salesWithReturns.map((row) => ({ transactionId: row.id, ...salesAccountsFor(row.id), date: row.transactionDate, number: row.number, customer: row.party, type: salesDocumentType(row.type), salesman: row.salesman || "Unassigned", status: row.status, currency: row.currency, documentAmount: documentAmountText(row), amount: salesSign(row) * baseSubtotal(row), vat: salesSign(row) * baseVat(row), total: salesSign(row) * row.baseTotal }));
+      if (!daily) rows.sort((a, b) => String(a.customer).localeCompare(String(b.customer)) || String(a.date).localeCompare(String(b.date)));
+      const lead = daily ? [{ key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "customer", label: "Customer" }] : [{ key: "customer", label: "Customer" }, { key: "date", label: "Date" }, { key: "number", label: "No." }];
+      columns = [...lead, { key: "type", label: "Type" }, { key: "salesman", label: "Sales Rep" }, { key: "status", label: "Status" }, { key: "documentAmount", label: "Document amount ex VAT" }, ...salesAccountColumns, { key: "amount", label: "Net Sales ex VAT", ...money }, { key: "vat", label: "VAT", ...money }, { key: "total", label: "Net Total", ...money }];
     } else if (key === "sales-by-item-detail") {
       title = "Sales by Item Detail";
-      rows = lines.filter((line) => ["invoice", "sales receipt"].includes(line.type) && !["cancelled", "void"].includes(line.status)).map((line) => ({ transactionId: line.transactionId, ...salesAccountsFor(line.transactionId), date: line.date, number: line.number, customer: line.party, salesman: line.salesman || "Unassigned", status: line.status, item: line.description, quantity: line.quantity, unitPrice: line.quantity ? line.subtotal * line.exchangeRate / line.quantity : 0, amount: line.subtotal * line.exchangeRate }));
-      columns = [{ key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "customer", label: "Customer" }, { key: "item", label: "Item" }, { key: "quantity", label: "Quantity" }, { key: "unitPrice", label: "Unit Price", ...money }, ...salesAccountColumns, { key: "amount", label: "Sales ex VAT", ...money }];
+      rows = salesLines().map((line) => {
+        const item = line.itemId ? itemsById.get(Number(line.itemId)) : undefined;
+        const sign = salesSign(line), rate = Number(line.exchangeRate) || 1, quantity = Number(line.quantity);
+        return { transactionId: line.transactionId, ...salesAccountsFor(line.transactionId), itemId: item?.id ?? 0, date: line.date, number: line.number, type: salesDocumentType(line.type), customer: line.party, salesman: line.salesman || "Unassigned", status: line.status, item: item ? `${item.sku} · ${item.name}` : line.description, quantity: sign * quantity, unitPrice: quantity ? cents(Number(line.subtotal) * rate / quantity) : 0, amount: sign * cents(Number(line.subtotal) * rate), vat: sign * cents(Number(line.vatAmount) * rate) };
+      });
+      columns = [{ key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "customer", label: "Customer" }, { key: "item", label: "Item" }, { key: "quantity", label: "Quantity" }, { key: "unitPrice", label: "Unit Price", ...money }, ...salesAccountColumns, { key: "amount", label: "Net Sales ex VAT", ...money }, { key: "vat", label: "VAT", ...money }];
     } else if (key === "sales-by-rep-summary" || key === "sales-by-rep-detail") {
       const detail = key === "sales-by-rep-detail";
       title = detail ? "Sales by Rep Detail" : "Sales by Rep Summary";
-      const sales = salesDocuments;
       if (detail) {
-        rows = sales.map((row) => ({ transactionId: row.id, ...salesAccountsFor(row.id), salesman: row.salesman || "Unassigned", date: row.transactionDate, number: row.number, customer: row.party, status: row.status, amount: baseSubtotal(row) }));
-        columns = [{ key: "salesman", label: "Sales Rep" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "customer", label: "Customer" }, { key: "status", label: "Status" }, ...salesAccountColumns, { key: "amount", label: "Sales ex VAT", ...money }];
+        rows = salesWithReturns.map((row) => ({ transactionId: row.id, ...salesAccountsFor(row.id), salesman: row.salesman || "Unassigned", date: row.transactionDate, number: row.number, customer: row.party, type: salesDocumentType(row.type), status: row.status, amount: salesSign(row) * baseSubtotal(row), vat: salesSign(row) * baseVat(row), total: salesSign(row) * row.baseTotal }));
+        columns = [{ key: "salesman", label: "Sales Rep" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "customer", label: "Customer" }, { key: "type", label: "Type" }, { key: "status", label: "Status" }, ...salesAccountColumns, { key: "amount", label: "Net Sales ex VAT", ...money }, { key: "vat", label: "VAT", ...money }, { key: "total", label: "Net Total", ...money }];
       } else {
-        const grouped = new Map<string, { documents: number; amount: number }>();
-        sales.forEach((row) => { const name = row.salesman || "Unassigned"; const old = grouped.get(name) ?? { documents: 0, amount: 0 }; grouped.set(name, { documents: old.documents + 1, amount: old.amount + baseSubtotal(row) }); });
-        rows = [...grouped].map(([salesman, value]) => ({ salesman, ...value })).sort((a, b) => b.amount - a.amount);
-        columns = [{ key: "salesman", label: "Sales Rep" }, { key: "documents", label: "Documents" }, { key: "amount", label: "Sales ex VAT", ...money }];
+        const grouped = new Map<string, { documents: number; customers: Set<string>; sales: number; returns: number; vat: number; total: number }>();
+        salesWithReturns.forEach((row) => { const name = row.salesman || "Unassigned"; const old = grouped.get(name) ?? { documents: 0, customers: new Set<string>(), sales: 0, returns: 0, vat: 0, total: 0 }; old.documents += 1; old.customers.add(row.party); if (row.type === "credit memo") old.returns += baseSubtotal(row); else old.sales += baseSubtotal(row); old.vat += salesSign(row) * baseVat(row); old.total += salesSign(row) * row.baseTotal; grouped.set(name, old); });
+        rows = [...grouped].map(([salesman, value]) => ({ salesman, documents: value.documents, customers: value.customers.size, sales: value.sales, returns: value.returns, amount: value.sales - value.returns, vat: value.vat, total: value.total })).sort((a, b) => b.amount - a.amount);
+        columns = [{ key: "salesman", label: "Sales Rep" }, { key: "documents", label: "Documents" }, { key: "customers", label: "Customers" }, { key: "sales", label: "Sales ex VAT", ...money }, { key: "returns", label: "Returns ex VAT", ...money }, { key: "amount", label: "Net Sales ex VAT", ...money }, { key: "vat", label: "VAT", ...money }, { key: "total", label: "Net Total", ...money }];
       }
     } else if (key === "sales-by-ship-to") {
       title = "Sales by Ship To Address";
-      const addressByCustomer = new Map(allContacts.filter((contact) => contact.type === "customer").map((contact) => [contact.name, contact.country || "Unassigned"]));
-      const grouped = new Map<string, { customers: Set<string>; documents: number; amount: number }>();
-      salesDocuments.forEach((row) => { const address = addressByCustomer.get(row.party) ?? "Unassigned"; const old = grouped.get(address) ?? { customers: new Set<string>(), documents: 0, amount: 0 }; old.customers.add(row.party); old.documents += 1; old.amount += baseSubtotal(row); grouped.set(address, old); });
-      rows = [...grouped].map(([address, value]) => ({ address, customers: value.customers.size, documents: value.documents, amount: value.amount })).sort((a, b) => b.amount - a.amount);
-      columns = [{ key: "address", label: "Ship To Country / Address" }, { key: "customers", label: "Customers" }, { key: "documents", label: "Documents" }, { key: "amount", label: "Sales ex VAT", ...money }];
+      // The document's delivery address wins (a country named in it, else its last line); the customer's country is the fallback.
+      const countryByCustomer = new Map(allContacts.filter((contact) => contact.type === "customer").map((contact) => [contact.name, contact.country || ""]));
+      const countryNames = countries.map((country) => country.name).filter((name) => name !== "Other").sort((a, b) => b.length - a.length);
+      const destination = (row: typeof allTransactions[number]) => {
+        const address = String(row.deliveryAddress || "").trim();
+        if (address) {
+          const named = countryNames.find((name) => new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(address));
+          if (named) return named;
+          return address.split(/\r?\n/).map((part) => part.trim()).filter(Boolean).pop() || "Unassigned";
+        }
+        return countryByCustomer.get(row.party) || "Unassigned";
+      };
+      const grouped = new Map<string, { customers: Set<string>; documents: number; sales: number; returns: number }>();
+      salesWithReturns.forEach((row) => { const address = destination(row); const old = grouped.get(address) ?? { customers: new Set<string>(), documents: 0, sales: 0, returns: 0 }; old.customers.add(row.party); old.documents += 1; if (row.type === "credit memo") old.returns += baseSubtotal(row); else old.sales += baseSubtotal(row); grouped.set(address, old); });
+      rows = [...grouped].map(([address, value]) => ({ address, customers: value.customers.size, documents: value.documents, sales: value.sales, returns: value.returns, amount: value.sales - value.returns })).sort((a, b) => b.amount - a.amount);
+      columns = [{ key: "address", label: "Ship To Country / Address" }, { key: "customers", label: "Customers" }, { key: "documents", label: "Documents" }, { key: "sales", label: "Sales ex VAT", ...money }, { key: "returns", label: "Returns ex VAT", ...money }, { key: "amount", label: "Net Sales ex VAT", ...money }];
     } else if (key === "sales-graph") {
       title = "Sales Graph";
       const months = new Map<string, { sales: number; refunds: number }>();
-      scopedTransactions.filter((row) => ["invoice", "sales receipt", "credit memo"].includes(row.type) && !["cancelled", "void"].includes(row.status)).forEach((row) => { const month = row.transactionDate.slice(0, 7); const old = months.get(month) ?? { sales: 0, refunds: 0 }; if (row.type === "credit memo") old.refunds += baseSubtotal(row); else old.sales += baseSubtotal(row); months.set(month, old); });
+      salesWithReturns.forEach((row) => { const month = row.transactionDate.slice(0, 7); const old = months.get(month) ?? { sales: 0, refunds: 0 }; if (row.type === "credit memo") old.refunds += baseSubtotal(row); else old.sales += baseSubtotal(row); months.set(month, old); });
       rows = [...months].sort(([a], [b]) => a.localeCompare(b)).map(([month, value]) => ({ month, ...value, netSales: value.sales - value.refunds }));
       columns = [{ key: "month", label: "Month" }, { key: "sales", label: "Sales", ...money }, { key: "refunds", label: "Refunds", ...money }, { key: "netSales", label: "Net Sales", ...money }];
       chart = { labelKey: "month", incomeKey: "sales", expenseKey: "refunds", incomeLabel: "Sales before VAT", expenseLabel: "Credit memo returns" };
     } else if (key === "pending-sales") {
       title = "Pending Sales";
-      rows = scopedTransactions.filter((row) => ["quotation", "estimate", "proforma invoice", "sales order", "invoice"].includes(row.type) && !["paid", "cleared", "cancelled", "closed", "converted", "invoiced", "void"].includes(row.status)).map((row) => ({ transactionId: row.id, ...salesAccountsFor(row.id), date: row.transactionDate, dueDate: row.dueDate, number: row.number, type: row.type, customer: row.party, salesman: row.salesman || "Unassigned", status: row.status, amount: row.baseTotal }));
-      columns = [{ key: "date", label: "Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "customer", label: "Customer" }, { key: "salesman", label: "Sales Rep" }, { key: "status", label: "Status" }, { key: "account", label: "Saved / Posted Account" }, { key: "amount", label: "Face Value inc VAT", ...money }];
+      // Open value, not face value: orders show what is still to be invoiced, invoices what is still unpaid.
+      const { remainingValueByOrder } = await salesOrderProgress();
+      const invoicePayments = await db.select({ invoiceId: invoicePaymentAllocations.invoiceId, amount: invoicePaymentAllocations.amount }).from(invoicePaymentAllocations).innerJoin(transactions, eq(transactions.id, invoicePaymentAllocations.paymentId)).where(and(eq(transactions.companyId, companyId), sql`lower(${transactions.status}) NOT IN ('cancelled', 'canceled', 'void', 'voided', 'deleted', 'draft')`));
+      const paidByInvoice = new Map<number, number>();
+      invoicePayments.forEach((payment) => paidByInvoice.set(payment.invoiceId, (paidByInvoice.get(payment.invoiceId) ?? 0) + Number(payment.amount)));
+      const stage = (type: string) => ({ quotation: "Quotation", estimate: "Estimate", "proforma invoice": "Proforma invoice", "sales order": "Sales order", "pending invoice": "Pending invoice", invoice: "Unpaid invoice" } as Record<string, string>)[type] ?? type;
+      rows = scopedTransactions.filter((row) => ["quotation", "estimate", "proforma invoice", "sales order", "pending invoice", "invoice"].includes(row.type) && !closedDocument(row.status) && !["paid", "cleared", "closed", "converted", "invoiced"].includes(String(row.status).toLowerCase())).map((row) => {
+        const openValue = row.type === "invoice" ? cents(Math.max(0, Number(row.total) - (paidByInvoice.get(row.id) ?? 0)) * Number(row.exchangeRate)) : row.type === "sales order" ? cents(remainingValueByOrder.get(row.id) ?? row.baseTotal) : row.baseTotal;
+        return { transactionId: row.id, ...salesAccountsFor(row.id), date: row.transactionDate, dueDate: row.dueDate, number: row.number, type: row.type, stage: stage(row.type), customer: row.party, salesman: row.salesman || "Unassigned", status: row.status, currency: row.currency, faceValue: row.baseTotal, amount: openValue };
+      }).filter((row) => row.amount > 0.005);
+      columns = [{ key: "date", label: "Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "No." }, { key: "stage", label: "Stage" }, { key: "customer", label: "Customer" }, { key: "salesman", label: "Sales Rep" }, { key: "status", label: "Status" }, { key: "currency", label: "Currency" }, { key: "account", label: "Saved / Posted Account" }, { key: "faceValue", label: "Face Value inc VAT", ...money }, { key: "amount", label: "Open Value inc VAT", ...money }];
     } else if (key === "sales-by-customer" || key === "customer-balances") {
       title = key === "sales-by-customer" ? "Sales by Customer Summary" : "Customer Balance Summary";
       if (key === "sales-by-customer") {
-        const grouped = new Map<string, number>();
-        salesDocuments.forEach((row) => grouped.set(row.party, (grouped.get(row.party) ?? 0) + baseSubtotal(row)));
-        rows = [...grouped].map(([name, amount]) => ({ name, amount })).sort((a, b) => b.amount - a.amount);
+        const grouped = new Map<string, { documents: number; sales: number; returns: number; vat: number; total: number; last: string; currencies: Set<string> }>();
+        salesWithReturns.forEach((row) => { const old = grouped.get(row.party) ?? { documents: 0, sales: 0, returns: 0, vat: 0, total: 0, last: "", currencies: new Set<string>() }; old.documents += 1; old.currencies.add(row.currency); if (row.type === "credit memo") old.returns += baseSubtotal(row); else old.sales += baseSubtotal(row); old.vat += salesSign(row) * baseVat(row); old.total += salesSign(row) * row.baseTotal; if (row.transactionDate > old.last) old.last = row.transactionDate; grouped.set(row.party, old); });
+        const netTotal = [...grouped.values()].reduce((total, value) => total + value.sales - value.returns, 0);
+        rows = [...grouped].map(([name, value]) => ({ name, documents: value.documents, currency: [...value.currencies].sort().join(", "), lastSale: value.last || "—", sales: value.sales, returns: value.returns, amount: value.sales - value.returns, share: netTotal ? `${((value.sales - value.returns) / netTotal * 100).toFixed(1)}%` : "—", vat: value.vat, total: value.total })).sort((a, b) => b.amount - a.amount);
       } else {
         const balances = new Map<string, number>();
         customerActivities.forEach((row) => balances.set(row.party, (balances.get(row.party) ?? 0) + customerImpact(row)));
         rows = [...balances].map(([name, amount]) => ({ name, amount })).sort((a, b) => a.name.localeCompare(b.name));
       }
-      columns = [{ key: "name", label: "Customer" }, { key: "amount", label: "Amount", ...money }];
+      columns = key === "sales-by-customer" ? [{ key: "name", label: "Customer" }, { key: "documents", label: "Documents" }, { key: "currency", label: "Currency" }, { key: "lastSale", label: "Last Sale" }, { key: "sales", label: "Sales ex VAT", ...money }, { key: "returns", label: "Returns ex VAT", ...money }, { key: "amount", label: "Net Sales ex VAT", ...money }, { key: "share", label: "% of Net Sales" }, { key: "vat", label: "VAT", ...money }, { key: "total", label: "Net Total", ...money }] : [{ key: "name", label: "Customer" }, { key: "amount", label: "Amount", ...money }];
     } else if (key === "purchases-by-supplier-detail") {
       title = "Purchases by Supplier Detail";
       // Bills, received-item bills, expenses, cheques and card charges; purchase returns (vendor credits) are negative.
@@ -924,8 +996,8 @@ export async function GET(request: Request) {
       columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "item", label: "Item" }, { key: "account", label: "Posted Account" }, { key: "quantity", label: "Quantity" }, { key: "unitCost", label: "Unit Cost", ...money }, { key: "subtotal", label: "Amount ex VAT", ...money }, { key: "freight", label: "Freight", ...money }, { key: "landedUnitCost", label: "Landed Unit Cost", ...money }, { key: "vat", label: "VAT", ...money }, { key: "total", label: "Total", ...money }];
     } else if (["sales-by-item", "purchases-by-item", "item-profitability"].includes(key)) {
       title = key === "sales-by-item" ? "Sales by Item Summary" : key === "purchases-by-item" ? "Purchases by Item Summary" : "Item Profitability";
-      rows = key === "purchases-by-item" ? purchaseItemRows() : groupLines(["invoice", "sales receipt"]);
-      columns = key === "purchases-by-item" ? [{ key: "name", label: "Item" }, { key: "quantity", label: "Net Quantity" }, { key: "returned", label: "Returned Qty" }, { key: "amount", label: "Net Purchases ex VAT", ...money }, { key: "freight", label: "Freight", ...money }, { key: "landed", label: "Landed Cost", ...money }, { key: "averageUnitCost", label: "Avg Landed Unit Cost", ...money }, { key: "lastUnitCost", label: "Last Unit Cost", ...money }, { key: "lastPurchase", label: "Last Purchase" }, { key: "sourceReference", label: "Latest source document" }] : [{ key: "name", label: "Item" }, { key: "quantity", label: "Quantity" }, { key: "amount", label: "Sales ex VAT", ...money }, ...(["sales-by-item", "purchases-by-item"].includes(key) ? [{ key: "sourceReference", label: "Latest source document" }] : key === "item-profitability" ? [{ key: "cost", label: "Cost of sales", ...money }, { key: "profit", label: "Gross Profit", ...money }, { key: "sourceReference", label: "Latest source document" }] : [])];
+      rows = key === "purchases-by-item" ? purchaseItemRows() : key === "sales-by-item" ? salesItemRows() : groupLines(["invoice", "sales receipt"]);
+      columns = key === "purchases-by-item" ? [{ key: "name", label: "Item" }, { key: "quantity", label: "Net Quantity" }, { key: "returned", label: "Returned Qty" }, { key: "amount", label: "Net Purchases ex VAT", ...money }, { key: "freight", label: "Freight", ...money }, { key: "landed", label: "Landed Cost", ...money }, { key: "averageUnitCost", label: "Avg Landed Unit Cost", ...money }, { key: "lastUnitCost", label: "Last Unit Cost", ...money }, { key: "lastPurchase", label: "Last Purchase" }, { key: "sourceReference", label: "Latest source document" }] : key === "sales-by-item" ? [{ key: "name", label: "Item" }, { key: "quantity", label: "Net Quantity" }, { key: "returned", label: "Returned Qty" }, { key: "sales", label: "Sales ex VAT", ...money }, { key: "returns", label: "Returns ex VAT", ...money }, { key: "amount", label: "Net Sales ex VAT", ...money }, { key: "averagePrice", label: "Avg Selling Price", ...money }, { key: "margin", label: "Gross Margin" }, { key: "lastSale", label: "Last Sale" }, { key: "sourceReference", label: "Latest source document" }] : [{ key: "name", label: "Item" }, { key: "quantity", label: "Quantity" }, { key: "amount", label: "Sales ex VAT", ...money }, ...(["sales-by-item", "purchases-by-item"].includes(key) ? [{ key: "sourceReference", label: "Latest source document" }] : key === "item-profitability" ? [{ key: "cost", label: "Cost of sales", ...money }, { key: "profit", label: "Gross Profit", ...money }, { key: "sourceReference", label: "Latest source document" }] : [])];
     } else if (key === "inventory-valuation") {
       title = "Stock Valuation Summary";
       const grouped = new Map<string, { account: string; accountAccountId: number; category: string; items: number; quantity: number; value: number }>();
@@ -1037,13 +1109,9 @@ export async function GET(request: Request) {
     }
     else if (key === "sales-orders") {
       title = "Sales Order Fulfilment";
-      const allocations = await db.select({ sourceLineId: salesInvoiceAllocations.sourceLineId, quantity: salesInvoiceAllocations.quantity }).from(salesInvoiceAllocations).innerJoin(transactions, eq(transactions.id, salesInvoiceAllocations.invoiceId)).where(eq(transactions.companyId, companyId));
-      const fulfilledByLine = new Map<number, number>();
-      allocations.forEach((allocation) => fulfilledByLine.set(allocation.sourceLineId, (fulfilledByLine.get(allocation.sourceLineId) ?? 0) + allocation.quantity));
-      const orderQuantities = new Map<number, { quantity: number; fulfilledQuantity: number; remainingQuantity: number }>();
-      rawLines.filter((line) => line.type === "sales order" && !line.isFreightCharge).forEach((line) => { const old = orderQuantities.get(line.transactionId) ?? { quantity: 0, fulfilledQuantity: 0, remainingQuantity: 0 }; const next = salesFulfilment(line.quantity, fulfilledByLine.get(line.lineId) ?? 0); orderQuantities.set(line.transactionId, { quantity: old.quantity + next.quantity, fulfilledQuantity: old.fulfilledQuantity + next.fulfilledQuantity, remainingQuantity: old.remainingQuantity + next.remainingQuantity }); });
-      rows = scopedTransactions.filter((row) => row.type === "sales order").map((row) => ({ transactionId: row.id, ...salesAccountsFor(row.id), date: row.transactionDate, number: row.number, party: row.party, status: row.status, ...(orderQuantities.get(row.id) ?? { quantity: 0, fulfilledQuantity: 0, remainingQuantity: 0 }), amount: row.baseTotal }));
-      columns = [{ key: "date", label: "Date" }, { key: "number", label: "Order No." }, { key: "party", label: "Customer" }, { key: "status", label: "Status" }, { key: "account", label: "Planned Receivable Account" }, { key: "quantity", label: "Ordered Qty" }, { key: "fulfilledQuantity", label: "Invoiced Qty" }, { key: "remainingQuantity", label: "Remaining Qty" }, { key: "amount", label: "Order Value inc VAT", ...money }];
+      const { orderQuantities, remainingValueByOrder } = await salesOrderProgress();
+      rows = scopedTransactions.filter((row) => row.type === "sales order" && !closedDocument(row.status)).map((row) => ({ transactionId: row.id, ...salesAccountsFor(row.id), date: row.transactionDate, number: row.number, party: row.party, status: row.status, ...(orderQuantities.get(row.id) ?? { quantity: 0, fulfilledQuantity: 0, remainingQuantity: 0 }), amount: row.baseTotal, remainingValue: cents(remainingValueByOrder.get(row.id) ?? 0) }));
+      columns = [{ key: "date", label: "Date" }, { key: "number", label: "Order No." }, { key: "party", label: "Customer" }, { key: "status", label: "Status" }, { key: "account", label: "Planned Receivable Account" }, { key: "quantity", label: "Ordered Qty" }, { key: "fulfilledQuantity", label: "Invoiced Qty" }, { key: "remainingQuantity", label: "Remaining Qty" }, { key: "amount", label: "Order Value inc VAT", ...money }, { key: "remainingValue", label: "Backlog inc VAT", ...money }];
     }
     else if (key === "open-purchase-orders") {
       title = "Open Purchase Orders";
