@@ -986,8 +986,18 @@ test('purchase to sale inventory lifecycle blocks shortages and safely reverses 
   assert.equal((await remove(bill.id)).status, 409);
   assert.equal((await stock()).quantity, 7);
   assert.equal((await database.query('SELECT count(*)::int AS n FROM transactions WHERE id=$1', [bill.id])).rows[0].n, 1);
-  assert.equal((await remove(invoice.id)).status, 200);
+  const voidResponse = await remove(invoice.id); assert.equal(voidResponse.status, 200);
+  assert.equal((await voidResponse.json()).voided, true);
   assert.equal((await stock()).quantity, 10);
+  // Deleting an invoice voids it: the document and its item history stay, with who, when and why.
+  const voided = (await database.query('SELECT status, voided_at, voided_by_name, void_reason FROM transactions WHERE id=$1', [invoice.id])).rows[0];
+  assert.equal(voided.status, 'void'); assert.ok(voided.voided_at); assert.equal(voided.voided_by_name, 'test@example.test'); assert.equal(voided.void_reason, 'Correcting test record');
+  assert.deepEqual((await database.query('SELECT movement_type, quantity FROM inventory_movements WHERE transaction_id=$1 ORDER BY id', [invoice.id])).rows.map(row => [row.movement_type, row.quantity]), [['invoice', -3], ['invoice void', 3]]);
+  assert.deepEqual((await database.query('SELECT DISTINCT posted FROM journal_entries WHERE transaction_id=$1', [invoice.id])).rows, [{ posted: false }]);
+  assert.equal((await database.query('SELECT count(*)::int AS n FROM sales_invoice_allocations WHERE invoice_id=$1', [invoice.id])).rows[0].n, 0);
+  assert.equal((await remove(invoice.id)).status, 409);
+  assert.equal((await stock()).quantity, 10);
+  assert.equal((await database.query("SELECT count(*)::int AS n FROM audit_log WHERE entity_id=$1 AND entity_type='transaction' AND details LIKE '%\"mode\":\"void\"%'", [invoice.id])).rows[0].n, 1);
   const secondResponse = await create('bill', 2, { exchangeRate: 4 }); assert.equal(secondResponse.status, 201);
   const second = (await secondResponse.json()).record;
   assert.equal((await stock()).last_purchase_price, 400);
@@ -2046,6 +2056,28 @@ test('Chart of Accounts deletion is limited to unused sub-accounts', async () =>
   assert.equal((await database.query('SELECT id FROM accounts WHERE id=$1',[main])).rows.length,1);
 });
 
+test('cost of sales uses the average purchase cost, not the saved item cost field', async () => {
+  const companyId=(await database.query("INSERT INTO companies (name) VALUES ('Average cost test') RETURNING id")).rows[0].id;
+  const locationId=(await database.query("INSERT INTO inventory_locations (company_id,name,code,invoice_prefix) VALUES ($1,'Main','AC','AC') RETURNING id",[companyId])).rows[0].id;
+  // Saved Cost field 4,220.50 (never updated by bills); bought at 2,000; a cancelled bill at 9,999 is ignored.
+  const item=(await database.query("INSERT INTO items (company_id,location_id,sku,name,quantity,cost) VALUES ($1,$2,'AVG-1','Average laptop',1,4220.5) RETURNING *",[companyId,locationId])).rows[0];
+  for (const [number,status,price] of [['AC-BILL','open',2000],['AC-VOID','cancelled',9999]]) {
+    const bill=(await database.query("INSERT INTO transactions (company_id,location_id,type,number,party,transaction_date,status,subtotal,total,base_total) VALUES ($1,$2,'bill',$3,'Supplier','2026-09-01',$4,$5,$5,$5) RETURNING id",[companyId,locationId,number,status,price])).rows[0].id;
+    await database.query("INSERT INTO transaction_lines (transaction_id,item_id,description,quantity,unit_price,subtotal) VALUES ($1,$2,'Average laptop',1,$3,$3)",[bill,item.id,price]);
+  }
+  const { averagePurchaseCosts, itemHomeCost } = await vite.ssrLoadModule('/lib/item-cost.ts');
+  const averages = await averagePurchaseCosts([item.id]);
+  assert.equal(averages.get(item.id), 2000);
+  assert.equal(itemHomeCost({ id: item.id, cost: 4220.5 }, averages), 2000);
+  // Without purchases: last purchase price, then the saved cost (ex VAT when entered including VAT).
+  assert.equal(itemHomeCost({ id: 999999, cost: 105, lastPurchasePrice: 90 }, new Map()), 90);
+  assert.equal(itemHomeCost({ id: 999999, cost: 105, amountsIncludeVat: true }, new Map(), 5), 100);
+  const { salesInventoryLines } = await vite.ssrLoadModule('/lib/sales-invoicing.ts');
+  const order=(await database.query("INSERT INTO transactions (company_id,location_id,type,number,party,transaction_date,status,subtotal,total,base_total) VALUES ($1,$2,'sales order','AC-SO','Customer','2026-09-05','open',2500,2500,2500) RETURNING id",[companyId,locationId])).rows[0].id;
+  await database.query("INSERT INTO transaction_lines (transaction_id,item_id,description,quantity,unit_price,subtotal) VALUES ($1,$2,'Average laptop',1,2500,2500)",[order,item.id]);
+  assert.equal((await salesInventoryLines(order,companyId,locationId))[0].homeCost, 2000);
+});
+
 test('documents cannot post to an account that has been made inactive', async () => {
   const companyId=(await database.query("INSERT INTO companies (name) VALUES ('Inactive posting test') RETURNING id")).rows[0].id;
   const locationId=(await database.query("INSERT INTO inventory_locations (company_id,name,code,invoice_prefix) VALUES ($1,'Main','IP','IP') RETURNING id",[companyId])).rows[0].id;
@@ -2235,6 +2267,11 @@ test('invoice packing lists preserve logistics, calculate cartons and expose onl
   const refreshed=await GET(new Request(`https://app.test/api/packing-lists?companyId=${company}&invoiceId=${invoice}`));
   assert.equal(refreshed.status,200);
   assert.equal((await refreshed.json()).lines[0].remainingQuantity,0);
+  // A void invoice keeps its saved packing lists viewable but blocks new or edited ones.
+  await database.query("UPDATE transactions SET status='void' WHERE id=$1",[invoice]);
+  const blocked=await save(1); assert.equal(blocked.status,409); assert.match((await blocked.json()).error,/void/);
+  const viewed=await GET(new Request(`https://app.test/api/packing-lists?companyId=${company}&invoiceId=${invoice}`));
+  assert.equal(viewed.status,200); assert.ok((await viewed.json()).packingLists.length>0);
 });
 
 

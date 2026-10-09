@@ -5,6 +5,7 @@ import { salesDocumentTypes, salesHandoffTypes } from "@/lib/sales-access";
 import { documentVatCodes, usesSingleVatCode } from "@/lib/document-vat";
 import { canEditInventoryDocument, canManagePendingInvoices, canReadDocument, dubaiDay } from "@/lib/document-access";
 import { applyInventoryInvoiceEdit } from "@/lib/inventory-invoice-edit";
+import { averagePurchaseCosts, itemHomeCost } from "@/lib/item-cost";
 import { heldByOthers, heldStockMessage } from "@/lib/stock-holds";
 import { documentVisibility } from "@/lib/document-access-sql";
 import { employeeHrForSave } from "@/lib/employee-hr-save";
@@ -177,7 +178,7 @@ async function invoicePaidAmount(invoiceId: number, excludingPaymentId = 0) {
 async function refreshInvoiceStatus(invoiceId: number) {
   const db = getDb();
   const [invoice] = await db.select().from(transactions).where(eq(transactions.id, invoiceId));
-  if (!invoice) return;
+  if (!invoice || ["void", "voided", "cancelled", "canceled"].includes(invoice.status.toLowerCase())) return;
   const paid = await invoicePaidAmount(invoiceId);
   const status = paid >= round(invoice.total) ? "paid" : paid > 0 ? "partially paid" : invoice.dueDate && invoice.dueDate < new Date().toISOString().slice(0, 10) ? "overdue" : "open";
   await db.update(transactions).set({ status, paidAt: status === "paid" ? invoice.paidAt || new Date().toISOString() : null }).where(eq(transactions.id, invoiceId));
@@ -741,7 +742,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const quantity = itemType === "stock-part" ? Number(payload.quantity ?? 0) : 0;
       const reorderPoint = itemType === "stock-part" ? Number(payload.reorderPoint ?? 0) : 0;
       const salesPrice = Number(payload.salesPrice ?? 0);
-      const cost = Number(payload.cost ?? 0);
+      // A duplicate starts with no purchase history, so its cost is 0 until its own bills or receipts.
+      const cost = duplicateSource ? 0 : Number(payload.cost ?? 0);
       if (![quantity, reorderPoint, salesPrice, cost].every((value) => Number.isFinite(value) && value >= 0)) return Response.json({ error: "Quantity, reorder point, cost and sales price must be non-negative numbers." }, { status: 400 });
       const [created] = await db.insert(items).values({
         companyId, locationId, itemNumber, name, sku, category, description,
@@ -751,7 +753,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
         amountsIncludeVat: payload.amountsIncludeVat === true || String(payload.amountsIncludeVat) === "true",
         status: String(payload.status) === "inactive" ? "inactive" : "active",
       }).returning();
-      if (duplicateSource) await db.insert(auditLog).values({ companyId, action: "duplicated", entityType: "item", entityId: created.id, details: `${duplicateSource.sku} duplicated as ${created.sku}; opening quantity 0` });
+      if (duplicateSource) await db.insert(auditLog).values({ companyId, action: "duplicated", entityType: "item", entityId: created.id, details: `${duplicateSource.sku} duplicated as ${created.sku}; opening quantity 0, cost 0` });
       return Response.json({ record: created }, { status: 201 });
     }
 
@@ -1013,12 +1015,12 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       return Response.json({ error: "Select a valid inventory item on every stock line." }, { status: 400 });
     }
     const linkedItemIds = [...new Set(prepared.flatMap((line) => line.itemId ? [line.itemId] : []))];
-    let linkedItems: Array<{ id: number; itemType: string; status: string; cost: number; amountsIncludeVat: boolean; purchaseVatCode: string; cogsAccountId: number | null; incomeAccountId: number | null; assetAccountId: number | null }> = [];
+    let linkedItems: Array<{ id: number; itemType: string; status: string; cost: number; lastPurchasePrice?: number; amountsIncludeVat: boolean; purchaseVatCode: string; cogsAccountId: number | null; incomeAccountId: number | null; assetAccountId: number | null }> = [];
     if (["bill", "invoice", "estimate", "proforma invoice", "sales order", "quotation"].includes(type) || linkedItemIds.length) {
       const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).limit(1);
       if (!location) return Response.json({ error: "Select a valid inventory in this company." }, { status: 400 });
       if (linkedItemIds.length) {
-        linkedItems = await db.select({ id: items.id, itemType: items.itemType, status: items.status, cost: items.cost, amountsIncludeVat: items.amountsIncludeVat, purchaseVatCode: items.purchaseVatCode, cogsAccountId: items.cogsAccountId, incomeAccountId: items.incomeAccountId, assetAccountId: items.assetAccountId }).from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId), inArray(items.id, linkedItemIds)));
+        linkedItems = await db.select({ id: items.id, itemType: items.itemType, status: items.status, cost: items.cost, lastPurchasePrice: items.lastPurchasePrice, amountsIncludeVat: items.amountsIncludeVat, purchaseVatCode: items.purchaseVatCode, cogsAccountId: items.cogsAccountId, incomeAccountId: items.incomeAccountId, assetAccountId: items.assetAccountId }).from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId), inArray(items.id, linkedItemIds)));
         if (linkedItems.length !== linkedItemIds.length) return Response.json({ error: "Select items from the document’s company and inventory." }, { status: 400 });
         if (linkedItems.some((item) => item.status === "inactive")) return Response.json({ error: "Inactive items cannot be added to a new document." }, { status: 409 });
         if (linkedItems.some((item) => !documentLineItemTypes.has(item.itemType))) return Response.json({ error: "Subtotal, group, discount, payment and VAT control items must be used in their dedicated document areas, not as stock/service lines." }, { status: 400 });
@@ -1074,10 +1076,12 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const currency = String(payload.currency ?? "AED").trim().toUpperCase();
     const exchangeRate = Number(payload.exchangeRate ?? 1);
     if (!/^[A-Z]{3}$/.test(currency) || !Number.isFinite(exchangeRate) || exchangeRate <= 0) return Response.json({ error: "Choose a valid currency and exchange rate." }, { status: 400 });
+    // Stock returned on an invoice goes back at what it was bought for (average purchase cost).
+    const returnCosts = type === "invoice" && prepared.some(isInvoiceStockReturn) ? await averagePurchaseCosts(prepared.filter(isInvoiceStockReturn).map((line) => Number(line.itemId))) : new Map<number, number>();
     if (type === "invoice") for (const line of prepared.filter(isInvoiceStockReturn)) {
       const item = linkedItems.find(item => item.id === line.itemId)!;
       const purchaseVat = Number(vatRates[item.purchaseVatCode] || 0);
-      const homeCost = item.amountsIncludeVat && purchaseVat > 0 ? item.cost / (1 + purchaseVat / 100) : item.cost;
+      const homeCost = itemHomeCost(item, returnCosts, purchaseVat);
       if (!Number.isFinite(homeCost) || homeCost < 0) return Response.json({ error: "Correct the item cost before returning stock." }, { status: 400 });
       line.unitCost = homeCost / exchangeRate;
     }
@@ -1533,6 +1537,7 @@ async function handlePATCH(request: Request) {
         }
         if (existing && ["invoice", "customer payment"].includes(existing.type)) {
           if (payload.editMode !== "details") return Response.json({ error: "Use Edit details for invoices and customer payments. Posted amounts and allocations are protected." }, { status: 400 });
+          if (["void", "voided", "cancelled", "canceled"].includes(existing.status.toLowerCase())) return Response.json({ error: "Void documents cannot be changed." }, { status: 409 });
           const allowed = new Set(["kind", "id", "companyId", "revision", "editMode", "number", "transactionDate", "dueDate", "terms", "salesman", "memo"]);
           if (existing.type === "customer payment") { allowed.add("paymentMethod"); allowed.add("referenceNo"); }
           if (existing.type === "invoice") { allowed.add("comments"); allowed.add("serialNumber"); allowed.add("lineDetails"); allowed.add("appendLines"); allowed.add("party"); allowed.add("deliveryAddress"); }
@@ -1752,10 +1757,11 @@ async function handlePATCH(request: Request) {
             if (itemRows.some((item) => !documentLineItemTypes.has(item.itemType))) return Response.json({ error: "Select stock, non-stock, service or other-charge items only." }, { status: 400 });
             const stockIds = new Set(itemRows.filter((item) => item.itemType === "stock-part").map((item) => item.id));
             if (appended.some(line => isInvoiceStockReturn(line) && (!line.itemId || !stockIds.has(line.itemId)))) return Response.json({ error: "Stock returns require an active stock item in this invoice inventory." }, { status: 400 });
+            const appendedReturnCosts = await averagePurchaseCosts(appended.filter(isInvoiceStockReturn).map((line) => Number(line.itemId)));
             for (const line of appended.filter(isInvoiceStockReturn)) {
               const item = itemRows.find(item => item.id === line.itemId)!;
               const purchaseVat = Number(vatRateMap[item.purchaseVatCode] || 0);
-              const homeCost = item.amountsIncludeVat && purchaseVat > 0 ? item.cost / (1 + purchaseVat / 100) : item.cost;
+              const homeCost = itemHomeCost(item, appendedReturnCosts, purchaseVat);
               if (!Number.isFinite(homeCost) || homeCost < 0) return Response.json({ error: "Correct the item cost before returning stock." }, { status: 400 });
               line.unitCost = homeCost / Number(existing.exchangeRate || 1);
             }
@@ -1859,7 +1865,7 @@ async function handlePATCH(request: Request) {
         if (existing?.purchaseOrderId && existing.type !== "bill") return Response.json({ error: "Remove and recreate this linked receipt to change received quantities." }, { status: 409 });
         if (!existing) return Response.json({ error: "Purchase not found." }, { status: 404 });
         if (!["pending invoice", "estimate", "proforma invoice", "sales order", "bill", "purchase order", "item receipt", "received item bill", "expense", "bill payment", "vendor payment", "vendor credit"].includes(existing.type)) return Response.json({ error: "This document is not an editable purchase." }, { status: 400 });
-        const [salesChild] = await db.select({ id: transactions.id }).from(transactions).where(sql`${transactions.salesSourceId} = ${id} or ${transactions.sourceTransactionId} = ${id}`).limit(1);
+        const [salesChild] = await db.select({ id: transactions.id }).from(transactions).where(and(sql`(${transactions.salesSourceId} = ${id} or ${transactions.sourceTransactionId} = ${id})`, sql`lower(${transactions.status}) NOT IN ('void', 'voided', 'cancelled', 'canceled')`)).limit(1);
         if (salesChild) return Response.json({ error: "Remove linked invoices before editing or deleting this source document." }, { status: 409 });
         const [receipt] = await db.select({ id: transactions.id }).from(transactions).where(eq(transactions.purchaseOrderId, id)).limit(1);
         if (receipt) return Response.json({ error: "This purchase order has item receipts. Remove the receipts before editing or deleting the order." }, { status: 409 });
@@ -2199,14 +2205,50 @@ async function handleDELETE(request: Request) {
       const [record] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId))).for("update");
       if (!record) return Response.json({ error: "Transaction not found." }, { status: 404 });
       if (record) {
-        const [salesChild] = await db.select({ id: transactions.id }).from(transactions).where(sql`${transactions.salesSourceId} = ${id} or ${transactions.sourceTransactionId} = ${id}`).limit(1);
+        const [salesChild] = await db.select({ id: transactions.id }).from(transactions).where(and(sql`(${transactions.salesSourceId} = ${id} or ${transactions.sourceTransactionId} = ${id})`, sql`lower(${transactions.status}) NOT IN ('void', 'voided', 'cancelled', 'canceled')`)).limit(1);
         if (salesChild) return Response.json({ error: "Remove linked invoices before editing or deleting this source document." }, { status: 409 });
+        // Void invoices keep their history but no longer hold the source document.
+        await db.update(transactions).set({ salesSourceId: null }).where(and(eq(transactions.salesSourceId, id), sql`lower(${transactions.status}) IN ('void', 'voided', 'cancelled', 'canceled')`));
+        await db.update(transactions).set({ sourceTransactionId: null }).where(and(eq(transactions.sourceTransactionId, id), sql`lower(${transactions.status}) IN ('void', 'voided', 'cancelled', 'canceled')`));
         const [receipt] = await db.select({ id: transactions.id }).from(transactions).where(eq(transactions.purchaseOrderId, id)).limit(1);
         if (receipt) return Response.json({ error: "This purchase order has item receipts. Remove the receipts before editing or deleting the order." }, { status: 409 });
         const [allocated] = await db.select({ id: transactions.id }).from(transactions).where(sql`(${transactions.billId} = ${id} or ${transactions.invoiceId} = ${id})`).limit(1);
         const [invoiceAllocation] = await db.select({ id: invoicePaymentAllocations.id }).from(invoicePaymentAllocations).where(eq(invoicePaymentAllocations.invoiceId, id)).limit(1);
         const [billAllocation] = await db.select({ id: billPaymentAllocations.id }).from(billPaymentAllocations).where(eq(billPaymentAllocations.billId, id)).limit(1);
         if (allocated || invoiceAllocation || billAllocation) return Response.json({ error: "Remove linked payments before deleting this bill." }, { status: 409 });
+        if (record.type === "invoice") {
+          // Deleting an invoice voids it: the invoice, its lines and its stock history stay; the stock comes back with a
+          // reversing movement, the journal is unposted and the customer balance is reversed. Who, when and why are saved.
+          if (["void", "voided", "cancelled", "canceled"].includes(record.status.toLowerCase())) return Response.json({ error: "This invoice is already void." }, { status: 409 });
+          const voidedAt = new Date().toISOString();
+          const movements = await db.select().from(inventoryMovements).where(eq(inventoryMovements.transactionId, id));
+          const itemIds = [...new Set(movements.map((movement) => movement.itemId))].sort((a, b) => a - b);
+          const stock = itemIds.length ? await db.select().from(items).where(inArray(items.id, itemIds)).orderBy(asc(items.id)).for("update") : [];
+          const netByItem = new Map(itemIds.map((itemId) => [itemId, Math.round(movements.filter((movement) => movement.itemId === itemId).reduce((sum, movement) => sum + movement.quantity, 0) * 1e6) / 1e6]));
+          // Returned stock this invoice brought in must still be on hand before it can be taken back out.
+          for (const item of stock) if ((netByItem.get(item.id) ?? 0) > 0 && item.quantity - (netByItem.get(item.id) ?? 0) < -0.000001) return Response.json({ error: `Cannot void this invoice: returned stock for ${item.name} has already been used.` }, { status: 409 });
+          for (const itemId of itemIds) {
+            const own = movements.filter((movement) => movement.itemId === itemId);
+            const net = netByItem.get(itemId) ?? 0;
+            if (Math.abs(net) < 0.000001) continue;
+            const value = own.reduce((sum, movement) => sum + movement.quantity * movement.unitCost, 0);
+            await db.insert(inventoryMovements).values({ itemId, transactionId: id, movementDate: dubaiDay(voidedAt), movementType: "invoice void", quantity: -net, unitCost: round(value / net), reference: record.number });
+            await db.update(items).set({ quantity: sql`${items.quantity} - ${net}` }).where(eq(items.id, itemId));
+          }
+          await db.update(journalEntries).set({ posted: false }).where(eq(journalEntries.transactionId, id));
+          const [postingAccount] = await db.select({ systemRole: accounts.systemRole }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.name, record.account))).limit(1);
+          const balanceChange = contactBalanceChange(record.type, record.total, postingAccount?.systemRole ?? "");
+          if (balanceChange) await db.update(contacts).set({ balance: sql`${contacts.balance} - ${balanceChange}` }).where(and(eq(contacts.companyId, companyId), eq(contacts.name, record.party), eq(contacts.type, "customer")));
+          await db.delete(salesInvoiceAllocations).where(eq(salesInvoiceAllocations.invoiceId, id));
+          if (record.salesSourceId) {
+            await db.select({ id: transactions.id }).from(transactions).where(eq(transactions.id, record.salesSourceId)).for("update");
+            await refreshSalesSource(record.salesSourceId);
+          }
+          const voidedByName = authorization.fullName || authorization.email;
+          await db.update(transactions).set({ status: "void", voidedAt, voidedByUserId: authorization.id, voidedByName, voidReason: deletionReason }).where(eq(transactions.id, id));
+          await db.insert(auditLog).values({ companyId, action: "updated", entityType: "transaction", entityId: id, details: JSON.stringify({ ...actor, mode: "void", number: record.number, type: record.type, party: record.party, total: record.total, previousStatus: record.status, effect: "voided; stock returned, journal unposted" }) });
+          return Response.json({ ok: true, voided: true });
+        }
         const paymentAllocations = await db.select().from(invoicePaymentAllocations).where(eq(invoicePaymentAllocations.paymentId, id));
         const invoiceIds = paymentAllocations.map((allocation) => allocation.invoiceId).sort((a, b) => a - b);
         if (invoiceIds.length) await db.select({ id: transactions.id }).from(transactions).where(inArray(transactions.id, invoiceIds)).orderBy(asc(transactions.id)).for("update");

@@ -29,7 +29,7 @@ export async function GET(request: Request) {
       db.select({ companyId: accounts.companyId, name: accounts.name, systemRole: accounts.systemRole }).from(accounts).where(inArray(accounts.companyId, allowedIds)),
     ]);
     return Response.json({ companies: companyRows.map((company) => ({ ...company, locations: locationRows.filter((location) => location.companyId === company.id).map((location) => {
-      const activity = transactionRows.filter((transaction) => transaction.companyId === company.id && transaction.locationId === location.id);
+      const activity = transactionRows.filter((transaction) => transaction.companyId === company.id && transaction.locationId === location.id && !["void", "voided", "cancelled", "canceled"].includes(String(transaction.status).toLowerCase()));
       const receivable = activity.reduce((balance, transaction) => transaction.type === "invoice" ? balance + Number(transaction.baseTotal) : ["customer payment", "credit memo"].includes(transaction.type) ? balance - Number(transaction.baseTotal) : balance, 0);
       const apName = accountRows.find((account) => account.companyId === company.id && account.systemRole === "AP")?.name ?? "Accounts Payable";
       const payable = activity.reduce((balance, transaction) => transaction.type === "bill" ? balance + Number(transaction.baseTotal) : ["bill payment", "vendor payment", "vendor credit"].includes(transaction.type) || (transaction.type === "cheque" && transaction.account === apName) ? balance - Number(transaction.baseTotal) : balance, 0);
