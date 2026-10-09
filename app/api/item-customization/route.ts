@@ -40,7 +40,7 @@ export async function GET(request: Request) {
   const rows = await getDb().select({
     id: items.id, itemNumber: items.itemNumber, sku: items.sku, name: items.name, category: items.category,
     description: items.description, specifications: items.specifications, quantity: items.quantity, status: items.status,
-    customizationRam: items.customizationRam, customizationStorage: items.customizationStorage, partNumber: items.partNumber,
+    customizationRam: items.customizationRam, customizationStorage: items.customizationStorage, customizationScreen: items.customizationScreen, partNumber: items.partNumber,
     itemSerialNumber: items.itemSerialNumber, upcNumber: items.upcNumber, customizationDetails: items.customizationDetails,
   }).from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId))).orderBy(asc(items.category), asc(items.name));
   return Response.json({
@@ -51,6 +51,7 @@ export async function GET(request: Request) {
         ...row,
         customizationRam: row.customizationRam || specificationValue(specs, ["RAM", "Memory"]),
         customizationStorage: row.customizationStorage || specificationValue(specs, ["Storage", "SSD", "Hard Drive"]),
+        customizationScreen: row.customizationScreen || specificationValue(specs, ["Screen", "Display", "Screen Size"]),
         partNumber: row.partNumber || specificationValue(specs, ["Part Number", "MPN"]),
       };
     }),
@@ -75,6 +76,7 @@ async function handlePatch(request: Request) {
     const id = Number(entry.id);
     const customizationRam = upper(entry.customizationRam, 120);
     const customizationStorage = upper(entry.customizationStorage, 120);
+    const customizationScreen = upper(entry.customizationScreen, 240);
     const partNumber = upper(entry.partNumber, 160);
     const itemSerialNumber = upper(entry.itemSerialNumber, 240);
     const upcNumber = upper(entry.upcNumber, 80);
@@ -83,7 +85,7 @@ async function handlePatch(request: Request) {
     specs = mergeSpecification(specs, "RAM", customizationRam);
     specs = mergeSpecification(specs, "Storage", customizationStorage);
     specs = mergeSpecification(specs, "Part Number", partNumber);
-    return { id, customizationRam, customizationStorage, partNumber, itemSerialNumber, upcNumber, customizationDetails, specifications: JSON.stringify(specs) };
+    return { id, customizationRam, customizationStorage, customizationScreen, partNumber, itemSerialNumber, upcNumber, customizationDetails, specifications: JSON.stringify(specs) };
   });
   await Promise.all(prepared.map(({ id, ...values }) => db.update(items).set(values).where(and(eq(items.id, id), eq(items.companyId, companyId), eq(items.locationId, locationId)))));
   await db.insert(auditLog).values({ companyId, action: "updated", entityType: "item_customization", entityId: prepared[0].id, details: `${prepared.length} product customization row(s) updated by ${user.email}` });

@@ -227,6 +227,7 @@ export const items = pgTable("items", {
   specifications: text("specifications").notNull().default("[]"),
   customizationRam: text("customization_ram").notNull().default(""),
   customizationStorage: text("customization_storage").notNull().default(""),
+  customizationScreen: text("customization_screen").notNull().default(""),
   partNumber: text("part_number").notNull().default(""),
   itemSerialNumber: text("item_serial_number").notNull().default(""),
   upcNumber: text("upc_number").notNull().default(""),
