@@ -156,7 +156,7 @@ function pdfBytes(lines: string[]) {
 }
 
 function exportPdf(tables: ExportTable[]) {
-  const lines: string[] = ["ComNet Enterprise Accounting", `Exported: ${new Date().toLocaleString("en-AE")}`, ""];
+  const lines: string[] = ["EasyBook ERP Software", `Exported: ${new Date().toLocaleString("en-AE")}`, ""];
   tables.forEach((table, index) => {
     if (index) lines.push("", "----------------------------------------", "");
     lines.push(table.title, "");

@@ -631,8 +631,6 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   }, [view]);
 
   const activeCompany = companies.find((company) => company.id === activeCompanyId);
-  const activeCompanyName = activeCompany?.name || "Select company";
-  const activeCompanyInitials = activeCompany?.name.trim().split(/\s+/).slice(0, 2).map((word) => word[0]).join("").toLocaleUpperCase() || "CO";
   const activeLocations = useMemo(() => activeCompany?.locations ?? [], [activeCompany]);
   const baseCurrency = activeCompany?.baseCurrency ?? "AED";
   const reportVendors = useMemo(() => records.contacts.filter((record) => record.type === "vendor"), [records.contacts]);
@@ -1298,10 +1296,9 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
       <Sidebar collapsible="icon" className="brand-sidebar border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
         <SidebarHeader className="border-b border-white/8 px-3 py-4">
           <div className="flex items-center gap-3 overflow-hidden">
-            <div className="brand-logo grid size-9 shrink-0 place-items-center rounded-lg text-sm font-black shadow-sm ring-1 ring-white/10">{activeCompanyInitials}</div>
+            <Image src="/easybook-mark.png" alt="EasyBook ERP Software" width={36} height={36} priority className="size-9 shrink-0 rounded-lg bg-white object-contain p-0.5 shadow-sm ring-1 ring-white/10" />
             <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-              <p className="truncate text-sm font-semibold tracking-wide text-white" title={activeCompanyName}>{activeCompanyName}</p>
-              <p className="truncate text-[11px] text-slate-400">Enterprise Accounting</p>
+              <p className="truncate text-sm font-semibold tracking-wide text-white">EasyBook ERP Software</p>
             </div>
           </div>
           <div className="mt-3 group-data-[collapsible=icon]:hidden"><Select value={String(activeCompanyId || "")} onValueChange={(value) => { const company = companies.find((entry) => entry.id === Number(value)); setActiveCompanyId(Number(value)); setActiveLocationId(company?.locations[0]?.id ?? 0); setSearch(""); }}><SelectTrigger aria-label="Active company" className="w-full border-white/10 bg-white/6 text-white shadow-none hover:bg-white/10"><SelectValue placeholder="Select company" /></SelectTrigger><SelectContent>{companies.map((company) => <SelectItem key={company.id} value={String(company.id)}>{company.name}</SelectItem>)}</SelectContent></Select></div>
