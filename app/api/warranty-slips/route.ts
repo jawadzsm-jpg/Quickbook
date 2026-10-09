@@ -86,7 +86,7 @@ export async function GET(request: Request) {
     const [slips, customers, invoices, suppliers, purchaseBills, selectedPurchaseBill] = await Promise.all([
       list(companyId),
       db.select({ id: contacts.id, name: contacts.name, company: contacts.company, phone: contacts.phone, email: contacts.email }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "customer"))),
-      db.select({ id: transactions.id, number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate }).from(transactions).where(and(and(eq(transactions.companyId, companyId), documentVisibility(user)), eq(transactions.type, "invoice"))).orderBy(desc(transactions.id)).limit(500),
+      db.select({ id: transactions.id, number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate }).from(transactions).where(and(and(eq(transactions.companyId, companyId), documentVisibility(user)), eq(transactions.type, "invoice"), sql`lower(${transactions.status}) NOT IN ('void', 'voided', 'cancelled', 'canceled')`)).orderBy(desc(transactions.id)).limit(500),
       db.select({ id: contacts.id, name: contacts.name, company: contacts.company, billingName: contacts.billingName }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "vendor"))),
       db.select({ id: transactions.id, number: transactions.number, party: transactions.party, transactionDate: transactions.transactionDate }).from(transactions).where(and(and(eq(transactions.companyId, companyId), documentVisibility(user)), inArray(transactions.type, purchaseBillTypes))).orderBy(desc(transactions.id)).limit(500),
       Number.isInteger(requestedPurchaseBillId) && requestedPurchaseBillId > 0

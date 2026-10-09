@@ -986,8 +986,18 @@ test('purchase to sale inventory lifecycle blocks shortages and safely reverses 
   assert.equal((await remove(bill.id)).status, 409);
   assert.equal((await stock()).quantity, 7);
   assert.equal((await database.query('SELECT count(*)::int AS n FROM transactions WHERE id=$1', [bill.id])).rows[0].n, 1);
-  assert.equal((await remove(invoice.id)).status, 200);
+  const voidResponse = await remove(invoice.id); assert.equal(voidResponse.status, 200);
+  assert.equal((await voidResponse.json()).voided, true);
   assert.equal((await stock()).quantity, 10);
+  // Deleting an invoice voids it: the document and its item history stay, with who, when and why.
+  const voided = (await database.query('SELECT status, voided_at, voided_by_name, void_reason FROM transactions WHERE id=$1', [invoice.id])).rows[0];
+  assert.equal(voided.status, 'void'); assert.ok(voided.voided_at); assert.equal(voided.voided_by_name, 'test@example.test'); assert.equal(voided.void_reason, 'Correcting test record');
+  assert.deepEqual((await database.query('SELECT movement_type, quantity FROM inventory_movements WHERE transaction_id=$1 ORDER BY id', [invoice.id])).rows.map(row => [row.movement_type, row.quantity]), [['invoice', -3], ['invoice void', 3]]);
+  assert.deepEqual((await database.query('SELECT DISTINCT posted FROM journal_entries WHERE transaction_id=$1', [invoice.id])).rows, [{ posted: false }]);
+  assert.equal((await database.query('SELECT count(*)::int AS n FROM sales_invoice_allocations WHERE invoice_id=$1', [invoice.id])).rows[0].n, 0);
+  assert.equal((await remove(invoice.id)).status, 409);
+  assert.equal((await stock()).quantity, 10);
+  assert.equal((await database.query("SELECT count(*)::int AS n FROM audit_log WHERE entity_id=$1 AND entity_type='transaction' AND details LIKE '%\"mode\":\"void\"%'", [invoice.id])).rows[0].n, 1);
   const secondResponse = await create('bill', 2, { exchangeRate: 4 }); assert.equal(secondResponse.status, 201);
   const second = (await secondResponse.json()).record;
   assert.equal((await stock()).last_purchase_price, 400);

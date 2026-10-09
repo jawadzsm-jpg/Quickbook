@@ -316,6 +316,11 @@ export const transactions = pgTable("transactions", {
   deliveredAt: timestamp("delivered_at", { withTimezone: true, mode: "string" }),
   deliveredByUserId: integer("delivered_by_user_id").references(() => appUsers.id, { onDelete: "set null" }),
   deliveredByName: text("delivered_by_name").notNull().default(""),
+  // Deleting an invoice voids it (migration 0098): who, when and why.
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
+  voidedByUserId: integer("voided_by_user_id").references(() => appUsers.id, { onDelete: "set null" }),
+  voidedByName: text("voided_by_name").notNull().default(""),
+  voidReason: text("void_reason").notNull().default(""),
   memo: text("memo").notNull().default(""),
   subtotal: doublePrecision("subtotal").notNull().default(0),
   vatRate: doublePrecision("vat_rate").notNull().default(5),

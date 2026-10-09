@@ -39,7 +39,8 @@ export async function GET(request: Request) {
         JOIN transactions receipt ON receipt.id = movement.transaction_id
         WHERE movement.item_id = ${items.id}
           AND movement.quantity > 0
-          AND receipt.status <> 'cancelled'
+          AND movement.movement_type <> 'invoice void'
+          AND lower(receipt.status) NOT IN ('cancelled', 'canceled', 'void', 'voided')
       ), ${items.createdAt})`,
       companyId: companies.id,
       companyName: companies.name,
@@ -152,7 +153,7 @@ export async function GET(request: Request) {
         JOIN items stock_item ON stock_item.id = sale_line.item_id AND stock_item.company_id = sale.company_id
         JOIN companies activity_company ON activity_company.id = sale.company_id
         LEFT JOIN inventory_locations inventory_location ON inventory_location.id = sale.location_id AND inventory_location.company_id = sale.company_id
-        WHERE sale.type IN ('invoice', 'sales receipt') AND sale.status <> 'cancelled' AND sale_line.quantity > 0
+        WHERE sale.type IN ('invoice', 'sales receipt') AND lower(sale.status) NOT IN ('cancelled', 'canceled', 'void', 'voided') AND sale_line.quantity > 0
           AND activity_company.active = true ${companyScope}
         ORDER BY sale.transaction_date DESC, sale.id DESC, sale_line.id DESC
         LIMIT 50
