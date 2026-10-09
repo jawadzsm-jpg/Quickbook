@@ -16,7 +16,7 @@ export async function customerOpenBalance(companyId: number, locationId: number,
   const overdueOnly = params.get("type") === "customers-overdue-invoices";
   const currency = (params.get("currency") || homeCurrency).toUpperCase();
   const customer = params.get("customer") || "";
-  const asOf = params.get("statementDate") || new Date().toISOString().slice(0, 10);
+  const asOf = params.get("statementDate") || new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   if (!/^[A-Z]{3}$/.test(currency) || !/^\d{4}-\d{2}-\d{2}$/.test(asOf) || Number.isNaN(Date.parse(asOf)) || new Date(asOf).toISOString().slice(0, 10) !== asOf) {
     return Response.json({ error: "Select a valid currency and as-of date." }, { status: 400 });
   }
@@ -30,7 +30,7 @@ export async function customerOpenBalance(companyId: number, locationId: number,
   ]);
   const names = [...new Set([...customers.map((row) => row.name), ...documents.map((row) => row.party)])].sort();
   if (customer && !names.includes(customer)) return Response.json({ error: "Select a customer in this company." }, { status: 400 });
-  const eligible = documents.filter((row) => (activeOnly || aging || row.currency === currency) && row.transactionDate <= asOf && !["void", "voided", "cancelled", "canceled", "draft"].includes(row.status));
+  const eligible = documents.filter((row) => (activeOnly || aging || row.currency === currency) && row.transactionDate <= asOf && !["void", "voided", "cancelled", "canceled", "draft", "deleted"].includes(String(row.status).toLowerCase()));
   const byId = new Map(eligible.map((row) => [row.id, row]));
   const used = new Map<number, number>();
   const round = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
@@ -57,20 +57,20 @@ export async function customerOpenBalance(companyId: number, locationId: number,
     const contact = customers.find((entry) => entry.name === row.party && entry.currency === row.currency);
     const account = postedAccounts.get(row.id) ?? arAccounts.find((entry) => entry.id === contact?.ledgerAccountId && entry.currency === row.currency && entry.active) ?? arAccounts.find((entry) => entry.currency === row.currency && entry.systemRole === "AR" && entry.active);
     return { customer: row.party, currency: row.currency, homeOpenBalance: round(sign * (row.total - (used.get(row.id) || 0)) * (row.total ? row.baseTotal / row.total : row.exchangeRate)), type: row.type, date: row.transactionDate, number: row.number, memo: row.memo, dueDate: row.dueDate, openBalance: round(sign * (row.total - (used.get(row.id) || 0))), amount: round(sign * row.total), transactionId: row.id, account: account?.name || "Unlinked", accountId: account?.id || 0 };
-  }).filter((row) => Math.abs(row.openBalance) >= 0.005 && (!overdueOnly || (row.type === "invoice" && row.openBalance > 0 && Boolean(row.dueDate) && row.dueDate < asOf))).sort((a, b) => a.customer.localeCompare(b.customer) || a.date.localeCompare(b.date) || a.transactionId - b.transactionId);
+  }).filter((row) => Math.abs(row.openBalance) >= 0.005 && (!overdueOnly || (row.type === "invoice" && row.openBalance > 0 && (row.dueDate || row.date) < asOf))).sort((a, b) => a.customer.localeCompare(b.customer) || a.date.localeCompare(b.date) || a.transactionId - b.transactionId);
   const money = { type: "money" as const };
   if (aging) {
-    const detail = rows.map((row) => ({ customer: row.customer, date: row.date, dueDate: row.dueDate || "—", number: row.number, type: row.type, age: row.openBalance > 0 && row.dueDate ? Math.max(0, Math.floor((Date.parse(asOf) - Date.parse(row.dueDate)) / 86400000)) : 0, amount: row.homeOpenBalance, transactionId: row.transactionId, account: row.account, accountAccountId: row.accountId }));
-    const grouped = new Map<string, { name: string; current: number; days30: number; days60: number; days90: number; total: number }>();
+    const detail = rows.map((row) => ({ customer: row.customer, date: row.date, dueDate: row.dueDate || "—", number: row.number, type: row.type, age: row.openBalance > 0 ? Math.max(0, Math.floor((Date.parse(asOf) - Date.parse(row.dueDate || row.date)) / 86400000)) : 0, amount: row.homeOpenBalance, transactionId: row.transactionId, account: row.account, accountAccountId: row.accountId }));
+    const grouped = new Map<string, { name: string; current: number; days30: number; days60: number; days90: number; days90plus: number; total: number }>();
     for (const row of detail) {
-      const group = grouped.get(row.customer) ?? { name: row.customer, current: 0, days30: 0, days60: 0, days90: 0, total: 0 };
-      const bucket = row.age <= 0 ? "current" : row.age <= 30 ? "days30" : row.age <= 60 ? "days60" : "days90";
+      const group = grouped.get(row.customer) ?? { name: row.customer, current: 0, days30: 0, days60: 0, days90: 0, days90plus: 0, total: 0 };
+      const bucket = row.age <= 0 ? "current" : row.age <= 30 ? "days30" : row.age <= 60 ? "days60" : row.age <= 90 ? "days90" : "days90plus";
       group[bucket] = round(group[bucket] + row.amount); group.total = round(group.total + row.amount); grouped.set(row.customer, group);
     }
     const summary = params.get("type") === "ar-aging-summary";
     return Response.json({ report: { key: params.get("type"), companyId, canViewAccounts, title: summary ? "A/R Aging Summary" : "A/R Aging Detail", generatedAt: new Date().toISOString(), currency: homeCurrency,
-      description: "Remaining document balances after allocated payments, converted at each document’s stored rate to home currency. Unused payments and credits appear in Current. Historical exchange differences and manual journals are available in account history.",
-      columns: summary ? [{ key: "name", label: "Customer" }, { key: "current", label: "Current", ...money }, { key: "days30", label: "1–30", ...money }, { key: "days60", label: "31–60", ...money }, { key: "days90", label: "61+", ...money }, { key: "total", label: "Total", ...money }] : [{ key: "customer", label: "Customer" }, { key: "date", label: "Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "age", label: "Days Overdue" }, { key: "amount", label: "Open Amount", ...money }, { key: "account", label: "Receivable Account" }],
+      description: "Remaining document balances after allocated payments, converted at each document’s stored rate to home currency, aged by days past due on the as-of date (an invoice without a due date ages from its invoice date). Unused payments and credits appear in Current. Historical exchange differences and manual journals are available in account history.",
+      columns: summary ? [{ key: "name", label: "Customer" }, { key: "current", label: "Current", ...money }, { key: "days30", label: "1–30", ...money }, { key: "days60", label: "31–60", ...money }, { key: "days90", label: "61–90", ...money }, { key: "days90plus", label: "91+", ...money }, { key: "total", label: "Total", ...money }] : [{ key: "customer", label: "Customer" }, { key: "date", label: "Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "age", label: "Days Overdue" }, { key: "amount", label: "Open Amount", ...money }, { key: "account", label: "Receivable Account" }],
       rows: summary ? [...grouped.values()].sort((a, b) => b.total - a.total) : detail,
     } }, { headers: { "Cache-Control": "no-store" } });
   }
@@ -83,7 +83,7 @@ export async function customerOpenBalance(companyId: number, locationId: number,
         const balances = activity.filter((row) => row.currency === code);
         const linked = arAccounts.find((account) => account.id === contact.ledgerAccountId && account.currency === code);
         const account = linked ?? arAccounts.find((account) => account.currency === code && account.systemRole === "AR");
-        const overdue = balances.filter((row) => row.type === "invoice" && row.openBalance > 0 && row.dueDate && row.dueDate < asOf);
+        const overdue = balances.filter((row) => row.type === "invoice" && row.openBalance > 0 && (row.dueDate || row.date) < asOf);
         return { customerId: contact.id, customer: contact.name, phone: contact.phone, email: contact.email, currency: code, status: contact.status, openBalance: round(balances.reduce((sum, row) => sum + row.openBalance, 0)), overdueInvoices: overdue.length, overdueBalance: round(overdue.reduce((sum, row) => sum + row.openBalance, 0)), account: account?.name || "Unlinked", accountId: account?.id || 0 };
       });
     });

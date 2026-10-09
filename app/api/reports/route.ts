@@ -351,8 +351,18 @@ export async function GET(request: Request) {
     const aged = (types: string[]) => openBills(types).map(({ row, amount, age }) => ({ name: row.party, current: age <= 0 ? amount : 0, days30: age > 0 && age <= 30 ? amount : 0, days60: age > 30 && age <= 60 ? amount : 0, days90: age > 60 && age <= 90 ? amount : 0, days90plus: age > 90 ? amount : 0, total: amount }));
     const agingColumns = [{ key: "name", label: "Name" }, { key: "current", label: "Current", ...money }, { key: "days30", label: "1–30", ...money }, { key: "days60", label: "31–60", ...money }, { key: "days90", label: "61–90", ...money }, { key: "days90plus", label: "91+", ...money }, { key: "total", label: "Total", ...money }];
     const customerTypes = new Set(["invoice", "sales receipt", "statement charge", "finance charge", "customer payment", "credit memo"]);
-    const customerActivities = scopedTransactions.filter((row) => customerTypes.has(row.type));
-    const customerImpact = (row: typeof allTransactions[number]) => ["customer payment", "credit memo"].includes(row.type) ? -row.baseTotal : row.baseTotal;
+    // Customer activity for A/R: cancelled, void, deleted and draft documents excluded. A sales receipt is listed but has
+    // no receivable impact (it is paid on the spot and posts to the bank).
+    const customerActivities = scopedTransactions.filter((row) => customerTypes.has(row.type) && !closedDocument(row.status));
+    const customerImpact = (row: typeof allTransactions[number]) => row.type === "sales receipt" ? 0 : ["customer payment", "credit memo"].includes(row.type) ? -row.baseTotal : row.baseTotal;
+    // As-of receivables: the report's To date (or today in Dubai). Payments dated after it, and cancelled payments, do
+    // not reduce what was open on that date; today's "paid" status is not used.
+    const receivablesAsOf = period.to || new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    const receivableAllocations = ["open-invoices", "collections-report"].includes(key) ? await db.select({ invoiceId: invoicePaymentAllocations.invoiceId, amount: invoicePaymentAllocations.amount, date: transactions.transactionDate, status: transactions.status }).from(invoicePaymentAllocations).innerJoin(transactions, eq(transactions.id, invoicePaymentAllocations.paymentId)).where(eq(transactions.companyId, companyId)) : [];
+    const allocatedByInvoice = new Map<number, number>();
+    receivableAllocations.filter((allocation) => !closedDocument(allocation.status) && String(allocation.date) <= receivablesAsOf).forEach((allocation) => allocatedByInvoice.set(allocation.invoiceId, (allocatedByInvoice.get(allocation.invoiceId) ?? 0) + Number(allocation.amount)));
+    const openReceivable = (row: typeof allTransactions[number]) => Math.max(0, Number(row.total) - (allocatedByInvoice.get(row.id) ?? 0));
+    const receivableDaysPastDue = (row: { dueDate: string | null; transactionDate: string }) => { const diff = Math.floor((Date.parse(`${receivablesAsOf}T00:00:00Z`) - Date.parse(`${row.dueDate || row.transactionDate}T00:00:00Z`)) / 86400000); return Number.isFinite(diff) ? Math.max(0, diff) : 0; };
     const customerSettlements: Array<{ customer: string; invoice: string; invoiceTransactionId: number; invoiceDate: string; payment: string; paymentTransactionId: number; paymentDate: string; days: number; amount: number }> = [];
     const activityByCustomer = new Map<string, typeof customerActivities>();
     customerActivities.forEach((row) => activityByCustomer.set(row.party, [...(activityByCustomer.get(row.party) ?? []), row]));
@@ -720,14 +730,14 @@ export async function GET(request: Request) {
       const memo = (url.searchParams.get("memo") || "").slice(0, 2000);
       const selectedCurrency = (url.searchParams.get("currency") || currency).toUpperCase();
       const customer = url.searchParams.get("customer") || "";
-      const statementDate = url.searchParams.get("statementDate") || new Date().toISOString().slice(0, 10);
+      const statementDate = url.searchParams.get("statementDate") || new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
       const end = periodEnd || statementDate;
       const validDate = (date: string) => /^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN(Date.parse(date)) && new Date(date).toISOString().slice(0, 10) === date;
       if (!validDate(statementDate) || !validDate(end) || (periodStart && !validDate(periodStart)) || (periodStart && periodStart > end) || end > statementDate) return Response.json({ error: "Choose valid dates: From must be on or before To, and To on or before the statement date." }, { status: 400 });
       if (!/^[A-Z]{3}$/.test(selectedCurrency)) return Response.json({ error: "Select a valid currency." }, { status: 400 });
       const customers = allContacts.filter((contact) => contact.type === partyType);
       if (customer && !customers.some((contact) => contact.name === customer)) return Response.json({ error: `Select a ${partyType} in this company.` }, { status: 400 });
-      const activity = allTransactions.filter((row) => (!vendor || !inactiveVendorStatuses.has(row.status.toLowerCase())) && row.currency === selectedCurrency && (!customer || row.party === customer) && row.transactionDate <= end && (vendor ? supplierTypes.has(row.type) && supplierImpact(row) !== 0 : ["invoice", "statement charge", "finance charge", "customer payment", "credit memo"].includes(row.type)));
+      const activity = allTransactions.filter((row) => (vendor ? !inactiveVendorStatuses.has(row.status.toLowerCase()) : !closedDocument(row.status)) && row.currency === selectedCurrency && (!customer || row.party === customer) && row.transactionDate <= end && (vendor ? supplierTypes.has(row.type) && supplierImpact(row) !== 0 : ["invoice", "statement charge", "finance charge", "customer payment", "credit memo"].includes(row.type)));
       const balances = new Map<string, number>();
       const round = (value: number) => Math.round(value * 100) / 100;
       let opening = 0, charges = 0, credits = 0;
@@ -754,10 +764,23 @@ export async function GET(request: Request) {
     } else if (key === "collections-report") {
       title = "Collections Report";
       const contactByName = new Map(allContacts.filter((contact) => contact.type === "customer").map((contact) => [contact.name, contact]));
-      const grouped = new Map<string, { openInvoices: number; overdueInvoices: number; oldestDueDate: string; balance: number }>();
-      customerActivities.forEach((row) => { const old = grouped.get(row.party) ?? { openInvoices: 0, overdueInvoices: 0, oldestDueDate: "", balance: 0 }; old.balance += customerImpact(row); if (["invoice", "statement charge", "finance charge"].includes(row.type) && !["paid", "cleared"].includes(row.status)) { old.openInvoices += 1; if (row.dueDate && row.dueDate < new Date().toISOString().slice(0, 10)) old.overdueInvoices += 1; if (row.dueDate && (!old.oldestDueDate || row.dueDate < old.oldestDueDate)) old.oldestDueDate = row.dueDate; } grouped.set(row.party, old); });
-      rows = [...grouped].filter(([, value]) => value.balance > 0.005).map(([customer, value]) => ({ customer, phone: contactByName.get(customer)?.phone || "—", email: contactByName.get(customer)?.email || "—", openInvoices: value.openInvoices, overdueInvoices: value.overdueInvoices, oldestDueDate: value.oldestDueDate || "—", balance: value.balance })).sort((a, b) => b.balance - a.balance);
-      columns = [{ key: "customer", label: "Customer" }, { key: "phone", label: "Phone" }, { key: "email", label: "Email" }, { key: "openInvoices", label: "Open" }, { key: "overdueInvoices", label: "Overdue" }, { key: "oldestDueDate", label: "Oldest Due" }, { key: "balance", label: "Balance", ...money }];
+      const grouped = new Map<string, { openInvoices: number; overdueInvoices: number; overdueAmount: number; oldestDueDate: string; maxDays: number; balance: number }>();
+      customerActivities.filter((row) => row.transactionDate <= receivablesAsOf).forEach((row) => {
+        const old = grouped.get(row.party) ?? { openInvoices: 0, overdueInvoices: 0, overdueAmount: 0, oldestDueDate: "", maxDays: 0, balance: 0 };
+        old.balance += customerImpact(row);
+        if (row.type === "invoice") {
+          const open = openReceivable(row) * Number(row.exchangeRate);
+          if (open > 0.005) {
+            const due = row.dueDate || row.transactionDate, days = receivableDaysPastDue(row);
+            old.openInvoices += 1;
+            if (days > 0) { old.overdueInvoices += 1; old.overdueAmount += open; old.maxDays = Math.max(old.maxDays, days); }
+            if (!old.oldestDueDate || due < old.oldestDueDate) old.oldestDueDate = due;
+          }
+        }
+        grouped.set(row.party, old);
+      });
+      rows = [...grouped].filter(([, value]) => value.balance > 0.005).map(([customer, value]) => ({ customer, phone: contactByName.get(customer)?.phone || "—", email: contactByName.get(customer)?.email || "—", openInvoices: value.openInvoices, overdueInvoices: value.overdueInvoices, oldestDueDate: value.oldestDueDate || "—", maxDaysOverdue: value.maxDays, overdueAmount: Math.round(value.overdueAmount * 100) / 100, balance: Math.round(value.balance * 100) / 100 })).sort((a, b) => b.overdueAmount - a.overdueAmount || b.balance - a.balance);
+      columns = [{ key: "customer", label: "Customer" }, { key: "phone", label: "Phone" }, { key: "email", label: "Email" }, { key: "openInvoices", label: "Open" }, { key: "overdueInvoices", label: "Overdue" }, { key: "oldestDueDate", label: "Oldest Due" }, { key: "maxDaysOverdue", label: "Max Days Overdue" }, { key: "overdueAmount", label: "Overdue Amount", ...money }, { key: "balance", label: "Balance", ...money }];
     } else if (key === "average-days-to-pay-summary") {
       title = "Average Days to Pay Summary";
       const grouped = new Map<string, { invoices: number; days: number; amount: number }>();
@@ -782,8 +805,8 @@ export async function GET(request: Request) {
       columns = [{ key: "customer", label: "Customer" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "status", label: "Status" }, { key: "amount", label: "Net Amount", ...money }];
     } else if (key === "online-received-payments") {
       title = "Online Received Payments";
-      rows = scopedTransactions.filter((row) => row.type === "customer payment").map((row) => ({ transactionId: row.id, date: row.transactionDate, number: row.number, customer: row.party, account: row.account, status: row.status, currency: row.currency, amount: row.baseTotal }));
-      columns = [{ key: "date", label: "Date" }, { key: "number", label: "Payment No." }, { key: "customer", label: "Customer" }, { key: "account", label: "Deposit Account" }, { key: "status", label: "Status" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Amount", ...money }];
+      rows = scopedTransactions.filter((row) => row.type === "customer payment" && !closedDocument(row.status)).map((row) => ({ transactionId: row.id, date: row.transactionDate, number: row.number, customer: row.party, method: row.paymentMethod || "—", reference: row.referenceNo || "—", account: row.account, status: row.status, currency: row.currency, documentAmount: `${row.currency} ${Number(row.total).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, amount: row.baseTotal }));
+      columns = [{ key: "date", label: "Date" }, { key: "number", label: "Payment No." }, { key: "customer", label: "Customer" }, { key: "method", label: "Method" }, { key: "reference", label: "Reference" }, { key: "account", label: "Deposit Account" }, { key: "status", label: "Status" }, { key: "documentAmount", label: "Amount (payment currency)" }, { key: "amount", label: "Amount", ...money }];
     } else if (key === "customer-phone-list") {
       title = "Customer Phone List";
       rows = allContacts.filter((row) => row.type === "customer").map((row) => ({ customer: row.name, company: row.company || "—", phone: row.phone || "—", whatsapp: row.whatsapp || "—", country: row.country || "—" }));
@@ -1085,18 +1108,19 @@ export async function GET(request: Request) {
       columns = [{ key: "account", label: "Inventory Asset Account" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item / Assembly" }, { key: "category", label: "Category" }, { key: "onHand", label: "On Hand" }, { key: "buildLevel", label: "Build Level" }, { key: "required", label: "Required Qty" }, { key: "status", label: "Status" }];
     } else if (key === "customer-document-summary") {
       title = "Customer Document Summary";
-      const documentTypes = new Set(["estimate", "proforma invoice", "sales order"]);
-      const totals = new Map<string, { estimates: number; proformaInvoices: number; salesOrders: number }>();
-      allContacts.filter((contact) => contact.type === "customer").forEach((contact) => totals.set(contact.name, { estimates: 0, proformaInvoices: 0, salesOrders: 0 }));
-      scopedTransactions.filter((row) => documentTypes.has(row.type)).forEach((row) => {
-        const current = totals.get(row.party) ?? { estimates: 0, proformaInvoices: 0, salesOrders: 0 };
+      const documentTypes = new Set(["quotation", "estimate", "proforma invoice", "sales order"]);
+      const totals = new Map<string, { quotations: number; estimates: number; proformaInvoices: number; salesOrders: number }>();
+      allContacts.filter((contact) => contact.type === "customer").forEach((contact) => totals.set(contact.name, { quotations: 0, estimates: 0, proformaInvoices: 0, salesOrders: 0 }));
+      scopedTransactions.filter((row) => documentTypes.has(row.type) && !closedDocument(row.status)).forEach((row) => {
+        const current = totals.get(row.party) ?? { quotations: 0, estimates: 0, proformaInvoices: 0, salesOrders: 0 };
+        if (row.type === "quotation") current.quotations += 1;
         if (row.type === "estimate") current.estimates += 1;
         if (row.type === "proforma invoice") current.proformaInvoices += 1;
         if (row.type === "sales order") current.salesOrders += 1;
         totals.set(row.party, current);
       });
-      rows = [...totals].map(([customer, counts]) => ({ customer, ...counts, totalDocuments: counts.estimates + counts.proformaInvoices + counts.salesOrders })).sort((a, b) => b.totalDocuments - a.totalDocuments || a.customer.localeCompare(b.customer));
-      columns = [{ key: "customer", label: "Customer" }, { key: "estimates", label: "Estimates" }, { key: "proformaInvoices", label: "Proforma Invoices" }, { key: "salesOrders", label: "Sales Orders" }, { key: "totalDocuments", label: "Total Documents" }];
+      rows = [...totals].map(([customer, counts]) => ({ customer, ...counts, totalDocuments: counts.quotations + counts.estimates + counts.proformaInvoices + counts.salesOrders })).sort((a, b) => b.totalDocuments - a.totalDocuments || a.customer.localeCompare(b.customer));
+      columns = [{ key: "customer", label: "Customer" }, { key: "quotations", label: "Quotations" }, { key: "estimates", label: "Estimates" }, { key: "proformaInvoices", label: "Proforma Invoices" }, { key: "salesOrders", label: "Sales Orders" }, { key: "totalDocuments", label: "Total Documents" }];
     } else if (key === "purchase-order-summary") {
       title = "Purchase Order Summary";
       // Converted / billed orders are counted as Billed, not as received; drafts are not open commitments.
@@ -1120,13 +1144,11 @@ export async function GET(request: Request) {
       columns = [{ key: "supplier", label: "Supplier" }, { key: "open", label: "Open" }, { key: "partiallyReceived", label: "Partially Received" }, { key: "received", label: "Fully Received" }, { key: "billed", label: "Converted / Billed" }, { key: "closed", label: "Closed / Cancelled / Draft" }, { key: "totalOrders", label: "Total Orders" }, { key: "value", label: "Order Value ex VAT", ...money }];
     } else if (key === "open-invoices") {
       title = "Open Invoices";
-      const invoiceAllocations = await db.select({ invoiceId: invoicePaymentAllocations.invoiceId, amount: invoicePaymentAllocations.amount }).from(invoicePaymentAllocations).innerJoin(transactions, eq(transactions.id, invoicePaymentAllocations.paymentId)).where(eq(transactions.companyId, companyId));
-      rows = scopedTransactions.filter((row) => row.type === "invoice" && !["paid", "cleared"].includes(row.status)).map((row) => {
-        const allocated = invoiceAllocations.filter((payment) => payment.invoiceId === row.id).reduce((sum, payment) => sum + payment.amount, 0);
-        const openAmount = Math.max(0, row.total - allocated) * row.exchangeRate;
-        return { transactionId: row.id, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, customer: row.party, status: row.status, currency: row.currency, amount: openAmount };
-      }).filter((row) => row.amount > 0.005);
-      columns = [{ key: "date", label: "Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "No." }, { key: "customer", label: "Customer" }, { key: "status", label: "Status" }, { key: "currency", label: "Currency" }, { key: "amount", label: "Open Amount", ...money }];
+      rows = customerActivities.filter((row) => row.type === "invoice" && row.transactionDate <= receivablesAsOf).map((row) => {
+        const open = openReceivable(row), age = receivableDaysPastDue(row);
+        return { transactionId: row.id, date: row.transactionDate, dueDate: row.dueDate || "—", number: row.number, customer: row.party, status: row.status, currency: row.currency, invoiceTotal: row.total, paid: Math.round((row.total - open) * 100) / 100, documentOpen: Math.round(open * 100) / 100, daysOverdue: age, ageBand: age <= 0 ? "Current" : age <= 30 ? "1–30" : age <= 60 ? "31–60" : age <= 90 ? "61–90" : "91+", amount: Math.round(open * Number(row.exchangeRate) * 100) / 100 };
+      }).filter((row) => row.amount > 0.005).sort((a, b) => b.daysOverdue - a.daysOverdue);
+      columns = [{ key: "date", label: "Date" }, { key: "dueDate", label: "Due Date" }, { key: "number", label: "No." }, { key: "customer", label: "Customer" }, { key: "status", label: "Status" }, { key: "currency", label: "Currency" }, { key: "invoiceTotal", label: "Invoice Total" }, { key: "paid", label: "Paid" }, { key: "documentOpen", label: "Open (document currency)" }, { key: "daysOverdue", label: "Days Overdue" }, { key: "ageBand", label: "Aging Band" }, { key: "amount", label: "Open Amount", ...money }];
     }
     else if (key === "sales-orders") {
       title = "Sales Order Fulfilment";
