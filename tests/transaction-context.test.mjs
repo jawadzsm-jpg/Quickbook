@@ -2046,6 +2046,37 @@ test('Chart of Accounts deletion is limited to unused sub-accounts', async () =>
   assert.equal((await database.query('SELECT id FROM accounts WHERE id=$1',[main])).rows.length,1);
 });
 
+test('Chart of Accounts: company-wide balances, create validation, linked delete protection and transfer rename', async () => {
+  const company=(await database.query("INSERT INTO companies (name, base_currency) VALUES ('Chart audit test','AED') RETURNING id")).rows[0].id;
+  const [storeA,storeB]=(await database.query("INSERT INTO inventory_locations (company_id,name,code,invoice_prefix) VALUES ($1,'Store A','CA','CA'),($1,'Store B','CB','CB') RETURNING id",[company])).rows.map(row=>row.id);
+  const main=(await database.query("INSERT INTO accounts (company_id,code,name,type,balance) VALUES ($1,'1000','Main Bank','Bank',100) RETURNING id",[company])).rows[0].id;
+  const second=(await database.query("INSERT INTO accounts (company_id,code,name,type) VALUES ($1,'1010','Second Bank','Bank') RETURNING id",[company])).rows[0].id;
+  const entry=(await database.query("INSERT INTO journal_entries (company_id,location_id,entry_date,reference,posted) VALUES ($1,$2,'2026-10-01','J-B',true) RETURNING id",[company,storeB])).rows[0].id;
+  await database.query("INSERT INTO journal_lines (journal_entry_id,account_name,debit,credit) VALUES ($1,'Main Bank',50,0)",[entry]);
+  const draft=(await database.query("INSERT INTO journal_entries (company_id,location_id,entry_date,reference,posted) VALUES ($1,$2,'2026-10-02','J-DRAFT',false) RETURNING id",[company,storeA])).rows[0].id;
+  await database.query("INSERT INTO journal_lines (journal_entry_id,account_name,debit,credit) VALUES ($1,'Main Bank',1000,0)",[draft]);
+  const {GET,POST,PATCH,DELETE}=await vite.ssrLoadModule('/app/api/records/route.ts');
+  // Store A selected: the posted Store B receipt still counts; the unposted entry does not.
+  const list=await (await GET(new Request(`https://app.test/api/records?kind=accounts&companyId=${company}&locationId=${storeA}`))).json();
+  assert.equal(list.records.find(row=>row.id===main).balance,150);
+  const create=(payload)=>POST(new Request('https://app.test/api/records',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind:'accounts',companyId:company,...payload})}));
+  assert.equal((await create({code:'4100',name:'Bad sales',type:'Expense',systemRole:'SALES'})).status,409);
+  assert.equal((await create({code:'4101',name:'Bad type',type:'Foo'})).status,400);
+  assert.equal((await create({code:'4102',name:'Bad balance',type:'Expense',balance:'abc'})).status,400);
+  // Sub-accounts linked to an item, or with an opening balance, cannot be deleted.
+  const sub=(await database.query("INSERT INTO accounts (company_id,code,name,type,parent_account_id) VALUES ($1,'5010','Linked COGS','Cost of Goods Sold',$2) RETURNING id",[company,main])).rows[0].id;
+  await database.query("INSERT INTO items (company_id,location_id,sku,name,cogs_account_id) VALUES ($1,$2,'CHART-ITEM','Chart item',$3)",[company,storeA,sub]);
+  const funded=(await database.query("INSERT INTO accounts (company_id,code,name,type,parent_account_id,balance) VALUES ($1,'1020','Funded sub','Bank',$2,25) RETURNING id",[company,main])).rows[0].id;
+  const remove=(id)=>DELETE(new Request('https://app.test/api/records',{method:'DELETE',headers:{'content-type':'application/json'},body:JSON.stringify({deletionReason:'Correcting test record',kind:'accounts',companyId:company,id})}));
+  assert.equal((await remove(sub)).status,409);
+  assert.equal((await remove(funded)).status,409);
+  // Renaming a bank keeps transfers pointing at it as their destination.
+  const transfer=(await database.query("INSERT INTO transactions (company_id,type,number,party,account,transaction_date) VALUES ($1,'transfer','TR-1','Second Bank','Main Bank','2026-10-03') RETURNING id",[company])).rows[0].id;
+  const rename=await PATCH(new Request('https://app.test/api/records',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({kind:'accounts',companyId:company,id:second,name:'Second Bank Renamed',code:'1010'})}));
+  assert.equal(rename.status,200,await rename.clone().text());
+  assert.deepEqual((await database.query('SELECT party, account FROM transactions WHERE id=$1',[transfer])).rows,[{party:'Second Bank Renamed',account:'Main Bank'}]);
+});
+
 test('shared out-of-stock catalogue includes all active source identities without financial data', async () => {
   const company=(await database.query("INSERT INTO companies (name) VALUES ('Shared catalogue company') RETURNING id")).rows[0].id;
   const location=(await database.query("INSERT INTO inventory_locations (company_id,name,code,invoice_prefix) VALUES ($1,'Shared store','SHARED','SHARED') RETURNING id",[company])).rows[0].id;
