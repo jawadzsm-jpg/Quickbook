@@ -3401,3 +3401,21 @@ test('cargo list: every user can add, only the creator or an admin edits, only a
     assert.equal((await call('DELETE', null, `?companyId=${company}&id=${cargo.id}`)).status, 200);
   } finally { delete globalThis.__transferTestUser; }
 });
+
+test('duplicated items start with no stock or cost and the list shows the purchase average cost', async () => {
+  const { GET, POST } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Duplicate cost test') RETURNING id")).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'DUP', 'Duplicate', 'DUP') RETURNING id", [companyId])).rows[0].id;
+  const sourceId = (await database.query("INSERT INTO items (company_id, location_id, sku, name, quantity, cost) VALUES ($1, $2, 'DUP-SRC', 'DELL ALIENWARE 16', 100, 4220.5) RETURNING id", [companyId, locationId])).rows[0].id;
+  const response = await POST(new Request('https://app.test/api/records', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'items', companyId, locationId, duplicateOfItemId: sourceId, itemType: 'stock-part', name: 'MSI VECTOR 16', quantity: 100, cost: 4220.5, salesPrice: 0 }) }));
+  assert.equal(response.status, 201, JSON.stringify(await response.clone().json()));
+  const copy = (await response.json()).record;
+  assert.equal(copy.quantity, 0); assert.equal(copy.cost, 0);
+  // Its own bill at 8,000 sets the average cost the list shows, whatever the saved cost field holds.
+  await database.query("UPDATE items SET cost=4220.5 WHERE id=$1", [copy.id]);
+  const billId = (await database.query("INSERT INTO transactions (company_id, location_id, type, number, party, total, subtotal, transaction_date, status) VALUES ($1, $2, 'bill', 'DUP-BILL', 'Supplier', 800000, 800000, '2026-10-09', 'open') RETURNING id", [companyId, locationId])).rows[0].id;
+  await database.query("INSERT INTO transaction_lines (transaction_id, item_id, description, quantity, unit_price) VALUES ($1, $2, 'MSI VECTOR 16', 100, 8000)", [billId, copy.id]);
+  const listed = (await (await GET(new Request(`https://app.test/api/records?kind=items&companyId=${companyId}&locationId=${locationId}`))).json()).records;
+  assert.equal(listed.find((item) => item.id === copy.id).averageCost, 8000);
+  assert.equal(listed.find((item) => item.id === sourceId).averageCost, 4220.5);
+});
