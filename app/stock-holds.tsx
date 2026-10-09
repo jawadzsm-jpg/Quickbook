@@ -23,6 +23,18 @@ export function holdTimeLeft(expiresAt: string, now = Date.now()) {
 }
 const until = (value: string) => parseTime(value).toLocaleString("en-GB", { timeZone: "Asia/Dubai", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 
+// Release a hold early after confirmation; returns true when it was released.
+async function releaseHold(hold: StockHold) {
+  if (!window.confirm(`Release ${hold.quantity} held for ${hold.salesRep}? The stock becomes available to everyone.`)) return false;
+  try {
+    const response = await fetch("/api/stock-holds", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId: hold.companyId, id: hold.id }) });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Could not release the hold");
+    toast.success("Hold released");
+    return true;
+  } catch (error) { toast.error(error instanceof Error ? error.message : "Could not release the hold"); return false; }
+}
+
 /** Total held quantity per item id. */
 export function heldTotals(holds: StockHold[]) {
   const totals = new Map<number, number>();
@@ -32,6 +44,7 @@ export function heldTotals(holds: StockHold[]) {
 
 // Put a quantity of one item on hold for a sales rep (administrators and accountants).
 export function StockHoldDialog({ target, holds, onClose, onSaved }: { target: HoldTarget | null; holds: StockHold[]; onClose: () => void; onSaved: () => void }) {
+  const [releasingId, setReleasingId] = useState<number | null>(null);
   const inStock = useMemo(() => (target?.inventories ?? []).filter((inventory) => Number(inventory.quantity) > 0), [target]);
   const [itemId, setItemId] = useState<number | null>(null);
   const [quantity, setQuantity] = useState("1");
@@ -42,7 +55,8 @@ export function StockHoldDialog({ target, holds, onClose, onSaved }: { target: H
   const [reps, setReps] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const selected = inStock.find((inventory) => inventory.id === itemId) ?? inStock[0];
-  const held = selected ? holds.filter((hold) => hold.itemId === selected.id).reduce((sum, hold) => sum + Number(hold.quantity), 0) : 0;
+  const selectedHolds = selected ? holds.filter((hold) => hold.itemId === selected.id) : [];
+  const held = selectedHolds.reduce((sum, hold) => sum + Number(hold.quantity), 0);
   const free = selected ? Math.max(0, Number(selected.quantity) - held) : 0;
   const effectiveHours = hours === 0 ? Number(customHours) : hours;
 
@@ -76,6 +90,11 @@ export function StockHoldDialog({ target, holds, onClose, onSaved }: { target: H
       <DialogHeader><DialogTitle>Put stock on hold</DialogTitle><DialogDescription>{target ? `${target.name} · SKU ${target.sku}` : ""}. Held stock can only be sold, returned or transferred by the chosen sales rep until the hold ends.</DialogDescription></DialogHeader>
       {!inStock.length ? <p className="text-sm text-muted-foreground">This product has no stock to hold.</p> : <div className="space-y-4">
         {inStock.length > 1 && <div className="space-y-1.5"><Label>Inventory</Label><div className="flex flex-wrap gap-2">{inStock.map((inventory) => <Button key={inventory.id} type="button" size="sm" variant={selected?.id === inventory.id ? "default" : "outline"} onClick={() => setItemId(inventory.id)}>{inventory.companyName} · {inventory.locationName}</Button>)}</div></div>}
+        {selectedHolds.length > 0 && <div className="space-y-1.5"><Label>Current holds · unhold</Label><ul className="divide-y rounded-lg border border-amber-500/40 bg-amber-500/5">{selectedHolds.map((hold) => <li key={hold.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
+          <Lock className="size-3.5 shrink-0 text-amber-600" /><span className="min-w-0 flex-1"><strong>{Number(hold.quantity).toLocaleString()}</strong> for <strong>{hold.salesRep}</strong>{hold.note ? <span className="text-muted-foreground"> · “{hold.note}”</span> : null}</span>
+          <span className="flex items-center gap-1 text-xs text-amber-700 dark:text-amber-300" title={`Until ${until(hold.expiresAt)} (UAE) · by ${hold.createdByName}`}><Clock className="size-3.5" />{holdTimeLeft(hold.expiresAt)}</span>
+          <Button type="button" size="sm" variant="outline" disabled={releasingId !== null || saving} onClick={async () => { setReleasingId(hold.id); try { if (await releaseHold(hold)) onSaved(); } finally { setReleasingId(null); } }}><Unlock className="size-4" />{releasingId === hold.id ? "Releasing…" : "Unhold"}</Button>
+        </li>)}</ul></div>}
         <p className="rounded-lg bg-muted/50 px-3 py-2 text-sm">In stock <strong>{Number(selected?.quantity ?? 0).toLocaleString()}</strong>{held ? <> · already on hold <strong>{held.toLocaleString()}</strong></> : null} · free to hold <strong>{free.toLocaleString()}</strong></p>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5"><Label htmlFor="hold-quantity">Quantity</Label><Input id="hold-quantity" type="number" min="1" max={free} value={quantity} onChange={(event) => setQuantity(event.target.value)} /></div>
@@ -97,16 +116,8 @@ export function StockHoldsPanel({ holds, names, canManage, onReleased }: { holds
   const active = holds.filter((hold) => parseTime(hold.expiresAt).getTime() > now);
   if (!active.length) return null;
   async function release(hold: StockHold) {
-    if (!window.confirm(`Release ${hold.quantity} held for ${hold.salesRep}? The stock becomes available to everyone.`)) return;
     setBusyId(hold.id);
-    try {
-      const response = await fetch("/api/stock-holds", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId: hold.companyId, id: hold.id }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not release the hold");
-      toast.success("Hold released");
-      onReleased();
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not release the hold"); }
-    finally { setBusyId(null); }
+    try { if (await releaseHold(hold)) onReleased(); } finally { setBusyId(null); }
   }
   return <section className="overflow-hidden rounded-xl border border-amber-500/40 bg-amber-500/5 shadow-sm" aria-label="Stock on hold">
     <header className="flex items-center gap-2 border-b px-4 py-3"><Lock className="size-4 text-amber-600" /><h2 className="text-sm font-bold">Stock on hold</h2><Badge variant="secondary">{active.length}</Badge><p className="ml-2 hidden text-xs text-muted-foreground sm:block">Reserved for a sales rep; other sales cannot use it until the hold ends.</p></header>
