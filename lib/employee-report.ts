@@ -10,10 +10,11 @@ export function employeeSummary(report: EmployeeReport): { cards: ListSummaryCar
     cards: [
       { label: "Employees", value: rows.length, format: "number", tone: "accent" },
       { label: "Active", value: rows.filter((row) => row.status === "active").length, format: "number", tone: "positive" },
-      { label: "With balance", value: rows.filter((row) => Number(row.balance) !== 0).length, format: "number" },
-      { label: "Currencies", value: new Set(rows.map((row) => String(row.currency))).size, format: "number" },
+      { label: "Paid in period", value: rows.reduce((sum, row) => sum + Number(row.paidInPeriod || 0), 0), format: "money" },
+      { label: "Loans / advances outstanding", value: rows.reduce((sum, row) => sum + Number(row.loanLedger || 0), 0), format: "money", tone: "negative" },
+      { label: "Monthly payroll (salaries)", value: rows.filter((row) => row.status === "active").reduce((sum, row) => sum + Number(row.salaryAmount || 0), 0), format: "money" },
     ],
-    note: "Balances are recorded in each employee's own currency. Open the employee record for details.",
+    note: "Company-wide. Paid in period covers non-cancelled cheques, expenses and loan payments to each employee in the report dates (home currency). Loan / advance ledger balance is the employee's loan account opening balance plus posted movement. Monthly salaries are in each employee's own currency.",
   };
   if (report.key === "employee-payments") return {
     cards: [

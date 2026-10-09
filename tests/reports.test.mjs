@@ -885,6 +885,28 @@ test('customer open balance uses allocations, preserves unused credits, and link
   } finally { delete globalThis.__reportTestUser; }
 });
 
+test("Employee reports: loan ledger balance, payments in period without cancelled documents, loan payments, company-wide", async () => {
+  const response = await workspaces.POST(post({ type: "company", name: "Employee audit", baseCurrency: "AED" }));
+  const { company: c } = await response.json(); const loc = c.locations[0].id;
+  const [storeB] = await db.insert(schema.inventoryLocations).values({ companyId: c.id, name: "Store EB", code: "EB", invoicePrefix: "EB" }).returning();
+  const [loan] = await db.insert(schema.accounts).values({ companyId: c.id, code: "1295", name: "Loan - Sara", type: "Other Current Asset", currency: "AED", balance: 1000 }).returning();
+  const [employee] = await db.insert(schema.contacts).values({ companyId: c.id, type: "employee", name: "Sara Staff", currency: "AED", status: "active", salaryAmount: 5000, loanAccountId: loan.id, balance: 0 }).returning();
+  const doc = async (values) => (await db.insert(schema.transactions).values({ companyId: c.id, locationId: storeB.id, transactionDate: "2026-09-25", currency: "AED", exchangeRate: 1, ...values }).returning())[0];
+  await doc({ type: "cheque", number: "SAL-SEP", party: "Sara Staff", subtotal: 5000, total: 5000, baseTotal: 5000 });
+  await doc({ type: "cheque", number: "SAL-VOID", party: "Sara Staff", status: "void", subtotal: 5000, total: 5000, baseTotal: 5000 });
+  const advance = await doc({ type: "cheque", number: "ADV-1", party: "Bank", employeeLoanContactId: employee.id, subtotal: 500, total: 500, baseTotal: 500 });
+  const [j] = await db.insert(schema.journalEntries).values({ companyId: c.id, locationId: storeB.id, transactionId: advance.id, entryDate: "2026-09-25", reference: "ADV-1", posted: true }).returning();
+  await db.insert(schema.journalLines).values([{ journalEntryId: j.id, accountName: loan.name, accountId: loan.id, debit: 500 }, { journalEntryId: j.id, accountName: "Business Bank", credit: 500 }]);
+  const get = async (type) => { const res = await GET(new Request(`https://app.test/api/reports?type=${type}&companyId=${c.id}&locationId=${loc}&periodStart=2026-09-01&periodEnd=2026-09-30`)); assert.equal(res.status, 200, await res.clone().text()); return (await res.json()).report; };
+  // Store A selected, but employee reports are company-wide: salary 5,000 + advance 500 paid; loan ledger 1,000 opening + 500.
+  const row = (await get("employee-balances")).rows.find((entry) => entry.employeeId === employee.id);
+  assert.deepEqual([row.paidInPeriod, row.loanLedger, row.lastPaid], [5500, 1500, "2026-09-25"]);
+  const payments = (await get("employee-payments")).rows;
+  assert.deepEqual(payments.map((entry) => [entry.number, entry.purpose]).sort(), [["ADV-1", "Loan / advance"], ["SAL-SEP", "Salary / payment"]]);
+  // The company-wide Transaction Journal keeps postings of documents saved under another inventory.
+  assert.ok((await get("transaction-journal")).rows.some((entry) => entry.reference === "ADV-1"));
+});
+
 test("Lists: account and fixed-asset balances include openings, VAT-aware prices and margins, other names grouped, void notes hidden", async () => {
   const response = await workspaces.POST(post({ type: "company", name: "Lists audit", baseCurrency: "AED" }));
   const { company: c } = await response.json(); const loc = c.locations[0].id;
@@ -1493,10 +1515,10 @@ test('employee reports keep native balances separate and export home-currency pa
   const { employeeSummary, employeeReportKeys } = await vite.ssrLoadModule('/lib/employee-report.ts');
   assert.equal(employeeReportKeys.size, 2);
   const balances = employeeSummary({ key: 'employee-balances', rows: [
-    { name: 'A', status: 'active', currency: 'AED', balance: 100 },
-    { name: 'B', status: 'inactive', currency: 'USD', balance: 0 },
+    { name: 'A', status: 'active', currency: 'AED', salaryAmount: 5000, paidInPeriod: 5000, loanLedger: 1200 },
+    { name: 'B', status: 'inactive', currency: 'USD', salaryAmount: 3000, paidInPeriod: 0, loanLedger: 0 },
   ] });
-  assert.deepEqual(balances.cards.map(card => card.value), [2, 1, 1, 2]);
+  assert.deepEqual(balances.cards.map(card => card.value), [2, 1, 5000, 1200, 5000]);
   const payments = employeeSummary({ key: 'employee-payments', rows: [
     { name: 'A', originalCurrency: 'AED', amount: 200 },
     { name: 'B', originalCurrency: 'USD', amount: 367.25 },
