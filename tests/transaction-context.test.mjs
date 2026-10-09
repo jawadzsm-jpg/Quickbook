@@ -2046,6 +2046,21 @@ test('Chart of Accounts deletion is limited to unused sub-accounts', async () =>
   assert.equal((await database.query('SELECT id FROM accounts WHERE id=$1',[main])).rows.length,1);
 });
 
+test('documents cannot post to an account that has been made inactive', async () => {
+  const companyId=(await database.query("INSERT INTO companies (name) VALUES ('Inactive posting test') RETURNING id")).rows[0].id;
+  const locationId=(await database.query("INSERT INTO inventory_locations (company_id,name,code,invoice_prefix) VALUES ($1,'Main','IP','IP') RETURNING id",[companyId])).rows[0].id;
+  await database.query("INSERT INTO accounts (company_id,code,name,type,active) VALUES ($1,'6900','Old Purchases','Expense',false),($1,'6901','Live Purchases','Expense',true)",[companyId]);
+  const {POST}=await vite.ssrLoadModule('/app/api/records/route.ts');
+  const bill=(account,number)=>POST(new Request('https://app.test/api/records',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind:'transactions',type:'bill',companyId,locationId,number,party:'Supplier',transactionDate:'2026-10-01',account,currency:'AED',exchangeRate:1,lines:[{description:'Office supplies',quantity:1,unitPrice:100,vatCode:'ZERO'}]})}));
+  const blocked=await bill('Old Purchases','INACTIVE-1');
+  assert.equal(blocked.status,409,await blocked.clone().text());
+  assert.match((await blocked.json()).error,/Old Purchases is inactive/);
+  // The rejected document is rolled back with its journal.
+  assert.equal((await database.query("SELECT id FROM transactions WHERE company_id=$1 AND number='INACTIVE-1'",[companyId])).rows.length,0);
+  const allowed=await bill('Live Purchases','ACTIVE-1');
+  assert.equal(allowed.status,201,await allowed.clone().text());
+});
+
 test('Chart of Accounts: company-wide balances, create validation, linked delete protection and transfer rename', async () => {
   const company=(await database.query("INSERT INTO companies (name, base_currency) VALUES ('Chart audit test','AED') RETURNING id")).rows[0].id;
   const [storeA,storeB]=(await database.query("INSERT INTO inventory_locations (company_id,name,code,invoice_prefix) VALUES ($1,'Store A','CA','CA'),($1,'Store B','CB','CB') RETURNING id",[company])).rows.map(row=>row.id);
