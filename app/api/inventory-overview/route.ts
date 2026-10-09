@@ -28,6 +28,7 @@ export async function GET(request: Request) {
       createdAt: items.createdAt,
       customizationRam: items.customizationRam,
       customizationStorage: items.customizationStorage,
+      customizationScreen: items.customizationScreen,
       partNumber: items.partNumber,
       itemSerialNumber: items.itemSerialNumber,
       upcNumber: items.upcNumber,

@@ -899,10 +899,10 @@ test('product customization details fall back to item specifications and save li
   assert.equal(list.status, 200);
   const initial = (await list.json()).records[0];
   assert.deepEqual([initial.customizationRam, initial.customizationStorage, initial.partNumber], ['8GB', '512GB SSD', 'PN-OLD']);
-  const save = await api.PATCH(new Request('https://app.test/api/item-customization', { method: 'PATCH', headers: { origin: 'https://app.test', 'content-type': 'application/json' }, body: JSON.stringify({ companyId: company, locationId: location, records: [{ id: item, customizationRam: '16gb ddr5', customizationStorage: '1tb ssd', partNumber: 'pn-new', itemSerialNumber: 'sn-001', upcNumber: '123456789012', customizationDetails: 'User can upgrade the second RAM slot.' }] }) }));
+  const save = await api.PATCH(new Request('https://app.test/api/item-customization', { method: 'PATCH', headers: { origin: 'https://app.test', 'content-type': 'application/json' }, body: JSON.stringify({ companyId: company, locationId: location, records: [{ id: item, customizationRam: '16gb ddr5', customizationStorage: '1tb ssd', customizationScreen: '15.6 fhd ips', partNumber: 'pn-new', itemSerialNumber: 'sn-001', upcNumber: '123456789012', customizationDetails: 'User can upgrade the second RAM slot.' }] }) }));
   assert.equal(save.status, 200, await save.clone().text());
-  const stored = (await database.query('SELECT customization_ram, customization_storage, part_number, item_serial_number, upc_number, customization_details, specifications FROM items WHERE id=$1', [item])).rows[0];
-  assert.deepEqual(Object.fromEntries(Object.entries(stored).filter(([key]) => key !== 'specifications')), { customization_ram: '16GB DDR5', customization_storage: '1TB SSD', part_number: 'PN-NEW', item_serial_number: 'SN-001', upc_number: '123456789012', customization_details: 'User can upgrade the second RAM slot.' });
+  const stored = (await database.query('SELECT customization_ram, customization_storage, customization_screen, part_number, item_serial_number, upc_number, customization_details, specifications FROM items WHERE id=$1', [item])).rows[0];
+  assert.deepEqual(Object.fromEntries(Object.entries(stored).filter(([key]) => key !== 'specifications')), { customization_ram: '16GB DDR5', customization_storage: '1TB SSD', customization_screen: '15.6 FHD IPS', part_number: 'PN-NEW', item_serial_number: 'SN-001', upc_number: '123456789012', customization_details: 'User can upgrade the second RAM slot.' });
   const specs = JSON.parse(stored.specifications);
   assert.equal(specs.find(entry => entry.label === 'RAM').value, '16GB DDR5');
   assert.equal(specs.find(entry => entry.label === 'Part Number').value, 'PN-NEW');
