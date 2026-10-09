@@ -1660,7 +1660,7 @@ function CustomerCenter({ companyId, onEdit, records, accounts, currency, loadin
 }
 
 function VendorCenter(props: Parameters<typeof VendorCenterContent>[0]) {
-  return <VendorCenterErrorBoundary resetKey={`${props.companyId}-${props.records.length}`} onRetry={props.onRefresh}>
+  return <VendorCenterErrorBoundary resetKey={`${props.companyId}-${props.records.length}`} onRetry={props.onRefresh} onCreateVendor={props.canWrite ? props.onCreateVendor : undefined}>
     <VendorCenterContent {...props} />
   </VendorCenterErrorBoundary>;
 }

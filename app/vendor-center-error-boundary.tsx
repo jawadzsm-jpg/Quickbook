@@ -6,6 +6,8 @@ type Props = {
   children: ReactNode;
   resetKey: string;
   onRetry: () => void | Promise<void>;
+  /** Opens the new-vendor form, so a vendor can still be added while the Vendor Center is unavailable. */
+  onCreateVendor?: () => void;
 };
 
 type State = { error: Error | null };
@@ -35,7 +37,10 @@ export class VendorCenterErrorBoundary extends Component<Props, State> {
     return <section className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-slate-900 shadow-sm" role="alert">
       <h2 className="text-lg font-bold">Vendor Center needs to reload</h2>
       <p className="mt-2 text-sm text-slate-600">Your accounting data is safe. Reload the vendor data to open this area again.</p>
-      <button type="button" onClick={this.retry} className="mt-4 rounded-md bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800">Reload Vendor Center</button>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button type="button" onClick={this.retry} className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800">Reload Vendor Center</button>
+        {this.props.onCreateVendor && <button type="button" onClick={this.props.onCreateVendor} className="rounded-md border border-emerald-700 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-50">+ New Vendor</button>}
+      </div>
     </section>;
   }
 }
