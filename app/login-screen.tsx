@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { KeyRound, LockKeyhole, Mail, ShieldCheck } from "lucide-react";
+import { KeyRound, LockKeyhole, Mail } from "lucide-react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -78,16 +78,19 @@ export function LoginScreen({ branding: initialBranding, companies = [] }: { bra
   const upperImage = branding?.loginLogoData && /^data:image\/(png|jpeg|webp);base64,/.test(branding.loginLogoData) ? branding.loginLogoData : "";
   const companyImage = branding?.loginCompanyLogoData || branding?.logoData || "";
   const companyLogo = /^data:image\/(png|jpeg|webp);base64,/.test(companyImage) ? companyImage : "";
-  const displayName = branding?.loginDisplayName?.trim() || branding?.name || companies.find((company) => company.id === selectedCompanyId)?.name || "ComNet-CNI";
+  const displayName = branding?.loginDisplayName?.trim() || branding?.name || companies.find((company) => company.id === selectedCompanyId)?.name || "EasyBook ERP Software";
   const years = branding?.loginCopyrightYears && /^(?:19|20)\d{2}(?:-(?:19|20)\d{2})?$/.test(branding.loginCopyrightYears) ? branding.loginCopyrightYears : "1996-2021";
 
   return <main className="login-workspace relative flex min-h-screen items-center justify-center overflow-hidden bg-cover bg-center px-4 py-8 text-slate-800 sm:py-12" style={{ backgroundColor, ...(backgroundImage ? { backgroundImage: `linear-gradient(rgb(243 246 250 / 30%), rgb(243 246 250 / 30%)), url("${backgroundImage}")` } : {}) }}>
     <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,.1),rgba(248,250,252,.38))]" />
     <div className="relative w-full max-w-lg space-y-6 text-center">
       <div className="flex min-h-32 flex-col items-center justify-center gap-3">
+        {/* The software name comes first; the company's own images and name follow it. */}
+        <Image src="/easybook-logo.png" alt="" width={600} height={600} priority className="size-36 rounded-2xl object-contain drop-shadow-sm" />
+        <h1 className="sr-only">EasyBook ERP Software</h1>
         {upperImage ? <Image src={upperImage} alt={`${displayName} upper login image`} width={380} height={240} unoptimized priority className="max-h-52 w-auto max-w-full object-contain" /> : null}
-        {companyLogo ? <Image src={companyLogo} alt={`${displayName} company logo`} width={420} height={130} unoptimized priority className="max-h-24 w-auto max-w-full object-contain drop-shadow-sm" /> : <div className="grid size-16 place-items-center rounded-2xl bg-white shadow-lg shadow-slate-900/10 ring-1 ring-slate-200/80"><ShieldCheck className="size-8 text-blue-600" /></div>}
-        <h1 className="text-2xl font-bold tracking-tight text-slate-950">{displayName}</h1>
+        {companyLogo ? <Image src={companyLogo} alt={`${displayName} company logo`} width={420} height={130} unoptimized priority className="max-h-20 w-auto max-w-full object-contain drop-shadow-sm" /> : null}
+        <p className="text-lg font-semibold tracking-tight text-slate-950">{displayName}</p>
       </div>
 
       <form onSubmit={submit} className="space-y-5 rounded-2xl border border-white/70 bg-white/95 px-5 py-7 text-left shadow-[0_24px_70px_rgb(15_23_42/0.16)] ring-1 ring-slate-200/70 backdrop-blur sm:px-8 sm:py-8">

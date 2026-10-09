@@ -1,6 +1,6 @@
-# ComNet Enterprise Accounting
+# EasyBook ERP Software
 
-ComNet Enterprise Accounting is a multi-company accounting and inventory application for UAE-oriented operations. It combines sales, purchasing, banking, inventory, VAT, warranty, employee, document, and reporting workflows in one role-controlled Next.js application.
+EasyBook ERP Software (formerly ComNet Enterprise Accounting) is a multi-company accounting and inventory application for UAE-oriented operations. It combines sales, purchasing, banking, inventory, VAT, warranty, employee, document, and reporting workflows in one role-controlled Next.js application.
 
 This README is the entry point for the codebase. The focused documents under [`docs/`](docs/) are the canonical reference for architecture, endpoints, features, workflows, and source ownership.
 

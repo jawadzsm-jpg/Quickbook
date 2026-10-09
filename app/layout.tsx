@@ -6,11 +6,12 @@ import { RequiredFieldHighlighter } from "./required-field-highlighter";
 import { SearchHighlighter } from "./search-highlighter";
 
 export const metadata: Metadata = {
-  title: "ComNet Enterprise Accounting",
-  description: "Web-based accounting, sales, purchasing, inventory, banking and financial reporting for ComNet International.",
+  title: "EasyBook ERP Software",
+  description: "EasyBook ERP Software: web-based accounting, sales, purchasing, inventory, banking and financial reporting.",
   icons: {
-    icon: "/favicon.svg",
-    shortcut: "/favicon.svg",
+    icon: "/easybook-mark.png",
+    shortcut: "/easybook-mark.png",
+    apple: "/easybook-mark.png",
   },
 };
 

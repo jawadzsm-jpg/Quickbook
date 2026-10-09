@@ -1,6 +1,6 @@
 # Documentation index
 
-These files are the maintained reference for ComNet Enterprise Accounting. Read this set before performing a repository-wide analysis.
+These files are the maintained reference for EasyBook ERP Software. Read this set before performing a repository-wide analysis.
 
 ## Canonical documents
 
