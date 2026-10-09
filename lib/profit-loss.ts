@@ -3,7 +3,9 @@ import { getDb } from "@/db";
 import { accounts, inventoryLocations, items, journalEntries, journalLines, transactionLines, transactions } from "@/db/schema";
 
 export type PnlRow = Record<string, string | number | null>;
-export type PnlMeta = { from: string; to: string; location: string; canViewAccounts: boolean; warnings: string[]; details: PnlRow[] };
+/** Profit & Loss by Item: the sales lines (period) and purchase lines (up to period end) behind each item row, in home currency. */
+export type PnlItemActivity = { sales: PnlRow[]; purchases: PnlRow[] };
+export type PnlMeta = { from: string; to: string; location: string; canViewAccounts: boolean; warnings: string[]; details: PnlRow[]; itemActivity?: Record<string, PnlItemActivity> };
 export type PnlReport = { key: string; companyId: number; title: string; description: string; generatedAt: string; currency: string; columns: { key: string; label: string; type?: "money" }[]; rows: PnlRow[]; pnl: PnlMeta; summary: { income: number; expenses: number; netIncome: number } };
 const incomeTypes = new Set(["Income", "Other Income"]);
 const expenseTypes = new Set(["Cost of Goods Sold", "Expense", "Other Expense"]);
@@ -34,7 +36,7 @@ export async function profitLoss(companyId: number, locationId: number, currency
     db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(asc(accounts.code)),
     db.select({ entryId: journalEntries.id, transactionId: journalEntries.transactionId, locationId: journalEntries.locationId, date: journalEntries.entryDate, reference: journalEntries.reference, description: journalEntries.description, account: journalLines.accountName, accountId: journalLines.accountId, debit: journalLines.debit, credit: journalLines.credit, entryCurrency: journalEntries.currency }).from(journalLines).innerJoin(journalEntries, eq(journalEntries.id, journalLines.journalEntryId)).where(and(eq(journalEntries.companyId, companyId), eq(journalEntries.posted, true), locationId ? eq(journalEntries.locationId, locationId) : undefined)).orderBy(asc(journalEntries.entryDate), asc(journalLines.id)),
     db.select().from(transactions).where(eq(transactions.companyId, companyId)),
-    db.select({ id: transactionLines.id, transactionId: transactionLines.transactionId, itemId: transactionLines.itemId, description: transactionLines.description, quantity: transactionLines.quantity, subtotal: transactionLines.subtotal, unitCost: transactionLines.unitCost }).from(transactionLines).innerJoin(transactions, eq(transactions.id, transactionLines.transactionId)).where(eq(transactions.companyId, companyId)).orderBy(asc(transactionLines.id)),
+    db.select({ id: transactionLines.id, transactionId: transactionLines.transactionId, itemId: transactionLines.itemId, description: transactionLines.description, quantity: transactionLines.quantity, unitPrice: transactionLines.unitPrice, subtotal: transactionLines.subtotal, unitCost: transactionLines.unitCost }).from(transactionLines).innerJoin(transactions, eq(transactions.id, transactionLines.transactionId)).where(eq(transactions.companyId, companyId)).orderBy(asc(transactionLines.id)),
     db.select({ id: items.id, name: items.name, sku: items.sku }).from(items).where(eq(items.companyId, companyId)),
     db.select().from(inventoryLocations).where(eq(inventoryLocations.companyId, companyId)),
   ]);
@@ -141,6 +143,30 @@ export async function profitLoss(companyId: number, locationId: number, currency
     report.rows = [...grouped.values()].sort((a, b) => a.name.localeCompare(b.name)).map(r => ({ ...r, gross: round(r.income - r.cost), netIncome: round(r.income - r.cost - r.expenses), margin: r.income > 0 ? `${(100 * (r.income - r.cost) / r.income).toFixed(2)}%` : "—" }));
     const cost = round(details.reduce((n, r) => n + Number(r.cost), 0));
     report.rows.push({ name: "Total", kind: "total", income: summary.income, cost, gross: round(summary.income - cost), expenses: round(summary.expenses - cost), netIncome: summary.netIncome, margin: summary.income > 0 ? `${(100 * (summary.income - cost) / summary.income).toFixed(2)}%` : "—" });
+    if (byItem) {
+      // Sales lines come from the invoices and sales receipts posted in this report; purchases are bills / receipts up to the period end.
+      const closed = new Set(["void", "voided", "cancelled", "canceled", "draft"]);
+      const salesIds = new Set(details.filter(r => ["invoice", "sales receipt"].includes(String(r.documentType))).map(r => Number(r.transactionId)));
+      const purchaseTypes = new Set(["bill", "received item bill", "item receipt"]);
+      const activity: Record<string, PnlItemActivity> = {};
+      const slot = (itemId: number) => activity[String(itemId)] ??= { sales: [], purchases: [] };
+      for (const line of lines) {
+        const document = docMap.get(line.transactionId);
+        if (!line.itemId || !itemMap.has(line.itemId) || !document || closed.has(String(document.status))) continue;
+        const rate = Number(document.exchangeRate) || 1, quantity = Number(line.quantity);
+        if (salesIds.has(document.id)) {
+          const sales = round(Number(line.subtotal) * rate), cost = round(quantity * Number(line.unitCost) * rate);
+          slot(line.itemId).sales.push({ transactionId: document.id, reference: document.number, date: document.transactionDate, party: document.party, documentType: document.type, quantity, unitPrice: round(Number(line.unitPrice) * rate), unitCost: round(Number(line.unitCost) * rate), sales, cost, profit: round(sales - cost) });
+        } else if (purchaseTypes.has(document.type) && quantity > 0 && (!to || document.transactionDate <= to)) {
+          slot(line.itemId).purchases.push({ transactionId: document.id, reference: document.number, date: document.transactionDate, party: document.party, documentType: document.type, quantity, unitCost: round(Number(line.subtotal) * rate / quantity), amount: round(Number(line.subtotal) * rate) });
+        }
+      }
+      for (const entry of Object.values(activity)) {
+        entry.sales.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+        entry.purchases = entry.purchases.sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 25);
+      }
+      report.pnl.itemActivity = activity;
+    }
     report.columns = [{ key: "name", label: byItem ? "Item / SKU" : key === "profit-loss-rep" ? "Sales rep" : "Group" }, money("income", "Sales / income"), money("cost", "Purchase cost / cost of sales"), money("gross", "Gross profit"), money("expenses", "Other expenses"), money("netIncome", "Net profit / loss"), { key: "margin", label: "Gross margin" }];
   } else {
     let operating = 0;
