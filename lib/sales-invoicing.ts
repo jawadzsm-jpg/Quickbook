@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
 import { items, salesInvoiceAllocations, transactionLines, transactions } from "@/db/schema";
+import { averagePurchaseCosts, itemHomeCost } from "./item-cost";
 
 export async function salesSourceLines(sourceId: number) {
   const db = getDb();
@@ -19,10 +20,12 @@ export async function salesInventoryLines(sourceId: number, companyId: number, l
   const sourceItems = ids.length ? await db.select().from(items).where(and(eq(items.companyId, companyId), inArray(items.id, ids))) : [];
   const skus = [...new Set(sourceItems.map((item) => item.sku))];
   const destinationItems = skus.length ? await db.select().from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId), inArray(items.sku, skus))) : [];
+  // Cost of sales uses what the stock was bought for, not the item's saved cost field.
+  const averages = await averagePurchaseCosts(destinationItems.map((item) => item.id));
   return lines.map((line) => {
     const sourceItem = sourceItems.find((item) => item.id === line.itemId);
     const destinationItem = sourceItem ? destinationItems.find((item) => item.sku === sourceItem.sku) : undefined;
-    return { ...line, stockItemId: destinationItem?.id ?? null, available: line.itemId ? Math.max(0, destinationItem?.quantity ?? 0) : line.remaining, homeCost: destinationItem?.cost ?? 0 };
+    return { ...line, stockItemId: destinationItem?.id ?? null, available: line.itemId ? Math.max(0, destinationItem?.quantity ?? 0) : line.remaining, homeCost: destinationItem ? itemHomeCost(destinationItem, averages) : 0 };
   });
 }
 

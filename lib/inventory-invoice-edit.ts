@@ -3,6 +3,7 @@ import { getDb } from "@/db";
 import { accounts, auditLog, companies, inventoryMovements, items, journalEntries, journalLines, packingListLines, transactionLines, transactions, vatCodes, warrantySlips } from "@/db/schema";
 import { fullItemDescription } from "./item-description";
 import { heldByOthers, heldStockMessage } from "./stock-holds";
+import { averagePurchaseCosts, itemHomeCost } from "./item-cost";
 
 // Inventory users may correct which product was sold, add free (zero-price) lines such as accessories, add stock returns
 // (negative quantity, zero price), and record serial
@@ -94,10 +95,12 @@ export async function applyInventoryInvoiceEdit(db: Db, input: { companyId: numb
   const exchangeRate = Number(invoice.exchangeRate || 1);
   const configured = await db.select({ code: vatCodes.code, rate: vatCodes.rate }).from(vatCodes).where(and(eq(vatCodes.companyId, companyId), eq(vatCodes.active, true)));
   const vatRates = configured.length ? Object.fromEntries(configured.map((entry) => [entry.code, Number(entry.rate)])) : fallbackVatRates;
-  // Cost basis matches stock returns: the item's cost excluding recoverable purchase VAT, in the invoice currency.
+  // Cost basis matches stock returns: what the item was bought for (average purchase cost, else last purchase price,
+  // else its saved cost excluding recoverable purchase VAT), in the invoice currency.
+  const averages = await averagePurchaseCosts([...itemById.keys()]);
   const unitCostFor = (item: typeof items.$inferSelect) => {
     const purchaseVat = Number(vatRates[item.purchaseVatCode] || 0);
-    const homeCost = item.amountsIncludeVat && purchaseVat > 0 ? item.cost / (1 + purchaseVat / 100) : item.cost;
+    const homeCost = itemHomeCost(item, averages, purchaseVat);
     return Number.isFinite(homeCost) && homeCost > 0 ? homeCost / exchangeRate : 0;
   };
 

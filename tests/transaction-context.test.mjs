@@ -2046,6 +2046,28 @@ test('Chart of Accounts deletion is limited to unused sub-accounts', async () =>
   assert.equal((await database.query('SELECT id FROM accounts WHERE id=$1',[main])).rows.length,1);
 });
 
+test('cost of sales uses the average purchase cost, not the saved item cost field', async () => {
+  const companyId=(await database.query("INSERT INTO companies (name) VALUES ('Average cost test') RETURNING id")).rows[0].id;
+  const locationId=(await database.query("INSERT INTO inventory_locations (company_id,name,code,invoice_prefix) VALUES ($1,'Main','AC','AC') RETURNING id",[companyId])).rows[0].id;
+  // Saved Cost field 4,220.50 (never updated by bills); bought at 2,000; a cancelled bill at 9,999 is ignored.
+  const item=(await database.query("INSERT INTO items (company_id,location_id,sku,name,quantity,cost) VALUES ($1,$2,'AVG-1','Average laptop',1,4220.5) RETURNING *",[companyId,locationId])).rows[0];
+  for (const [number,status,price] of [['AC-BILL','open',2000],['AC-VOID','cancelled',9999]]) {
+    const bill=(await database.query("INSERT INTO transactions (company_id,location_id,type,number,party,transaction_date,status,subtotal,total,base_total) VALUES ($1,$2,'bill',$3,'Supplier','2026-09-01',$4,$5,$5,$5) RETURNING id",[companyId,locationId,number,status,price])).rows[0].id;
+    await database.query("INSERT INTO transaction_lines (transaction_id,item_id,description,quantity,unit_price,subtotal) VALUES ($1,$2,'Average laptop',1,$3,$3)",[bill,item.id,price]);
+  }
+  const { averagePurchaseCosts, itemHomeCost } = await vite.ssrLoadModule('/lib/item-cost.ts');
+  const averages = await averagePurchaseCosts([item.id]);
+  assert.equal(averages.get(item.id), 2000);
+  assert.equal(itemHomeCost({ id: item.id, cost: 4220.5 }, averages), 2000);
+  // Without purchases: last purchase price, then the saved cost (ex VAT when entered including VAT).
+  assert.equal(itemHomeCost({ id: 999999, cost: 105, lastPurchasePrice: 90 }, new Map()), 90);
+  assert.equal(itemHomeCost({ id: 999999, cost: 105, amountsIncludeVat: true }, new Map(), 5), 100);
+  const { salesInventoryLines } = await vite.ssrLoadModule('/lib/sales-invoicing.ts');
+  const order=(await database.query("INSERT INTO transactions (company_id,location_id,type,number,party,transaction_date,status,subtotal,total,base_total) VALUES ($1,$2,'sales order','AC-SO','Customer','2026-09-05','open',2500,2500,2500) RETURNING id",[companyId,locationId])).rows[0].id;
+  await database.query("INSERT INTO transaction_lines (transaction_id,item_id,description,quantity,unit_price,subtotal) VALUES ($1,$2,'Average laptop',1,2500,2500)",[order,item.id]);
+  assert.equal((await salesInventoryLines(order,companyId,locationId))[0].homeCost, 2000);
+});
+
 test('documents cannot post to an account that has been made inactive', async () => {
   const companyId=(await database.query("INSERT INTO companies (name) VALUES ('Inactive posting test') RETURNING id")).rows[0].id;
   const locationId=(await database.query("INSERT INTO inventory_locations (company_id,name,code,invoice_prefix) VALUES ($1,'Main','IP','IP') RETURNING id",[companyId])).rows[0].id;

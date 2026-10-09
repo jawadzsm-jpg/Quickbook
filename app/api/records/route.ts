@@ -5,6 +5,7 @@ import { salesDocumentTypes, salesHandoffTypes } from "@/lib/sales-access";
 import { documentVatCodes, usesSingleVatCode } from "@/lib/document-vat";
 import { canEditInventoryDocument, canManagePendingInvoices, canReadDocument, dubaiDay } from "@/lib/document-access";
 import { applyInventoryInvoiceEdit } from "@/lib/inventory-invoice-edit";
+import { averagePurchaseCosts, itemHomeCost } from "@/lib/item-cost";
 import { heldByOthers, heldStockMessage } from "@/lib/stock-holds";
 import { documentVisibility } from "@/lib/document-access-sql";
 import { employeeHrForSave } from "@/lib/employee-hr-save";
@@ -1013,12 +1014,12 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       return Response.json({ error: "Select a valid inventory item on every stock line." }, { status: 400 });
     }
     const linkedItemIds = [...new Set(prepared.flatMap((line) => line.itemId ? [line.itemId] : []))];
-    let linkedItems: Array<{ id: number; itemType: string; status: string; cost: number; amountsIncludeVat: boolean; purchaseVatCode: string; cogsAccountId: number | null; incomeAccountId: number | null; assetAccountId: number | null }> = [];
+    let linkedItems: Array<{ id: number; itemType: string; status: string; cost: number; lastPurchasePrice?: number; amountsIncludeVat: boolean; purchaseVatCode: string; cogsAccountId: number | null; incomeAccountId: number | null; assetAccountId: number | null }> = [];
     if (["bill", "invoice", "estimate", "proforma invoice", "sales order", "quotation"].includes(type) || linkedItemIds.length) {
       const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).limit(1);
       if (!location) return Response.json({ error: "Select a valid inventory in this company." }, { status: 400 });
       if (linkedItemIds.length) {
-        linkedItems = await db.select({ id: items.id, itemType: items.itemType, status: items.status, cost: items.cost, amountsIncludeVat: items.amountsIncludeVat, purchaseVatCode: items.purchaseVatCode, cogsAccountId: items.cogsAccountId, incomeAccountId: items.incomeAccountId, assetAccountId: items.assetAccountId }).from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId), inArray(items.id, linkedItemIds)));
+        linkedItems = await db.select({ id: items.id, itemType: items.itemType, status: items.status, cost: items.cost, lastPurchasePrice: items.lastPurchasePrice, amountsIncludeVat: items.amountsIncludeVat, purchaseVatCode: items.purchaseVatCode, cogsAccountId: items.cogsAccountId, incomeAccountId: items.incomeAccountId, assetAccountId: items.assetAccountId }).from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId), inArray(items.id, linkedItemIds)));
         if (linkedItems.length !== linkedItemIds.length) return Response.json({ error: "Select items from the document’s company and inventory." }, { status: 400 });
         if (linkedItems.some((item) => item.status === "inactive")) return Response.json({ error: "Inactive items cannot be added to a new document." }, { status: 409 });
         if (linkedItems.some((item) => !documentLineItemTypes.has(item.itemType))) return Response.json({ error: "Subtotal, group, discount, payment and VAT control items must be used in their dedicated document areas, not as stock/service lines." }, { status: 400 });
@@ -1074,10 +1075,12 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const currency = String(payload.currency ?? "AED").trim().toUpperCase();
     const exchangeRate = Number(payload.exchangeRate ?? 1);
     if (!/^[A-Z]{3}$/.test(currency) || !Number.isFinite(exchangeRate) || exchangeRate <= 0) return Response.json({ error: "Choose a valid currency and exchange rate." }, { status: 400 });
+    // Stock returned on an invoice goes back at what it was bought for (average purchase cost).
+    const returnCosts = type === "invoice" && prepared.some(isInvoiceStockReturn) ? await averagePurchaseCosts(prepared.filter(isInvoiceStockReturn).map((line) => Number(line.itemId))) : new Map<number, number>();
     if (type === "invoice") for (const line of prepared.filter(isInvoiceStockReturn)) {
       const item = linkedItems.find(item => item.id === line.itemId)!;
       const purchaseVat = Number(vatRates[item.purchaseVatCode] || 0);
-      const homeCost = item.amountsIncludeVat && purchaseVat > 0 ? item.cost / (1 + purchaseVat / 100) : item.cost;
+      const homeCost = itemHomeCost(item, returnCosts, purchaseVat);
       if (!Number.isFinite(homeCost) || homeCost < 0) return Response.json({ error: "Correct the item cost before returning stock." }, { status: 400 });
       line.unitCost = homeCost / exchangeRate;
     }
@@ -1752,10 +1755,11 @@ async function handlePATCH(request: Request) {
             if (itemRows.some((item) => !documentLineItemTypes.has(item.itemType))) return Response.json({ error: "Select stock, non-stock, service or other-charge items only." }, { status: 400 });
             const stockIds = new Set(itemRows.filter((item) => item.itemType === "stock-part").map((item) => item.id));
             if (appended.some(line => isInvoiceStockReturn(line) && (!line.itemId || !stockIds.has(line.itemId)))) return Response.json({ error: "Stock returns require an active stock item in this invoice inventory." }, { status: 400 });
+            const appendedReturnCosts = await averagePurchaseCosts(appended.filter(isInvoiceStockReturn).map((line) => Number(line.itemId)));
             for (const line of appended.filter(isInvoiceStockReturn)) {
               const item = itemRows.find(item => item.id === line.itemId)!;
               const purchaseVat = Number(vatRateMap[item.purchaseVatCode] || 0);
-              const homeCost = item.amountsIncludeVat && purchaseVat > 0 ? item.cost / (1 + purchaseVat / 100) : item.cost;
+              const homeCost = itemHomeCost(item, appendedReturnCosts, purchaseVat);
               if (!Number.isFinite(homeCost) || homeCost < 0) return Response.json({ error: "Correct the item cost before returning stock." }, { status: 400 });
               line.unitCost = homeCost / Number(existing.exchangeRate || 1);
             }
