@@ -493,7 +493,10 @@ test("purchases by sales rep group bills, expenses and vendor credits by the rep
   assert.equal(summary.title, "Purchases by Sales Rep Summary");
   const rashed = summary.rows.find((row) => row.salesman === "Rashed");
   assert.deepEqual({ documents: rashed.documents, suppliers: rashed.suppliers, subtotal: rashed.subtotal, vat: rashed.vat, total: rashed.total }, { documents: 2, suppliers: 1, subtotal: 1400, vat: 50, total: 1450 });
-  assert.equal(summary.rows.find((row) => row.salesman === "Unassigned").subtotal, -100); // vendor credit only
+  // Unassigned also holds the shared fixtures' cheques and card charges; the vendor credit counts as a negative purchase.
+  const unassignedDetail = (await report("purchases-by-rep-detail")).rows.filter((row) => row.salesman === "Unassigned");
+  assert.equal(summary.rows.find((row) => row.salesman === "Unassigned").subtotal, unassignedDetail.reduce((total, row) => total + row.subtotal, 0));
+  assert.equal(unassignedDetail.find((row) => row.number === "VENDOR-CREDIT").subtotal, -100);
   const detail = await report("purchases-by-rep-detail");
   const bill = detail.rows.find((row) => row.number === "BILL");
   assert.equal(bill.salesman, "Rashed"); assert.ok(bill.transactionId); assert.ok("accountAccountId" in bill);
@@ -576,13 +579,13 @@ test("purchase order summary counts supplier statuses within the selected invent
     { companyId, locationId: otherLocation.id, number: "PO-SUM-OTHER", type: "purchase order", party: "Summary Supplier", transactionDate: "2026-09-22", status: "open" },
   ]);
   const result = await report("purchase-order-summary");
-  assert.deepEqual(result.columns.map((column) => column.key), ["supplier", "open", "partiallyReceived", "received", "closed", "totalOrders"]);
-  assert.deepEqual(result.rows.find((row) => row.supplier === "Summary Supplier"), { supplier: "Summary Supplier", open: 1, partiallyReceived: 1, received: 1, closed: 0, totalOrders: 3 });
-  assert.deepEqual(result.rows.find((row) => row.supplier === "No Orders Supplier"), { supplier: "No Orders Supplier", open: 0, partiallyReceived: 0, received: 0, closed: 0, totalOrders: 0 });
+  assert.deepEqual(result.columns.map((column) => column.key), ["supplier", "open", "partiallyReceived", "received", "billed", "closed", "totalOrders", "value"]);
+  assert.deepEqual(result.rows.find((row) => row.supplier === "Summary Supplier"), { supplier: "Summary Supplier", open: 1, partiallyReceived: 1, received: 1, billed: 0, closed: 0, totalOrders: 3, value: 0 });
+  assert.deepEqual(result.rows.find((row) => row.supplier === "No Orders Supplier"), { supplier: "No Orders Supplier", open: 0, partiallyReceived: 0, received: 0, billed: 0, closed: 0, totalOrders: 0, value: 0 });
   const response = await GET(new Request(`https://app.test/api/reports?type=purchase-order-summary&companyId=${companyId}&locationId=${locationId}&periodStart=2026-09-21&periodEnd=2026-09-21`));
   assert.equal(response.status, 200);
   const dated = (await response.json()).report;
-  assert.deepEqual(dated.rows.find((row) => row.supplier === "Summary Supplier"), { supplier: "Summary Supplier", open: 0, partiallyReceived: 1, received: 0, closed: 0, totalOrders: 1 });
+  assert.deepEqual(dated.rows.find((row) => row.supplier === "Summary Supplier"), { supplier: "Summary Supplier", open: 0, partiallyReceived: 1, received: 0, billed: 0, closed: 0, totalOrders: 1, value: 0 });
 });
 
 test("supplier centre reports stay on the selected supplier and show only open bills", async () => {
@@ -877,6 +880,44 @@ test('customer open balance uses allocations, preserves unused credits, and link
   } finally { delete globalThis.__reportTestUser; }
 });
 
+test("Purchases reports: returns netted, closed documents excluded, freight as landed cost, posted accounts, open POs as a snapshot", async () => {
+  const response = await workspaces.POST(post({ type: "company", name: "Purchases audit", baseCurrency: "AED" }));
+  const { company: c } = await response.json(); const loc = c.locations[0].id;
+  const [stockAccount, payable] = await db.insert(schema.accounts).values([
+    { companyId: c.id, code: "1398", name: "Purchase Stock", type: "Other Current Asset", currency: "AED" },
+    { companyId: c.id, code: "2098", name: "Purchase Payables", type: "Accounts Payable", currency: "AED" },
+  ]).returning();
+  const [laptop] = await db.insert(schema.items).values({ companyId: c.id, locationId: loc, sku: "PUR-A", name: "Purchased laptop", assetAccountId: stockAccount.id }).returning();
+  const doc = async (values, lineValues) => { const [row] = await db.insert(schema.transactions).values({ companyId: c.id, locationId: loc, party: "Supplier P", transactionDate: "2026-09-10", ...values }).returning(); if (lineValues) await db.insert(schema.transactionLines).values(lineValues.map((line) => ({ transactionId: row.id, ...line }))); return row; };
+  // Bill: 10 × 100 with 50 line freight (plus the separate freight line posting creates); a USD bill at 3.6725.
+  await doc({ type: "bill", number: "PB-1", subtotal: 1050, total: 1050 }, [{ itemId: laptop.id, description: "Purchased laptop", quantity: 10, unitPrice: 100, subtotal: 1000, freightCharge: 50 }, { description: "Freight Charges", quantity: 1, unitPrice: 50, subtotal: 50, isFreightCharge: true }]);
+  await doc({ type: "bill", number: "PB-USD", subtotal: 100, total: 100, currency: "USD", exchangeRate: 3.6725 }, [{ itemId: laptop.id, description: "Purchased laptop", quantity: 1, unitPrice: 100, subtotal: 100 }]);
+  await doc({ type: "bill", number: "PB-VOID", subtotal: 5000, total: 5000, status: "cancelled" }, [{ itemId: laptop.id, description: "Purchased laptop", quantity: 50, unitPrice: 100, subtotal: 5000 }]);
+  const credit = await doc({ type: "vendor credit", number: "PR-1", subtotal: 200, total: 200 }, [{ itemId: laptop.id, description: "Purchased laptop", quantity: 2, unitPrice: 100, subtotal: 200 }]);
+  const [j] = await db.insert(schema.journalEntries).values({ companyId: c.id, locationId: loc, transactionId: credit.id, entryDate: "2026-09-10", reference: "PR-1", posted: true }).returning();
+  await db.insert(schema.journalLines).values([{ journalEntryId: j.id, accountName: "Purchase Payables", accountId: payable.id, debit: 200 }, { journalEntryId: j.id, accountName: "Purchase Stock", accountId: stockAccount.id, credit: 200 }]);
+  await doc({ type: "purchase order", number: "PO-OLD", transactionDate: "2026-08-15", status: "open", subtotal: 300, total: 300 }, [{ itemId: laptop.id, description: "Purchased laptop", quantity: 3, unitPrice: 100, subtotal: 300 }]);
+  await doc({ type: "purchase order", number: "PO-CONV", status: "converted", subtotal: 100, total: 100 }, [{ itemId: laptop.id, description: "Purchased laptop", quantity: 1, unitPrice: 100, subtotal: 100 }]);
+  const get = async (type) => { const res = await GET(new Request(`https://app.test/api/reports?type=${type}&companyId=${c.id}&periodStart=2026-09-01&periodEnd=2026-09-30`)); assert.equal(res.status, 200); return (await res.json()).report; };
+  // Supplier: 1,050 + 367.25 purchases, 200 returns, the cancelled 5,000 excluded.
+  const supplier = (await get("purchases-by-vendor")).rows.find((row) => row.name === "Supplier P");
+  assert.deepEqual([supplier.purchases, supplier.returns, supplier.amount, supplier.documents], [1417.25, 200, 1217.25, 3]);
+  // Item: freight is landed cost, not an item; 11 bought − 2 returned.
+  const items = (await get("purchases-by-item")).rows;
+  assert.equal(items.some((row) => row.name === "Freight Charges"), false);
+  const item = items.find((row) => row.itemId === laptop.id);
+  assert.deepEqual([item.quantity, item.returned, item.amount, item.freight, item.landed], [9, 2, 1167.25, 50, 1217.25]);
+  const detail = (await get("purchases-by-item-detail")).rows.filter((row) => row.itemId === laptop.id);
+  assert.ok(detail.every((row) => row.accountAccountId === stockAccount.id));
+  assert.equal(detail.find((row) => row.number === "PB-1").landedUnitCost, 105);
+  // A purchase return shows the payable it debited, not the stock account it credited.
+  assert.equal((await get("purchases-by-supplier-detail")).rows.find((row) => row.number === "PR-1").accountAccountId, payable.id);
+  // Open POs are a snapshot: an August PO still shows for a September period. Converted orders count as billed.
+  assert.ok((await get("open-purchase-orders")).rows.some((row) => row.number === "PO-OLD"));
+  const poSummary = (await get("purchase-order-summary")).rows.find((row) => row.supplier === "Supplier P");
+  assert.equal(poSummary.billed, 1); assert.equal(poSummary.received, 0);
+});
+
 test("Inventory reports: FIFO aging, closed purchases excluded from cost, inactive stock valued, holds and ledger reconciliation", async () => {
   const response = await workspaces.POST(post({ type: "company", name: "Inventory audit", baseCurrency: "AED" }));
   const { company: c } = await response.json(); const loc = c.locations[0].id;
@@ -1140,8 +1181,8 @@ test('vendor summaries provide payable KPIs and export Vendor reports to fitted 
 test('purchase summaries provide purchasing KPIs and export all Purchase reports to fitted A4 portrait by default', async () => {
   const { purchaseReportKeys, purchaseSummary, purchaseDetailTarget } = await vite.ssrLoadModule('/lib/purchase-report.ts');
   assert.equal(purchaseReportKeys.size, 10);
-  const suppliers = purchaseSummary({ key: 'purchases-by-vendor', rows: [{ name: 'A', amount: 100 }, { name: 'B', amount: 300 }] });
-  assert.deepEqual(suppliers.cards.map(card => card.value), [400, 2, 200, 300]);
+  const suppliers = purchaseSummary({ key: 'purchases-by-vendor', rows: [{ name: 'A', purchases: 150, returns: 50, amount: 100 }, { name: 'B', purchases: 300, returns: 0, amount: 300 }] });
+  assert.deepEqual(suppliers.cards.map(card => card.value), [400, 450, 50, 2, 300]);
   assert.equal(purchaseDetailTarget('purchases-by-vendor'), 'purchases-by-supplier-detail');
   const orders = purchaseSummary({ key: 'purchase-order-summary', rows: [{ supplier: 'A', open: 2, partiallyReceived: 1, received: 3, totalOrders: 6 }] });
   assert.deepEqual(orders.cards.map(card => card.value), [6, 2, 1, 3, 1]);
@@ -1567,7 +1608,7 @@ test("purchase filters and exports preserve fractions, totals and account identi
   const {emptyPurchaseFilters,filterPurchaseReportRows,purchaseColumnTotal,purchaseDocumentAccount,purchaseSummary} = await vite.ssrLoadModule('/lib/purchase-report.ts');
   const {reportCsv,reportWorkbook,reportPdf}=await vite.ssrLoadModule('/lib/report-export.ts');
   const columns=[{key:'supplier',label:'Supplier'},{key:'number',label:'Bill No.'},{key:'item',label:'Item'},{key:'account',label:'Payable account'},{key:'quantity',label:'Quantity'},{key:'unitCost',label:'Unit cost',type:'money'},{key:'total',label:'Total',type:'money'}];
-  const rows=[{supplier:'Selected Supplier',number:'B-001',item:'Fractional Laptop',account:'2100 · USD Payable',quantity:2.5,unitCost:100,total:250,status:'open'},{supplier:'Other Supplier',number:'B-002',item:'Other Laptop',account:'2100 · AED Payable',quantity:1,unitCost:300,total:300,status:'paid'}];
+  const rows=[{supplier:'Selected Supplier',number:'B-001',item:'Fractional Laptop',account:'2100 · USD Payable',quantity:2.5,unitCost:100,subtotal:250,freight:0,total:250,status:'open'},{supplier:'Other Supplier',number:'B-002',item:'Other Laptop',account:'2100 · AED Payable',quantity:1,unitCost:300,subtotal:300,freight:0,total:300,status:'paid'}];
   const report={key:'purchases-by-item-detail',title:'Purchases by Item Detail',generatedAt:'2026-10-03T08:00:00Z',currency:'AED',columns,rows};
   const selected=filterPurchaseReportRows(rows,columns,{...emptyPurchaseFilters,query:'laptop',supplier:'Selected Supplier',account:'2100 · USD Payable',status:'open'},report.key);
   assert.equal(selected.length,1);assert.equal(purchaseSummary({...report,rows:selected}).cards[0].value,250);

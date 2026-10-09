@@ -22,7 +22,7 @@ export const purchaseReportGroups = [
 export const emptyPurchaseFilters = { query: "", supplier: "", salesman: "", account: "", status: "", sort: "default" };
 export function purchaseColumnKind(column: PurchaseReportColumn): "text" | "quantity" | "price" | "amount" {
   if (column.type === "money") return /cost|price/i.test(column.key) ? "price" : "amount";
-  return ["quantity", "orderedQuantity", "receivedQuantity", "open", "partiallyReceived", "received", "closed", "totalOrders", "orders", "suppliers", "documents"].includes(column.key) ? "quantity" : "text";
+  return ["quantity", "returned", "orderedQuantity", "receivedQuantity", "open", "partiallyReceived", "received", "billed", "closed", "totalOrders", "orders", "suppliers", "documents", "overdueDays"].includes(column.key) ? "quantity" : "text";
 }
 export function purchaseColumnWeight(column: PurchaseReportColumn) {
   if (column.key === "item") return 5;
@@ -32,7 +32,7 @@ export function purchaseColumnWeight(column: PurchaseReportColumn) {
   return column.type === "money" ? 2.2 : 1.8;
 }
 export function purchaseColumnTotal(rows: PurchaseReportRow[], column: PurchaseReportColumn) {
-  if (!["quantity", "orderedQuantity", "receivedQuantity", "open", "partiallyReceived", "received", "closed", "totalOrders", "orders", "documents", "amount", "subtotal", "vat", "total"].includes(column.key)) return null;
+  if (!["quantity", "returned", "orderedQuantity", "receivedQuantity", "open", "partiallyReceived", "received", "billed", "closed", "totalOrders", "orders", "documents", "amount", "purchases", "returns", "freight", "landed", "subtotal", "vat", "total"].includes(column.key)) return null;
   return rows.reduce((total, row) => total + Number(row[column.key] ?? 0), 0);
 }
 export function purchaseSupplier(row: PurchaseReportRow, key = "") {
@@ -56,8 +56,10 @@ export function purchaseRemainingLine(line: { quantity: number; subtotal: number
 
 // Resolve actual journal credit accounts for posted purchases. POs retain their saved,
 // planned account. Never silently substitute today's default account for history.
-export function purchaseDocumentAccount(transaction: { id: number; type: string; account: string; currency: string }, journal: Array<{ transactionId: number | null; account: string; accountId?: number | null; credit: number }>, accounts: Array<{ id: number; code: string; name: string; currency: string; systemRole?: string | null }>) {
-  const posted = journal.filter((entry) => entry.transactionId === transaction.id && entry.credit > 0);
+export function purchaseDocumentAccount(transaction: { id: number; type: string; account: string; currency: string }, journal: Array<{ transactionId: number | null; account: string; accountId?: number | null; credit: number; debit?: number }>, accounts: Array<{ id: number; code: string; name: string; currency: string; systemRole?: string | null }>) {
+  // The payable / payment side: credits on bills and expenses, but the debit on a purchase return (vendor credit),
+  // which debits Accounts Payable and credits the stock or purchase account.
+  const posted = journal.filter((entry) => entry.transactionId === transaction.id && (transaction.type === "vendor credit" ? Number(entry.debit ?? 0) : entry.credit) > 0);
   // Saved journal account IDs are authoritative when every non-VAT credit posts to the same account.
   const savedIds = [...new Set(posted.map((entry) => accounts.find((account) => account.id === entry.accountId)).filter((account): account is NonNullable<typeof account> => Boolean(account) && !/VAT/.test(account!.systemRole ?? "") && !/VAT/i.test(account!.name)).map((account) => account.id))];
   if (transaction.type !== "purchase order" && savedIds.length === 1 && posted.every((entry) => entry.accountId)) {
@@ -108,15 +110,15 @@ export function purchaseSummary(report: PurchaseReportLike): { cards: PurchaseSu
 
   if (key === "purchases-by-vendor") {
     const total = sum(rows, "amount");
-    return { cards: [money("Purchases before VAT", total, "accent"), number("Suppliers", rows.length), money("Average per supplier", rows.length ? total / rows.length : 0), money("Largest supplier spend", Math.max(0, ...rows.map((row) => Number(row.amount ?? 0))))], note: "Bills, received-item bills and purchase expenses before VAT, in home currency. Purchase returns are shown in supplier account reports. Select a supplier to open Vendor Center or open the detail report for posting accounts." };
+    return { cards: [money("Net purchases before VAT", total, "accent"), money("Purchases", sum(rows, "purchases")), money("Returns", sum(rows, "returns"), "negative"), number("Suppliers", rows.length), money("Largest supplier spend", Math.max(0, ...rows.map((row) => Number(row.amount ?? 0))))], note: "Bills, received-item bills, expenses, cheques and card charges before VAT, less purchase returns, in home currency at each document's exchange rate. Cancelled, void and draft documents are excluded." };
   }
   if (key === "purchases-by-supplier-detail") {
     return { cards: [money("Purchases before VAT", sum(rows, "subtotal"), "accent"), money("Document VAT", sum(rows, "vat")), money("Gross total", sum(rows, "total")), number("Documents", rows.length), number("Suppliers", unique(rows, "supplier"))], note: "Amounts are in home currency; Document currency identifies the original bill or expense. Accounts come from posted journal credits, and open their Chart of Accounts history. Purchase returns are shown separately in supplier account reports." };
   }
   if (key === "purchases-by-item" || key === "purchases-by-item-detail") {
     const quantity = sum(rows, "quantity");
-    const amount = sum(rows, key === "purchases-by-item" ? "amount" : "total");
-    return { cards: [money(key === "purchases-by-item" ? "Purchases before VAT" : "Gross purchases", amount, "accent"), number("Quantity purchased", quantity), number(key === "purchases-by-item" ? "Items" : "Purchase lines", rows.length), money("Average unit value", quantity ? amount / quantity : 0)], note: "Document numbers and latest source references open the originating purchase document." };
+    const landed = key === "purchases-by-item" ? sum(rows, "landed") : sum(rows, "subtotal") + sum(rows, "freight");
+    return { cards: [money("Landed cost before VAT", landed, "accent"), money("Freight", sum(rows, "freight")), number("Net quantity", quantity), number(key === "purchases-by-item" ? "Items" : "Purchase lines", rows.length), money("Average landed unit cost", quantity ? landed / quantity : 0)], note: "Bill and received-item-bill lines less purchase returns, in home currency. Freight is added to each item's landed cost instead of being listed as an item. Cancelled, void and draft documents are excluded." };
   }
   if (key === "purchases-by-rep-summary") {
     const total = sum(rows, "subtotal");
