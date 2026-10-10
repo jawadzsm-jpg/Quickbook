@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { companies, inventoryLocations, items, stockHolds } from "../../../db/schema";
+import { appUsers, companies, companySettings, inventoryLocations, items, stockHolds } from "../../../db/schema";
 import { activeHoldCondition } from "@/lib/stock-holds";
 import { isAdministrator, requireApiUser } from "@/lib/auth";
 
@@ -164,6 +164,13 @@ export async function GET(request: Request) {
     const holds = recordIds.length ? await db.select({ id: stockHolds.id, itemId: stockHolds.itemId, companyId: stockHolds.companyId, quantity: stockHolds.quantity, salesRep: stockHolds.salesRep, note: stockHolds.note, expiresAt: stockHolds.expiresAt, createdByName: stockHolds.createdByName, createdAt: stockHolds.createdAt })
       .from(stockHolds).where(and(inArray(stockHolds.itemId, recordIds), activeHoldCondition())).orderBy(asc(stockHolds.expiresAt)) : [];
     const canManageHolds = isAdministrator(authorization) || authorization.role === "accountant";
+    // Share emoji: this user's WhatsApp/Telegram styles, and companies whose administrator switched emoji off.
+    const companyIds = [...new Set(records.map((record) => record.companyId))];
+    const [[preferences], emojiOff] = await Promise.all([
+      db.select({ whatsapp: appUsers.shareEmojiWhatsapp, telegram: appUsers.shareEmojiTelegram }).from(appUsers).where(eq(appUsers.id, authorization.id)).limit(1),
+      companyIds.length ? db.select({ companyId: companySettings.companyId }).from(companySettings).where(and(inArray(companySettings.companyId, companyIds), eq(companySettings.shareEmojis, false))) : Promise.resolve([]),
+    ]);
+    const shareEmoji = { whatsapp: preferences?.whatsapp ?? "classic", telegram: preferences?.telegram ?? "classic", offCompanyIds: emojiOff.map((row) => row.companyId) };
 
     const priceChangeItemIds = new Set<number>();
     const priceChanges = priceResult.rows.flatMap((row) => {
@@ -183,7 +190,7 @@ export async function GET(request: Request) {
       // names, purchase documents or purchase prices.
       const sellingPrice = (itemId: unknown) => records.find(item => item.id === Number(itemId))?.salesPrice ?? null;
       const safe = (row: Record<string, unknown>) => ({ id: row.id, itemId: row.itemId, itemName: row.itemName, sku: row.sku, itemNumber: row.itemNumber, companyId: row.companyId, companyName: row.companyName, locationId: row.locationId, locationName: row.locationName, currency: row.currency, quantity: row.quantity, date: row.date });
-      return Response.json({ records, holds, canManageHolds: false, canSelectItems: true, canBulkSelect: false, salesOnly: true, activity: {
+      return Response.json({ records, holds, shareEmoji, canManageHolds: false, canSelectItems: true, canBulkSelect: false, salesOnly: true, activity: {
         incoming: incomingResult.rows.map(row => ({ ...safe(row), date: undefined, price: sellingPrice(row.itemId) })),
         launched: launchedResult.rows.map(row => ({ ...safe(row), price: sellingPrice(row.itemId) })),
         priceChanges: priceChanges.map((row: Record<string, unknown>) => ({ ...safe(row), price: sellingPrice(row.itemId), previousPrice: row.previousPrice, currentPrice: row.currentPrice })),
@@ -193,6 +200,7 @@ export async function GET(request: Request) {
     return Response.json({
       records,
       holds,
+      shareEmoji,
       canManageHolds,
       // Everyone may tick items one by one to copy or export; select-all stays with administrators.
       canSelectItems: true,

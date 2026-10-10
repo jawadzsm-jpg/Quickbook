@@ -44,6 +44,7 @@ export const companies = pgTable("companies", {
 export const companySettings = pgTable("company_settings", {
   companyId: integer("company_id").primaryKey().references(() => companies.id, { onDelete: "cascade" }),
   negativeStockPinHash: text("negative_stock_pin_hash").notNull().default(""),
+  shareEmojis: boolean("share_emojis").notNull().default(true),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 });
 
@@ -79,6 +80,8 @@ export const appUsers = pgTable("app_users", {
   avatarData: text("avatar_data").notNull().default(""),
   themeColor: text("theme_color").notNull().default("emerald"),
   appearanceMode: text("appearance_mode", { enum: ["light", "dark"] }).notNull().default("light"),
+  shareEmojiWhatsapp: text("share_emoji_whatsapp").notNull().default("classic"),
+  shareEmojiTelegram: text("share_emoji_telegram").notNull().default("classic"),
   passwordHash: text("password_hash").notNull(),
   role: text("role", { enum: ["admin", "accountant", "sales", "purchasing", "inventory", "customization", "viewer"] }).notNull().default("viewer"),
   active: boolean("active").notNull().default(true),

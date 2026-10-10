@@ -1,19 +1,20 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { Archive, Eye, EyeOff, KeyRound, LockKeyhole, Mail, ShieldCheck, Users } from "lucide-react";
+import { Archive, Eye, EyeOff, KeyRound, LockKeyhole, Mail, ShieldCheck, Smile, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { AdminBackupCenter, type BackupStatus } from "./admin-backup-center";
 import { SmtpSettings } from "./smtp-settings";
 import { UserRoleCenter, type UserSummary } from "./user-role-center";
 
 type Tab = "users" | "security" | "email" | "backups";
 type Override = { id: number; entityId: number; details: string; createdAt: string };
-type PinState = { configured: boolean; lastChange: { action: string; createdAt: string } | null; overrides: Override[] };
+type PinState = { configured: boolean; lastChange: { action: string; createdAt: string } | null; overrides: Override[]; shareEmojis?: boolean };
 
 const tabs: Array<{ id: Tab; label: string; icon: typeof Users }> = [
   { id: "users", label: "Users & access", icon: Users },
@@ -96,9 +97,24 @@ function SecurityPanel({ companyId, companyName, currentUserEmail, onPinStatus }
   }
 
   const configured = Boolean(pin?.configured);
+  const shareEmojis = pin?.shareEmojis !== false;
+  async function setShareEmojis(enabled: boolean) {
+    setSaving(true);
+    try {
+      const response = await fetch("/api/admin-settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, shareEmojis: enabled }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not change share emoji");
+      setPin((current) => current ? { ...current, shareEmojis: data.shareEmojis } : current);
+      toast.success(enabled ? "Share emoji turned on" : "Share emoji turned off");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not change share emoji"); } finally { setSaving(false); }
+  }
   const strength = newPassword.length >= 16 && /[A-Z]/.test(newPassword) && /[0-9]/.test(newPassword) && /[^A-Za-z0-9]/.test(newPassword) ? "Strong" : newPassword.length >= 12 ? "Acceptable" : newPassword ? "Too short" : "";
 
   return <div className="grid gap-5 xl:grid-cols-2">
+    <section className="min-w-0 rounded-2xl border bg-card p-4 text-card-foreground shadow-sm sm:p-5 xl:col-span-2" aria-label="Share emoji">
+      <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-lg bg-sky-500/15 text-sky-700 dark:text-sky-300"><Smile className="size-5" /></div><div><h2 className="text-lg font-semibold">Share emoji</h2><p className="text-sm text-muted-foreground">Emoji in Inventory Overview WhatsApp and Telegram messages for {companyName}. Each user picks their own style; off shares plain text for everyone.</p></div></div>
+        <label className="inline-flex items-center gap-2 text-sm font-medium"><Switch checked={shareEmojis} disabled={saving || !pin} onCheckedChange={(checked) => void setShareEmojis(checked)} aria-label="Share emoji on or off" />{shareEmojis ? "On" : "Off"}</label></div>
+    </section>
     <section className="min-w-0 rounded-2xl border bg-card text-card-foreground shadow-sm" aria-label="Negative-stock override PIN">
       <header className="flex flex-wrap items-start justify-between gap-3 border-b p-4 sm:p-5"><div className="flex gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-300"><KeyRound className="size-5" /></div><div><h2 className="text-lg font-semibold">Negative-stock override PIN</h2><p className="mt-1 text-sm text-muted-foreground">Applies to {companyName} only.</p></div></div><Badge variant="secondary" className={configured ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "bg-amber-500/15 text-amber-800 dark:text-amber-300"}>{!pin ? "Checking…" : configured ? "PIN configured" : "Setup required"}</Badge></header>
       <div className="space-y-4 p-4 sm:p-5">

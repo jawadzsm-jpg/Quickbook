@@ -17,12 +17,12 @@ export async function GET(request: Request) {
   if (authorization instanceof Response) return authorization;
   try {
     const db = getDb();
-    const [settings] = await db.select({ pinHash: companySettings.negativeStockPinHash }).from(companySettings).where(eq(companySettings.companyId, companyId)).limit(1);
+    const [settings] = await db.select({ pinHash: companySettings.negativeStockPinHash, shareEmojis: companySettings.shareEmojis }).from(companySettings).where(eq(companySettings.companyId, companyId)).limit(1);
     const [lastChange] = await db.select({ action: auditLog.action, createdAt: auditLog.createdAt }).from(auditLog)
       .where(and(eq(auditLog.companyId, companyId), eq(auditLog.entityType, "negative_stock_admin_pin"))).orderBy(desc(auditLog.createdAt)).limit(1);
     const overrides = await db.select({ id: auditLog.id, entityId: auditLog.entityId, details: auditLog.details, createdAt: auditLog.createdAt }).from(auditLog)
       .where(and(eq(auditLog.companyId, companyId), eq(auditLog.entityType, "transaction"), like(auditLog.details, "%admin negative-stock override used%"))).orderBy(desc(auditLog.createdAt)).limit(10);
-    return json({ configured: Boolean(settings?.pinHash), lastChange: lastChange ?? null, overrides });
+    return json({ configured: Boolean(settings?.pinHash), lastChange: lastChange ?? null, overrides, shareEmojis: settings?.shareEmojis ?? true });
   } catch (error) {
     return json({ error: errorMessage(error) }, 500);
   }
@@ -60,6 +60,25 @@ export async function POST(request: Request) {
     });
     await db.insert(auditLog).values({ companyId, action: existing?.pinHash ? "changed" : "configured", entityType: "negative_stock_admin_pin", entityId: companyId, details: `Negative-stock override PIN updated by ${authorization.email} from Management > Admin Controls` });
     return json({ configured: true });
+  } catch (error) {
+    return json({ error: errorMessage(error) }, 500);
+  }
+}
+
+/** Inventory Overview share emoji on or off for the company (administrators; no PIN, so kept apart from the PIN actions). */
+export async function PATCH(request: Request) {
+  let payload: Record<string, unknown>;
+  try { payload = (await request.json()) as Record<string, unknown>; } catch { return json({ error: "Invalid request." }, 400); }
+  const companyId = Number(payload?.companyId);
+  const authorization = await requireCompanyAccess(request, companyId, true, true);
+  if (authorization instanceof Response) return authorization;
+  if (typeof payload.shareEmojis !== "boolean") return json({ error: "Choose on or off." }, 400);
+  try {
+    const enabled = payload.shareEmojis, updatedAt = new Date().toISOString();
+    const db = getDb();
+    await db.insert(companySettings).values({ companyId, shareEmojis: enabled, updatedAt }).onConflictDoUpdate({ target: companySettings.companyId, set: { shareEmojis: enabled, updatedAt } });
+    await db.insert(auditLog).values({ companyId, action: enabled ? "enabled" : "disabled", entityType: "share_emojis", entityId: companyId, details: `Inventory Overview share emoji turned ${enabled ? "on" : "off"} by ${authorization.email}` });
+    return json({ shareEmojis: enabled });
   } catch (error) {
     return json({ error: errorMessage(error) }, 500);
   }
