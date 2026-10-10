@@ -1055,11 +1055,11 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
             const detail = shortages.map((item) => `${item.sku} ${item.name}: available ${item.quantity}, requested ${requestedByItem.get(item.id)}`).join("; ");
             return Response.json({ error: `${type === "vendor credit" ? "Purchase return" : "Invoice"} blocked to prevent negative stock. ${detail}` }, { status: 409 });
           }
-          // Stock on hold for another sales rep is not available to this document.
-          const held = await heldByOthers(itemIds, type === "vendor credit" ? undefined : payload.salesman);
-          const onHold = available.filter((item) => (requestedByItem.get(item.id) ?? 0) > 0 && (requestedByItem.get(item.id) ?? 0) > Number(item.quantity) - (held.get(item.id) ?? 0));
-          if (onHold.length) return Response.json({ error: `Stock is on hold for another sales rep. ${onHold.map((item) => heldStockMessage(item, held.get(item.id) ?? 0, requestedByItem.get(item.id) ?? 0)).join("; ")}` }, { status: 409 });
         }
+        // Stock on hold for another sales rep is not available to this document, even with the negative-stock override.
+        const held = await heldByOthers(itemIds, type === "vendor credit" ? undefined : payload.salesman);
+        const onHold = available.filter((item) => (requestedByItem.get(item.id) ?? 0) > 0 && (requestedByItem.get(item.id) ?? 0) > Number(item.quantity) - (held.get(item.id) ?? 0));
+        if (onHold.length) return Response.json({ error: `Stock is on hold for another sales rep. ${onHold.map((item) => heldStockMessage(item, held.get(item.id) ?? 0, requestedByItem.get(item.id) ?? 0)).join("; ")}` }, { status: 409 });
       }
     }
     if (type === "bill") {

@@ -2750,6 +2750,14 @@ test('stock holds reserve quantity for one sales rep until released', async () =
     const blocked = await invoice('Sara Rep', 5, 'HOLD-INV-1');
     assert.equal(blocked.status, 409);
     assert.match((await blocked.json()).error, /on hold for another sales rep/);
+    // The admin negative-stock override does not unlock stock held for another rep.
+    const pin = await vite.ssrLoadModule('/lib/admin-pin.ts');
+    await database.query('INSERT INTO company_settings(company_id,negative_stock_pin_hash) VALUES($1,$2)', [c, await pin.hashAdminPin('246810')]);
+    const overridden = await records.POST(req('records', 'POST', { kind: 'transactions', companyId: c, locationId: loc, type: 'invoice', number: 'HOLD-INV-PIN', party: 'Hold Customer', salesman: 'Sara Rep', transactionDate: '2026-10-01', currency: 'AED', exchangeRate: 1, account: 'Sales Revenue', allowNegativeStock: true, adminOverridePin: '246810', lines: [{ itemId: item, description: 'Held laptop', quantity: 5, unitPrice: 100, vatCode: 'STANDARD' }] }));
+    assert.equal(overridden.status, 409);
+    assert.match((await overridden.json()).error, /on hold for another sales rep/);
+    // The holds list lets the invoice form fill in only the free quantity.
+    assert.deepEqual((await (await holds.GET(new Request(`https://app.test/api/stock-holds?companyId=${c}`))).json()).holds.map((row) => [row.itemId, row.quantity, row.salesRep]), [[item, 6, 'Ali Rep']]);
     assert.equal((await invoice('Sara Rep', 4, 'HOLD-INV-2')).status, 201);
     assert.equal((await invoice('Ali Rep', 6, 'HOLD-INV-3')).status, 201);
     await database.query('UPDATE items SET quantity=10 WHERE id=$1', [item]);

@@ -15,7 +15,10 @@ export async function GET(request: Request) {
   if (user instanceof Response) return user;
   const reps = await getDb().select({ name: contacts.name }).from(contacts)
     .where(and(eq(contacts.companyId, companyId), eq(contacts.type, "employee"), eq(contacts.status, "active"))).orderBy(asc(contacts.name));
-  return json({ salesReps: reps.map((rep) => rep.name), canManage: canManageHolds(user) });
+  // Active holds let sales documents show held quantities and fill in only the free stock.
+  const holds = await getDb().select({ itemId: stockHolds.itemId, quantity: stockHolds.quantity, salesRep: stockHolds.salesRep, expiresAt: stockHolds.expiresAt }).from(stockHolds)
+    .where(and(eq(stockHolds.companyId, companyId), activeHoldCondition())).orderBy(asc(stockHolds.expiresAt));
+  return json({ salesReps: reps.map((rep) => rep.name), canManage: canManageHolds(user), holds });
 }
 
 export async function POST(request: Request) {

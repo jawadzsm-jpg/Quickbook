@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { holdsForOthers, type ActiveHold } from "@/lib/stock-hold-rules";
 
 export type StockHold = { id: number; itemId: number; companyId: number; quantity: number; salesRep: string; note: string; expiresAt: string; createdByName: string; createdAt: string };
 type Presence = { id: number; companyId: number; companyName: string; locationName: string; locationCode: string; quantity: number };
@@ -22,6 +23,28 @@ export function holdTimeLeft(expiresAt: string, now = Date.now()) {
   return hours < 24 ? `${hours} h ${minutes % 60} min left` : `${Math.floor(hours / 24)} d ${hours % 24} h left`;
 }
 const until = (value: string) => parseTime(value).toLocaleString("en-GB", { timeZone: "Asia/Dubai", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+
+const noHolds: ActiveHold[] = [];
+/** Active stock holds of a company, for sales documents; an empty list while loading or when companyId is 0. */
+export function useActiveHolds(companyId: number) {
+  const [loaded, setLoaded] = useState<{ companyId: number; holds: ActiveHold[] }>({ companyId: 0, holds: noHolds });
+  useEffect(() => {
+    if (!companyId) return;
+    let live = true;
+    fetch(`/api/stock-holds?companyId=${companyId}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null)
+      .then((data) => { if (live) setLoaded({ companyId, holds: Array.isArray(data?.holds) ? data.holds : noHolds }); }, () => undefined);
+    return () => { live = false; };
+  }, [companyId]);
+  return loaded.companyId === companyId ? loaded.holds : noHolds;
+}
+
+/** "6 on hold for Ali Rep (3 h 20 min left)" for the holds a document's sales rep may not use; empty when none. */
+export function heldNote(holds: readonly ActiveHold[], itemId: unknown, salesRep: unknown) {
+  const others = holdsForOthers(holds, itemId, salesRep);
+  if (!others.quantity) return { quantity: 0, text: "" };
+  const reps = others.holds.map((hold) => `${hold.salesRep} (${holdTimeLeft(hold.expiresAt)})`).join(", ");
+  return { quantity: others.quantity, text: `${others.quantity} on hold for ${reps}` };
+}
 
 // Release a hold early after confirmation; returns true when it was released.
 async function releaseHold(hold: StockHold) {
