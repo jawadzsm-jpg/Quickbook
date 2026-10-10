@@ -118,6 +118,17 @@ function specificationText(record: OverviewItem) {
 const noCondition = "Not specified";
 // Condition (BRAND NEW, OPEN BOX, ...) as written in the product's specifications or description.
 const conditionOf = (record: OverviewItem) => inventoryItemCondition(record.name, record.sku, specificationText(record), record.itemNumber) || noCondition;
+// Part number: the item's Part Number field, else its Part Number / MPN specification; capitals, as in the product line.
+function partNumberOf(record: Pick<OverviewItem, "partNumber" | "specifications">) {
+  let value = record.partNumber;
+  if (!value?.trim()) {
+    try {
+      const parsed = JSON.parse(record.specifications) as Array<{ label?: string; value?: string }>;
+      value = parsed.find((entry) => ["PART NUMBER", "MPN"].includes(String(entry?.label ?? "").trim().toUpperCase()) && entry.value?.trim())?.value ?? "";
+    } catch { value = ""; }
+  }
+  return String(value ?? "").normalize("NFKC").trim().toLocaleUpperCase("en");
+}
 
 function plainMoney(value: number) {
   return value.toLocaleString("en-AE", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -556,13 +567,19 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
                 const held = heldOn(record);
                 const description = inventoryItemLine(record.name, record.sku, specificationText(record), record.itemNumber);
                 const itemNumber = String(record.itemNumber ?? "").normalize("NFKC").trim().toLocaleUpperCase("en").replace(/^#/, "");
+                // The part number and trailing #Item No. sit outside the details buttons so hovering or clicking them copies.
+                const numberShown = Boolean(itemNumber) && description.endsWith(`#${itemNumber}`);
+                const lineText = numberShown ? description.slice(0, -itemNumber.length - 1).trimEnd() : description;
+                const partNumber = partNumberOf(record);
+                const partAt = partNumber ? lineText.indexOf(partNumber) : -1;
+                const openDetails = (text: string) => text ? <button type="button" onClick={() => setDetailRecord(record)} className="inline whitespace-normal break-words text-left hover:text-primary [overflow-wrap:anywhere]" title="Open product details">{text}</button> : null;
                 return <TableRow key={record.id} data-state={selectedIds.has(record.id) ? "selected" : undefined} className="align-top hover:bg-muted/30 data-[state=selected]:bg-primary/10">
                   <TableCell className="py-4"><Checkbox className="mt-0.5" disabled={!canSelectItems || loading} aria-label={`Select ${record.name}`} checked={selectedIds.has(record.id)} onCheckedChange={(checked) => toggleSelected(record.id, checked === true)} /></TableCell>
                   <TableCell className="min-w-0 overflow-hidden py-4">
-                    {/* The trailing #Item No. sits outside the details button so hovering or clicking it copies the number. */}
-                    <p className="w-full max-w-full whitespace-normal break-words text-sm font-semibold leading-snug text-foreground sm:text-[15px] [overflow-wrap:anywhere]"><button type="button" onClick={() => setDetailRecord(record)} className="inline whitespace-normal break-words text-left hover:text-primary [overflow-wrap:anywhere]" title="Open product details">{itemNumber && description.endsWith(`#${itemNumber}`) ? description.slice(0, -itemNumber.length - 1).trimEnd() : description}</button>{itemNumber && description.endsWith(`#${itemNumber}`) ? <> <CopyOnHover value={itemNumber} display={`#${itemNumber}`} label="Item No." /></> : null}</p>
+                    <p className="w-full max-w-full whitespace-normal break-words text-sm font-semibold leading-snug text-foreground sm:text-[15px] [overflow-wrap:anywhere]">{partAt >= 0 ? <>{openDetails(lineText.slice(0, partAt))}<CopyOnHover value={partNumber} label="Part No." />{openDetails(lineText.slice(partAt + partNumber.length))}</> : openDetails(lineText)}{numberShown ? <> <CopyOnHover value={itemNumber} display={`#${itemNumber}`} label="Item No." /></> : null}</p>
                     <div className="mt-2.5 flex min-w-0 flex-wrap items-center gap-1.5 text-xs">
                       <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-semibold ${out ? "bg-rose-500/15 text-rose-600 dark:text-rose-300" : low ? "bg-amber-500/15 text-amber-700 dark:text-amber-300" : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"}`}><span className={`size-1.5 rounded-full ${out ? "bg-rose-500" : low ? "bg-amber-500" : "bg-emerald-500"}`} />{out ? "Out of stock" : low ? "Low stock" : "In stock"}</span>
+                      {partNumber && partAt < 0 && <span className="inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 font-medium text-muted-foreground">Part No. <CopyOnHover value={partNumber} label="Part No." /></span>}
                       {record.inventories.map((inventory) => <span key={inventory.locationId} className="inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 font-medium text-muted-foreground" title={`${inventory.companyName} · Qty ${Number(inventory.quantity).toLocaleString()}`}><Warehouse className="size-3 shrink-0" /><span className="truncate">{inventory.locationName}</span>{record.inventories.length > 1 && <span className="font-semibold tabular-nums text-foreground">{Number(inventory.quantity).toLocaleString()}</span>}</span>)}
                       {held > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 font-semibold text-amber-700 dark:text-amber-300"><Lock className="size-3" />{held.toLocaleString()} on hold</span>}
                       <span className="inline-flex items-center gap-1 text-muted-foreground"><Clock className="size-3" />{receivedAge(record.latestReceivedAt)}</span>
