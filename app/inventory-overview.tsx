@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Lock, Pencil, BadgeDollarSign, Boxes, CalendarClock, ChevronDown, Clock, Download, Eye, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PackageOpen, PackageX, PlaneLanding, RefreshCw, Rocket, Search, Send, ShoppingCart, TriangleAlert, UserRound, Warehouse, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Bold, Code, Italic, List as ListIcon, ListOrdered, Quote, Strikethrough, Lock, Pencil, BadgeDollarSign, Boxes, CalendarClock, ChevronDown, Clock, Download, Eye, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PackageOpen, PackageX, PlaneLanding, RefreshCw, Rocket, Search, Send, ShoppingCart, TriangleAlert, UserRound, Warehouse, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "sonner";
 import { StockHoldDialog, StockHoldsPanel, heldTotals, type StockHold } from "./stock-holds";
 import { defaultShareEmoji, shareEmojiStyle, shareEmojiStyles } from "@/lib/share-emoji";
+import { applyInlineFormat, applyLineFormat, inlineFormatsFor, type FormatResult, type InlineFormat, type LineFormat } from "@/lib/share-format";
 import { inventoryItemCondition, inventoryItemLine, partNumberInLine, inventorySocialShareText, itemSpecificationDescription } from "@/lib/item-description";
 import { matchesSearch } from "@/lib/search";
 import { CopyOnHover } from "./copy-on-hover";
@@ -188,6 +189,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   const [holds, setHolds] = useState<StockHold[]>([]);
   const [canManageHolds, setCanManageHolds] = useState(false);
   const [editor, setEditor] = useState<{ channel: ShareChannel; text: string } | null>(null);
+  const editorRef = useRef<HTMLTextAreaElement>(null);
   const [shareEmoji, setShareEmoji] = useState<{ whatsapp: string; telegram: string; offCompanyIds: number[] }>({ whatsapp: defaultShareEmoji, telegram: defaultShareEmoji, offCompanyIds: [] });
   const [holdTarget, setHoldTarget] = useState<ConsolidatedItem | null>(null);
 
@@ -451,6 +453,16 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     toast.success(`${channelName(channel)} format copied for ${selectedRecords.length} selected ${selectedRecords.length === 1 ? "item" : "items"}`);
   };
   // Edit before copying: the message opens in a text box for one-off changes; nothing typed there is saved.
+  // WhatsApp-style formatting bar: change the selected words or lines, then keep them selected.
+  const formatEditor = (apply: (text: string, start: number, end: number) => FormatResult) => {
+    const field = editorRef.current;
+    if (!field || !editor) return;
+    const result = apply(editor.text, field.selectionStart, field.selectionEnd);
+    setEditor({ ...editor, text: result.text });
+    requestAnimationFrame(() => { field.focus(); field.setSelectionRange(result.start, result.end); });
+  };
+  const inlineTools: Record<InlineFormat, { label: string; Icon: typeof Bold }> = { bold: { label: "Bold", Icon: Bold }, italic: { label: "Italic", Icon: Italic }, strike: { label: "Strikethrough", Icon: Strikethrough }, code: { label: "Code", Icon: Code } };
+  const lineTools: Record<LineFormat, { label: string; Icon: typeof Bold }> = { numbered: { label: "Numbered list", Icon: ListOrdered }, bulleted: { label: "Bulleted list", Icon: ListIcon }, quote: { label: "Quote", Icon: Quote } };
   const openEditor = (channel: ShareChannel) => {
     if (!canSelectItems || loading) return;
     const text = shareText(channel);
@@ -641,7 +653,11 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
       <DialogHeader><DialogTitle>Edit before copying</DialogTitle><DialogDescription>Change any words for this message only, then copy. Your emoji style and selected items fill it in; edits are not saved.</DialogDescription></DialogHeader>
       {editor && <div className="grid gap-3">
         <div className="flex flex-wrap gap-1.5" role="group" aria-label="Message format">{(["whatsapp", "telegram", "email"] as const).map((channel) => <Button key={channel} type="button" size="sm" variant={editor.channel === channel ? "default" : "outline"} aria-pressed={editor.channel === channel} onClick={() => { if (editor.channel !== channel && (editor.text === shareText(editor.channel) || window.confirm("Switch format? Your edits to this message will be replaced."))) setEditor({ channel, text: shareText(channel) }); }}>{channelName(channel)}</Button>)}</div>
-        <Textarea aria-label={`${channelName(editor.channel)} message`} rows={14} className="min-h-64 resize-y font-mono text-sm" value={editor.text} onChange={(event) => setEditor({ ...editor, text: event.target.value })} />
+        <div role="toolbar" aria-label="Text formatting" className="flex w-fit max-w-full flex-wrap items-center gap-0.5 rounded-full bg-zinc-900 px-2 py-1 text-white shadow-sm dark:bg-zinc-800">
+          {inlineFormatsFor(editor.channel).map((format) => { const { label, Icon } = inlineTools[format]; return <button key={format} type="button" title={label} aria-label={label} className="grid size-8 place-items-center rounded-full hover:bg-white/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white" onMouseDown={(event) => event.preventDefault()} onClick={() => formatEditor((text, start, end) => applyInlineFormat(text, start, end, format, editor.channel === "telegram" ? "telegram" : "whatsapp"))}><Icon className="size-4" /></button>; })}
+          {(Object.keys(lineTools) as LineFormat[]).map((format) => { const { label, Icon } = lineTools[format]; return <button key={format} type="button" title={label} aria-label={label} className="grid size-8 place-items-center rounded-full hover:bg-white/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white" onMouseDown={(event) => event.preventDefault()} onClick={() => formatEditor((text, start, end) => applyLineFormat(text, start, end, format))}><Icon className="size-4" /></button>; })}
+        </div>
+        <Textarea ref={editorRef} aria-label={`${channelName(editor.channel)} message`} rows={14} className="min-h-64 resize-y font-mono text-sm" value={editor.text} onChange={(event) => setEditor({ ...editor, text: event.target.value })} />
       </div>}
       <DialogFooter className="gap-2 sm:justify-between">
         <Button type="button" variant="ghost" disabled={!editor} onClick={() => editor && setEditor({ ...editor, text: shareText(editor.channel) })}>Reset text</Button>

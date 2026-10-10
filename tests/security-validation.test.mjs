@@ -20,6 +20,7 @@ const { chequeAlignmentBounds, uaeChequeLayout, validChequeAlignment } = await s
 const { countries } = await sourceModule("../lib/countries.ts");
 const { partNumberInLine, generatedItemDescription, inventoryItemCondition, inventoryItemDetails, inventoryItemLine, inventoryItemTitle, inventoryShareDescription, inventorySocialShareText, invoiceItemDescription, itemSpecificationDescription, itemTitleWithSku } = await sourceModule("../lib/item-description.ts");
 const { isInvoiceItemSelectable } = await sourceModule("../lib/invoice-item-filter.ts");
+const { applyInlineFormat, applyLineFormat, inlineFormatsFor } = await sourceModule("../lib/share-format.ts");
 const { calculatorResult } = await sourceModule("../lib/calculator.ts");
 
 test("header calculator provides safe everyday arithmetic", () => {
@@ -965,3 +966,18 @@ test('contact hierarchy rejects cross-owner links and leaves opening balances ou
   const report = recordListReport('customers','contacts',[{name:'Branch',parentContactName:'Parent',status:'inactive',balance:45,currency:'AED'}],'AED','','');
   assert.equal(report.rows[0].parent,'Parent');assert.equal(report.rows[0].status,'inactive');assert.equal(report.rows[0].balance,45);
 });
+
+test("share editor formatting bar wraps words and prefixes lines like WhatsApp", () => {
+  // Bold on WhatsApp uses *…*, on Telegram **…**; formatting again removes it. An empty selection inserts a placeholder.
+  assert.deepEqual(applyInlineFormat("Price 2500", 6, 10, "bold", "whatsapp"), { text: "Price *2500*", start: 7, end: 11 });
+  assert.deepEqual(applyInlineFormat("Price *2500*", 7, 11, "bold", "whatsapp"), { text: "Price 2500", start: 6, end: 10 });
+  assert.equal(applyInlineFormat("Hot deal", 0, 3, "strike", "telegram").text, "~~Hot~~ deal");
+  assert.deepEqual(applyInlineFormat("Note: ", 6, 6, "italic", "whatsapp"), { text: "Note: _text_", start: 7, end: 11 });
+  // Lists and quotes prefix every selected line and toggle off when all lines already have the prefix.
+  const lines = "Laptop A\nLaptop B\nCall us";
+  assert.equal(applyLineFormat(lines, 0, 17, "numbered").text, "1. Laptop A\n2. Laptop B\nCall us");
+  assert.equal(applyLineFormat("- A\n- B", 0, 7, "bulleted").text, "A\nB");
+  assert.equal(applyLineFormat(lines, 20, 20, "quote").text, "Laptop A\nLaptop B\n> Call us");
+  assert.deepEqual(inlineFormatsFor("email"), []);
+});
+
