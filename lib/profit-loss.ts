@@ -38,7 +38,7 @@ export async function profitLoss(companyId: number, locationId: number, currency
     db.select({ entryId: journalEntries.id, transactionId: journalEntries.transactionId, locationId: journalEntries.locationId, date: journalEntries.entryDate, reference: journalEntries.reference, description: journalEntries.description, account: journalLines.accountName, accountId: journalLines.accountId, debit: journalLines.debit, credit: journalLines.credit, entryCurrency: journalEntries.currency }).from(journalLines).innerJoin(journalEntries, eq(journalEntries.id, journalLines.journalEntryId)).where(and(eq(journalEntries.companyId, companyId), eq(journalEntries.posted, true), locationId ? eq(journalEntries.locationId, locationId) : undefined)).orderBy(asc(journalEntries.entryDate), asc(journalLines.id)),
     db.select().from(transactions).where(eq(transactions.companyId, companyId)),
     db.select({ id: transactionLines.id, transactionId: transactionLines.transactionId, itemId: transactionLines.itemId, description: transactionLines.description, quantity: transactionLines.quantity, unitPrice: transactionLines.unitPrice, subtotal: transactionLines.subtotal, unitCost: transactionLines.unitCost }).from(transactionLines).innerJoin(transactions, eq(transactions.id, transactionLines.transactionId)).where(eq(transactions.companyId, companyId)).orderBy(asc(transactionLines.id)),
-    db.select({ id: items.id, name: items.name, sku: items.sku, itemType: items.itemType }).from(items).where(eq(items.companyId, companyId)),
+    db.select({ id: items.id, name: items.name, sku: items.sku, itemType: items.itemType, grnPrice: items.grnPrice }).from(items).where(eq(items.companyId, companyId)),
     db.select().from(inventoryLocations).where(eq(inventoryLocations.companyId, companyId)),
   ]);
   const names = new Map<string, typeof chart>();
@@ -113,6 +113,38 @@ export async function profitLoss(companyId: number, locationId: number, currency
     });
     const previous = round(report.rows.reduce((n, r) => n + (incomeTypes.has(String(r.type)) ? 1 : -1) * Number(r.previous), 0));
     report.rows.push({ name: "Net income", kind: "total", amount: summary.netIncome, previous, change: round(summary.netIncome - previous) });
+  } else if (key === "profit-loss-rep-grn" || key === "profit-loss-customer-grn") {
+    // Profit at GRN price: sales documents in the period, each item line costed at quantity × the item's entered GRN price.
+    const byRep = key === "profit-loss-rep-grn";
+    report.title = byRep ? "Profit & Loss by Sales Rep (GRN price)" : "Profit & Loss by Customer (GRN price)";
+    report.description = "Invoices, sales receipts and credit memos dated in the period · Home currency · VAT excluded. Cost is quantity × the item's entered GRN price (Stock Pricing & Profit/Loss); item lines without a GRN price use their recorded unit cost and are counted in the last column. Credit memos reduce sales and cost; zero-price stock-return lines reverse cost. Void, cancelled, draft and pending documents are excluded. Not a posted-ledger result.";
+    const salesTypes = new Set(["invoice", "sales receipt", "credit memo"]);
+    const excluded = new Set(["void", "voided", "cancelled", "canceled", "draft", "pending", "deleted"]);
+    const grouped = new Map<string, { name: string; income: number; cost: number; missing: number }>();
+    const lineRows: PnlRow[] = [];
+    for (const line of lines) {
+      const document = docMap.get(line.transactionId);
+      if (!document || !salesTypes.has(document.type) || excluded.has(String(document.status).toLowerCase()) || !inPeriod(document.transactionDate) || (locationId && document.locationId !== locationId)) continue;
+      const sign = document.type === "credit memo" ? -1 : 1, rate = Number(document.exchangeRate) || 1, quantity = Number(line.quantity);
+      const item = line.itemId ? itemMap.get(line.itemId) : undefined;
+      const grnPrice = item?.grnPrice == null ? null : Number(item.grnPrice);
+      const usesGrn = grnPrice !== null && Number.isFinite(grnPrice);
+      const income = round(sign * Number(line.subtotal) * rate);
+      const cost = item ? round(sign * quantity * (usesGrn ? grnPrice : Number(line.unitCost) * rate)) : 0;
+      const missing = item?.itemType === "stock-part" && !usesGrn && quantity !== 0 ? 1 : 0;
+      const name = String((byRep ? document.salesman : document.party) ?? "").trim() || "Unallocated";
+      const group = grouped.get(name) ?? { name, income: 0, cost: 0, missing: 0 };
+      group.income = round(group.income + income); group.cost = round(group.cost + cost); group.missing += missing;
+      grouped.set(name, group);
+      lineRows.push({ date: document.transactionDate, reference: document.number, transactionId: document.id, account: item ? `${item.sku} · ${item.name}` : line.description, type: usesGrn ? "GRN price" : item ? "Recorded cost" : "No cost", location: locationMap.get(document.locationId || 0) || "Unassigned", salesman: document.salesman || "Unallocated", customer: document.party, income, cost, expenses: 0, amount: round(income - cost) });
+    }
+    const margin = (income: number, cost: number) => income > 0 ? `${(100 * (income - cost) / income).toFixed(2)}%` : "—";
+    report.rows = [...grouped.values()].sort((a, b) => a.name.localeCompare(b.name)).map((row) => ({ ...row, gross: round(row.income - row.cost), margin: margin(row.income, row.cost), linkArea: row.name === "Unallocated" ? null : "sales" }));
+    const income = round(lineRows.reduce((n, row) => n + Number(row.income), 0)), cost = round(lineRows.reduce((n, row) => n + Number(row.cost), 0));
+    report.rows.push({ name: "Total", kind: "total", income, cost, gross: round(income - cost), margin: margin(income, cost), missing: [...grouped.values()].reduce((n, row) => n + row.missing, 0) });
+    report.columns = [{ key: "name", label: byRep ? "Sales rep" : "Customer" }, money("income", "Sales (excl. VAT)"), money("cost", "GRN cost"), money("gross", "Profit / loss"), { key: "margin", label: "Margin" }, { key: "missing", label: "Lines without GRN price" }];
+    report.summary = { income, expenses: cost, netIncome: round(income - cost) };
+    report.pnl.details = lineRows;
   } else if (["profit-loss-item", "profit-loss-rep", "profit-loss-customer", "profit-loss-job", "profit-loss-class"].includes(key)) {
     const byItem = key === "profit-loss-item";
     report.title = { "profit-loss-item": "Profit & Loss by Item", "profit-loss-rep": "Profit & Loss by Sales Rep", "profit-loss-customer": "Profit & Loss by Customer", "profit-loss-job": "Profit & Loss by Job / Inventory", "profit-loss-class": "Profit & Loss by Class" }[key]!;
