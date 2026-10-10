@@ -131,7 +131,7 @@ Layout Builder documents show bilingual labels by default: English on the left a
 
 | Category | Count | Coverage examples |
 | --- | ---: | --- |
-| Profit & Loss | 13 | Standard, detail, item, sales rep, customer, job, class, YTD, prior year, graphs |
+| Profit & Loss | 15 | Standard, detail, item, sales rep, customer, sales rep and customer at GRN price, job, class, YTD, prior year, graphs |
 | Financial | 16 | Business final report, balance sheet, cash flow, income, expenses, net worth |
 | Budgets | 4 | Overview, budget vs actual and graph, P&L budget performance |
 | Accountant | 11 | Trial balance, general ledger, journal, transaction detail, audit trail |
@@ -206,6 +206,8 @@ Banking reports are company-wide (bank accounts belong to the company; the selec
 **Cost of sales** for a stock item is what it was bought for: the weighted average of its supplier bills and item receipts (quantity × unit price + line freight at each document's exchange rate, home currency; cancelled, void and draft purchases excluded), the same figure the Items list shows as average cost (`lib/item-cost.ts`). New invoice lines, invoices converted from sales orders, stock-return lines and invoice item changes use it, falling back to the last purchase price and then the item's saved Cost field (ex VAT) only when the item has no purchases. The saved Cost field is not updated by bills, so it is no longer used when purchases exist.
 
 Profit & Loss reports read posted journal amounts in home currency: invoices and sales receipts credit each item's income account at line subtotal × exchange rate and debit its COGS account at quantity × unit cost × exchange rate; bills debit the inventory asset (stock items) or COGS/purchase account. Manual journals in another currency are converted when saved; the original amount is kept separately. The cost-of-sales review warning only flags stock items sold with no positive unit cost, not services. **Item Profitability** shows Sales ex VAT, Cost of sales and Gross Profit per item from invoice and sales-receipt lines at each document's exchange rate, excluding void, voided, cancelled, canceled and draft documents. **Stock Pricing & Profit/Loss** converts each supplier bill at its own exchange rate.
+
+Profit & Loss by Sales Rep (GRN price) and by Customer (GRN price) are calculated from sales documents rather than the ledger: invoices, sales receipts and credit memos dated in the period (void, cancelled, draft and pending excluded), sales excluding VAT in home currency, and cost = quantity × the item's entered GRN price from Stock Pricing & Profit/Loss. Item lines without a GRN price use their recorded unit cost and are counted in "Lines without GRN price"; credit memos reduce sales and cost. Rows link to the Sales register filtered to the rep or customer, and the line detail shows each sale with its cost basis.
 
 Profit & Loss by Customer groups posted income and cost of sales by the customer on the saved invoice, sales receipt, credit memo, statement or finance charge; postings without a customer document (bills, operating expenses, manual journals) stay in Unallocated. Each customer name opens the Sales register filtered to that customer.
 

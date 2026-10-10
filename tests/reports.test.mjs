@@ -1264,6 +1264,16 @@ test("P&L reports reconcile item, rep, inventory and class to posted ledger with
   assert.equal(byCustomer.rows.find(r => r.name === invoice.party).income, 1052.5);
   assert.equal(byCustomer.rows.find(r => r.name === invoice.party).linkArea, "sales");
   assert.equal(byCustomer.rows.find(r => r.name === "Unallocated").linkArea, undefined);
+  // GRN-price P&L: PNL-A costs its entered GRN price (80); PNL-B has none and keeps its recorded cost (120 × 3.675).
+  const { eq } = await import("drizzle-orm");
+  await db.update(schema.items).set({ grnPrice: 80 }).where(eq(schema.items.id, first.id));
+  for (const [type, name] of [["profit-loss-rep-grn", "Rep A"], ["profit-loss-customer-grn", "Customer"]]) {
+    const grn = await get(type);
+    const row = grn.rows.find(r => r.name === name);
+    assert.deepEqual([row.income, row.cost, row.gross, row.missing, row.linkArea], [1052.5, 441, 611.5, 1, "sales"]);
+    assert.deepEqual(grn.summary, { income: 1052.5, expenses: 441, netIncome: 611.5 });
+    assert.deepEqual(grn.pnl.details.filter(r => r.type === "GRN price").map(r => [r.reference, r.cost]), [["PNL-USD", 80], ["PNL-CREDIT", -80]]);
+  }
   const byJob = await get("profit-loss-job");
   assert.equal(byJob.rows.find(r => r.name !== "Total").locationId, loc);
   assert.equal(byJob.rows.find(r => r.name !== "Total").linkArea, "inventory");
