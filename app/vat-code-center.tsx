@@ -2,11 +2,12 @@
 import { useCompanyDocumentOutput } from "./company-document-output";
 
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
-import { BadgeCheck, CircleOff, Download, Eye, FileText, Paperclip, Pencil, Percent, Plus, Printer, Stamp, Trash2 } from "lucide-react";
+import { Download, Eye, FileText, Paperclip, Pencil, Percent, Plus, Printer, Stamp, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { LetterheadStamp, type LetterheadCompany } from "@/app/letterhead-page";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -41,6 +42,7 @@ export function VatCodeCenter({ companyId, company, onChanged, onOpenDocument }:
   const [detailLoading, setDetailLoading] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [toggling, setToggling] = useState<number | null>(null);
   const [stamp, setStamp] = useState({ show: Boolean(company.stampData), left: 158, top: 250 });
   const printRef = useRef<HTMLDivElement>(null);
 
@@ -74,12 +76,14 @@ export function VatCodeCenter({ companyId, company, onChanged, onOpenDocument }:
   }
 
   async function toggle(code: VatCodeRecord) {
+    setToggling(code.id);
     try {
       const response = await fetch("/api/vat-codes", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, id: code.id, name: code.name, rate: code.rate, description: code.description, active: !code.active }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not update VAT code");
       await loadCodes(); onChanged?.(); toast.success(data.record.active ? "VAT code activated" : "VAT code deactivated");
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not update VAT code"); }
+    finally { setToggling(null); }
   }
 
   async function removeCode() {
@@ -160,7 +164,7 @@ export function VatCodeCenter({ companyId, company, onChanged, onOpenDocument }:
     <section className="overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-4 border-b p-5"><div><h2 className="font-bold">VAT codes</h2><p className="mt-1 text-sm text-muted-foreground">Manage tax choices for {company.name}. Active codes appear on invoices, bills, expenses and item defaults.</p></div><div className="flex flex-wrap gap-2"><Button type="button" variant="outline" onClick={() => setRegisterOpen(true)} disabled={!codes.length}><FileText className="size-4" />A4 register</Button><Button onClick={addCode}><Plus className="size-4" />Add VAT code</Button></div></div>
       <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Code</TableHead><TableHead>Name</TableHead><TableHead>Rate</TableHead><TableHead>Details</TableHead><TableHead>Linked areas</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
-        {loading ? <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">Loading VAT codes…</TableCell></TableRow> : codes.map((code) => <TableRow key={code.id}><TableCell><div className="flex items-center gap-2"><span className="font-mono font-semibold">{code.code}</span>{code.system ? <Badge variant="outline">System</Badge> : null}</div></TableCell><TableCell className="font-medium">{code.name}</TableCell><TableCell><Badge className="bg-sky-100 text-sky-800 hover:bg-sky-100 dark:bg-sky-950 dark:text-sky-200"><Percent className="size-3" />{code.rate.toLocaleString()}%</Badge></TableCell><TableCell className="max-w-sm text-sm text-muted-foreground">{code.description || "—"}</TableCell><TableCell><button type="button" onClick={() => void openDetail(code)} className="text-left text-xs font-medium text-primary hover:underline">{code.documentCount ?? 0} document{code.documentCount === 1 ? "" : "s"} · {code.itemCount ?? 0} item{code.itemCount === 1 ? "" : "s"}{code.attachmentCount ? ` · ${code.attachmentCount} attachment${code.attachmentCount === 1 ? "" : "s"}` : ""}</button></TableCell><TableCell><Badge className={code.active ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100 dark:bg-emerald-950 dark:text-emerald-200" : "bg-muted text-muted-foreground hover:bg-muted"}>{code.active ? "Active" : "Inactive"}</Badge></TableCell><TableCell><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" aria-label={`View ${code.code} links and attachments`} onClick={() => void openDetail(code)}><Eye className="size-4" /></Button><Button variant="ghost" size="icon" aria-label={`Edit ${code.code}`} onClick={() => editCode(code)}><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" aria-label={code.active ? `Deactivate ${code.code}` : `Activate ${code.code}`} disabled={alwaysActiveVatCodes.has(code.code)} title={alwaysActiveVatCodes.has(code.code) ? alwaysActiveVatMessage : code.active ? `Make ${code.code} inactive` : `Make ${code.code} active`} onClick={() => void toggle(code)}>{code.active ? <CircleOff className="size-4" /> : <BadgeCheck className="size-4" />}</Button><Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" aria-label={`Delete ${code.code}`} disabled={code.system} title={code.system ? "Standard VAT codes cannot be deleted" : undefined} onClick={() => setDeleting(code)}><Trash2 className="size-4" /></Button></div></TableCell></TableRow>)}
+        {loading ? <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">Loading VAT codes…</TableCell></TableRow> : codes.map((code) => <TableRow key={code.id}><TableCell><div className="flex items-center gap-2"><span className="font-mono font-semibold">{code.code}</span>{code.system ? <Badge variant="outline">System</Badge> : null}</div></TableCell><TableCell className="font-medium">{code.name}</TableCell><TableCell><Badge className="bg-sky-100 text-sky-800 hover:bg-sky-100 dark:bg-sky-950 dark:text-sky-200"><Percent className="size-3" />{code.rate.toLocaleString()}%</Badge></TableCell><TableCell className="max-w-sm text-sm text-muted-foreground">{code.description || "—"}</TableCell><TableCell><button type="button" onClick={() => void openDetail(code)} className="text-left text-xs font-medium text-primary hover:underline">{code.documentCount ?? 0} document{code.documentCount === 1 ? "" : "s"} · {code.itemCount ?? 0} item{code.itemCount === 1 ? "" : "s"}{code.attachmentCount ? ` · ${code.attachmentCount} attachment${code.attachmentCount === 1 ? "" : "s"}` : ""}</button></TableCell><TableCell><label className="inline-flex items-center gap-2" title={alwaysActiveVatCodes.has(code.code) ? alwaysActiveVatMessage : code.active ? `Make ${code.code} inactive` : `Make ${code.code} active`}><Switch checked={code.active} disabled={alwaysActiveVatCodes.has(code.code) || toggling === code.id} aria-label={code.active ? `Deactivate ${code.code}` : `Activate ${code.code}`} onCheckedChange={() => void toggle(code)} /><Badge className={code.active ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100 dark:bg-emerald-950 dark:text-emerald-200" : "bg-muted text-muted-foreground hover:bg-muted"}>{code.active ? "Active" : "Inactive"}</Badge></label></TableCell><TableCell><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" aria-label={`View ${code.code} links and attachments`} onClick={() => void openDetail(code)}><Eye className="size-4" /></Button><Button variant="ghost" size="icon" aria-label={`Edit ${code.code}`} onClick={() => editCode(code)}><Pencil className="size-4" /></Button><Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" aria-label={`Delete ${code.code}`} disabled={code.system} title={code.system ? "Standard VAT codes cannot be deleted" : undefined} onClick={() => setDeleting(code)}><Trash2 className="size-4" /></Button></div></TableCell></TableRow>)}
         {!loading && !codes.length ? <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">No VAT codes configured.</TableCell></TableRow> : null}
       </TableBody></Table></div>
     </section>
