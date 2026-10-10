@@ -62,6 +62,26 @@ export async function PATCH(request: Request) {
       });
     }
     if (!canAccessCompany(user, companyId) || !isAdministrator(user)) return Response.json({ error: "Company administrator access required." }, { status: 403 });
+    // The UAE E-Invoicing section saves only its own fields (administrators).
+    const einvoiceKeys = ["einvoiceEnabled", "peppolParticipantId", "einvoiceAsp", "einvoiceAspAccount", "einvoiceGoLive"];
+    if (Object.keys(payload).some((key) => einvoiceKeys.includes(key)) && Object.keys(payload).every((key) => key === "companyId" || einvoiceKeys.includes(key))) {
+      const goLive = text(payload.einvoiceGoLive, 10);
+      if (goLive && (!/^\d{4}-\d{2}-\d{2}$/.test(goLive) || Number.isNaN(Date.parse(goLive)))) return Response.json({ error: "Enter a valid go-live date." }, { status: 400 });
+      if (payload.einvoiceEnabled !== undefined && typeof payload.einvoiceEnabled !== "boolean") return Response.json({ error: "Turn e-invoicing on or off." }, { status: 400 });
+      const updates = {
+        ...(payload.einvoiceEnabled !== undefined ? { einvoiceEnabled: payload.einvoiceEnabled as boolean } : {}),
+        ...(payload.peppolParticipantId !== undefined ? { peppolParticipantId: text(payload.peppolParticipantId, 80) } : {}),
+        ...(payload.einvoiceAsp !== undefined ? { einvoiceAsp: text(payload.einvoiceAsp, 120) } : {}),
+        ...(payload.einvoiceAspAccount !== undefined ? { einvoiceAspAccount: text(payload.einvoiceAspAccount, 120) } : {}),
+        ...(payload.einvoiceGoLive !== undefined ? { einvoiceGoLive: goLive } : {}),
+      };
+      return withWriteTransaction(async () => {
+        const [record] = await getDb().update(companies).set(updates).where(eq(companies.id, companyId)).returning();
+        if (!record) return Response.json({ error: "Company not found." }, { status: 404 });
+        await getDb().insert(auditLog).values({ companyId, action: "updated", entityType: "company_setup", entityId: companyId, details: JSON.stringify({ actorId: user.id, fields: Object.keys(updates), mode: "e-invoicing" }) });
+        return Response.json({ record });
+      });
+    }
     // The layout builder saves only its own layout so it never overwrites other Company Setup fields.
     if (payload.documentLayout !== undefined && Object.keys(payload).every((key) => key === "companyId" || key === "documentLayout")) {
       const raw = String(payload.documentLayout);

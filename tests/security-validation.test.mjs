@@ -21,6 +21,7 @@ const { countries } = await sourceModule("../lib/countries.ts");
 const { partNumberInLine, generatedItemDescription, inventoryItemCondition, inventoryItemDetails, inventoryItemLine, inventoryItemTitle, inventoryShareDescription, inventorySocialShareText, invoiceItemDescription, itemSpecificationDescription, itemTitleWithSku } = await sourceModule("../lib/item-description.ts");
 const { isInvoiceItemSelectable } = await sourceModule("../lib/invoice-item-filter.ts");
 const { applyInlineFormat, applyLineFormat, inlineFormatsFor } = await sourceModule("../lib/share-format.ts");
+const { companyEInvoiceIssues, customerEInvoiceStatus, invoiceEInvoiceStatus, isUaeTrn } = await sourceModule("../lib/einvoice-readiness.ts");
 const { calculatorResult } = await sourceModule("../lib/calculator.ts");
 
 test("header calculator provides safe everyday arithmetic", () => {
@@ -979,5 +980,19 @@ test("share editor formatting bar wraps words and prefixes lines like WhatsApp",
   assert.equal(applyLineFormat("- A\n- B", 0, 7, "bulleted").text, "A\nB");
   assert.equal(applyLineFormat(lines, 20, 20, "quote").text, "Laptop A\nLaptop B\n> Call us");
   assert.deepEqual(inlineFormatsFor("email"), []);
+});
+
+test("UAE e-invoicing readiness lists what the company, customer and invoice still need", () => {
+  const company = { trn: "100123456700003", addressLine1: "Office 1", city: "Dubai", country: "United Arab Emirates", peppolParticipantId: "0235:100123456700003", einvoiceAsp: "Example ASP" };
+  assert.equal(isUaeTrn("100-1234-5670-0003"), true);
+  assert.deepEqual(companyEInvoiceIssues(company), []);
+  assert.deepEqual(companyEInvoiceIssues({ ...company, trn: "123", peppolParticipantId: "", einvoiceAsp: "" }), ["Company TRN (15 digits)", "Peppol participant ID", "Accredited Service Provider"]);
+  // A customer without a TRN is B2C; a UAE customer with a wrong TRN or no country needs completing.
+  assert.equal(customerEInvoiceStatus({ name: "Walk-in", country: "United Arab Emirates" }).status, "b2c");
+  assert.deepEqual(customerEInvoiceStatus({ name: "Techno", country: "United Arab Emirates", trn: "12345" }), { status: "issues", issues: ["Customer TRN must have 15 digits"] });
+  assert.deepEqual(customerEInvoiceStatus({ name: "Techno", country: "" , trn: "100123456700003" }), { status: "issues", issues: ["Customer country"] });
+  const buyer = { name: "Techno", country: "United Arab Emirates", trn: "100987654300003" };
+  assert.deepEqual(invoiceEInvoiceStatus({ number: "INV-1", transactionDate: "2026-10-10", currency: "AED" }, buyer, company), { status: "ready", issues: [] });
+  assert.deepEqual(invoiceEInvoiceStatus({ number: "INV-1", transactionDate: "2026-10-10", currency: "USD", exchangeRate: 0 }, undefined, { ...company, einvoiceAsp: "" }).issues, ["Company e-invoicing setup incomplete", "Exchange rate to AED", "Customer not found in Customer Center"]);
 });
 
