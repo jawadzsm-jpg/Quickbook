@@ -1759,6 +1759,18 @@ test('VAT management includes every taxable document type and posts adjustments 
   assert.equal(listedCodes.status,200,await listedCodes.clone().text());
   const listed=await listedCodes.json();
   assert.ok(["STANDARD","ZERO","EXEMPT","REVERSE_CHARGE","OUT_OF_SCOPE"].every((value)=>listed.codes.some((entry)=>entry.code===value&&entry.system&&entry.active)));
+  // System codes other than STANDARD and ZERO can be made inactive and active again.
+  const setActive=(entry,active)=>vatCodes.PATCH(new Request('https://app.test/api/vat-codes',{method:'PATCH',headers:{origin:'https://app.test','content-type':'application/json'},body:JSON.stringify({companyId:cid,id:entry.id,name:entry.name,rate:entry.rate,description:entry.description,active})}));
+  const exempt=listed.codes.find((entry)=>entry.code==='EXEMPT');
+  const inactiveExempt=await setActive(exempt,false);
+  assert.equal(inactiveExempt.status,200,await inactiveExempt.clone().text());
+  assert.equal((await inactiveExempt.json()).record.active,false);
+  assert.equal((await (await setActive(exempt,true)).json()).record.active,true);
+  for (const value of ["STANDARD","ZERO"]) {
+    const refused=await setActive(listed.codes.find((entry)=>entry.code===value),false);
+    assert.equal(refused.status,400);
+    assert.match((await refused.json()).error,/must remain active/);
+  }
   const attachments=await vite.ssrLoadModule('/app/api/attachments/route.ts');
   const {reportAttachmentId}=await vite.ssrLoadModule('/lib/report-attachments.ts');
   const reportEntityId=reportAttachmentId('inventory-stock-aging');
