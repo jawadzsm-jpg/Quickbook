@@ -4,6 +4,7 @@ import { and, asc, desc, eq, inArray, gte, lte } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { accounts, auditLog, companies, inventoryLocations, journalEntries, journalLines } from "@/db/schema";
 import { canAccessCompany, isAdministrator, requireApiUser } from "@/lib/auth";
+import { guardFiledPeriod } from "@/lib/period-lock";
 
 type InputLine = { accountId?: number | string; debit?: number | string; credit?: number | string };
 const round = (value: number) => Math.round(value * 100) / 100;
@@ -71,6 +72,10 @@ async function saveJournal(request: Request, replacing?: typeof journalEntries.$
     if (!/^\d{4}-\d{2}-\d{2}$/.test(entryDate) || !Number.isFinite(Date.parse(entryDate)) || new Date(entryDate).toISOString().slice(0, 10) !== entryDate || !reference || !description) return Response.json({ error: "Date, reference and description are required." }, { status: 400 });
     if (reference.length > 80 || description.length > 500) return Response.json({ error: "Reference or description is too long." }, { status: 400 });
     if (inputLines.length < 2 || inputLines.length > 100) return Response.json({ error: "Enter at least two journal lines." }, { status: 400 });
+    if (!replacing) {
+      const locked = await guardFiledPeriod(request, companyId, [entryDate], "create journal", user);
+      if (locked) return locked;
+    }
     const prepared = inputLines.map((line) => ({ accountId: Number(line.accountId), debit: round(Number(line.debit ?? 0)), credit: round(Number(line.credit ?? 0)) }));
     if (prepared.some((line) => !Number.isInteger(line.accountId) || line.accountId <= 0 || !Number.isFinite(line.debit) || !Number.isFinite(line.credit) || line.debit < 0 || line.credit < 0 || (line.debit > 0) === (line.credit > 0))) return Response.json({ error: "Every line needs one account and either a debit or credit amount." }, { status: 400 });
     const totalDebit = round(prepared.reduce((sum, line) => sum + line.debit, 0));
@@ -122,6 +127,8 @@ async function changeJournal(request: Request, remove: boolean) {
       const db = getDb();
       const [entry] = await db.select().from(journalEntries).where(and(eq(journalEntries.id, id), eq(journalEntries.companyId, companyId))).for("update");
       if (!entry) return Response.json({ error: "Journal not found." }, { status: 404 });
+      const locked = await guardFiledPeriod(request, companyId, [entry.entryDate, payload.entryDate], `${remove ? "delete" : "edit"} journal ${entry.reference}`, user);
+      if (locked) return locked;
       const [manual] = await db.select({ id: auditLog.id }).from(auditLog).where(and(eq(auditLog.companyId, companyId), eq(auditLog.entityType, "journal_entry"), eq(auditLog.entityId, id), eq(auditLog.action, "created"))).limit(1);
       if (entry.transactionId || !manual) return Response.json({ error: "Update this automatic journal through its source document or stock revaluation." }, { status: 409 });
       const oldLines = await db.select().from(journalLines).where(eq(journalLines.journalEntryId, id)).orderBy(asc(journalLines.id));

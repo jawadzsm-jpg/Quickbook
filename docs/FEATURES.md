@@ -322,6 +322,10 @@ A4 Print opens the same PDF output in a print-capable browser tab. PDF, CSV and 
 
 Desktop uses aligned list columns; tablets and phones use labeled cards and expandable postings. Journal entry amount fields also reflow. Light/dark colors follow the app theme, red delete actions stay permission-controlled, and explicit Minimize/Restore preserves list filters and dialog drafts.
 
+## Filed period lock
+
+Recording a VAT return in VAT Management, or marking a corporate tax working paper **filed** (Income Tax Working Paper → **Mark as filed**), locks that period. Creating, editing, deleting or voiding a posting document, a manual journal or a VAT adjustment dated inside a locked period (including moving a document's date into or out of it) is refused until the company's Admin PIN (Management → Admin Controls) is entered: the app asks for it in a "Filed period locked" dialog and repeats the change once it is correct. Each PIN override is written to the audit log (`filed-period override`). Quotations, estimates, proformas, sales orders, purchase orders and pending invoices never post, so they stay editable. Without an Admin PIN configured, locked changes are refused with a message to set one. A filed corporate tax working paper can no longer be saved; **Reopen (Admin PIN)** unlocks it. Server check: `lib/period-lock.ts`; browser prompt: `app/period-lock-pin.tsx`.
+
 ## Income tax reporting
 
 Report Library → Financial → Income Tax Working Paper provides editable percentage bands, threshold, tax period, additions/deductions and explanations. The AED preset uses 0% up to AED 375,000 and 9% above it; Flat rate sets threshold to zero. Non-AED companies start with zero rates/threshold and require custom configuration. The threshold is applied once to the selected period, without proration. This is an estimate: special regimes, exemptions, reliefs, loss utilisation, credits and top-up tax require separate review. Rate reference: https://mof.gov.ae/en/news/ministry-of-finance-confirms-applicable-taxable-income-threshold-for-corporate-tax-abu-dhabi-uae/ (checked 2026-10-04).

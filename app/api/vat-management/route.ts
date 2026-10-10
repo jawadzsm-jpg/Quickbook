@@ -3,6 +3,7 @@ import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { accounts, auditLog, companies, inventoryLocations, journalEntries, journalLines, transactionLines, transactions, vatAdjustments, vatCodes, vatReturns } from "@/db/schema";
 import { canAccessCompany, requireApiUser, requireCompanyAccess } from "@/lib/auth";
+import { guardFiledPeriod } from "@/lib/period-lock";
 
 const round = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
@@ -197,6 +198,8 @@ async function updateVatManagement(request: Request) {
       const direction = String(payload.direction ?? "increase") as "increase" | "decrease";
       const amount = round(Number(payload.amount));
       if (!validDate(adjustmentDate) || !reference || reference.length > 80 || !reason || reason.length > 500 || !["increase", "decrease"].includes(direction) || !Number.isFinite(amount) || amount <= 0) return Response.json({ error: "Complete the VAT adjustment with a valid positive amount." }, { status: 400 });
+      const locked = await guardFiledPeriod(request, companyId, [adjustmentDate], `VAT adjustment ${reference}`, user);
+      if (locked) return locked;
       return await withWriteTransaction(async () => {
         const tx = getDb();
         const [duplicate] = await tx.select({ id: vatAdjustments.id }).from(vatAdjustments).where(and(eq(vatAdjustments.companyId, companyId), eq(vatAdjustments.reference, reference))).limit(1);

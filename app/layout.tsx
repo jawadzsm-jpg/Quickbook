@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AttachmentCapture } from "./attachment-capture";
+import { PeriodLockPinPrompt } from "./period-lock-pin";
 import { EscapeWindowCloser } from "./escape-window-closer";
 import { RequiredFieldHighlighter } from "./required-field-highlighter";
 import { SearchHighlighter } from "./search-highlighter";
@@ -38,6 +39,7 @@ export default function RootLayout({
         <RequiredFieldHighlighter />
         <SearchHighlighter />
         <AttachmentCapture />
+        <PeriodLockPinPrompt />
       </body>
     </html>
   );

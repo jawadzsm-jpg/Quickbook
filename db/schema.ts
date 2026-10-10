@@ -613,6 +613,8 @@ export const incomeTaxWorkingPapers = pgTable("income_tax_working_papers", {
   config: text("config").notNull(),
   revision: integer("revision").notNull().default(1),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  filedAt: timestamp("filed_at", { withTimezone: true, mode: "string" }),
+  filedByUserId: integer("filed_by_user_id").references(() => appUsers.id, { onDelete: "set null" }),
 }, table => [uniqueIndex("income_tax_working_papers_company_id_period_start_period_end_key").on(table.companyId, table.periodStart, table.periodEnd)]);
 
 
