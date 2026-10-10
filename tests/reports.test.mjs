@@ -1239,7 +1239,7 @@ test("P&L reports reconcile item, rep, inventory and class to posted ledger with
   };
   const standard = await get("profit-loss");
   assert.deepEqual(standard.summary, { income: 1052.5, expenses: 761.5, netIncome: 291 });
-  for (const key of ["profit-loss-item", "profit-loss-rep", "profit-loss-job", "profit-loss-class"]) {
+  for (const key of ["profit-loss-item", "profit-loss-rep", "profit-loss-customer", "profit-loss-job", "profit-loss-class"]) {
     const r = await get(key); assert.deepEqual(r.summary, standard.summary); assert.equal(r.rows.at(-1).netIncome, 291);
     assert.equal(r.rows.slice(0, -1).reduce((n, r) => n + r.cost, 0), 661.5);
   }
@@ -1260,6 +1260,10 @@ test("P&L reports reconcile item, rep, inventory and class to posted ledger with
   const byRep = await get("profit-loss-rep");
   assert.equal(byRep.rows.find(r => r.name === "Rep A").income, 1052.5);
   assert.equal(byRep.rows.find(r => r.name === "Rep A").linkArea, "sales");
+  const byCustomer = await get("profit-loss-customer");
+  assert.equal(byCustomer.rows.find(r => r.name === invoice.party).income, 1052.5);
+  assert.equal(byCustomer.rows.find(r => r.name === invoice.party).linkArea, "sales");
+  assert.equal(byCustomer.rows.find(r => r.name === "Unallocated").linkArea, undefined);
   const byJob = await get("profit-loss-job");
   assert.equal(byJob.rows.find(r => r.name !== "Total").locationId, loc);
   assert.equal(byJob.rows.find(r => r.name !== "Total").linkArea, "inventory");

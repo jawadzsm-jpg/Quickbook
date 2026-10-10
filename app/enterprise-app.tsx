@@ -355,6 +355,7 @@ const allReports = [
   ["Profit & Loss Standard", "Income and expenses by period", "Profit & Loss", "profit-loss"],
   ["Profit & Loss by Item", "Sales, purchase cost, cost of sales and profit by item", "Profit & Loss", "profit-loss-item"],
   ["Profit & Loss by Sales Rep", "Sales, purchase cost, cost of sales and profit by sales rep", "Profit & Loss", "profit-loss-rep"],
+  ["Profit & Loss by Customer", "Sales, cost of sales and profit by customer", "Profit & Loss", "profit-loss-customer"],
   ["Profit & Loss Detail", "Every income and expense ledger posting", "Profit & Loss", "profit-loss-detail"],
   ["Cost of Goods Sold Detail", "Posted cost of sales linked to invoices, inventory, accounts, and sales reps", "Profit & Loss", "profit-loss-cost-of-goods"],
   ["Profit & Loss YTD Comparison", "Current year-to-date against the same prior-year period", "Profit & Loss", "profit-loss-ytd"],
@@ -481,7 +482,7 @@ const allReports = [
 const reportCategoryOrder = ["Profit & Loss", "Financial", "Budgets", "Sales", "Customers", "Vendors", "Purchases", "Employees & HR", "Inventory", "Banking", "VAT", "Accountant", "Lists", "Company"] as const;
 type ReportCategory = (typeof reportCategoryOrder)[number];
 const vendorSelectionReportKeys = new Set(["supplier-quickreport", "supplier-open-balance"]);
-const profitLossReportKeys = new Set(["profit-loss", "profit-loss-item", "profit-loss-rep", "profit-loss-detail", "profit-loss-cost-of-goods", "profit-loss-ytd", "profit-loss-prev-year", "profit-loss-job", "profit-loss-class", "profit-loss-unclassified", "stock-pricing-profit", "item-profitability"]);
+const profitLossReportKeys = new Set(["profit-loss", "profit-loss-item", "profit-loss-rep", "profit-loss-customer", "profit-loss-detail", "profit-loss-cost-of-goods", "profit-loss-ytd", "profit-loss-prev-year", "profit-loss-job", "profit-loss-class", "profit-loss-unclassified", "stock-pricing-profit", "item-profitability"]);
 const financialReportKeys = new Set(["business-final", "income-customer-summary", "income-customer-detail", "expenses-supplier-summary", "expenses-supplier-detail", "income-expense-graph", "realised-gains-losses", "unrealised-gains-losses", "balance-sheet", "balance-sheet-detail", "balance-sheet-summary", "balance-sheet-prev-year", "net-worth-graph", "cash-flow", "cash-flow-forecast"]);
 const financialLandscapeReportKeys = new Set(["business-final", "income-customer-detail", "expenses-supplier-detail", "income-expense-graph", "realised-gains-losses", "unrealised-gains-losses", "balance-sheet-detail", "balance-sheet-prev-year", "net-worth-graph", "cash-flow-forecast"]);
 
