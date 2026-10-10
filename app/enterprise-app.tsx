@@ -1303,9 +1303,9 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
       <Sidebar collapsible="icon" className="brand-sidebar border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
         <SidebarHeader className="border-b border-white/8 px-3 py-4">
           <div className="flex items-center gap-3 overflow-hidden">
-            <Image src="/easybook-mark.png" alt="EasyBook ERP Software" width={36} height={36} priority className="size-9 shrink-0 rounded-lg bg-white object-contain p-0.5 shadow-sm ring-1 ring-white/10" />
+            <Image src="/easybook-mark.png" alt="EasyBook Online Accounting ERP" width={36} height={36} priority className="size-9 shrink-0 rounded-lg bg-white object-contain p-0.5 shadow-sm ring-1 ring-white/10" />
             <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-              <p className="truncate text-sm font-semibold tracking-wide text-white">EasyBook ERP Software</p>
+              <p className="truncate text-sm font-semibold tracking-wide text-white">EasyBook</p><p className="truncate text-[11px] font-medium text-slate-300">Online Accounting ERP</p>
             </div>
           </div>
           <div className="mt-3 group-data-[collapsible=icon]:hidden"><Select value={String(activeCompanyId || "")} onValueChange={(value) => { const company = companies.find((entry) => entry.id === Number(value)); setActiveCompanyId(Number(value)); setActiveLocationId(company?.locations[0]?.id ?? 0); setSearch(""); }}><SelectTrigger aria-label="Active company" className="w-full border-white/10 bg-white/6 text-white shadow-none hover:bg-white/10"><SelectValue placeholder="Select company" /></SelectTrigger><SelectContent>{companies.map((company) => <SelectItem key={company.id} value={String(company.id)}>{company.name}</SelectItem>)}</SelectContent></Select></div>

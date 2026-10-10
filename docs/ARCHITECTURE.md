@@ -2,7 +2,7 @@
 
 ## System shape
 
-EasyBook ERP Software (formerly ComNet Enterprise Accounting) is a full-stack Next.js 16 App Router application. The browser renders a single operational workspace while server route handlers provide the internal JSON API. PostgreSQL is the system of record. Domain calculations, export builders, access checks, and validation live in shared TypeScript modules.
+EasyBook Online Accounting ERP (formerly ComNet Enterprise Accounting) is a full-stack Next.js 16 App Router application. The browser renders a single operational workspace while server route handlers provide the internal JSON API. PostgreSQL is the system of record. Domain calculations, export builders, access checks, and validation live in shared TypeScript modules.
 
 ```mermaid
 flowchart TD
