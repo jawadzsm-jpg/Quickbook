@@ -2794,6 +2794,34 @@ test('inactive STANDARD and ZERO codes: receipts stay zero-rated and defaults us
   } finally { delete globalThis.__transferTestUser; }
 });
 
+test('items bought as Out of scope are sold on OUT_OF_SCOPE and on their own document', async () => {
+  const c = (await database.query("INSERT INTO companies(name) VALUES ('Out of scope sales') RETURNING id")).rows[0].id;
+  const loc = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'OOS','OOS inventory','OOS') RETURNING id", [c])).rows[0].id;
+  const item = async (sku, code) => (await database.query("INSERT INTO items(company_id,location_id,sku,name,quantity,cost,item_type,purchase_vat_code) VALUES($1,$2,$3,$3,10,40,'stock-part',$4) RETURNING id", [c, loc, sku, code])).rows[0].id;
+  const byDefault = await item('OOS-DEFAULT', 'OUT_OF_SCOPE'), byBill = await item('OOS-BILL', 'STANDARD'), normal = await item('OOS-NORMAL', 'STANDARD');
+  const bill = (await database.query("INSERT INTO transactions(company_id,location_id,number,type,party,transaction_date,status) VALUES($1,$2,'OOS-BILL-1','bill','OOS Vendor','2026-09-01','open') RETURNING id", [c, loc])).rows[0].id;
+  await database.query("INSERT INTO transaction_lines(transaction_id,item_id,description,quantity,unit_price,vat_code,vat_rate) VALUES($1,$2,'OOS-BILL',1,40,'OUT_OF_SCOPE',0)", [bill, byBill]);
+  await database.query("INSERT INTO contacts(company_id,type,name,currency) VALUES($1,'customer','OOS Customer','AED')", [c]);
+  const records = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const invoice = (number, lines) => records.POST(new Request('https://app.test/api/records', { method: 'POST', headers: { origin: 'https://app.test', 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'transactions', companyId: c, locationId: loc, type: 'invoice', number, party: 'OOS Customer', transactionDate: '2026-10-01', currency: 'AED', exchangeRate: 1, account: 'Sales Revenue', lines: lines.map((itemId) => ({ itemId, description: 'Laptop', quantity: 1, unitPrice: 100, vatCode: 'STANDARD' })) }) }));
+  try {
+    globalThis.__transferTestUser = { id: 1, role: 'admin', companyIds: [c] };
+    const listed = await (await records.GET(new Request(`https://app.test/api/records?kind=items&companyId=${c}&locationId=${loc}`))).json();
+    assert.deepEqual(listed.records.map((row) => [row.sku, row.outOfScope]).sort(), [['OOS-BILL', true], ['OOS-DEFAULT', true], ['OOS-NORMAL', false]]);
+    for (const [number, itemId] of [['OOS-INV-1', byDefault], ['OOS-INV-2', byBill]]) {
+      const created = await invoice(number, [itemId]);
+      assert.equal(created.status, 201, JSON.stringify(await created.clone().json()));
+      const record = (await created.json()).record;
+      assert.deepEqual((await database.query('SELECT vat_code, vat_rate::float AS vat_rate FROM transaction_lines WHERE transaction_id=$1', [record.id])).rows, [{ vat_code: 'OUT_OF_SCOPE', vat_rate: 0 }]);
+      assert.equal(Number(record.vatAmount), 0);
+    }
+    const mixed = await invoice('OOS-INV-3', [byDefault, normal]);
+    assert.equal(mixed.status, 400);
+    assert.match((await mixed.json()).error, /own document/);
+    assert.equal((await invoice('OOS-INV-4', [normal])).status, 201);
+  } finally { delete globalThis.__transferTestUser; }
+});
+
 test('pending invoices remain unposted until an administrator or accountant converts them once', async () => {
   const c = (await database.query("INSERT INTO companies(name) VALUES ('Pending invoice roles') RETURNING id")).rows[0].id;
   const loc = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'PENDROLE','Pending inventory','PEND') RETURNING id", [c])).rows[0].id;

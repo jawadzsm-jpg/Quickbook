@@ -4,6 +4,8 @@ import { accounts, auditLog, companies, inventoryMovements, items, journalEntrie
 import { fullItemDescription } from "./item-description";
 import { heldByOthers, heldStockMessage } from "./stock-holds";
 import { averagePurchaseCosts, itemHomeCost } from "./item-cost";
+import { outOfScopeItemIds } from "./out-of-scope-items";
+import { outOfScopeProblem } from "./out-of-scope-rules";
 
 // Inventory users may correct which product was sold, add free (zero-price) lines such as accessories, add stock returns
 // (negative quantity, zero price), and record serial
@@ -91,6 +93,12 @@ export async function applyInventoryInvoiceEdit(db: Db, input: { companyId: numb
     if (!lineItemTypes.has(item.itemType)) return fail("Select stock, non-stock, service or other-charge items only.");
   }
   if (appended.some((line) => line.quantity < 0 && itemById.get(line.itemId)?.itemType !== "stock-part")) return fail("Stock returns require a stock item.");
+  // Items bought outside the scope of VAT stay on OUT_OF_SCOPE and on their own invoice; new and changed lines keep the invoice's VAT code.
+  const invoiceVatCode = String(lines.find((line) => !line.isFreightCharge && Number(line.quantity) > 0)?.vatCode || "");
+  const swappedTo = new Map(swaps.map((swap) => [swap.line.id, swap.itemId]));
+  const finalLines = [...lines.filter((line) => !line.isFreightCharge).map((line) => ({ itemId: swappedTo.get(line.id) ?? line.itemId, description: line.description, quantity: Number(line.quantity), vatCode: line.vatCode })), ...appended.map((line) => ({ itemId: line.itemId, description: itemById.get(line.itemId)?.name, quantity: line.quantity, vatCode: invoiceVatCode }))];
+  const outOfScopeIssue = outOfScopeProblem(finalLines, await outOfScopeItemIds(companyId, finalLines.flatMap((line) => line.itemId ? [Number(line.itemId)] : [])));
+  if (outOfScopeIssue) return fail(outOfScopeIssue);
 
   const exchangeRate = Number(invoice.exchangeRate || 1);
   const configured = await db.select({ code: vatCodes.code, rate: vatCodes.rate }).from(vatCodes).where(and(eq(vatCodes.companyId, companyId), eq(vatCodes.active, true)));
