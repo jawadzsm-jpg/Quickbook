@@ -101,7 +101,7 @@ function SecurityPanel({ companyId, companyName, currentUserEmail, onPinStatus }
   async function setShareEmojis(enabled: boolean) {
     setSaving(true);
     try {
-      const response = await fetch("/api/admin-settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, action: "share-emojis", enabled }) });
+      const response = await fetch("/api/admin-settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, shareEmojis: enabled }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not change share emoji");
       setPin((current) => current ? { ...current, shareEmojis: data.shareEmojis } : current);

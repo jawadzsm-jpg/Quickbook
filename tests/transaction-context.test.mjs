@@ -2870,7 +2870,7 @@ test('share emoji: users save a WhatsApp and Telegram style; an administrator sw
     assert.deepEqual(await shareEmoji(), { whatsapp: 'classic', telegram: 'classic', offCompanyIds: [] });
     assert.equal((await preferences.PATCH(req('user-preferences', 'PATCH', { shareEmojiWhatsapp: 'fire', shareEmojiTelegram: 'none' }))).status, 200);
     assert.equal((await preferences.PATCH(req('user-preferences', 'PATCH', { shareEmojiWhatsapp: 'unknown' }))).status, 400);
-    assert.equal((await admin.POST(req('admin-settings', 'POST', { companyId: c, action: 'share-emojis', enabled: false }))).status, 200);
+    assert.equal((await admin.PATCH(req('admin-settings', 'PATCH', { companyId: c, shareEmojis: false }))).status, 200);
     assert.deepEqual(await shareEmoji(), { whatsapp: 'fire', telegram: 'none', offCompanyIds: [c] });
     assert.equal((await (await admin.GET(new Request(`https://app.test/api/admin-settings?companyId=${c}`))).json()).shareEmojis, false);
   } finally { delete globalThis.__transferTestUser; }
