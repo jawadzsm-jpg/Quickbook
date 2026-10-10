@@ -161,7 +161,7 @@ export async function reportWorkbook(report: ReportExportData, company: string, 
   if (vatReportKeys.has(report.key || "")) inventory = "Company-wide · all inventories";
   const { default: ExcelJS } = await import("exceljs");
   const book = new ExcelJS.Workbook();
-  book.creator = "EasyBook ERP Software";
+  book.creator = "EasyBook Online Accounting ERP";
   book.created = new Date(report.generatedAt);
   book.modified = new Date();
   const sheet = book.addWorksheet("Report", {

@@ -10,7 +10,7 @@ export function pnlCsv(report: PnlReport, company: string) {
 }
 export async function pnlWorkbook(report: PnlReport, company: string, orientation: PrintOrientation = "portrait") {
   const { default: ExcelJS } = await import("exceljs");
-  const book = new ExcelJS.Workbook(); book.creator = "EasyBook ERP Software"; book.created = new Date(report.generatedAt);
+  const book = new ExcelJS.Workbook(); book.creator = "EasyBook Online Accounting ERP"; book.created = new Date(report.generatedAt);
   const sheet = book.addWorksheet("Profit and Loss", { views: [{ state: "frozen", ySplit: 5 }], pageSetup: { paperSize: 9, orientation, fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
   const width = report.columns.length;
   [company, report.title, `${report.pnl.from || "Beginning"} to ${report.pnl.to || "Latest posting"} · ${report.pnl.location}`, `${report.currency} · Accrual basis · Generated ${report.generatedAt}`].forEach((text, i) => { sheet.addRow([text]); sheet.mergeCells(i + 1, 1, i + 1, width); });

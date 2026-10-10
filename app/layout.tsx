@@ -6,8 +6,8 @@ import { RequiredFieldHighlighter } from "./required-field-highlighter";
 import { SearchHighlighter } from "./search-highlighter";
 
 export const metadata: Metadata = {
-  title: "EasyBook ERP Software",
-  description: "EasyBook ERP Software: web-based accounting, sales, purchasing, inventory, banking and financial reporting.",
+  title: "EasyBook Online Accounting ERP",
+  description: "EasyBook Online Accounting ERP: web-based accounting, sales, purchasing, inventory, banking and financial reporting.",
   icons: {
     icon: "/easybook-mark.png",
     shortcut: "/easybook-mark.png",
