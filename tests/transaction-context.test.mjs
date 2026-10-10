@@ -2822,6 +2822,39 @@ test('items bought as Out of scope are sold on OUT_OF_SCOPE and on their own doc
   } finally { delete globalThis.__transferTestUser; }
 });
 
+test('filed VAT and corporate tax periods lock dated changes until the Admin PIN is entered', async () => {
+  const c = (await database.query("INSERT INTO companies(name) VALUES ('Filed period lock') RETURNING id")).rows[0].id;
+  const loc = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'LOCK','Lock inventory','LCK') RETURNING id", [c])).rows[0].id;
+  await database.query("INSERT INTO contacts(company_id,type,name,currency) VALUES($1,'customer','Lock Customer','AED')", [c]);
+  await database.query("INSERT INTO vat_returns(company_id,period_start,period_end,reference) VALUES($1,'2026-07-01','2026-09-30','VAT-Q3-2026')", [c]);
+  await database.query("INSERT INTO income_tax_working_papers(company_id,period_start,period_end,config,filed_at) VALUES($1,'2025-01-01','2025-12-31','{}',now())", [c]);
+  const records = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const pin = await vite.ssrLoadModule('/lib/admin-pin.ts');
+  const send = (method, body, adminPin) => records[method](new Request('https://app.test/api/records', { method, headers: { origin: 'https://app.test', 'content-type': 'application/json', ...(adminPin ? { 'x-period-lock-pin': adminPin } : {}) }, body: JSON.stringify(body) }));
+  const invoice = (number, transactionDate, type = 'invoice') => ({ kind: 'transactions', companyId: c, locationId: loc, type, number, party: 'Lock Customer', transactionDate, currency: 'AED', exchangeRate: 1, account: 'Sales Revenue', lines: [{ description: 'Service', quantity: 1, unitPrice: 100, vatCode: 'STANDARD' }] });
+  try {
+    globalThis.__transferTestUser = { id: 1, role: 'admin', companyIds: [c] };
+    const noPinSet = await send('POST', invoice('LOCK-1', '2026-09-15'));
+    assert.equal(noPinSet.status, 423);
+    const noPinBody = await noPinSet.json();
+    assert.deepEqual([noPinBody.code, noPinBody.pinConfigured], ['PERIOD_LOCKED', false]);
+    await database.query('INSERT INTO company_settings(company_id,negative_stock_pin_hash) VALUES($1,$2)', [c, pin.hashAdminPin('246810')]);
+    const ask = await (await send('POST', invoice('LOCK-1', '2026-09-15'))).json();
+    assert.deepEqual([ask.code, ask.pinConfigured, ask.period.reference], ['PERIOD_LOCKED', true, 'VAT-Q3-2026']);
+    assert.equal((await (await send('POST', invoice('LOCK-1', '2026-09-15'), '111111')).json()).wrongPin, true);
+    const allowed = await send('POST', invoice('LOCK-1', '2026-09-15'), '246810');
+    assert.equal(allowed.status, 201, JSON.stringify(await allowed.clone().json()));
+    const filed = (await allowed.json()).record;
+    assert.equal((await database.query("SELECT count(*)::int AS n FROM audit_log WHERE company_id=$1 AND action='filed-period override'", [c])).rows[0].n, 1);
+    // Outside filed periods, and for documents that never post, nothing is asked.
+    assert.equal((await send('POST', invoice('LOCK-2', '2026-10-01'))).status, 201);
+    assert.equal((await send('POST', invoice('LOCK-Q', '2026-09-15', 'quotation'))).status, 201);
+    // A filed corporate tax period locks the same way; deleting a document in a filed period needs the PIN too.
+    assert.equal((await send('POST', invoice('LOCK-3', '2025-06-01'))).status, 423);
+    assert.equal((await send('DELETE', { kind: 'transactions', companyId: c, id: filed.id, deletionReason: 'Test' })).status, 423);
+  } finally { delete globalThis.__transferTestUser; }
+});
+
 test('pending invoices remain unposted until an administrator or accountant converts them once', async () => {
   const c = (await database.query("INSERT INTO companies(name) VALUES ('Pending invoice roles') RETURNING id")).rows[0].id;
   const loc = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'PENDROLE','Pending inventory','PEND') RETURNING id", [c])).rows[0].id;

@@ -33,6 +33,7 @@ import { lineExtraTypes } from "@/lib/line-extras";
 import { activeVatCode } from "@/lib/standard-vat-codes";
 import { outOfScopeItemIds } from "@/lib/out-of-scope-items";
 import { OUT_OF_SCOPE_CODE, hasOutOfScopeItem, outOfScopeProblem, outOfScopeSalesTypes } from "@/lib/out-of-scope-rules";
+import { guardFiledPeriod, unlockedDocumentTypes } from "@/lib/period-lock";
 
 type RecordKind = "transactions" | "contacts" | "items" | "accounts";
 const defaultPaymentTerms = "Due on receipt";
@@ -618,6 +619,10 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const locationId = Number(payload.locationId);
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
+    if (kind === "transactions" && !replacing && !unlockedDocumentTypes.has(String(payload.type))) {
+      const locked = await guardFiledPeriod(request, companyId, [payload.transactionDate], `create ${String(payload.type)}`, authorization);
+      if (locked) return locked;
+    }
     const db = getDb();
     if (authorization.role === "sales" && kind === "transactions") {
       const [customer] = await db.select({ id: contacts.id }).from(contacts).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "customer"), eq(contacts.name, String(payload.party || "")), eq(contacts.salesOwnerId, authorization.id), eq(contacts.status, "active"))).for("share");
@@ -1448,6 +1453,10 @@ async function handlePATCH(request: Request) {
         const db = getDb();
         const [existing] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId))).for("update");
         if (!existing) return Response.json({ error: "Document not found." }, { status: 404 });
+        if (!unlockedDocumentTypes.has(existing.type)) {
+          const locked = await guardFiledPeriod(request, companyId, [existing.transactionDate, payload.transactionDate], `edit ${existing.type} ${existing.number}`, authorization);
+          if (locked) return locked;
+        }
         if (!canReadDocument(authorization, existing)) return Response.json({ error: "You cannot open this document." }, { status: 403 });
         // Ship To on a saved sales document: accountants, administrators, inventory users and sales users (their own
         // documents only) paste or type the delivery address without reopening the document. Amounts, lines and stock
@@ -2228,6 +2237,10 @@ async function handleDELETE(request: Request) {
       const db = getDb();
       const [record] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId))).for("update");
       if (!record) return Response.json({ error: "Transaction not found." }, { status: 404 });
+      if (!unlockedDocumentTypes.has(record.type)) {
+        const locked = await guardFiledPeriod(request, companyId, [record.transactionDate], `delete ${record.type} ${record.number}`, authorization);
+        if (locked) return locked;
+      }
       if (record) {
         const [salesChild] = await db.select({ id: transactions.id }).from(transactions).where(and(sql`(${transactions.salesSourceId} = ${id} or ${transactions.sourceTransactionId} = ${id})`, sql`lower(${transactions.status}) NOT IN ('void', 'voided', 'cancelled', 'canceled')`)).limit(1);
         if (salesChild) return Response.json({ error: "Remove linked invoices before editing or deleting this source document." }, { status: 409 });

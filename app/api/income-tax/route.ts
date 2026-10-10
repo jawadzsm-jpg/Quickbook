@@ -4,6 +4,7 @@ import { accounts, auditLog, companies, incomeTaxWorkingPapers } from '@/db/sche
 import { canAccessCompany, hasPermission, requireApiUser } from '@/lib/auth';
 import { validateTaxConfig } from '@/lib/income-tax';
 import { loadIncomeTax } from '@/lib/income-tax-data';
+import { guardFiledPeriod } from '@/lib/period-lock';
 
 export async function GET(request:Request) {
   const user=await requireApiUser(request,'reports:read');if(user instanceof Response)return user;
@@ -20,7 +21,7 @@ export async function POST(request:Request) {
   try {
     const body=await request.json();const companyId=Number(body.companyId);
     if(!hasPermission(user,'reports:read')||!Number.isSafeInteger(companyId)||companyId<=0||!canAccessCompany(user,companyId))return Response.json({error:'Company report access required.'},{status:403});
-    if(!['preview','save','create-accounts'].includes(body.action))return Response.json({error:'Choose preview or save.'},{status:400});
+    if(!['preview','save','create-accounts','file','reopen'].includes(body.action))return Response.json({error:'Choose preview or save.'},{status:400});
     if(body.action!=='preview'&&!hasPermission(user,'accounting:manage'))return Response.json({error:'Only administrators and accountants can save tax working papers.'},{status:403});
     const db=getDb();const [company]=await db.select({currency:companies.baseCurrency}).from(companies).where(eq(companies.id,companyId));
     if(!company)return Response.json({error:'Company not found.'},{status:404});
@@ -42,6 +43,23 @@ export async function POST(request:Request) {
         return Response.json({accountIds:result});
       });
     }
+    if(body.action==='file'||body.action==='reopen') {
+      // A filed corporate tax period is locked like a filed VAT return; reopening it needs the Admin PIN.
+      const id=Number(body.id);
+      if(!Number.isSafeInteger(id)||id<=0)return Response.json({error:'Save the working paper before marking it filed.'},{status:400});
+      return await withWriteTransaction(async()=>{
+        const tx=getDb();const [paper]=await tx.select().from(incomeTaxWorkingPapers).where(and(eq(incomeTaxWorkingPapers.id,id),eq(incomeTaxWorkingPapers.companyId,companyId))).for('update');
+        if(!paper)return Response.json({error:'Working paper not found.'},{status:404});
+        if(body.action==='file'&&paper.filedAt)return Response.json({error:'This corporate tax period is already filed.'},{status:409});
+        if(body.action==='reopen'){
+          if(!paper.filedAt)return Response.json({error:'This corporate tax period is not filed.'},{status:409});
+          const locked=await guardFiledPeriod(request,companyId,[paper.periodStart],`reopen corporate tax ${paper.periodStart} to ${paper.periodEnd}`,user);if(locked)return locked;
+        }
+        const [saved]=await tx.update(incomeTaxWorkingPapers).set(body.action==='file'?{filedAt:new Date().toISOString(),filedByUserId:user.id}:{filedAt:null,filedByUserId:null}).where(eq(incomeTaxWorkingPapers.id,id)).returning();
+        await tx.insert(auditLog).values({companyId,action:body.action==='file'?'filed':'reopened',entityType:'income_tax_working_paper',entityId:id,details:`Corporate tax ${paper.periodStart} to ${paper.periodEnd}; ${user.email}`});
+        return Response.json({paper:{...saved,config:JSON.parse(saved.config)}},{headers:{'Cache-Control':'private, no-store'}});
+      });
+    }
     const config=validateTaxConfig(body.config);
     const result=await loadIncomeTax(companyId,company.currency,config);
     if(body.action==='save') {
@@ -49,6 +67,7 @@ export async function POST(request:Request) {
       if(!Number.isSafeInteger(id)||id<0||!Number.isSafeInteger(revision)||revision<0)return Response.json({error:'Invalid working paper revision.'},{status:400});
       return await withWriteTransaction(async()=>{
         const tx=getDb();const values={periodStart:config.from,periodEnd:config.to,config:JSON.stringify(config),updatedAt:new Date().toISOString()};
+        if(id){const [current]=await tx.select({filedAt:incomeTaxWorkingPapers.filedAt}).from(incomeTaxWorkingPapers).where(and(eq(incomeTaxWorkingPapers.id,id),eq(incomeTaxWorkingPapers.companyId,companyId)));if(current?.filedAt)return Response.json({error:'This corporate tax period is filed. Reopen it with the Admin PIN before changing the working paper.'},{status:409});}
         const [saved]=id?await tx.update(incomeTaxWorkingPapers).set({...values,revision:revision+1}).where(and(eq(incomeTaxWorkingPapers.id,id),eq(incomeTaxWorkingPapers.companyId,companyId),eq(incomeTaxWorkingPapers.revision,revision))).returning():await tx.insert(incomeTaxWorkingPapers).values({...values,companyId}).onConflictDoNothing().returning();
         if(!saved)throw new Error('CONFLICT');
         await tx.insert(auditLog).values({companyId,action:id?'updated':'created',entityType:'income_tax_working_paper',entityId:saved.id,details:`${config.from} to ${config.to}: tax rates ${config.lowerRate}% / ${config.upperRate}%, threshold ${config.threshold}; ${user.email}`});

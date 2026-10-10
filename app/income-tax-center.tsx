@@ -1,7 +1,7 @@
 "use client";
 import { useCompanyDocumentOutput } from "./company-document-output";
 import { useEffect, useState } from 'react';
-import { Download, Printer, Save, RefreshCw } from 'lucide-react';
+import { Download, Lock, LockOpen, Printer, Save, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,7 +12,7 @@ import { reportDownloadDate } from '@/lib/report-export';
 import { SalesReportStamp } from './sales-report-stamp';
 import { AccountHistory } from './account-history';
 
-type Paper={id:number;revision:number;periodStart:string;periodEnd:string;config:TaxConfig;updatedAt:string};
+type Paper={id:number;revision:number;periodStart:string;periodEnd:string;config:TaxConfig;updatedAt:string;filedAt?:string|null};
 type Setup={currency:string;accounts:TaxAccount[];papers:Paper[];canManage:boolean};
 const selectClass='h-10 w-full min-w-0 rounded-md border bg-background px-3 text-sm';
 export function IncomeTaxCenter({companyId,companyName,stampData,onClose,onSource,onAccounts}:{companyId:number;companyName:string;stampData:string;onClose:()=>void;onSource:(id:number)=>void;onAccounts:()=>void}) {
@@ -40,6 +40,18 @@ export function IncomeTaxCenter({companyId,companyName,stampData,onClose,onSourc
       if(action==='create-accounts'){change(data.accountIds);const r=await fetch(`/api/income-tax?companyId=${companyId}`,{cache:'no-store'});if(!r.ok)throw new Error('Accounts created. Reload to refresh the account list.');setSetup(await r.json());toast.success('Tax accounts linked.');}
       else {setResult(data.result);setResultKey(JSON.stringify(config));if(data.paper){setSelected(data.paper);setSetup(s=>s?{...s,papers:[data.paper,...s.papers.filter(p=>p.id!==data.paper.id)]}:s);toast.success('Tax working paper saved.');}}
     }catch(e){toast.error(e instanceof Error?e.message:'Could not prepare tax report.');}finally{setBusy(false);}
+  }
+  // Filing locks the period for every dated change; reopening asks for the Admin PIN (prompted app-wide).
+  async function setFiled(action:'file'|'reopen') {
+    if(busy||!selected)return;
+    if(action==='file'&&!window.confirm(`Mark corporate tax ${selected.periodStart} to ${selected.periodEnd} as filed? Transactions and journals dated in this period will need the Admin PIN to change.`))return;
+    setBusy(true);
+    try {
+      const response=await fetch('/api/income-tax',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,companyId,id:selected.id})});
+      const data=await response.json();if(!response.ok)throw new Error(data.error||'Could not update the filing.');
+      setSelected(data.paper);setSetup(s=>s?{...s,papers:s.papers.map(p=>p.id===data.paper.id?data.paper:p)}:s);
+      toast.success(action==='file'?'Corporate tax period filed and locked.':'Corporate tax period reopened.');
+    }catch(e){toast.error(e instanceof Error?e.message:'Could not update the filing.');}finally{setBusy(false);}
   }
   async function download(format:'print'|'pdf'|'csv'|'xlsx') {
     if(!current||!result||busy)return;
@@ -69,7 +81,7 @@ export function IncomeTaxCenter({companyId,companyName,stampData,onClose,onSourc
         {setup.canManage&&<div className="flex flex-wrap gap-2"><Button variant="outline" onClick={()=>void run('create-accounts')}>Create / link standard tax accounts</Button><Button variant="ghost" onClick={onAccounts}>Chart of Accounts</Button></div>}
         <div className="grid gap-3 sm:grid-cols-2"><label className="grid gap-1.5 text-sm">Other additions ({setup.currency})<Input type="number" min="0" step="0.01" value={config.additions} onChange={e=>change({additions:Number(e.target.value)})}/></label><label className="grid gap-1.5 text-sm">Tax deductions ({setup.currency})<Input type="number" min="0" step="0.01" value={config.deductions} onChange={e=>change({deductions:Number(e.target.value)})}/></label></div>
         <label className="grid gap-1.5 text-sm">Adjustment explanation<textarea className="min-h-20 w-full rounded-md border bg-background p-3" maxLength={1000} value={config.adjustmentNote} placeholder="Describe non-deductible expenses, exempt income or other reviewed adjustments. Do not repeat the selected tax expense add-back." onChange={e=>change({adjustmentNote:e.target.value})}/></label>
-        <div className="flex flex-wrap gap-2"><Button className="brand-primary-button" onClick={()=>void run('preview')}><RefreshCw className="size-4"/>Calculate / refresh</Button>{setup.canManage&&<Button variant="outline" onClick={()=>void run('save')}><Save className="size-4"/>Save working paper</Button>}<span className="self-center text-xs text-muted-foreground">{selected?`Saved revision ${selected.revision}`:'Not saved'} · Saving does not post tax.</span></div>
+        <div className="flex flex-wrap gap-2"><Button className="brand-primary-button" onClick={()=>void run('preview')}><RefreshCw className="size-4"/>Calculate / refresh</Button>{setup.canManage&&!selected?.filedAt&&<Button variant="outline" onClick={()=>void run('save')}><Save className="size-4"/>Save working paper</Button>}{setup.canManage&&selected&&!dirty&&(selected.filedAt?<Button variant="outline" disabled={busy} onClick={()=>void setFiled('reopen')}><LockOpen className="size-4"/>Reopen (Admin PIN)</Button>:<Button variant="outline" disabled={busy} onClick={()=>void setFiled('file')}><Lock className="size-4"/>Mark as filed</Button>)}<span className="self-center text-xs text-muted-foreground">{selected?.filedAt?`Filed ${new Date(selected.filedAt).toLocaleDateString('en-GB')} · period locked`:selected?`Saved revision ${selected.revision}`:'Not saved'} · Saving does not post tax.</span></div>
       </fieldset>
       {!current?<p role="status" className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">{busy?'Preparing working paper…':'Calculate to view current figures. Recalculate after changing any setting.'}</p>:result&&<>
         <div className="grid gap-3 sm:grid-cols-3">{[['Profit before tax',result.preTaxProfit],['Estimated taxable income',result.taxableIncome],['Estimated income tax',result.estimatedTax]].map(([label,value])=><div key={label} className="min-w-0 rounded-xl border bg-muted/30 p-4"><p className="text-xs text-muted-foreground">{label} · {result.currency}</p><p className="mt-2 break-words text-2xl font-semibold tabular-nums">{money(Number(value))}</p></div>)}</div>
