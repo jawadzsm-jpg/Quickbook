@@ -1766,11 +1766,21 @@ test('VAT management includes every taxable document type and posts adjustments 
   assert.equal(inactiveExempt.status,200,await inactiveExempt.clone().text());
   assert.equal((await inactiveExempt.json()).record.active,false);
   assert.equal((await (await setActive(exempt,true)).json()).record.active,true);
+  // STANDARD and ZERO can be switched off too; the app then picks another active code with the same rate.
   for (const value of ["STANDARD","ZERO"]) {
-    const refused=await setActive(listed.codes.find((entry)=>entry.code===value),false);
-    assert.equal(refused.status,400);
-    assert.match((await refused.json()).error,/must remain active/);
+    const entry=listed.codes.find((code)=>code.code===value);
+    const off=await setActive(entry,false);
+    assert.equal(off.status,200,await off.clone().text());
+    assert.equal((await off.json()).record.active,false);
+    assert.equal((await (await setActive(entry,true)).json()).record.active,true);
   }
+  const {activeVatCode}=await vite.ssrLoadModule('/lib/standard-vat-codes.ts');
+  const codes=[{code:'EXEMPT',rate:0},{code:'REVERSE_CHARGE',rate:5},{code:'IMPORT_GOODS',rate:5},{code:'OUT_OF_SCOPE',rate:0},{code:'REDUCED',rate:5}];
+  assert.equal(activeVatCode([{code:'STANDARD',rate:5},...codes],'STANDARD'),'STANDARD');
+  assert.equal(activeVatCode(codes,'ZERO'),'EXEMPT');
+  assert.equal(activeVatCode(codes,'STANDARD'),'REDUCED');
+  assert.equal(activeVatCode(codes.slice(0,4),'STANDARD'),'EXEMPT');
+  assert.equal(activeVatCode([],'ZERO'),'ZERO');
   const attachments=await vite.ssrLoadModule('/app/api/attachments/route.ts');
   const {reportAttachmentId}=await vite.ssrLoadModule('/lib/report-attachments.ts');
   const reportEntityId=reportAttachmentId('inventory-stock-aging');

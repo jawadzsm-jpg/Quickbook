@@ -30,6 +30,7 @@ import { uaeChequeLayout, uaeChequeLayouts, validChequeAlignment } from "@/lib/u
 import { standardAccounts } from "@/lib/standard-accounts";
 import { cleanDeliveryAddress } from "@/lib/delivery-address";
 import { lineExtraTypes } from "@/lib/line-extras";
+import { activeVatCode } from "@/lib/standard-vat-codes";
 
 type RecordKind = "transactions" | "contacts" | "items" | "accounts";
 const defaultPaymentTerms = "Due on receipt";
@@ -981,6 +982,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     }
     const configuredVatCodes = await db.select({ code: vatCodes.code, rate: vatCodes.rate }).from(vatCodes).where(and(eq(vatCodes.companyId, companyId), eq(vatCodes.active, true)));
     const vatRates = configuredVatCodes.length ? Object.fromEntries(configuredVatCodes.map((vatCode) => [vatCode.code, Number(vatCode.rate)])) : fallbackVatRates;
+    const activeVatEntries = Object.entries(vatRates).map(([code, rate]) => ({ code, rate }));
     if (purchaseOrderId && type === "bill" && payload.vatCode && !Object.hasOwn(vatRates, String(payload.vatCode).trim().toUpperCase())) return Response.json({ error: "Select an active VAT code for this bill." }, { status: 400 });
     if (type === "bill") rawLines = rawLines.filter(line => !line.isFreightCharge);
     if (rawLines.some(line => !Number.isFinite(Number(line.freightCharge ?? 0)) || Number(line.freightCharge ?? 0) < 0)) return Response.json({ error: "Line freight charges must be finite, non-negative amounts." }, { status: 400 });
@@ -989,17 +991,17 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const unitPrice = Number(line.unitPrice ?? 0);
       const freightCharge = type === "bill" ? round(Number(line.freightCharge ?? 0)) : 0;
       const unitCost = type === "bill" && quantity > 0 ? round(unitPrice + freightCharge / quantity) : Number(line.unitCost ?? 0);
-      const requestedVatCode = type === "item receipt" || (type === "invoice" && quantity < 0) ? "ZERO" : String(line.vatCode ?? (Number(line.vatRate ?? payload.vatRate ?? 5) === 5 ? "STANDARD" : "ZERO")).trim().toUpperCase();
-      const vatCode = type === "invoice" && quantity < 0 ? "ZERO" : Object.hasOwn(vatRates, requestedVatCode) ? requestedVatCode : Object.hasOwn(vatRates, "STANDARD") ? "STANDARD" : Object.keys(vatRates)[0];
-      const vatRate = type === "invoice" && quantity < 0 ? 0 : vatRates[vatCode];
+      // Item receipts and stock-return invoice lines are always zero-rated, even when the ZERO code is inactive.
+      const zeroRated = type === "item receipt" || (type === "invoice" && quantity < 0);
+      const vatCode = zeroRated ? "ZERO" : activeVatCode(activeVatEntries, String(line.vatCode ?? (Number(line.vatRate ?? payload.vatRate ?? 5) === 5 ? "STANDARD" : "ZERO")).trim().toUpperCase());
+      const vatRate = zeroRated ? 0 : vatRates[vatCode];
       const subtotal = round(quantity * unitPrice);
       const vatAmount = round(subtotal * vatRate / 100);
       return { itemId: line.itemId ? Number(line.itemId) : null, description: String(line.description ?? "").trim(), comments: lineExtraTypes.includes(type) ? String(line.comments ?? "") : "", serialNumber: lineExtraTypes.includes(type) ? String(line.serialNumber ?? "") : "", quantity, unitPrice, unitCost, freightCharge, isFreightCharge: false, vatCode, vatRate, subtotal, vatAmount, total: round(subtotal + vatAmount) };
     }).filter((line) => line.description || line.itemId || line.subtotal > 0);
     if (!prepared.length && Number(payload.total) > 0) {
       const subtotal = Number(payload.total);
-      const requestedVatCode = Number(payload.vatRate ?? 5) === 5 ? "STANDARD" : "ZERO";
-      const vatCode = Object.hasOwn(vatRates, requestedVatCode) ? requestedVatCode : Object.keys(vatRates)[0];
+      const vatCode = activeVatCode(activeVatEntries, Number(payload.vatRate ?? 5) === 5 ? "STANDARD" : "ZERO");
       const vatRate = vatRates[vatCode];
       prepared.push({ comments: "", serialNumber: "", itemId: null, description: String(payload.memo ?? type), quantity: 1, unitPrice: subtotal, unitCost: 0, freightCharge: 0, isFreightCharge: false, vatCode, vatRate, subtotal, vatAmount: round(subtotal * vatRate / 100), total: round(subtotal * (1 + vatRate / 100)) });
     }

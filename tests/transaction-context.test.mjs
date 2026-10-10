@@ -2773,6 +2773,27 @@ test('stock holds reserve quantity for one sales rep until released', async () =
   } finally { delete globalThis.__transferTestUser; }
 });
 
+test('inactive STANDARD and ZERO codes: receipts stay zero-rated and defaults use another active code', async () => {
+  const c = (await database.query("INSERT INTO companies(name) VALUES ('Inactive VAT defaults') RETURNING id")).rows[0].id;
+  const loc = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'IVAT','VAT inventory','IVT') RETURNING id", [c])).rows[0].id;
+  const item = (await database.query("INSERT INTO items(company_id,location_id,sku,name,quantity,cost,item_type) VALUES($1,$2,'IVAT-SKU','VAT laptop',10,40,'stock-part') RETURNING id", [c, loc])).rows[0].id;
+  await database.query("INSERT INTO contacts(company_id,type,name,currency) VALUES($1,'customer','VAT Customer','AED'),($1,'vendor','VAT Vendor','AED')", [c]);
+  await database.query("INSERT INTO vat_codes(company_id,code,name,rate,description,active,system) VALUES($1,'STANDARD','Standard rated',5,'',false,true),($1,'ZERO','Zero rated',0,'',false,true),($1,'EXEMPT','Exempt',0,'',true,true),($1,'REVERSE_CHARGE','Reverse charge',5,'',true,true),($1,'REDUCED','Reduced',5,'',true,false)", [c]);
+  const records = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const post = (body) => records.POST(new Request('https://app.test/api/records', { method: 'POST', headers: { origin: 'https://app.test', 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'transactions', companyId: c, locationId: loc, transactionDate: '2026-10-01', currency: 'AED', exchangeRate: 1, ...body }) }));
+  const lines = async (id) => (await database.query('SELECT vat_code, vat_rate FROM transaction_lines WHERE transaction_id=$1 ORDER BY id', [id])).rows.map((row) => [row.vat_code, Number(row.vat_rate)]);
+  try {
+    globalThis.__transferTestUser = { id: 1, role: 'admin', companyIds: [c] };
+    const receipt = await post({ type: 'item receipt', number: 'IVAT-IR', party: 'VAT Vendor', lines: [{ itemId: item, description: 'VAT laptop', quantity: 1, unitPrice: 40, vatCode: 'STANDARD' }] });
+    assert.equal(receipt.status, 201, JSON.stringify(await receipt.clone().json()));
+    assert.deepEqual(await lines((await receipt.json()).record.id), [['ZERO', 0]]);
+    const invoice = await post({ type: 'invoice', number: 'IVAT-INV', party: 'VAT Customer', account: 'Sales Revenue', lines: [{ itemId: item, description: 'VAT laptop', quantity: 1, unitPrice: 100, vatCode: 'STANDARD' }] });
+    assert.equal(invoice.status, 201, JSON.stringify(await invoice.clone().json()));
+    // STANDARD is inactive: the line takes the active 5% code that is not reverse charge or import.
+    assert.deepEqual(await lines((await invoice.json()).record.id), [['REDUCED', 5]]);
+  } finally { delete globalThis.__transferTestUser; }
+});
+
 test('pending invoices remain unposted until an administrator or accountant converts them once', async () => {
   const c = (await database.query("INSERT INTO companies(name) VALUES ('Pending invoice roles') RETURNING id")).rows[0].id;
   const loc = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'PENDROLE','Pending inventory','PEND') RETURNING id", [c])).rows[0].id;
