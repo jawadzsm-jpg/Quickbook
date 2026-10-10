@@ -21,6 +21,7 @@ import { InvoiceSerialEditor } from "./invoice-serial-editor";
 import { InventoryInvoiceEditor } from "./inventory-invoice-editor";
 import { ItemSearchSelect, itemSearchDetail, itemSearchFields } from "./item-search-select";
 import { heldNote, useActiveHolds } from "./stock-holds";
+import { CopyOnHover } from "./copy-on-hover";
 import { SalesDailyWork } from "./sales-daily-work";
 import { CustomerSalesOwner } from "./customer-sales-owner";
 import { salesDocumentTypes, salesHandoffTypes } from "@/lib/sales-access";
@@ -2009,7 +2010,7 @@ function ItemTable({ records, currency, companyId, onStatusChanged, empty, onDel
       const inactive = r.status === "inactive";
       const out = Number(r.quantity) <= 0;
       return <TableRow key={r.id}>
-        <TableCell className="font-mono text-xs">{String(r.itemNumber || 13000 + r.id)}</TableCell>
+        <TableCell className="font-mono text-xs"><CopyOnHover value={String(r.itemNumber || 13000 + r.id)} label="Item No." /></TableCell>
         <TableCell className="font-mono text-xs">{String(r.sku)}</TableCell>
         <TableCell><div className="flex flex-wrap items-center gap-2"><p className="min-w-64 max-w-xl whitespace-normal break-words font-semibold leading-5 [overflow-wrap:anywhere]" title={description}>{description}</p>{inactive ? <Badge className="bg-slate-200 text-slate-700 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-100">Item is inactive</Badge> : out ? <Badge className="bg-rose-100 text-rose-700 hover:bg-rose-100">Out of stock</Badge> : null}</div>{onEdit && <label className="mt-2 inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300"><Checkbox checked={inactive} disabled={pendingId !== null || !companyId} aria-label={`Item is inactive for ${String(r.name)}`} onCheckedChange={(checked) => void changeStatus(r, checked === true)} />Item is inactive</label>}</TableCell>
         <TableCell>{String(r.category)}</TableCell>
