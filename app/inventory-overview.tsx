@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Lock, BadgeDollarSign, Boxes, CalendarClock, ChevronDown, Clock, Download, Eye, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PackageOpen, PackageX, PlaneLanding, RefreshCw, Rocket, Search, Send, ShoppingCart, TriangleAlert, UserRound, Warehouse, X } from "lucide-react";
+import { Lock, Pencil, BadgeDollarSign, Boxes, CalendarClock, ChevronDown, Clock, Download, Eye, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PackageOpen, PackageX, PlaneLanding, RefreshCw, Rocket, Search, Send, ShoppingCart, TriangleAlert, UserRound, Warehouse, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
@@ -186,6 +187,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   const [detailRecord, setDetailRecord] = useState<ConsolidatedItem | null>(null);
   const [holds, setHolds] = useState<StockHold[]>([]);
   const [canManageHolds, setCanManageHolds] = useState(false);
+  const [editor, setEditor] = useState<{ channel: ShareChannel; text: string } | null>(null);
   const [shareEmoji, setShareEmoji] = useState<{ whatsapp: string; telegram: string; offCompanyIds: number[] }>({ whatsapp: defaultShareEmoji, telegram: defaultShareEmoji, offCompanyIds: [] });
   const [holdTarget, setHoldTarget] = useState<ConsolidatedItem | null>(null);
 
@@ -429,11 +431,11 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   // Hidden when every listed company has share emoji switched off by its administrator.
   const emojiAllowed = records.some((record) => !shareEmoji.offCompanyIds.includes(record.companyId));
   const emojiPicker = (channel: "whatsapp" | "telegram") => emojiAllowed ? <select aria-label={`${channel === "whatsapp" ? "WhatsApp" : "Telegram"} emoji style`} title={`${channel === "whatsapp" ? "WhatsApp" : "Telegram"} emoji style (saved for you)`} className="h-8 w-[7.5rem] rounded-md border border-input bg-card px-1.5 text-xs text-foreground" value={shareEmoji[channel]} onChange={(event) => void chooseEmoji(channel, event.target.value)}>{shareEmojiStyles.map((style) => <option key={style.id} value={style.id}>{style.label}</option>)}</select> : null;
-  const copyForChannel = async (channel: ShareChannel) => {
+  const channelName = (channel: ShareChannel) => channel === "whatsapp" ? "WhatsApp" : channel === "telegram" ? "Telegram" : "Email";
+  const copyForChannel = async (channel: ShareChannel, edited?: string) => {
     if (!canSelectItems || loading) return;
-    const text = shareText(channel);
+    const text = edited ?? shareText(channel);
     if (!text) return toast.error("Select at least one item to copy.");
-    const channelName = channel === "whatsapp" ? "WhatsApp" : channel === "telegram" ? "Telegram" : "Email";
     try {
       await navigator.clipboard.writeText(text);
     } catch {
@@ -446,7 +448,14 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
       document.execCommand("copy");
       textarea.remove();
     }
-    toast.success(`${channelName} format copied for ${selectedRecords.length} selected ${selectedRecords.length === 1 ? "item" : "items"}`);
+    toast.success(`${channelName(channel)} format copied for ${selectedRecords.length} selected ${selectedRecords.length === 1 ? "item" : "items"}`);
+  };
+  // Edit before copying: the message opens in a text box for one-off changes; nothing typed there is saved.
+  const openEditor = (channel: ShareChannel) => {
+    if (!canSelectItems || loading) return;
+    const text = shareText(channel);
+    if (!text) return toast.error("Select at least one item to edit.");
+    setEditor({ channel, text });
   };
 
   const exportExcel = (withVat: boolean) => {
@@ -575,6 +584,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
           <Button size="sm" disabled={shareDisabled} onClick={() => copyForChannel("telegram")} title="Copy Telegram format" aria-label="Copy Telegram format" className="bg-[#1a77ad] text-white hover:bg-[#15638f]"><Send /><span className="@max-[62rem]:hidden">Telegram</span></Button>
           {emojiPicker("telegram")}
           <Button size="sm" variant="outline" disabled={shareDisabled} onClick={() => copyForChannel("email")} title="Copy email format" aria-label="Copy email format"><Mail /><span className="@max-[62rem]:hidden">Email</span></Button>
+          <Button size="sm" variant="outline" disabled={shareDisabled} onClick={() => openEditor("whatsapp")} title="Edit the message before copying" aria-label="Edit the message before copying"><Pencil /><span className="@max-[62rem]:hidden">Edit</span></Button>
           <Button size="sm" variant="outline" disabled={shareDisabled} onClick={() => exportExcel(false)} title="Export Excel without VAT" aria-label="Export Excel without VAT"><Download /><span className="@max-[62rem]:hidden">Excel no VAT</span></Button>
           <Button size="sm" variant="outline" disabled={shareDisabled} onClick={() => exportExcel(true)} title="Export Excel including VAT" aria-label="Export Excel including VAT"><FileSpreadsheet /><span className="@max-[62rem]:hidden">Excel + VAT</span></Button>
         </div>
@@ -627,6 +637,17 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     </section>
 
     <StockHoldDialog key={holdTarget?.id ?? "none"} target={holdTarget} holds={holds} onClose={() => setHoldTarget(null)} onSaved={() => { setHoldTarget(null); void load(); }} />
+    <Dialog open={Boolean(editor)} onOpenChange={(open) => { if (!open) setEditor(null); }}><DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
+      <DialogHeader><DialogTitle>Edit before copying</DialogTitle><DialogDescription>Change any words for this message only, then copy. Your emoji style and selected items fill it in; edits are not saved.</DialogDescription></DialogHeader>
+      {editor && <div className="grid gap-3">
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Message format">{(["whatsapp", "telegram", "email"] as const).map((channel) => <Button key={channel} type="button" size="sm" variant={editor.channel === channel ? "default" : "outline"} aria-pressed={editor.channel === channel} onClick={() => { if (editor.channel !== channel && (editor.text === shareText(editor.channel) || window.confirm("Switch format? Your edits to this message will be replaced."))) setEditor({ channel, text: shareText(channel) }); }}>{channelName(channel)}</Button>)}</div>
+        <Textarea aria-label={`${channelName(editor.channel)} message`} rows={14} className="min-h-64 resize-y font-mono text-sm" value={editor.text} onChange={(event) => setEditor({ ...editor, text: event.target.value })} />
+      </div>}
+      <DialogFooter className="gap-2 sm:justify-between">
+        <Button type="button" variant="ghost" disabled={!editor} onClick={() => editor && setEditor({ ...editor, text: shareText(editor.channel) })}>Reset text</Button>
+        <div className="flex gap-2"><Button type="button" variant="outline" onClick={() => setEditor(null)}>Cancel</Button><Button type="button" disabled={!editor?.text.trim()} onClick={() => { if (!editor) return; void copyForChannel(editor.channel, editor.text); setEditor(null); }}>Copy {editor ? channelName(editor.channel) : ""}</Button></div>
+      </DialogFooter>
+    </DialogContent></Dialog>
     <Dialog open={Boolean(detailRecord)} onOpenChange={(open) => { if (!open) setDetailRecord(null); }}><DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl"><DialogHeader><DialogTitle>Product Customization Details</DialogTitle><DialogDescription>{detailRecord ? `${detailRecord.name} · SKU ${detailRecord.sku} · Item #${detailRecord.itemNumber || "—"}` : "Product details"}</DialogDescription></DialogHeader>{detailRecord ? <div className="space-y-5"><div className="flex flex-wrap items-center gap-2"><Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">{receivedAge(detailRecord.latestReceivedAt)}</Badge>{detailRecord.inventories.map((inventory) => <Badge key={inventory.locationId} variant="outline">{inventory.locationName} · Qty {Number(inventory.quantity).toLocaleString()}</Badge>)}</div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{[["RAM", detailRecord.customizationRam || specificationValue(detailRecord, ["RAM", "Memory"])], ["Storage", detailRecord.customizationStorage || specificationValue(detailRecord, ["Storage", "SSD", "Hard Drive"])], ["Screen Details", detailRecord.customizationScreen || specificationValue(detailRecord, ["Screen", "Display", "Screen Size"])], ["Part Number", detailRecord.partNumber || specificationValue(detailRecord, ["Part Number", "MPN"])], ["Serial", detailRecord.itemSerialNumber], ["UPC No.", detailRecord.upcNumber], ["Quantity on hand", Number(detailRecord.quantity).toLocaleString()]].map(([label, value]) => <div key={label} className="rounded-lg border bg-muted/20 p-3"><span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{label}</span><p className="mt-1 break-words font-semibold">{value || "Not entered"}</p></div>)}</div><div className="rounded-lg border p-4"><h4 className="font-semibold">Full product specifications</h4><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">{specificationText(detailRecord) || "No specifications entered."}</p></div><div className="rounded-lg border p-4"><h4 className="font-semibold">Details for users</h4><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">{detailRecord.customizationDetails || "No customization details entered."}</p></div></div> : null}</DialogContent></Dialog>
   </div>;
 }
