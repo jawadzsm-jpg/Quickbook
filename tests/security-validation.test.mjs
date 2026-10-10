@@ -18,7 +18,7 @@ const { normalizeComparableText, uppercaseText } = await sourceModule("../lib/te
 const { dueDateForPaymentTerms } = await sourceModule("../lib/payment-terms.ts");
 const { chequeAlignmentBounds, uaeChequeLayout, validChequeAlignment } = await sourceModule("../lib/uae-cheque-layouts.ts");
 const { countries } = await sourceModule("../lib/countries.ts");
-const { generatedItemDescription, inventoryItemCondition, inventoryItemDetails, inventoryItemLine, inventoryItemTitle, inventoryShareDescription, inventorySocialShareText, invoiceItemDescription, itemSpecificationDescription, itemTitleWithSku } = await sourceModule("../lib/item-description.ts");
+const { partNumberInLine, generatedItemDescription, inventoryItemCondition, inventoryItemDetails, inventoryItemLine, inventoryItemTitle, inventoryShareDescription, inventorySocialShareText, invoiceItemDescription, itemSpecificationDescription, itemTitleWithSku } = await sourceModule("../lib/item-description.ts");
 const { isInvoiceItemSelectable } = await sourceModule("../lib/invoice-item-filter.ts");
 const { calculatorResult } = await sourceModule("../lib/calculator.ts");
 
@@ -68,6 +68,12 @@ test("item identity appears once in titles and Item No. is reserved for invoice 
   assert.equal(itemTitleWithSku("Dell Alienware 16 Aurora AC16250", "73B1DA"), "DELL ALIENWARE 16 AURORA AC16250-73B1DA");
   assert.equal(inventoryItemTitle("Dell Alienware 16 Aurora AC16250 73B1DA |Brand New"), "DELL ALIENWARE 16 AURORA AC16250 73B1DA |BRAND NEW");
   assert.equal(inventoryItemLine("Dell Alienware 16 Aurora AC16250", "73B1DA", "BRAND NEW | CORE 7-240H | 16GB RAM", "13040"), "DELL ALIENWARE 16 AURORA AC16250 73B1DA | BRAND NEW | CORE 7-240H | 16GB RAM #13040");
+  // Inventory Overview finds the part number written in a product line so it can be copied.
+  assert.equal(partNumberInLine("ASUS VIVOBOOK X1407QA-BS56 C7404D | BRAND NEW | SNAPDRAGON X X126100 | 16GB RAM | 512GB SSD | WUXGA 1920X1200 | WIN 11 HOME | SILVER COLOR | 90NB1603-M002S0 | MANUFACTURE WARRANTY ONLY #13115"), "90NB1603-M002S0");
+  assert.equal(partNumberInLine("LENOVO YOGA 7 3AA0F7 | BRAND NEW | ULTRA 7-256V | 16GB RAM | LUNA GREY | 83JT0047US | MANUFACTURE WARRANTY ONLY"), "83JT0047US");
+  assert.equal(partNumberInLine("MSI VECTOR 16 HX AI FC8C51 | BRAND NEW | 1TB SSD | COSMO GRAY | 9S7-15M352-436 | MANUFACTURE WARRANTY ONLY #13113"), "9S7-15M352-436");
+  assert.equal(partNumberInLine("DELL ALIENWARE 16 73B1DA | BLUE | 69YX2C4 #13040"), "69YX2C4");
+  assert.equal(partNumberInLine("HP ELITEBOOK | RENEWED PAINT AND TESTED | 11TH GEN I7-1185G7 | 32GB | 512GB SSD | 2560X1600 | DOS | ONE MONTHS WARRANTY"), "");
   // Inventory Overview's Condition filter reads the condition from the description, in any position or case.
   assert.equal(inventoryItemCondition("Dell Alienware 16", "73B1DA", "BRAND NEW | CORE 7-240H | 16GB RAM", "13040"), "BRAND NEW");
   assert.equal(inventoryItemCondition("HP EliteBook", "AB12CD", "Core i7 | open box | 16GB RAM"), "OPEN BOX");

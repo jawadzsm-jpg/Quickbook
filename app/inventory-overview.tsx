@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { StockHoldDialog, StockHoldsPanel, heldTotals, type StockHold } from "./stock-holds";
-import { inventoryItemCondition, inventoryItemLine, inventorySocialShareText, itemSpecificationDescription } from "@/lib/item-description";
+import { inventoryItemCondition, inventoryItemLine, partNumberInLine, inventorySocialShareText, itemSpecificationDescription } from "@/lib/item-description";
 import { matchesSearch } from "@/lib/search";
 import { CopyOnHover } from "./copy-on-hover";
 
@@ -567,16 +567,17 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
                 const held = heldOn(record);
                 const description = inventoryItemLine(record.name, record.sku, specificationText(record), record.itemNumber);
                 const itemNumber = String(record.itemNumber ?? "").normalize("NFKC").trim().toLocaleUpperCase("en").replace(/^#/, "");
-                // The part number and trailing #Item No. sit outside the details buttons so hovering or clicking them copies.
+                // The line is plain text (Details opens the product popup); the part number and #Item No. in it copy on hover or click.
                 const numberShown = Boolean(itemNumber) && description.endsWith(`#${itemNumber}`);
                 const lineText = numberShown ? description.slice(0, -itemNumber.length - 1).trimEnd() : description;
-                const partNumber = partNumberOf(record);
-                const partAt = partNumber ? lineText.indexOf(partNumber) : -1;
-                const openDetails = (text: string) => text ? <button type="button" onClick={() => setDetailRecord(record)} className="inline whitespace-normal break-words text-left hover:text-primary [overflow-wrap:anywhere]" title="Open product details">{text}</button> : null;
+                // Part number: the saved field when it is written in the line, else the code found in the line itself.
+                const savedPart = partNumberOf(record);
+                const partNumber = savedPart && lineText.includes(savedPart) ? savedPart : partNumberInLine(lineText) || savedPart;
+                const partAt = partNumber ? lineText.lastIndexOf(partNumber) : -1;
                 return <TableRow key={record.id} data-state={selectedIds.has(record.id) ? "selected" : undefined} className="align-top hover:bg-muted/30 data-[state=selected]:bg-primary/10">
                   <TableCell className="py-4"><Checkbox className="mt-0.5" disabled={!canSelectItems || loading} aria-label={`Select ${record.name}`} checked={selectedIds.has(record.id)} onCheckedChange={(checked) => toggleSelected(record.id, checked === true)} /></TableCell>
                   <TableCell className="min-w-0 overflow-hidden py-4">
-                    <p className="w-full max-w-full whitespace-normal break-words text-sm font-semibold leading-snug text-foreground sm:text-[15px] [overflow-wrap:anywhere]">{partAt >= 0 ? <>{openDetails(lineText.slice(0, partAt))}<CopyOnHover value={partNumber} label="Part No." />{openDetails(lineText.slice(partAt + partNumber.length))}</> : openDetails(lineText)}{numberShown ? <> <CopyOnHover value={itemNumber} display={`#${itemNumber}`} label="Item No." /></> : null}</p>
+                    <p className="w-full max-w-full whitespace-normal break-words text-sm font-semibold leading-snug text-foreground sm:text-[15px] [overflow-wrap:anywhere]">{partAt >= 0 ? <>{lineText.slice(0, partAt)}<CopyOnHover value={partNumber} label="Part No." />{lineText.slice(partAt + partNumber.length)}</> : lineText}{numberShown ? <> <CopyOnHover value={itemNumber} display={`#${itemNumber}`} label="Item No." /></> : null}</p>
                     <div className="mt-2.5 flex min-w-0 flex-wrap items-center gap-1.5 text-xs">
                       <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-semibold ${out ? "bg-rose-500/15 text-rose-600 dark:text-rose-300" : low ? "bg-amber-500/15 text-amber-700 dark:text-amber-300" : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"}`}><span className={`size-1.5 rounded-full ${out ? "bg-rose-500" : low ? "bg-amber-500" : "bg-emerald-500"}`} />{out ? "Out of stock" : low ? "Low stock" : "In stock"}</span>
                       {partNumber && partAt < 0 && <span className="inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 font-medium text-muted-foreground">Part No. <CopyOnHover value={partNumber} label="Part No." /></span>}

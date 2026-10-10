@@ -31,6 +31,18 @@ function inventoryLineParts(name: unknown, sku: unknown, description: unknown, i
   return { identity, condition, details: parts.join(" | ") };
 }
 
+const measurement = /^\d+(?:\.\d+)?(?:GB|TB|MB|GHZ|MHZ|HZ|W|MAH|INCH|K)$/;
+const resolution = /^\d{3,4}X\d{3,4}$/;
+/**
+ * A part number written in a product line ("... | 90NB1603-M002S0 | ..."): the last "|" section that is one code of
+ * 6+ letters, digits and dashes with both a letter and a digit. Sizes (16GB, 1TB), resolutions (1920X1200) and the
+ * trailing #Item No. are skipped. Returns "" when there is none.
+ */
+export function partNumberInLine(line: unknown) {
+  const sections = capitalText(line).split("|").map((part) => part.trim().replace(/\s*#\d+$/, ""));
+  return sections.filter((part) => /^[A-Z0-9][A-Z0-9./-]{5,}$/.test(part) && /[A-Z]/.test(part) && /\d/.test(part) && !measurement.test(part) && !resolution.test(part)).at(-1) ?? "";
+}
+
 /** The item's condition (BRAND NEW, OPEN BOX, REFURBISHED, RENEWED or USED) from its description, or "" when none is given. */
 export function inventoryItemCondition(name: unknown, sku: unknown, description: unknown, itemNumber?: unknown) {
   return inventoryLineParts(name, sku, description, itemNumber).condition;
