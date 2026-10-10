@@ -2876,6 +2876,22 @@ test('share emoji: users save a WhatsApp and Telegram style; an administrator sw
   } finally { delete globalThis.__transferTestUser; }
 });
 
+test('company setup saves the UAE e-invoicing section on its own', async () => {
+  const c = (await database.query("INSERT INTO companies(name,trn) VALUES ('E-invoice company','100123456700003') RETURNING id")).rows[0].id;
+  const setup = await vite.ssrLoadModule('/app/api/company-setup/route.ts');
+  const patch = (body) => setup.PATCH(new Request('https://app.test/api/company-setup', { method: 'PATCH', headers: { origin: 'https://app.test', 'content-type': 'application/json' }, body: JSON.stringify({ companyId: c, ...body }) }));
+  try {
+    globalThis.__transferTestUser = { id: 1, role: 'admin', companyIds: [c] };
+    const saved = await patch({ einvoiceEnabled: true, peppolParticipantId: '0235:100123456700003', einvoiceAsp: 'Example ASP', einvoiceAspAccount: 'ACC-1', einvoiceGoLive: '2027-01-01' });
+    assert.equal(saved.status, 200, await saved.clone().text());
+    const record = (await saved.json()).record;
+    assert.deepEqual([record.einvoiceEnabled, record.peppolParticipantId, record.einvoiceAsp, record.einvoiceAspAccount, record.einvoiceGoLive, record.trn], [true, '0235:100123456700003', 'Example ASP', 'ACC-1', '2027-01-01', '100123456700003']);
+    assert.equal((await patch({ einvoiceGoLive: '2027-13-45' })).status, 400);
+    globalThis.__transferTestUser = { id: 1, role: 'accountant', companyIds: [c] };
+    assert.equal((await patch({ einvoiceEnabled: false })).status, 403);
+  } finally { delete globalThis.__transferTestUser; }
+});
+
 test('pending invoices remain unposted until an administrator or accountant converts them once', async () => {
   const c = (await database.query("INSERT INTO companies(name) VALUES ('Pending invoice roles') RETURNING id")).rows[0].id;
   const loc = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'PENDROLE','Pending inventory','PEND') RETURNING id", [c])).rows[0].id;

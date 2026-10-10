@@ -29,7 +29,7 @@ Authorization labels below refer to permissions defined in `lib/auth.ts`. **Admi
 | Endpoint | Methods | Authorization | Purpose and important inputs |
 | --- | --- | --- | --- |
 | `/api/workspaces` | `GET`, `POST`, `PATCH`, `DELETE` | `workspace:read` for GET; Administrator for writes | List accessible companies and inventories; create/update/delete companies or inventory locations and their numbering configuration. |
-| `/api/company-setup` | `GET`, `PATCH` | `workspace:read` for GET; Administrator for full PATCH; accountant for stamp/bank fields only | Read or update name, base currency, addresses, TRN, bank data, logos, document template, colors, and company stamp. |
+| `/api/company-setup` | `GET`, `PATCH` | `workspace:read` for GET; Administrator for full PATCH; accountant for stamp/bank fields only | Read or update name, base currency, addresses, TRN, bank data, logos, document template, colors, and company stamp. A PATCH with only `einvoiceEnabled`, `peppolParticipantId`, `einvoiceAsp`, `einvoiceAspAccount`, `einvoiceGoLive` saves the UAE E-Invoicing section (administrators). |
 | `/api/cargos` | `GET`, `POST`, `PATCH`, `DELETE` | Any signed-in user with company access for GET/POST (sales included); the creator or an administrator for PATCH; administrators for DELETE | Shared cargo / freight agent list (`lib/cargo.ts`, table `cargos`, migration 0093). |
 | `/api/company-setup/branding` | `PATCH` | Administrator | Update login branding, login identity text, background, and logos for an assigned company. |
 | `/api/company-setup/letterhead` | `PATCH` | Administrator | Save the company letterhead design used by A4 document output. |
