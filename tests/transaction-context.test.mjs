@@ -2855,6 +2855,27 @@ test('filed VAT and corporate tax periods lock dated changes until the Admin PIN
   } finally { delete globalThis.__transferTestUser; }
 });
 
+test('share emoji: users save a WhatsApp and Telegram style; an administrator switches emoji off per company', async () => {
+  const c = (await database.query("INSERT INTO companies(name) VALUES ('Share emoji') RETURNING id")).rows[0].id;
+  const loc = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'EMO','Emoji inventory','EMO') RETURNING id", [c])).rows[0].id;
+  await database.query("INSERT INTO items(company_id,location_id,sku,name,quantity,cost,item_type) VALUES($1,$2,'EMO-SKU','Emoji laptop',3,40,'stock-part')", [c, loc]);
+  const user = (await database.query("INSERT INTO app_users(email,full_name,password_hash,role,active) VALUES('emoji@test.local','Emoji User','x','admin',true) RETURNING id")).rows[0].id;
+  const preferences = await vite.ssrLoadModule('/app/api/user-preferences/route.ts');
+  const admin = await vite.ssrLoadModule('/app/api/admin-settings/route.ts');
+  const overview = await vite.ssrLoadModule('/app/api/inventory-overview/route.ts');
+  const req = (path, method, body) => new Request(`https://app.test/api/${path}`, { method, headers: { origin: 'https://app.test', 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const shareEmoji = async () => (await (await overview.GET(new Request(`https://app.test/api/inventory-overview?companyId=${c}`))).json()).shareEmoji;
+  try {
+    globalThis.__transferTestUser = { id: user, role: 'admin', companyIds: [c] };
+    assert.deepEqual(await shareEmoji(), { whatsapp: 'classic', telegram: 'classic', offCompanyIds: [] });
+    assert.equal((await preferences.PATCH(req('user-preferences', 'PATCH', { shareEmojiWhatsapp: 'fire', shareEmojiTelegram: 'none' }))).status, 200);
+    assert.equal((await preferences.PATCH(req('user-preferences', 'PATCH', { shareEmojiWhatsapp: 'unknown' }))).status, 400);
+    assert.equal((await admin.POST(req('admin-settings', 'POST', { companyId: c, action: 'share-emojis', enabled: false }))).status, 200);
+    assert.deepEqual(await shareEmoji(), { whatsapp: 'fire', telegram: 'none', offCompanyIds: [c] });
+    assert.equal((await (await admin.GET(new Request(`https://app.test/api/admin-settings?companyId=${c}`))).json()).shareEmojis, false);
+  } finally { delete globalThis.__transferTestUser; }
+});
+
 test('pending invoices remain unposted until an administrator or accountant converts them once', async () => {
   const c = (await database.query("INSERT INTO companies(name) VALUES ('Pending invoice roles') RETURNING id")).rows[0].id;
   const loc = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'PENDROLE','Pending inventory','PEND') RETURNING id", [c])).rows[0].id;

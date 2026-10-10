@@ -17,12 +17,12 @@ export async function GET(request: Request) {
   if (authorization instanceof Response) return authorization;
   try {
     const db = getDb();
-    const [settings] = await db.select({ pinHash: companySettings.negativeStockPinHash }).from(companySettings).where(eq(companySettings.companyId, companyId)).limit(1);
+    const [settings] = await db.select({ pinHash: companySettings.negativeStockPinHash, shareEmojis: companySettings.shareEmojis }).from(companySettings).where(eq(companySettings.companyId, companyId)).limit(1);
     const [lastChange] = await db.select({ action: auditLog.action, createdAt: auditLog.createdAt }).from(auditLog)
       .where(and(eq(auditLog.companyId, companyId), eq(auditLog.entityType, "negative_stock_admin_pin"))).orderBy(desc(auditLog.createdAt)).limit(1);
     const overrides = await db.select({ id: auditLog.id, entityId: auditLog.entityId, details: auditLog.details, createdAt: auditLog.createdAt }).from(auditLog)
       .where(and(eq(auditLog.companyId, companyId), eq(auditLog.entityType, "transaction"), like(auditLog.details, "%admin negative-stock override used%"))).orderBy(desc(auditLog.createdAt)).limit(10);
-    return json({ configured: Boolean(settings?.pinHash), lastChange: lastChange ?? null, overrides });
+    return json({ configured: Boolean(settings?.pinHash), lastChange: lastChange ?? null, overrides, shareEmojis: settings?.shareEmojis ?? true });
   } catch (error) {
     return json({ error: errorMessage(error) }, 500);
   }
@@ -35,6 +35,15 @@ export async function POST(request: Request) {
   const authorization = await requireCompanyAccess(request, companyId, true, true);
   if (authorization instanceof Response) return authorization;
   try {
+    // Inventory Overview share emoji on/off for this company (no PIN needed).
+    if (payload.action === "share-emojis") {
+      if (typeof payload.enabled !== "boolean") return json({ error: "Choose on or off." }, 400);
+      const enabled = payload.enabled, updatedAt = new Date().toISOString();
+      const db = getDb();
+      await db.insert(companySettings).values({ companyId, shareEmojis: enabled, updatedAt }).onConflictDoUpdate({ target: companySettings.companyId, set: { shareEmojis: enabled, updatedAt } });
+      await db.insert(auditLog).values({ companyId, action: enabled ? "enabled" : "disabled", entityType: "share_emojis", entityId: companyId, details: `Inventory Overview share emoji turned ${enabled ? "on" : "off"} by ${authorization.email}` });
+      return json({ shareEmojis: enabled });
+    }
     const action = payload.action === "clear" ? "clear" : "set";
     const currentPin = String(payload.currentPin ?? "");
     const newPin = String(payload.newPin ?? "");

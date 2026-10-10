@@ -55,12 +55,14 @@ export function inventoryItemLine(name: unknown, sku: unknown, description: unkn
   return [identity, condition, detailsWithNumber].filter(Boolean).join(" | ");
 }
 
-export function inventorySocialShareText(name: unknown, sku: unknown, description: unknown, channel: "whatsapp" | "telegram", itemNumber?: unknown) {
+/** Emoji around the title and condition: Inventory Overview passes the user's chosen style; "" leaves them plain. */
+export function inventorySocialShareText(name: unknown, sku: unknown, description: unknown, channel: "whatsapp" | "telegram", itemNumber?: unknown, emoji: { title: string; condition: string } = { title: "🔺", condition: "⚡" }) {
   const { identity, condition, details } = inventoryLineParts(name, sku, description, itemNumber);
   const number = capitalText(itemNumber).replace(/^#/, "");
   const detailsWithNumber = [details, number ? `#${number}` : ""].filter(Boolean).join(" ");
   const bold = (value: string) => channel === "whatsapp" ? `*${value}*` : `**${value}**`;
-  const heading = [`🔺 ${bold(identity)} 🔺`, condition ? `⚡ ${bold(condition)} ⚡` : ""].filter(Boolean).join(" | ");
+  const around = (mark: string, value: string) => mark ? `${mark} ${value} ${mark}` : value;
+  const heading = [around(emoji.title, bold(identity)), condition ? around(emoji.condition, bold(condition)) : ""].filter(Boolean).join(" | ");
   return [condition ? `${heading} |` : heading, detailsWithNumber ? bold(detailsWithNumber) : ""].filter(Boolean).join("\n");
 }
 

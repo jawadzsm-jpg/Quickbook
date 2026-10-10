@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { StockHoldDialog, StockHoldsPanel, heldTotals, type StockHold } from "./stock-holds";
+import { defaultShareEmoji, shareEmojiStyle, shareEmojiStyles } from "@/lib/share-emoji";
 import { inventoryItemCondition, inventoryItemLine, partNumberInLine, inventorySocialShareText, itemSpecificationDescription } from "@/lib/item-description";
 import { matchesSearch } from "@/lib/search";
 import { CopyOnHover } from "./copy-on-hover";
@@ -185,6 +186,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   const [detailRecord, setDetailRecord] = useState<ConsolidatedItem | null>(null);
   const [holds, setHolds] = useState<StockHold[]>([]);
   const [canManageHolds, setCanManageHolds] = useState(false);
+  const [shareEmoji, setShareEmoji] = useState<{ whatsapp: string; telegram: string; offCompanyIds: number[] }>({ whatsapp: defaultShareEmoji, telegram: defaultShareEmoji, offCompanyIds: [] });
   const [holdTarget, setHoldTarget] = useState<ConsolidatedItem | null>(null);
 
   const load = useCallback(async () => {
@@ -202,6 +204,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
       setCanBulkSelect(data.canBulkSelect === true);
       setHolds((data.holds ?? []) as StockHold[]);
       setCanManageHolds(data.canManageHolds === true);
+      if (data.shareEmoji) setShareEmoji(data.shareEmoji);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not load inventory overview");
     } finally {
@@ -379,26 +382,43 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     return next;
   });
 
+  // The user's emoji style for the channel; "none" when the product's company has share emoji switched off.
+  const emojiFor = (channel: "whatsapp" | "telegram", companyId: number) => shareEmojiStyle(shareEmoji.offCompanyIds.includes(companyId) ? "none" : shareEmoji[channel]);
+  const chooseEmoji = async (channel: "whatsapp" | "telegram", style: string) => {
+    const previous = shareEmoji[channel];
+    setShareEmoji((current) => ({ ...current, [channel]: style }));
+    try {
+      const response = await fetch("/api/user-preferences", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ [channel === "whatsapp" ? "shareEmojiWhatsapp" : "shareEmojiTelegram"]: style }) });
+      if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || "Could not save the emoji style.");
+    } catch (error) {
+      setShareEmoji((current) => ({ ...current, [channel]: previous }));
+      toast.error(error instanceof Error ? error.message : "Could not save the emoji style.");
+    }
+  };
   const shareText = (channel: ShareChannel) => {
     if (!selectedRecords.length) return "";
     const items = selectedRecords.map((record) => {
       const description = specificationText(record);
+      const emoji = channel === "email" ? shareEmojiStyle("none") : emojiFor(channel, record.companyId);
+      // WhatsApp's Classic style keeps its plain detail lines; every other style marks them too.
+      const lineEmoji = (mark: string) => channel === "email" || (channel === "whatsapp" && emoji.id === "classic") ? "" : mark;
+      const marked = (mark: string, text: string) => lineEmoji(mark) ? `${lineEmoji(mark)} ${text}` : text;
       const title = channel === "email"
         ? `***${inventoryItemLine(record.name, record.sku, description, record.itemNumber)}***`
-        : inventorySocialShareText(record.name, record.sku, description, channel, record.itemNumber);
+        : inventorySocialShareText(record.name, record.sku, description, channel, record.itemNumber, emoji);
       const lines = [title];
       // Screen Details entered in Product Customization Details (the spec fallback is already in the description).
       const screen = record.customizationScreen?.trim();
-      if (screen) lines.push(channel === "telegram" ? `🖥 Screen: ${screen}` : `Screen: ${screen}`);
+      if (screen) lines.push(marked(emoji.screen, `Screen: ${screen}`));
       const details: string[] = [];
       if (showQuantity) {
         const quantity = plainMoney(Number(record.quantity));
-        details.push(channel === "telegram" ? `📦 Qty: ${quantity}` : channel === "email" ? `Quantity: ${quantity}` : `Qty: ${quantity}`);
+        details.push(channel === "email" ? `Quantity: ${quantity}` : marked(emoji.quantity, `Qty: ${quantity}`));
       }
       if (showPrice) {
         const price = priceFor(record);
         const value = `${record.currency} ${plainMoney(price)}${includeVat ? " (VAT included)" : " (VAT excluded)"}`;
-        details.push(channel === "telegram" ? `💰 ${value}` : channel === "email" ? `Price: ${value}` : value);
+        details.push(channel === "email" ? `Price: ${value}` : marked(emoji.price, value));
       }
       if (details.length) lines.push(details.join(" | "));
       return lines.filter(Boolean).join("\n");
@@ -406,6 +426,9 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     return items.join(channel === "telegram" ? "\n──────────────\n" : "\n-------------------\n");
   };
 
+  // Hidden when every listed company has share emoji switched off by its administrator.
+  const emojiAllowed = records.some((record) => !shareEmoji.offCompanyIds.includes(record.companyId));
+  const emojiPicker = (channel: "whatsapp" | "telegram") => emojiAllowed ? <select aria-label={`${channel === "whatsapp" ? "WhatsApp" : "Telegram"} emoji style`} title={`${channel === "whatsapp" ? "WhatsApp" : "Telegram"} emoji style (saved for you)`} className="h-8 w-[7.5rem] rounded-md border border-input bg-card px-1.5 text-xs text-foreground" value={shareEmoji[channel]} onChange={(event) => void chooseEmoji(channel, event.target.value)}>{shareEmojiStyles.map((style) => <option key={style.id} value={style.id}>{style.label}</option>)}</select> : null;
   const copyForChannel = async (channel: ShareChannel) => {
     if (!canSelectItems || loading) return;
     const text = shareText(channel);
@@ -548,7 +571,9 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
           <Button size="sm" disabled={shareDisabled} onClick={() => copyForChannel("whatsapp")} title="Copy WhatsApp format" aria-label="Copy WhatsApp format" className="bg-[#25D366] text-[#052e16] hover:bg-[#1fb558]"><MessageCircle /><span className="@max-[62rem]:hidden">WhatsApp</span></Button>
+          {emojiPicker("whatsapp")}
           <Button size="sm" disabled={shareDisabled} onClick={() => copyForChannel("telegram")} title="Copy Telegram format" aria-label="Copy Telegram format" className="bg-[#1a77ad] text-white hover:bg-[#15638f]"><Send /><span className="@max-[62rem]:hidden">Telegram</span></Button>
+          {emojiPicker("telegram")}
           <Button size="sm" variant="outline" disabled={shareDisabled} onClick={() => copyForChannel("email")} title="Copy email format" aria-label="Copy email format"><Mail /><span className="@max-[62rem]:hidden">Email</span></Button>
           <Button size="sm" variant="outline" disabled={shareDisabled} onClick={() => exportExcel(false)} title="Export Excel without VAT" aria-label="Export Excel without VAT"><Download /><span className="@max-[62rem]:hidden">Excel no VAT</span></Button>
           <Button size="sm" variant="outline" disabled={shareDisabled} onClick={() => exportExcel(true)} title="Export Excel including VAT" aria-label="Export Excel including VAT"><FileSpreadsheet /><span className="@max-[62rem]:hidden">Excel + VAT</span></Button>

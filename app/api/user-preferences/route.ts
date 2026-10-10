@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { appUsers } from "@/db/schema";
 import { requireApiUser } from "@/lib/auth";
+import { isShareEmojiStyle } from "@/lib/share-emoji";
 
 const themeColors = ["emerald", "ocean", "indigo", "violet", "rose", "amber"] as const;
 const appearanceModes = ["light", "dark"] as const;
@@ -25,9 +26,15 @@ export async function PATCH(request: Request) {
     }
     updates.appearanceMode = appearanceMode as typeof appearanceModes[number];
   }
-  if (payload.themeColor === undefined && payload.appearanceMode === undefined) {
+  // Inventory Overview share emoji style, chosen separately for WhatsApp and Telegram.
+  for (const [field, column] of [["shareEmojiWhatsapp", "shareEmojiWhatsapp"], ["shareEmojiTelegram", "shareEmojiTelegram"]] as const) {
+    if (payload[field] === undefined) continue;
+    if (!isShareEmojiStyle(payload[field])) return Response.json({ error: "Select a valid emoji style." }, { status: 400 });
+    updates[column] = String(payload[field]);
+  }
+  if (payload.themeColor === undefined && payload.appearanceMode === undefined && payload.shareEmojiWhatsapp === undefined && payload.shareEmojiTelegram === undefined) {
     return Response.json({ error: "Choose a preference to update." }, { status: 400 });
   }
   const [updated] = await getDb().update(appUsers).set(updates).where(eq(appUsers.id, user.id)).returning();
-  return Response.json({ themeColor: updated.themeColor, appearanceMode: updated.appearanceMode }, { headers: { "Cache-Control": "no-store" } });
+  return Response.json({ themeColor: updated.themeColor, appearanceMode: updated.appearanceMode, shareEmojiWhatsapp: updated.shareEmojiWhatsapp, shareEmojiTelegram: updated.shareEmojiTelegram }, { headers: { "Cache-Control": "no-store" } });
 }
