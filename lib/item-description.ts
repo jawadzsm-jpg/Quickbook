@@ -31,6 +31,11 @@ function inventoryLineParts(name: unknown, sku: unknown, description: unknown, i
   return { identity, condition, details: parts.join(" | ") };
 }
 
+/** The item's condition (BRAND NEW, OPEN BOX, REFURBISHED, RENEWED or USED) from its description, or "" when none is given. */
+export function inventoryItemCondition(name: unknown, sku: unknown, description: unknown, itemNumber?: unknown) {
+  return inventoryLineParts(name, sku, description, itemNumber).condition;
+}
+
 export function inventoryItemLine(name: unknown, sku: unknown, description: unknown, itemNumber?: unknown) {
   const { identity, condition, details } = inventoryLineParts(name, sku, description, itemNumber);
   const number = capitalText(itemNumber).replace(/^#/, "");
