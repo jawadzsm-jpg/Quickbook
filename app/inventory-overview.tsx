@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { StockHoldDialog, StockHoldsPanel, heldTotals, type StockHold } from "./stock-holds";
-import { inventoryItemLine, inventorySocialShareText, itemSpecificationDescription } from "@/lib/item-description";
+import { inventoryItemCondition, inventoryItemLine, inventorySocialShareText, itemSpecificationDescription } from "@/lib/item-description";
 import { matchesSearch } from "@/lib/search";
 import { CopyOnHover } from "./copy-on-hover";
 
@@ -115,6 +115,10 @@ function specificationText(record: OverviewItem) {
   return itemSpecificationDescription(record.description, record.name, record.sku, record.itemNumber);
 }
 
+const noCondition = "Not specified";
+// Condition (BRAND NEW, OPEN BOX, ...) as written in the product's specifications or description.
+const conditionOf = (record: OverviewItem) => inventoryItemCondition(record.name, record.sku, specificationText(record), record.itemNumber) || noCondition;
+
 function plainMoney(value: number) {
   return value.toLocaleString("en-AE", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
@@ -161,6 +165,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   const [includeVat, setIncludeVat] = useState(false);
   const [category, setCategory] = useState("");
   const [brand, setBrand] = useState("");
+  const [condition, setCondition] = useState("");
   const [priceMin, setPriceMin] = useState("");
   const [priceMax, setPriceMax] = useState("");
   // Price adjustment for what is shown and shared (WhatsApp, Telegram, email, Excel); saved prices never change.
@@ -293,12 +298,13 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   const adjustLabel = adjustValue ? (priceAdjust.mode === "percent" ? ` +${adjustValue}%` : ` +${adjustValue}`) : "";
   const categoryOptions = useMemo(() => [...new Set(records.map((record) => record.category).filter(Boolean))].sort(), [records]);
   const brandOptions = useMemo(() => [...new Set(records.map((record) => brandOf(record)).filter(Boolean))].sort(), [records]);
+  const conditionOptions = useMemo(() => [...new Set(records.map(conditionOf))].sort((a, b) => Number(a === noCondition) - Number(b === noCondition) || a.localeCompare(b)), [records]);
   const statusCounts = useMemo(() => ({
     out: outOfStockRecords.length,
     hold: consolidatedRecords.filter((record) => record.recordIds.some((id) => heldByItem.has(id))).length,
   }), [outOfStockRecords, consolidatedRecords, heldByItem]);
-  const extraFilters = Boolean(category || brand || priceMin || priceMax);
-  const clearExtraFilters = () => { setCategory(""); setBrand(""); setPriceMin(""); setPriceMax(""); };
+  const extraFilters = Boolean(category || brand || condition || priceMin || priceMax);
+  const clearExtraFilters = () => { setCategory(""); setBrand(""); setCondition(""); setPriceMin(""); setPriceMax(""); };
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -310,6 +316,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
       if (filter === "recent30" && !receivedWithin(record, 30, loadedAt)) return [];
       if (category && record.category !== category) return [];
       if (brand && brandOf(record) !== brand) return [];
+      if (condition && conditionOf(record) !== condition) return [];
       if (min !== null && Number.isFinite(min) && Number(record.salesPrice) < min) return [];
       if (max !== null && Number.isFinite(max) && Number(record.salesPrice) > max) return [];
       const locationId = filter.startsWith("location:") ? Number(filter.split(":")[1]) : null;
@@ -323,7 +330,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
         reorderPoint: inventories.reduce((sum, inventory) => sum + Number(inventory.reorderPoint), 0),
       }];
     });
-  }, [consolidatedRecords, outOfStockRecords, filter, search, category, brand, priceMin, priceMax, heldByItem, loadedAt]);
+  }, [consolidatedRecords, outOfStockRecords, filter, search, category, brand, condition, priceMin, priceMax, heldByItem, loadedAt]);
 
   const categories = useMemo(() => {
     const grouped = new Map<string, ConsolidatedItem[]>();
@@ -506,11 +513,12 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
         </div>
       </div>
 
-      {/* Filters: category, brand and price range. */}
+      {/* Filters: category, brand, condition and price range. */}
       <div className="border-b bg-muted/20 px-4 py-3" aria-label="Filters">
         <div className="flex flex-wrap items-end gap-3">
           <label className="grid min-w-40 flex-1 gap-1 text-xs font-medium text-muted-foreground sm:flex-none">Category<select className="h-9 rounded-lg border border-input bg-card px-2 text-sm text-foreground" value={category} onChange={(event) => setCategory(event.target.value)}><option value="">All categories</option>{categoryOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
           <label className="grid min-w-36 flex-1 gap-1 text-xs font-medium text-muted-foreground sm:flex-none">Brand<select className="h-9 rounded-lg border border-input bg-card px-2 text-sm text-foreground" value={brand} onChange={(event) => setBrand(event.target.value)}><option value="">All brands</option>{brandOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+          <label className="grid min-w-36 flex-1 gap-1 text-xs font-medium text-muted-foreground sm:flex-none">Condition<select className="h-9 rounded-lg border border-input bg-card px-2 text-sm text-foreground" value={condition} onChange={(event) => setCondition(event.target.value)}><option value="">All conditions</option>{conditionOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
           <div className="grid gap-1 text-xs font-medium text-muted-foreground">Selling price (excl. VAT)<div className="flex items-center gap-1.5"><Input aria-label="Minimum price" type="number" min="0" inputMode="decimal" placeholder="Min" value={priceMin} onChange={(event) => setPriceMin(event.target.value)} className="h-9 w-24" /><span>–</span><Input aria-label="Maximum price" type="number" min="0" inputMode="decimal" placeholder="Max" value={priceMax} onChange={(event) => setPriceMax(event.target.value)} className="h-9 w-24" /></div></div>
           {(extraFilters || filter !== "all") && <Button type="button" variant="ghost" size="sm" className="h-9" onClick={() => { clearExtraFilters(); setFilter("all"); }}><X className="size-4" />Clear filters</Button>}
           <span className="ml-auto self-center text-xs text-muted-foreground"><strong className="text-foreground tabular-nums">{filtered.length}</strong> {filtered.length === 1 ? "product" : "products"}</span>
