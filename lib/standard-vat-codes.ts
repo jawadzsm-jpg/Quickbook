@@ -6,3 +6,7 @@ export const standardVatCodes = [
   { code: "IMPORT_GOODS", name: "Goods imported into the UAE", rate: 5, description: "Imported goods supported by a Bill of Entry, Airway Bill and customs documents", system: true },
   { code: "OUT_OF_SCOPE", name: "Out of scope", rate: 0, description: "Transaction outside the scope of VAT", system: true },
 ] as const;
+
+/** Codes the app applies on its own (new-line default and zero-rate fallback, e.g. negative invoice lines), so they always stay active. */
+export const alwaysActiveVatCodes: ReadonlySet<string> = new Set(["STANDARD", "ZERO"]);
+export const alwaysActiveVatMessage = "STANDARD and ZERO must remain active: documents use them as the default and zero-rate VAT codes.";
