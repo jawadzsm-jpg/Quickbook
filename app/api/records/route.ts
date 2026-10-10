@@ -31,6 +31,8 @@ import { standardAccounts } from "@/lib/standard-accounts";
 import { cleanDeliveryAddress } from "@/lib/delivery-address";
 import { lineExtraTypes } from "@/lib/line-extras";
 import { activeVatCode } from "@/lib/standard-vat-codes";
+import { outOfScopeItemIds } from "@/lib/out-of-scope-items";
+import { OUT_OF_SCOPE_CODE, hasOutOfScopeItem, outOfScopeProblem, outOfScopeSalesTypes } from "@/lib/out-of-scope-rules";
 
 type RecordKind = "transactions" | "contacts" | "items" | "accounts";
 const defaultPaymentTerms = "Due on receipt";
@@ -470,10 +472,12 @@ export async function GET(request: Request) {
       ]);
       const weightedCosts = new Map(purchaseCosts.flatMap((row) => row.itemId ? [[row.itemId, { quantity: Number(row.quantity), value: Number(row.value) }] as const] : []));
       const onPoByItem = new Map(openPurchaseOrders.flatMap((row) => row.itemId ? [[row.itemId, Number(row.onPo)] as const] : []));
+      // Items bought outside the scope of VAT; sales documents lock their VAT code to OUT_OF_SCOPE.
+      const outOfScope = await outOfScopeItemIds(companyId, records.map((item) => item.id));
       return Response.json({ records: records.map((item) => {
         const weighted = weightedCosts.get(item.id);
         const averageCost = weighted && weighted.quantity > 0 ? round(weighted.value / weighted.quantity) : round(Number(item.lastPurchasePrice) || Number(item.cost) || 0);
-        return { ...item, averageCost, onPo: round(onPoByItem.get(item.id) ?? 0) };
+        return { ...item, averageCost, onPo: round(onPoByItem.get(item.id) ?? 0), outOfScope: outOfScope.has(item.id) };
       }) });
     }
     if (kind === "accounts") {
@@ -1007,6 +1011,13 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     }
     if (!party || !prepared.length || prepared.some((line) => type === "invoice" ? !validInvoiceQuantity(line) : !Number.isFinite(line.quantity) || line.quantity <= 0 || !Number.isFinite(line.unitPrice) || line.unitPrice < 0)) {
       return Response.json({ error: "Party and at least one valid document line are required." }, { status: 400 });
+    }
+    if (outOfScopeSalesTypes.has(type)) {
+      const outOfScope = await outOfScopeItemIds(companyId, prepared.flatMap((line) => line.itemId ? [line.itemId] : []));
+      // Items bought outside the scope of VAT are sold on OUT_OF_SCOPE at 0%, even while that code is inactive.
+      if (hasOutOfScopeItem(prepared, outOfScope)) for (const line of prepared) if (line.quantity > 0) Object.assign(line, { vatCode: OUT_OF_SCOPE_CODE, vatRate: 0, vatAmount: 0, total: line.subtotal });
+      const problem = outOfScopeProblem(prepared, outOfScope);
+      if (problem) return Response.json({ error: problem }, { status: 400 });
     }
     if (usesSingleVatCode(type) && documentVatCodes(prepared).length > 1) {
       return Response.json({ error: `All lines on this ${type} must use the same VAT code. Choose one VAT code for the document (found ${documentVatCodes(prepared).join(", ")}).` }, { status: 400 });
@@ -1614,6 +1625,13 @@ async function handlePATCH(request: Request) {
           });
           if (appended.some((line) => !line.description || !validInvoiceQuantity(line) || !Number.isFinite(line.unitCost) || line.unitCost < 0 || !Number.isFinite(line.vatRate))) return Response.json({ error: "Enter an item/description, nonzero quantity, valid rate and VAT. Negative quantities require a stock item and zero selling price." }, { status: 400 });
           if (appended.some((line) => line.itemId !== null && (!Number.isInteger(line.itemId) || line.itemId <= 0))) return Response.json({ error: "Select a valid inventory item for every stock line." }, { status: 400 });
+          if (lineDetails.length || appended.length) {
+            // Items bought outside the scope of VAT stay on OUT_OF_SCOPE and on their own invoice.
+            const detailById = new Map(lineDetails.map((line) => [line.id, line]));
+            const finalLines = [...oldLines.filter((line) => !line.isFreightCharge).map((line) => ({ itemId: line.itemId, description: line.description, quantity: Number(line.quantity), vatCode: line.vatCode, ...detailById.get(line.id) })), ...appended];
+            const problem = outOfScopeProblem(finalLines, await outOfScopeItemIds(companyId, finalLines.flatMap((line) => line.itemId ? [Number(line.itemId)] : [])));
+            if (problem) return Response.json({ error: problem }, { status: 400 });
+          }
           if (documentVatCodes([...lineDetails, ...appended]).length > 1) return Response.json({ error: `All lines on this invoice must use the same VAT code. Choose one VAT code for the document (found ${documentVatCodes([...lineDetails, ...appended]).join(", ")}).` }, { status: 400 });
           const number = String(payload.number ?? "").trim();
           const transactionDate = String(payload.transactionDate ?? "");
