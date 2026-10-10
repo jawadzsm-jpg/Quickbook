@@ -2,7 +2,7 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "../../../db";
 import { auditLog, companies, vatCodes } from "../../../db/schema";
 import { canAccessCompany, requireApiUser, requireCompanyAccess } from "@/lib/auth";
-import { alwaysActiveVatCodes, alwaysActiveVatMessage, standardVatCodes } from "@/lib/standard-vat-codes";
+import { standardVatCodes } from "@/lib/standard-vat-codes";
 
 function errorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : "Could not update VAT codes.";
@@ -117,7 +117,6 @@ async function updateVatCode(request: Request) {
     const [existing] = await db.select().from(vatCodes).where(and(eq(vatCodes.id, id), eq(vatCodes.companyId, companyId))).limit(1);
     if (!existing) return Response.json({ error: "VAT code not found." }, { status: 404 });
     const requestedActive = payload.active === undefined ? existing.active : payload.active === true;
-    if (alwaysActiveVatCodes.has(existing.code) && !requestedActive) return Response.json({ error: alwaysActiveVatMessage }, { status: 400 });
     const [record] = await db.update(vatCodes).set({ name, rate: existing.system ? existing.rate : rate, description, active: requestedActive, updatedAt: new Date().toISOString() }).where(and(eq(vatCodes.id, id), eq(vatCodes.companyId, companyId))).returning();
     await db.insert(auditLog).values({ companyId, action: "updated", entityType: "vat_code", entityId: record.id, details: `${record.code} updated to ${record.rate}% (${record.active ? "active" : "inactive"})` });
     return Response.json({ record });

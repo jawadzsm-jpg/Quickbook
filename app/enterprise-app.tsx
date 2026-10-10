@@ -22,6 +22,7 @@ import { InventoryInvoiceEditor } from "./inventory-invoice-editor";
 import { ItemSearchSelect, itemSearchDetail, itemSearchFields } from "./item-search-select";
 import { heldNote, useActiveHolds } from "./stock-holds";
 import { CopyOnHover } from "./copy-on-hover";
+import { activeVatCode } from "@/lib/standard-vat-codes";
 import { SalesDailyWork } from "./sales-daily-work";
 import { CustomerSalesOwner } from "./customer-sales-owner";
 import { salesDocumentTypes, salesHandoffTypes } from "@/lib/sales-access";
@@ -900,7 +901,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     const taxFree = ["customer payment", "bill payment", "finance charge", "item receipt", "deposit", "transfer", "cheque order"].includes(type);
     const descriptions: Record<string, string> = { "customer payment": "Payment received", "bill payment": "Bill payment", "vendor credit": "Purchase return", cheque: "Cheque payment", "credit card charge": "Credit card charge", "cheque order": "Cheque books and envelopes", transfer: "Bank transfer", deposit: "Bank deposit", "statement charge": "Statement charge", "finance charge": "Finance charge", "credit memo": "Credit note / refund", "item receipt": "Items received", "received item bill": "Bill for received items" };
     setForm({ type, number: `${prefix}-${String(records.transactions.length + 1).padStart(4, "0")}`, transactionDate: ["inventory", "sales"].includes(currentUser.role) ? dubaiDay() : today(), dueDate: today(), terms: type === "cheque" ? "account-payee" : "Due on receipt", paymentMethod: type === "customer payment" ? "Bank transfer" : "", referenceNo: "", chequeBankKey: type === "cheque" ? "other-uae-bank" : "", status: "open", account: defaultPostingAccount(type, records.accounts, baseCurrency), vatRate: taxFree ? "0" : "5", currency: baseCurrency, exchangeRate: "1", billLocationId: String(activeLocationId), transactionLocationId: String(activeLocationId), salesman: currentUser.role === "sales" ? currentUser.fullName || currentUser.email : "", isImport: "false", freightCharges: "0" });
-    setLines([{ itemId: "", description: descriptions[type] ?? "", quantity: "1", unitPrice: "0", unitCost: "0", vatCode: taxFree ? "ZERO" : "STANDARD", vatRate: taxFree ? "0" : "5" }]);
+    setLines([{ itemId: "", description: descriptions[type] ?? "", quantity: "1", unitPrice: "0", unitCost: "0", vatCode: activeVatCode(vatCodeOptions, taxFree ? "ZERO" : "STANDARD"), vatRate: vatRateForCode(activeVatCode(vatCodeOptions, taxFree ? "ZERO" : "STANDARD"), vatCodeOptions) }]);
     setDialogOpen(true);
   }
 
@@ -943,7 +944,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
       const defaultIncome = records.accounts.find((account) => account.active && (account.systemRole === "SALES" || account.type === "Income" || /^income$/i.test(String(account.name || ""))));
       const defaultAsset = records.accounts.find((account) => account.active && account.systemRole === "INVENTORY")
         ?? records.accounts.find((account) => account.active && /inventory asset/i.test(String(account.name || "")));
-      const defaultVat = vatCodeOptions.find((code) => code.code === "STANDARD")?.code ?? vatCodeOptions[0]?.code ?? "ZERO";
+      const defaultVat = activeVatCode(vatCodeOptions, "STANDARD");
       const itemForm: Record<string, string> = {
         itemType: "stock-part", category: "LAPTOP", sku: identity.sku, itemNumber: identity.itemNumber, quantity: "0", reorderPoint: "0", salesPrice: "0", cost: "0",
         purchaseVatCode: defaultVat, salesVatCode: defaultVat, cogsAccountId: defaultCogs ? String(defaultCogs.id) : "",
@@ -963,7 +964,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
     setActiveLocationId(location.id);
     setRecords((current) => ({ ...current, items: [] }));
     setForm({ type: "invoice", number: invoiceNumberPreview(activeCompanyId, location), transactionDate: ["inventory", "sales"].includes(currentUser.role) ? dubaiDay() : today(), dueDate: today(), terms: "Due on receipt", status: "open", account: linkedAccountName(records.accounts, "SALES", "Sales Revenue"), vatRate: "5", currency: baseCurrency, exchangeRate: "1", allowNegativeStock: "false", adminOverridePin: "" });
-    setLines([{ itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatCode: "STANDARD", vatRate: "5" }]);
+    setLines([{ itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatCode: activeVatCode(vatCodeOptions, "STANDARD"), vatRate: vatRateForCode(activeVatCode(vatCodeOptions, "STANDARD"), vatCodeOptions) }]);
     setInvoiceInventoryOpen(false);
     setDialogOpen(true);
   }
@@ -998,7 +999,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
   }
 
   function appendInvoiceLine() {
-    setLines((current) => { const vatCode = documentVatCode(current) ?? "STANDARD"; return [{ itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatCode, vatRate: vatRateForCode(vatCode, vatCodeOptions), comments: "", serialNumber: "" }, ...current]; });
+    setLines((current) => { const vatCode = documentVatCode(current) ?? activeVatCode(vatCodeOptions, "STANDARD"); return [{ itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatCode, vatRate: vatRateForCode(vatCode, vatCodeOptions), comments: "", serialNumber: "" }, ...current]; });
   }
 
   // Documents with prices get their own calculator, usable while the editor stays open.
@@ -2800,7 +2801,7 @@ function CurrencyExchangeChoice({ form, setForm, exchangeRates, baseCurrency }: 
 }
 function BillFields({ form, setForm, items, vendors, salesmen, accounts, locations, lines, setLines, vatCodeOptions, exchangeRates, baseCurrency }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; items: DataRecord[]; vendors: DataRecord[]; salesmen: DataRecord[]; accounts: DataRecord[]; locations: InventoryLocation[]; lines: LineForm[]; setLines: (lines: LineForm[]) => void; vatCodeOptions: VatCodeOption[]; exchangeRates: ExchangeRateRecord[]; baseCurrency: string }) {
   const update = (index: number, changes: Partial<LineForm>) => setLines(lines.map((line, position) => position === index ? { ...line, ...changes } : line));
-  const addLine = (event?: { currentTarget: HTMLElement }) => { const vatCode = documentVatCode(lines) ?? (form.isImport === "true" ? "IMPORT_GOODS" : "ZERO"); setLines([{ itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", freightCharge: "0", vatCode, vatRate: vatRateForCode(vatCode, vatCodeOptions) }, ...lines]); revealNewLine(event?.currentTarget, ".bill-item-row"); };
+  const addLine = (event?: { currentTarget: HTMLElement }) => { const vatCode = documentVatCode(lines) ?? (form.isImport === "true" ? "IMPORT_GOODS" : activeVatCode(vatCodeOptions, "ZERO")); setLines([{ itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", freightCharge: "0", vatCode, vatRate: vatRateForCode(vatCode, vatCodeOptions) }, ...lines]); revealNewLine(event?.currentTarget, ".bill-item-row"); };
   const usesImportGoodsVat = lines.some((line) => line.vatCode === "IMPORT_GOODS");
   const documentRate = Math.max(Number(form.exchangeRate) || 1, Number.EPSILON);
   const subtotal = lines.filter(line => !line.pending).reduce((sum, line) => sum + Math.round(Number(line.quantity || 0) * Number(line.unitPrice || 0) * 100) / 100, 0);
@@ -2836,7 +2837,7 @@ function BillFields({ form, setForm, items, vendors, salesmen, accounts, locatio
       <div className="space-y-2"><Label>Sales Rep</Label><Select value={form.salesman || undefined} onValueChange={(value) => setForm({ ...form, salesman: value })}><SelectTrigger className="w-full"><SelectValue placeholder="Select sales rep" /></SelectTrigger><SelectContent>{salesmen.length ? salesmen.map((salesman) => <SelectItem key={salesman.id} value={String(salesman.name)}>{String(salesman.name)}</SelectItem>) : <SelectItem value="no-salesmen" disabled>No sales reps available</SelectItem>}</SelectContent></Select></div>
       <Field label="Reference No." name="number" form={form} setForm={setForm} required placeholder="Enter reference no." />
       <div className="space-y-2"><Label>Inventory *</Label><Select disabled={Boolean(form.revision)} value={form.billLocationId || String(locations[0]?.id ?? "")} onValueChange={(value) => setForm({ ...form, billLocationId: value })}><SelectTrigger className="w-full"><SelectValue placeholder="Select inventory" /></SelectTrigger><SelectContent>{locations.map((location) => <SelectItem key={location.id} value={String(location.id)}>{location.name}</SelectItem>)}</SelectContent></Select></div>
-      <div className="space-y-2"><Label>Import</Label><Select value={form.isImport ?? "false"} onValueChange={(value) => { const vatRate = value === "true" ? "5" : "0"; const vatCode = value === "true" ? "IMPORT_GOODS" : "ZERO"; setForm({ ...form, isImport: value, vatRate }); setLines(lines.map((line) => ({ ...line, vatCode, vatRate }))); }}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="true">Yes — Goods imported into the UAE</SelectItem><SelectItem value="false">No — 0% VAT</SelectItem></SelectContent></Select></div>
+      <div className="space-y-2"><Label>Import</Label><Select value={form.isImport ?? "false"} onValueChange={(value) => { const vatRate = value === "true" ? "5" : "0"; const vatCode = value === "true" ? "IMPORT_GOODS" : activeVatCode(vatCodeOptions, "ZERO"); setForm({ ...form, isImport: value, vatRate }); setLines(lines.map((line) => ({ ...line, vatCode, vatRate }))); }}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="true">Yes — Goods imported into the UAE</SelectItem><SelectItem value="false">No — 0% VAT</SelectItem></SelectContent></Select></div>
       <CurrencyExchangeChoice form={form} setForm={resolveBillPayableAccount} exchangeRates={exchangeRates} baseCurrency={baseCurrency} />
       <Field label={`Exchange Rate to ${baseCurrency}`} name="exchangeRate" type="number" form={form} setForm={setForm} required placeholder="1.000000" />
     </div>
@@ -2932,7 +2933,7 @@ function CashTransactionFields({ form, setForm, contacts, accounts, locations, l
     const salary = value === "salary";
     const loan = value === "employee-loan";
     const account = loan ? String((loanAccounts.find(account => account.name === "Employee Advances") ?? loanAccounts[0])?.name ?? "") : supplier ? apName : String((salary ? salaryAccount : directExpenseAccount)?.name ?? "");
-    const vatCode = loan || salary || supplier ? "ZERO" : vatCodeOptions.find((option) => option.code === "STANDARD")?.code ?? vatCodeOptions[0]?.code ?? "ZERO";
+    const vatCode = activeVatCode(vatCodeOptions, loan || salary || supplier ? "ZERO" : "STANDARD");
     const vatRate = vatRateForCode(vatCode, vatCodeOptions);
     setForm({ ...form, chequeType: value, employeeLoanContactId: "", party: "", account, billId: "", billIds: "[]", billReferences: "", billRemaining: "", vatRate });
     updateLine({ description: loan ? "Employee loan payment" : salary ? "Salary payment" : supplier ? "Cheque payment" : "Expense payment", vatCode, vatRate });
@@ -3091,7 +3092,7 @@ function TransactionFields({ form, setForm, onPayableResolved, types, items, con
   const addTransactionLine = (event?: { currentTarget: HTMLElement }) => {
     if (linkedPurchaseOrderBill) return;
     const sharedVat = singleVat ? documentVatCode(lines) : undefined;
-    setLines([{ itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatCode: sharedVat ?? (form.vatRate === "0" ? "ZERO" : "STANDARD"), vatRate: sharedVat ? vatRateForCode(sharedVat, vatCodeOptions) : form.vatRate ?? "5" }, ...lines]);
+    setLines([{ itemId: "", description: "", quantity: "1", unitPrice: "0", unitCost: "0", vatCode: sharedVat ?? activeVatCode(vatCodeOptions, form.vatRate === "0" ? "ZERO" : "STANDARD"), vatRate: vatRateForCode(sharedVat ?? activeVatCode(vatCodeOptions, form.vatRate === "0" ? "ZERO" : "STANDARD"), vatCodeOptions) }, ...lines]);
     revealNewLine(event?.currentTarget, ".transaction-line");
   };
   const subtotal = lines.filter(line => !line.pending).reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0), 0);
@@ -3254,8 +3255,8 @@ function ItemFields({ form, setForm, items, accounts, contacts, vatCodeOptions, 
     return role === "inventory" || name.includes("inventory asset");
   });
   const vendors = contacts.filter((contact) => contact.type === "vendor" && String(contact.status || "active") !== "inactive");
-  const selectedPurchaseVat = form.purchaseVatCode || vatCodeOptions.find((code) => code.code === "STANDARD")?.code || vatCodeOptions[0]?.code || "ZERO";
-  const selectedSalesVat = form.salesVatCode || vatCodeOptions.find((code) => code.code === "STANDARD")?.code || vatCodeOptions[0]?.code || "ZERO";
+  const selectedPurchaseVat = form.purchaseVatCode || activeVatCode(vatCodeOptions, "STANDARD");
+  const selectedSalesVat = form.salesVatCode || activeVatCode(vatCodeOptions, "STANDARD");
   const addSpecification = () => {
     if (count >= 30) return;
     setForm({ ...form, specCount: String(count + 1), [`specLabel${count}`]: specificationFields[count], [`specValue${count}`]: "" });

@@ -7,6 +7,18 @@ export const standardVatCodes = [
   { code: "OUT_OF_SCOPE", name: "Out of scope", rate: 0, description: "Transaction outside the scope of VAT", system: true },
 ] as const;
 
-/** Codes the app applies on its own (new-line default and zero-rate fallback, e.g. negative invoice lines), so they always stay active. */
-export const alwaysActiveVatCodes: ReadonlySet<string> = new Set(["STANDARD", "ZERO"]);
-export const alwaysActiveVatMessage = "STANDARD and ZERO must remain active: documents use them as the default and zero-rate VAT codes.";
+const standardRates: Record<string, number> = Object.fromEntries(standardVatCodes.map((vatCode) => [vatCode.code, vatCode.rate]));
+const specialVatCodes = new Set(["REVERSE_CHARGE", "IMPORT_GOODS"]);
+
+/**
+ * The VAT code to apply when the app picks one itself (new-line default, zero-rate lines): `preferred` while it is
+ * active, otherwise an active ordinary code with the same rate, then STANDARD, then the first active code. Reverse
+ * charge and import codes are never chosen in place of another code. With no active codes, `preferred` is kept.
+ */
+export function activeVatCode(active: readonly { code: string; rate: number | string }[], preferred: string) {
+  if (!active.length || active.some((entry) => entry.code === preferred)) return preferred;
+  const ordinary = active.filter((entry) => !specialVatCodes.has(entry.code));
+  const rate = standardRates[preferred];
+  return (rate === undefined ? undefined : ordinary.find((entry) => Number(entry.rate) === rate))?.code
+    ?? active.find((entry) => entry.code === "STANDARD")?.code ?? ordinary[0]?.code ?? active[0].code;
+}
