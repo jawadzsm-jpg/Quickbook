@@ -1,15 +1,15 @@
 import { and, gt, inArray, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { stockHolds } from "@/db/schema";
+import { sameSalesRep } from "./stock-hold-rules";
+
+export { sameSalesRep };
 
 // A hold reserves stock for one sales rep until it expires or is released. Documents for that rep may use the held
 // quantity; every other stock-reducing document (invoice, sales receipt, purchase return, stock transfer) may not.
 
 export const HOLD_MAX_HOURS = 24 * 7;
 export const holdDurations = [[4, "4 hours"], [24, "1 day"], [48, "2 days"]] as const;
-
-/** Sales rep names compare case- and space-insensitively. */
-export const sameSalesRep = (a: unknown, b: unknown) => String(a ?? "").trim().toLowerCase() !== "" && String(a ?? "").trim().toLowerCase() === String(b ?? "").trim().toLowerCase();
 
 export function activeHoldCondition() {
   return and(isNull(stockHolds.releasedAt), gt(stockHolds.expiresAt, sql`now()`));
