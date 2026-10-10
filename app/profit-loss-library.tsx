@@ -4,7 +4,7 @@ import { ArrowUpRight } from "lucide-react";
 
 const groups = [
   { title: "Financial performance", description: "Start with the statement, then compare periods or inspect individual postings.", keys: ["profit-loss", "profit-loss-detail", "profit-loss-ytd", "profit-loss-prev-year"] },
-  { title: "Profitability analysis", description: "Understand contributions by item, representative, inventory and document class.", keys: ["profit-loss-item", "profit-loss-rep", "profit-loss-job", "profit-loss-class"] },
+  { title: "Profitability analysis", description: "Understand contributions by item, representative, customer, inventory and document class.", keys: ["profit-loss-item", "profit-loss-rep", "profit-loss-customer", "profit-loss-job", "profit-loss-class"] },
   { title: "Costs & account review", description: "Trace recorded cost of sales and review postings that need an account match.", keys: ["profit-loss-cost-of-goods", "profit-loss-unclassified"] },
 ];
 

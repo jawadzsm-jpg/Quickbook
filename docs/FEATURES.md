@@ -130,7 +130,7 @@ Layout Builder documents show bilingual labels by default: English on the left a
 
 | Category | Count | Coverage examples |
 | --- | ---: | --- |
-| Profit & Loss | 12 | Standard, detail, item, sales rep, job, class, YTD, prior year, graphs |
+| Profit & Loss | 13 | Standard, detail, item, sales rep, customer, job, class, YTD, prior year, graphs |
 | Financial | 16 | Business final report, balance sheet, cash flow, income, expenses, net worth |
 | Budgets | 4 | Overview, budget vs actual and graph, P&L budget performance |
 | Accountant | 11 | Trial balance, general ledger, journal, transaction detail, audit trail |
@@ -205,6 +205,8 @@ Banking reports are company-wide (bank accounts belong to the company; the selec
 **Cost of sales** for a stock item is what it was bought for: the weighted average of its supplier bills and item receipts (quantity × unit price + line freight at each document's exchange rate, home currency; cancelled, void and draft purchases excluded), the same figure the Items list shows as average cost (`lib/item-cost.ts`). New invoice lines, invoices converted from sales orders, stock-return lines and invoice item changes use it, falling back to the last purchase price and then the item's saved Cost field (ex VAT) only when the item has no purchases. The saved Cost field is not updated by bills, so it is no longer used when purchases exist.
 
 Profit & Loss reports read posted journal amounts in home currency: invoices and sales receipts credit each item's income account at line subtotal × exchange rate and debit its COGS account at quantity × unit cost × exchange rate; bills debit the inventory asset (stock items) or COGS/purchase account. Manual journals in another currency are converted when saved; the original amount is kept separately. The cost-of-sales review warning only flags stock items sold with no positive unit cost, not services. **Item Profitability** shows Sales ex VAT, Cost of sales and Gross Profit per item from invoice and sales-receipt lines at each document's exchange rate, excluding void, voided, cancelled, canceled and draft documents. **Stock Pricing & Profit/Loss** converts each supplier bill at its own exchange rate.
+
+Profit & Loss by Customer groups posted income and cost of sales by the customer on the saved invoice, sales receipt, credit memo, statement or finance charge; postings without a customer document (bills, operating expenses, manual journals) stay in Unallocated. Each customer name opens the Sales register filtered to that customer.
 
 Profit & Loss by Item has a **View** button on each item row. It opens the item's sales invoices and sales receipts in the period (date, invoice, customer, qty, unit selling price, unit cost, sales, cost, profit) and its bills, received item bills and item receipts up to the period end (latest 25; qty, unit cost, amount), all in home currency at each document's exchange rate, with references that open the document. A check row shows units sold, average selling price and unit cost, and compares the cost from invoice lines (qty × unit cost) with the cost of sales in the report, warning when they differ; zero unit costs are highlighted. Data: `report.pnl.itemActivity` from `lib/profit-loss.ts`.
 
