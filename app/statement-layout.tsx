@@ -16,6 +16,8 @@ export type StatementData = {
   customers: { name: string; currency: string }[];
   /** Vendor statements for one supplier: that supplier's saved bank details. */
   partyBank?: string[];
+  /** One selected customer/vendor: their postal address lines and TRN. */
+  partyAddress?: string[]; partyTrn?: string;
 };
 type Filters = { memo: string; customer: string; currency: string; statementDate: string; from: string; to: string };
 
@@ -59,7 +61,7 @@ export function StatementHeading({ statement, currency, company, stamp }: {
       </div>
       <div className="statement-document-title flex items-start justify-end gap-4"><div><h2 style={{ color: design.color, fontFamily: design.font, fontSize: design.titleSize }}>{design.title.toUpperCase()}</h2><p>Statement date: {date(statement.statementDate)}</p><p>Currency: {currency}</p></div>{design.rightLogo && company.rightLogoData ? <Image unoptimized width={design.logoWidth} height={design.logoHeight} src={company.rightLogoData} alt={`${company.name} right logo`} className="max-h-20 max-w-52 object-contain" /> : null}</div>
     </div>}
-    <div className="statement-recipient"><div><span>Statement for</span><h3>{statement.customer || (statement.partyType === "vendor" ? "All vendors" : "All customers")}</h3></div><div><span>Statement period</span><p>{date(statement.from)} — {date(statement.to)}</p></div></div>
+    <div className="statement-recipient"><div><span>Statement for</span><h3>{statement.customer || (statement.partyType === "vendor" ? "All vendors" : "All customers")}</h3>{statement.customer ? (statement.partyAddress ?? []).map((line) => <p key={line}>{line}</p>) : null}{statement.customer && statement.partyTrn ? <p>TRN {statement.partyTrn}</p> : null}</div><div><span>Statement period</span><p>{date(statement.from)} — {date(statement.to)}</p></div></div>
     <div className="statement-totals">{[["Opening balance", statement.opening], ["Period charges", statement.charges], ["Payments / credits", statement.credits], ["Closing balance", statement.closing]].map(([label, value]) => <div key={label}><span>{label}</span><strong>{money(Number(value))}</strong></div>)}</div>
     {statement.memo && <div className="statement-memo"><strong>Memo</strong><p className="whitespace-pre-wrap break-words">{statement.memo}</p></div>}
     {design.message ? <div className="statement-memo"><strong>Message</strong><p className="whitespace-pre-wrap break-words">{design.message}</p></div> : null}
