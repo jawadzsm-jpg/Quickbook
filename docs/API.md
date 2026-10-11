@@ -130,6 +130,23 @@ VAT report models include saved code/rate, signed values, document IDs and verif
 
 Vendor report rows include company-scoped posted payable/payment account IDs resolved in the transaction currency. Source-document account links support both debit and credit postings; planned purchase orders are labelled without implying a posted control. Ambiguous historical account names remain review labels. Vendor statements expose account-navigation permission and retain their opening/closing response model. Supplier balance summaries and detail retain all prior activity through the selected as-of date. Cancelled/void supplier activity and fully allocated zero-amount open bills are excluded from vendor views. Posted payable entries classify charges and settlements; cash-paid expenses do not increase payable balances, and bill-linked bank cheques reduce balances and statements.
 
+## Integration API v1 (websites)
+
+Read-only product data for external websites and systems (Shopify, WordPress/WooCommerce, custom sites). Authentication is a company **API key** created in Admin Controls → API & Integrations, sent as `Authorization: Bearer ebk_live_…` (or `X-API-Key`). Session cookies are not used, and there is no CORS: keys belong on the website's server. Each key is scoped to one company and `products:read`; only a deterministic scrypt digest is stored (low cost, since keys are 256-bit random tokens; `api_keys`, migration 0106), and a revoked key or inactive company is rejected. Rate limit: 120 requests per minute per key (429 with `Retry-After`); invalid keys share a global budget. Errors are `{ "error": { "code", "message" } }` (`invalid_api_key` 401, `invalid_parameter` 400, `not_found` 404, `rate_limited` 429, `server_error` 500). Code: `lib/public-api.ts`, `lib/public-api-query.ts`, `lib/api-keys.ts`, `lib/openapi.ts`, routes under `app/api/v1/`.
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /api/v1/products` | `{ data, has_more, next_cursor }`. Products grouped by SKU across the company's active inventories, ordered by SKU. Query: `limit` (1–200, default 50), `cursor`, `updated_since` (ISO date-time), `category`, `inventory` (code), `status` (`active` default, or `all` to include inactive so sites can unpublish). |
+| `GET /api/v1/products/{sku}` | `{ data }` for one product, including inactive; 404 when absent. |
+| `GET /api/v1/categories` | Categories of active products with product counts and colours (`background`/`text` hex). |
+| `GET /api/v1/openapi.json` | Public OpenAPI 3.1 description (no key). |
+
+Product fields: `sku`, `item_number`, `name`, `category`, `description`, `specifications[{name,value}]`, `part_number`, `upc`, `status`, `price{amount,currency,includes_vat}`, `offer{price,starts_at,ends_at}` (running Today Offer or null), `stock{quantity,available,inventories[{code,name,quantity,available,price,status}]}` where `available` subtracts active stock holds, `weight_kg`, `dimensions_cm`, `created_at`, `updated_at`. The top-level price comes from the first inventory; per-inventory prices are listed. Cost, purchase prices, suppliers and accounts are never returned.
+
+Change tracking: `items.updated_at` is set by the `trg_items_updated_at` database trigger on every item update (stock, price, status, edits), so every code path is covered. `updated_since` also returns products whose Today Offer was created, ended early, started or ended after that time. Recommended sync: record the start time, request `updated_since` from the previous start, follow `next_cursor` until `has_more` is false.
+
+Key management (session, same-origin writes): `GET /api/api-keys?companyId=` lists keys (name, prefix, created/last used/revoked; never the key or digest); `POST /api/api-keys` with `companyId`, `name` returns the full `secret` once (max 20 active keys per company); `PATCH /api/api-keys` with `companyId`, `id` revokes. Company Administrators within their companies and All-Admins; audited as `api_key` in `audit_log`. API keys are excluded from company backups.
+
 ## Safe endpoint changes
 
 When adding or changing a handler:

@@ -126,6 +126,12 @@ Non-posting documents such as quotations, estimates, proforma invoices, sales or
 - Temporary-password users cannot call protected APIs until they change the password.
 - Forgot password: `/api/auth/password-reset` emails a one-use link (`/?reset=<token>`, 32 random bytes, valid 30 minutes, at most 3 per user per hour) through the saved SMTP server. Only a SHA-256 digest is stored in `password_reset_tokens`. The request answer is the same for known and unknown emails. Using the link claims the token atomically, sets the new password, clears any lockout and the temporary-password flag, and revokes every session. The link is built from `NEXT_PUBLIC_APP_URL` when set, so a forged `Host` header cannot redirect it.
 
+### Integration API keys
+
+- External websites use read-only company API keys (`/api/v1`, see API.md), not sessions. Keys are 32 random bytes; only a deterministic, low-cost scrypt digest is stored, the key is shown once, and revocation is immediate.
+- Requests are rate limited per key through `auth_rate_limits`; responses never include cost, purchase or supplier data.
+- `items.updated_at` is maintained by a database trigger so API syncs see every change regardless of which route wrote it.
+
 ### Roles and permissions
 
 Server roles are `all_admin`, `admin`, `accountant`, `sales`, `purchasing`, `inventory`, and `viewer`. Named permissions are:

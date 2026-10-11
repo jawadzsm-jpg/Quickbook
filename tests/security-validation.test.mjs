@@ -24,6 +24,8 @@ const { applyInlineFormat, applyLineFormat, inlineFormatsFor, telegramHtml, appl
 const { companyEInvoiceIssues, customerEInvoiceStatus, invoiceEInvoiceStatus, isUaeTrn } = await sourceModule("../lib/einvoice-readiness.ts");
 const { calculatorResult } = await sourceModule("../lib/calculator.ts");
 const { contactAddressLines } = await sourceModule("../lib/contact-address.ts");
+const { API_TOKEN_PREFIX, apiTokenDigest, apiTokenFromHeaders, generateApiToken } = await sourceModule("../lib/api-keys.ts");
+const { decodeCursor, encodeCursor, parseProductQuery } = await sourceModule("../lib/public-api-query.ts");
 const { friendlyEmailError } = await sourceModule("../lib/email-errors.ts");
 const { autoCategoryColor, categoryColor, categoryColorKey, categoryPalette, isCategoryColor } = await sourceModule("../lib/category-colors.ts");
 const { OFFER_MAX_DAYS, canManageOffers, offerEndsText, offerShareText, offerState, offerTime, validateOffer } = await sourceModule("../lib/item-offers.ts");
@@ -1195,4 +1197,40 @@ test("Excel export colours each Category cell with its Inventory Overview colour
   assert.match(ui, /\{ value: record\.category, style: `Category-\$\{categoryColor\(record\.category, categoryColors\)\.id\}` \}/);
   assert.match(ui, /<Style ss:ID="Category-\$\{color\.id\}"><Interior ss:Color="\$\{color\.fill\}" ss:Pattern="Solid"\/><Font ss:Bold="1" ss:Color="\$\{color\.ink\}"\/><\/Style>/);
   assert.match(ui, /\$\{categoryStyles\}<\/Styles>/);
+});
+
+test("Integration API keys: random, stored only as a SHA-256 digest, read from Bearer or X-API-Key", () => {
+  const { token, tokenPrefix, tokenDigest } = generateApiToken();
+  assert.match(token, /^ebk_live_[A-Za-z0-9_-]{43}$/);
+  assert.equal(tokenPrefix, token.slice(0, API_TOKEN_PREFIX.length + 6));
+  assert.equal(tokenDigest, apiTokenDigest(token));
+  assert.notEqual(generateApiToken().token, token);
+  assert.equal(apiTokenFromHeaders(new Headers({ authorization: `Bearer ${token}` })), token);
+  assert.equal(apiTokenFromHeaders(new Headers({ "x-api-key": token })), token);
+  assert.equal(apiTokenFromHeaders(new Headers({ authorization: "Bearer not-a-key" })), null);
+  assert.equal(apiTokenFromHeaders(new Headers({ authorization: `Basic ${token}` })), null);
+});
+
+test("Integration API v1: validated query, opaque cursor, no cost or supplier data, admin-only key management", () => {
+  const url = (query) => new URL(`https://app.example/api/v1/products${query}`);
+  assert.deepEqual(parseProductQuery(url("")), { limit: 50, cursor: "", updatedSince: null, category: "", inventory: "", includeInactive: false });
+  const parsed = parseProductQuery(url(`?limit=10&cursor=${encodeCursor("12A304")}&updated_since=2026-10-11T08:00:00Z&category=laptop&inventory=MAIN&status=all`));
+  assert.deepEqual(parsed, { limit: 10, cursor: "12A304", updatedSince: "2026-10-11T08:00:00.000Z", category: "laptop", inventory: "MAIN", includeInactive: true });
+  assert.equal(decodeCursor(encodeCursor("SKU/é 1")), "SKU/é 1");
+  assert.match(parseProductQuery(url("?limit=0")), /limit/);
+  assert.match(parseProductQuery(url("?limit=201")), /limit/);
+  assert.match(parseProductQuery(url("?updated_since=yesterday")), /updated_since/);
+  assert.match(parseProductQuery(url("?status=deleted")), /status/);
+  const api = readFileSync(new URL("../lib/public-api.ts", import.meta.url), "utf8");
+  const product = api.slice(api.indexOf("function productJson("));
+  for (const secret of ["cost", "grn_price", "last_purchase_price", "preferred_supplier", "account_id"]) assert.doesNotMatch(product, new RegExp(secret));
+  assert.match(api, /isNull\(apiKeys\.revokedAt\), eq\(companies\.active, true\)/);
+  assert.match(api, /consumeRateLimit\(`api:key:\$\{row\.id\}`, API_RATE_LIMIT, 60\)/);
+  assert.match(api, /i\.company_id = \$\{client\.companyId\}/);
+  const keys = readFileSync(new URL("../app/api/api-keys/route.ts", import.meta.url), "utf8");
+  assert.equal((keys.match(/requireCompanyAccess\(request, companyId, true, true\)/g) ?? []).length, 2);
+  assert.match(keys, /requireCompanyAccess\(request, companyId, true\)/);
+  assert.doesNotMatch(keys.slice(keys.indexOf("const publicKey"), keys.indexOf("export async function GET")), /keyHash/);
+  const migration = readFileSync(new URL("../drizzle/0106_public_api.sql", import.meta.url), "utf8");
+  assert.match(migration, /CREATE TRIGGER trg_items_updated_at BEFORE UPDATE ON "items"/);
 });
