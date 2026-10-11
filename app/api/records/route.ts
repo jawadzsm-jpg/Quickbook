@@ -46,6 +46,17 @@ function errorMessage(error: unknown) {
 }
 
 const round = (value: number) => Math.round(value * 100) / 100;
+/** Customer/vendor postal address fields from a request; `onlyGiven` keeps fields the request leaves out (edits). */
+function contactAddressFromPayload(payload: Record<string, unknown>, onlyGiven = false) {
+  const fields = { addressLine1: 180, addressLine2: 180, city: 80, region: 80, postalCode: 20 } as const;
+  const values: Partial<Record<keyof typeof fields, string>> = {};
+  for (const [field, limit] of Object.entries(fields) as Array<[keyof typeof fields, number]>) {
+    if (onlyGiven && payload[field] === undefined) continue;
+    values[field] = String(payload[field] ?? "").trim().slice(0, limit);
+  }
+  return values;
+}
+
 const fallbackVatRates: Record<string, number> = { STANDARD: 5, ZERO: 0, EXEMPT: 0, REVERSE_CHARGE: 5, IMPORT_GOODS: 5, OUT_OF_SCOPE: 0 };
 const accountRoles = ["BANK", "AR", "AP", "INVENTORY", "INPUT_VAT", "OUTPUT_VAT", "EQUITY", "SALES", "OTHER_INCOME", "COGS", "PURCHASES", "EXPENSE", "PAYROLL", "SUSPENSE"];
 const accountTypeValues = new Set(["Income", "Expense", "Cost of Goods Sold", "Other Income", "Other Expense", "Fixed Asset", "Bank", "Loan", "Credit Card", "Equity", "Accounts Receivable", "Other Current Asset", "Other Asset", "Accounts Payable", "Other Current Liability", "Long Term Liability"]);
@@ -688,6 +699,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
         company: String(payload.company ?? ""), billingName: String(payload.billingName ?? name),
         email: String(payload.email ?? ""), phone: String(payload.phone ?? "").trim(), whatsapp: String(payload.whatsapp ?? "").trim(),
         country: String(payload.country ?? ""), trn: String(payload.trn ?? "").trim(), reseller: String(payload.reseller ?? "Reseller"),
+        ...contactAddressFromPayload(payload),
         planet: String(payload.planet ?? "No"), passport: String(payload.passport ?? ""), currency, ledgerAccountId,
         description: String(payload.description ?? ""), balance: authorization.role === "sales" ? 0 : Number(payload.balance ?? 0),
         ...(contactType === "vendor" ? vendorBankFromPayload(payload) : {}),
@@ -2024,6 +2036,7 @@ async function handlePATCH(request: Request) {
       for (const field of ["company", "billingName", "email", "phone", "whatsapp", "country", "trn", "reseller", "planet", "passport", "description"] as const) {
         if (payload[field] !== undefined) changes[field] = String(payload[field]).trim();
       }
+      Object.assign(changes, contactAddressFromPayload(payload, true));
       const [record] = await db.update(contacts).set({ ...changes, ...organization, ...(existing.type === "vendor" ? vendorBankFromPayload(payload) : {}), ...(existing.type === "employee" ? await employeeHrForSave(payload, companyId, existing) : {}) }).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId))).returning();
       if (name !== existing.name) await db.update(transactions).set({ party: name }).where(and(eq(transactions.companyId, companyId), eq(transactions.party, existing.name)));
       await db.insert(auditLog).values({ companyId, action: "updated", entityType: existing.type === "vendor" ? "vendor" : "contact", entityId: id, details: existing.type === "vendor" ? JSON.stringify({ actorId: authorization.id, actorName: authorization.fullName || authorization.email, actorEmail: authorization.email, vendorName: name, changes: Object.entries(changes).filter(([field, value]) => String((existing as Record<string, unknown>)[field] ?? "") !== value).map(([field, value]) => ({ field, before: (existing as Record<string, unknown>)[field] ?? "", after: value })) }) : `${existing.name} → ${name}` });
