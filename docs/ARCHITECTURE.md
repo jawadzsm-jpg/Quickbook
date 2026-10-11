@@ -124,6 +124,7 @@ Non-posting documents such as quotations, estimates, proforma invoices, sales or
 - Five consecutive failed attempts lock the user for 15 minutes.
 - Changing a password revokes every active session for that user.
 - Temporary-password users cannot call protected APIs until they change the password.
+- Forgot password: `/api/auth/password-reset` emails a one-use link (`/?reset=<token>`, 32 random bytes, valid 30 minutes, at most 3 per user per hour) through the saved SMTP server. Only a SHA-256 digest is stored in `password_reset_tokens`. The request answer is the same for known and unknown emails. Using the link claims the token atomically, sets the new password, clears any lockout and the temporary-password flag, and revokes every session. The link is built from `NEXT_PUBLIC_APP_URL` when set, so a forged `Host` header cannot redirect it.
 
 ### Roles and permissions
 

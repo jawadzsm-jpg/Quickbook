@@ -996,3 +996,23 @@ test("UAE e-invoicing readiness lists what the company, customer and invoice sti
   assert.deepEqual(invoiceEInvoiceStatus({ number: "INV-1", transactionDate: "2026-10-10", currency: "USD", exchangeRate: 0 }, undefined, { ...company, einvoiceAsp: "" }).issues, ["Company e-invoicing setup incomplete", "Exchange rate to AED", "Customer not found in Customer Center"]);
 });
 
+test("forgot password sends single-use, expiring, hashed reset links without revealing accounts", () => {
+  const route = readFileSync(new URL("../app/api/auth/password-reset/route.ts", import.meta.url), "utf8");
+  const schema = readFileSync(new URL("../db/schema.ts", import.meta.url), "utf8");
+  const migration = readFileSync(new URL("../drizzle/0103_password_reset_tokens.sql", import.meta.url), "utf8");
+  const login = readFileSync(new URL("../app/login-screen.tsx", import.meta.url), "utf8");
+  assert.match(schema, /passwordResetTokens = pgTable\("password_reset_tokens"[\s\S]*tokenHash[\s\S]*usedAt/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS "password_reset_tokens"[\s\S]*ON DELETE cascade/);
+  assert.equal((route.match(/if \(!sameOrigin\(request\)\)/g) ?? []).length, 2);
+  assert.match(route, /randomBytes\(32\)\.toString\("base64url"\)/);
+  assert.match(route, /tokenHash: tokenDigest\(token\)/);
+  assert.match(route, /MAX_LINKS_PER_HOUR = 3/);
+  assert.match(route, /NEXT_PUBLIC_APP_URL/);
+  // Same answer for known and unknown emails, and the token is claimed atomically before the password changes.
+  assert.match(route, /return Response\.json\(\{ ok: true, message: sentMessage \}/);
+  assert.match(route, /isNull\(passwordResetTokens\.usedAt\), gt\(passwordResetTokens\.expiresAt, now\)/);
+  assert.match(route, /newPassword\.length < 12 \|\| newPassword\.length > 128/);
+  assert.match(route, /lockedUntil: null[\s\S]*delete\(authSessions\)\.where\(eq\(authSessions\.userId, user\.id\)\)/);
+  assert.match(login, /Forgot password\?/);
+  assert.match(login, /searchParams\.get\("reset"\)[\s\S]*searchParams\.delete\("reset"\)/);
+});

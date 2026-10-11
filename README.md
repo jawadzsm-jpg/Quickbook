@@ -134,7 +134,7 @@ It applies migrations, creates a local global administrator on first run, stores
 | `DATABASE_URL` | Production/shared development | PostgreSQL connection used by the application and migration scripts |
 | `BLOB_READ_WRITE_TOKEN` | Company backups | Server-only token for a private Vercel Blob store |
 | `DATABASE_URL_UNPOOLED` | Migration generation only | Preferred direct URL for Drizzle Kit when available |
-| `NEXT_PUBLIC_APP_URL` | Recommended | Canonical application URL and invitation login link |
+| `NEXT_PUBLIC_APP_URL` | Recommended | Canonical application URL used in invitation and password-reset links |
 | `SMTP_ENCRYPTION_KEY` | Recommended for email | At least 32 random characters used to encrypt stored SMTP passwords; database URL is a fallback |
 | `ADMIN_EMAIL` | Bootstrap only | Initial global administrator email |
 | `ADMIN_PASSWORD` | Bootstrap only | Initial 12–128 character temporary password |

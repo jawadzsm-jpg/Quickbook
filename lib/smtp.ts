@@ -83,3 +83,19 @@ export async function sendUserInvitation(input: { to: string; name: string; temp
     html: `<div style="font-family:Arial,sans-serif;max-width:560px;color:#0f172a"><h2>Your ComNet Accounting account is ready</h2><p>Hello ${escapeHtml(input.name)},</p><p>An administrator created your account.</p><div style="background:#f1f5f9;border-radius:10px;padding:16px"><p><strong>Role:</strong> ${escapeHtml(input.roleLabel)}</p><p><strong>Email:</strong> ${escapeHtml(input.to)}</p><p><strong>Temporary password:</strong> <code>${escapeHtml(input.temporaryPassword)}</code></p></div><p><a href="${escapeHtml(input.loginUrl)}">Open ComNet Accounting</a></p><p>You will be asked to create a new password after signing in.</p></div>`,
   });
 }
+
+export async function emailDeliveryConfigured() {
+  const settings = await getEmailSettings();
+  return Boolean(settings?.host && settings.username && settings.passwordEncrypted && settings.fromEmail);
+}
+
+export async function sendPasswordReset(input: { to: string; name: string; resetUrl: string; expiresInMinutes: number }) {
+  const { client, settings } = await transporter();
+  await client.sendMail({
+    from: { name: settings.fromName, address: settings.fromEmail },
+    to: input.to,
+    subject: "Reset your ComNet Accounting password",
+    text: `Hello ${input.name},\n\nWe received a request to reset the password for ${input.to}.\nOpen this link to choose a new password (valid for ${input.expiresInMinutes} minutes, one use only):\n${input.resetUrl}\n\nIf you did not ask for this, ignore this email; your password stays the same.`,
+    html: `<div style="font-family:Arial,sans-serif;max-width:560px;color:#0f172a"><h2>Reset your password</h2><p>Hello ${escapeHtml(input.name)},</p><p>We received a request to reset the password for <strong>${escapeHtml(input.to)}</strong>.</p><p><a href="${escapeHtml(input.resetUrl)}" style="display:inline-block;background:#2563eb;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none">Choose a new password</a></p><p style="color:#475569;font-size:13px">The link is valid for ${input.expiresInMinutes} minutes and works once. If you did not ask for this, ignore this email; your password stays the same.</p></div>`,
+  });
+}

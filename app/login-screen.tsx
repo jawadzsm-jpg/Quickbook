@@ -6,6 +6,7 @@ import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ForgotPasswordForm, ResetPasswordForm } from "./password-reset-forms";
 
 import type { PublicLoginBranding } from "@/lib/public-login-branding";
 
@@ -19,6 +20,8 @@ export function LoginScreen({ branding: initialBranding, companies = [] }: { bra
   const [rememberEmail, setRememberEmail] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState<"login" | "forgot" | "reset">("login");
+  const [resetToken, setResetToken] = useState("");
 
   const chooseCompany = useCallback(async (companyId: number) => {
     if (!companies.some((company) => company.id === companyId)) return;
@@ -48,6 +51,14 @@ export function LoginScreen({ branding: initialBranding, companies = [] }: { bra
   useEffect(() => {
     const frames: number[] = [];
     try {
+      // A "forgot password" email link opens /?reset=<token>; keep the token in memory and drop it from the address bar.
+      const url = new URL(window.location.href);
+      const token = url.searchParams.get("reset");
+      if (token) {
+        url.searchParams.delete("reset");
+        window.history.replaceState(null, "", url);
+        frames.push(window.requestAnimationFrame(() => { setResetToken(token); setMode("reset"); }));
+      }
       const savedEmail = window.localStorage.getItem("comnet_login_email");
       if (savedEmail) frames.push(window.requestAnimationFrame(() => { setEmail(savedEmail); setRememberEmail(true); }));
       const requested = new URLSearchParams(window.location.search).get("company") || window.localStorage.getItem("comnet_login_company");
@@ -93,7 +104,9 @@ export function LoginScreen({ branding: initialBranding, companies = [] }: { bra
         <p className="text-lg font-semibold tracking-tight text-slate-950">{displayName}</p>
       </div>
 
-      <form onSubmit={submit} className="space-y-5 rounded-2xl border border-white/70 bg-white/95 px-5 py-7 text-left shadow-[0_24px_70px_rgb(15_23_42/0.16)] ring-1 ring-slate-200/70 backdrop-blur sm:px-8 sm:py-8">
+      {mode === "forgot" ? <ForgotPasswordForm initialEmail={email} onBack={() => setMode("login")} /> : null}
+      {mode === "reset" ? <ResetPasswordForm token={resetToken} onDone={() => { setResetToken(""); setMode("login"); }} /> : null}
+      {mode === "login" ? <form onSubmit={submit} className="space-y-5 rounded-2xl border border-white/70 bg-white/95 px-5 py-7 text-left shadow-[0_24px_70px_rgb(15_23_42/0.16)] ring-1 ring-slate-200/70 backdrop-blur sm:px-8 sm:py-8">
         <div className="space-y-1 text-center"><h2 className="text-xl font-semibold tracking-tight text-slate-900">Welcome back</h2><p className="text-sm text-slate-500">Sign in to continue to your accounting workspace.</p></div>
         {companies.length > 1 ? <div><Label htmlFor="login-company">Company</Label><select id="login-company" value={selectedCompanyId} disabled={brandLoading} onChange={(event) => {
           const companyId = Number(event.target.value);
@@ -105,10 +118,10 @@ export function LoginScreen({ branding: initialBranding, companies = [] }: { bra
           {companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
         </select></div> : null}
         <div className="space-y-2"><Label htmlFor="email">Email address</Label><div className="relative"><Mail className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input id="email" type="email" autoComplete="username" placeholder="name@company.com" value={email} onChange={(event) => setEmail(event.target.value)} required autoFocus className="h-11 bg-white pl-10 text-base sm:text-sm" /></div></div>
-        <div className="space-y-2"><Label htmlFor="password">Password</Label><div className="relative"><LockKeyhole className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input id="password" type="password" autoComplete="current-password" placeholder="Enter your password" value={password} onChange={(event) => setPassword(event.target.value)} required className="h-11 bg-white pl-10 text-base sm:text-sm" /></div></div>
+        <div className="space-y-2"><div className="flex items-center justify-between gap-3"><Label htmlFor="password">Password</Label><button type="button" onClick={() => { setError(""); setMode("forgot"); }} className="text-sm font-medium text-blue-700 hover:underline">Forgot password?</button></div><div className="relative"><LockKeyhole className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input id="password" type="password" autoComplete="current-password" placeholder="Enter your password" value={password} onChange={(event) => setPassword(event.target.value)} required className="h-11 bg-white pl-10 text-base sm:text-sm" /></div></div>
         {error && <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">{error}</p>}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-600"><input type="checkbox" checked={rememberEmail} onChange={(event) => setRememberEmail(event.target.checked)} className="size-4 rounded accent-blue-600" />Remember email</label><Button type="submit" disabled={loading} className="h-11 min-w-36 bg-blue-600 px-6 text-white shadow-sm hover:bg-blue-700"><KeyRound className="size-4" />{loading ? "Signing in…" : "Log In"}</Button></div>
-      </form>
+      </form> : null}
       <p className="px-3 text-xs font-medium text-slate-600">Copyright © {years} <span className="text-blue-700">{displayName}</span>. All rights reserved.</p>
     </div>
   </main>;

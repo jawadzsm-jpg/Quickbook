@@ -6,6 +6,7 @@
 - Multiple inventories/warehouses per company, each with its own code, invoice prefix, and next invoice number.
 - Company and inventory selectors that scope forms, lists, dashboard data, and most reports.
 - Per-user company assignments, global administration, company administration, and six operational roles.
+- **Forgot password?** on the sign-in page: users enter their email and receive a one-use reset link (valid 30 minutes) through the configured email server, then choose a new password. Without SMTP settings, users are told to ask their administrator.
 - Configurable login branding, company logos, background, display name, copyright text, document colors, templates, and letterhead.
 - Light and dark appearance modes plus a per-user accent colour (Emerald, Ocean, Indigo, Violet, Rose or Amber), both chosen in the header Appearance menu and saved to the user's account, plus a live header panel, available to every role including Sales, showing online users with their last-activity date and time (UAE) on one line; only administrators also see sign-in IP addresses.
 
