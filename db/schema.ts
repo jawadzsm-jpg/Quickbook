@@ -448,6 +448,22 @@ export const stockHolds = pgTable("stock_holds", {
   releasedByName: text("released_by_name").notNull().default(""),
 }, (table) => [index("idx_stock_holds_item_active").on(table.itemId, table.expiresAt), index("idx_stock_holds_company").on(table.companyId, table.createdAt)]);
 
+// Today Offer: a special selling price for an item between a start and an end time (Inventory Overview).
+export const itemOffers = pgTable("item_offers", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  itemId: integer("item_id").notNull().references(() => items.id, { onDelete: "cascade" }),
+  offerPrice: doublePrecision("offer_price").notNull(),
+  startsAt: timestamp("starts_at", { withTimezone: true, mode: "string" }).notNull(),
+  endsAt: timestamp("ends_at", { withTimezone: true, mode: "string" }).notNull(),
+  note: text("note").notNull().default(""),
+  createdByUserId: integer("created_by_user_id").references(() => appUsers.id, { onDelete: "set null" }),
+  createdByName: text("created_by_name").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  endedAt: timestamp("ended_at", { withTimezone: true, mode: "string" }),
+  endedByName: text("ended_by_name").notNull().default(""),
+}, (table) => [index("idx_item_offers_item_window").on(table.itemId, table.endsAt), index("idx_item_offers_company").on(table.companyId, table.startsAt)]);
+
 export const inventoryMovements = pgTable("inventory_movements", {
   id: serial("id").primaryKey(),
   itemId: integer("item_id").notNull().references(() => items.id, { onDelete: "cascade" }),
