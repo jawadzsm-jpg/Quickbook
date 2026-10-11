@@ -2,7 +2,7 @@
 
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import { Camera, Copy, KeyRound, MapPin, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, ShieldCheck, Smartphone, Trash2, UserCheck, UserX } from "lucide-react";
+import { Camera, Copy, KeyRound, MailWarning, MapPin, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Send, ShieldCheck, Smartphone, Trash2, UserCheck, UserX } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -82,7 +82,8 @@ export function UserRoleCenter({ onSummary }: { onSummary?: (summary: UserSummar
   const [creating, setCreating] = useState(false);
   const [resetUser, setResetUser] = useState<ManagedUser | null>(null);
   const [profileUser, setProfileUser] = useState<ManagedUser | null>(null);
-  const [createdCredentials, setCreatedCredentials] = useState<{ email: string; password: string; title: string } | null>(null);
+  const [createdCredentials, setCreatedCredentials] = useState<{ userId: number; email: string; password: string; title: string; emailWarning?: string } | null>(null);
+  const [resending, setResending] = useState(false);
   const [newUser, setNewUser] = useState({ fullName: "", email: "", phone: "", whatsapp: "", avatarData: "", role: "viewer" as Role, companyIds: [] as number[], password: "", sendEmail: true });
   const [resetPassword, setResetPassword] = useState("");
   const [emailReset, setEmailReset] = useState(true);
@@ -153,8 +154,8 @@ export function UserRoleCenter({ onSummary }: { onSummary?: (summary: UserSummar
       setUsers((current) => current.map((entry) => entry.id === id ? data.user : entry));
       discardDraft(id);
       if (data.emailWarning) toast.warning(`${success}. Email not sent: ${data.emailWarning}`); else toast.success(data.emailSent ? `${success} and email sent` : success);
-      return true;
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not update user"); return false; }
+      return data as { emailSent?: boolean; emailWarning?: string };
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not update user"); return null; }
     finally { setBusyId(null); }
   }
 
@@ -202,7 +203,7 @@ export function UserRoleCenter({ onSummary }: { onSummary?: (summary: UserSummar
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not add user");
       setCreateOpen(false);
-      setCreatedCredentials({ email: newUser.email.trim().toLowerCase(), password: newUser.password, title: "User login created" });
+      setCreatedCredentials({ userId: data.user.id, email: newUser.email.trim().toLowerCase(), password: newUser.password, title: "User login created", emailWarning: data.emailWarning || "" });
       setUsers((current) => [...current, data.user].sort((a, b) => (a.fullName || a.email).localeCompare(b.fullName || b.email)));
       if (data.emailWarning) toast.warning(`User added. Email not sent: ${data.emailWarning}`); else toast.success(data.emailSent ? "User added and login email sent" : "User added");
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not add user"); }
@@ -212,12 +213,26 @@ export function UserRoleCenter({ onSummary }: { onSummary?: (summary: UserSummar
   async function submitReset(event: FormEvent) {
     event.preventDefault(); if (!resetUser) return;
     const changed = await patchUser(resetUser.id, { password: resetPassword, sendEmail: emailReset }, "Password reset");
-    if (changed) { setCreatedCredentials({ email: resetUser.email, password: resetPassword, title: "Temporary password set" }); setResetUser(null); setResetPassword(""); }
+    if (changed) { setCreatedCredentials({ userId: resetUser.id, email: resetUser.email, password: resetPassword, title: "Temporary password set", emailWarning: changed.emailWarning || "" }); setResetUser(null); setResetPassword(""); }
   }
 
   async function submitProfile(event: FormEvent) {
     event.preventDefault(); if (!profileUser) return;
     if (await patchUser(profileUser.id, profile, "Profile saved")) setProfileUser(null);
+  }
+
+  // Send email again: re-sends the login email with the same temporary password (for example after a provider limit resets).
+  async function resendCredentials() {
+    if (!createdCredentials || resending) return;
+    setResending(true);
+    try {
+      const response = await fetch("/api/admin-users", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: createdCredentials.userId, resendInvitation: true, password: createdCredentials.password }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not send the email.");
+      setCreatedCredentials((current) => current ? { ...current, emailWarning: data.emailWarning || "" } : current);
+      if (data.emailSent) toast.success(`Login email sent to ${createdCredentials.email}`); else toast.warning(`Email not sent: ${data.emailWarning}`);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not send the email."); }
+    finally { setResending(false); }
   }
 
   async function copyCredentials(credentials: { email: string; password: string }) {
@@ -300,6 +315,6 @@ export function UserRoleCenter({ onSummary }: { onSummary?: (summary: UserSummar
 
     <Dialog open={Boolean(resetUser)} onOpenChange={(open) => { if (!open) { setResetUser(null); setResetPassword(""); } }}><DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>Reset password</DialogTitle><DialogDescription>Set a temporary password for {resetUser?.fullName || resetUser?.email}. Active sessions are signed out and a new password is required at next sign-in.</DialogDescription></DialogHeader><form onSubmit={submitReset} className="space-y-4"><div className="space-y-2"><div className="flex items-center justify-between"><Label htmlFor="reset-password">Temporary password</Label><Button type="button" variant="ghost" size="sm" onClick={() => setResetPassword(generatePassword())}>Generate</Button></div><Input id="reset-password" value={resetPassword} onChange={(event) => setResetPassword(event.target.value)} minLength={12} maxLength={128} required /></div><label className="flex items-center gap-3 rounded-lg border p-3"><Checkbox checked={emailReset} onCheckedChange={(checked) => setEmailReset(checked === true)} /><span className="text-sm font-medium">Email the new temporary password</span></label><DialogFooter><Button type="button" variant="outline" onClick={() => setResetUser(null)}>Cancel</Button><Button type="submit" disabled={busyId === resetUser?.id}>Reset password</Button></DialogFooter></form></DialogContent></Dialog>
 
-    <Dialog open={Boolean(createdCredentials)} onOpenChange={(open) => { if (!open) setCreatedCredentials(null); }}><DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>{createdCredentials?.title}</DialogTitle><DialogDescription>The user must create a new password at first sign-in. This password is not shown again.</DialogDescription></DialogHeader>{createdCredentials ? <div className="space-y-3 rounded-xl border bg-muted/30 p-4"><div><p className="text-xs font-medium text-muted-foreground">Email</p><p className="mt-1 font-mono text-sm">{createdCredentials.email}</p></div><div><p className="text-xs font-medium text-muted-foreground">Temporary password</p><p className="mt-1 break-all font-mono text-sm">{createdCredentials.password}</p></div><Button type="button" variant="outline" className="w-full" onClick={() => void copyCredentials(createdCredentials)}><Copy className="size-4" />Copy login details</Button></div> : null}<DialogFooter><Button onClick={() => setCreatedCredentials(null)}>Done</Button></DialogFooter></DialogContent></Dialog>
+    <Dialog open={Boolean(createdCredentials)} onOpenChange={(open) => { if (!open) setCreatedCredentials(null); }}><DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>{createdCredentials?.title}</DialogTitle><DialogDescription>The user must create a new password at first sign-in. This password is not shown again.</DialogDescription></DialogHeader>{createdCredentials ? <div className="space-y-3 rounded-xl border bg-muted/30 p-4"><div><p className="text-xs font-medium text-muted-foreground">Email</p><p className="mt-1 font-mono text-sm">{createdCredentials.email}</p></div><div><p className="text-xs font-medium text-muted-foreground">Temporary password</p><p className="mt-1 break-all font-mono text-sm">{createdCredentials.password}</p></div><Button type="button" variant="outline" className="w-full" onClick={() => void copyCredentials(createdCredentials)}><Copy className="size-4" />Copy login details</Button></div> : null}{createdCredentials?.emailWarning ? <div role="alert" className="space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-100"><p className="flex gap-2"><MailWarning className="mt-0.5 size-4 shrink-0" /><span><strong>Email not sent.</strong> {createdCredentials.emailWarning}</span></p><Button type="button" variant="outline" className="w-full bg-white dark:bg-transparent" disabled={resending} onClick={() => void resendCredentials()}><Send className="size-4" />{resending ? "Sending…" : "Send email again"}</Button></div> : null}<DialogFooter><Button onClick={() => setCreatedCredentials(null)}>Done</Button></DialogFooter></DialogContent></Dialog>
   </section>;
 }

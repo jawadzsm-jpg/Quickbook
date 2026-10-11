@@ -24,6 +24,7 @@ const { applyInlineFormat, applyLineFormat, inlineFormatsFor, telegramHtml, appl
 const { companyEInvoiceIssues, customerEInvoiceStatus, invoiceEInvoiceStatus, isUaeTrn } = await sourceModule("../lib/einvoice-readiness.ts");
 const { calculatorResult } = await sourceModule("../lib/calculator.ts");
 const { contactAddressLines } = await sourceModule("../lib/contact-address.ts");
+const { friendlyEmailError } = await sourceModule("../lib/email-errors.ts");
 const { autoCategoryColor, categoryColor, categoryColorKey, categoryPalette, isCategoryColor } = await sourceModule("../lib/category-colors.ts");
 const { OFFER_MAX_DAYS, canManageOffers, offerEndsText, offerShareText, offerState, offerTime, validateOffer } = await sourceModule("../lib/item-offers.ts");
 
@@ -1141,4 +1142,23 @@ test("Excel export adds Today offer price and Offer ends columns only when an ex
   assert.match(ui, /const offerColumns = showPrice && selectedRecords\.some\(\(record\) => offerFor\(record\)\)/);
   assert.match(ui, /headers\.push\(`Today offer price\$\{withVat \? " including 5% VAT" : ""\}`, "Offer ends \(UAE time\)"\)/);
   assert.match(ui, /priceFor\(\{ salesPrice: offer\.offerPrice \}, withVat\)/);
+});
+
+test("email failures are explained in plain language and the login email can be sent again", () => {
+  assert.equal(friendlyEmailError({ message: "Data command failed: 566 SMTP limit exceeded", responseCode: 566 }), "Your email provider's sending limit is reached. Copy the login details and send them yourself, or send the email again later. (Data command failed: 566 SMTP limit exceeded)");
+  assert.match(friendlyEmailError({ message: "550 5.4.5 Daily user sending quota exceeded." }), /^Your email provider's sending limit is reached/);
+  assert.match(friendlyEmailError({ message: "Invalid login: 535 Authentication failed", code: "EAUTH", responseCode: 535 }), /^The email server rejected the SMTP username or password/);
+  assert.match(friendlyEmailError({ message: "Connection timeout", code: "ETIMEDOUT" }), /^Could not reach the email server/);
+  assert.match(friendlyEmailError({ message: "553 Sender address not allowed", responseCode: 553 }), /^The email server would not send from the sender address/);
+  assert.equal(friendlyEmailError(new Error("Complete the SMTP settings first.")), "Complete the SMTP settings first.");
+  assert.equal(friendlyEmailError(null, "The email could not be sent."), "The email could not be sent.");
+  const route = readFileSync(new URL("../app/api/admin-users/route.ts", import.meta.url), "utf8");
+  const ui = readFileSync(new URL("../app/user-role-center.tsx", import.meta.url), "utf8");
+  // Resend only with the unchanged temporary password, within the administrator's scope, and without updating the user.
+  assert.match(route, /if \(payload\.resendInvitation === true\) \{\s*if \(isCompanyAdmin\(administrator\) && !canManage\(administrator, targetRole, await companyIdsForUser\(id\)\)\) return outOfScope\(\);/);
+  assert.match(route, /!target\.active \|\| !target\.mustChangePassword \|\| !password \|\| !verifyPassword\(password, target\.passwordHash\)/);
+  assert.ok(route.indexOf("payload.resendInvitation === true") < route.indexOf("const updates: Partial<typeof appUsers.$inferInsert>"));
+  assert.equal((route.match(/friendlyEmailError\(error/g) ?? []).length, 3);
+  assert.match(ui, /resendInvitation: true, password: createdCredentials\.password/);
+  assert.match(ui, /createdCredentials\?\.emailWarning \? <div role="alert"[\s\S]*Send email again/);
 });

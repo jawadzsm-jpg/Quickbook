@@ -2,8 +2,9 @@ import { isValidEmail } from "@/lib/email-validation";
 import { and, asc, count, eq, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { appUsers, authSessions, companies } from "@/db/schema";
-import { appRoles, hashPassword, requireApiUser, type AppRole, type SessionUser } from "@/lib/auth";
+import { appRoles, hashPassword, requireApiUser, verifyPassword, type AppRole, type SessionUser } from "@/lib/auth";
 import { sendUserInvitation } from "@/lib/smtp";
+import { friendlyEmailError } from "@/lib/email-errors";
 
 const validRole = (value: string): value is AppRole => appRoles.includes(value as AppRole);
 const roleNames: Record<AppRole, string> = { all_admin: "All-Admin", admin: "Administrator", accountant: "Accountant", sales: "Sales", purchasing: "Purchasing", inventory: "Inventory Manager", customization: "Product Customization", viewer: "Viewer" };
@@ -113,7 +114,7 @@ export async function POST(request: Request) {
   let emailSent = false; let emailWarning = "";
   if (payload.sendEmail === true) {
     try { await sendUserInvitation({ to: email, name: fullName, temporaryPassword: password, roleLabel: roleNames[role], loginUrl: process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin }); emailSent = true; }
-    catch (error) { emailWarning = error instanceof Error ? error.message : "The user was added, but the email could not be sent."; }
+    catch (error) { emailWarning = friendlyEmailError(error, "The user was added, but the email could not be sent."); }
   }
   return Response.json({ user: await publicUser(created, administrator), emailSent, emailWarning }, { status: 201 });
 }
@@ -127,6 +128,17 @@ export async function PATCH(request: Request) {
   const [target] = await getDb().select().from(appUsers).where(eq(appUsers.id, id)).limit(1);
   if (!target) return Response.json({ error: "User not found." }, { status: 404 });
   const targetRole = target.role as AppRole;
+  // Send email again: re-send the login email with the temporary password just shown to the administrator. Only while it
+  // is still this user's unchanged temporary password; nothing about the user changes.
+  if (payload.resendInvitation === true) {
+    if (isCompanyAdmin(administrator) && !canManage(administrator, targetRole, await companyIdsForUser(id))) return outOfScope();
+    const password = String(payload.password ?? "");
+    if (!target.active || !target.mustChangePassword || !password || !verifyPassword(password, target.passwordHash)) return Response.json({ error: "This temporary password is no longer valid. Reset the password to send new login details." }, { status: 409 });
+    try {
+      await sendUserInvitation({ to: target.email, name: target.fullName || target.email, temporaryPassword: password, roleLabel: roleNames[targetRole], loginUrl: process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin });
+      return Response.json({ emailSent: true, emailWarning: "" });
+    } catch (error) { return Response.json({ emailSent: false, emailWarning: friendlyEmailError(error) }); }
+  }
   const updates: Partial<typeof appUsers.$inferInsert> = { updatedAt: new Date().toISOString() };
   const nextRole = payload.role === undefined ? targetRole : String(payload.role) as AppRole;
   if (!validRole(nextRole)) return Response.json({ error: "Select a valid role." }, { status: 400 });
@@ -184,7 +196,7 @@ export async function PATCH(request: Request) {
   let emailSent = false; let emailWarning = "";
   if (payload.sendEmail === true && payload.password !== undefined) {
     try { await sendUserInvitation({ to: updated.email, name: updated.fullName || updated.email, temporaryPassword: String(payload.password), roleLabel: roleNames[updated.role as AppRole], loginUrl: process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin }); emailSent = true; }
-    catch (error) { emailWarning = error instanceof Error ? error.message : "The password was reset, but the email could not be sent."; }
+    catch (error) { emailWarning = friendlyEmailError(error, "The password was reset, but the email could not be sent."); }
   }
   return Response.json({ user: await publicUser(updated, administrator), emailSent, emailWarning });
 }

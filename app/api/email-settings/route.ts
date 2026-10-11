@@ -1,6 +1,7 @@
 import { isValidEmail } from "@/lib/email-validation";
 import { getEmailSettings, saveEmailSettings, verifySmtpConnection } from "@/lib/smtp";
 import { requireApiUser } from "@/lib/auth";
+import { friendlyEmailError } from "@/lib/email-errors";
 
 // SMTP settings are shared by every company, so only an All-Admin may read or change them.
 async function requireAllAdmin(request: Request, mutating = false) {
@@ -49,6 +50,6 @@ export async function POST(request: Request) {
     await verifySmtpConnection();
     return Response.json({ ok: true });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "SMTP connection failed." }, { status: 400 });
+    return Response.json({ error: friendlyEmailError(error, "SMTP connection failed.") }, { status: 400 });
   }
 }
