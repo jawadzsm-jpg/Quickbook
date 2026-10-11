@@ -1039,3 +1039,12 @@ test("customer payment receipts show the customer's address and TRN under Receiv
   assert.match(receipt, /Received from<\/p>[\s\S]*customerAddress\.map[\s\S]*Customer TRN: \{customerTrn\}/);
   assert.match(app, /<CustomerPaymentReceipt [^>]*contact=\{detail\.partyContact\}/);
 });
+
+test("statements for one customer or vendor print their address and TRN under Statement for", () => {
+  const api = readFileSync(new URL("../app/api/reports/route.ts", import.meta.url), "utf8");
+  const layout = readFileSync(new URL("../app/statement-layout.tsx", import.meta.url), "utf8");
+  assert.match(api, /const statementParty = customer \? customers\.find\(/);
+  assert.match(api, /statementParty \? \{ partyAddress: contactAddressLines\(statementParty\), partyTrn: String\(statementParty\.trn \?\? ""\)\.trim\(\) \}/);
+  assert.match(api, /vendor && statementParty \? \{ partyBank: vendorBankLines\(statementParty\) \}/);
+  assert.match(layout, /Statement for<\/span>[\s\S]*statement\.partyAddress[\s\S]*TRN \{statement\.partyTrn\}/);
+});

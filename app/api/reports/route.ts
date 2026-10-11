@@ -18,6 +18,7 @@ import { accounts, auditLog, billPaymentAllocations, companies, contacts, exchan
 import { stockPricingRows } from "@/lib/stock-pricing";
 import { canAccessCompany, hasPermission, isAdministrator, requireApiUser } from "@/lib/auth";
 import { inventoryAssetAccountLink } from "@/lib/inventory-report";
+import { contactAddressLines } from "@/lib/contact-address";
 import { purchaseDocumentAccount, purchaseRemainingLine, purchaseReportKeys } from "@/lib/purchase-report";
 import { salesDocumentAccounts, salesFulfilment, salesReportKeys } from "@/lib/sales-report";
 import { linkReportAccounts } from "@/lib/report-account-links";
@@ -820,6 +821,8 @@ export async function GET(request: Request) {
       if (!/^[A-Z]{3}$/.test(selectedCurrency)) return Response.json({ error: "Select a valid currency." }, { status: 400 });
       const customers = allContacts.filter((contact) => contact.type === partyType);
       if (customer && !customers.some((contact) => contact.name === customer)) return Response.json({ error: `Select a ${partyType} in this company.` }, { status: 400 });
+      // One selected customer/vendor: print their address, TRN and (vendors) bank details on the statement.
+      const statementParty = customer ? customers.find((contact) => contact.name === customer && contact.currency === selectedCurrency) ?? customers.find((contact) => contact.name === customer) : undefined;
       const activity = allTransactions.filter((row) => (vendor ? !inactiveVendorStatuses.has(row.status.toLowerCase()) : !closedDocument(row.status)) && row.currency === selectedCurrency && (!customer || row.party === customer) && row.transactionDate <= end && (vendor ? supplierTypes.has(row.type) && supplierImpact(row) !== 0 : ["invoice", "statement charge", "finance charge", "customer payment", "credit memo"].includes(row.type)));
       const balances = new Map<string, number>();
       const round = (value: number) => Math.round(value * 100) / 100;
@@ -837,7 +840,7 @@ export async function GET(request: Request) {
       columns = [{ key: "customer", label: vendor ? "Vendor" : "Customer" }, { key: "date", label: "Date" }, { key: "number", label: "Reference" }, { key: "type", label: "Activity" }, { key: "memo", label: "Memo" }, { key: "debit", label: "Charges", ...money }, { key: "credit", label: "Payments / Credits", ...money }, { key: "balance", label: "Balance", ...money }];
       if (vendor) addVendorAccounts();
       return Response.json({ report: { key, period, companyId, canViewAccounts: vendor ? hasPermission(authorization, "accounting:manage") : undefined, title: vendor ? "Vendor Statements" : "Customer Statements", generatedAt: new Date().toISOString(), currency: selectedCurrency, columns, rows,
-        statement: { partyType, memo, customer, statementDate, from: periodStart, to: end, opening, charges, credits, closing: round(opening + charges - credits), customers: customers.map((contact) => ({ name: contact.name, currency: contact.currency })), ...(vendor && customer ? { partyBank: vendorBankLines(customers.find((contact) => contact.name === customer && contact.currency === selectedCurrency) ?? customers.find((contact) => contact.name === customer) ?? {}) } : {}) }
+        statement: { partyType, memo, customer, statementDate, from: periodStart, to: end, opening, charges, credits, closing: round(opening + charges - credits), customers: customers.map((contact) => ({ name: contact.name, currency: contact.currency })), ...(statementParty ? { partyAddress: contactAddressLines(statementParty), partyTrn: String(statementParty.trn ?? "").trim() } : {}), ...(vendor && statementParty ? { partyBank: vendorBankLines(statementParty) } : {}) }
       } }, { headers: { "Cache-Control": "no-store" } });
     } else if (key === "customer-balance-detail") {
       title = "Customer Balance Detail";
