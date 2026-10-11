@@ -24,6 +24,7 @@ const { applyInlineFormat, applyLineFormat, inlineFormatsFor } = await sourceMod
 const { companyEInvoiceIssues, customerEInvoiceStatus, invoiceEInvoiceStatus, isUaeTrn } = await sourceModule("../lib/einvoice-readiness.ts");
 const { calculatorResult } = await sourceModule("../lib/calculator.ts");
 const { contactAddressLines } = await sourceModule("../lib/contact-address.ts");
+const { OFFER_MAX_DAYS, canManageOffers, offerState, offerTime, validateOffer } = await sourceModule("../lib/item-offers.ts");
 
 test("header calculator provides safe everyday arithmetic", () => {
   assert.equal(calculatorResult(0.1, 0.2, "+"), 0.3);
@@ -1047,4 +1048,28 @@ test("statements for one customer or vendor print their address and TRN under St
   assert.match(api, /statementParty \? \{ partyAddress: contactAddressLines\(statementParty\), partyTrn: String\(statementParty\.trn \?\? ""\)\.trim\(\) \}/);
   assert.match(api, /vendor && statementParty \? \{ partyBank: vendorBankLines\(statementParty\) \}/);
   assert.match(layout, /Statement for<\/span>[\s\S]*statement\.partyAddress[\s\S]*TRN \{statement\.partyTrn\}/);
+});
+
+test("Today Offer: validated offer price and start/end, managed by administrators and inventory managers", () => {
+  const now = Date.parse("2026-10-11T08:00:00Z");
+  const ok = validateOffer({ offerPrice: "1499.999", startsAt: "2026-10-11T08:00:00Z", endsAt: "2026-10-11T19:59:00Z", note: " While stock lasts " }, now);
+  assert.deepEqual(ok, { value: { offerPrice: 1500, startsAt: "2026-10-11T08:00:00.000Z", endsAt: "2026-10-11T19:59:00.000Z", note: "While stock lasts" } });
+  assert.match(validateOffer({ offerPrice: 0, startsAt: "2026-10-11T08:00:00Z", endsAt: "2026-10-11T20:00:00Z", note: "" }, now).error, /above zero/);
+  assert.match(validateOffer({ offerPrice: 10, startsAt: "2026-10-11T20:00:00Z", endsAt: "2026-10-11T08:00:00Z", note: "" }, now).error, /end after it starts/);
+  assert.match(validateOffer({ offerPrice: 10, startsAt: "2026-10-10T08:00:00Z", endsAt: "2026-10-11T07:00:00Z", note: "" }, now).error, /in the future/);
+  assert.match(validateOffer({ offerPrice: 10, startsAt: "2026-10-11T08:00:00Z", endsAt: new Date(now + (OFFER_MAX_DAYS + 1) * 86_400_000).toISOString(), note: "" }, now).error, /up to 31 days/);
+  assert.equal(offerState({ startsAt: "2026-10-11T07:00:00Z", endsAt: "2026-10-11T09:00:00Z" }, now), "active");
+  assert.equal(offerState({ startsAt: "2026-10-11T09:00:00Z", endsAt: "2026-10-11T10:00:00Z" }, now), "scheduled");
+  assert.equal(offerState({ startsAt: "2026-10-11T06:00:00Z", endsAt: "2026-10-11T08:00:00Z" }, now), "ended");
+  assert.equal(offerTime("2026-10-11 13:44:28+04"), Date.parse("2026-10-11T09:44:28Z"));
+  assert.equal(offerState({ startsAt: "2026-10-11 11:00:00+04", endsAt: "2026-10-11 13:00:00+04" }, now), "active");
+  assert.deepEqual(["all_admin", "admin", "inventory", "accountant", "sales", "viewer"].map((role) => canManageOffers({ role })), [true, true, true, false, false, false]);
+  const route = readFileSync(new URL("../app/api/item-offers/route.ts", import.meta.url), "utf8");
+  const overview = readFileSync(new URL("../app/api/inventory-overview/route.ts", import.meta.url), "utf8");
+  const ui = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
+  assert.equal((route.match(/requireCompanyAccess\(request, companyId, false, true\)/g) ?? []).length, 2);
+  assert.equal((route.match(/if \(!canManageOffers\(user\)\)/g) ?? []).length, 2);
+  assert.match(route, /eq\(items\.id, itemId\), eq\(items\.companyId, companyId\)/);
+  assert.match(overview, /offers: offers\.map\(\(offer\) => \(\{ \.\.\.offer, createdByName: "" \}\)\)/);
+  assert.match(ui, /label: "Today Offer", Icon: Tag, count: runningOffers\(offers, loadedAt\)\.length/);
 });

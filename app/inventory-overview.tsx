@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bold, Code, Italic, List as ListIcon, ListOrdered, Quote, Strikethrough, Lock, Pencil, BadgeDollarSign, Boxes, CalendarClock, ChevronDown, Clock, Download, Eye, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PackageOpen, PackageX, PlaneLanding, RefreshCw, Rocket, Search, Send, ShoppingCart, TriangleAlert, UserRound, Warehouse, X } from "lucide-react";
+import { Bold, Code, Italic, List as ListIcon, ListOrdered, Quote, Strikethrough, Lock, Pencil, BadgeDollarSign, Boxes, CalendarClock, ChevronDown, Clock, Download, Eye, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PackageOpen, PackageX, PlaneLanding, RefreshCw, Rocket, Search, Send, ShoppingCart, TriangleAlert, UserRound, Warehouse, X, Tag } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -16,6 +16,7 @@ import { applyInlineFormat, applyLineFormat, inlineFormatsFor, type FormatResult
 import { inventoryItemCondition, inventoryItemLine, partNumberInLine, inventorySocialShareText, itemSpecificationDescription } from "@/lib/item-description";
 import { matchesSearch } from "@/lib/search";
 import { CopyOnHover } from "./copy-on-hover";
+import { TodayOffersPanel, runningOffers, type TodayOffer } from "./today-offers";
 
 
 type OverviewItem = {
@@ -166,7 +167,9 @@ function specificationValue(record: OverviewItem, labels: string[]) {
 export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocument?: (id: number) => void; onOpenItem?: (id: number) => void } = {}) {
   const [records, setRecords] = useState<OverviewItem[]>([]);
   const [activity, setActivity] = useState<InventoryActivity>(emptyActivity);
-  const [activityView, setActivityView] = useState<ActivityView>("incoming");
+  const [activityView, setActivityView] = useState<ActivityView | "offers">("incoming");
+  const [offers, setOffers] = useState<TodayOffer[]>([]);
+  const [canManageOffers, setCanManageOffers] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [canSelectItems, setCanSelectItems] = useState(false);
   const [canBulkSelect, setCanBulkSelect] = useState(false);
@@ -208,6 +211,8 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
       setCanBulkSelect(data.canBulkSelect === true);
       setHolds((data.holds ?? []) as StockHold[]);
       setCanManageHolds(data.canManageHolds === true);
+      setOffers((data.offers ?? []) as TodayOffer[]);
+      setCanManageOffers(data.canManageOffers === true);
       if (data.shareEmoji) setShareEmoji(data.shareEmoji);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not load inventory overview");
@@ -360,7 +365,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   }, [filtered]);
 
   const selectedRecords = useMemo(() => canSelectItems ? consolidatedRecords.filter((record) => selectedIds.has(record.id)) : [], [canSelectItems, consolidatedRecords, selectedIds]);
-  const visibleActivity = activity[activityView];
+  const visibleActivity = activityView === "offers" ? [] : activity[activityView];
 
   const openActivityRecord = (entry: ActivityRecord, kind: "document" | "item") => {
     if (kind === "document" && entry.transactionId && onOpenDocument) return onOpenDocument(entry.transactionId);
@@ -513,6 +518,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     { id: "launched" as const, label: "New Arrival", Icon: Rocket, count: activity.launched.length, badge: "bg-rose-600 text-white" },
     { id: "priceChanges" as const, label: "Price Change", Icon: BadgeDollarSign, count: activity.priceChanges.length, badge: "bg-sky-400 text-slate-950" },
     { id: "sold" as const, label: "Just Sold", Icon: ShoppingCart, count: activity.sold.length, badge: "bg-emerald-400 text-slate-950" },
+    { id: "offers" as const, label: "Today Offer", Icon: Tag, count: runningOffers(offers, loadedAt).length, badge: "bg-violet-600 text-white" },
   ];
   const activityEmpty = activityView === "incoming" ? "No open purchase-order quantities." : activityView === "launched" ? "No bill receipts in the last 12 hours." : activityView === "priceChanges" ? "No selling-price changes in the last 12 hours." : "No recent invoice or sales-receipt lines.";
   const shareDisabled = !canSelectItems || loading || !selectedRecords.length;
@@ -530,12 +536,13 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     </section>
 
     <section className="overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm">
-      <div className={`grid grid-cols-2 sm:grid-cols-4 ${activityOpen ? "border-b" : ""}`}>
-        {activityTabs.map(({ id, label, Icon, count, badge }) => <button key={id} type="button" onClick={() => { if (activityOpen && activityView === id) setActivityOpen(false); else { setActivityView(id); setActivityOpen(true); } }} className={`flex min-h-12 min-w-0 items-center justify-center gap-2 border-r border-b px-3 text-sm font-semibold transition-colors even:border-r-0 sm:border-b-0 sm:even:border-r sm:last:border-r-0 ${activityOpen && activityView === id ? "bg-muted/40 text-foreground shadow-[inset_0_-2px_0_var(--primary)]" : "text-muted-foreground hover:bg-muted/30 hover:text-foreground"}`} aria-expanded={activityOpen && activityView === id}>
+      <div className={`grid grid-cols-2 sm:grid-cols-5 ${activityOpen ? "border-b" : ""}`}>
+        {activityTabs.map(({ id, label, Icon, count, badge }) => <button key={id} type="button" onClick={() => { if (activityOpen && activityView === id) setActivityOpen(false); else { setActivityView(id); setActivityOpen(true); } }} className={`flex min-h-12 min-w-0 items-center justify-center gap-2 border-r border-b px-3 text-sm font-semibold transition-colors even:border-r-0 last:col-span-2 last:border-r-0 sm:last:col-span-1 sm:border-b-0 sm:even:border-r sm:last:border-r-0 ${activityOpen && activityView === id ? "bg-muted/40 text-foreground shadow-[inset_0_-2px_0_var(--primary)]" : "text-muted-foreground hover:bg-muted/30 hover:text-foreground"}`} aria-expanded={activityOpen && activityView === id}>
           <Icon className="size-4 shrink-0" /><span className="truncate">{label}</span><Badge className={`${badge} h-5 min-w-6 justify-center px-1.5 text-[11px] hover:opacity-90`}>{count}</Badge><ChevronDown className="size-4 shrink-0 opacity-60 transition-transform data-[open=true]:rotate-180" data-open={activityOpen && activityView === id} />
         </button>)}
       </div>
-      {activityOpen ? <><div className="overflow-x-auto">
+      {activityOpen && activityView === "offers" ? <TodayOffersPanel offers={offers} items={records} canManage={canManageOffers} loading={loading} onChanged={() => void load()} onOpenItem={(offer) => onOpenItem ? onOpenItem(offer.itemId) : window.dispatchEvent(new CustomEvent("inventory-activity-open", { detail: { kind: "item", id: offer.itemId, companyId: offer.companyId, locationId: offer.locationId, sku: offer.sku } }))} /> : null}
+      {activityOpen && activityView !== "offers" ? <><div className="overflow-x-auto">
         <Table className="min-w-[900px]">
           <TableHeader><TableRow><TableHead className="w-32">Date</TableHead><TableHead>Item</TableHead><TableHead>Company · inventory</TableHead><TableHead>Linked area</TableHead><TableHead>Activity</TableHead><TableHead className="w-24 text-right">Open</TableHead></TableRow></TableHeader>
           <TableBody>

@@ -1,7 +1,9 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { appUsers, companies, companySettings, inventoryLocations, items, stockHolds } from "../../../db/schema";
+import { appUsers, companies, companySettings, inventoryLocations, itemOffers, items, stockHolds } from "../../../db/schema";
 import { activeHoldCondition } from "@/lib/stock-holds";
+import { canManageOffers } from "@/lib/item-offers";
+import { currentOfferCondition } from "@/lib/item-offers-sql";
 import { isAdministrator, requireApiUser } from "@/lib/auth";
 
 function errorMessage(error: unknown) {
@@ -164,6 +166,18 @@ export async function GET(request: Request) {
     const holds = recordIds.length ? await db.select({ id: stockHolds.id, itemId: stockHolds.itemId, companyId: stockHolds.companyId, quantity: stockHolds.quantity, salesRep: stockHolds.salesRep, note: stockHolds.note, expiresAt: stockHolds.expiresAt, createdByName: stockHolds.createdByName, createdAt: stockHolds.createdAt })
       .from(stockHolds).where(and(inArray(stockHolds.itemId, recordIds), activeHoldCondition())).orderBy(asc(stockHolds.expiresAt)) : [];
     const canManageHolds = isAdministrator(authorization) || authorization.role === "accountant";
+    // Today Offer: running and scheduled offers on active items in the user's companies.
+    const offers = await db.select({
+      id: itemOffers.id, itemId: itemOffers.itemId, offerPrice: itemOffers.offerPrice, startsAt: itemOffers.startsAt, endsAt: itemOffers.endsAt,
+      note: itemOffers.note, createdByName: itemOffers.createdByName, itemName: items.name, sku: items.sku, itemNumber: items.itemNumber,
+      salesPrice: items.salesPrice, quantity: items.quantity, companyId: companies.id, companyName: companies.name, currency: companies.baseCurrency,
+      locationId: inventoryLocations.id, locationName: inventoryLocations.name,
+    }).from(itemOffers)
+      .innerJoin(items, eq(itemOffers.itemId, items.id))
+      .innerJoin(companies, eq(itemOffers.companyId, companies.id))
+      .innerJoin(inventoryLocations, and(eq(items.locationId, inventoryLocations.id), eq(items.companyId, inventoryLocations.companyId)))
+      .where(and(currentOfferCondition(), eq(items.status, "active"), eq(companies.active, true), authorization.role === "all_admin" ? undefined : inArray(itemOffers.companyId, authorization.companyIds.length ? authorization.companyIds : [0])))
+      .orderBy(asc(itemOffers.startsAt), asc(itemOffers.endsAt)).limit(200);
     // Share emoji: this user's WhatsApp/Telegram styles, and companies whose administrator switched emoji off.
     const companyIds = [...new Set(records.map((record) => record.companyId))];
     const [[preferences], emojiOff] = await Promise.all([
@@ -190,7 +204,7 @@ export async function GET(request: Request) {
       // names, purchase documents or purchase prices.
       const sellingPrice = (itemId: unknown) => records.find(item => item.id === Number(itemId))?.salesPrice ?? null;
       const safe = (row: Record<string, unknown>) => ({ id: row.id, itemId: row.itemId, itemName: row.itemName, sku: row.sku, itemNumber: row.itemNumber, companyId: row.companyId, companyName: row.companyName, locationId: row.locationId, locationName: row.locationName, currency: row.currency, quantity: row.quantity, date: row.date });
-      return Response.json({ records, holds, shareEmoji, canManageHolds: false, canSelectItems: true, canBulkSelect: false, salesOnly: true, activity: {
+      return Response.json({ records, holds, shareEmoji, canManageHolds: false, canManageOffers: false, offers: offers.map((offer) => ({ ...offer, createdByName: "" })), canSelectItems: true, canBulkSelect: false, salesOnly: true, activity: {
         incoming: incomingResult.rows.map(row => ({ ...safe(row), date: undefined, price: sellingPrice(row.itemId) })),
         launched: launchedResult.rows.map(row => ({ ...safe(row), price: sellingPrice(row.itemId) })),
         priceChanges: priceChanges.map((row: Record<string, unknown>) => ({ ...safe(row), price: sellingPrice(row.itemId), previousPrice: row.previousPrice, currentPrice: row.currentPrice })),
@@ -202,6 +216,8 @@ export async function GET(request: Request) {
       holds,
       shareEmoji,
       canManageHolds,
+      offers,
+      canManageOffers: canManageOffers(authorization),
       // Everyone may tick items one by one to copy or export; select-all stays with administrators.
       canSelectItems: true,
       canBulkSelect: isAdministrator(authorization),
