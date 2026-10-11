@@ -43,6 +43,9 @@ test("linked private builds use local checks only for anonymous visibility or ra
   await requireCI(linkedEnv, async () => ({ ok: false, status: 404 }), undefined, localCheck);
   await requireCI(linkedEnv, async () => ({ ok: false, status: 403, headers: { get: (name) => name === "x-ratelimit-remaining" ? "0" : null }, text: async () => "API rate limit exceeded" }), undefined, localCheck);
   assert.equal(checks, 2);
+  await requireCI(linkedEnv, async () => ({ ok: false, status: 429, headers: { get: () => null }, text: async () => "" }), undefined, localCheck);
+  assert.equal(checks, 3);
+  await assert.rejects(requireCI(env, async () => ({ ok: false, status: 429, headers: { get: () => null }, text: async () => "" }), undefined, localCheck));
   await assert.rejects(requireCI(env, async () => ({ ok: false, status: 403, headers: { get: () => "0" }, text: async () => "API rate limit exceeded" }), undefined, localCheck));
   await assert.rejects(requireCI(linkedEnv, async () => ({ ok: false, status: 403, headers: { get: () => "42" }, text: async () => "Resource not accessible" }), undefined, localCheck));
 });

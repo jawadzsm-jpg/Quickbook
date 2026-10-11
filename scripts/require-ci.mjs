@@ -67,7 +67,8 @@ export async function requireCI(env = process.env, fetcher = fetch, sleep = dela
       const rateLimitRemaining = response.headers?.get?.("x-ratelimit-remaining");
       const error = new Error(`Cannot verify CI (GitHub HTTP ${response.status}). Deployment blocked.`);
       error.status = response.status;
-      error.rateLimited = response.status === 403 && (rateLimitRemaining === "0" || /rate limit/i.test(responseText));
+      // GitHub reports primary limits as 403 and secondary (abuse) limits as 429.
+      error.rateLimited = response.status === 429 || (response.status === 403 && (rateLimitRemaining === "0" || /rate limit/i.test(responseText)));
       throw error;
     }
     return response.json();

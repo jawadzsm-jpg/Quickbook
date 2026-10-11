@@ -4,7 +4,7 @@ GitHub Actions scans on every push, PR to main, weekly, and manual dispatch. Job
 
 Vercel Git auto-deployment remains enabled. Its build command waits for a successful push workflow for the exact deployed SHA, branch and repository, and independently verifies both required jobs succeeded. Missing/failed/skipped results, API errors, or a 13-minute timeout block the build before migrations. The existing production deployment stays live if a new build fails. If CI finishes after the timeout, redeploy that same commit after checks succeed.
 
-This uses GitHub's public-repository read API without credentials. If the repository becomes private, configure authenticated read access before deploying; do not remove the gate. GitHub API rate limits also fail closed.
+This uses GitHub's public-repository read API without credentials. If the repository becomes private, configure authenticated read access before deploying; do not remove the gate. GitHub API rate limits (HTTP 403 with an exhausted quota, or HTTP 429) fail closed, except for an anonymous build of the linked private repository, which runs the local release checks instead.
 
 ## Local validation
 

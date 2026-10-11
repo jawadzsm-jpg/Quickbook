@@ -16,6 +16,7 @@ const presets = [
   { label: "Gmail / Google Workspace", host: "smtp.gmail.com", port: "465", secure: true },
   { label: "Microsoft 365 / Outlook", host: "smtp.office365.com", port: "587", secure: false },
   { label: "Zoho Mail", host: "smtp.zoho.com", port: "465", secure: true },
+  { label: "turboSMTP", host: "pro.turbo-smtp.com", port: "465", secure: true },
 ];
 
 export function SmtpSettings({ onStatus }: { onStatus?: (configured: boolean) => void }) {
@@ -80,7 +81,7 @@ export function SmtpSettings({ onStatus }: { onStatus?: (configured: boolean) =>
         <div className="space-y-2 xl:col-span-2"><Label htmlFor="smtp-from-email">Sender email</Label><Input id="smtp-from-email" type="email" value={form.fromEmail} onChange={(event) => update({ fromEmail: event.target.value })} required /></div>
       </fieldset>
       <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-muted-foreground">{dirty ? "Unsaved changes — save before testing." : "Test connection checks the saved settings."}</p><div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={loading || testing || dirty || !form.passwordConfigured} onClick={() => void testConnection()}><Mail className="size-4" />{testing ? "Testing…" : "Test connection"}</Button><Button type="submit" disabled={loading || saving}><Send className="size-4" />{saving ? "Saving…" : "Save email settings"}</Button></div></div>
-      <p className="text-xs leading-5 text-muted-foreground">For Gmail, enable two-step verification and use a Google app password—not your normal Gmail password. The saved secret is encrypted and never shown again.</p>
+      <p className="text-xs leading-5 text-muted-foreground">For Gmail, enable two-step verification and use a Google app password—not your normal Gmail password. For turboSMTP, use your turboSMTP account email (or API consumer key) as the username and its password (or consumer secret); the sender email must be a verified sender in turboSMTP. The saved secret is encrypted and never shown again.</p>
     </form>
   </section>;
 }
