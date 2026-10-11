@@ -24,7 +24,7 @@ const { applyInlineFormat, applyLineFormat, inlineFormatsFor, telegramHtml, appl
 const { companyEInvoiceIssues, customerEInvoiceStatus, invoiceEInvoiceStatus, isUaeTrn } = await sourceModule("../lib/einvoice-readiness.ts");
 const { calculatorResult } = await sourceModule("../lib/calculator.ts");
 const { contactAddressLines } = await sourceModule("../lib/contact-address.ts");
-const { API_KEY_PREFIX, apiKeyFromHeaders, generateApiKey, hashApiKey } = await sourceModule("../lib/api-keys.ts");
+const { API_TOKEN_PREFIX, apiTokenDigest, apiTokenFromHeaders, generateApiToken } = await sourceModule("../lib/api-keys.ts");
 const { decodeCursor, encodeCursor, parseProductQuery } = await sourceModule("../lib/public-api-query.ts");
 const { friendlyEmailError } = await sourceModule("../lib/email-errors.ts");
 const { autoCategoryColor, categoryColor, categoryColorKey, categoryPalette, isCategoryColor } = await sourceModule("../lib/category-colors.ts");
@@ -1200,15 +1200,15 @@ test("Excel export colours each Category cell with its Inventory Overview colour
 });
 
 test("Integration API keys: random, stored only as a SHA-256 digest, read from Bearer or X-API-Key", () => {
-  const { key, keyPrefix, keyHash } = generateApiKey();
-  assert.match(key, /^ebk_live_[A-Za-z0-9_-]{43}$/);
-  assert.equal(keyPrefix, key.slice(0, API_KEY_PREFIX.length + 6));
-  assert.equal(keyHash, hashApiKey(key));
-  assert.notEqual(generateApiKey().key, key);
-  assert.equal(apiKeyFromHeaders(new Headers({ authorization: `Bearer ${key}` })), key);
-  assert.equal(apiKeyFromHeaders(new Headers({ "x-api-key": key })), key);
-  assert.equal(apiKeyFromHeaders(new Headers({ authorization: "Bearer not-a-key" })), null);
-  assert.equal(apiKeyFromHeaders(new Headers({ authorization: `Basic ${key}` })), null);
+  const { token, tokenPrefix, tokenDigest } = generateApiToken();
+  assert.match(token, /^ebk_live_[A-Za-z0-9_-]{43}$/);
+  assert.equal(tokenPrefix, token.slice(0, API_TOKEN_PREFIX.length + 6));
+  assert.equal(tokenDigest, apiTokenDigest(token));
+  assert.notEqual(generateApiToken().token, token);
+  assert.equal(apiTokenFromHeaders(new Headers({ authorization: `Bearer ${token}` })), token);
+  assert.equal(apiTokenFromHeaders(new Headers({ "x-api-key": token })), token);
+  assert.equal(apiTokenFromHeaders(new Headers({ authorization: "Bearer not-a-key" })), null);
+  assert.equal(apiTokenFromHeaders(new Headers({ authorization: `Basic ${token}` })), null);
 });
 
 test("Integration API v1: validated query, opaque cursor, no cost or supplier data, admin-only key management", () => {

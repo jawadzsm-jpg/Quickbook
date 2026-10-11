@@ -1,7 +1,7 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { getDb } from "@/db";
 import { apiKeys, auditLog } from "@/db/schema";
-import { generateApiKey } from "@/lib/api-keys";
+import { generateApiToken } from "@/lib/api-keys";
 import { requireCompanyAccess } from "@/lib/auth";
 
 // Admin Controls → API & Integrations: company Administrators create, list and revoke read-only API keys.
@@ -33,10 +33,10 @@ export async function POST(request: Request) {
   const db = getDb();
   const active = await db.select({ id: apiKeys.id }).from(apiKeys).where(and(eq(apiKeys.companyId, companyId), isNull(apiKeys.revokedAt)));
   if (active.length >= MAX_ACTIVE_KEYS) return json({ error: `A company can have up to ${MAX_ACTIVE_KEYS} active keys. Revoke an unused key first.` }, 409);
-  const { key, keyPrefix, keyHash } = generateApiKey();
-  const [row] = await db.insert(apiKeys).values({ companyId, name, keyPrefix, keyHash, scopes: "products:read", createdByUserId: user.id, createdByName: user.fullName || user.email }).returning();
-  await db.insert(auditLog).values({ companyId, action: "created", entityType: "api_key", entityId: row.id, details: JSON.stringify({ name, keyPrefix, actorId: user.id }) });
-  return json({ key: publicKey(row), secret: key }, 201);
+  const { token, tokenPrefix, tokenDigest } = generateApiToken();
+  const [row] = await db.insert(apiKeys).values({ companyId, name, keyPrefix: tokenPrefix, keyHash: tokenDigest, scopes: "products:read", createdByUserId: user.id, createdByName: user.fullName || user.email }).returning();
+  await db.insert(auditLog).values({ companyId, action: "created", entityType: "api_key", entityId: row.id, details: JSON.stringify({ name, keyPrefix: tokenPrefix, actorId: user.id }) });
+  return json({ key: publicKey(row), secret: token }, 201);
 }
 
 /** Revoke a key immediately. */

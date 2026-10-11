@@ -3,7 +3,7 @@ import "server-only";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { apiKeys, companies } from "@/db/schema";
-import { apiKeyFromHeaders, hashApiKey } from "@/lib/api-keys";
+import { apiTokenDigest, apiTokenFromHeaders } from "@/lib/api-keys";
 import { consumeRateLimit } from "@/lib/rate-limit";
 import { encodeCursor, type ProductQuery } from "@/lib/public-api-query";
 
@@ -21,8 +21,8 @@ export const apiJson = (data: unknown, extra: Record<string, string> = {}) => Re
 
 /** Check the API key and the per-key rate limit; returns the client or an error response. */
 export async function authenticateApi(request: Request): Promise<ApiClient | Response> {
-  const key = apiKeyFromHeaders(request.headers);
-  if (!key) {
+  const token = apiTokenFromHeaders(request.headers);
+  if (!token) {
     const blocked = await consumeRateLimit("api:invalid", 600, 60);
     if (!blocked.allowed) return apiError(429, "rate_limited", "Too many requests.", { "Retry-After": String(blocked.retryAfter) });
     return apiError(401, "invalid_api_key", "Send a valid API key as \"Authorization: Bearer <key>\".", { "WWW-Authenticate": "Bearer" });
@@ -30,7 +30,7 @@ export async function authenticateApi(request: Request): Promise<ApiClient | Res
   const db = getDb();
   const [row] = await db.select({ id: apiKeys.id, companyId: apiKeys.companyId, lastUsedAt: apiKeys.lastUsedAt, currency: companies.baseCurrency })
     .from(apiKeys).innerJoin(companies, eq(apiKeys.companyId, companies.id))
-    .where(and(eq(apiKeys.keyHash, hashApiKey(key)), isNull(apiKeys.revokedAt), eq(companies.active, true))).limit(1);
+    .where(and(eq(apiKeys.keyHash, apiTokenDigest(token)), isNull(apiKeys.revokedAt), eq(companies.active, true))).limit(1);
   if (!row) {
     const blocked = await consumeRateLimit("api:invalid", 600, 60);
     if (!blocked.allowed) return apiError(429, "rate_limited", "Too many requests.", { "Retry-After": String(blocked.retryAfter) });
