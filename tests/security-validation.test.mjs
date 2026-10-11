@@ -1031,3 +1031,11 @@ test("invoices print the customer's postal address under Bill To", () => {
   assert.match(invoice, /\.ci-meta p\{white-space:pre-line\}/);
   assert.match(deliveryNote, /customerAddress\.map/);
 });
+
+test("customer payment receipts show the customer's address and TRN under Received from", () => {
+  const receipt = readFileSync(new URL("../app/customer-payment-receipt.tsx", import.meta.url), "utf8");
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  assert.match(receipt, /const customerAddress = contactAddressLines\(contact\)/);
+  assert.match(receipt, /Received from<\/p>[\s\S]*customerAddress\.map[\s\S]*Customer TRN: \{customerTrn\}/);
+  assert.match(app, /<CustomerPaymentReceipt [^>]*contact=\{detail\.partyContact\}/);
+});
