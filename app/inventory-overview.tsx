@@ -18,6 +18,8 @@ import { matchesSearch } from "@/lib/search";
 import { CopyOnHover } from "./copy-on-hover";
 import { TodayOffersPanel, runningOffers, type TodayOffer } from "./today-offers";
 import { offerEndsText, offerShareText } from "@/lib/item-offers";
+import { categoryColor } from "@/lib/category-colors";
+import { CategoryColorPicker } from "./category-color-picker";
 
 
 type OverviewItem = {
@@ -171,6 +173,8 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   const [activityView, setActivityView] = useState<ActivityView | "offers">("incoming");
   const [offers, setOffers] = useState<TodayOffer[]>([]);
   const [canManageOffers, setCanManageOffers] = useState(false);
+  const [categoryColors, setCategoryColors] = useState<Record<string, string>>({});
+  const [canManageCategories, setCanManageCategories] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [canSelectItems, setCanSelectItems] = useState(false);
   const [canBulkSelect, setCanBulkSelect] = useState(false);
@@ -214,6 +218,8 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
       setCanManageHolds(data.canManageHolds === true);
       setOffers((data.offers ?? []) as TodayOffer[]);
       setCanManageOffers(data.canManageOffers === true);
+      setCategoryColors((data.categoryColors ?? {}) as Record<string, string>);
+      setCanManageCategories(data.canManageCategories === true);
       if (data.shareEmoji) setShareEmoji(data.shareEmoji);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not load inventory overview");
@@ -641,7 +647,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
           <TableHeader><TableRow className="bg-muted/40 hover:bg-muted/40"><TableHead className="w-12"><Checkbox disabled={!canBulkSelect || loading || !filtered.length} aria-label="Select all visible items" checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false} onCheckedChange={(checked) => toggleAllVisible(checked === true)} /></TableHead><TableHead className="min-w-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Product</TableHead>{showQuantity && <TableHead responsiveColumn="quantity" className="text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Qty</TableHead>}{showPrice && <TableHead responsiveColumn="price" className="text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Price{adjustLabel}</TableHead>}</TableRow></TableHeader>
           <TableBody>
             {loading ? <TableRow><TableCell colSpan={columnCount} className="h-40 text-center text-muted-foreground"><RefreshCw className="mx-auto mb-2 size-5 animate-spin" />Loading all inventories…</TableCell></TableRow> : categories.length === 0 ? <TableRow><TableCell colSpan={columnCount} className="h-40 text-center text-muted-foreground"><PackageX className="mx-auto mb-2 size-6 opacity-60" />No products match this view.</TableCell></TableRow> : categories.flatMap(([category, items]) => [
-              <TableRow key={`category-${category}`} className="bg-muted/60 hover:bg-muted/60"><TableCell colSpan={columnCount} className="py-2 text-xs font-bold uppercase tracking-wide text-foreground"><span className="mr-2 inline-block size-2 rounded-full bg-primary align-middle" />{category}<span className="ml-2 font-medium normal-case tracking-normal text-muted-foreground">{items.length} {items.length === 1 ? "item" : "items"}</span></TableCell></TableRow>,
+              <TableRow key={`category-${category}`} className="hover:bg-transparent"><TableCell colSpan={columnCount} className={`border-l-4 py-2 text-xs font-bold uppercase tracking-wide ${categoryColor(category, categoryColors).row} ${categoryColor(category, categoryColors).text}`}><span className="flex items-center gap-2"><span className={`inline-block size-2.5 rounded-full ${categoryColor(category, categoryColors).dot}`} />{category}<span className="font-medium normal-case tracking-normal opacity-75">{items.length} {items.length === 1 ? "item" : "items"}</span>{canManageCategories ? <span className="ml-auto normal-case tracking-normal"><CategoryColorPicker compact category={category} saved={categoryColors} onSaved={setCategoryColors} /></span> : null}</span></TableCell></TableRow>,
               ...items.map((record) => {
                 const out = Number(record.quantity) <= 0;
                 const low = Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint);

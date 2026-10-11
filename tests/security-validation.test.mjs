@@ -24,6 +24,7 @@ const { applyInlineFormat, applyLineFormat, inlineFormatsFor, telegramHtml, appl
 const { companyEInvoiceIssues, customerEInvoiceStatus, invoiceEInvoiceStatus, isUaeTrn } = await sourceModule("../lib/einvoice-readiness.ts");
 const { calculatorResult } = await sourceModule("../lib/calculator.ts");
 const { contactAddressLines } = await sourceModule("../lib/contact-address.ts");
+const { autoCategoryColor, categoryColor, categoryColorKey, categoryPalette, isCategoryColor } = await sourceModule("../lib/category-colors.ts");
 const { OFFER_MAX_DAYS, canManageOffers, offerEndsText, offerShareText, offerState, offerTime, validateOffer } = await sourceModule("../lib/item-offers.ts");
 
 test("header calculator provides safe everyday arithmetic", () => {
@@ -1111,6 +1112,27 @@ test("Telegram share toolbar matches Telegram: underline, spoiler, monospace, qu
   const ui = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
   assert.match(ui, /editor\.channel === "telegram" \? \["quote"\] as LineFormat\[\]/);
   assert.match(ui, /aria-label="Link" className=\{toolButton\}/);
+});
+
+test("category colours: fixed light/dark palette, automatic colour per name, saved choice wins", () => {
+  assert.equal(categoryPalette.length, 12);
+  for (const color of categoryPalette) assert.match(color.row, /^bg-\w+-\d+ border-l-\w+-\d+ dark:bg-\w+-\d+\/\d+$/);
+  assert.equal(categoryColorKey(" laptop "), "LAPTOP");
+  assert.equal(categoryColorKey(""), "GENERAL");
+  assert.equal(autoCategoryColor("laptop").id, autoCategoryColor("LAPTOP").id);
+  assert.ok(new Set(["LAPTOP", "DESKTOP", "MONITOR", "PRINTER", "NETWORKING", "STORAGE", "ACCESSORY"].map((name) => autoCategoryColor(name).id)).size >= 4);
+  assert.equal(categoryColor("Laptop", { LAPTOP: "rose" }).id, "rose");
+  assert.equal(categoryColor("Laptop", { LAPTOP: "not-a-colour" }).id, autoCategoryColor("LAPTOP").id);
+  assert.equal(isCategoryColor("teal"), true);
+  assert.equal(isCategoryColor("#ff0000"), false);
+  const route = readFileSync(new URL("../app/api/category-colors/route.ts", import.meta.url), "utf8");
+  const specs = readFileSync(new URL("../app/api/spec-options/route.ts", import.meta.url), "utf8");
+  const overview = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
+  assert.match(route, /requireApiUser\(request, "inventory:manage", true\)/);
+  assert.match(route, /payload\.color === "auto"[\s\S]*isCategoryColor\(payload\.color\)/);
+  assert.match(specs, /A renamed category keeps its colour/);
+  assert.match(overview, /categoryColor\(category, categoryColors\)\.row/);
+  assert.match(overview, /canManageCategories \? <span[^>]*><CategoryColorPicker compact/);
 });
 
 test("Excel export adds Today offer price and Offer ends columns only when an exported product has a running offer", () => {

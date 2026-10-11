@@ -305,6 +305,16 @@ export const specificationOptions = pgTable("specification_options", {
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 }, (table) => [uniqueIndex("idx_specification_options_label_value").on(table.label, table.value)]);
 
+// Category colours in Inventory Overview (shared by all companies, like the category list). Unlisted categories use an
+// automatic colour (lib/category-colors.ts).
+export const categoryColors = pgTable("category_colors", {
+  id: serial("id").primaryKey(),
+  category: text("category").notNull(),
+  color: text("color").notNull(),
+  updatedByName: text("updated_by_name").notNull().default(""),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("idx_category_colors_category").on(table.category)]);
+
 export const transactions = pgTable("transactions", {
   createdByUserId: integer("created_by_user_id").references(() => appUsers.id, { onDelete: "set null" }),
   employeeLoanContactId: integer("employee_loan_contact_id"),

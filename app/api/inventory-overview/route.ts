@@ -2,9 +2,10 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { appUsers, companies, companySettings, inventoryLocations, itemOffers, items, stockHolds } from "../../../db/schema";
 import { activeHoldCondition } from "@/lib/stock-holds";
+import { savedCategoryColors } from "@/lib/category-colors-sql";
 import { canManageOffers } from "@/lib/item-offers";
 import { currentOfferCondition } from "@/lib/item-offers-sql";
-import { isAdministrator, requireApiUser } from "@/lib/auth";
+import { hasPermission, isAdministrator, requireApiUser } from "@/lib/auth";
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Could not load the inventory overview.";
@@ -166,6 +167,8 @@ export async function GET(request: Request) {
     const holds = recordIds.length ? await db.select({ id: stockHolds.id, itemId: stockHolds.itemId, companyId: stockHolds.companyId, quantity: stockHolds.quantity, salesRep: stockHolds.salesRep, note: stockHolds.note, expiresAt: stockHolds.expiresAt, createdByName: stockHolds.createdByName, createdAt: stockHolds.createdAt })
       .from(stockHolds).where(and(inArray(stockHolds.itemId, recordIds), activeHoldCondition())).orderBy(asc(stockHolds.expiresAt)) : [];
     const canManageHolds = isAdministrator(authorization) || authorization.role === "accountant";
+    const categoryColors = await savedCategoryColors();
+    const canManageCategories = hasPermission(authorization, "inventory:manage");
     // Today Offer: running and scheduled offers on active items in the user's companies.
     const offers = await db.select({
       id: itemOffers.id, itemId: itemOffers.itemId, offerPrice: itemOffers.offerPrice, startsAt: itemOffers.startsAt, endsAt: itemOffers.endsAt,
@@ -204,7 +207,7 @@ export async function GET(request: Request) {
       // names, purchase documents or purchase prices.
       const sellingPrice = (itemId: unknown) => records.find(item => item.id === Number(itemId))?.salesPrice ?? null;
       const safe = (row: Record<string, unknown>) => ({ id: row.id, itemId: row.itemId, itemName: row.itemName, sku: row.sku, itemNumber: row.itemNumber, companyId: row.companyId, companyName: row.companyName, locationId: row.locationId, locationName: row.locationName, currency: row.currency, quantity: row.quantity, date: row.date });
-      return Response.json({ records, holds, shareEmoji, canManageHolds: false, canManageOffers: false, offers: offers.map((offer) => ({ ...offer, createdByName: "" })), canSelectItems: true, canBulkSelect: false, salesOnly: true, activity: {
+      return Response.json({ records, holds, shareEmoji, categoryColors, canManageCategories: false, canManageHolds: false, canManageOffers: false, offers: offers.map((offer) => ({ ...offer, createdByName: "" })), canSelectItems: true, canBulkSelect: false, salesOnly: true, activity: {
         incoming: incomingResult.rows.map(row => ({ ...safe(row), date: undefined, price: sellingPrice(row.itemId) })),
         launched: launchedResult.rows.map(row => ({ ...safe(row), price: sellingPrice(row.itemId) })),
         priceChanges: priceChanges.map((row: Record<string, unknown>) => ({ ...safe(row), price: sellingPrice(row.itemId), previousPrice: row.previousPrice, currentPrice: row.currentPrice })),
@@ -216,6 +219,8 @@ export async function GET(request: Request) {
       holds,
       shareEmoji,
       canManageHolds,
+      categoryColors,
+      canManageCategories,
       offers,
       canManageOffers: canManageOffers(authorization),
       // Everyone may tick items one by one to copy or export; select-all stays with administrators.
