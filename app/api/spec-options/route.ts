@@ -1,6 +1,7 @@
 import { asc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { specificationOptions } from "../../../db/schema";
+import { categoryColors, specificationOptions } from "../../../db/schema";
+import { savedCategoryColors } from "@/lib/category-colors-sql";
 import { specificationFields, specificationPresets } from "@/lib/specification-presets";
 import { requireApiUser } from "@/lib/auth";
 import { normalizeComparableText, uppercaseText } from "@/lib/text-normalization";
@@ -67,7 +68,7 @@ export async function GET(request: Request) {
         if (!includesComparable((disabled[row.label] ??= []), value)) disabled[row.label].push(value);
       }
     }
-    return Response.json({ options, disabled, labels, disabledLabels, categories, disabledCategories });
+    return Response.json({ options, disabled, labels, disabledLabels, categories, disabledCategories, categoryColors: await savedCategoryColors() });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not load specification choices." }, { status: 500 });
   }
@@ -115,6 +116,14 @@ export async function PATCH(request: Request) {
     }
     if (storedOldValue !== newValue) await setOption(label, storedOldValue, false);
     await setOption(label, newValue, true);
+    // A renamed category keeps its colour.
+    if (label === CATEGORY_SCOPE && oldValue !== newValue) {
+      const [saved] = await getDb().select().from(categoryColors).where(eq(categoryColors.category, oldValue)).limit(1);
+      if (saved) {
+        await getDb().delete(categoryColors).where(eq(categoryColors.category, oldValue));
+        await getDb().insert(categoryColors).values({ category: newValue, color: saved.color, updatedByName: saved.updatedByName }).onConflictDoUpdate({ target: categoryColors.category, set: { color: saved.color } });
+      }
+    }
     if (isLabel && oldValue !== newValue) {
       const rows = await getDb().select().from(specificationOptions).orderBy(asc(specificationOptions.value));
       const activeValues = new Set(specificationPresets[oldValue] ?? []);

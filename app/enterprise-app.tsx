@@ -21,6 +21,7 @@ import { InvoiceSerialEditor } from "./invoice-serial-editor";
 import { InventoryInvoiceEditor } from "./inventory-invoice-editor";
 import { ItemSearchSelect, itemSearchDetail, itemSearchFields } from "./item-search-select";
 import { heldNote, useActiveHolds } from "./stock-holds";
+import { CategoryColorPicker } from "./category-color-picker";
 import { CopyOnHover } from "./copy-on-hover";
 import { EInvoiceBadge, EInvoicingCenter, EInvoicingSettings } from "./einvoicing-center";
 import { customerEInvoiceStatus, invoiceEInvoiceStatus } from "@/lib/einvoice-readiness";
@@ -3213,7 +3214,7 @@ function ContactFields({ form, setForm, accounts, onLoansChanged }: { onLoansCha
 }
 function ItemFields({ form, setForm, items, accounts, contacts, vatCodeOptions, currency, editing }: { form: Record<string, string>; setForm: (f: Record<string, string>) => void; items: DataRecord[]; accounts: DataRecord[]; contacts: DataRecord[]; vatCodeOptions: VatCodeOption[]; currency: string; editing: boolean }) {
   const count = Math.min(30, Math.max(1, Number(form.specCount ?? 8)));
-  const [optionData, setOptionData] = useState<{ options: Record<string, string[]>; disabled: Record<string, string[]>; labels: string[]; disabledLabels: string[]; categories: string[]; disabledCategories: string[] }>({ options: {}, disabled: {}, labels: [...specificationFields], disabledLabels: [], categories: ["LAPTOP"], disabledCategories: [] });
+  const [optionData, setOptionData] = useState<{ options: Record<string, string[]>; disabled: Record<string, string[]>; labels: string[]; disabledLabels: string[]; categories: string[]; disabledCategories: string[]; categoryColors?: Record<string, string> }>({ options: {}, disabled: {}, labels: [...specificationFields], disabledLabels: [], categories: ["LAPTOP"], disabledCategories: [], categoryColors: {} });
   const loadOptions = useCallback(async () => {
     try {
       const response = await fetch("/api/spec-options");
@@ -3363,7 +3364,7 @@ function ItemFields({ form, setForm, items, accounts, contacts, vatCodeOptions, 
       onAdd={(value) => changeOption("POST", { type: "category", value })}
       onRename={(oldValue, newValue) => changeOption("PATCH", { type: "category", oldValue, newValue })}
       onDelete={(value) => changeOption("DELETE", { type: "category", value })}
-    /></div>
+    />{form.category?.trim() ? <div className="flex flex-wrap items-center gap-2 pt-1"><span className="text-xs text-slate-500">Category colour in Inventory Overview</span><CategoryColorPicker category={form.category} saved={optionData.categoryColors ?? {}} onSaved={(categoryColors) => setOptionData((current) => ({ ...current, categoryColors }))} /></div> : null}</div>
     <section className="space-y-3 rounded-xl border bg-slate-50 p-4 sm:col-span-2">
       <div className="flex flex-wrap items-center justify-between gap-3"><div><Label>Item description specifications</Label><p className="mt-1 text-xs text-slate-500">Select or type any detail, then enter its value. Add or remove up to 30 fields.</p></div><Button type="button" variant="outline" size="sm" disabled={count >= 30} onClick={addSpecification}><Plus className="size-3" />Add detail ({count}/30)</Button></div>
       <div className="grid gap-3 xl:grid-cols-2">{Array.from({ length: count }, (_, index) => <div key={index} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2 rounded-lg border bg-white p-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)_auto]">
