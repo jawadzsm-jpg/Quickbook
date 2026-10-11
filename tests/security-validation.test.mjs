@@ -24,7 +24,7 @@ const { applyInlineFormat, applyLineFormat, inlineFormatsFor } = await sourceMod
 const { companyEInvoiceIssues, customerEInvoiceStatus, invoiceEInvoiceStatus, isUaeTrn } = await sourceModule("../lib/einvoice-readiness.ts");
 const { calculatorResult } = await sourceModule("../lib/calculator.ts");
 const { contactAddressLines } = await sourceModule("../lib/contact-address.ts");
-const { OFFER_MAX_DAYS, canManageOffers, offerState, offerTime, validateOffer } = await sourceModule("../lib/item-offers.ts");
+const { OFFER_MAX_DAYS, canManageOffers, offerShareText, offerState, offerTime, validateOffer } = await sourceModule("../lib/item-offers.ts");
 
 test("header calculator provides safe everyday arithmetic", () => {
   assert.equal(calculatorResult(0.1, 0.2, "+"), 0.3);
@@ -1072,4 +1072,19 @@ test("Today Offer: validated offer price and start/end, managed by administrator
   assert.match(route, /eq\(items\.id, itemId\), eq\(items\.companyId, companyId\)/);
   assert.match(overview, /offers: offers\.map\(\(offer\) => \(\{ \.\.\.offer, createdByName: "" \}\)\)/);
   assert.match(ui, /label: "Today Offer", Icon: Tag, count: runningOffers\(offers, loadedAt\)\.length/);
+});
+
+test("WhatsApp, Telegram and email shares show a running Today Offer", () => {
+  const base = { currency: "AED", normalPrice: 1800, offerPrice: 1599, endsAt: "2026-10-11 19:44:00+04", vatLabel: " (VAT excluded)" };
+  // AM/PM casing depends on the runtime's locale data.
+  const whatsapp = offerShareText({ ...base, channel: "whatsapp", mark: "🔥" });
+  assert.equal(whatsapp.price, "~AED 1,800~ *AED 1,599* (VAT excluded)");
+  assert.match(whatsapp.offerLine, /^🔥 \*TODAY OFFER\* until 11 Oct, 07:44 pm$/i);
+  const telegram = offerShareText({ ...base, channel: "telegram" });
+  assert.equal(telegram.price, "~~AED 1,800~~ **AED 1,599** (VAT excluded)");
+  assert.match(telegram.offerLine, /^\*\*TODAY OFFER\*\* until 11 Oct, 07:44 pm$/i);
+  assert.equal(offerShareText({ ...base, channel: "email" }).price, "was AED 1,800 AED 1,599 (VAT excluded)");
+  const ui = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
+  assert.match(ui, /const offerByItem = new Map\(runningOffers\(offers\)\.map/);
+  assert.match(ui, /if \(offerText\) lines\.push\(offerText\.offerLine\)/);
 });

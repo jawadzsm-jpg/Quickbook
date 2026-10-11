@@ -27,3 +27,19 @@ export function offerState(offer: { startsAt: string; endsAt: string }, now = Da
   if (offerTime(offer.endsAt) <= now) return "ended" as const;
   return offerTime(offer.startsAt) <= now ? "active" as const : "scheduled" as const;
 }
+
+const shareAmount = (value: number) => value.toLocaleString("en-AE", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+
+/** Share-text pieces for an item on a running offer: the struck-through normal price, the offer price, and when the offer ends (UAE time). */
+export function offerShareText(input: { channel: "whatsapp" | "telegram" | "email"; currency: string; normalPrice: number; offerPrice: number; endsAt: string; vatLabel: string; mark?: string }) {
+  const normal = `${input.currency} ${shareAmount(input.normalPrice)}`;
+  const offer = `${input.currency} ${shareAmount(input.offerPrice)}`;
+  const struck = input.channel === "whatsapp" ? `~${normal}~` : input.channel === "telegram" ? `~~${normal}~~` : `was ${normal}`;
+  const bold = (value: string) => input.channel === "whatsapp" ? `*${value}*` : input.channel === "telegram" ? `**${value}**` : value;
+  const ends = new Intl.DateTimeFormat("en-AE", { timeZone: "Asia/Dubai", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(offerTime(input.endsAt));
+  const offerLine = `${bold("TODAY OFFER")} until ${ends}`;
+  return {
+    price: `${struck} ${bold(offer)}${input.vatLabel}`,
+    offerLine: input.mark ? `${input.mark} ${offerLine}` : offerLine,
+  };
+}

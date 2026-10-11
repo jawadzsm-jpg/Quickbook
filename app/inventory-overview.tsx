@@ -17,6 +17,7 @@ import { inventoryItemCondition, inventoryItemLine, partNumberInLine, inventoryS
 import { matchesSearch } from "@/lib/search";
 import { CopyOnHover } from "./copy-on-hover";
 import { TodayOffersPanel, runningOffers, type TodayOffer } from "./today-offers";
+import { offerShareText } from "@/lib/item-offers";
 
 
 type OverviewItem = {
@@ -406,6 +407,8 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   };
   const shareText = (channel: ShareChannel) => {
     if (!selectedRecords.length) return "";
+    // Items on a running Today Offer share the struck-through normal price, the offer price and when the offer ends.
+    const offerByItem = new Map(runningOffers(offers).map((offer) => [offer.itemId, offer]));
     const items = selectedRecords.map((record) => {
       const description = specificationText(record);
       const emoji = channel === "email" ? shareEmojiStyle("none") : emojiFor(channel, record.companyId);
@@ -424,12 +427,15 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
         const quantity = plainMoney(Number(record.quantity));
         details.push(channel === "email" ? `Quantity: ${quantity}` : marked(emoji.quantity, `Qty: ${quantity}`));
       }
+      const offer = record.recordIds.map((id) => offerByItem.get(id)).find(Boolean);
+      const offerText = showPrice && offer ? offerShareText({ channel, currency: record.currency, normalPrice: priceFor(record), offerPrice: priceFor({ salesPrice: offer.offerPrice }), endsAt: offer.endsAt, vatLabel: includeVat ? " (VAT included)" : " (VAT excluded)", mark: channel !== "email" && emoji.id !== "none" ? "🔥" : "" }) : null;
       if (showPrice) {
         const price = priceFor(record);
-        const value = `${record.currency} ${plainMoney(price)}${includeVat ? " (VAT included)" : " (VAT excluded)"}`;
+        const value = offerText?.price ?? `${record.currency} ${plainMoney(price)}${includeVat ? " (VAT included)" : " (VAT excluded)"}`;
         details.push(channel === "email" ? `Price: ${value}` : marked(emoji.price, value));
       }
       if (details.length) lines.push(details.join(" | "));
+      if (offerText) lines.push(offerText.offerLine);
       return lines.filter(Boolean).join("\n");
     });
     return items.join(channel === "telegram" ? "\n──────────────\n" : "\n-------------------\n");
