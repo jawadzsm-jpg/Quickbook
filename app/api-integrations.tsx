@@ -78,7 +78,7 @@ export function ApiIntegrations({ companyId, companyName }: { companyId: number;
   return <section className="space-y-4" aria-label="API & Integrations">
     <div className="rounded-2xl border bg-card p-4 shadow-sm sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-xl bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-200"><Plug className="size-5" /></div><div className="min-w-0"><h2 className="font-semibold">API keys for {companyName}</h2><p className="text-sm text-muted-foreground">Websites (Shopify, WordPress, your own site) use a key to read this company&apos;s products, stock, prices and Today Offers. Keys are read-only.</p></div></div>
+        <div className="flex min-w-0 flex-1 basis-80 gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-xl bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-200"><Plug className="size-5" /></div><div className="min-w-0"><h2 className="font-semibold">API keys for {companyName}</h2><p className="text-sm text-muted-foreground">Websites (Shopify, WordPress, your own site) use a key to read this company&apos;s products, stock, prices and Today Offers. Keys are read-only.</p></div></div>
         <div className="flex gap-2"><Button type="button" variant="outline" size="sm" onClick={() => void load()} disabled={loading}><RefreshCw className="size-4" />Refresh</Button><Button type="button" size="sm" onClick={() => setCreating(true)}><Plus className="size-4" />Create API key</Button></div>
       </div>
       <div className="mt-4 divide-y rounded-xl border">
