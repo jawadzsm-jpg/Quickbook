@@ -1991,10 +1991,16 @@ body {
 .employee-hr-fields label { display: grid; gap: .4rem; min-width: 0; font-size: .8rem; font-weight: 600; }
 .employee-hr-fields :is(input,select) { width: 100%; min-width: 0; min-height: 42px; background: #fff; color: #0f172a; border: 1px solid var(--input); border-radius: .4rem; padding: .5rem; }
 .employee-hr-fields :is(input,select):focus-visible { outline: 2px solid #059669; outline-offset: 2px; }
-.employee-hr-details { display: grid; gap: .3rem; margin-top: .75rem; font-size: .72rem; min-width: 220px; }
+.employee-hr-details { display: grid; gap: .3rem; margin-top: .75rem; font-size: .72rem; min-width: 160px; }
 .employee-hr-details > div { display: flex; flex-wrap: wrap; gap: .4rem; }
 .employee-hr-details dt { color: #64748b; font-weight: 500; }
 .employee-hr-details dd { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+/* Wide screens: label above value in two columns so each employee row stays short. */
+@media screen and (min-width: 1280px) {
+  .employee-hr-details { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: .75rem; row-gap: .45rem; min-width: 290px; }
+  .employee-hr-details > div { display: block; }
+  .employee-hr-details dd { font-weight: 600; }
+}
 @media screen {
   [data-appearance="dark"] .employee-hr-fields { background: #142436; border-color: #334155; }
   [data-appearance="dark"] .employee-hr-fields :is(input,select) { background: #0f172a; color: #f1f5f9; border-color: #475569; }

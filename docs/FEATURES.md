@@ -91,7 +91,7 @@
 
 ## Employees and HR
 
-- Employee contact records and employee-specific attachments.
+- Employee contact records and employee-specific attachments. In the employee list, HR details (salary, loan, accounts, vacation) show as a two-column label/value grid from 1,280 px with the row's other cells aligned to the top; the four header stats are two-up on phones.
 - Employee balances summary report.
 - Employee payment detail report.
 - HR report access restricted to company administrators.
