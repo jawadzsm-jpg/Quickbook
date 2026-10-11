@@ -2,29 +2,19 @@ import { isValidEmail } from "@/lib/email-validation";
 import { and, asc, count, eq, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { appUsers, authSessions, companies } from "@/db/schema";
-import { appRoles, hashPassword, requireApiUser, type AppRole, type SessionUser } from "@/lib/auth";
+import { appRoles, hashPassword, type AppRole, type SessionUser } from "@/lib/auth";
+import { canManage, companyIdsForUser, isCompanyAdmin, outOfScope, requireUserManager, roleNames } from "@/lib/user-management";
 import { sendUserInvitation } from "@/lib/smtp";
+import { friendlyEmailError } from "@/lib/email-errors";
 
 const validRole = (value: string): value is AppRole => appRoles.includes(value as AppRole);
-const roleNames: Record<AppRole, string> = { all_admin: "All-Admin", admin: "Administrator", accountant: "Accountant", sales: "Sales", purchasing: "Purchasing", inventory: "Inventory Manager", customization: "Product Customization", viewer: "Viewer" };
 const validAvatar = (value: string) => !value || (/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(value) && value.length <= 1_100_000);
-
-async function companyIdsForUser(userId: number) {
-  const result = await getDb().execute(sql`SELECT company_id FROM app_user_companies WHERE user_id = ${userId} ORDER BY company_id`);
-  return result.rows.map((row) => Number(row.company_id));
-}
 
 async function activeAllAdminCount() {
   const result = await getDb().execute(sql`SELECT COUNT(*)::int AS value FROM app_users WHERE role = 'all_admin' AND active = true`);
   return Number(result.rows[0]?.value ?? 0);
 }
 
-// A company Administrator manages only operational users (not Administrators or All-Admins) whose every company is one
-// of their own; an All-Admin manages everyone.
-const elevatedRoles: AppRole[] = ["all_admin", "admin"];
-const isCompanyAdmin = (manager: SessionUser) => manager.role !== "all_admin";
-const withinCompanies = (manager: SessionUser, companyIds: number[]) => companyIds.length > 0 && companyIds.every((id) => manager.companyIds.includes(id));
-const canManage = (manager: SessionUser, role: AppRole, companyIds: number[]) => !isCompanyAdmin(manager) || (!elevatedRoles.includes(role) && withinCompanies(manager, companyIds));
 
 async function publicUser(user: typeof appUsers.$inferSelect, manager: SessionUser) {
   const userRole = user.role as AppRole;
@@ -55,13 +45,7 @@ async function replaceCompanies(userId: number, companyIds: number[]) {
   for (const companyId of companyIds) await db.execute(sql`INSERT INTO app_user_companies (user_id, company_id) VALUES (${userId}, ${companyId}) ON CONFLICT DO NOTHING`);
 }
 
-// All-Admins manage every user. Company Administrators manage operational users of their own companies only (see
-// `canManage`). If no active All-Admin remains, `scripts/bootstrap-admin.mjs` restores one.
-async function requireUserManager(request: Request, mutating = false) {
-  return requireApiUser(request, true, mutating);
-}
 
-const outOfScope = () => Response.json({ error: "Company Administrators can only manage non-administrator users of their own companies." }, { status: 403 });
 
 export async function GET(request: Request) {
   const administrator = await requireUserManager(request);
@@ -113,7 +97,7 @@ export async function POST(request: Request) {
   let emailSent = false; let emailWarning = "";
   if (payload.sendEmail === true) {
     try { await sendUserInvitation({ to: email, name: fullName, temporaryPassword: password, roleLabel: roleNames[role], loginUrl: process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin }); emailSent = true; }
-    catch (error) { emailWarning = error instanceof Error ? error.message : "The user was added, but the email could not be sent."; }
+    catch (error) { emailWarning = friendlyEmailError(error, "The user was added, but the email could not be sent."); }
   }
   return Response.json({ user: await publicUser(created, administrator), emailSent, emailWarning }, { status: 201 });
 }
@@ -184,7 +168,7 @@ export async function PATCH(request: Request) {
   let emailSent = false; let emailWarning = "";
   if (payload.sendEmail === true && payload.password !== undefined) {
     try { await sendUserInvitation({ to: updated.email, name: updated.fullName || updated.email, temporaryPassword: String(payload.password), roleLabel: roleNames[updated.role as AppRole], loginUrl: process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin }); emailSent = true; }
-    catch (error) { emailWarning = error instanceof Error ? error.message : "The password was reset, but the email could not be sent."; }
+    catch (error) { emailWarning = friendlyEmailError(error, "The password was reset, but the email could not be sent."); }
   }
   return Response.json({ user: await publicUser(updated, administrator), emailSent, emailWarning });
 }

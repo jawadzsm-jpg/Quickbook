@@ -24,6 +24,7 @@ const { applyInlineFormat, applyLineFormat, inlineFormatsFor, telegramHtml, appl
 const { companyEInvoiceIssues, customerEInvoiceStatus, invoiceEInvoiceStatus, isUaeTrn } = await sourceModule("../lib/einvoice-readiness.ts");
 const { calculatorResult } = await sourceModule("../lib/calculator.ts");
 const { contactAddressLines } = await sourceModule("../lib/contact-address.ts");
+const { friendlyEmailError } = await sourceModule("../lib/email-errors.ts");
 const { autoCategoryColor, categoryColor, categoryColorKey, categoryPalette, isCategoryColor } = await sourceModule("../lib/category-colors.ts");
 const { OFFER_MAX_DAYS, canManageOffers, offerEndsText, offerShareText, offerState, offerTime, validateOffer } = await sourceModule("../lib/item-offers.ts");
 
@@ -1141,6 +1142,40 @@ test("Excel export adds Today offer price and Offer ends columns only when an ex
   assert.match(ui, /const offerColumns = showPrice && selectedRecords\.some\(\(record\) => offerFor\(record\)\)/);
   assert.match(ui, /headers\.push\(`Today offer price\$\{withVat \? " including 5% VAT" : ""\}`, "Offer ends \(UAE time\)"\)/);
   assert.match(ui, /priceFor\(\{ salesPrice: offer\.offerPrice \}, withVat\)/);
+});
+
+test("email failures are explained in plain language and the login email can be sent again", () => {
+  assert.equal(friendlyEmailError({ message: "Data command failed: 566 SMTP limit exceeded", responseCode: 566 }), "Your email provider's sending limit is reached. Copy the login details and send them yourself, or send the email again later. (Data command failed: 566 SMTP limit exceeded)");
+  assert.match(friendlyEmailError({ message: "550 5.4.5 Daily user sending quota exceeded." }), /^Your email provider's sending limit is reached/);
+  assert.match(friendlyEmailError({ message: "Invalid login: 535 Authentication failed", code: "EAUTH", responseCode: 535 }), /^The email server rejected the SMTP username or password/);
+  assert.match(friendlyEmailError({ message: "Connection timeout", code: "ETIMEDOUT" }), /^Could not reach the email server/);
+  assert.match(friendlyEmailError({ message: "553 Sender address not allowed", responseCode: 553 }), /^The email server would not send from the sender address/);
+  assert.equal(friendlyEmailError(new Error("Complete the SMTP settings first.")), "Complete the SMTP settings first.");
+  assert.equal(friendlyEmailError(null, "The email could not be sent."), "The email could not be sent.");
+  const route = readFileSync(new URL("../app/api/admin-users/route.ts", import.meta.url), "utf8");
+  const resend = readFileSync(new URL("../app/api/admin-users/resend-invitation/route.ts", import.meta.url), "utf8");
+  const ui = readFileSync(new URL("../app/user-role-center.tsx", import.meta.url), "utf8");
+  // Resend has its own endpoint: same-origin user manager, administrator scope, only the unchanged temporary password, no update.
+  assert.match(resend, /requireUserManager\(request, true\)/);
+  assert.match(resend, /if \(isCompanyAdmin\(administrator\) && !canManage\(administrator, targetRole, await companyIdsForUser\(id\)\)\) return outOfScope\(\);/);
+  assert.match(resend, /!target\.active \|\| !target\.mustChangePassword \|\| !verifyPassword\(password, target\.passwordHash\)/);
+  assert.doesNotMatch(resend, /\.update\(|\.insert\(|\.delete\(/);
+  assert.doesNotMatch(route, /resendInvitation/);
+  assert.equal((route.match(/friendlyEmailError\(error/g) ?? []).length, 2);
+  assert.match(ui, /fetch\("\/api\/admin-users\/resend-invitation", \{ method: "POST"[\s\S]*password: createdCredentials\.password/);
+  assert.match(ui, /createdCredentials\?\.emailWarning \? <div role="alert"[\s\S]*Send email again/);
+});
+
+test("Send test email sends a real message only to the signed-in All-Admin", () => {
+  const route = readFileSync(new URL("../app/api/email-settings/test-email/route.ts", import.meta.url), "utf8");
+  const ui = readFileSync(new URL("../app/smtp-settings.tsx", import.meta.url), "utf8");
+  assert.match(route, /requireApiUser\(request, true, true\)/);
+  assert.match(route, /user\.role !== "all_admin"/);
+  assert.match(route, /await sendTestEmail\(user\.email\)/);
+  assert.doesNotMatch(route, /request\.json\(\)/);
+  assert.match(route, /friendlyEmailError\(error, "The test email could not be sent\."\)/);
+  assert.match(ui, /fetch\("\/api\/email-settings\/test-email", \{ method: "POST" \}\)/);
+  assert.match(ui, /Send test email/);
 });
 
 test("item list shows each category as a pill in its Inventory Overview colour", () => {
