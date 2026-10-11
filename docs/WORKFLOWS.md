@@ -19,7 +19,7 @@ flowchart TD
 2. `/api/auth/session` verifies the active user and scrypt password. Five failed attempts produce a 15-minute lock.
 3. Successful login records time, source IP, and user agent, then issues the session cookie.
 4. A temporary-password account is sent to the password-change screen. Changing it revokes every session, requiring a new login.
-5. The server loads the application shell with role, company assignments, name, avatar, and appearance mode (light or dark; the colour palette is fixed app-wide).
+5. The server loads the application shell with role, company assignments, name, avatar, and appearance mode (light or dark) and accent colour (Emerald, Ocean, Indigo, Violet, Rose or Amber), both saved per user.
 6. The user selects a company and inventory location. All subsequent operational calls send those identifiers, and the API verifies them again.
 
 ## 2. Master-data workflow
@@ -235,7 +235,9 @@ For Vendors, select company, inventory, currency and optionally a supplier. Quic
 - **Companies and inventories:** create/edit workspace records, bank/company metadata, currency, invoice series, and locations.
 - **Users:** create users, assign roles and companies, reset temporary passwords, activate/deactivate accounts, and send invitation email when configured.
 - **Branding:** configure login visuals, logos, company document template/color, letterhead, and stamp.
-- **SMTP:** save encrypted mail settings and send a test message.
+- **SMTP:** save encrypted mail settings (Gmail, Microsoft 365, Zoho, turboSMTP presets), **Test connection** (login only) and **Send test email** (a real message to yourself, so sending limits and sender rules show up).
+- **Login details:** after creating a user or resetting a password, the dialog shows the email and temporary password with **Copy login details**; if the email fails it explains why in plain language and offers **Send email again** (same temporary password, only while unchanged).
+- **API & Integrations:** create one read-only API key per website (shown once), see last use, revoke instantly; give developers the API address and the OpenAPI link.
 - **Company clear:** protected Administrator action for clearing selected operational data while retaining required setup.
 
 ## 11. Development and release workflow
@@ -316,3 +318,49 @@ For a posted invoice, saving reverses the moved quantities, revenue, VAT, cost, 
 In Management → Invoice series (or Edit series on an inventory), administrators can edit the complete format, prefix, minimum digit count (1–12) and next sequence (1–999999999). Include `{NUMBER}` exactly once; optional `{PREFIX}` and `{COMPANY}` insert the inventory prefix and three-digit company ID. Literal text, year, separators and suffixes can be replaced or removed, for example `COMNET/2026/{NUMBER}` or `{NUMBER}`. Year text is literal and does not roll over automatically. Presets offer INV, number-only and the original format. The live preview and invoice creation share one formatter. Existing inventory formats default to `C{COMPANY}-{PREFIX}-INV-{NUMBER}` with four digits.
 
 Save changes only future invoices for that inventory; saved invoices retain their original numbers. The server locks the inventory sequence, rejects a stale editor if an invoice was issued or settings changed, checks for a used next number, and records the change in the audit log. Issuing an invoice checks again for collisions and rolls back its counter and posting on failure. Minimum digit count adds leading zeros and never truncates larger numbers.
+
+## 12. Forgot password
+
+```mermaid
+flowchart TD
+  Forgot["Forgot password? on sign-in"] --> Request["POST /api/auth/password-reset (email)"]
+  Request --> Same["Same answer for known and unknown emails"]
+  Request --> Mail["Active user: one-use link /?reset=token, 30 min, max 3 per hour"]
+  Mail --> Open["Open link: token kept in memory, removed from address bar"]
+  Open --> Set["PATCH /api/auth/password-reset (token, new password)"]
+  Set --> Done["Password set, lockout cleared, all sessions revoked"]
+```
+
+1. The user enters their email under **Forgot password?**. Without SMTP settings the page says to ask an administrator.
+2. An active account gets a one-use link (only a SHA-256 digest of the token is stored). The link uses `NEXT_PUBLIC_APP_URL` when set.
+3. Opening the link shows **Choose a new password** (12–128 characters). Saving claims the token atomically, sets the password, clears the temporary-password flag and lockout, and signs the user out everywhere.
+4. If email cannot be sent (for example the provider's sending limit), an administrator resets the password in Users & access and shares the login details directly.
+
+## 13. Email delivery troubleshooting
+
+1. **Admin Controls → Email server → Send test email.** Success means invitation, reset and login emails can be sent.
+2. A failure is explained in plain language with the server's reply in brackets: sending limit reached (e.g. `566 SMTP limit exceeded` — provider quota, not a port), SMTP login rejected, server unreachable, or sender not verified.
+3. Fix it at the email provider (credits, account status, verified sender domain), save, and test again. Meanwhile use **Copy login details** and **Send email again** later.
+
+## 14. Today Offer and product sharing
+
+1. An Administrator or Inventory Manager opens **Inventory Overview → Today Offer → Add offer**, picks an item, enters the offer price and the **Start offer** / **End offer** times (up to 31 days). A new offer replaces the item's current one.
+2. Running offers count on the tab badge and show the normal price struck through, % off and time left; scheduled ones start automatically. **End** or **Cancel** stops an offer early.
+3. Users tick products and copy them for **WhatsApp**, **Telegram** or **email**, or export **Excel** (No VAT, + VAT 5% or 0% VAT). Price adjustments and the VAT choice apply to every price; running offers add the struck-through price and a `TODAY OFFER until …` line (UAE time). **Edit** opens the message in an editor with WhatsApp- or Telegram-style formatting tools; Telegram copies paste already formatted.
+4. Offers also appear in the Integration API (`offer` on each product) and count as product changes for `updated_since`.
+
+## 15. Website integration (Integration API)
+
+```mermaid
+flowchart LR
+  Admin["Administrator creates API key"] --> Dev["Developer stores key on website server"]
+  Dev --> First["First import: GET /api/v1/products?status=all (all pages)"]
+  First --> Loop["Every few minutes: GET /api/v1/products?updated_since=lastStart&status=all"]
+  Loop --> Apply["Create drafts, update stock/price/offer, hide inactive"]
+  Apply --> Loop
+```
+
+1. An Administrator creates a key per website in **Admin Controls → API & Integrations** and hands it to the developer with the API address and `/api/v1/openapi.json`.
+2. The website imports all products once, then repeatedly asks only for products changed since its previous sync start, following `next_cursor` pages.
+3. Any item change (stock movement, price, details, status) is stamped by the `trg_items_updated_at` trigger; Today Offer starts, ends and changes are included too.
+4. Keys are read-only, limited to one company and 120 requests per minute, and can be revoked at any time. Developer guide: [INTEGRATION-API.md](INTEGRATION-API.md).

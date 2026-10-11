@@ -14,9 +14,9 @@ Before doing a repository-wide analysis, read these maintained files in order:
 
 1. `README.md`
 2. `docs/README.md`
-3. `docs/CODEBASE-MAP.md`
-4. The task-relevant files among `docs/ARCHITECTURE.md`, `docs/API.md`, `docs/FEATURES.md`, and `docs/WORKFLOWS.md`
+3. `docs/CODEBASE-MAP.md` and `docs/FILE-INDEX.md` (one line per source file)
+4. The task-relevant files among `docs/ARCHITECTURE.md`, `docs/DATA-MODEL.md`, `docs/API.md`, `docs/INTEGRATION-API.md`, `docs/FEATURES.md`, and `docs/WORKFLOWS.md`
 
-Use `docs/CODEBASE-MAP.md` to choose the narrow source area to inspect. The files `docs/codebase-review.md`, `docs/financial-report-audit.md`, and `docs/runtime-review.md` are historical audit snapshots, not current specifications.
+Use `docs/CODEBASE-MAP.md` and `docs/FILE-INDEX.md` to choose the narrow source area to inspect. The files `docs/codebase-review.md`, `docs/financial-report-audit.md`, and `docs/runtime-review.md` are historical audit snapshots, not current specifications.
 
 When code behavior changes, update the affected canonical document in the same change. If code and documentation conflict, verify the implementation, then correct the documentation so future work does not require another full-codebase scan.

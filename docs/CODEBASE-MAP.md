@@ -1,6 +1,6 @@
 # Codebase map
 
-Use this file to locate implementation ownership without rescanning the whole repository. Start with the narrow files listed for the task, then follow their imports.
+Use this file to locate implementation ownership without rescanning the whole repository. Start with the narrow files listed for the task, then follow their imports. For a one-line description of **every** source file see [FILE-INDEX.md](FILE-INDEX.md); for tables see [DATA-MODEL.md](DATA-MODEL.md).
 
 ## Top-level ownership
 
@@ -26,14 +26,18 @@ Use this file to locate implementation ownership without rescanning the whole re
 
 | Area | Primary UI files | Primary API |
 | --- | --- | --- |
-| Login/password | `login-screen.tsx`, `password-change-screen.tsx` | `auth/session`, `login-branding` |
+| Login/password | `login-screen.tsx`, `password-change-screen.tsx`, `password-reset-forms.tsx` (forgot password) | `auth/session`, `auth/password-reset`, `login-branding` |
 | Main records and transactions | `enterprise-app.tsx` | `records` |
 | Company home/report cards | `enterprise-app.tsx`, `live-profit-loss-summary.tsx` | `reports`, `records` |
 | Customer reporting | `customer-open-balance.tsx`, `active-customers-report.tsx`, `statement-layout.tsx` | `reports`, `records` |
 | Sales conversion | `open-sales-documents.tsx`, `sales-source-invoicing.tsx` | `records` |
 | Purchase receiving/returns | `open-purchase-orders.tsx`, `purchase-order-receiving.tsx`, `purchase-return-source.tsx` | `records` |
 | Payments | `unpaid-invoices.tsx`, `unpaid-bills.tsx`, `payment-terms-picker.tsx` | `records`, `payment-terms` |
-| Inventory overview/out of stock | `inventory-overview.tsx`, `shared-out-of-stock.tsx` | `inventory-overview`, `out-of-stock` |
+| Inventory overview/out of stock | `inventory-overview.tsx` (filters, activity tabs, share bar, Excel), `today-offers.tsx`, `stock-holds.tsx`, `category-color-picker.tsx`, `brand-icons.tsx`, `shared-out-of-stock.tsx`; rules in `lib/item-offers.ts`, `lib/category-colors.ts`, `lib/share-format.ts`, `lib/share-emoji.ts` | `inventory-overview`, `item-offers`, `stock-holds`, `category-colors`, `out-of-stock` |
+| Product Customization Details | `item-customization-center.tsx` | `item-customization` |
+| UAE e-invoicing readiness | `einvoicing-center.tsx`, `lib/einvoice-readiness.ts` | `company-setup` |
+| RCM declarations | `rcm-declaration-generator.tsx` | `rcm-declarations` |
+| Customer address/TRN on documents | `custom-invoice-template.tsx`, `delivery-note-template.tsx`, `customer-payment-receipt.tsx`, `statement-layout.tsx`, `layout-builder/company-data.ts`; `lib/contact-address.ts` | `records`, `reports` |
 | Item logistics/specs | `item-logistics-center.tsx`, item forms in `enterprise-app.tsx` | `item-logistics`, `item-logistics-options`, `spec-options` |
 | Stock pricing/revaluation | `stock-pricing.tsx`, `stock-revaluation.tsx` | `stock-pricing`, `stock-revaluation` |
 | Transfers | `transfer-center.tsx` | `transfers` |
@@ -47,10 +51,10 @@ Use this file to locate implementation ownership without rescanning the whole re
 | Warranty/RMA | `warranty-center.tsx` | `warranty-slips` |
 | Packing lists | `invoice-packing-list.tsx` | `packing-lists` |
 | Sales document output | `sales-document-template.tsx`, `custom-invoice-template.tsx`, `delivery-note-template.tsx` | source transaction APIs |
-| Letterhead/design | `letterhead-center.tsx`, `letterhead-page.tsx`, `company-template-designer.tsx` | `company-setup/*` |
+| Letterhead/design | `letterhead-center.tsx`, `letterhead-page.tsx`, `layout-builder/*` (document layout builder) | `company-setup/*` |
 | Attachments | `invoice-attachments.tsx`, `record-attachments.tsx`, `attachment-capture.tsx` | `attachments` |
 | UAE cheque | `uae-bank-cheque.tsx` | `records` |
-| User/admin controls | `admin-controls.tsx` (tabbed shell, security PIN/password), `user-role-center.tsx` (users & access), `smtp-settings.tsx`, `admin-backup-center.tsx` | `admin-users`, `admin-settings`, `email-settings`, `admin-backups` |
+| User/admin controls | `admin-controls.tsx` (tabbed shell, security PIN/password), `user-role-center.tsx` (users & access, login details, Send email again), `smtp-settings.tsx` (Test connection, Send test email), `admin-backup-center.tsx`, `api-integrations.tsx` (API keys); `lib/user-management.ts`, `lib/email-errors.ts`, `lib/smtp.ts` | `admin-users`, `admin-users/resend-invitation`, `admin-settings`, `email-settings`, `email-settings/test-email`, `admin-backups`, `api-keys` |
 
 ## Domain module ownership
 

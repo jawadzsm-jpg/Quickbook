@@ -1,0 +1,304 @@
+# File index
+
+One line per source file: what it owns and which API routes it calls. Use it with [CODEBASE-MAP.md](CODEBASE-MAP.md) (areas and change paths) to find the right file without re-reading the codebase. API route handlers under `app/api/` are listed with their methods and access rules in [API.md](API.md) and the [README endpoint table](../README.md#api-endpoints); tables are in [DATA-MODEL.md](DATA-MODEL.md).
+
+When you add, rename, split or remove a file, update its line here in the same change.
+
+## `app/` — pages, screens and client components
+
+`app/page.tsx` is the server entry; `app/enterprise-app.tsx` is the client shell that hosts every center. Other files are focused screens, document templates and app-wide helpers.
+
+- `app/account-history.tsx` — Paged transaction history for one account with links to source documents; `/api/account-history`.
+- `app/accountant-document-settings.tsx` — Accountant's document stamp and bank details settings (bank fields, multi-bank editor, stamps); `/api/company-setup`.
+- `app/accountant-report-library.tsx` — Accountant (accounting review) report card library and its filters.
+- `app/active-customers-report.tsx` — Searchable active-customers report with links to customers, accounts and documents.
+- `app/admin-backup-center.tsx` — Backup & recovery: history, download, integrity check, retention and schedule; `/api/admin-backups`.
+- `app/admin-controls.tsx` — Admin Controls shell with tabs Users & access, Security (override PIN, own password, share emoji switch), Email server, Backups, API & Integrations; `/api/admin-settings`.
+- `app/api-integrations.tsx` — API & Integrations: create/revoke API keys (shown once), last use, API address, OpenAPI link, curl/PHP/JS examples; `/api/api-keys`.
+- `app/attachment-capture.tsx` — Global attachments picker in dialogs; uploads pending files to `/api/attachments` after a record is saved.
+- `app/bank-accounts-editor.tsx` — Bank stamp picker, bank remark field and multi-currency bank accounts editor.
+- `app/bank-box-placement.tsx` — Bank-details box (80×40 mm) placement on A4 pages: limits, HTML renderer, show/position/remark controls.
+- `app/brand-icons.tsx` — WhatsApp and Telegram logo icons for the share buttons.
+- `app/budget-report-library.tsx` — Budget report card library and budget trend chart.
+- `app/business-final-report.tsx` — Management overview report with sectioned metrics linking to detail reports.
+- `app/cargo-list.tsx` — Shared cargo/freight agent directory: add, edit, delete, search; `/api/cargos`.
+- `app/category-color-picker.tsx` — Palette picker for an item category's colour (or Auto); `/api/category-colors`.
+- `app/company-clear-button.tsx` — Company Setup → Clear: choose data to clear, confirm with admin password; `/api/company-setup/clear`.
+- `app/company-document-output.tsx` — Context/hook for printing to A4 and exporting PDFs with the company's saved document design.
+- `app/contact-organization-fields.tsx` — Contact status (active/inactive) and "Sub-account of" parent fields.
+- `app/copy-on-hover.tsx` — Copy-on-hover button with a fallback when the Clipboard API is unavailable.
+- `app/currency-rate-center.tsx` — Exchange rates and base currency per company; `/api/exchange-rates`, `/api/workspaces`.
+- `app/custom-invoice-template.tsx` — Fixed-width (760 px) invoice/sales document renderer with branding, Bill To address/TRN, stamps and bank stamp.
+- `app/customer-open-balance.tsx` — Customer open balance report with filters, links and close-account actions.
+- `app/customer-payment-receipt.tsx` — Customer payment receipt view and A4/PDF output; Received from shows address and TRN; attachments.
+- `app/customer-sales-owner.tsx` — Assign a customer to a sales user; `/api/sales-work`.
+- `app/data-export-toolbar.tsx` — Global toolbar exporting visible report/transaction tables to Excel, CSV or PDF.
+- `app/delivery-note-template.tsx` — Delivery note print template with customer address and bilingual Customer TRN line.
+- `app/document-extra-fields.tsx` — Document comments and serial number fields.
+- `app/einvoicing-center.tsx` — UAE e-invoicing (Peppol/PINT-AE) readiness: company setup, customer/invoice readiness badges; `/api/company-setup`.
+- `app/employee-hr-fields.tsx` — Employee salary, loan and vacation fields and read-only view.
+- `app/employee-loan-linker.tsx` — Link an existing loan/advance payment to an employee; `/api/employee-loan-links`.
+- `app/enterprise-app.tsx` — Main client shell (~3,500 lines): navigation, centers, record forms, item list, reports, company setup, preferences; `/api/records`, `/api/reports` and others.
+- `app/escape-window-closer.tsx` — Escape closes the top dialog, asking Save/Keep editing when there are unsaved changes.
+- `app/financial-report-library.tsx` — Financial report card library.
+- `app/financial-report.tsx` — Financial report renderer with summaries, FX rates, account-history and document links.
+- `app/globals.css` — Global Tailwind v4 styles, dark mode, theme colour variables and app-wide styles.
+- `app/income-tax-center.tsx` — Corporate income tax working papers (calculation, adjustments, file, reopen with PIN); `/api/income-tax`.
+- `app/insights-activity.tsx` — Transactions entered on a given day (entry vs document date, who entered); `/api/records`.
+- `app/inventory-check-reports.tsx` — Stock-count reports: create, edit, list; `/api/inventory-check-reports`.
+- `app/inventory-invoice-editor.tsx` — Inventory users' limited invoice editor: free lines, stock returns, serials, comments; `/api/records`.
+- `app/inventory-overview.tsx` — Inventory Overview: filters, coloured category groups, activity tabs (Incoming, New Arrival, Price Change, Just Sold, Today Offer), holds, one-line share bar (WhatsApp/Telegram/email/Edit/Excel); `/api/inventory-overview`.
+- `app/inventory-report-library.tsx` — Inventory report card library.
+- `app/inventory-report-table.tsx` — Inventory report table renderer.
+- `app/invoice-attachments.tsx` — Attachment list and upload for invoices and other records; `/api/attachments`.
+- `app/invoice-packing-list.tsx` — Invoice packing list (HS code, cartons, weights, CBM, origin, stamps); `/api/packing-lists`.
+- `app/invoice-serial-editor.tsx` — Append serial numbers to invoice/bill/receipt lines after the creation day; `/api/records`.
+- `app/invoice-stock-return.tsx` — Add an inventory-only stock return line to an invoice.
+- `app/item-customization-center.tsx` — Product Customization Details (RAM, storage, screen, part/serial/UPC), layout, export; `/api/item-customization`.
+- `app/item-import.tsx` — Inventory Import from CSV/XLSX with template download; `/api/records`.
+- `app/item-logistics-center.tsx` — HS code, country of origin and dimensions per item; `/api/item-logistics`, `/api/item-logistics-options`.
+- `app/item-search-select.tsx` — Searchable product combobox and item search/label helpers.
+- `app/journal-entry-center.tsx` — Manual multi-currency journal entry form for a company/inventory; posts to `/api/journal-entries`.
+- `app/layout.tsx` — Root layout: metadata, global styles and app-wide helpers (Escape closer, highlighters, attachments, period-lock PIN).
+- `app/letterhead-center.tsx` — Company Setup letterhead editor and preview; saves via `/api/company-setup/letterhead`.
+- `app/letterhead-page.tsx` — Shared letterhead rendering: brand header, draggable stamp, full A4 letterhead page and footer.
+- `app/letterhead-rich-editor.tsx` — Rich-text (contentEditable) editor for the letterhead body, returning text and HTML.
+- `app/list-report-library.tsx` — List report card library and column-filter bar.
+- `app/live-profit-loss-summary.tsx` — Live P&L totals card for a company/inventory from `/api/reports?type=profit-loss`.
+- `app/login-screen.tsx` — Branded sign-in page with company choice and Forgot password; `/api/login-branding`, `/api/auth/session`.
+- `app/logistics-choice.tsx` — Searchable dropdown for logistics options with inline add, edit and delete.
+- `app/open-purchase-orders.tsx` — Picker of a vendor's open purchase orders to receive or bill; reads `/api/records`.
+- `app/open-sales-documents.tsx` — Picker of a customer's open orders/quotations to invoice; reads `/api/records`.
+- `app/page-stamps.tsx` — Draggable company, bank, status, copy and delivered stamps placed in mm on printed pages.
+- `app/page.tsx` — Server entry: login screen (or reset-link form), forced password change, or the application shell.
+- `app/paid-invoice-stamp.tsx` — Green PAID stamp with UAE-time paid timestamp on paid invoices and payments.
+- `app/password-change-screen.tsx` — Forced temporary-password change screen; `/api/auth/session`.
+- `app/password-reset-forms.tsx` — Forgot-password request and reset-from-link forms; `/api/auth/password-reset`.
+- `app/payment-sales-rep.tsx` — Sales-rep selector for payment forms.
+- `app/payment-terms-picker.tsx` — Payment terms picker that loads and adds terms; `/api/payment-terms`.
+- `app/period-lock-pin.tsx` — App-wide fetch wrapper: on PERIOD_LOCKED (filed VAT/tax period) asks for the Admin PIN and retries.
+- `app/posted-journal-list.tsx` — Register of posted journals with view/edit/delete/print; `/api/journal-entries`.
+- `app/profit-loss-library.tsx` — Profit & Loss report card library (by item, rep, customer, job, class, cost review, planning).
+- `app/profit-loss-report.tsx` — Printable P&L report with stamp, drill-down to documents/items and item sales/cost detail.
+- `app/purchase-order-receiving.tsx` — Converts a purchase order to an item receipt or bill with received quantities and attachments.
+- `app/purchase-report-filters.tsx` — Column filters for purchase report rows.
+- `app/purchase-report-library.tsx` — Purchase report card library.
+- `app/purchase-report-table.tsx` — Purchase report table renderer.
+- `app/purchase-return-source.tsx` — Picker of the vendor bill and returnable lines for a purchase return; `/api/records`.
+- `app/purchase-workflow-panel.tsx` — Purchase quick-create buttons and purchase register summary.
+- `app/rcm-declaration-generator.tsx` — Create, list and print UAE reverse-charge (RCM) declarations; `/api/rcm-declarations`, `/api/attachments`.
+- `app/record-attachments.tsx` — Lists and uploads attachments for a record; `/api/attachments`.
+- `app/record-permissions.tsx` — Role context for record delete rights and the invoice-items editor context.
+- `app/report-data-table.tsx` — List report table renderer.
+- `app/report-date-filter.tsx` — From/to date bar with Apply for reports.
+- `app/required-field-highlighter.tsx` — Outlines empty required fields in the active window after a failed save.
+- `app/sales-daily-work.tsx` — Sales rep daily work panel (customer activity and documents for a date); `/api/sales-work`.
+- `app/sales-document-template.tsx` — Renders printable sales documents (invoice, quote, delivery note, packing list…) from saved company templates.
+- `app/sales-incoming.tsx` — Incoming-stock list for sales users from `/api/inventory-overview`.
+- `app/sales-report-filters.tsx` — Column filters for sales report rows.
+- `app/sales-report-library.tsx` — Sales report card library.
+- `app/sales-report-stamp.tsx` — Stamp position guide for the last printed report page.
+- `app/sales-report-table.tsx` — Sales report table renderer.
+- `app/sales-source-invoicing.tsx` — Turns an order/quotation/delivery into an invoice with chosen lines; `/api/records`.
+- `app/sales-workflow-panel.tsx` — Sales quick-create buttons and sales register summary.
+- `app/search-highlighter.tsx` — Highlights search terms in lists with the CSS Custom Highlight API.
+- `app/serial-number-search.tsx` — Serial number lookup listing matching documents; `/api/serial-search`.
+- `app/shared-item-catalogue.tsx` — Browse items shared across companies and copy them in; `/api/shared-items`.
+- `app/shared-out-of-stock.tsx` — Out-of-stock items that can be pulled from the shared catalogue; `/api/out-of-stock`.
+- `app/smtp-settings.tsx` — Email server (SMTP) settings with presets, Test connection and Send test email; `/api/email-settings`.
+- `app/staff-salary-sheets.tsx` — Staff salary sheets dialog: create, list, print; `/api/staff-salary-sheets`.
+- `app/statement-bank-box.tsx` — Movable bank-details box with remark for printed statements.
+- `app/statement-layout.tsx` — Statement filters and heading (company header, Statement for address/TRN, stamp).
+- `app/stock-holds.tsx` — Stock hold hook, held-quantity notes, hold dialog and early release; `/api/stock-holds`.
+- `app/stock-pricing.tsx` — Bulk GRN/sales price editor; `/api/stock-pricing`.
+- `app/stock-revaluation.tsx` — Bulk stock revaluation of cost and sales price; `/api/stock-revaluation`.
+- `app/today-offers.tsx` — Today Offer tab: running/scheduled offers, Add offer dialog, end/cancel; `/api/item-offers`.
+- `app/transfer-center.tsx` — Multi-line inventory transfers between locations/companies; `/api/transfers`.
+- `app/uae-bank-cheque.tsx` — Printable UAE bank cheque layout with editable cheque number.
+- `app/unpaid-bills.tsx` — Picker of a vendor's unpaid bills for a bill payment.
+- `app/unpaid-invoices.tsx` — Picker of a customer's unpaid invoices for a received payment.
+- `app/use-sku-lock.tsx` — SKU reservation lease hook and notice for editors; `/api/sku-locks`.
+- `app/user-role-center.tsx` — Users & access: users, roles, companies, status, password reset, login details, Send email again; `/api/admin-users`.
+- `app/vat-code-center.tsx` — Company VAT codes with usage counts and attachments; `/api/vat-codes`.
+- `app/vat-management-center.tsx` — VAT return periods: track, file, open VAT reports; `/api/vat-management`.
+- `app/vat-report-filters.tsx` — Column and VAT-code filters for VAT reports.
+- `app/vat-report-library.tsx` — VAT report card library.
+- `app/vat-report-table.tsx` — VAT report table renderer.
+- `app/vendor-center-error-boundary.tsx` — Error boundary that reloads the Vendor Center.
+- `app/vendor-report-filters.tsx` — Column filters for vendor report rows.
+- `app/vendor-report-library.tsx` — Vendor report card library.
+- `app/vendor-report-table.tsx` — Vendor report table renderer.
+- `app/warranty-center.tsx` — Warranty/RMA slips: create (optionally from a bill), list, print, delete; `/api/warranty-slips`.
+- `app/workspace-calculator.tsx` — Header calculator that can stay open beside a document.
+- `app/workspace-clock.tsx` — Live UAE date/time in the header.
+- `app/workspace-online-users.tsx` — Header list of online users and last activity; `/api/online-users`.
+- `app/workspace-shortcuts.tsx` — Ctrl/Cmd+K command palette to jump to views.
+
+### `app/layout-builder/` — document layout builder
+
+- `app/layout-builder/company-data.ts` — Maps company branding and documents (Bill To address/TRN) into layout-builder `DocumentData`.
+- `app/layout-builder/inspector.tsx` — Layout builder inspector panels (section, row, overlay, page).
+- `app/layout-builder/layout-builder-launcher.tsx` — Opens the layout builder per document type and saves layouts; `/api/company-setup`.
+- `app/layout-builder/layout-builder.tsx` — Drag-and-drop document layout builder with undo, preview and save.
+- `app/layout-builder/layout-document.tsx` — Renders a saved layout for screen or print.
+- `app/layout-builder/layout-preview.tsx` — True-size scaled page preview with optional stamp dragging.
+- `app/layout-builder/page-fit.ts` — Predicts printed page breaks and fit problems.
+- `app/layout-builder/print-layout.tsx` — Builds print HTML for one or more document copies and prints it.
+
+## Library, database, scripts
+
+### `lib/` — domain rules, data access and helpers
+
+Modules marked **server** import `server-only`; **DB** modules query the database.
+
+- `lib/access.ts` — Client-safe copy of roles and permissions (`hasPermission`, `isAdministrator`, `canAccessCompany`, `sameOrigin`); keep in sync with `auth.ts`.
+- `lib/accountant-report.ts` — Accountant report keys, summary cards, detail targets, filters and account-issue checks.
+- `lib/admin-pin.ts` — Admin/override PIN format, scrypt hashing and verification.
+- `lib/api-keys.ts` — Integration API tokens (`ebk_live_…`): generation, low-cost scrypt digest, reading Bearer/X-API-Key headers.
+- `lib/api.ts` — `apiRoute` wrapper (errors, idempotency, writes) and `readJsonBody` size/type limits. **DB**
+- `lib/attachments.ts` — Attachment validation (3 MB per file, at most 10 files).
+- `lib/auth.ts` — **server** Sessions, cookies, password hashing, role permissions, `requireApiUser`, `requireCompanyAccess`, request IP. **DB**
+- `lib/backup-oidc.ts` — Authorizes the scheduled backup worker from OIDC JWT claims.
+- `lib/backup-schedule.ts` — Backup schedule parsing (once/daily/weekly/monthly, retention) and next run in Asia/Dubai.
+- `lib/backup-snapshot.ts` — Tables included in company backups, per-table company scope, snapshot export.
+- `lib/bank-accounts.ts` — Company bank accounts per currency (max 10, stamps, remarks), `bankForCurrency`, printable lines.
+- `lib/banking-report.ts` — Banking report keys, summary cards and detail targets.
+- `lib/budget-report.ts` — Budget vs actual report keys, basis note, bar sizing and summaries.
+- `lib/calculator.ts` — Header calculator arithmetic.
+- `lib/cargo.ts` — Cargo/freight agent validation and transport modes.
+- `lib/category-colors-sql.ts` — Loads saved category colours. **DB**
+- `lib/category-colors.ts` — 12-colour category palette (light/dark classes, export hex), automatic colour from name, lookup.
+- `lib/company-backups.ts` — Company backups to private Blob storage: create, verify, download, delete, expire, scheduled runs. **DB**
+- `lib/contact-address.ts` — Customer/vendor postal address as printable lines.
+- `lib/contact-currency.ts` — Applies a contact's currency/rate and picks the matching AR/AP control account.
+- `lib/contact-hierarchy.ts` — Parent/child contact tree.
+- `lib/countries.ts` — Country list.
+- `lib/customer-identity.ts` — Customer name/phone normalisation, international phone check, ~70% name similarity, duplicate detection.
+- `lib/customer-open-balance.ts` — Customer open balance report data. **DB**
+- `lib/customer-report.ts` — Customer report keys, summaries and detail targets.
+- `lib/dashboard-metrics.ts` — Dashboard KPIs from account balances.
+- `lib/delivery-address.ts` — Ship To address cleanup with a size cap.
+- `lib/document-access-sql.ts` — SQL visibility filter for documents by role/user. **DB**
+- `lib/document-access.ts` — Document permission rules (read, inventory edits, pending invoices, delete), Dubai day.
+- `lib/document-design.ts` — Legacy document template design: fields, custom boxes, saved templates per type.
+- `lib/document-output.ts` — Browser A4/letterhead PDF output, file names, save/open helpers.
+- `lib/document-print.ts` — Paper size and `@page` CSS from a document design.
+- `lib/document-vat.ts` — One VAT code per sales/purchase document (return lines excluded).
+- `lib/einvoice-readiness.ts` — UAE e-invoicing readiness: TRN format, company/customer (address, city)/invoice issue lists.
+- `lib/email-errors.ts` — Plain-language advice for SMTP failures (sending limit, login rejected, unreachable, unverified sender).
+- `lib/email-validation.ts` — Email format check.
+- `lib/employee-hr-save.ts` — Validates employee HR/payroll fields and accounts before saving. **DB**
+- `lib/employee-hr.ts` — Employee salary/loan/vacation field rules and redaction.
+- `lib/employee-report.ts` — Employee balance/payment report keys and summaries.
+- `lib/errors.ts` — `RequestError`, database error codes and safe JSON error responses.
+- `lib/export.ts` — CSV cell quoting (blocks spreadsheet formulas) and HTML escaping.
+- `lib/financial-presentation.ts` — Financial report account links and summary cards.
+- `lib/financial-reports.ts` — Financial report data (income/expense by party and others). **DB**
+- `lib/idempotency.ts` — Replays results of repeated `Idempotency-Key` requests inside the write transaction. **DB**
+- `lib/income-tax-data.ts` — Loads accounts and postings for the corporate tax estimate. **DB**
+- `lib/income-tax.ts` — UAE corporate tax estimate (0%/9% with threshold): config, validation, calculation.
+- `lib/inventory-invoice-edit.ts` — Inventory users' limited invoice edits (line details, appended lines, comments). **DB**
+- `lib/inventory-report-filter.ts` — Hide-zero-quantity filter for inventory reports.
+- `lib/inventory-report.ts` — Inventory report keys, groups, columns, filters, asset-account links, summaries.
+- `lib/invoice-item-filter.ts` — Which items can be picked on invoices.
+- `lib/invoice-pricing.ts` — Exchange-rate validation and re-pricing invoice lines when the rate changes.
+- `lib/invoice-series.ts` — Invoice number format (`C{COMPANY}-{PREFIX}-INV-{NUMBER}`), padding, validation, revision.
+- `lib/invoice-stock-lines.ts` — Splits invoice lines into customer lines and stock-return lines.
+- `lib/item-cost.ts` — Average purchase cost from bills/receipts and VAT-aware home cost for cost of sales. **DB**
+- `lib/item-description.ts` — Item titles, condition, specification descriptions, invoice text and WhatsApp/Telegram product text.
+- `lib/item-import.ts` — Inventory Import: CSV/XLSX/Excel-XML rows to items (max 2,000) and the template.
+- `lib/item-logistics.ts` — HS code / country-of-origin choices and dimension text.
+- `lib/item-offers-sql.ts` — SQL condition for current (running or scheduled) Today Offers. **DB**
+- `lib/item-offers.ts` — Today Offer validation (price, ≤31 days), who can manage, state, end time and share-text formatting.
+- `lib/journal-register.ts` — Journal register filters, totals, export data and summary.
+- `lib/letterhead.ts` — Letterhead templates per document: validation, selection, footer lines and styles.
+- `lib/line-extras.ts` — Document types whose lines carry comments and serial numbers.
+- `lib/list-report.ts` — List report keys, groups, summaries, targets and filters.
+- `lib/openapi.ts` — OpenAPI 3.1 document for the Integration API.
+- `lib/out-of-scope-items.ts` — Items bought outside VAT scope. **DB**
+- `lib/out-of-scope-rules.ts` — Out-of-scope purchases must be sold out of scope; sales document checks.
+- `lib/password.ts` — Async scrypt password hashing and verification.
+- `lib/payment-terms.ts` — Due date from transaction date and payment terms.
+- `lib/period-lock-shared.ts` — Period-lock PIN header and `PERIOD_LOCKED` code shared by server and browser.
+- `lib/period-lock.ts` — Filed/locked VAT and tax period checks with PIN override. **DB**
+- `lib/pnl-export.ts` — Profit & Loss CSV, Excel and PDF (with stamp) export.
+- `lib/pnl-presentation.ts` — P&L summary cards and amount formatting.
+- `lib/profit-loss.ts` — Profit & Loss report data with item activity and warnings. **DB**
+- `lib/public-api-query.ts` — Integration API query parsing (limit, cursor, updated_since, category, inventory, status) and cursor encoding.
+- `lib/public-api.ts` — **server** Integration API: key authentication, 120/min rate limit, JSON errors, products and categories queries. **DB**
+- `lib/public-login-branding.ts` — **server** Companies and branding for the public login page. **DB**
+- `lib/purchase-report.ts` — Purchase report keys, groups, columns, supplier lookup and filters.
+- `lib/rate-limit.ts` — Database-backed rate limiting (`consumeRateLimit`, `limitLogin`). **DB**
+- `lib/record-attachments.ts` — Saves attachments for transactions and employees. **DB**
+- `lib/record-list-export.ts` — Date filtering and export data for transaction, contact, item and account lists.
+- `lib/report-account-links.ts` — Matches report rows to chart-of-accounts IDs.
+- `lib/report-attachments.ts` — Report key to attachment ID mapping.
+- `lib/report-export.ts` — Shared report export: overview, issues, CSV, Excel and PDF with letterhead and stamp.
+- `lib/report-period.ts` — Report date presets, Dubai today, validation, periods and month lists.
+- `lib/report-presentation.ts` — Report column/row types, column kind/weight, duplicate definition removal.
+- `lib/report-stamp-preview.ts` — Approximates report PDF layout for the stamp placement preview.
+- `lib/report-stamp.ts` — Report stamp page size, movement and placement after the table.
+- `lib/sales-access.ts` — Sales role limits: allowed routes, document types, accounting handoff.
+- `lib/sales-invoicing.ts` — Converting orders/quotations into invoices (source lines, inventory lines, refresh). **DB**
+- `lib/sales-report.ts` — Sales report keys, groups, columns, customer lookup and filters.
+- `lib/search.ts` — Shared search (every word must match, any order) and highlight ranges.
+- `lib/share-emoji.ts` — WhatsApp/Telegram emoji style presets.
+- `lib/share-format.ts` — Share editor formatting (WhatsApp and Telegram markers, links) and `telegramHtml` for formatted Telegram paste.
+- `lib/sku-locks.ts` — SKU edit reservations and the `skuWrite` route wrapper. **DB**
+- `lib/smtp.ts` — **server** Encrypted SMTP settings, connection check, invitation, password-reset and test emails. **DB**
+- `lib/specification-presets.ts` — Item specification fields and preset values.
+- `lib/staff-salary-pdf.ts` — Staff salary sheet PDF.
+- `lib/staff-salary-sheet.ts` — Staff salary sheet types, totals, validation and file name.
+- `lib/stamp-positions.ts` — Saved per-document stamp positions.
+- `lib/standard-accounts.ts` — Default chart of accounts for new companies.
+- `lib/standard-vat-codes.ts` — Standard UAE VAT codes and active-code choice.
+- `lib/stock-hold-rules.ts` — Stock hold rules shared by server and form.
+- `lib/stock-holds.ts` — Stock hold durations (max 7 days), active-hold SQL, held-by-others checks. **DB**
+- `lib/stock-pricing.ts` — Stock pricing rows from stock per location and purchase prices.
+- `lib/text-normalization.ts` — Comparable-text normalisation and upper-casing.
+- `lib/uae-cheque-layouts.ts` — UAE bank cheque print layouts and alignment bounds.
+- `lib/user-management.ts` — **server** Role names, user company IDs, who may manage whom, `requireUserManager`. **DB**
+- `lib/utils.ts` — `cn` class-name merge helper.
+- `lib/validation.ts` — ISO date check.
+- `lib/vat-report.ts` — VAT report keys, groups, filters, columns and summaries.
+- `lib/vendor-bank.ts` — Supplier bank details on vendors: validation and printable lines.
+- `lib/vendor-report.ts` — Vendor/AP report keys, groups, summaries, supplier lookup and filters.
+- `lib/warranty-status.ts` — Warranty statuses and normalisation.
+
+### `lib/layout/` — document layout builder model
+
+- `lib/layout/arabic-labels.ts` — Arabic labels for bilingual UAE documents.
+- `lib/layout/defaults.ts` — Default sections, rows, overlays and layouts per document type.
+- `lib/layout/document-data.ts` — Document data/line/stamp types and sample documents for previews.
+- `lib/layout/fit-rows.ts` — Shrinks text in fit-to-row sections after render.
+- `lib/layout/migrate.ts` — Converts legacy document designs to v2 row/section layouts.
+- `lib/layout/reducer.ts` — Layout editor reducer (max 3 sections per row) with undo/redo.
+- `lib/layout/schema.ts` — Zod schema and types for layout v2.
+- `lib/layout/styles.ts` — Font stacks, layout CSS and `@page` CSS.
+
+### `db/`
+
+- `db/index.ts` — `getDb` (Neon HTTP Drizzle, or PGlite locally) and `withWriteTransaction` (serializable; rolls back when the response is not OK).
+- `db/local.ts` — PGlite database for development only (`COMNET_LOCAL_DB=1`).
+- `db/schema.ts` — Drizzle schema for all mapped tables (see [DATA-MODEL.md](DATA-MODEL.md)).
+
+### `scripts/`
+
+- `scripts/bootstrap-admin.mjs` — Creates the first All-Admin from `ADMIN_EMAIL`/`ADMIN_PASSWORD`; refuses when an active one exists.
+- `scripts/build-verified.sh` — Bounded build inside the isolated sites environment.
+- `scripts/check-codeql.mjs` — Fails CI when CodeQL SARIF has any finding.
+- `scripts/dev-local.mjs` — Local development: PGlite, migrations, local admin (`.local-data/login.json`), Next.js dev server.
+- `scripts/fix-invoice-cost-of-sales.mjs` — One-off correction of invoice cost of sales to average purchase cost; dry run unless `--apply`.
+- `scripts/install-ci.sh` — Locked `npm ci` with lockfile SHA-256 verification.
+- `scripts/migrate.mjs` — Applies `drizzle/*.sql` in order and records them in `__comnet_migrations`.
+- `scripts/remove-imported-items.mjs` — Removes items created by an Inventory Import file (skips used/edited items); dry run unless `--apply`.
+- `scripts/require-ci.mjs` — Vercel build gate: waits for the exact commit's CI and CodeQL to pass (local release checks fallback for the linked private repo when rate limited).
+- `scripts/reset-duplicate-item-costs.mjs` — One-off reset of cost on duplicated items without purchases; dry run unless `--apply`.
+- `scripts/seed.mjs` — Seeds the default company, its inventory and 14 standard accounts.
+- `scripts/sites-env.sh` — Isolated home/npm-cache/tmp folders for running a command.
+- `scripts/verify-backup.mjs` — Offline check of a backup file's SHA-256 and contents.
+
+### `hooks/`, `components/ui/`
+
+- `hooks/use-mobile.ts` — `useIsMobile` hook for phone-width screens.
+- `components/ui/*` — shadcn/Base UI primitives (button, dialog, dropdown-menu, input, popover, select, table, …); styling only, no business logic.
