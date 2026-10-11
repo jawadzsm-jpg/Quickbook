@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bold, Code, Italic, List as ListIcon, ListOrdered, Quote, Strikethrough, Lock, Pencil, BadgeDollarSign, Boxes, CalendarClock, ChevronDown, Clock, Download, Eye, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PackageOpen, PackageX, PlaneLanding, RefreshCw, Rocket, Search, Send, ShoppingCart, TriangleAlert, UserRound, Warehouse, X, Tag } from "lucide-react";
+import { Bold, Code, Italic, List as ListIcon, ListOrdered, Quote, Strikethrough, Lock, Pencil, BadgeDollarSign, Boxes, CalendarClock, ChevronDown, Clock, Download, Eye, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PackageOpen, PackageX, PlaneLanding, RefreshCw, Rocket, Search, Send, ShoppingCart, TriangleAlert, UserRound, Warehouse, X, Tag, Underline, EyeOff, Link as LinkIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "sonner";
 import { StockHoldDialog, StockHoldsPanel, heldTotals, type StockHold } from "./stock-holds";
 import { defaultShareEmoji, shareEmojiStyle, shareEmojiStyles } from "@/lib/share-emoji";
-import { applyInlineFormat, applyLineFormat, inlineFormatsFor, type FormatResult, type InlineFormat, type LineFormat } from "@/lib/share-format";
+import { applyInlineFormat, applyLineFormat, applyLink, inlineFormatsFor, telegramHtml, type FormatResult, type InlineFormat, type LineFormat } from "@/lib/share-format";
 import { inventoryItemCondition, inventoryItemLine, partNumberInLine, inventorySocialShareText, itemSpecificationDescription } from "@/lib/item-description";
 import { matchesSearch } from "@/lib/search";
 import { CopyOnHover } from "./copy-on-hover";
@@ -450,7 +450,11 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     const text = edited ?? shareText(channel);
     if (!text) return toast.error("Select at least one item to copy.");
     try {
-      await navigator.clipboard.writeText(text);
+      // Telegram: put rich text (bold, italic, strikethrough, code, quotes) on the clipboard so it pastes already
+      // formatted; the markdown stays as the plain-text fallback.
+      if (channel === "telegram" && typeof ClipboardItem !== "undefined" && navigator.clipboard.write) {
+        await navigator.clipboard.write([new ClipboardItem({ "text/plain": new Blob([text], { type: "text/plain" }), "text/html": new Blob([telegramHtml(text)], { type: "text/html" }) })]);
+      } else await navigator.clipboard.writeText(text);
     } catch {
       const textarea = document.createElement("textarea");
       textarea.value = text;
@@ -472,7 +476,15 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     setEditor({ ...editor, text: result.text });
     requestAnimationFrame(() => { field.focus(); field.setSelectionRange(result.start, result.end); });
   };
-  const inlineTools: Record<InlineFormat, { label: string; Icon: typeof Bold }> = { bold: { label: "Bold", Icon: Bold }, italic: { label: "Italic", Icon: Italic }, strike: { label: "Strikethrough", Icon: Strikethrough }, code: { label: "Code", Icon: Code } };
+  const inlineTools: Record<InlineFormat, { label: string; Icon: typeof Bold }> = { bold: { label: "Bold", Icon: Bold }, italic: { label: "Italic", Icon: Italic }, underline: { label: "Underline", Icon: Underline }, strike: { label: "Strikethrough", Icon: Strikethrough }, code: { label: "Monospace", Icon: Code }, spoiler: { label: "Spoiler", Icon: EyeOff } };
+  const toolButton = `grid size-8 place-items-center rounded-full focus-visible:outline focus-visible:outline-2 ${editor?.channel === "telegram" ? "hover:bg-black/10 focus-visible:outline-zinc-900" : "hover:bg-white/15 focus-visible:outline-white"}`;
+  // Telegram's Link tool: ask for the address and turn the selected words into a link.
+  const insertLink = () => formatEditor((text, start, end) => {
+    const url = window.prompt("Link address (https://…)", "https://");
+    const result = url === null ? null : applyLink(text, start, end, url);
+    if (url !== null && !result) toast.error("Enter a link that starts with http:// or https://");
+    return result ?? { text, start, end };
+  });
   const lineTools: Record<LineFormat, { label: string; Icon: typeof Bold }> = { numbered: { label: "Numbered list", Icon: ListOrdered }, bulleted: { label: "Bulleted list", Icon: ListIcon }, quote: { label: "Quote", Icon: Quote } };
   const openEditor = (channel: ShareChannel) => {
     if (!canSelectItems || loading) return;
@@ -666,9 +678,10 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
       <DialogHeader><DialogTitle>Edit before copying</DialogTitle><DialogDescription>Change any words for this message only, then copy. Your emoji style and selected items fill it in; edits are not saved.</DialogDescription></DialogHeader>
       {editor && <div className="grid gap-3">
         <div className="flex flex-wrap gap-1.5" role="group" aria-label="Message format">{(["whatsapp", "telegram", "email"] as const).map((channel) => <Button key={channel} type="button" size="sm" variant={editor.channel === channel ? "default" : "outline"} aria-pressed={editor.channel === channel} onClick={() => { if (editor.channel !== channel && (editor.text === shareText(editor.channel) || window.confirm("Switch format? Your edits to this message will be replaced."))) setEditor({ channel, text: shareText(channel) }); }}>{channelName(channel)}</Button>)}</div>
-        <div role="toolbar" aria-label="Text formatting" className="flex w-fit max-w-full flex-wrap items-center gap-0.5 rounded-full bg-zinc-900 px-2 py-1 text-white shadow-sm dark:bg-zinc-800">
-          {inlineFormatsFor(editor.channel).map((format) => { const { label, Icon } = inlineTools[format]; return <button key={format} type="button" title={label} aria-label={label} className="grid size-8 place-items-center rounded-full hover:bg-white/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white" onMouseDown={(event) => event.preventDefault()} onClick={() => formatEditor((text, start, end) => applyInlineFormat(text, start, end, format, editor.channel === "telegram" ? "telegram" : "whatsapp"))}><Icon className="size-4" /></button>; })}
-          {(Object.keys(lineTools) as LineFormat[]).map((format) => { const { label, Icon } = lineTools[format]; return <button key={format} type="button" title={label} aria-label={label} className="grid size-8 place-items-center rounded-full hover:bg-white/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white" onMouseDown={(event) => event.preventDefault()} onClick={() => formatEditor((text, start, end) => applyLineFormat(text, start, end, format))}><Icon className="size-4" /></button>; })}
+        <div role="toolbar" aria-label="Text formatting" className={`flex w-fit max-w-full flex-wrap items-center gap-0.5 rounded-full px-2 py-1 ${editor.channel === "telegram" ? "bg-white text-zinc-900 shadow-md ring-1 ring-black/10 dark:bg-zinc-100" : "bg-zinc-900 text-white shadow-sm dark:bg-zinc-800"}`}>
+          {inlineFormatsFor(editor.channel).map((format) => { const { label, Icon } = inlineTools[format]; return <button key={format} type="button" title={label} aria-label={label} className={toolButton} onMouseDown={(event) => event.preventDefault()} onClick={() => formatEditor((text, start, end) => applyInlineFormat(text, start, end, format, editor.channel === "telegram" ? "telegram" : "whatsapp"))}><Icon className="size-4" /></button>; })}
+          {(editor.channel === "telegram" ? ["quote"] as LineFormat[] : Object.keys(lineTools) as LineFormat[]).map((format) => { const { label, Icon } = lineTools[format]; return <button key={format} type="button" title={label} aria-label={label} className={toolButton} onMouseDown={(event) => event.preventDefault()} onClick={() => formatEditor((text, start, end) => applyLineFormat(text, start, end, format))}><Icon className="size-4" /></button>; })}
+          {editor.channel === "telegram" ? <><span aria-hidden="true" className="mx-1 h-5 w-px bg-black/15" /><button type="button" title="Link" aria-label="Link" className={toolButton} onMouseDown={(event) => event.preventDefault()} onClick={insertLink}><LinkIcon className="size-4" /></button></> : null}
         </div>
         <Textarea ref={editorRef} aria-label={`${channelName(editor.channel)} message`} rows={14} className="min-h-64 resize-y font-mono text-sm" value={editor.text} onChange={(event) => setEditor({ ...editor, text: event.target.value })} />
       </div>}

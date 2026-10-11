@@ -20,7 +20,7 @@ const { chequeAlignmentBounds, uaeChequeLayout, validChequeAlignment } = await s
 const { countries } = await sourceModule("../lib/countries.ts");
 const { partNumberInLine, generatedItemDescription, inventoryItemCondition, inventoryItemDetails, inventoryItemLine, inventoryItemTitle, inventoryShareDescription, inventorySocialShareText, invoiceItemDescription, itemSpecificationDescription, itemTitleWithSku } = await sourceModule("../lib/item-description.ts");
 const { isInvoiceItemSelectable } = await sourceModule("../lib/invoice-item-filter.ts");
-const { applyInlineFormat, applyLineFormat, inlineFormatsFor } = await sourceModule("../lib/share-format.ts");
+const { applyInlineFormat, applyLineFormat, inlineFormatsFor, telegramHtml, applyLink } = await sourceModule("../lib/share-format.ts");
 const { companyEInvoiceIssues, customerEInvoiceStatus, invoiceEInvoiceStatus, isUaeTrn } = await sourceModule("../lib/einvoice-readiness.ts");
 const { calculatorResult } = await sourceModule("../lib/calculator.ts");
 const { contactAddressLines } = await sourceModule("../lib/contact-address.ts");
@@ -1087,4 +1087,27 @@ test("WhatsApp, Telegram and email shares show a running Today Offer", () => {
   const ui = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
   assert.match(ui, /const offerByItem = new Map\(runningOffers\(offers\)\.map/);
   assert.match(ui, /if \(offerText\) lines\.push\(offerText\.offerLine\)/);
+});
+
+test("Telegram copies paste already formatted: markdown becomes rich text", () => {
+  assert.equal(telegramHtml("🔥 **ASUS VIVOBOOK** 🔥 | ✨ **BRAND NEW** ✨ |\n📦 Qty: 99 | 💵 ~~AED 8,800~~ **AED 8,400** (VAT included)"),
+    "🔥 <b>ASUS VIVOBOOK</b> 🔥 | ✨ <b>BRAND NEW</b> ✨ |<br>📦 Qty: 99 | 💵 <s>AED 8,800</s> <b>AED 8,400</b> (VAT included)");
+  assert.equal(telegramHtml("> __Today only__\n> `90NB1603-M002S0`\nAfter"), "<blockquote><i>Today only</i><br><code>90NB1603-M002S0</code></blockquote>After");
+  assert.equal(telegramHtml("`**not bold**` <b>&"), "<code>**not bold**</code> &lt;b&gt;&amp;");
+  const ui = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
+  assert.match(ui, /channel === "telegram" && typeof ClipboardItem !== "undefined"[\s\S]*"text\/html": new Blob\(\[telegramHtml\(text\)\]/);
+});
+
+test("Telegram share toolbar matches Telegram: underline, spoiler, monospace, quote and link", () => {
+  assert.deepEqual(inlineFormatsFor("telegram"), ["bold", "italic", "underline", "strike", "code", "spoiler"]);
+  assert.deepEqual(inlineFormatsFor("whatsapp"), ["bold", "italic", "strike", "code"]);
+  assert.deepEqual(applyInlineFormat("WTS now", 0, 3, "underline", "telegram"), { text: "++WTS++ now", start: 2, end: 5 });
+  assert.deepEqual(applyInlineFormat("WTS now", 0, 3, "spoiler", "telegram"), { text: "||WTS|| now", start: 2, end: 5 });
+  assert.deepEqual(applyInlineFormat("WTS", 0, 3, "underline", "whatsapp"), { text: "WTS", start: 0, end: 3 });
+  assert.deepEqual(applyLink("See shop", 4, 8, " https://comnet.ae/shop "), { text: "See [shop](https://comnet.ae/shop)", start: 5, end: 9 });
+  assert.equal(applyLink("See shop", 4, 8, "javascript:alert(1)"), null);
+  assert.equal(telegramHtml("++WTS++ ||secret|| [shop](https://comnet.ae/a?b=1&c=2)"), '<u>WTS</u> <tg-spoiler>secret</tg-spoiler> <a href="https://comnet.ae/a?b=1&amp;c=2">shop</a>');
+  const ui = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
+  assert.match(ui, /editor\.channel === "telegram" \? \["quote"\] as LineFormat\[\]/);
+  assert.match(ui, /aria-label="Link" className=\{toolButton\}/);
 });
