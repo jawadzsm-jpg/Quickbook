@@ -2892,6 +2892,24 @@ test('company setup saves the UAE e-invoicing section on its own', async () => {
   } finally { delete globalThis.__transferTestUser; }
 });
 
+test('customers save a postal address, and edits keep fields they leave out', async () => {
+  const c = (await database.query("INSERT INTO companies(name) VALUES ('Customer address') RETURNING id")).rows[0].id;
+  const loc = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'ADDR','Address inventory','ADR') RETURNING id", [c])).rows[0].id;
+  const records = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const send = (method, body) => records[method](new Request('https://app.test/api/records', { method, headers: { origin: 'https://app.test', 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'contacts', companyId: c, locationId: loc, ...body }) }));
+  try {
+    globalThis.__transferTestUser = { id: 1, role: 'admin', companyIds: [c] };
+    const created = await send('POST', { type: 'customer', name: 'Address Trading LLC', company: 'Address Trading LLC', phone: '+97140000011', whatsapp: '+971500000011', currency: 'AED', reseller: 'Reseller', planet: 'No', country: 'United Arab Emirates', trn: '100123456700003', addressLine1: 'Office 5, Al Barsha', addressLine2: 'P.O. Box 123', city: 'Dubai', region: 'Dubai', postalCode: '00000' });
+    assert.equal(created.status, 201, JSON.stringify(await created.clone().json()));
+    const customer = (await created.json()).record;
+    assert.deepEqual([customer.addressLine1, customer.addressLine2, customer.city, customer.region, customer.postalCode], ['Office 5, Al Barsha', 'P.O. Box 123', 'Dubai', 'Dubai', '00000']);
+    const edited = await send('PATCH', { id: customer.id, name: customer.name, city: 'Abu Dhabi', region: 'Abu Dhabi' });
+    assert.equal(edited.status, 200, JSON.stringify(await edited.clone().json()));
+    const after = (await database.query('SELECT address_line_1, city, region FROM contacts WHERE id=$1', [customer.id])).rows[0];
+    assert.deepEqual(after, { address_line_1: 'Office 5, Al Barsha', city: 'Abu Dhabi', region: 'Abu Dhabi' });
+  } finally { delete globalThis.__transferTestUser; }
+});
+
 test('pending invoices remain unposted until an administrator or accountant converts them once', async () => {
   const c = (await database.query("INSERT INTO companies(name) VALUES ('Pending invoice roles') RETURNING id")).rows[0].id;
   const loc = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'PENDROLE','Pending inventory','PEND') RETURNING id", [c])).rows[0].id;

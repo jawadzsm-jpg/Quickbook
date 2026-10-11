@@ -8,7 +8,7 @@ export const MOF_EINVOICING_URL = "https://mof.gov.ae/en/about-us/initiatives/ei
 export const isUaeTrn = (value: unknown) => /^\d{15}$/.test(String(value ?? "").replace(/[\s-]/g, ""));
 
 type CompanyEInvoice = { trn?: string; addressLine1?: string; city?: string; country?: string; peppolParticipantId?: string; einvoiceAsp?: string };
-type CustomerEInvoice = { name?: string; company?: string; billingName?: string; trn?: string; country?: string };
+type CustomerEInvoice = { name?: string; company?: string; billingName?: string; trn?: string; country?: string; addressLine1?: string; city?: string };
 type InvoiceEInvoice = { number?: unknown; transactionDate?: unknown; currency?: unknown; exchangeRate?: unknown };
 
 /** What the company still needs before it can send e-invoices. */
@@ -29,6 +29,8 @@ export function customerEInvoiceStatus(customer: CustomerEInvoice): { status: "r
   if (!customer.country?.trim()) issues.push("Customer country");
   const trn = String(customer.trn ?? "").trim();
   if (trn && !isUaeTrn(trn) && (customer.country ?? "").toLowerCase().includes("emirates")) issues.push("Customer TRN must have 15 digits");
+  // Business (B2B) buyers need their postal address on the e-invoice.
+  if (trn && (!customer.addressLine1?.trim() || !customer.city?.trim())) issues.push("Customer address and city");
   if (issues.length) return { status: "issues", issues };
   return { status: trn ? "ready" : "b2c", issues: trn ? [] : ["No TRN: treated as B2C"] };
 }

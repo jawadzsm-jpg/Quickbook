@@ -989,9 +989,11 @@ test("UAE e-invoicing readiness lists what the company, customer and invoice sti
   assert.deepEqual(companyEInvoiceIssues({ ...company, trn: "123", peppolParticipantId: "", einvoiceAsp: "" }), ["Company TRN (15 digits)", "Peppol participant ID", "Accredited Service Provider"]);
   // A customer without a TRN is B2C; a UAE customer with a wrong TRN or no country needs completing.
   assert.equal(customerEInvoiceStatus({ name: "Walk-in", country: "United Arab Emirates" }).status, "b2c");
-  assert.deepEqual(customerEInvoiceStatus({ name: "Techno", country: "United Arab Emirates", trn: "12345" }), { status: "issues", issues: ["Customer TRN must have 15 digits"] });
-  assert.deepEqual(customerEInvoiceStatus({ name: "Techno", country: "" , trn: "100123456700003" }), { status: "issues", issues: ["Customer country"] });
-  const buyer = { name: "Techno", country: "United Arab Emirates", trn: "100987654300003" };
+  assert.deepEqual(customerEInvoiceStatus({ name: "Techno", country: "United Arab Emirates", trn: "12345", addressLine1: "Office 5", city: "Dubai" }), { status: "issues", issues: ["Customer TRN must have 15 digits"] });
+  // A business customer (with a TRN) also needs a street address and city.
+  assert.deepEqual(customerEInvoiceStatus({ name: "Techno", country: "United Arab Emirates", trn: "100123456700003" }), { status: "issues", issues: ["Customer address and city"] });
+  assert.deepEqual(customerEInvoiceStatus({ name: "Techno", country: "" , trn: "100123456700003", addressLine1: "Office 5", city: "Dubai" }), { status: "issues", issues: ["Customer country"] });
+  const buyer = { name: "Techno", country: "United Arab Emirates", trn: "100987654300003", addressLine1: "Office 5, Al Barsha", city: "Dubai" };
   assert.deepEqual(invoiceEInvoiceStatus({ number: "INV-1", transactionDate: "2026-10-10", currency: "AED" }, buyer, company), { status: "ready", issues: [] });
   assert.deepEqual(invoiceEInvoiceStatus({ number: "INV-1", transactionDate: "2026-10-10", currency: "USD", exchangeRate: 0 }, undefined, { ...company, einvoiceAsp: "" }).issues, ["Company e-invoicing setup incomplete", "Exchange rate to AED", "Customer not found in Customer Center"]);
 });
