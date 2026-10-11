@@ -323,7 +323,7 @@ For source-document conversions, save the conversion first and then edit the sav
 
 ### Posted journal register
 
-Posted Journal Entries uses a searchable register with one row per journal, date/source/account/currency filters, 50-entry screen pages and debit/credit summary cards. The initial period is the current UAE month; Today and Reset / all dates offer quick changes. Search covers references, descriptions, dates, account names/codes and sources. Date endpoints are inclusive. The old 300-entry cutoff is removed; unposted journals never enter the register. Separate journals sharing a reference remain separate, identified by journal ID.
+Posted Journal Entries uses a searchable register with one row per journal, date/source/account/currency filters, 50-entry screen pages and debit/credit summary cards. The initial period is the current UAE month; Today, This month and Reset (all dates) offer quick changes on one line beside the filters. The register gives the date/reference column enough width for references such as C001-MAIN-INV-0001, and the summary cards are two-up on phones. Search covers references, descriptions, dates, account names/codes and sources. Date endpoints are inclusive. The old 300-entry cutoff is removed; unposted journals never enter the register. Separate journals sharing a reference remain separate, identified by journal ID.
 
 Expand account postings or open View to inspect a journal. Verified company Chart of Accounts links open account history; ambiguous/missing links are flagged without hiding their amounts. Account filters retain the full journal and balancing accounts. Transaction postings open their source document. Existing administrator-only manual-journal edit/delete controls and revision checks remain unchanged.
 
