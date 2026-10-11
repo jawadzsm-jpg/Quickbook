@@ -12,6 +12,8 @@
 
 ## Sales and customers
 
+- Sales & Invoicing: a workflow panel (quotation/estimate → proforma → sales order → invoice, minimisable) above one toolbar of document-type pills (All sales, Quotations, Pending Cart, Estimates, Proforma Invoices, Sales Orders, Invoices) with the void Status filter; the register has search with a one-line date range, A4/stamp/export tools, and a transactions table (shared with Purchases and Banking) whose date and amount stay on one line and whose action icons are never cut off.
+
 - Customer records with company, international phone/WhatsApp validation, country, reseller/planet fields, TRN, email, credit, and currency.
 - Quotations, estimates, proforma invoices, sales orders, invoices, sales receipts, statement charges, finance charges, and credit memos.
 - Estimate, proforma invoice, sales order, and invoice entry forms offer Add Line below the last item row so long documents can grow without scrolling to the top. Their posting-account dropdown defaults to the selected customer’s linked Accounts Receivable account in the document currency.
