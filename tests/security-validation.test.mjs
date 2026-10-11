@@ -1142,8 +1142,8 @@ test("Excel export adds Today offer price and Offer ends columns only when an ex
   assert.match(offerEndsText("2026-10-11 19:44:00+04"), /^11 Oct, 07:44 pm$/i);
   const ui = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
   assert.match(ui, /const offerColumns = showPrice && selectedRecords\.some\(\(record\) => offerFor\(record\)\)/);
-  assert.match(ui, /headers\.push\(`Today offer price\$\{withVat \? " including 5% VAT" : ""\}`, "Offer ends \(UAE time\)"\)/);
-  assert.match(ui, /priceFor\(\{ salesPrice: offer\.offerPrice \}, withVat\)/);
+  assert.match(ui, /headers\.push\(`Today offer price\$\{mode === "include" \? " including 5% VAT" : mode === "zero" \? " \(0% VAT\)" : ""\}`, "Offer ends \(UAE time\)"\)/);
+  assert.match(ui, /priceFor\(\{ salesPrice: offer\.offerPrice \}, mode\)/);
 });
 
 test("email failures are explained in plain language and the login email can be sent again", () => {
@@ -1233,4 +1233,17 @@ test("Integration API v1: validated query, opaque cursor, no cost or supplier da
   assert.doesNotMatch(keys.slice(keys.indexOf("const publicKey"), keys.indexOf("export async function GET")), /keyHash/);
   const migration = readFileSync(new URL("../drizzle/0106_public_api.sql", import.meta.url), "utf8");
   assert.match(migration, /CREATE TRIGGER trg_items_updated_at BEFORE UPDATE ON "items"/);
+});
+
+test("share bar: brand icons, No VAT / Inc VAT / 0% VAT, one Excel menu, kept on one line", () => {
+  const ui = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
+  assert.match(ui, /const vatLabels: Record<VatMode, string> = \{ exclude: " \(VAT excluded\)", include: " \(VAT included\)", zero: " \(0% VAT\)" \}/);
+  assert.match(ui, /mode === "include" \? 1\.05 : 1/);
+  assert.match(ui, /\["exclude", "No VAT", [^\]]*\], \["include", "Inc VAT", [^\]]*\], \["zero", "0% VAT", [^\]]*\]/);
+  assert.match(ui, /<WhatsAppIcon \/>/);
+  assert.match(ui, /<TelegramIcon \/>/);
+  assert.match(ui, /Hide qty<\/label>/);
+  assert.match(ui, /exportExcel\("exclude"\)[\s\S]*exportExcel\("include"\)[\s\S]*exportExcel\("zero"\)/);
+  assert.match(ui, /@container flex flex-nowrap items-center gap-2 overflow-x-auto/);
+  assert.doesNotMatch(ui, /Excel no VAT|Excel \+ VAT<|Including VAT|Hide quantity/);
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bold, Code, Italic, List as ListIcon, ListOrdered, Quote, Strikethrough, Lock, Pencil, BadgeDollarSign, Boxes, CalendarClock, ChevronDown, Clock, Download, Eye, FileSpreadsheet, Mail, MessageCircle, PackageCheck, PackageOpen, PackageX, PlaneLanding, RefreshCw, Rocket, Search, Send, ShoppingCart, TriangleAlert, UserRound, Warehouse, X, Tag, Underline, EyeOff, Link as LinkIcon } from "lucide-react";
+import { Bold, Code, Italic, List as ListIcon, ListOrdered, Quote, Strikethrough, Lock, Pencil, BadgeDollarSign, Boxes, CalendarClock, ChevronDown, Clock, Download, Eye, FileSpreadsheet, Mail, PackageCheck, PackageOpen, PackageX, PlaneLanding, RefreshCw, Rocket, Search, ShoppingCart, TriangleAlert, UserRound, Warehouse, X, Tag, Underline, EyeOff, Link as LinkIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -15,6 +15,8 @@ import { defaultShareEmoji, shareEmojiStyle, shareEmojiStyles } from "@/lib/shar
 import { applyInlineFormat, applyLineFormat, applyLink, inlineFormatsFor, telegramHtml, type FormatResult, type InlineFormat, type LineFormat } from "@/lib/share-format";
 import { inventoryItemCondition, inventoryItemLine, partNumberInLine, inventorySocialShareText, itemSpecificationDescription } from "@/lib/item-description";
 import { matchesSearch } from "@/lib/search";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { TelegramIcon, WhatsAppIcon } from "./brand-icons";
 import { CopyOnHover } from "./copy-on-hover";
 import { TodayOffersPanel, runningOffers, type TodayOffer } from "./today-offers";
 import { offerEndsText, offerShareText } from "@/lib/item-offers";
@@ -60,6 +62,8 @@ type ConsolidatedItem = OverviewItem & {
 
 type StockFilter = "all" | "in" | "low" | "out" | "hold" | "recent7" | "recent30" | `location:${number}`;
 type PriceAdjust = { mode: "percent" | "amount"; value: string };
+type VatMode = "exclude" | "include" | "zero";
+const vatLabels: Record<VatMode, string> = { exclude: " (VAT excluded)", include: " (VAT included)", zero: " (0% VAT)" };
 // Brand: a well-known brand found in the item name, then its description/specifications; otherwise the name's first word.
 const knownBrands = ["DELL", "HP", "HPE", "LENOVO", "ASUS", "ACER", "APPLE", "MSI", "SAMSUNG", "MICROSOFT", "TOSHIBA", "HUAWEI", "GIGABYTE", "LG", "SONY", "PANASONIC", "FUJITSU", "ALIENWARE", "RAZER", "KINGSTON", "CRUCIAL", "ADATA", "IMATION", "SANDISK", "SEAGATE", "WD", "WESTERN DIGITAL", "TRANSCEND", "CORSAIR", "INTEL", "AMD", "NVIDIA", "LOGITECH", "EPSON", "CANON", "BROTHER", "XEROX", "CISCO", "TP-LINK", "D-LINK", "NETGEAR", "UBIQUITI", "APC", "BENQ", "VIEWSONIC", "PHILIPS", "AOC", "SYNOLOGY", "QNAP", "ZEBRA", "HONEYWELL", "XIAOMI"];
 // Escape every regular-expression metacharacter (including backslash) before building the brand pattern.
@@ -184,7 +188,8 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showQuantity, setShowQuantity] = useState(true);
   const [showPrice, setShowPrice] = useState(true);
-  const [includeVat, setIncludeVat] = useState(false);
+  // Shared price format: VAT excluded (net), VAT included (+5%), or 0% VAT (zero-rated, e.g. exports: net price, labelled).
+  const [vatMode, setVatMode] = useState<VatMode>("exclude");
   const [category, setCategory] = useState("");
   const [brand, setBrand] = useState("");
   const [condition, setCondition] = useState("");
@@ -320,10 +325,10 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   }), [consolidatedRecords, inStockRecords]);
 
   const adjustValue = Number(priceAdjust.value) || 0;
-  const priceFor = (record: { salesPrice: number | string }, withVat = includeVat) => {
+  const priceFor = (record: { salesPrice: number | string }, mode: VatMode = vatMode) => {
     const base = Number(record.salesPrice);
     const adjusted = priceAdjust.mode === "percent" ? base * (1 + adjustValue / 100) : base + adjustValue;
-    return Math.round(Math.max(0, adjusted) * (withVat ? 1.05 : 1) * 100) / 100;
+    return Math.round(Math.max(0, adjusted) * (mode === "include" ? 1.05 : 1) * 100) / 100;
   };
   const adjustLabel = adjustValue ? (priceAdjust.mode === "percent" ? ` +${adjustValue}%` : ` +${adjustValue}`) : "";
   const categoryOptions = useMemo(() => [...new Set(records.map((record) => record.category).filter(Boolean))].sort(), [records]);
@@ -434,10 +439,10 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
         details.push(channel === "email" ? `Quantity: ${quantity}` : marked(emoji.quantity, `Qty: ${quantity}`));
       }
       const offer = record.recordIds.map((id) => offerByItem.get(id)).find(Boolean);
-      const offerText = showPrice && offer ? offerShareText({ channel, currency: record.currency, normalPrice: priceFor(record), offerPrice: priceFor({ salesPrice: offer.offerPrice }), endsAt: offer.endsAt, vatLabel: includeVat ? " (VAT included)" : " (VAT excluded)", mark: channel !== "email" && emoji.id !== "none" ? "🔥" : "" }) : null;
+      const offerText = showPrice && offer ? offerShareText({ channel, currency: record.currency, normalPrice: priceFor(record), offerPrice: priceFor({ salesPrice: offer.offerPrice }), endsAt: offer.endsAt, vatLabel: vatLabels[vatMode], mark: channel !== "email" && emoji.id !== "none" ? "🔥" : "" }) : null;
       if (showPrice) {
         const price = priceFor(record);
-        const value = offerText?.price ?? `${record.currency} ${plainMoney(price)}${includeVat ? " (VAT included)" : " (VAT excluded)"}`;
+        const value = offerText?.price ?? `${record.currency} ${plainMoney(price)}${vatLabels[vatMode]}`;
         details.push(channel === "email" ? `Price: ${value}` : marked(emoji.price, value));
       }
       if (details.length) lines.push(details.join(" | "));
@@ -499,17 +504,17 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     setEditor({ channel, text });
   };
 
-  const exportExcel = (withVat: boolean) => {
+  const exportExcel = (mode: VatMode) => {
     if (!canSelectItems || loading) return;
     if (!selectedRecords.length) return toast.error("Select at least one item to export.");
     const headers = ["Company", "Inventory", "Category", "Item No.", "SKU", "Item", "Specifications", "Screen Details"];
     if (showQuantity) headers.push("Quantity");
-    if (showPrice) headers.push(`${withVat ? "Price including 5% VAT" : "Export price excluding VAT"}${adjustLabel ? ` (${adjustLabel.trim()})` : ""}`, "Currency");
+    if (showPrice) headers.push(`${mode === "include" ? "Price including 5% VAT" : mode === "zero" ? "Price (0% VAT)" : "Export price excluding VAT"}${adjustLabel ? ` (${adjustLabel.trim()})` : ""}`, "Currency");
     // Running Today Offers: two extra columns, added only when an exported product has one.
     const offerByItem = new Map(runningOffers(offers).map((offer) => [offer.itemId, offer]));
     const offerFor = (record: ConsolidatedItem) => record.recordIds.map((id) => offerByItem.get(id)).find(Boolean);
     const offerColumns = showPrice && selectedRecords.some((record) => offerFor(record));
-    if (offerColumns) headers.push(`Today offer price${withVat ? " including 5% VAT" : ""}`, "Offer ends (UAE time)");
+    if (offerColumns) headers.push(`Today offer price${mode === "include" ? " including 5% VAT" : mode === "zero" ? " (0% VAT)" : ""}`, "Offer ends (UAE time)");
     const headerRow = headers.map((header) => `<Cell ss:StyleID="Header"><Data ss:Type="String">${xml(header)}</Data></Cell>`).join("");
     const bodyRows = selectedRecords.map((record) => {
       const values: Array<{ value: unknown; type?: "Number"; style?: string }> = [
@@ -517,10 +522,10 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
         { value: record.itemNumber ?? "" }, { value: record.sku }, { value: record.name }, { value: specificationText(record) }, { value: record.customizationScreen ?? "" },
       ];
       if (showQuantity) values.push({ value: Number(record.quantity), type: "Number", style: "Number" });
-      if (showPrice) values.push({ value: priceFor(record, withVat), type: "Number", style: "Money" }, { value: record.currency });
+      if (showPrice) values.push({ value: priceFor(record, mode), type: "Number", style: "Money" }, { value: record.currency });
       if (offerColumns) {
         const offer = offerFor(record);
-        values.push(offer ? { value: priceFor({ salesPrice: offer.offerPrice }, withVat), type: "Number", style: "Money" } : { value: "" }, { value: offer ? offerEndsText(offer.endsAt) : "" });
+        values.push(offer ? { value: priceFor({ salesPrice: offer.offerPrice }, mode), type: "Number", style: "Money" } : { value: "" }, { value: offer ? offerEndsText(offer.endsAt) : "" });
       }
       return `<Row>${values.map((entry) => `<Cell${entry.style ? ` ss:StyleID="${entry.style}"` : ""}><Data ss:Type="${entry.type ?? "String"}">${xml(entry.value)}</Data></Cell>`).join("")}</Row>`;
     }).join("");
@@ -531,7 +536,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `comnet-stock-${withVat ? "vat-included" : "export-no-vat"}.xls`;
+    anchor.download = `comnet-stock-${mode === "include" ? "vat-included" : mode === "zero" ? "zero-vat" : "export-no-vat"}.xls`;
     anchor.click();
     URL.revokeObjectURL(url);
     toast.success(`${selectedRecords.length} items exported for Excel`);
@@ -623,24 +628,29 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
       </div>
 
       {/* Share bar: price display options on the left, copy and export actions on the right. Labels collapse to icons before the row wraps. */}
-      <div className="@container flex flex-wrap items-center gap-2 border-b px-4 py-2 whitespace-nowrap [&_[data-slot=button]]:h-8 [&_[data-slot=button]]:gap-1.5 [&_[data-slot=button]]:px-2.5 [&_[data-slot=button]]:text-xs [&_[data-slot=button]_svg]:size-3.5">
+      <div className="@container flex flex-nowrap items-center gap-2 overflow-x-auto border-b px-4 py-2 whitespace-nowrap [&_[data-slot=button]]:h-8 [&_[data-slot=button]]:gap-1.5 [&_[data-slot=button]]:px-2.5 [&_[data-slot=button]]:text-xs [&_[data-slot=button]_svg]:size-3.5">
         <span className={`inline-flex h-8 items-center rounded-md px-2.5 text-xs font-semibold tabular-nums ${selectedRecords.length ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>{selectedRecords.length} selected</span>
-        <label className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-xs font-medium text-muted-foreground"><Checkbox checked={!showQuantity} onCheckedChange={(checked) => setShowQuantity(checked !== true)} />Hide quantity</label>
+        <label className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-xs font-medium text-muted-foreground"><Checkbox checked={!showQuantity} onCheckedChange={(checked) => setShowQuantity(checked !== true)} />Hide qty</label>
         <label className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-xs font-medium text-muted-foreground"><Checkbox checked={!showPrice} onCheckedChange={(checked) => setShowPrice(checked !== true)} />Hide price</label>
         <div className="flex h-8 shrink-0 items-center gap-1 rounded-md border px-2 text-xs font-medium text-muted-foreground" role="group" aria-label="Increase shown and shared prices" title="Adds to the prices shown here and in WhatsApp, Telegram, email and Excel. Saved selling prices do not change.">Price +<Input aria-label="Price increase" type="number" min="0" step="0.01" inputMode="decimal" disabled={!showPrice} value={priceAdjust.value} onChange={(event) => setPriceAdjust({ ...priceAdjust, value: event.target.value })} placeholder="0" className="h-6 w-16 px-1.5 text-xs" /><select aria-label="Increase as percent or amount" disabled={!showPrice} value={priceAdjust.mode} onChange={(event) => setPriceAdjust({ ...priceAdjust, mode: event.target.value as PriceAdjust["mode"] })} className="h-6 rounded border border-input bg-card px-1 text-xs text-foreground"><option value="percent">%</option><option value="amount">amount</option></select></div>
         <div className="flex shrink-0 rounded-md border p-0.5 [&_[data-slot=button]]:h-6" role="group" aria-label="Shared price VAT format">
-          <Button type="button" size="sm" variant={!includeVat ? "default" : "ghost"} aria-pressed={!includeVat} disabled={!showPrice} onClick={() => setIncludeVat(false)}>No VAT</Button>
-          <Button type="button" size="sm" variant={includeVat ? "default" : "ghost"} aria-pressed={includeVat} disabled={!showPrice} onClick={() => setIncludeVat(true)}>Including VAT</Button>
+          {([["exclude", "No VAT", "Prices without VAT"], ["include", "Inc VAT", "Prices including 5% VAT"], ["zero", "0% VAT", "Zero-rated prices (0% VAT), e.g. exports"]] as const).map(([mode, label, title]) => <Button key={mode} type="button" size="sm" variant={vatMode === mode ? "default" : "ghost"} aria-pressed={vatMode === mode} title={title} disabled={!showPrice} onClick={() => setVatMode(mode)}>{label}</Button>)}
         </div>
-        <div className="ml-auto flex shrink-0 items-center gap-1.5">
-          <Button size="sm" disabled={shareDisabled} onClick={() => copyForChannel("whatsapp")} title="Copy WhatsApp format" aria-label="Copy WhatsApp format" className="bg-[#25D366] text-[#052e16] hover:bg-[#1fb558]"><MessageCircle /><span className="@max-[62rem]:hidden">WhatsApp</span></Button>
+        <div className="ml-auto flex shrink-0 items-center gap-1.5 pl-2">
+          <Button size="sm" disabled={shareDisabled} onClick={() => copyForChannel("whatsapp")} title="Copy WhatsApp format" aria-label="Copy WhatsApp format" className="bg-[#25D366] text-[#052e16] hover:bg-[#1fb558]"><WhatsAppIcon /><span className="@max-[62rem]:hidden">WhatsApp</span></Button>
           {emojiPicker("whatsapp")}
-          <Button size="sm" disabled={shareDisabled} onClick={() => copyForChannel("telegram")} title="Copy Telegram format" aria-label="Copy Telegram format" className="bg-[#1a77ad] text-white hover:bg-[#15638f]"><Send /><span className="@max-[62rem]:hidden">Telegram</span></Button>
+          <Button size="sm" disabled={shareDisabled} onClick={() => copyForChannel("telegram")} title="Copy Telegram format" aria-label="Copy Telegram format" className="bg-[#1a77ad] text-white hover:bg-[#15638f]"><TelegramIcon /><span className="@max-[62rem]:hidden">Telegram</span></Button>
           {emojiPicker("telegram")}
           <Button size="sm" variant="outline" disabled={shareDisabled} onClick={() => copyForChannel("email")} title="Copy email format" aria-label="Copy email format"><Mail /><span className="@max-[62rem]:hidden">Email</span></Button>
           <Button size="sm" variant="outline" disabled={shareDisabled} onClick={() => openEditor("whatsapp")} title="Edit the message before copying" aria-label="Edit the message before copying"><Pencil /><span className="@max-[62rem]:hidden">Edit</span></Button>
-          <Button size="sm" variant="outline" disabled={shareDisabled} onClick={() => exportExcel(false)} title="Export Excel without VAT" aria-label="Export Excel without VAT"><Download /><span className="@max-[62rem]:hidden">Excel no VAT</span></Button>
-          <Button size="sm" variant="outline" disabled={shareDisabled} onClick={() => exportExcel(true)} title="Export Excel including VAT" aria-label="Export Excel including VAT"><FileSpreadsheet /><span className="@max-[62rem]:hidden">Excel + VAT</span></Button>
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild><Button size="sm" variant="outline" disabled={shareDisabled} title="Export Excel" aria-label="Export Excel"><FileSpreadsheet /><span className="@max-[62rem]:hidden">Excel</span><ChevronDown /></Button></DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => exportExcel("exclude")}><Download className="size-4" />Excel — No VAT</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => exportExcel("include")}><FileSpreadsheet className="size-4" />Excel — + VAT (5%)</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => exportExcel("zero")}><FileSpreadsheet className="size-4" />Excel — 0% VAT</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -680,7 +690,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
                     </div>
                   </TableCell>
                   {showQuantity && <TableCell responsiveColumn="quantity" className="py-4 text-right"><span className={`block text-lg font-bold leading-tight tabular-nums ${out ? "text-rose-600 dark:text-rose-400" : low ? "text-amber-600 dark:text-amber-400" : "text-foreground"}`}>{Number(record.quantity).toLocaleString()}</span>{held > 0 ? <span className="mt-0.5 block whitespace-nowrap text-[11px] font-medium text-amber-700 dark:text-amber-300">{Math.max(0, Number(record.quantity) - held).toLocaleString()} free · {held.toLocaleString()} held</span> : <span className="mt-0.5 block text-[11px] text-muted-foreground">units</span>}</TableCell>}
-                  {showPrice && <TableCell responsiveColumn="price" className="py-4 text-right"><span className="block text-base font-bold leading-tight tabular-nums text-foreground">{money(priceFor(record), record.currency)}</span><span className={`mt-0.5 block whitespace-normal text-[11px] ${includeVat ? "font-semibold text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}>{includeVat ? "VAT included" : "excl. VAT"}</span></TableCell>}
+                  {showPrice && <TableCell responsiveColumn="price" className="py-4 text-right"><span className="block text-base font-bold leading-tight tabular-nums text-foreground">{money(priceFor(record), record.currency)}</span><span className={`mt-0.5 block whitespace-normal text-[11px] ${vatMode === "include" ? "font-semibold text-emerald-600 dark:text-emerald-400" : vatMode === "zero" ? "font-semibold text-sky-600 dark:text-sky-400" : "text-muted-foreground"}`}>{vatMode === "include" ? "VAT included" : vatMode === "zero" ? "0% VAT" : "excl. VAT"}</span></TableCell>}
                 </TableRow>;
               }),
             ])}
