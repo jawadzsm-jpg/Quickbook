@@ -30,7 +30,7 @@
 ## Purchasing and vendors
 
 - Vendor records with contact, company, country, TRN, currency, payable balance, and change history.
-- Purchase orders, item receipts, received-item bills, bills, expenses, vendor credits, and bill payments.
+- Purchase orders, item receipts, received-item bills, bills, expenses, vendor credits, and bill payments. Purchases & Bills shows the five purchase steps (order → receive → bill → pay → return) in one row from laptop width (2 columns on phones), then one toolbar of list pills (All purchases, Bills, Purchase Orders, Item Receipts, Purchase Returns) with the PO status filter on the same line, as in Sales & Invoicing. Transaction lists use compact 32 px row-action icons, and long company/inventory tags wrap, so the register fits a 1,120 px screen.
 - Supplier bills using the `Goods imported into the UAE` VAT code require Bill of Entry and Airway Bill references, support customs-document attachments, and keep those references on the saved and printed bill. When converting an import-coded Purchase Order, the UAE import document fields are shown immediately and become required as soon as an import line is included in the Bill. Purchases includes a company- and inventory-scoped Bill of Entry No. search whose results open the original supplier bill.
 - Bills and purchase orders default their posting-account dropdown to the selected vendor’s linked Accounts Payable account in the document currency.
 - Purchase order and bill entry forms offer Add Line below the last item row.
