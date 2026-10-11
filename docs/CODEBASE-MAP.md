@@ -57,6 +57,7 @@ Use this file to locate implementation ownership without rescanning the whole re
 | Concern | Files |
 | --- | --- |
 | Sessions and authorization | `lib/auth.ts`, `lib/password.ts`, `lib/admin-pin.ts` |
+| Integration API (websites) | `app/api/v1/*`, `lib/public-api.ts`, `lib/public-api-query.ts`, `lib/api-keys.ts`, `lib/openapi.ts`; keys UI `app/api-integrations.tsx` + `app/api/api-keys` |
 | API body/errors/validation | `lib/api.ts`, `lib/errors.ts`, `lib/validation.ts`, `lib/email-validation.ts` |
 | Inventory write locking | `lib/sku-locks.ts` and `app/use-sku-lock.tsx` |
 | Invoice pricing and dates | `lib/invoice-pricing.ts`, `lib/payment-terms.ts`, `lib/contact-currency.ts` |

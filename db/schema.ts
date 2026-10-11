@@ -278,7 +278,26 @@ export const items = pgTable("items", {
   lastPurchasePrice: doublePrecision("last_purchase_price").notNull().default(0),
   status: text("status", { enum: ["active", "inactive"] }).notNull().default("active"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  // Set by the trg_items_updated_at database trigger on every change (stock, price, edits), for API "updated_since" syncs.
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 }, (table) => [uniqueIndex("idx_items_location_item_number").on(table.companyId, table.locationId, table.itemNumber), uniqueIndex("idx_items_location_sku").on(table.companyId, table.locationId, table.sku), index("idx_items_company_location_name").on(table.companyId, table.locationId, table.name)]);
+
+// Integration API keys (Admin Controls → API & Integrations): one company, read-only scopes. Only a SHA-256 digest of the
+// key is stored; the key itself is shown once when created.
+export const apiKeys = pgTable("api_keys", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  keyPrefix: text("key_prefix").notNull(),
+  keyHash: text("key_hash").notNull(),
+  scopes: text("scopes").notNull().default("products:read"),
+  createdByUserId: integer("created_by_user_id").references(() => appUsers.id, { onDelete: "set null" }),
+  createdByName: text("created_by_name").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true, mode: "string" }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true, mode: "string" }),
+  revokedByName: text("revoked_by_name").notNull().default(""),
+}, (table) => [uniqueIndex("idx_api_keys_hash").on(table.keyHash), index("idx_api_keys_company").on(table.companyId)]);
 
 export const stockTransfers = pgTable("stock_transfers", {
   id: serial("id").primaryKey(),
