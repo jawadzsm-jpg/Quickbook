@@ -37,7 +37,7 @@
 - Partial purchase-order receiving with remaining quantities and receipt allocation tracking.
 - Purchase returns constrained to quantities still available from source bills.
 - Single or multi-bill vendor payment allocation and refreshed bill status.
-- Vendor center with balances, purchasing history, returns, open payables, aging, and vendor-currency reports.
+- Vendor center with balances, purchasing history, returns, open payables, aging, and vendor-currency reports. Supplier workflows use the same compact cards as Customer Center (2 columns on phones, 4 from laptop width); in the vendor list, Edit and Delete wrap under the vendor name when the table is narrow, so the table fits a 1,120 px screen without sideways scrolling.
 - Cargo List (sidebar, under Vendors): a shared list of cargo and freight agents for the company, with name, telephone, mobile, email, modes (Air, Sea, Land, Courier), destination countries, address and notes. Every user role can view it and add entries; the person who added an entry, or an administrator, can edit it; only administrators delete. It has search, page size and paging, a desktop table and mobile cards.
 - Supplier bank details (bank name, account name, account number, IBAN, SWIFT/BIC) on each vendor, entered in the new-vendor form or Edit, shown on the Vendor Center supplier profile, and printable as a movable box on purchase orders, bills and single-vendor Vendor Statements.
 - Supplier Centre Quick report and Open balance use the selected vendor’s currency, including foreign-currency vendors in a company with a different home currency.
