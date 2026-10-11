@@ -95,24 +95,25 @@ export function CargoList({ companyId, isAdmin }: { companyId: number; isAdmin: 
       <label className="flex min-w-0 items-center gap-2">Search<Input className="h-9 w-56 max-w-full" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="Name, phone, country…" /></label>
     </div>
     {loading ? <p className="py-10 text-center text-sm text-muted-foreground">Loading cargo list…</p> : !filtered.length ? <div className="rounded-xl border border-dashed p-10 text-center text-sm text-muted-foreground">{records.length ? "No cargo matches your search." : "No cargo yet. Click Add cargo to add the first one."}</div> : <>
-      <div className="hidden overflow-x-auto rounded-lg border lg:block">
-        <table className="w-full min-w-[1100px] text-sm">
+      {/* Table from 1,280 px; narrower screens use the cards below. */}
+      <div className="hidden overflow-x-auto rounded-lg border xl:block">
+        <table className="w-full text-sm">
           <thead className="bg-muted text-left text-xs font-semibold text-muted-foreground"><tr>{["ID", "Cargo name", "Telephone", "Mobile", "Email", "Mode", "Destination countries", "Address", "Created by", ""].map((heading) => <th key={heading} className="px-3 py-2.5">{heading}</th>)}</tr></thead>
           <tbody>{visible.map((cargo) => <tr key={cargo.id} className="border-t align-top">
             <td className="px-3 py-2.5 font-bold text-red-600 tabular-nums">{cargo.id}</td>
             <td className="px-3 py-2.5 font-medium uppercase">{cargo.name}</td>
-            <td className="px-3 py-2.5 tabular-nums">{cargo.telephone || "—"}</td>
-            <td className="px-3 py-2.5 tabular-nums">{cargo.mobile || "—"}</td>
-            <td className="break-all px-3 py-2.5">{cargo.email ? <a className="underline underline-offset-2" href={`mailto:${cargo.email}`}>{cargo.email}</a> : "—"}</td>
+            <td className="whitespace-nowrap px-3 py-2.5 tabular-nums">{cargo.telephone || "—"}</td>
+            <td className="whitespace-nowrap px-3 py-2.5 tabular-nums">{cargo.mobile || "—"}</td>
+            <td className="break-words px-3 py-2.5">{cargo.email ? <a className="underline underline-offset-2" href={`mailto:${cargo.email}`}>{cargo.email.split("@")[0]}{cargo.email.includes("@") ? <>@<wbr />{cargo.email.slice(cargo.email.indexOf("@") + 1)}</> : null}</a> : "—"}</td>
             <td className="px-3 py-2.5">{listText(cargo.modes)}</td>
             <td className="px-3 py-2.5">{listText(cargo.destinations)}</td>
             <td className="whitespace-pre-line px-3 py-2.5">{cargo.address || "—"}</td>
             <td className="px-3 py-2.5">{cargo.createdByName || "—"}</td>
-            <td className="px-3 py-2.5"><div className="flex justify-end gap-1">{canEdit(cargo) && <Button type="button" variant="ghost" size="icon" aria-label={`Edit ${cargo.name}`} onClick={() => open(cargo)}><Pencil className="size-4" /></Button>}{isAdmin && <Button type="button" variant="ghost" size="icon" className="text-destructive" aria-label={`Delete ${cargo.name}`} onClick={() => void remove(cargo)}><Trash2 className="size-4" /></Button>}</div></td>
+            <td className="px-2 py-2"><div className="flex justify-end [&_button]:size-8">{canEdit(cargo) && <Button type="button" variant="ghost" size="icon" aria-label={`Edit ${cargo.name}`} onClick={() => open(cargo)}><Pencil className="size-4" /></Button>}{isAdmin && <Button type="button" variant="ghost" size="icon" className="text-destructive" aria-label={`Delete ${cargo.name}`} onClick={() => void remove(cargo)}><Trash2 className="size-4" /></Button>}</div></td>
           </tr>)}</tbody>
         </table>
       </div>
-      <div className="grid gap-3 lg:hidden">{visible.map((cargo) => <article key={cargo.id} className="rounded-xl border p-4 text-sm">
+      <div className="grid gap-3 md:grid-cols-[repeat(2,minmax(0,1fr))] xl:hidden">{visible.map((cargo) => <article key={cargo.id} className="rounded-xl border p-4 text-sm">
         <div className="flex items-start justify-between gap-2"><div><p className="text-xs font-bold text-red-600">#{cargo.id}</p><h3 className="font-semibold uppercase">{cargo.name}</h3></div><div className="flex gap-1">{canEdit(cargo) && <Button type="button" variant="ghost" size="icon" aria-label={`Edit ${cargo.name}`} onClick={() => open(cargo)}><Pencil className="size-4" /></Button>}{isAdmin && <Button type="button" variant="ghost" size="icon" className="text-destructive" aria-label={`Delete ${cargo.name}`} onClick={() => void remove(cargo)}><Trash2 className="size-4" /></Button>}</div></div>
         <dl className="mt-3 grid grid-cols-2 gap-3">{([["Telephone", cargo.telephone], ["Mobile", cargo.mobile], ["Mode", listText(cargo.modes)], ["Destinations", listText(cargo.destinations)], ["Email", cargo.email], ["Created by", cargo.createdByName]] as const).map(([label, value]) => <div key={label} className="min-w-0"><dt className="text-xs text-muted-foreground">{label}</dt><dd className="break-words font-medium">{value || "—"}</dd></div>)}<div className="col-span-2"><dt className="text-xs text-muted-foreground">Address</dt><dd className="whitespace-pre-line break-words font-medium">{cargo.address || "—"}</dd></div></dl>
       </article>)}</div>
