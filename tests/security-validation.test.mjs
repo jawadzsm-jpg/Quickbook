@@ -1244,7 +1244,8 @@ test("share bar: brand icons, No VAT / Inc VAT / 0% VAT, one Excel menu, kept on
   assert.match(ui, /<TelegramIcon \/>/);
   assert.match(ui, /Hide qty<\/label>/);
   assert.match(ui, /exportExcel\("exclude"\)[\s\S]*exportExcel\("include"\)[\s\S]*exportExcel\("zero"\)/);
-  assert.match(ui, /@container flex flex-nowrap items-center gap-2 overflow-x-auto/);
+  assert.match(ui, /@container flex flex-wrap items-center gap-2 border-b px-4 py-2 whitespace-nowrap/);
+  assert.match(ui, /@max-\[90rem\]:hidden/);
   assert.doesNotMatch(ui, /Excel no VAT|Excel \+ VAT<|Including VAT|Hide quantity/);
 });
 

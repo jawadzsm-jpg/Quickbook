@@ -480,7 +480,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
 
   // Hidden when every listed company has share emoji switched off by its administrator.
   const emojiAllowed = records.some((record) => !shareEmoji.offCompanyIds.includes(record.companyId));
-  const emojiPicker = (channel: "whatsapp" | "telegram") => emojiAllowed ? <select aria-label={`${channel === "whatsapp" ? "WhatsApp" : "Telegram"} emoji style`} title={`${channel === "whatsapp" ? "WhatsApp" : "Telegram"} emoji style (saved for you)`} className="h-8 w-[7.5rem] rounded-md border border-input bg-card px-1.5 text-xs text-foreground" value={shareEmoji[channel]} onChange={(event) => void chooseEmoji(channel, event.target.value)}>{shareEmojiStyles.map((style) => <option key={style.id} value={style.id}>{style.label}</option>)}</select> : null;
+  const emojiPicker = (channel: "whatsapp" | "telegram") => emojiAllowed ? <select aria-label={`${channel === "whatsapp" ? "WhatsApp" : "Telegram"} emoji style`} title={`${channel === "whatsapp" ? "WhatsApp" : "Telegram"} emoji style (saved for you)`} className="h-8 w-[7.5rem] rounded-md border border-input bg-card px-1.5 text-xs text-foreground @max-[90rem]:w-14" value={shareEmoji[channel]} onChange={(event) => void chooseEmoji(channel, event.target.value)}>{shareEmojiStyles.map((style) => <option key={style.id} value={style.id}>{style.label}</option>)}</select> : null;
   const channelName = (channel: ShareChannel) => channel === "whatsapp" ? "WhatsApp" : channel === "telegram" ? "Telegram" : "Email";
   const copyForChannel = async (channel: ShareChannel, edited?: string) => {
     if (!canSelectItems || loading) return;
@@ -569,7 +569,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   };
 
   // Full-width filter chips; the active chip uses the user's accent colour and each count keeps its status colour.
-  const chip = (active: boolean) => `inline-flex h-10 min-w-0 flex-1 basis-auto items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border px-2 text-[13px] font-semibold transition-colors ${active ? "border-primary bg-primary/15 text-foreground ring-1 ring-primary" : "border-border bg-card text-foreground/80 hover:border-foreground/30 hover:text-foreground"}`;
+  const chip = (active: boolean) => `inline-flex h-9 min-w-0 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border px-3 text-[13px] font-semibold transition-colors ${active ? "border-primary bg-primary/15 text-foreground ring-1 ring-primary" : "border-border bg-card text-foreground/80 hover:border-foreground/30 hover:text-foreground"}`;
   const countPill = "inline-flex h-5 min-w-6 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-bold tabular-nums";
   const toggleFilter = (next: StockFilter) => setFilter((current) => current === next ? "all" : next);
   const columnCount = 2 + Number(showQuantity) + Number(showPrice);
@@ -592,7 +592,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   return <div className="space-y-4">
     {/* Filter bar: inventories, stock status and received date in one full-width, colour-coded row. */}
     <section className="rounded-xl border bg-card p-2 shadow-sm" aria-label="Stock filters">
-      <div className="flex w-full flex-wrap items-center gap-1.5 xl:flex-nowrap">
+      <div className="flex w-full flex-wrap items-center gap-1.5">
         <button type="button" onClick={() => setFilter("all")} aria-pressed={filter === "all"} className={chip(filter === "all")} title="All inventory"><Boxes className="size-4 shrink-0 text-sky-500" />All<span className={`${countPill} bg-sky-400 text-slate-950`}>{totals.quantity.toLocaleString()}</span></button>
         {locations.map((location) => <button key={location.id} type="button" onClick={() => toggleFilter(`location:${location.id}`)} aria-pressed={filter === `location:${location.id}`} title={location.company} className={chip(filter === `location:${location.id}`)}><Warehouse className="size-4 shrink-0 text-sky-500" /><span className="max-w-40 truncate">{location.location || location.company}</span><span className={`${countPill} bg-muted text-foreground`}>{location.quantity.toLocaleString()}</span></button>)}
         {statusChips.map(({ id, label, value, Icon, icon, pill, title }) => <button key={id} type="button" onClick={() => toggleFilter(id)} aria-pressed={filter === id} title={title} className={chip(filter === id)}><Icon className={`size-4 shrink-0 ${icon}`} /><span className="truncate">{label}</span><span className={`${countPill} ${pill}`}>{value.toLocaleString()}</span></button>)}
@@ -603,8 +603,8 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
 
     <section className="overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm">
       <div className={`grid grid-cols-2 sm:grid-cols-5 ${activityOpen ? "border-b" : ""}`}>
-        {activityTabs.map(({ id, label, Icon, count, badge }) => <button key={id} type="button" onClick={() => { if (activityOpen && activityView === id) setActivityOpen(false); else { setActivityView(id); setActivityOpen(true); } }} className={`flex min-h-12 min-w-0 items-center justify-center gap-2 border-r border-b px-3 text-sm font-semibold transition-colors even:border-r-0 last:col-span-2 last:border-r-0 sm:last:col-span-1 sm:border-b-0 sm:even:border-r sm:last:border-r-0 ${activityOpen && activityView === id ? "bg-muted/40 text-foreground shadow-[inset_0_-2px_0_var(--primary)]" : "text-muted-foreground hover:bg-muted/30 hover:text-foreground"}`} aria-expanded={activityOpen && activityView === id}>
-          <Icon className="size-4 shrink-0" /><span className="truncate">{label}</span><Badge className={`${badge} h-5 min-w-6 justify-center px-1.5 text-[11px] hover:opacity-90`}>{count}</Badge><ChevronDown className="size-4 shrink-0 opacity-60 transition-transform data-[open=true]:rotate-180" data-open={activityOpen && activityView === id} />
+        {activityTabs.map(({ id, label, Icon, count, badge }) => <button key={id} type="button" onClick={() => { if (activityOpen && activityView === id) setActivityOpen(false); else { setActivityView(id); setActivityOpen(true); } }} className={`flex min-h-12 min-w-0 items-center justify-center gap-1.5 border-r border-b px-2 text-[13px] font-semibold xl:gap-2 xl:px-3 xl:text-sm transition-colors even:border-r-0 last:col-span-2 last:border-r-0 sm:last:col-span-1 sm:border-b-0 sm:even:border-r sm:last:border-r-0 ${activityOpen && activityView === id ? "bg-muted/40 text-foreground shadow-[inset_0_-2px_0_var(--primary)]" : "text-muted-foreground hover:bg-muted/30 hover:text-foreground"}`} aria-expanded={activityOpen && activityView === id}>
+          <Icon className="size-4 shrink-0" /><span className="truncate">{label}</span><Badge className={`${badge} h-5 min-w-6 justify-center px-1.5 text-[11px] hover:opacity-90`}>{count}</Badge><ChevronDown className="hidden size-4 shrink-0 opacity-60 2xl:block transition-transform data-[open=true]:rotate-180" data-open={activityOpen && activityView === id} />
         </button>)}
       </div>
       {activityOpen && activityView === "offers" ? <TodayOffersPanel offers={offers} items={records} canManage={canManageOffers} loading={loading} onChanged={() => void load()} onOpenItem={(offer) => onOpenItem ? onOpenItem(offer.itemId) : window.dispatchEvent(new CustomEvent("inventory-activity-open", { detail: { kind: "item", id: offer.itemId, companyId: offer.companyId, locationId: offer.locationId, sku: offer.sku } }))} /> : null}
@@ -654,7 +654,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
       </div>
 
       {/* Share bar: price display options on the left, copy and export actions on the right. Labels collapse to icons before the row wraps. */}
-      <div className="@container flex flex-nowrap items-center gap-2 overflow-x-auto border-b px-4 py-2 whitespace-nowrap [&_[data-slot=button]]:h-8 [&_[data-slot=button]]:gap-1.5 [&_[data-slot=button]]:px-2.5 [&_[data-slot=button]]:text-xs [&_[data-slot=button]_svg]:size-3.5">
+      <div className="@container flex flex-wrap items-center gap-2 border-b px-4 py-2 whitespace-nowrap [&_[data-slot=button]]:h-8 [&_[data-slot=button]]:gap-1.5 [&_[data-slot=button]]:px-2.5 [&_[data-slot=button]]:text-xs [&_[data-slot=button]_svg]:size-3.5">
         <span className={`inline-flex h-8 items-center rounded-md px-2.5 text-xs font-semibold tabular-nums ${selectedRecords.length ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>{selectedRecords.length} selected</span>
         <label className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-xs font-medium text-muted-foreground"><Checkbox checked={!showQuantity} onCheckedChange={(checked) => setShowQuantity(checked !== true)} />Hide qty</label>
         <label className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-xs font-medium text-muted-foreground"><Checkbox checked={!showPrice} onCheckedChange={(checked) => setShowPrice(checked !== true)} />Hide price</label>
@@ -662,15 +662,15 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
         <div className="flex shrink-0 rounded-md border p-0.5 [&_[data-slot=button]]:h-6" role="group" aria-label="Shared price VAT format">
           {([["exclude", "No VAT", "Prices without VAT"], ["include", "Inc VAT", "Prices including 5% VAT"], ["zero", "0% VAT", "Zero-rated prices (0% VAT), e.g. exports"]] as const).map(([mode, label, title]) => <Button key={mode} type="button" size="sm" variant={vatMode === mode ? "default" : "ghost"} aria-pressed={vatMode === mode} title={title} disabled={!showPrice} onClick={() => setVatMode(mode)}>{label}</Button>)}
         </div>
-        <div className="ml-auto flex shrink-0 items-center gap-1.5 pl-2">
-          <Button size="sm" disabled={shareDisabled} onClick={() => copyForChannel("whatsapp")} title="Copy WhatsApp format" aria-label="Copy WhatsApp format" className="bg-[#25D366] text-[#052e16] hover:bg-[#1fb558]"><WhatsAppIcon /><span className="@max-[62rem]:hidden">WhatsApp</span></Button>
+        <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+          <Button size="sm" disabled={shareDisabled} onClick={() => copyForChannel("whatsapp")} title="Copy WhatsApp format" aria-label="Copy WhatsApp format" className="bg-[#25D366] text-[#052e16] hover:bg-[#1fb558]"><WhatsAppIcon /><span className="@max-[90rem]:hidden">WhatsApp</span></Button>
           {emojiPicker("whatsapp")}
-          <Button size="sm" disabled={shareDisabled} onClick={() => copyForChannel("telegram")} title="Copy Telegram format" aria-label="Copy Telegram format" className="bg-[#1a77ad] text-white hover:bg-[#15638f]"><TelegramIcon /><span className="@max-[62rem]:hidden">Telegram</span></Button>
+          <Button size="sm" disabled={shareDisabled} onClick={() => copyForChannel("telegram")} title="Copy Telegram format" aria-label="Copy Telegram format" className="bg-[#1a77ad] text-white hover:bg-[#15638f]"><TelegramIcon /><span className="@max-[90rem]:hidden">Telegram</span></Button>
           {emojiPicker("telegram")}
-          <Button size="sm" variant="outline" disabled={shareDisabled} onClick={() => copyForChannel("email")} title="Copy email format" aria-label="Copy email format"><Mail /><span className="@max-[62rem]:hidden">Email</span></Button>
-          <Button size="sm" variant="outline" disabled={shareDisabled} onClick={() => openEditor("whatsapp")} title="Edit the message before copying" aria-label="Edit the message before copying"><Pencil /><span className="@max-[62rem]:hidden">Edit</span></Button>
+          <Button size="sm" variant="outline" disabled={shareDisabled} onClick={() => copyForChannel("email")} title="Copy email format" aria-label="Copy email format"><Mail /><span className="@max-[90rem]:hidden">Email</span></Button>
+          <Button size="sm" variant="outline" disabled={shareDisabled} onClick={() => openEditor("whatsapp")} title="Edit the message before copying" aria-label="Edit the message before copying"><Pencil /><span className="@max-[90rem]:hidden">Edit</span></Button>
           <DropdownMenu modal={false}>
-            <DropdownMenuTrigger asChild><Button size="sm" variant="outline" disabled={shareDisabled} title="Export Excel" aria-label="Export Excel"><FileSpreadsheet /><span className="@max-[62rem]:hidden">Excel</span><ChevronDown /></Button></DropdownMenuTrigger>
+            <DropdownMenuTrigger asChild><Button size="sm" variant="outline" disabled={shareDisabled} title="Export Excel" aria-label="Export Excel"><FileSpreadsheet /><span className="@max-[90rem]:hidden">Excel</span><ChevronDown /></Button></DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onSelect={() => exportExcel("exclude")}><Download className="size-4" />Excel — No VAT</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => exportExcel("include")}><FileSpreadsheet className="size-4" />Excel — + VAT (5%)</DropdownMenuItem>
