@@ -65,6 +65,7 @@ export function DeliveryNoteTemplate({
   const pageStampsMinHeight = pageStamps?.length ? Math.max(...pageStamps.map((stamp) => Math.min(stamp.top, pageStampArea.height - PAGE_STAMP_SIZE[stamp.kind].height) + PAGE_STAMP_SIZE[stamp.kind].height)) * pageStampPx + 28 : undefined;
   const customerName = String(contact?.billingName || contact?.company || record.party || "Customer");
   const customerAddress = contactAddressLines(contact);
+  const customerTrn = String(contact?.trn ?? "").trim();
   const deliveryAddress = String(record.deliveryAddress || contact?.shippingAddress || customerAddress.join("\n") || "—");
   const salesRep = String(record.salesman || "—");
   const totalQty = lines.reduce((sum, line) => sum + qty(line.quantity), 0);
@@ -131,6 +132,7 @@ export function DeliveryNoteTemplate({
         <h3>Customer: العميل</h3>
         <p>{customerName}</p>
         {customerAddress.map((line) => <p key={line}>{line}</p>)}
+        {customerTrn ? <p>TRN {customerTrn}</p> : null}
       </div>
       <div className="dn-contact">
         <h3>Delivery Address: عنوان التسليم</h3>
