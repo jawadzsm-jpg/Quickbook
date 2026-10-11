@@ -21,6 +21,7 @@ import { InvoiceSerialEditor } from "./invoice-serial-editor";
 import { InventoryInvoiceEditor } from "./inventory-invoice-editor";
 import { ItemSearchSelect, itemSearchDetail, itemSearchFields } from "./item-search-select";
 import { heldNote, useActiveHolds } from "./stock-holds";
+import { categoryColor } from "@/lib/category-colors";
 import { CategoryColorPicker } from "./category-color-picker";
 import { CopyOnHover } from "./copy-on-hover";
 import { EInvoiceBadge, EInvoicingCenter, EInvoicingSettings } from "./einvoicing-center";
@@ -1999,6 +2000,13 @@ function ContactTable({ onStatusChanged, onEdit, records, accounts, empty, onDel
 }
 function ItemTable({ records, currency, companyId, onStatusChanged, empty, onDelete, onEdit, onDuplicate }: { records: DataRecord[]; currency: string; companyId?: number; onStatusChanged: () => void; empty: string; onDelete?: (id: number) => void; onEdit?: (item: DataRecord) => void; onDuplicate?: (id: number) => void }) {
   const [pendingId, setPendingId] = useState<number | null>(null);
+  // Category pills use the Inventory Overview colours; unsaved categories keep their automatic colour.
+  const [savedCategoryColors, setSavedCategoryColors] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let active = true;
+    fetch("/api/spec-options").then((response) => response.ok ? response.json() : null).then((data) => { if (active && data?.categoryColors) setSavedCategoryColors(data.categoryColors); }).catch(() => {});
+    return () => { active = false; };
+  }, []);
   const changeStatus = async (item: DataRecord, inactive: boolean) => {
     if (!companyId || pendingId !== null) return;
     setPendingId(item.id);
@@ -2027,7 +2035,7 @@ function ItemTable({ records, currency, companyId, onStatusChanged, empty, onDel
         <TableCell className="font-mono text-xs"><CopyOnHover value={String(r.itemNumber || 13000 + r.id)} label="Item No." /></TableCell>
         <TableCell className="font-mono text-xs">{String(r.sku)}</TableCell>
         <TableCell><div className="flex flex-wrap items-center gap-2"><p className="min-w-64 max-w-xl whitespace-normal break-words font-semibold leading-5 [overflow-wrap:anywhere]" title={description}>{description}</p>{inactive ? <Badge className="bg-slate-200 text-slate-700 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-100">Item is inactive</Badge> : out ? <Badge className="bg-rose-100 text-rose-700 hover:bg-rose-100">Out of stock</Badge> : null}</div>{onEdit && <label className="mt-2 inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300"><Checkbox checked={inactive} disabled={pendingId !== null || !companyId} aria-label={`Item is inactive for ${String(r.name)}`} onCheckedChange={(checked) => void changeStatus(r, checked === true)} />Item is inactive</label>}</TableCell>
-        <TableCell>{String(r.category)}</TableCell>
+        <TableCell>{String(r.category ?? "").trim() ? <span className={`inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${categoryColor(r.category, savedCategoryColors).row} ${categoryColor(r.category, savedCategoryColors).text}`}><span className={`size-2 shrink-0 rounded-full ${categoryColor(r.category, savedCategoryColors).dot}`} /><span className="truncate">{String(r.category)}</span></span> : "—"}</TableCell>
         <TableCell responsiveColumn="quantity" className={`font-semibold ${!inactive && out ? "text-rose-600" : ""}`}>{String(r.quantity)}</TableCell>
         <TableCell responsiveColumn="quantity">{String(r.reorderPoint)}</TableCell>
         <TableCell responsiveColumn="price">{formatMoney(r.salesPrice, currency)}</TableCell>
