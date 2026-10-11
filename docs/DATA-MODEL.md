@@ -1,6 +1,6 @@
 # Data model
 
-Every PostgreSQL table, what it stores, and how tables relate. The typed schema is [`db/schema.ts`](../db/schema.ts); SQL migrations in [`drizzle/`](../drizzle/) (`0000`–`0106`) are applied in filename order by `scripts/migrate.mjs` (production) or `scripts/dev-local.mjs` (PGlite), which record each applied file in `__comnet_migrations`. Use this document instead of re-reading the schema; update it whenever a migration adds or changes a table.
+Every PostgreSQL table, what it stores, and how tables relate. The typed schema is [`db/schema.ts`](../db/schema.ts); SQL migrations in [`drizzle/`](../drizzle/) (`0000`–`0107`) are applied in filename order by `scripts/migrate.mjs` (production) or `scripts/dev-local.mjs` (PGlite), which record each applied file in `__comnet_migrations`. Use this document instead of re-reading the schema; update it whenever a migration adds or changes a table.
 
 ## Conventions
 
@@ -121,6 +121,7 @@ Excluded from company backups: `app_users`, `app_user_companies`, `auth_sessions
 ## Database objects beyond tables
 
 - **Trigger** `trg_items_updated_at` (function `set_items_updated_at`, migration 0106): sets `items.updated_at = now()` before every update, so the Integration API's `updated_since` sees changes from every code path.
+- **Performance indexes** worth knowing: `audit_log (entity_type, created_at)` (migration 0107) for Inventory Overview price changes; `transactions (company_id, transaction_date)` and `(company_id, location_id, type, status)`; `inventory_movements (item_id, movement_date)`; `journal_lines (account_name)` and `(journal_entry_id)`.
 - **Unique indexes** worth knowing: `app_users.email`, `auth_sessions.token_hash`, `password_reset_tokens.token_hash`, `api_keys.key_hash`, `category_colors.category`, `specification_options (label, value)`, items `(company, location, item_number)` and `(company, location, sku)`.
 
 ## Changing the model

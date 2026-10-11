@@ -2000,6 +2000,19 @@ function ContactTable({ onStatusChanged, onEdit, records, accounts, empty, onDel
 }
 function ItemTable({ records, currency, companyId, onStatusChanged, empty, onDelete, onEdit, onDuplicate }: { records: DataRecord[]; currency: string; companyId?: number; onStatusChanged: () => void; empty: string; onDelete?: (id: number) => void; onEdit?: (item: DataRecord) => void; onDuplicate?: (id: number) => void }) {
   const [pendingId, setPendingId] = useState<number | null>(null);
+  // Draw large item lists progressively (resets when the list changes) so the Items screen opens quickly.
+  const [rowWindow, setRowWindow] = useState<{ source: DataRecord[]; limit: number }>({ source: [], limit: 150 });
+  const rowLimit = rowWindow.source === records ? rowWindow.limit : 150;
+  const shownRecords = records.length > rowLimit ? records.slice(0, rowLimit) : records;
+  const moreRowsRef = useRef<HTMLTableRowElement>(null);
+  const showMoreRows = useCallback(() => setRowWindow({ source: records, limit: rowLimit + 150 }), [records, rowLimit]);
+  useEffect(() => {
+    const row = moreRowsRef.current;
+    if (!row || records.length <= rowLimit || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => { if (entries.some((entry) => entry.isIntersecting)) showMoreRows(); }, { rootMargin: "600px 0px" });
+    observer.observe(row);
+    return () => observer.disconnect();
+  }, [records.length, rowLimit, showMoreRows]);
   // Category pills use the Inventory Overview colours; unsaved categories keep their automatic colour.
   const [savedCategoryColors, setSavedCategoryColors] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -2027,7 +2040,7 @@ function ItemTable({ records, currency, companyId, onStatusChanged, empty, onDel
   };
   return <Table>
     <TableHeader><TableRow><TableHead>Item No.</TableHead><TableHead>SKU</TableHead><TableHead>Item &amp; description</TableHead><TableHead>Category</TableHead><TableHead responsiveColumn="quantity">On hand</TableHead><TableHead responsiveColumn="quantity">Reorder</TableHead><TableHead responsiveColumn="price">Sales price</TableHead><TableHead responsiveColumn="price">Avg. cost</TableHead><TableHead className="w-32" /></TableRow></TableHeader>
-    <TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={9} /> : records.map((r) => {
+    <TableBody>{records.length === 0 ? <EmptyRow text={empty} columns={9} /> : shownRecords.map((r) => {
       const description = inventoryItemLine(r.name, r.sku, itemDisplayDescription(r), r.itemNumber);
       const inactive = r.status === "inactive";
       const out = Number(r.quantity) <= 0;
@@ -2042,7 +2055,7 @@ function ItemTable({ records, currency, companyId, onStatusChanged, empty, onDel
         <TableCell responsiveColumn="price">{formatMoney(r.averageCost ?? r.cost, currency)}</TableCell>
         <TableCell><div className="flex">{onDuplicate && <Button type="button" variant="ghost" size="icon" onClick={() => onDuplicate(r.id)} aria-label={`Duplicate ${String(r.name)}`} title="Duplicate item" className="text-slate-400 hover:text-violet-600"><Copy className="size-4" /></Button>}{onEdit && <Button type="button" variant="ghost" size="icon" onClick={() => onEdit(r)} aria-label={`Edit ${String(r.name)}`} className="text-slate-400 hover:text-sky-600"><Pencil className="size-4" /></Button>}<DeleteButton id={r.id} onDelete={onDelete} /></div></TableCell>
       </TableRow>;
-    })}</TableBody>
+    })}{records.length > rowLimit ? <TableRow ref={moreRowsRef} className="hover:bg-transparent"><TableCell colSpan={9} className="py-3 text-center"><Button type="button" variant="outline" size="sm" onClick={showMoreRows}>Show more <span className="text-muted-foreground">({(records.length - rowLimit).toLocaleString()} more)</span></Button></TableCell></TableRow> : null}</TableBody>
   </Table>;
 }
 function AccountTable({ companyId, onStatusChanged, onOpenTransaction, accounts, onEdit, records, currency, empty, onDelete, onNavigate, onReport }: { companyId?: number; onStatusChanged: () => void; onOpenTransaction: (id: number) => void; accounts: DataRecord[]; onEdit?: (record: DataRecord) => void; records: DataRecord[]; currency: string; empty: string; onDelete?: (id: number) => void; onNavigate?: (view: View) => void; onReport?: (key: string) => void }) {

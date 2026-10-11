@@ -575,7 +575,7 @@ export const auditLog = pgTable("audit_log", {
   entityId: integer("entity_id").notNull(),
   details: text("details").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
-}, (table) => [index("idx_audit_entity").on(table.entityType, table.entityId)]);
+}, (table) => [index("idx_audit_entity").on(table.entityType, table.entityId), index("idx_audit_log_entity_created").on(table.entityType, table.createdAt)]);
 
 export const invoicePaymentAllocations = pgTable("invoice_payment_allocations", {
   id: serial("id").primaryKey(),
