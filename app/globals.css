@@ -1991,7 +1991,7 @@ body {
 .employee-hr-fields label { display: grid; gap: .4rem; min-width: 0; font-size: .8rem; font-weight: 600; }
 .employee-hr-fields :is(input,select) { width: 100%; min-width: 0; min-height: 42px; background: #fff; color: #0f172a; border: 1px solid var(--input); border-radius: .4rem; padding: .5rem; }
 .employee-hr-fields :is(input,select):focus-visible { outline: 2px solid #059669; outline-offset: 2px; }
-.employee-hr-details { display: grid; gap: .3rem; margin-top: .75rem; font-size: .72rem; min-width: 160px; }
+.employee-hr-details { display: grid; gap: .3rem; margin-top: .75rem; font-size: .72rem; min-width: 124px; }
 .employee-hr-details > div { display: flex; flex-wrap: wrap; gap: .4rem; }
 .employee-hr-details dt { color: #64748b; font-weight: 500; }
 .employee-hr-details dd { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
