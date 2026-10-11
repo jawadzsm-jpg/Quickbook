@@ -1184,3 +1184,15 @@ test("item list shows each category as a pill in its Inventory Overview colour",
   assert.match(itemTable, /fetch\("\/api\/spec-options"\)[\s\S]*setSavedCategoryColors\(data\.categoryColors\)/);
   assert.match(itemTable, /categoryColor\(r\.category, savedCategoryColors\)\.row/);
 });
+
+test("Excel export colours each Category cell with its Inventory Overview colour", () => {
+  for (const color of categoryPalette) {
+    assert.match(color.fill, /^#[0-9A-F]{6}$/);
+    assert.match(color.ink, /^#[0-9A-F]{6}$/);
+  }
+  assert.equal(categoryPalette.find((color) => color.id === "sky").fill, "#E0F2FE");
+  const ui = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
+  assert.match(ui, /\{ value: record\.category, style: `Category-\$\{categoryColor\(record\.category, categoryColors\)\.id\}` \}/);
+  assert.match(ui, /<Style ss:ID="Category-\$\{color\.id\}"><Interior ss:Color="\$\{color\.fill\}" ss:Pattern="Solid"\/><Font ss:Bold="1" ss:Color="\$\{color\.ink\}"\/><\/Style>/);
+  assert.match(ui, /\$\{categoryStyles\}<\/Styles>/);
+});
