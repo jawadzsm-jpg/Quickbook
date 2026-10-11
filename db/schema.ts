@@ -282,7 +282,7 @@ export const items = pgTable("items", {
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 }, (table) => [uniqueIndex("idx_items_location_item_number").on(table.companyId, table.locationId, table.itemNumber), uniqueIndex("idx_items_location_sku").on(table.companyId, table.locationId, table.sku), index("idx_items_company_location_name").on(table.companyId, table.locationId, table.name)]);
 
-// Integration API keys (Admin Controls → API & Integrations): one company, read-only scopes. Only a SHA-256 digest of the
+// Integration API keys (Admin Controls → API & Integrations): one company, read-only scopes. Only a scrypt digest of the
 // key is stored; the key itself is shown once when created.
 export const apiKeys = pgTable("api_keys", {
   id: serial("id").primaryKey(),

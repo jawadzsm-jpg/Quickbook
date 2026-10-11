@@ -128,7 +128,7 @@ Non-posting documents such as quotations, estimates, proforma invoices, sales or
 
 ### Integration API keys
 
-- External websites use read-only company API keys (`/api/v1`, see API.md), not sessions. Keys are 32 random bytes; only a SHA-256 digest is stored, the key is shown once, and revocation is immediate.
+- External websites use read-only company API keys (`/api/v1`, see API.md), not sessions. Keys are 32 random bytes; only a deterministic, low-cost scrypt digest is stored, the key is shown once, and revocation is immediate.
 - Requests are rate limited per key through `auth_rate_limits`; responses never include cost, purchase or supplier data.
 - `items.updated_at` is maintained by a database trigger so API syncs see every change regardless of which route wrote it.
 

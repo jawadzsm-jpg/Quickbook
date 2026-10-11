@@ -1,12 +1,13 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes, scryptSync } from "node:crypto";
 
 // Integration API credentials ("API keys" on screen) are random bearer tokens: "ebk_live_<32 random bytes, base64url>".
-// Like session and password-reset tokens (lib/auth.ts), they carry 256 bits of entropy, so a single SHA-256 digest is the
-// right way to store them — a slow password hash would only delay every API request. The first characters are kept
-// separately so administrators can recognise a token in the list.
+// Only a digest is stored. It uses scrypt, a password-hashing function, with a low cost: the tokens carry 256 bits of
+// entropy, so a high work factor adds nothing but delay to every request. The fixed salt keeps the digest deterministic
+// so a token can be looked up directly. The first characters are kept separately so administrators can recognise it.
 export const API_TOKEN_PREFIX = "ebk_live_";
 
-export const apiTokenDigest = (token: string) => createHash("sha256").update(token).digest("hex");
+const DIGEST_SALT = "easybook-integration-api-token-v1";
+export const apiTokenDigest = (token: string) => scryptSync(token, DIGEST_SALT, 32, { N: 4096, r: 8, p: 1 }).toString("hex");
 
 export function generateApiToken() {
   const token = `${API_TOKEN_PREFIX}${randomBytes(32).toString("base64url")}`;
