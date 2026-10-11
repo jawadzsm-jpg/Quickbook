@@ -1,5 +1,6 @@
 import { bankForCurrency, type CompanyBankFields } from "@/lib/bank-accounts";
 import type { DocumentData, DocumentLine } from "@/lib/layout/document-data";
+import { contactAddressLines } from "@/lib/contact-address";
 
 
 export type CompanyBranding = {
@@ -37,10 +38,9 @@ export function transactionDocumentData(record: RecordData, lines: RecordData[],
   const total = number(record.total);
   const paid = number(record.paidAmount ?? record.amountPaid);
   const billingName = text(contact?.billingName || contact?.company || record.party);
-  const contactCity = [contact?.city, contact?.country].map(text).filter(Boolean).join(", ");
   return {
     company: companyDocumentData(setup, text(record.currency)),
-    billTo: [billingName, text(contact?.address || contact?.addressLine1), contactCity, contact?.trn ? `TRN ${text(contact.trn)}` : ""].filter(Boolean),
+    billTo: [billingName, ...contactAddressLines({ addressLine1: contact?.addressLine1 || contact?.address, addressLine2: contact?.addressLine2 }, false), [...contactAddressLines({ city: contact?.city, region: contact?.region, postalCode: contact?.postalCode }, false), text(contact?.country)].filter(Boolean).join(", "), contact?.trn ? `TRN ${text(contact.trn)}` : ""].filter(Boolean),
     shipTo: text(record.deliveryAddress || contact?.shippingAddress).split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
     details: {
       number: text(record.number), date: text(record.transactionDate), dueDate: text(record.dueDate), terms: text(record.terms || contact?.paymentTerms),
