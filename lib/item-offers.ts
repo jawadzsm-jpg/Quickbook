@@ -28,6 +28,9 @@ export function offerState(offer: { startsAt: string; endsAt: string }, now = Da
   return offerTime(offer.startsAt) <= now ? "active" as const : "scheduled" as const;
 }
 
+/** When an offer ends, in UAE time (e.g. "11 Oct, 07:44 PM"), for shares and exports. */
+export const offerEndsText = (endsAt: string) => new Intl.DateTimeFormat("en-AE", { timeZone: "Asia/Dubai", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(offerTime(endsAt));
+
 const shareAmount = (value: number) => value.toLocaleString("en-AE", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
 /** Share-text pieces for an item on a running offer: the struck-through normal price, the offer price, and when the offer ends (UAE time). */
@@ -35,8 +38,7 @@ export function offerShareText(input: { channel: "whatsapp" | "telegram" | "emai
   const normal = `${input.currency} ${shareAmount(input.normalPrice)}`;
   const offer = `${input.currency} ${shareAmount(input.offerPrice)}`;
   const bold = (value: string) => input.channel === "whatsapp" ? `*${value}*` : input.channel === "telegram" ? `**${value}**` : value;
-  const ends = new Intl.DateTimeFormat("en-AE", { timeZone: "Asia/Dubai", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(offerTime(input.endsAt));
-  const offerLine = `${bold("TODAY OFFER")} until ${ends}`;
+  const offerLine = `${bold("TODAY OFFER")} until ${offerEndsText(input.endsAt)}`;
   // Email is plain text: "AED 1,599 (was AED 1,800, VAT excluded)". Chats strike the normal price through.
   const vat = input.vatLabel.trim().replace(/^\((.*)\)$/, "$1");
   const price = input.channel === "email"

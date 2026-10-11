@@ -17,7 +17,7 @@ import { inventoryItemCondition, inventoryItemLine, partNumberInLine, inventoryS
 import { matchesSearch } from "@/lib/search";
 import { CopyOnHover } from "./copy-on-hover";
 import { TodayOffersPanel, runningOffers, type TodayOffer } from "./today-offers";
-import { offerShareText } from "@/lib/item-offers";
+import { offerEndsText, offerShareText } from "@/lib/item-offers";
 import { categoryColor } from "@/lib/category-colors";
 import { CategoryColorPicker } from "./category-color-picker";
 
@@ -505,6 +505,11 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     const headers = ["Company", "Inventory", "Category", "Item No.", "SKU", "Item", "Specifications", "Screen Details"];
     if (showQuantity) headers.push("Quantity");
     if (showPrice) headers.push(`${withVat ? "Price including 5% VAT" : "Export price excluding VAT"}${adjustLabel ? ` (${adjustLabel.trim()})` : ""}`, "Currency");
+    // Running Today Offers: two extra columns, added only when an exported product has one.
+    const offerByItem = new Map(runningOffers(offers).map((offer) => [offer.itemId, offer]));
+    const offerFor = (record: ConsolidatedItem) => record.recordIds.map((id) => offerByItem.get(id)).find(Boolean);
+    const offerColumns = showPrice && selectedRecords.some((record) => offerFor(record));
+    if (offerColumns) headers.push(`Today offer price${withVat ? " including 5% VAT" : ""}`, "Offer ends (UAE time)");
     const headerRow = headers.map((header) => `<Cell ss:StyleID="Header"><Data ss:Type="String">${xml(header)}</Data></Cell>`).join("");
     const bodyRows = selectedRecords.map((record) => {
       const values: Array<{ value: unknown; type?: "Number"; style?: string }> = [
@@ -513,6 +518,10 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
       ];
       if (showQuantity) values.push({ value: Number(record.quantity), type: "Number", style: "Number" });
       if (showPrice) values.push({ value: priceFor(record, withVat), type: "Number", style: "Money" }, { value: record.currency });
+      if (offerColumns) {
+        const offer = offerFor(record);
+        values.push(offer ? { value: priceFor({ salesPrice: offer.offerPrice }, withVat), type: "Number", style: "Money" } : { value: "" }, { value: offer ? offerEndsText(offer.endsAt) : "" });
+      }
       return `<Row>${values.map((entry) => `<Cell${entry.style ? ` ss:StyleID="${entry.style}"` : ""}><Data ss:Type="${entry.type ?? "String"}">${xml(entry.value)}</Data></Cell>`).join("")}</Row>`;
     }).join("");
     const workbook = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Styles><Style ss:ID="Default"><Alignment ss:Vertical="Top"/><Font ss:FontName="Arial" ss:Size="10"/></Style><Style ss:ID="Header"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#0F172A" ss:Pattern="Solid"/></Style><Style ss:ID="Number"><NumberFormat ss:Format="#,##0.##"/></Style><Style ss:ID="Money"><NumberFormat ss:Format="#,##0.00"/></Style></Styles><Worksheet ss:Name="Stock List"><Table><Column ss:Width="120"/><Column ss:Width="110"/><Column ss:Width="90"/><Column ss:Width="75"/><Column ss:Width="90"/><Column ss:Width="190"/><Column ss:Width="420"/><Column ss:Width="160"/><Row>${headerRow}</Row>${bodyRows}</Table></Worksheet></Workbook>`;

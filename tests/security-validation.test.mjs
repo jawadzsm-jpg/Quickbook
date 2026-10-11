@@ -25,7 +25,7 @@ const { companyEInvoiceIssues, customerEInvoiceStatus, invoiceEInvoiceStatus, is
 const { calculatorResult } = await sourceModule("../lib/calculator.ts");
 const { contactAddressLines } = await sourceModule("../lib/contact-address.ts");
 const { autoCategoryColor, categoryColor, categoryColorKey, categoryPalette, isCategoryColor } = await sourceModule("../lib/category-colors.ts");
-const { OFFER_MAX_DAYS, canManageOffers, offerShareText, offerState, offerTime, validateOffer } = await sourceModule("../lib/item-offers.ts");
+const { OFFER_MAX_DAYS, canManageOffers, offerEndsText, offerShareText, offerState, offerTime, validateOffer } = await sourceModule("../lib/item-offers.ts");
 
 test("header calculator provides safe everyday arithmetic", () => {
   assert.equal(calculatorResult(0.1, 0.2, "+"), 0.3);
@@ -1133,4 +1133,12 @@ test("category colours: fixed light/dark palette, automatic colour per name, sav
   assert.match(specs, /A renamed category keeps its colour/);
   assert.match(overview, /categoryColor\(category, categoryColors\)\.row/);
   assert.match(overview, /canManageCategories \? <span[^>]*><CategoryColorPicker compact/);
+});
+
+test("Excel export adds Today offer price and Offer ends columns only when an exported product has a running offer", () => {
+  assert.match(offerEndsText("2026-10-11 19:44:00+04"), /^11 Oct, 07:44 pm$/i);
+  const ui = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
+  assert.match(ui, /const offerColumns = showPrice && selectedRecords\.some\(\(record\) => offerFor\(record\)\)/);
+  assert.match(ui, /headers\.push\(`Today offer price\$\{withVat \? " including 5% VAT" : ""\}`, "Offer ends \(UAE time\)"\)/);
+  assert.match(ui, /priceFor\(\{ salesPrice: offer\.offerPrice \}, withVat\)/);
 });
