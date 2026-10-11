@@ -2233,7 +2233,7 @@ function DocumentDialog({ deliveryRole, inventorySerials, autoEditInvoiceId = nu
   if (!detail) return null;
   const record = detail.record;
   const brandedName = setup.name || companyName;
-  if (record.type === "customer payment") return <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}><DialogContent style={{ width: "calc(100vw - 1rem)", maxWidth: "1180px" }} className="max-h-[94dvh] overflow-x-hidden overflow-y-auto px-3 sm:px-6"><DialogTitle className="sr-only">Customer Payment {String(record.number)}</DialogTitle><DialogDescription className="sr-only">A4 customer payment receipt for {String(record.party)}</DialogDescription><CustomerPaymentReceipt record={record} lines={detail.lines} company={{ ...setup, name: brandedName }} canEditAttachments={canConvert} /></DialogContent></Dialog>;
+  if (record.type === "customer payment") return <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}><DialogContent style={{ width: "calc(100vw - 1rem)", maxWidth: "1180px" }} className="max-h-[94dvh] overflow-x-hidden overflow-y-auto px-3 sm:px-6"><DialogTitle className="sr-only">Customer Payment {String(record.number)}</DialogTitle><DialogDescription className="sr-only">A4 customer payment receipt for {String(record.party)}</DialogDescription><CustomerPaymentReceipt record={record} lines={detail.lines} company={{ ...setup, name: brandedName }} contact={detail.partyContact} canEditAttachments={canConvert} /></DialogContent></Dialog>;
   const contact = detail.partyContact;
   const purchaseOrder = record.type === "purchase order";
   const savedTemplateMode = record.type === "credit memo" ? creditPresentation : salesDocumentModeForTransaction(String(record.type));
