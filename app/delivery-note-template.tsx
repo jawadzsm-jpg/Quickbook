@@ -5,6 +5,7 @@ import type { CSSProperties } from "react";
 import { LetterheadBrand, LetterheadFooter, LetterheadStamp } from "./letterhead-page";
 import { defaultLetterhead, type LetterheadTemplate } from "@/lib/letterhead";
 import type { DocumentStamp } from "@/lib/layout/document-data";
+import { contactAddressLines } from "@/lib/contact-address";
 import { PAGE_STAMP_SIZE, PageStamps, type MovePageStamp } from "./page-stamps";
 
 // Same fixed design width as the invoice template, so freely placed stamps map millimetres identically.
@@ -63,8 +64,8 @@ export function DeliveryNoteTemplate({
   const pageStampPx = DELIVERY_NOTE_WIDTH_PX / pageStampArea.width;
   const pageStampsMinHeight = pageStamps?.length ? Math.max(...pageStamps.map((stamp) => Math.min(stamp.top, pageStampArea.height - PAGE_STAMP_SIZE[stamp.kind].height) + PAGE_STAMP_SIZE[stamp.kind].height)) * pageStampPx + 28 : undefined;
   const customerName = String(contact?.billingName || contact?.company || record.party || "Customer");
-  const customerCountry = String(contact?.country || "");
-  const deliveryAddress = String(record.deliveryAddress || contact?.shippingAddress || contact?.country || "—");
+  const customerAddress = contactAddressLines(contact);
+  const deliveryAddress = String(record.deliveryAddress || contact?.shippingAddress || customerAddress.join("\n") || "—");
   const salesRep = String(record.salesman || "—");
   const totalQty = lines.reduce((sum, line) => sum + qty(line.quantity), 0);
   const address = [setup.addressLine1, setup.addressLine2, setup.city, setup.country].filter(Boolean).join(", ");
@@ -129,7 +130,7 @@ export function DeliveryNoteTemplate({
       <div className="dn-contact">
         <h3>Customer: العميل</h3>
         <p>{customerName}</p>
-        {customerCountry ? <p>{customerCountry}</p> : null}
+        {customerAddress.map((line) => <p key={line}>{line}</p>)}
       </div>
       <div className="dn-contact">
         <h3>Delivery Address: عنوان التسليم</h3>

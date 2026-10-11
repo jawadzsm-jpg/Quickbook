@@ -23,6 +23,7 @@ const { isInvoiceItemSelectable } = await sourceModule("../lib/invoice-item-filt
 const { applyInlineFormat, applyLineFormat, inlineFormatsFor } = await sourceModule("../lib/share-format.ts");
 const { companyEInvoiceIssues, customerEInvoiceStatus, invoiceEInvoiceStatus, isUaeTrn } = await sourceModule("../lib/einvoice-readiness.ts");
 const { calculatorResult } = await sourceModule("../lib/calculator.ts");
+const { contactAddressLines } = await sourceModule("../lib/contact-address.ts");
 
 test("header calculator provides safe everyday arithmetic", () => {
   assert.equal(calculatorResult(0.1, 0.2, "+"), 0.3);
@@ -1017,4 +1018,15 @@ test("forgot password sends single-use, expiring, hashed reset links without rev
   assert.match(route, /lockedUntil: null[\s\S]*delete\(authSessions\)\.where\(eq\(authSessions\.userId, user\.id\)\)/);
   assert.match(login, /Forgot password\?/);
   assert.match(login, /searchParams\.get\("reset"\)[\s\S]*searchParams\.delete\("reset"\)/);
+});
+
+test("invoices print the customer's postal address under Bill To", () => {
+  assert.deepEqual(contactAddressLines({ addressLine1: " Office 12, Bay Tower ", addressLine2: "", city: "Dubai", region: "Dubai", postalCode: "", country: "United Arab Emirates" }), ["Office 12, Bay Tower", "Dubai", "United Arab Emirates"]);
+  assert.deepEqual(contactAddressLines({ addressLine1: "1 Main St", addressLine2: "Suite 4", city: "Austin", region: "TX", postalCode: "78701", country: "United States" }, false), ["1 Main St", "Suite 4", "Austin, TX 78701"]);
+  assert.deepEqual(contactAddressLines(null), []);
+  const invoice = readFileSync(new URL("../app/custom-invoice-template.tsx", import.meta.url), "utf8");
+  const deliveryNote = readFileSync(new URL("../app/delivery-note-template.tsx", import.meta.url), "utf8");
+  assert.match(invoice, /billTo:\[contact\?\.billingName\|\|contact\?\.company\|\|record\.party,\.\.\.contactAddressLines\(contact\)\]/);
+  assert.match(invoice, /\.ci-meta p\{white-space:pre-line\}/);
+  assert.match(deliveryNote, /customerAddress\.map/);
 });
