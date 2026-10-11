@@ -24,6 +24,8 @@ export function SmtpSettings({ onStatus }: { onStatus?: (configured: boolean) =>
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [sendingTest, setSendingTest] = useState(false);
+  const [testRecipient, setTestRecipient] = useState("");
   const [dirty, setDirty] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -34,6 +36,7 @@ export function SmtpSettings({ onStatus }: { onStatus?: (configured: boolean) =>
       if (!response.ok) throw new Error(data.error || "Could not load email server settings");
       if (!active) return;
       setForm({ ...initialSmtp, ...data.settings, port: String(data.settings.port), password: "" });
+      setTestRecipient(String(data.testRecipient ?? ""));
       onStatus?.(Boolean(data.settings.passwordConfigured));
     }).catch((error) => { if (active) toast.error(error instanceof Error ? error.message : "Could not load email server settings"); })
       .finally(() => { if (active) setLoading(false); });
@@ -54,6 +57,18 @@ export function SmtpSettings({ onStatus }: { onStatus?: (configured: boolean) =>
       toast.success("Email server settings saved securely");
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save email server settings"); }
     finally { setSaving(false); }
+  }
+
+  // Send test email: a real message to the signed-in All-Admin, so sending limits and sender rules show up.
+  async function sendTest() {
+    setSendingTest(true);
+    try {
+      const response = await fetch("/api/email-settings/test-email", { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "The test email could not be sent");
+      toast.success(`Test email sent to ${data.to} — check that inbox (and spam)`);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "The test email could not be sent", { duration: 15_000 }); }
+    finally { setSendingTest(false); }
   }
 
   async function testConnection() {
@@ -80,7 +95,7 @@ export function SmtpSettings({ onStatus }: { onStatus?: (configured: boolean) =>
         <div className="space-y-2 xl:col-span-2"><Label htmlFor="smtp-from-name">Sender name</Label><Input id="smtp-from-name" value={form.fromName} onChange={(event) => update({ fromName: event.target.value })} required /></div>
         <div className="space-y-2 xl:col-span-2"><Label htmlFor="smtp-from-email">Sender email</Label><Input id="smtp-from-email" type="email" value={form.fromEmail} onChange={(event) => update({ fromEmail: event.target.value })} required /></div>
       </fieldset>
-      <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-muted-foreground">{dirty ? "Unsaved changes — save before testing." : "Test connection checks the saved settings."}</p><div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={loading || testing || dirty || !form.passwordConfigured} onClick={() => void testConnection()}><Mail className="size-4" />{testing ? "Testing…" : "Test connection"}</Button><Button type="submit" disabled={loading || saving}><Send className="size-4" />{saving ? "Saving…" : "Save email settings"}</Button></div></div>
+      <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-muted-foreground">{dirty ? "Unsaved changes — save before testing." : `Test connection checks the saved login; Send test email sends a real email${testRecipient ? ` to ${testRecipient}` : " to you"}.`}</p><div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={loading || testing || dirty || !form.passwordConfigured} onClick={() => void testConnection()}><Mail className="size-4" />{testing ? "Testing…" : "Test connection"}</Button><Button type="button" variant="outline" disabled={loading || sendingTest || dirty || !form.passwordConfigured} onClick={() => void sendTest()}><Send className="size-4" />{sendingTest ? "Sending…" : "Send test email"}</Button><Button type="submit" disabled={loading || saving}><Send className="size-4" />{saving ? "Saving…" : "Save email settings"}</Button></div></div>
       <p className="text-xs leading-5 text-muted-foreground">For Gmail, enable two-step verification and use a Google app password—not your normal Gmail password. For turboSMTP, use your turboSMTP account email (or API consumer key) as the username and its password (or consumer secret); the sender email must be a verified sender in turboSMTP. The saved secret is encrypted and never shown again.</p>
     </form>
   </section>;

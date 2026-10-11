@@ -1165,3 +1165,15 @@ test("email failures are explained in plain language and the login email can be 
   assert.match(ui, /fetch\("\/api\/admin-users\/resend-invitation", \{ method: "POST"[\s\S]*password: createdCredentials\.password/);
   assert.match(ui, /createdCredentials\?\.emailWarning \? <div role="alert"[\s\S]*Send email again/);
 });
+
+test("Send test email sends a real message only to the signed-in All-Admin", () => {
+  const route = readFileSync(new URL("../app/api/email-settings/test-email/route.ts", import.meta.url), "utf8");
+  const ui = readFileSync(new URL("../app/smtp-settings.tsx", import.meta.url), "utf8");
+  assert.match(route, /requireApiUser\(request, true, true\)/);
+  assert.match(route, /user\.role !== "all_admin"/);
+  assert.match(route, /await sendTestEmail\(user\.email\)/);
+  assert.doesNotMatch(route, /request\.json\(\)/);
+  assert.match(route, /friendlyEmailError\(error, "The test email could not be sent\."\)/);
+  assert.match(ui, /fetch\("\/api\/email-settings\/test-email", \{ method: "POST" \}\)/);
+  assert.match(ui, /Send test email/);
+});

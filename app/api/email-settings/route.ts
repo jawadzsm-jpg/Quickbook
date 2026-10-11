@@ -15,7 +15,7 @@ export async function GET(request: Request) {
   const administrator = await requireAllAdmin(request);
   if (administrator instanceof Response) return administrator;
   const settings = await getEmailSettings();
-  return Response.json({ settings: settings ? {
+  return Response.json({ testRecipient: administrator.email, settings: settings ? {
     host: settings.host, port: settings.port, secure: settings.secure, username: settings.username,
     fromName: settings.fromName, fromEmail: settings.fromEmail, passwordConfigured: Boolean(settings.passwordEncrypted),
   } : { host: "smtp.gmail.com", port: 465, secure: true, username: "", fromName: "ComNet Accounting", fromEmail: "", passwordConfigured: false } }, { headers: { "Cache-Control": "no-store" } });

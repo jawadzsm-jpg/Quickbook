@@ -99,3 +99,15 @@ export async function sendPasswordReset(input: { to: string; name: string; reset
     html: `<div style="font-family:Arial,sans-serif;max-width:560px;color:#0f172a"><h2>Reset your password</h2><p>Hello ${escapeHtml(input.name)},</p><p>We received a request to reset the password for <strong>${escapeHtml(input.to)}</strong>.</p><p><a href="${escapeHtml(input.resetUrl)}" style="display:inline-block;background:#2563eb;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none">Choose a new password</a></p><p style="color:#475569;font-size:13px">The link is valid for ${input.expiresInMinutes} minutes and works once. If you did not ask for this, ignore this email; your password stays the same.</p></div>`,
   });
 }
+
+/** A real message through the saved settings, so sending limits and sender rules show up (a login check alone does not). */
+export async function sendTestEmail(to: string) {
+  const { client, settings } = await transporter();
+  await client.sendMail({
+    from: { name: settings.fromName, address: settings.fromEmail },
+    to,
+    subject: "ComNet Accounting test email",
+    text: `This is a test email from ComNet Accounting.\n\nIf you received it, the email server can send login, password-reset and invitation emails.\nServer: ${settings.host}:${settings.port}\nSender: ${settings.fromName} <${settings.fromEmail}>`,
+    html: `<div style="font-family:Arial,sans-serif;max-width:560px;color:#0f172a"><h2>Test email</h2><p>This is a test email from ComNet Accounting.</p><p>If you received it, the email server can send login, password-reset and invitation emails.</p><p style="color:#475569;font-size:13px">Server: ${escapeHtml(settings.host)}:${settings.port}<br>Sender: ${escapeHtml(settings.fromName)} &lt;${escapeHtml(settings.fromEmail)}&gt;</p></div>`,
+  });
+}
