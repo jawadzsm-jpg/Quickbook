@@ -1,0 +1,131 @@
+# Data model
+
+Every PostgreSQL table, what it stores, and how tables relate. The typed schema is [`db/schema.ts`](../db/schema.ts); SQL migrations in [`drizzle/`](../drizzle/) (`0000`–`0106`) are applied in filename order by `scripts/migrate.mjs` (production) or `scripts/dev-local.mjs` (PGlite), which record each applied file in `__comnet_migrations`. Use this document instead of re-reading the schema; update it whenever a migration adds or changes a table.
+
+## Conventions
+
+- **Company scope.** Almost every business table has `company_id` (FK → `companies`, `ON DELETE CASCADE`). API routes always filter by a company the user may access; `all_admin` can access every company.
+- **Inventory scope.** Items, transactions, journals and several reports also carry `location_id` (FK → `inventory_locations`).
+- **Money.** `double precision` amounts rounded to 2 decimals in code. Foreign-currency documents store `currency`, `exchange_rate` and a home-currency `base_total`; journal lines keep `original_debit/credit` and home-currency `debit/credit`.
+- **Timestamps.** `timestamp with time zone`, read as strings (e.g. `2026-10-11 13:44:28+04`); the UI and API normalise them before parsing (Safari does not accept that format).
+- **Secrets.** Never stored in plain text: passwords and the negative-stock PIN use scrypt; session, password-reset tokens use SHA-256; API keys use a deterministic low-cost scrypt digest; the SMTP password is AES-256-GCM encrypted.
+- **Audit.** Sensitive changes write a row to `audit_log` (`entity_type`, `entity_id`, JSON `details`).
+- **Backups.** `lib/backup-snapshot.ts` lists every table included in company backups; a test fails if a new table has no include/exclude decision.
+
+## Entity overview
+
+```mermaid
+erDiagram
+  companies ||--o{ inventory_locations : has
+  companies ||--o{ contacts : has
+  companies ||--o{ items : has
+  companies ||--o{ accounts : has
+  companies ||--o{ transactions : has
+  inventory_locations ||--o{ items : stocks
+  transactions ||--o{ transaction_lines : contains
+  transactions ||--o{ journal_entries : posts
+  journal_entries ||--o{ journal_lines : contains
+  items ||--o{ inventory_movements : moves
+  transactions ||--o{ inventory_movements : causes
+  items ||--o{ stock_holds : reserved_by
+  items ||--o{ item_offers : offered_by
+  app_users ||--o{ auth_sessions : signs_in
+  app_users }o--o{ companies : app_user_companies
+  companies ||--o{ api_keys : integrates_with
+```
+
+## Identity, security and settings
+
+| Table | Purpose | Key columns |
+| --- | --- | --- |
+| `app_users` | Users and their sign-in state | `email` (unique), `password_hash` (scrypt), `role` (`all_admin`, `admin`, `accountant`, `sales`, `purchasing`, `inventory`, `customization`, `viewer`), `active`, `must_change_password`, `failed_login_attempts`, `locked_until`, last-login IP/agent, appearance, share-emoji styles |
+| `app_user_companies` *(migration only)* | Which companies a non-All-Admin user may access | `user_id`, `company_id` |
+| `auth_sessions` | Sign-in sessions (12 h) | `token_hash` (SHA-256), `expires_at`, `last_seen_at`, `ip_address` |
+| `password_reset_tokens` | Forgot-password links (30 min, one use) | `token_hash`, `expires_at`, `used_at` |
+| `auth_rate_limits` *(migration only)* | Shared rate-limit buckets (login, API keys) | `bucket`, `attempts`, `reset_at` |
+| `api_keys` | Integration API keys, one company, read-only | `key_prefix`, `key_hash`, `scopes`, `last_used_at`, `revoked_at` |
+| `email_settings` | The single SMTP server for all companies | host, port, `secure`, username, `password_encrypted`, sender name/email |
+| `company_settings` | Per-company admin settings | `negative_stock_pin_hash`, `share_emojis` |
+| `idempotency_requests` *(migration only)* | Replay protection for retried document saves | `user_id`, `request_key`, `request_hash`, `company_id`, stored `response_body`/`response_status` |
+| `audit_log` | Change history | `action`, `entity_type`, `entity_id`, `details` |
+
+## Companies and configuration
+
+| Table | Purpose | Key columns |
+| --- | --- | --- |
+| `companies` | Legal entity and its branding | name, `base_currency`, address, TRN, logos, login branding, document design/template/colour/layout, letterhead, stamps and positions, bank accounts, UAE e-invoicing setup (`einvoice_enabled`, Peppol ID, ASP, go-live), `active` |
+| `inventory_locations` | Warehouses/inventories of a company | `code`, `name`, invoice prefix and number format/padding, `next_invoice_number`, `active` |
+| `vat_codes` | VAT codes per company | `code`, `rate`, `system`, `active` |
+| `exchange_rates` | Currency rates to the home currency | `currency_code`, `rate` |
+| `specification_options` | Shared choice lists: item categories, specification names and values | `label` (or `__item_categories__`, `__specification_detail_names__`), `value`, `active` |
+| `category_colors` | Inventory Overview colour per category (shared) | `category` (unique, upper-case), `color` (palette id) |
+| `item_logistics_options` | HS code and country-of-origin choices | `type`, `value`, `label`, `hidden` |
+| `memorised_reports` | Saved report views per user | `report_key`, filters, period, customer, statement date |
+
+## Contacts and items
+
+| Table | Purpose | Key columns |
+| --- | --- | --- |
+| `contacts` | Customers, vendors and employees | `type`, `name`, company/billing name, phone/WhatsApp, country, TRN, postal address (`address_line_1/2`, `city`, `region`, `postal_code`), currency, `ledger_account_id`, `balance`, vendor bank details, employee salary/loan/vacation fields, `parent_contact_id`, `sales_owner_id`, `status` |
+| `items` | Products per inventory | `sku`, `item_number`, name, `category`, description, `specifications` (JSON), customization details, part/serial/UPC, HS code, origin, dimensions/weight, `quantity`, `reorder_point`, `sales_price`, `cost`, `last_purchase_price`, VAT codes, GL accounts, `status`, `updated_at` (set by the `trg_items_updated_at` trigger on every update) |
+| `stock_holds` | Stock reserved for a sales rep until expiry | `item_id`, `quantity`, `sales_rep`, `expires_at`, `released_at` |
+| `item_offers` | Today Offer: special price between start and end | `item_id`, `offer_price`, `starts_at`, `ends_at`, `ended_at` |
+| `sku_work_locks` | Short-lived editor locks per SKU and inventory | `lock_key`, `user_id`, `token`, `expires_at` |
+| `cargos` | Shared cargo/freight agent list | name, phones, email, modes, destinations |
+
+## Transactions and accounting
+
+| Table | Purpose | Key columns |
+| --- | --- | --- |
+| `transactions` | Every document: sales, purchases, payments, cheques, expenses, journal-linked documents | `type`, `number`, `party`, `salesman`, dates, `status`, totals, VAT, `currency`/`exchange_rate`/`base_total`, links (`sales_source_id`, `purchase_order_id`, `bill_id`, `invoice_id`, `source_transaction_id`, `converted_invoice_id`), delivery, void and cheque-print fields |
+| `transaction_lines` | Document lines | `item_id`, description, `serial_number`, `quantity`, `unit_price`, `unit_cost`, freight flag, VAT code/rate, totals |
+| `record_attachments` *(migration only)* | Files attached to documents and records | `company_id`, `entity_type`, `entity_id`, `file_name`, `mime_type`, `file_data`, `file_size` |
+| `invoice_payment_allocations` | Customer payment ↔ invoice amounts | `payment_id`, `invoice_id`, `amount` |
+| `bill_payment_allocations` | Bill payment ↔ bill amounts | `payment_id`, `bill_id`, `amount` |
+| `sales_invoice_allocations` | Order/quotation line quantities invoiced | `invoice_id`, `source_line_id`, `quantity` |
+| `purchase_receipt_allocations` | Purchase-order line quantities received | `receipt_id`, `order_line_id`, `quantity` |
+| `accounts` | Chart of accounts | `code`, `name`, `type`, `system_role` (AR, AP, BANK, INVENTORY, VAT…), `currency`, `parent_account_id`, `balance` |
+| `journal_entries` | Posted journals (manual or from documents) | `transaction_id`, `entry_date`, `reference`, currency/rate, `posted` |
+| `journal_lines` | Debit/credit lines | `account_id`, `account_name`, original and home-currency debit/credit |
+| `inventory_movements` | Stock in/out per item and document | `item_id`, `transaction_id`, `movement_type`, `quantity`, `unit_cost` |
+| `stock_transfers` | Transfers between inventories/companies | source and destination company/location, SKU, quantity, date |
+
+## VAT, tax and HR
+
+| Table | Purpose |
+| --- | --- |
+| `vat_adjustments` | Manual VAT adjustments per period (`direction`, `amount`, `reason`) |
+| `vat_returns` | Filed VAT returns (output, input, adjustments, net due, `filed_at`) |
+| `rcm_declarations` | Reverse-charge mechanism declarations (licences, signatory, stamp) |
+| `income_tax_working_papers` | Corporate income tax working papers per period (`config` JSON, `revision`, `filed_at`) |
+| `staff_salary_sheets` | Monthly salary sheets (`data` JSON, letterhead, `revision`) |
+
+## Documents and operations
+
+| Table | Purpose |
+| --- | --- |
+| `packing_lists`, `packing_list_lines` | Packing lists for invoices: cartons, weights, CBM, HS codes |
+| `warranty_slips` | Warranty/RMA slips from customer to supplier and back, with status and stamp |
+| `inventory_check_reports`, `inventory_check_lines` | Stock counts: system vs counted quantity and remarks |
+
+## Backups
+
+| Table | Purpose |
+| --- | --- |
+| `backup_schedules` | Per-company schedule (`config`, `next_run_at`, lease) |
+| `company_backups` | Backup runs: status, Blob path, SHA-256, size, rows, verification, expiry |
+| `backup_worker_status` | Last scheduler heartbeat |
+
+Excluded from company backups: `app_users`, `app_user_companies`, `auth_sessions`, `password_reset_tokens`, `api_keys`, `email_settings`, `auth_rate_limits`, `idempotency_requests`, `sku_work_locks`, `backup_schedules`, `company_backups`, `backup_worker_status`. See [Company backups](BACKUPS.md).
+
+## Database objects beyond tables
+
+- **Trigger** `trg_items_updated_at` (function `set_items_updated_at`, migration 0106): sets `items.updated_at = now()` before every update, so the Integration API's `updated_since` sees changes from every code path.
+- **Unique indexes** worth knowing: `app_users.email`, `auth_sessions.token_hash`, `password_reset_tokens.token_hash`, `api_keys.key_hash`, `category_colors.category`, `specification_options (label, value)`, items `(company, location, item_number)` and `(company, location, sku)`.
+
+## Changing the model
+
+1. Edit `db/schema.ts`.
+2. Add a hand-reviewed SQL file `drizzle/NNNN_description.sql` (next number; idempotent `IF NOT EXISTS`; statements separated by `--> statement-breakpoint`).
+3. Decide backup inclusion in `lib/backup-snapshot.ts` (or the excluded list in `tests/backups.test.mjs`); a new table needs an `id` column for backup paging.
+4. Update this document, and `API.md` / `FEATURES.md` if behaviour changes.

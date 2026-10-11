@@ -83,6 +83,8 @@ Modules under `lib/` should remain deterministic where possible. Database reads 
 
 ### Data domains
 
+Every table with its key columns, relationships, triggers and backup inclusion is listed in [DATA-MODEL.md](DATA-MODEL.md).
+
 The current Drizzle schema contains 32 tables.
 
 | Domain | Tables |
