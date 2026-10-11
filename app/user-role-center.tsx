@@ -226,7 +226,7 @@ export function UserRoleCenter({ onSummary }: { onSummary?: (summary: UserSummar
     if (!createdCredentials || resending) return;
     setResending(true);
     try {
-      const response = await fetch("/api/admin-users", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: createdCredentials.userId, resendInvitation: true, password: createdCredentials.password }) });
+      const response = await fetch("/api/admin-users/resend-invitation", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: createdCredentials.userId, password: createdCredentials.password }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not send the email.");
       setCreatedCredentials((current) => current ? { ...current, emailWarning: data.emailWarning || "" } : current);

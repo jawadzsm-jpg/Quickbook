@@ -1153,12 +1153,15 @@ test("email failures are explained in plain language and the login email can be 
   assert.equal(friendlyEmailError(new Error("Complete the SMTP settings first.")), "Complete the SMTP settings first.");
   assert.equal(friendlyEmailError(null, "The email could not be sent."), "The email could not be sent.");
   const route = readFileSync(new URL("../app/api/admin-users/route.ts", import.meta.url), "utf8");
+  const resend = readFileSync(new URL("../app/api/admin-users/resend-invitation/route.ts", import.meta.url), "utf8");
   const ui = readFileSync(new URL("../app/user-role-center.tsx", import.meta.url), "utf8");
-  // Resend only with the unchanged temporary password, within the administrator's scope, and without updating the user.
-  assert.match(route, /if \(payload\.resendInvitation === true\) \{\s*if \(isCompanyAdmin\(administrator\) && !canManage\(administrator, targetRole, await companyIdsForUser\(id\)\)\) return outOfScope\(\);/);
-  assert.match(route, /!target\.active \|\| !target\.mustChangePassword \|\| !password \|\| !verifyPassword\(password, target\.passwordHash\)/);
-  assert.ok(route.indexOf("payload.resendInvitation === true") < route.indexOf("const updates: Partial<typeof appUsers.$inferInsert>"));
-  assert.equal((route.match(/friendlyEmailError\(error/g) ?? []).length, 3);
-  assert.match(ui, /resendInvitation: true, password: createdCredentials\.password/);
+  // Resend has its own endpoint: same-origin user manager, administrator scope, only the unchanged temporary password, no update.
+  assert.match(resend, /requireUserManager\(request, true\)/);
+  assert.match(resend, /if \(isCompanyAdmin\(administrator\) && !canManage\(administrator, targetRole, await companyIdsForUser\(id\)\)\) return outOfScope\(\);/);
+  assert.match(resend, /!target\.active \|\| !target\.mustChangePassword \|\| !verifyPassword\(password, target\.passwordHash\)/);
+  assert.doesNotMatch(resend, /\.update\(|\.insert\(|\.delete\(/);
+  assert.doesNotMatch(route, /resendInvitation/);
+  assert.equal((route.match(/friendlyEmailError\(error/g) ?? []).length, 2);
+  assert.match(ui, /fetch\("\/api\/admin-users\/resend-invitation", \{ method: "POST"[\s\S]*password: createdCredentials\.password/);
   assert.match(ui, /createdCredentials\?\.emailWarning \? <div role="alert"[\s\S]*Send email again/);
 });

@@ -2,30 +2,19 @@ import { isValidEmail } from "@/lib/email-validation";
 import { and, asc, count, eq, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { appUsers, authSessions, companies } from "@/db/schema";
-import { appRoles, hashPassword, requireApiUser, verifyPassword, type AppRole, type SessionUser } from "@/lib/auth";
+import { appRoles, hashPassword, type AppRole, type SessionUser } from "@/lib/auth";
+import { canManage, companyIdsForUser, isCompanyAdmin, outOfScope, requireUserManager, roleNames } from "@/lib/user-management";
 import { sendUserInvitation } from "@/lib/smtp";
 import { friendlyEmailError } from "@/lib/email-errors";
 
 const validRole = (value: string): value is AppRole => appRoles.includes(value as AppRole);
-const roleNames: Record<AppRole, string> = { all_admin: "All-Admin", admin: "Administrator", accountant: "Accountant", sales: "Sales", purchasing: "Purchasing", inventory: "Inventory Manager", customization: "Product Customization", viewer: "Viewer" };
 const validAvatar = (value: string) => !value || (/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(value) && value.length <= 1_100_000);
-
-async function companyIdsForUser(userId: number) {
-  const result = await getDb().execute(sql`SELECT company_id FROM app_user_companies WHERE user_id = ${userId} ORDER BY company_id`);
-  return result.rows.map((row) => Number(row.company_id));
-}
 
 async function activeAllAdminCount() {
   const result = await getDb().execute(sql`SELECT COUNT(*)::int AS value FROM app_users WHERE role = 'all_admin' AND active = true`);
   return Number(result.rows[0]?.value ?? 0);
 }
 
-// A company Administrator manages only operational users (not Administrators or All-Admins) whose every company is one
-// of their own; an All-Admin manages everyone.
-const elevatedRoles: AppRole[] = ["all_admin", "admin"];
-const isCompanyAdmin = (manager: SessionUser) => manager.role !== "all_admin";
-const withinCompanies = (manager: SessionUser, companyIds: number[]) => companyIds.length > 0 && companyIds.every((id) => manager.companyIds.includes(id));
-const canManage = (manager: SessionUser, role: AppRole, companyIds: number[]) => !isCompanyAdmin(manager) || (!elevatedRoles.includes(role) && withinCompanies(manager, companyIds));
 
 async function publicUser(user: typeof appUsers.$inferSelect, manager: SessionUser) {
   const userRole = user.role as AppRole;
@@ -56,13 +45,7 @@ async function replaceCompanies(userId: number, companyIds: number[]) {
   for (const companyId of companyIds) await db.execute(sql`INSERT INTO app_user_companies (user_id, company_id) VALUES (${userId}, ${companyId}) ON CONFLICT DO NOTHING`);
 }
 
-// All-Admins manage every user. Company Administrators manage operational users of their own companies only (see
-// `canManage`). If no active All-Admin remains, `scripts/bootstrap-admin.mjs` restores one.
-async function requireUserManager(request: Request, mutating = false) {
-  return requireApiUser(request, true, mutating);
-}
 
-const outOfScope = () => Response.json({ error: "Company Administrators can only manage non-administrator users of their own companies." }, { status: 403 });
 
 export async function GET(request: Request) {
   const administrator = await requireUserManager(request);
@@ -128,17 +111,6 @@ export async function PATCH(request: Request) {
   const [target] = await getDb().select().from(appUsers).where(eq(appUsers.id, id)).limit(1);
   if (!target) return Response.json({ error: "User not found." }, { status: 404 });
   const targetRole = target.role as AppRole;
-  // Send email again: re-send the login email with the temporary password just shown to the administrator. Only while it
-  // is still this user's unchanged temporary password; nothing about the user changes.
-  if (payload.resendInvitation === true) {
-    if (isCompanyAdmin(administrator) && !canManage(administrator, targetRole, await companyIdsForUser(id))) return outOfScope();
-    const password = String(payload.password ?? "");
-    if (!target.active || !target.mustChangePassword || !password || !verifyPassword(password, target.passwordHash)) return Response.json({ error: "This temporary password is no longer valid. Reset the password to send new login details." }, { status: 409 });
-    try {
-      await sendUserInvitation({ to: target.email, name: target.fullName || target.email, temporaryPassword: password, roleLabel: roleNames[targetRole], loginUrl: process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin });
-      return Response.json({ emailSent: true, emailWarning: "" });
-    } catch (error) { return Response.json({ emailSent: false, emailWarning: friendlyEmailError(error) }); }
-  }
   const updates: Partial<typeof appUsers.$inferInsert> = { updatedAt: new Date().toISOString() };
   const nextRole = payload.role === undefined ? targetRole : String(payload.role) as AppRole;
   if (!validRole(nextRole)) return Response.json({ error: "Select a valid role." }, { status: 400 });
