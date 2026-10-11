@@ -1027,7 +1027,7 @@ test("invoices print the customer's postal address under Bill To", () => {
   const invoice = readFileSync(new URL("../app/custom-invoice-template.tsx", import.meta.url), "utf8");
   const deliveryNote = readFileSync(new URL("../app/delivery-note-template.tsx", import.meta.url), "utf8");
   assert.match(invoice, /billTo:\[contact\?\.billingName\|\|contact\?\.company\|\|record\.party,\.\.\.contactAddressLines\(contact\),String\(contact\?\.trn\?\?''\)\.trim\(\)\?`TRN \$\{/);
-  assert.match(deliveryNote, /customerTrn \? <p>TRN \{customerTrn\}<\/p>/);
+  assert.match(deliveryNote, /customerTrn \? <p className="dn-customer-trn"><strong>Customer TRN \/ الرقم الضريبي للعميل:<\/strong> \{customerTrn\}<\/p>/);
   assert.match(invoice, /\.ci-meta p\{white-space:pre-line\}/);
   assert.match(deliveryNote, /customerAddress\.map/);
 });
