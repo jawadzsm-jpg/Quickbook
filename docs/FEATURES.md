@@ -83,7 +83,7 @@
 
 - Company VAT codes, names, rates, active status, and dropdown usage detail.
 - UAE VAT reporting for output, input, adjustments, exceptions, unassigned entries, reverse charge, item summaries, and code lists.
-- VAT adjustments and return/filing records by period.
+- VAT adjustments and return/filing records by period. On phones, VAT Management shows the tax period start and end side by side with Refresh below, and the four VAT box cards (Box 12, Box 13, adjustments, net VAT) two-up.
 - UAE VAT reports remain company-wide because filing belongs to the VAT-registered company.
 - Transaction currencies and per-company exchange rates.
 - Automatic creation/use of currency-specific accounts receivable and accounts payable control accounts.
