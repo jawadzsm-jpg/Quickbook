@@ -34,12 +34,16 @@ const shareAmount = (value: number) => value.toLocaleString("en-AE", { minimumFr
 export function offerShareText(input: { channel: "whatsapp" | "telegram" | "email"; currency: string; normalPrice: number; offerPrice: number; endsAt: string; vatLabel: string; mark?: string }) {
   const normal = `${input.currency} ${shareAmount(input.normalPrice)}`;
   const offer = `${input.currency} ${shareAmount(input.offerPrice)}`;
-  const struck = input.channel === "whatsapp" ? `~${normal}~` : input.channel === "telegram" ? `~~${normal}~~` : `was ${normal}`;
   const bold = (value: string) => input.channel === "whatsapp" ? `*${value}*` : input.channel === "telegram" ? `**${value}**` : value;
   const ends = new Intl.DateTimeFormat("en-AE", { timeZone: "Asia/Dubai", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(offerTime(input.endsAt));
   const offerLine = `${bold("TODAY OFFER")} until ${ends}`;
+  // Email is plain text: "AED 1,599 (was AED 1,800, VAT excluded)". Chats strike the normal price through.
+  const vat = input.vatLabel.trim().replace(/^\((.*)\)$/, "$1");
+  const price = input.channel === "email"
+    ? `${offer} (was ${normal}${vat ? `, ${vat}` : ""})`
+    : `${input.channel === "whatsapp" ? `~${normal}~` : `~~${normal}~~`} ${bold(offer)}${input.vatLabel}`;
   return {
-    price: `${struck} ${bold(offer)}${input.vatLabel}`,
+    price,
     offerLine: input.mark ? `${input.mark} ${offerLine}` : offerLine,
   };
 }

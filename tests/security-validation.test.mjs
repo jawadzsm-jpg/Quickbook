@@ -1083,7 +1083,8 @@ test("WhatsApp, Telegram and email shares show a running Today Offer", () => {
   const telegram = offerShareText({ ...base, channel: "telegram" });
   assert.equal(telegram.price, "~~AED 1,800~~ **AED 1,599** (VAT excluded)");
   assert.match(telegram.offerLine, /^\*\*TODAY OFFER\*\* until 11 Oct, 07:44 pm$/i);
-  assert.equal(offerShareText({ ...base, channel: "email" }).price, "was AED 1,800 AED 1,599 (VAT excluded)");
+  assert.equal(offerShareText({ ...base, channel: "email" }).price, "AED 1,599 (was AED 1,800, VAT excluded)");
+  assert.equal(offerShareText({ ...base, channel: "email", vatLabel: "" }).price, "AED 1,599 (was AED 1,800)");
   const ui = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
   assert.match(ui, /const offerByItem = new Map\(runningOffers\(offers\)\.map/);
   assert.match(ui, /if \(offerText\) lines\.push\(offerText\.offerLine\)/);
