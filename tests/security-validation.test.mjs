@@ -1142,3 +1142,10 @@ test("Excel export adds Today offer price and Offer ends columns only when an ex
   assert.match(ui, /headers\.push\(`Today offer price\$\{withVat \? " including 5% VAT" : ""\}`, "Offer ends \(UAE time\)"\)/);
   assert.match(ui, /priceFor\(\{ salesPrice: offer\.offerPrice \}, withVat\)/);
 });
+
+test("item list shows each category as a pill in its Inventory Overview colour", () => {
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const itemTable = app.slice(app.indexOf("function ItemTable("), app.indexOf("function ItemTable(") + 6000);
+  assert.match(itemTable, /fetch\("\/api\/spec-options"\)[\s\S]*setSavedCategoryColors\(data\.categoryColors\)/);
+  assert.match(itemTable, /categoryColor\(r\.category, savedCategoryColors\)\.row/);
+});
