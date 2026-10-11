@@ -105,7 +105,7 @@ flowchart TD
 | Screens | `app/*.tsx`, `app/layout-builder/` | Focused features: Inventory Overview, documents and templates, reports, admin, VAT, HR |
 | API | `app/api/**/route.ts` (56 routes) | JSON endpoints; every handler checks identity, permission, company scope and same-origin for writes |
 | Domain | `lib/*.ts`, `lib/layout/` | Business rules, posting, VAT, reports, exports, permissions, email, backups, Integration API |
-| Data | `db/schema.ts`, `db/index.ts`, `drizzle/*.sql` | Drizzle schema, serializable write transactions, 107 SQL migrations |
+| Data | `db/schema.ts`, `db/index.ts`, `drizzle/*.sql` | Drizzle schema, serializable write transactions, 108 SQL migrations |
 
 **Request lifecycle (internal API)**
 1. The browser sends a JSON request with the `comnet_session` cookie (HttpOnly, Secure, SameSite=Strict, 12 h).
@@ -333,7 +333,7 @@ It applies migrations, creates a local global administrator on first run, stores
 
 ## Database changes
 
-`db/schema.ts` is the typed schema; hand-reviewed SQL migrations live in `drizzle/` (`0000`–`0106`) and are applied in filename order. The shared migration runner records completed files in `__comnet_migrations`. Every table, its purpose and the change checklist are in [docs/DATA-MODEL.md](docs/DATA-MODEL.md).
+`db/schema.ts` is the typed schema; hand-reviewed SQL migrations live in `drizzle/` (`0000`–`0107`) and are applied in filename order. The shared migration runner records completed files in `__comnet_migrations`. Every table, its purpose and the change checklist are in [docs/DATA-MODEL.md](docs/DATA-MODEL.md).
 
 ## Quality and deployment
 

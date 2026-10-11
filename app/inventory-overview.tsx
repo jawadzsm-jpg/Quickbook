@@ -77,6 +77,7 @@ const brandOf = (record: { name: string; description?: string; specifications?: 
   return (String(record.name).trim().split(/\s+/)[0] || "").toUpperCase();
 };
 const receivedWithin = (record: { latestReceivedAt: string | null }, days: number, now: number) => Boolean(record.latestReceivedAt) && now - new Date(String(record.latestReceivedAt).replace(" ", "T").replace(/([+-]\d{2})$/, "$1:00")).getTime() <= days * 86_400_000;
+const OVERVIEW_PAGE_ROWS = 150;
 type ShareChannel = "whatsapp" | "telegram" | "email";
 type ActivityView = "incoming" | "launched" | "priceChanges" | "sold";
 type ActivityRecord = {
@@ -376,6 +377,31 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     return [...grouped.entries()];
   }, [filtered]);
 
+  // Draw the table progressively: large catalogues rendered every row at once and made the overview slow to open.
+  // The limit resets whenever the filtered list changes; search, selection, copy and Excel still use the full list.
+  const [rowWindow, setRowWindow] = useState<{ source: ConsolidatedItem[]; limit: number }>({ source: [], limit: OVERVIEW_PAGE_ROWS });
+  const rowLimit = rowWindow.source === filtered ? rowWindow.limit : OVERVIEW_PAGE_ROWS;
+  const showMoreRows = useCallback(() => setRowWindow({ source: filtered, limit: rowLimit + OVERVIEW_PAGE_ROWS }), [filtered, rowLimit]);
+  const visibleCategories = useMemo(() => {
+    let remaining = rowLimit;
+    const visible: Array<[string, ConsolidatedItem[], number]> = [];
+    for (const [category, items] of categories) {
+      if (remaining <= 0) break;
+      visible.push([category, items.slice(0, remaining), items.length]);
+      remaining -= items.length;
+    }
+    return visible;
+  }, [categories, rowLimit]);
+  const hiddenRows = Math.max(0, filtered.length - rowLimit);
+  const moreRowsRef = useRef<HTMLTableRowElement>(null);
+  useEffect(() => {
+    const row = moreRowsRef.current;
+    if (!row || !hiddenRows || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => { if (entries.some((entry) => entry.isIntersecting)) showMoreRows(); }, { rootMargin: "600px 0px" });
+    observer.observe(row);
+    return () => observer.disconnect();
+  }, [hiddenRows, showMoreRows]);
+
   const selectedRecords = useMemo(() => canSelectItems ? consolidatedRecords.filter((record) => selectedIds.has(record.id)) : [], [canSelectItems, consolidatedRecords, selectedIds]);
   const visibleActivity = activityView === "offers" ? [] : activity[activityView];
 
@@ -658,8 +684,8 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
         <Table className="w-full table-fixed">
           <TableHeader><TableRow className="bg-muted/40 hover:bg-muted/40"><TableHead className="w-12"><Checkbox disabled={!canBulkSelect || loading || !filtered.length} aria-label="Select all visible items" checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false} onCheckedChange={(checked) => toggleAllVisible(checked === true)} /></TableHead><TableHead className="min-w-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Product</TableHead>{showQuantity && <TableHead responsiveColumn="quantity" className="text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Qty</TableHead>}{showPrice && <TableHead responsiveColumn="price" className="text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Price{adjustLabel}</TableHead>}</TableRow></TableHeader>
           <TableBody>
-            {loading ? <TableRow><TableCell colSpan={columnCount} className="h-40 text-center text-muted-foreground"><RefreshCw className="mx-auto mb-2 size-5 animate-spin" />Loading all inventories…</TableCell></TableRow> : categories.length === 0 ? <TableRow><TableCell colSpan={columnCount} className="h-40 text-center text-muted-foreground"><PackageX className="mx-auto mb-2 size-6 opacity-60" />No products match this view.</TableCell></TableRow> : categories.flatMap(([category, items]) => [
-              <TableRow key={`category-${category}`} className="hover:bg-transparent"><TableCell colSpan={columnCount} className={`border-l-4 py-2 text-xs font-bold uppercase tracking-wide ${categoryColor(category, categoryColors).row} ${categoryColor(category, categoryColors).text}`}><span className="flex items-center gap-2"><span className={`inline-block size-2.5 rounded-full ${categoryColor(category, categoryColors).dot}`} />{category}<span className="font-medium normal-case tracking-normal opacity-75">{items.length} {items.length === 1 ? "item" : "items"}</span>{canManageCategories ? <span className="ml-auto normal-case tracking-normal"><CategoryColorPicker compact category={category} saved={categoryColors} onSaved={setCategoryColors} /></span> : null}</span></TableCell></TableRow>,
+            {loading ? <TableRow><TableCell colSpan={columnCount} className="h-40 text-center text-muted-foreground"><RefreshCw className="mx-auto mb-2 size-5 animate-spin" />Loading all inventories…</TableCell></TableRow> : categories.length === 0 ? <TableRow><TableCell colSpan={columnCount} className="h-40 text-center text-muted-foreground"><PackageX className="mx-auto mb-2 size-6 opacity-60" />No products match this view.</TableCell></TableRow> : visibleCategories.flatMap(([category, items, total]) => [
+              <TableRow key={`category-${category}`} className="hover:bg-transparent"><TableCell colSpan={columnCount} className={`border-l-4 py-2 text-xs font-bold uppercase tracking-wide ${categoryColor(category, categoryColors).row} ${categoryColor(category, categoryColors).text}`}><span className="flex items-center gap-2"><span className={`inline-block size-2.5 rounded-full ${categoryColor(category, categoryColors).dot}`} />{category}<span className="font-medium normal-case tracking-normal opacity-75">{total} {total === 1 ? "item" : "items"}</span>{canManageCategories ? <span className="ml-auto normal-case tracking-normal"><CategoryColorPicker compact category={category} saved={categoryColors} onSaved={setCategoryColors} /></span> : null}</span></TableCell></TableRow>,
               ...items.map((record) => {
                 const out = Number(record.quantity) <= 0;
                 const low = Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint);
@@ -694,6 +720,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
                 </TableRow>;
               }),
             ])}
+            {!loading && hiddenRows > 0 ? <TableRow ref={moreRowsRef} className="hover:bg-transparent"><TableCell colSpan={columnCount} className="py-3 text-center"><Button type="button" variant="outline" size="sm" onClick={showMoreRows}>Show more <span className="text-muted-foreground">({hiddenRows.toLocaleString()} more)</span></Button></TableCell></TableRow> : null}
           </TableBody>
         </Table>
       </div>

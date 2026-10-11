@@ -1247,3 +1247,23 @@ test("share bar: brand icons, No VAT / Inc VAT / 0% VAT, one Excel menu, kept on
   assert.match(ui, /@container flex flex-nowrap items-center gap-2 overflow-x-auto/);
   assert.doesNotMatch(ui, /Excel no VAT|Excel \+ VAT<|Including VAT|Hide quantity/);
 });
+
+test("performance: balances summed in SQL, one grouped receipt query, indexed price changes, progressive tables", () => {
+  const records = readFileSync(new URL("../app/api/records/route.ts", import.meta.url), "utf8");
+  const overviewApi = readFileSync(new URL("../app/api/inventory-overview/route.ts", import.meta.url), "utf8");
+  const overview = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  const migration = readFileSync(new URL("../drizzle/0107_performance_indexes.sql", import.meta.url), "utf8");
+  // Account balances: grouped per account name and entry currency, not one row per journal line.
+  assert.match(records, /\.groupBy\(journalLines\.accountName, sql`upper\(coalesce\(\$\{journalEntries\.currency\}, ''\)\)`\)/);
+  assert.match(records, /entryCurrency === accountCurrency \? Number\(line\.nativeDebit\)/);
+  // Inventory Overview: latest receipt per item from one GROUP BY, not a per-item subquery.
+  assert.match(overviewApi, /GROUP BY movement\.item_id/);
+  assert.doesNotMatch(overviewApi, /WHERE movement\.item_id = \$\{items\.id\}/);
+  assert.match(migration, /CREATE INDEX IF NOT EXISTS "idx_audit_log_entity_created" ON "audit_log" \("entity_type", "created_at"\)/);
+  // Large tables draw 150 rows at a time and load more on scroll or "Show more".
+  assert.match(overview, /const OVERVIEW_PAGE_ROWS = 150;/);
+  assert.match(overview, /visibleCategories\.flatMap\(\(\[category, items, total\]\)/);
+  assert.match(overview, /new IntersectionObserver/);
+  assert.match(app, /shownRecords\.map\(\(r\) =>/);
+});

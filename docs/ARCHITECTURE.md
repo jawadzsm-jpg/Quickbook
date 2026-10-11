@@ -162,6 +162,14 @@ Employee/HR reports require Administrator access. SMTP settings (`/api/email-set
 - Stored SMTP passwords are encrypted; `SMTP_ENCRYPTION_KEY` is the preferred secret.
 - Attachments validate entity type, company access, edit permission, file metadata, and configured size constraints.
 
+## Performance rules
+
+- Aggregate in SQL, not in JavaScript: account balances are summed per account name and entry currency in the database (`/api/records?kind=accounts`), and Inventory Overview reads the latest receipt per item with one `GROUP BY`. Avoid loading every journal line, movement or audit row into a route handler.
+- Avoid per-row correlated subqueries over large tables; prefer one grouped query run in parallel with the others (`Promise.all`).
+- Index time-window reads on growing tables (e.g. `audit_log (entity_type, created_at)`).
+- Large client tables render progressively: Inventory Overview and the Items list draw 150 rows, then load more as the user scrolls or presses **Show more**; filtering, selection, copy and export still use the full list.
+- Measured on 4,000 items / 30,000 documents / 90,000 journal lines (local PGlite): accounts list 300 → 59 ms, Inventory Overview API 230 → 160 ms; production gains are larger because fewer rows cross the network from Neon.
+
 ## Concurrency and consistency
 
 Inventory writes use `lib/sku-locks.ts`:

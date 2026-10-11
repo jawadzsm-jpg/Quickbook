@@ -504,7 +504,18 @@ export async function GET(request: Request) {
         db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(asc(accounts.code)),
         db.select({ baseCurrency: companies.baseCurrency }).from(companies).where(eq(companies.id, companyId)).limit(1),
         db.select({ currencyCode: exchangeRates.currencyCode, rate: exchangeRates.rate }).from(exchangeRates).where(and(eq(exchangeRates.companyId, companyId), eq(exchangeRates.active, true))),
-        db.select({ name: journalLines.accountName, entryCurrency: journalEntries.currency, exchangeRate: journalEntries.exchangeRate, debit: journalLines.debit, credit: journalLines.credit, originalDebit: journalLines.originalDebit, originalCredit: journalLines.originalCredit }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(journalFilter),
+        // Totals per account name and entry currency are summed in the database: loading every journal line made this list
+        // slower with each posting. "native" sums use the saved original amount, else the home amount at the entry's rate
+        // (a missing or zero rate counts as 1), matching the per-line rules below.
+        db.select({
+          name: journalLines.accountName,
+          entryCurrency: sql<string>`upper(coalesce(${journalEntries.currency}, ''))`,
+          debit: sql<number>`coalesce(sum(${journalLines.debit}), 0)`,
+          credit: sql<number>`coalesce(sum(${journalLines.credit}), 0)`,
+          nativeDebit: sql<number>`coalesce(sum(coalesce(${journalLines.originalDebit}, CASE WHEN coalesce(nullif(${journalEntries.exchangeRate}, 0), 1) > 0 THEN ${journalLines.debit} / coalesce(nullif(${journalEntries.exchangeRate}, 0), 1) ELSE ${journalLines.debit} END)), 0)`,
+          nativeCredit: sql<number>`coalesce(sum(coalesce(${journalLines.originalCredit}, CASE WHEN coalesce(nullif(${journalEntries.exchangeRate}, 0), 1) > 0 THEN ${journalLines.credit} / coalesce(nullif(${journalEntries.exchangeRate}, 0), 1) ELSE ${journalLines.credit} END)), 0)`,
+        }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(journalFilter)
+          .groupBy(journalLines.accountName, sql`upper(coalesce(${journalEntries.currency}, ''))`),
       ]);
       const duplicateNames = new Set(accountRows.filter((account, index, rows) => rows.some((other, otherIndex) => otherIndex !== index && other.name === account.name)).map((account) => account.name));
       const creditNormal = new Set(["Income", "Other Income", "Loan", "Credit Card", "Equity", "Accounts Payable", "Other Current Liability", "Long Term Liability"]);
@@ -515,16 +526,15 @@ export async function GET(request: Request) {
         const matched = balanceLines.filter((line) => {
           if (line.name !== account.name) return false;
           if (!duplicateNames.has(account.name)) return true;
-          return String(line.entryCurrency || baseCurrency).toUpperCase() === accountCurrency;
+          return (line.entryCurrency || baseCurrency) === accountCurrency;
         });
         const activity = matched.reduce((total, line) => {
-          const entryCurrency = String(line.entryCurrency || baseCurrency).toUpperCase();
-          const rate = Number(line.exchangeRate || 1);
+          const entryCurrency = line.entryCurrency || baseCurrency;
           // A posting in another currency (e.g. an AED journal to a USD bank) has no native amount saved; convert its
           // home amount at the account currency's current rate instead of dropping it from the native balance.
           const accountRate = rateMap.get(accountCurrency) ?? 0;
-          const nativeDebit = accountCurrency === baseCurrency ? Number(line.debit) : entryCurrency === accountCurrency ? Number(line.originalDebit ?? (rate > 0 ? Number(line.debit) / rate : line.debit)) : accountRate > 0 ? Number(line.debit) / accountRate : 0;
-          const nativeCredit = accountCurrency === baseCurrency ? Number(line.credit) : entryCurrency === accountCurrency ? Number(line.originalCredit ?? (rate > 0 ? Number(line.credit) / rate : line.credit)) : accountRate > 0 ? Number(line.credit) / accountRate : 0;
+          const nativeDebit = accountCurrency === baseCurrency ? Number(line.debit) : entryCurrency === accountCurrency ? Number(line.nativeDebit) : accountRate > 0 ? Number(line.debit) / accountRate : 0;
+          const nativeCredit = accountCurrency === baseCurrency ? Number(line.credit) : entryCurrency === accountCurrency ? Number(line.nativeCredit) : accountRate > 0 ? Number(line.credit) / accountRate : 0;
           return { debit: total.debit + nativeDebit, credit: total.credit + nativeCredit, baseDebit: total.baseDebit + Number(line.debit), baseCredit: total.baseCredit + Number(line.credit) };
         }, { debit: 0, credit: 0, baseDebit: 0, baseCredit: 0 });
         const movement = creditNormal.has(account.type) ? activity.credit - activity.debit : activity.debit - activity.credit;

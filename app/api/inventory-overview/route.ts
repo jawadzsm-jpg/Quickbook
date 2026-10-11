@@ -36,15 +36,6 @@ export async function GET(request: Request) {
       itemSerialNumber: items.itemSerialNumber,
       upcNumber: items.upcNumber,
       customizationDetails: items.customizationDetails,
-      latestReceivedAt: sql<string | null>`COALESCE((
-        SELECT MAX(receipt.created_at)
-        FROM inventory_movements movement
-        JOIN transactions receipt ON receipt.id = movement.transaction_id
-        WHERE movement.item_id = ${items.id}
-          AND movement.quantity > 0
-          AND movement.movement_type <> 'invoice void'
-          AND lower(receipt.status) NOT IN ('cancelled', 'canceled', 'void', 'voided')
-      ), ${items.createdAt})`,
       companyId: companies.id,
       companyName: companies.name,
       currency: companies.baseCurrency,
@@ -64,8 +55,22 @@ export async function GET(request: Request) {
         ? sql`AND activity_company.id IN (${sql.join(authorization.companyIds.map((id) => sql`${id}`), sql`, `)})`
         : sql`AND false`;
 
-    const [records, incomingResult, launchedResult, priceResult, soldResult] = await Promise.all([
+    // Latest stock receipt per item, in one grouped query (a per-item subquery made the overview slower with every
+    // product). Items never received fall back to their creation date below.
+    const receivedPromise = db.execute(sql`
+      SELECT movement.item_id AS "itemId", MAX(receipt.created_at) AS "receivedAt"
+      FROM inventory_movements movement
+      JOIN transactions receipt ON receipt.id = movement.transaction_id
+      ${authorization.role === "all_admin" ? sql`` : authorization.companyIds.length ? sql`AND receipt.company_id IN (${sql.join(authorization.companyIds.map((id) => sql`${id}`), sql`, `)})` : sql`AND false`}
+      WHERE movement.quantity > 0
+        AND movement.movement_type <> 'invoice void'
+        AND lower(receipt.status) NOT IN ('cancelled', 'canceled', 'void', 'voided')
+      GROUP BY movement.item_id
+    `);
+
+    const [rawRecords, receivedResult, incomingResult, launchedResult, priceResult, soldResult] = await Promise.all([
       recordsPromise,
+      receivedPromise,
       db.execute(sql`
         SELECT po_line.id, po_line.item_id AS "itemId", purchase_order.id AS "transactionId",
           purchase_order.transaction_date AS date, purchase_order.number AS "documentNumber",
@@ -162,6 +167,8 @@ export async function GET(request: Request) {
         LIMIT 50
       `),
     ]);
+    const receivedAt = new Map(receivedResult.rows.map((row) => [Number(row.itemId), row.receivedAt]));
+    const records = rawRecords.map((record) => ({ ...record, latestReceivedAt: (receivedAt.get(record.id) ?? record.createdAt) as string | null }));
     // Active stock holds on the listed items (who it is held for, how much, until when).
     const recordIds = records.map((record) => record.id);
     const holds = recordIds.length ? await db.select({ id: stockHolds.id, itemId: stockHolds.itemId, companyId: stockHolds.companyId, quantity: stockHolds.quantity, salesRep: stockHolds.salesRep, note: stockHolds.note, expiresAt: stockHolds.expiresAt, createdByName: stockHolds.createdByName, createdAt: stockHolds.createdAt })
