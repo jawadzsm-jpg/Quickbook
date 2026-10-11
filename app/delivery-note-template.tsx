@@ -88,6 +88,7 @@ export function DeliveryNoteTemplate({
       .delivery-note-page .dn-contact-grid{display:grid;grid-template-columns:1fr 1fr;gap:80px;margin:44px 0 46px}
       .delivery-note-page .dn-contact h3{font-size:20px;font-style:italic;text-decoration:underline;margin:0 0 8px}
       .delivery-note-page .dn-contact p{font-size:18px;margin:3px 0}
+      .delivery-note-page .dn-contact .dn-customer-trn{margin-top:8px}
       .delivery-note-page .dn-meta{display:grid;grid-template-columns:1fr 1.05fr 1fr .75fr;border:1px solid #bbb;border-radius:12px 12px 0 0;overflow:hidden}
       .delivery-note-page .dn-meta>div{padding:12px 10px;text-align:center;border-right:1px solid #bbb;min-height:74px}
       .delivery-note-page .dn-meta>div:last-child{border-right:0}
@@ -132,7 +133,7 @@ export function DeliveryNoteTemplate({
         <h3>Customer: العميل</h3>
         <p>{customerName}</p>
         {customerAddress.map((line) => <p key={line}>{line}</p>)}
-        {customerTrn ? <p>TRN {customerTrn}</p> : null}
+        {customerTrn ? <p className="dn-customer-trn"><strong>Customer TRN / الرقم الضريبي للعميل:</strong> {customerTrn}</p> : null}
       </div>
       <div className="dn-contact">
         <h3>Delivery Address: عنوان التسليم</h3>
