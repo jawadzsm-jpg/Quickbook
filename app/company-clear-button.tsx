@@ -61,7 +61,7 @@ export function CompanyClearButton({ companyId, companyName, disabled }: { compa
       setBusy(false);
     }
   };
-  return <section className="col-span-full rounded-xl border border-red-300 p-5">
+  return <section className="col-span-full rounded-xl border border-destructive/40 bg-destructive/5 p-5">
     <div className="flex flex-wrap items-center justify-between gap-4">
       <div>
         <h2 className="font-bold">Clear company</h2>
