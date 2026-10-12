@@ -1958,6 +1958,7 @@ test('company clearing can reset stock to zero while keeping items, only togethe
   const item = (await database.query("INSERT INTO items (company_id,location_id,sku,name,quantity,cost,sales_price) VALUES ($1,$2,'KEEP-SKU','Kept item',7,40,99) RETURNING id", [company, location])).rows[0].id;
   const invoice = (await database.query("INSERT INTO transactions (company_id,number,type,party,transaction_date) VALUES ($1,'RESET-1','invoice','Customer','2026-10-01') RETURNING id", [company])).rows[0].id;
   await database.query("INSERT INTO inventory_movements (item_id,transaction_id,movement_date,movement_type,quantity,reference) VALUES ($1,$2,'2026-10-01','invoice',-1,'RESET-1')", [item, invoice]);
+  await database.query("INSERT INTO stock_holds (company_id,item_id,quantity,sales_rep,expires_at) VALUES ($1,$2,2,'Rep',now()+interval '1 day')", [company, item]);
   const request = (sections) => new Request('http://localhost/api/company-setup/clear', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ companyId: company, sections, password, confirmation: 'Stock Reset Test' }) });
   try {
     globalThis.__transferTestUser = { id: userId, email: 'stock-reset@example.test', role: 'admin', companyIds: [company] };
@@ -1967,6 +1968,7 @@ test('company clearing can reset stock to zero while keeping items, only togethe
     assert.equal(response.status, 200, JSON.stringify(await response.clone().json()));
     const kept = (await database.query('SELECT sku, quantity, sales_price FROM items WHERE id=$1', [item])).rows[0];
     assert.deepEqual([kept.sku, Number(kept.quantity), Number(kept.sales_price)], ['KEEP-SKU', 0, 99]);
+    assert.equal((await database.query('SELECT id FROM stock_holds WHERE company_id=$1', [company])).rows.length, 0, 'holds on stock that no longer exists are cleared');
     assert.equal((await database.query('SELECT id FROM inventory_movements WHERE item_id=$1', [item])).rows.length, 0);
     assert.equal((await database.query('SELECT id FROM transactions WHERE company_id=$1', [company])).rows.length, 0);
     assert.equal((await database.query('SELECT active FROM inventory_locations WHERE id=$1', [location])).rows[0].active, true);
@@ -4308,4 +4310,65 @@ test("Today Offer quantity counts down with invoice and sales receipt sales afte
   // Without a quantity the offer has no limit.
   assert.equal((await post({ offerQuantity: "" })).status, 201);
   assert.deepEqual((await current()).map((row) => [row.offerQuantity, row.sold]), [[null, 2]]);
+});
+
+test("company clearing: separate customer, vendor and employee options, operations and messages, with record counts", async () => {
+  const { GET, POST } = await vite.ssrLoadModule('/app/api/company-setup/clear/route.ts');
+  const { hashPassword } = await vite.ssrLoadModule('/lib/password.ts');
+  const { toggleClearSection } = await vite.ssrLoadModule('/lib/company-clear.ts');
+  const password = 'Company-clear-options-123';
+  const userId = (await database.query("INSERT INTO app_users (email,password_hash,role) VALUES ('clear-options@example.test',$1,'admin') RETURNING id", [await hashPassword(password)])).rows[0].id;
+  const company = (await database.query("INSERT INTO companies (name) VALUES ('Clear Options') RETURNING id")).rows[0].id;
+  const location = (await database.query("INSERT INTO inventory_locations (company_id,name,code,invoice_prefix) VALUES ($1,'CO','CO','CO') RETURNING id", [company])).rows[0].id;
+  const item = (await database.query("INSERT INTO items (company_id,location_id,sku,name,quantity) VALUES ($1,$2,'CO-1','Kept',4) RETURNING id", [company, location])).rows[0].id;
+  const contact = async (type, name) => (await database.query("INSERT INTO contacts (company_id,type,name) VALUES ($1,$2,$3) RETURNING id", [company, type, name])).rows[0].id;
+  const customer = await contact('customer', 'Cust A'), vendor = await contact('vendor', 'Vend A');
+  await contact('employee', 'Emp A');
+  await contact('customer', 'Cust B');
+  await database.query("INSERT INTO warranty_slips (company_id,customer_id,supplier_id,slip_date,problem) VALUES ($1,$2,$3,'2026-10-13','Broken')", [company, customer, vendor]);
+  await database.query("INSERT INTO transactions (company_id,number,type,party,transaction_date) VALUES ($1,'CO-INV','invoice','Cust A','2026-10-13'),($1,'CO-BILL','bill','Vend A','2026-10-13'),($1,'CO-CHQ','cheque','Vend A','2026-10-13')", [company]);
+  await database.query("INSERT INTO item_offers (company_id,item_id,offer_price,starts_at,ends_at) VALUES ($1,$2,9,now(),now()+interval '1 day')", [company, item]);
+  await database.query("INSERT INTO stock_holds (company_id,item_id,quantity,sales_rep,expires_at) VALUES ($1,$2,1,'Rep',now()+interval '1 day')", [company, item]);
+  await database.query("INSERT INTO cargos (company_id,name) VALUES ($1,'Fast Cargo')", [company]);
+  await database.query("INSERT INTO rcm_declarations (company_id,declaration_date,supply_date,valid_from,valid_until,recipient_company,recipient_trn,authorized_signatory,supplier_company,supplier_trn) VALUES ($1,'2026-10-13','2026-10-13','2026-01-01','2026-12-31','R','1','S','Sup','2')", [company]);
+  await database.query("INSERT INTO email_templates (company_id,owner_user_id,name,subject,body) VALUES ($1,$2,'T','S','B')", [company, userId]);
+  await database.query("INSERT INTO document_emails (company_id,subject) VALUES ($1,'Sent')", [company]);
+  await database.query("INSERT INTO notifications (company_id,user_id,kind,title) VALUES ($1,$2,'test','N')", [company, userId]);
+  const count = async (table, where = '') => Number((await database.query(`SELECT count(*)::int AS n FROM ${table} WHERE company_id=$1 ${where}`, [company])).rows[0].n);
+  const post = (sections) => POST(new Request('http://localhost/api/company-setup/clear', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ companyId: company, sections, password, confirmation: 'Clear Options' }) }));
+  const counts = () => GET(new Request(`http://localhost/api/company-setup/clear?companyId=${company}`));
+  try {
+    globalThis.__transferTestUser = { id: userId, email: 'clear-options@example.test', role: 'all_admin', companyIds: [company] };
+    assert.equal((await counts()).status, 403, "All-Admin never sees or clears");
+    globalThis.__transferTestUser.role = 'admin';
+    const before = (await (await counts()).json()).counts;
+    const part = (section, label) => before[section].find((entry) => entry.label === label).count;
+    assert.deepEqual([part('transactions', 'Sales'), part('transactions', 'Purchases'), part('transactions', 'Banking')], [1, 1, 1]);
+    assert.deepEqual([part('customers', 'Customers'), part('customers', 'Their warranty slips'), part('vendors', 'Vendors'), part('employees', 'Employees')], [2, 1, 1, 1]);
+    assert.deepEqual([part('offers', 'Offers'), part('offers', 'Stock holds'), part('cargo', 'Cargo companies'), part('rcm', 'Declarations')], [1, 1, 1, 1]);
+    assert.deepEqual([part('email', 'Templates'), part('email', 'Sent emails'), part('notifications', 'Notifications')], [1, 1, 1]);
+
+    // Vendors only: customers, employees and the warranty slip stay (the slip loses its supplier link).
+    assert.equal((await post(['vendors'])).status, 200);
+    assert.deepEqual([await count('contacts', "AND type='vendor'"), await count('contacts', "AND type='customer'"), await count('contacts', "AND type='employee'")], [0, 2, 1]);
+    assert.equal((await database.query('SELECT supplier_id FROM warranty_slips WHERE company_id=$1', [company])).rows[0].supplier_id, null);
+    await database.query('DELETE FROM auth_rate_limits WHERE bucket=$1', [`company-clear:${userId}`]);
+    // Customers: their warranty slips go first; employees stay.
+    assert.equal((await post(['customers'])).status, 200);
+    assert.deepEqual([await count('contacts', "AND type='customer'"), await count('warranty_slips'), await count('contacts', "AND type='employee'")], [0, 0, 1]);
+    await database.query('DELETE FROM auth_rate_limits WHERE bucket=$1', [`company-clear:${userId}`]);
+    // Operations and messages; transactions and the employee untouched.
+    assert.equal((await post(['offers', 'cargo', 'rcm', 'email', 'notifications'])).status, 200);
+    for (const table of ['item_offers', 'stock_holds', 'cargos', 'rcm_declarations', 'email_templates', 'document_emails', 'notifications']) assert.equal(await count(table), 0, table);
+    assert.equal(await count('transactions'), 3);
+    assert.equal(await count('contacts', "AND type='employee'"), 1);
+    assert.equal(Number((await database.query('SELECT quantity FROM items WHERE id=$1', [item])).rows[0].quantity), 4, "items and stock are kept");
+    assert.ok((await database.query("SELECT details FROM audit_log WHERE company_id=$1 AND action='cleared' ORDER BY id DESC LIMIT 1", [company])).rows[0].details.includes('offers, cargo, rcm, email, notifications'));
+    assert.equal((await post(['nonsense'])).status, 400);
+  } finally { delete globalThis.__transferTestUser; }
+
+  // Stock needs Transactions; removing Transactions removes Stock; the order follows the dialog.
+  assert.deepEqual(toggleClearSection([], 'stock', true), ['transactions', 'stock']);
+  assert.deepEqual(toggleClearSection(['transactions', 'stock', 'cargo'], 'transactions', false), ['cargo']);
+  assert.deepEqual(toggleClearSection(['email'], 'customers', true), ['customers', 'email']);
 });

@@ -23,7 +23,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/business-final-report.tsx` — Management overview report with sectioned metrics linking to detail reports.
 - `app/cargo-list.tsx` — Shared cargo/freight agent directory: add, edit, delete, search; `/api/cargos`.
 - `app/category-color-picker.tsx` — Palette picker for an item category's colour (or Auto); `/api/category-colors`.
-- `app/company-clear-button.tsx` — Company Setup → Clear: choose data to clear, confirm with admin password; `/api/company-setup/clear`.
+- `app/company-clear-button.tsx` — Company Setup → Clear: grouped options with record counts, Select all, a summary of what will be cleared, typed company name and admin password; `/api/company-setup/clear`.
 - `app/company-document-output.tsx` — Context/hook for printing to A4 and exporting PDFs with the company's saved document design.
 - `app/contact-organization-fields.tsx` — Contact status (active/inactive) and "Sub-account of" parent fields.
 - `app/copy-on-hover.tsx` — Copy-on-hover button with a fallback when the Clipboard API is unavailable.
@@ -174,6 +174,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/cargo.ts` — Cargo/freight agent validation and transport modes.
 - `lib/category-colors-sql.ts` — Loads saved category colours. **DB**
 - `lib/category-colors.ts` — 12-colour category palette (light/dark classes, export hex), automatic colour from name, lookup.
+- `lib/company-clear.ts` — Clear company options (groups, labels, details), legacy `contacts` mapping, Stock-needs-Transactions selection rule.
 - `lib/company-backups.ts` — Company backups to private Blob storage: create, verify, download, delete, expire, scheduled runs. **DB**
 - `lib/contact-address.ts` — Customer/vendor postal address as printable lines.
 - `lib/contact-currency.ts` — Applies a contact's currency/rate and picks the matching AR/AP control account.
