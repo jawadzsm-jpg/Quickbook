@@ -3816,38 +3816,33 @@ test("inventory check reports can count one warehouse with that warehouse's quan
   assert.equal(await warehouseInUse(getDb(), store), true, "a counted warehouse cannot be removed");
 });
 
-test("stock movements report lists documents, warehouse moves and transfers, filtered by period and warehouse", async () => {
-  const company = (await database.query("INSERT INTO companies (name) VALUES ('Movement report') RETURNING id")).rows[0].id;
+test("stock transfers report lists only item transfers, filtered by period and warehouse", async () => {
+  const company = (await database.query("INSERT INTO companies (name) VALUES ('Transfer report') RETURNING id")).rows[0].id;
   const location = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'MVR', 'MVR', 'MVR') RETURNING id", [company])).rows[0].id;
   const branch = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'MVB', 'MVB', 'MVB') RETURNING id", [company])).rows[0].id;
   const laptop = (await database.query("INSERT INTO items (company_id, location_id, sku, name, quantity, cost, item_type) VALUES ($1, $2, 'MVR-1', 'Laptop', 7, 40, 'stock-part') RETURNING id", [company, location])).rows[0].id;
   await database.query("INSERT INTO items (company_id, location_id, sku, name, quantity, cost, item_type) VALUES ($1, $2, 'MVR-1', 'Laptop', 1, 40, 'stock-part')", [company, branch]);
   const mainId = (await database.query("SELECT id FROM warehouses WHERE location_id = $1 AND is_default", [location])).rows[0].id;
   const store = (await database.query("INSERT INTO warehouses (company_id, location_id, code, name) VALUES ($1, $2, 'STORE', 'Store') RETURNING id", [company, location])).rows[0].id;
-  const bill = (await database.query("INSERT INTO transactions (company_id, location_id, type, number, party, total, subtotal, transaction_date, status, warehouse_id) VALUES ($1, $2, 'bill', 'MVR-BILL', 'Supplier', 400, 400, '2026-10-01', 'open', $3) RETURNING id", [company, location, mainId])).rows[0].id;
-  await database.query("INSERT INTO inventory_movements (item_id, transaction_id, movement_date, movement_type, quantity, unit_cost, reference, warehouse_id) VALUES ($1, $2, '2026-10-01', 'bill', 10, 40, 'MVR-BILL', $3)", [laptop, bill, mainId]);
   const sale = (await database.query("INSERT INTO transactions (company_id, location_id, type, number, party, total, subtotal, transaction_date, status, warehouse_id) VALUES ($1, $2, 'invoice', 'MVR-INV', 'Customer', 200, 200, '2026-10-05', 'open', $3) RETURNING id", [company, location, store])).rows[0].id;
   await database.query("INSERT INTO inventory_movements (item_id, transaction_id, movement_date, movement_type, quantity, unit_cost, reference, warehouse_id) VALUES ($1, $2, '2026-10-05', 'invoice', -2, 40, 'MVR-INV', $3)", [laptop, sale, store]);
   await database.query("INSERT INTO warehouse_transfers (company_id, location_id, item_id, from_warehouse_id, to_warehouse_id, quantity, reference, transfer_date) VALUES ($1, $2, $3, $4, $5, 4, 'WHT-1', '2026-10-03')", [company, location, laptop, mainId, store]);
   await database.query("INSERT INTO stock_transfers (reference, source_company_id, source_location_id, destination_company_id, destination_location_id, sku, item_name, quantity, transfer_date) VALUES ('TRF-1', $1, $2, $1, $3, 'MVR-1', 'Laptop', 1, '2026-10-06')", [company, location, branch]);
   const { GET } = await vite.ssrLoadModule("/app/api/reports/route.ts");
-  const open = async (query) => (await (await GET(new Request(`https://app.test/api/reports?type=stock-movements&companyId=${company}&currency=AED${query}`))).json()).report;
+  const open = async (query) => (await (await GET(new Request(`https://app.test/api/reports?type=stock-transfers&companyId=${company}&currency=AED${query}`))).json()).report;
 
   const all = await open(`&locationId=${location}`);
-  assert.deepEqual(all.rows.map((row) => [row.date, row.status, row.warehouse, row.quantityIn, row.quantityOut]), [
-    ["2026-10-01", "Bill", "Main warehouse", 10, 0],
-    ["2026-10-03", "Warehouse move", "Main warehouse", 0, 4],
-    ["2026-10-03", "Warehouse move", "Store", 4, 0],
-    ["2026-10-05", "Invoice", "Store", 0, 2],
-    ["2026-10-06", "Transfer out", "Main warehouse", 0, 1],
-  ]);
-  assert.equal(all.rows[0].transactionId, bill, "document rows open their source");
+  assert.deepEqual(all.rows.map((row) => [row.date, row.reference, row.status, row.from, row.to, row.quantity, row.value]), [
+    ["2026-10-03", "WHT-1", "Warehouse move", "MVR · Main warehouse", "MVR · Store", 4, 160],
+    ["2026-10-06", "TRF-1", "Inventory transfer", "MVR · Main warehouse", "MVB · Main warehouse", 1, 40],
+  ], "sales and other documents are not listed");
   assert.deepEqual(all.warehouseOptions.map((option) => option.name), ["Main warehouse", "Store"]);
 
   const inStore = await open(`&locationId=${location}&warehouseId=${store}`);
-  assert.deepEqual(inStore.rows.map((row) => [row.status, row.quantityIn, row.quantityOut, row.value]), [["Warehouse move", 4, 0, 160], ["Invoice", 0, 2, -80]]);
-  const period = await open(`&locationId=${location}&periodStart=2026-10-04&periodEnd=2026-10-05`);
-  assert.deepEqual(period.rows.map((row) => row.reference), ["MVR-INV"], "rows follow the selected period");
-  const companyWide = await open("&locationId=0");
-  assert.ok(companyWide.rows.some((row) => row.status === "Transfer in" && row.inventory === "MVB"), "the receiving inventory shows the transfer in");
+  assert.deepEqual(inStore.rows.map((row) => row.reference), ["WHT-1"], "only transfers into or out of Store");
+  const period = await open(`&locationId=${location}&periodStart=2026-10-04&periodEnd=2026-10-06`);
+  assert.deepEqual(period.rows.map((row) => row.reference), ["TRF-1"], "rows follow the selected period");
+  const receiving = await open(`&locationId=${branch}`);
+  assert.deepEqual(receiving.rows.map((row) => [row.reference, row.to]), [["TRF-1", "MVB · Main warehouse"]], "the receiving inventory also lists the transfer");
 });
+
