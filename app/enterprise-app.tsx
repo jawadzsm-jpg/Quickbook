@@ -8,6 +8,7 @@ import { WorkspaceClock } from "./workspace-clock";
 import { ItemImport } from "./item-import";
 import { matchesSearch } from "@/lib/search";
 import { WorkspaceOnlineUsers } from "./workspace-online-users";
+import { WorkspaceNotifications } from "./workspace-notifications";
 import { useRecordRole, useCanDeleteRecord, InvoiceItemsEditorProvider, useInvoiceItemsEditor } from "./record-permissions";
 import { PurchaseWorkflowPanel, PurchaseRegisterSummary } from "./purchase-workflow-panel";
 import { SalesWorkflowPanel, SalesRegisterSummary } from "./sales-workflow-panel";
@@ -1363,6 +1364,7 @@ export default function EnterpriseApp({ currentUser }: { currentUser: CurrentUse
             <WorkspaceShortcuts groups={visibleNavGroups} currentView={view} onNavigate={(id)=>{const target=id as View;if(roleViews[currentUser.role].includes(target)){setSearch("");setView(target);}}} />
             <WorkspaceCalculator />
             <WorkspaceOnlineUsers />
+            <WorkspaceNotifications onOpenDocument={(id, companyId) => void openDetail(id, companyId, 0)} />
             <Popover>
               <PopoverTrigger asChild>
                 <Button type="button" variant="ghost" size="icon" aria-label="Appearance" title="Appearance"><Palette className="size-4" /></Button>

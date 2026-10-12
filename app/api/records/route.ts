@@ -1,3 +1,4 @@
+import { notifyChequeWritten } from "@/lib/notifications";
 import { companyBankAccounts } from "@/lib/bank-accounts";
 import { adjustWarehouseStock, itemWarehouseBreakdown, resolveDocumentWarehouse, warehouseDocumentTypes, warehouseQuantities, type DocumentWarehouse } from "@/lib/warehouses";
 import { formatInvoiceNumber, invoiceSeriesError } from "@/lib/invoice-series";
@@ -1459,6 +1460,9 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       await db.update(transactions).set({ status: "converted", convertedInvoiceId: record.id }).where(and(eq(transactions.id, conversionSourceId), eq(transactions.companyId, companyId)));
     }
     if (!replacing) await db.insert(auditLog).values({ companyId, action: Number.isInteger(conversionSourceId) && conversionSourceId > 0 ? "converted" : "created", entityType: "transaction", entityId: record.id, details: `${number} ${type}; ${prepared.length} line(s)${Number.isInteger(conversionSourceId) && conversionSourceId > 0 ? `; source document ${conversionSourceId}` : ""}${usedAdminNegativeStockOverride ? "; admin negative-stock override used" : ""}` });
+    // Every cheque written (and any later change to its amount, date, payee or number) notifies the company's
+    // administrators and accountants in the app and by email.
+    if (type === "cheque") await notifyChequeWritten(db, { companyId, cheque: { ...record, total: Number(record.total) }, bankName: chequeBankName, actorId: authorization.id, actorName: authorization.fullName || authorization.email, previous: replacing ? { ...replacing, total: Number(replacing.total) } : undefined });
     for (const id of linkedBillIds) await refreshBillStatus(id);
     for (const id of linkedInvoiceIds) await refreshInvoiceStatus(id);
     if (purchaseOrderId) await refreshPurchaseOrder(purchaseOrderId);

@@ -3912,3 +3912,72 @@ test("sales forms save the chosen bank account; sales users cannot change it", a
     assert.equal((await database.query("SELECT bank_account_key FROM transactions WHERE company_id = $1 AND number = 'FBK-Q2'", [companyId])).rows[0].bank_account_key, "", "sales users never pick the company bank account");
   } finally { delete globalThis.__transferTestUser; }
 });
+
+test("every cheque notifies the company's administrators and accountants, and edits notify only on real changes", async () => {
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Cheque notices') RETURNING id")).rows[0].id;
+  const other = (await database.query("INSERT INTO companies (name) VALUES ('Other notices') RETURNING id")).rows[0].id;
+  const rows = (await database.query("INSERT INTO accounts (company_id, code, name, type, system_role, currency) VALUES ($1, 'NB', 'Notice Bank', 'Bank', 'BANK', 'AED'), ($1, 'NE', 'Notice Expense', 'Expense', 'EXPENSE', 'AED') RETURNING id, name", [companyId])).rows;
+  const bankAccountId = rows.find((row) => row.name === "Notice Bank").id;
+  const user = async (name, role, company, active = true) => {
+    const id = (await database.query("INSERT INTO app_users (full_name, email, password_hash, role, active) VALUES ($1, $2, 'test', $3, $4) RETURNING id", [name, `${name}@notice.test`, role, active])).rows[0].id;
+    if (company) await database.query("INSERT INTO app_user_companies (user_id, company_id) VALUES ($1, $2)", [id, company]);
+    return id;
+  };
+  const admin = await user("NoticeAdmin", "admin", companyId), accountant = await user("NoticeAccountant", "accountant", companyId);
+  const otherAccountant = await user("OtherAccountant", "accountant", other), sales = await user("NoticeSales", "sales", companyId), retired = await user("RetiredAdmin", "admin", companyId, false);
+  const writer = await user("NoticePurchasing", "purchasing", companyId);
+  const { POST } = await vite.ssrLoadModule("/app/api/records/route.ts");
+  const body = (changes = {}) => ({ kind: "transactions", companyId, type: "cheque", chequeType: "expense", number: "CHQ-N1", party: "ABC Trading", account: "Notice Expense", bankAccountId, chequeBankKey: "emirates-nbd-business", currency: "AED", exchangeRate: 1, transactionDate: "2026-10-20", lines: [{ description: "Rent", quantity: 1, unitPrice: 25000, unitCost: 0, vatCode: "ZERO" }], ...changes });
+  const noticesFor = async (userId) => (await database.query("SELECT kind, title, body, transaction_id, email_status, read_at FROM notifications WHERE user_id = $1 AND company_id = $2 ORDER BY id", [userId, companyId])).rows;
+  try {
+    globalThis.__transferTestUser = { id: accountant, fullName: "Nadia Writer", email: "NoticeAccountant@notice.test", role: "accountant", companyIds: [companyId] };
+    const response = await POST(new Request("https://app.test/api/records", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body()) }));
+    assert.equal(response.status, 201, await response.clone().text());
+    const cheque = (await response.json()).record;
+    const [notice] = await noticesFor(admin);
+    assert.equal(notice.kind, "cheque-written");
+    assert.equal(notice.title, "Cheque CHQ-N1 written: AED 25,000.00");
+    assert.equal(notice.body, "Pay to ABC Trading · cheque date 20 Oct 2026 · from Notice Bank · by Nadia Writer");
+    assert.equal(notice.transaction_id, cheque.id);
+    assert.equal(notice.email_status, "pending", "emails go out after the response (or from the scheduler)");
+    assert.equal((await noticesFor(accountant)).length, 1);
+    for (const id of [otherAccountant, sales, retired]) assert.equal((await noticesFor(id)).length, 0, "only active admins and accountants of this company");
+  } finally { delete globalThis.__transferTestUser; }
+
+  // Edits: unchanged details send nothing; a new amount or date sends an "updated" notice.
+  const { notifyChequeWritten } = await vite.ssrLoadModule("/lib/notifications.ts");
+  const { getDb } = await vite.ssrLoadModule("/db/index.ts");
+  const chequeRow = (await database.query("SELECT id, number, party, total, currency, transaction_date AS \"transactionDate\" FROM transactions WHERE company_id = $1 AND type = 'cheque'", [companyId])).rows[0];
+  const base = { ...chequeRow, total: Number(chequeRow.total) };
+  assert.deepEqual(await notifyChequeWritten(getDb(), { companyId, cheque: base, bankName: "Notice Bank", actorId: admin, actorName: "Admin", previous: base }), []);
+  const ids = await notifyChequeWritten(getDb(), { companyId, cheque: { ...base, total: 30000 }, bankName: "Notice Bank", actorId: admin, actorName: "Admin", previous: base });
+  assert.ok(ids.length >= 2);
+  assert.equal((await noticesFor(accountant)).at(-1).title, "Cheque CHQ-N1 updated: AED 30,000.00");
+  await notifyChequeWritten(getDb(), { companyId, cheque: { ...base, transactionDate: "2026-10-27" }, bankName: "Notice Bank", actorId: writer, actorName: "Writer", previous: base });
+  assert.equal((await noticesFor(writer)).length, 1, "the writer gets a copy even without an admin or accountant role");
+
+  // The bell API: the user's own notices, mark read, and the email setting.
+  const route = await vite.ssrLoadModule("/app/api/notifications/route.ts");
+  try {
+    globalThis.__transferTestUser = { id: accountant, role: "accountant", companyIds: [companyId] };
+    const listed = await (await route.GET(new Request("https://app.test/api/notifications"))).json();
+    assert.equal(listed.notifications.length, 3); assert.equal(listed.unread, 3); assert.equal(listed.emailEnabled, true);
+    const patch = (payload) => route.PATCH(new Request("https://app.test/api/notifications", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) }));
+    assert.equal((await patch({ ids: [listed.notifications[0].id] })).status, 200);
+    assert.equal((await (await route.GET(new Request("https://app.test/api/notifications"))).json()).unread, 2);
+    assert.equal((await patch({ all: true, emailEnabled: false })).status, 200);
+    const after = await (await route.GET(new Request("https://app.test/api/notifications"))).json();
+    assert.equal(after.unread, 0); assert.equal(after.emailEnabled, false);
+    assert.equal((await patch({})).status, 400);
+    globalThis.__transferTestUser = { id: otherAccountant, role: "accountant", companyIds: [other] };
+    assert.equal((await (await route.GET(new Request("https://app.test/api/notifications"))).json()).notifications.length, 0, "no one sees another user's notices");
+  } finally { delete globalThis.__transferTestUser; }
+  assert.equal((await noticesFor(admin)).every((notice) => notice.read_at === null), true, "marking read is per user");
+  // Without SMTP settings the email copies are skipped (the in-app notices stay), and a second run sends nothing again.
+  const { deliverNotificationEmails } = await vite.ssrLoadModule("/lib/notifications.ts");
+  await database.query("DELETE FROM email_settings");
+  const delivered = await deliverNotificationEmails();
+  assert.ok(delivered.skipped >= 3); assert.equal(delivered.sent, 0);
+  assert.equal((await noticesFor(admin)).every((notice) => notice.email_status === "skipped"), true);
+  assert.deepEqual(await deliverNotificationEmails(), { sent: 0, skipped: 0, failed: 0 });
+});

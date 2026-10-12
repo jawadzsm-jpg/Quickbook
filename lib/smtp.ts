@@ -111,3 +111,15 @@ export async function sendTestEmail(to: string) {
     html: `<div style="font-family:Arial,sans-serif;max-width:560px;color:#0f172a"><h2>Test email</h2><p>This is a test email from ComNet Accounting.</p><p>If you received it, the email server can send login, password-reset and invitation emails.</p><p style="color:#475569;font-size:13px">Server: ${escapeHtml(settings.host)}:${settings.port}<br>Sender: ${escapeHtml(settings.fromName)} &lt;${escapeHtml(settings.fromEmail)}&gt;</p></div>`,
   });
 }
+
+/** One in-app notification as an email: a short title, the detail line and a link back to the app. */
+export async function sendNotificationEmail(input: { to: string; name: string; title: string; body: string; appUrl: string }) {
+  const { client, settings } = await transporter();
+  await client.sendMail({
+    from: { name: settings.fromName, address: settings.fromEmail },
+    to: input.to,
+    subject: input.title,
+    text: `Hello ${input.name},\n\n${input.title}\n${input.body}\n\nOpen ComNet Accounting: ${input.appUrl}\n\nYou receive this because you are an administrator or accountant of the company. Turn these emails off from the notifications bell in the app.`,
+    html: `<div style="font-family:Arial,sans-serif;max-width:560px;color:#0f172a"><p>Hello ${escapeHtml(input.name)},</p><div style="background:#f1f5f9;border-radius:10px;padding:16px"><p style="margin:0 0 6px;font-weight:bold">${escapeHtml(input.title)}</p><p style="margin:0">${escapeHtml(input.body)}</p></div><p><a href="${escapeHtml(input.appUrl)}">Open ComNet Accounting</a></p><p style="color:#475569;font-size:13px">You receive this because you are an administrator or accountant of the company. Turn these emails off from the notifications bell in the app.</p></div>`,
+  });
+}
