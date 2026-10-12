@@ -254,7 +254,7 @@ The three item lists include verified inventory asset-account links for stock it
 
 ## Home workflow dashboard
 
-Home groups tasks into Suppliers, Customers, Banking and Company & reports with readable independent cards, light/dark colors, keyboard focus and one/two/four-column layouts. Deposits are grouped under Banking. Redundant Inventory/Add Item and Bank Register/Reconcile navigation shortcuts are consolidated into Inventory Center and Banking Center. Users with report access have a Report Center shortcut describing its existing A4/PDF/Excel/CSV and movable-stamp capabilities. Transaction-entry routes and account-posting rules remain unchanged; Home itself is a navigation screen.
+Home groups tasks into Suppliers, Customers, Banking and Company & reports with readable independent cards, light/dark colors, keyboard focus and two/four-column layouts; on phones tasks stay two per row as compact icon-and-title tiles (descriptions show from 600 px). On Insights the four balance cards are two-up on phones. Deposits are grouped under Banking. Redundant Inventory/Add Item and Bank Register/Reconcile navigation shortcuts are consolidated into Inventory Center and Banking Center. Users with report access have a Report Center shortcut describing its existing A4/PDF/Excel/CSV and movable-stamp capabilities. Transaction-entry routes and account-posting rules remain unchanged; Home itself is a navigation screen.
 
 ## Employee salary, loan and vacation profile
 

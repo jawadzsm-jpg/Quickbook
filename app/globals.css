@@ -1973,7 +1973,15 @@ body {
 .workflow-action-arrow { flex-shrink: 0; margin-top: .5rem; color: #64748b; }
 @media (min-width: 1280px) { .workflow-home-layout { grid-template-columns: minmax(0, 1fr) 320px; } .workflow-section-compact .workflow-action-grid { grid-template-columns: 1fr; } }
 @media (min-width: 1700px) { .workflow-section:not(.workflow-section-compact) .workflow-action-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-@media (max-width: 599px) { .workflow-action-grid { grid-template-columns: 1fr; } .workflow-section { padding: .85rem; } }
+/* Phones: two compact tasks per row (icon and title only) so Home is not a very long single column. */
+@media (max-width: 599px) {
+  .workflow-action-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
+  .workflow-section { padding: .85rem; }
+  .workflow-action { align-items: center; gap: .5rem; padding: .65rem .55rem; }
+  .workflow-action-icon { width: 2rem; height: 2rem; }
+  .workflow-action-copy strong { font-size: .8rem; line-height: 1.3; }
+  .workflow-action-copy > span, .workflow-action-arrow { display: none; }
+}
 @media screen {
   [data-appearance="dark"] .workflow-section { --workflow-accent: #7dd3fc; --workflow-tint: #143346; background: #101c2b; border-color: #304155; }
   [data-appearance="dark"] .workflow-section[data-tone="emerald"] { --workflow-accent: var(--user-color-300); --workflow-tint: color-mix(in srgb, var(--user-color-500) 22%, #101c2b); }
