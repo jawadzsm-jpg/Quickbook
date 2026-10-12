@@ -1,6 +1,6 @@
 # Data model
 
-Every PostgreSQL table, what it stores, and how tables relate. The typed schema is [`db/schema.ts`](../db/schema.ts); SQL migrations in [`drizzle/`](../drizzle/) (`0000`–`0107`) are applied in filename order by `scripts/migrate.mjs` (production) or `scripts/dev-local.mjs` (PGlite), which record each applied file in `__comnet_migrations`. Use this document instead of re-reading the schema; update it whenever a migration adds or changes a table.
+Every PostgreSQL table, what it stores, and how tables relate. The typed schema is [`db/schema.ts`](../db/schema.ts); SQL migrations in [`drizzle/`](../drizzle/) (`0000`–`0108`) are applied in filename order by `scripts/migrate.mjs` (production) or `scripts/dev-local.mjs` (PGlite), which record each applied file in `__comnet_migrations`. Use this document instead of re-reading the schema; update it whenever a migration adds or changes a table.
 
 ## Conventions
 
@@ -22,6 +22,8 @@ erDiagram
   companies ||--o{ accounts : has
   companies ||--o{ transactions : has
   inventory_locations ||--o{ items : stocks
+  inventory_locations ||--o{ warehouses : divides
+  warehouses ||--o{ warehouse_stock : holds
   transactions ||--o{ transaction_lines : contains
   transactions ||--o{ journal_entries : posts
   journal_entries ||--o{ journal_lines : contains
@@ -55,6 +57,8 @@ erDiagram
 | --- | --- | --- |
 | `companies` | Legal entity and its branding | name, `base_currency`, address, TRN, logos, login branding, document design/template/colour/layout, letterhead, stamps and positions, bank accounts, UAE e-invoicing setup (`einvoice_enabled`, Peppol ID, ASP, go-live), `active` |
 | `inventory_locations` | Warehouses/inventories of a company | `code`, `name`, invoice prefix and number format/padding, `next_invoice_number`, `active` |
+| `warehouses` | Warehouses inside an inventory (migration 0108); every inventory has exactly one default warehouse, created by the `trg_inventory_locations_default_warehouse` trigger | `location_id`, `code` (unique per inventory), `name`, `is_default`, `active` |
+| `warehouse_stock` | Explicit stock per item in **non-default** warehouses only. `items.quantity` stays the inventory total; the default warehouse holds the remainder (total minus the other warehouses), so totals always agree | `warehouse_id`, `item_id` (unique pair), `quantity` |
 | `vat_codes` | VAT codes per company | `code`, `rate`, `system`, `active` |
 | `exchange_rates` | Currency rates to the home currency | `currency_code`, `rate` |
 | `specification_options` | Shared choice lists: item categories, specification names and values | `label` (or `__item_categories__`, `__specification_detail_names__`), `value`, `active` |
@@ -120,6 +124,7 @@ Excluded from company backups: `app_users`, `app_user_companies`, `auth_sessions
 
 ## Database objects beyond tables
 
+- **Trigger** `trg_inventory_locations_default_warehouse` (function `create_default_warehouse`, migration 0108): every new inventory gets a default "Main warehouse" (`MAIN`).
 - **Trigger** `trg_items_updated_at` (function `set_items_updated_at`, migration 0106): sets `items.updated_at = now()` before every update, so the Integration API's `updated_since` sees changes from every code path.
 - **Performance indexes** worth knowing: `audit_log (entity_type, created_at)` (migration 0107) for Inventory Overview price changes; `transactions (company_id, transaction_date)` and `(company_id, location_id, type, status)`; `inventory_movements (item_id, movement_date)`; `journal_lines (account_name)` and `(journal_entry_id)`.
 - **Unique indexes** worth knowing: `app_users.email`, `auth_sessions.token_hash`, `password_reset_tokens.token_hash`, `api_keys.key_hash`, `category_colors.category`, `specification_options (label, value)`, items `(company, location, item_number)` and `(company, location, sku)`.

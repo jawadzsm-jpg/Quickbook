@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 
 type Executor={execute:(query:SQL)=>Promise<{rows:Record<string,unknown>[]}>};
-const direct=['cargos','stock_holds','item_offers','inventory_locations','vat_codes','exchange_rates','memorised_reports','vat_adjustments','vat_returns','contacts','items','transactions','warranty_slips','rcm_declarations','inventory_check_reports','accounts','journal_entries','audit_log','packing_lists','staff_salary_sheets','item_logistics_options','income_tax_working_papers','record_attachments'];
+const direct=['cargos','stock_holds','item_offers','inventory_locations','vat_codes','exchange_rates','memorised_reports','vat_adjustments','vat_returns','contacts','items','transactions','warranty_slips','rcm_declarations','inventory_check_reports','accounts','journal_entries','audit_log','packing_lists','staff_salary_sheets','item_logistics_options','income_tax_working_papers','record_attachments','warehouses','warehouse_stock'];
 const children:Record<string,[string,string]>={inventory_movements:['transactions','transaction_id'],transaction_lines:['transactions','transaction_id'],journal_lines:['journal_entries','journal_entry_id'],inventory_check_lines:['inventory_check_reports','report_id'],packing_list_lines:['packing_lists','packing_list_id'],invoice_payment_allocations:['transactions','payment_id'],bill_payment_allocations:['transactions','payment_id'],purchase_receipt_allocations:['transactions','receipt_id'],sales_invoice_allocations:['transactions','invoice_id']};
 export const backupTables=['companies','company_settings',...direct,...Object.keys(children),'stock_transfers','specification_options','category_colors'];
 export function backupScope(table:string,companyId:number):SQL {

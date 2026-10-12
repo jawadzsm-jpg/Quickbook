@@ -3566,3 +3566,45 @@ test('duplicated items start with no stock or cost and the list shows the purcha
   assert.equal(listed.find((item) => item.id === copy.id).averageCost, 8000);
   assert.equal(listed.find((item) => item.id === sourceId).averageCost, 4220.5);
 });
+
+test("warehouses: every inventory gets a default warehouse that holds the remainder; switching the default moves no stock", async () => {
+  const company = (await database.query("INSERT INTO companies (name) VALUES ('Warehouse test') RETURNING id")).rows[0].id;
+  const location = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'WH', 'WH', 'WH') RETURNING id", [company])).rows[0].id;
+  const defaults = (await database.query("SELECT id, code, is_default FROM warehouses WHERE location_id = $1", [location])).rows;
+  assert.equal(defaults.length, 1, "new inventories get one default warehouse from the trigger");
+  assert.equal(defaults[0].is_default, true);
+  const mainId = defaults[0].id;
+  const itemA = (await database.query("INSERT INTO items (company_id, location_id, sku, name, quantity) VALUES ($1, $2, 'WH-A', 'A', 10) RETURNING id", [company, location])).rows[0].id;
+  await database.query("INSERT INTO items (company_id, location_id, sku, name, quantity) VALUES ($1, $2, 'WH-B', 'B', 4)", [company, location]);
+  const route = await vite.ssrLoadModule("/app/api/warehouses/route.ts");
+  const call = (method, body) => route[method](new Request("https://app.test/api/warehouses", { method, headers: { "content-type": "application/json", origin: "https://app.test" }, body: JSON.stringify({ companyId: company, ...body }) }));
+  const list = async () => (await (await route.GET(new Request(`https://app.test/api/warehouses?companyId=${company}&locationId=${location}`))).json()).warehouses;
+
+  assert.deepEqual((await list()).map((row) => [row.code, row.isDefault, row.quantity, row.itemCount]), [["MAIN", true, 14, 2]]);
+  const created = await call("POST", { locationId: location, name: "Jebel Ali store", code: "jafza" });
+  assert.equal(created.status, 201, await created.clone().text());
+  const store = (await created.json()).warehouse;
+  assert.equal(store.code, "JAFZA");
+  assert.equal((await call("POST", { locationId: location, name: "jebel ali STORE", code: "X1" })).status, 409, "duplicate names are rejected");
+  assert.equal((await call("POST", { locationId: location, name: "Bad", code: "no spaces" })).status, 400);
+
+  // Explicit stock in the new warehouse comes out of the default warehouse's remainder; the inventory total is unchanged.
+  await database.query("INSERT INTO warehouse_stock (company_id, warehouse_id, item_id, quantity) VALUES ($1, $2, $3, 6)", [company, store.id, itemA]);
+  assert.deepEqual((await list()).map((row) => [row.code, row.quantity]), [["MAIN", 8], ["JAFZA", 6]]);
+  assert.equal((await call("PATCH", { id: store.id, action: "deactivate" })).status, 409, "a warehouse with stock stays active");
+  assert.equal((await call("DELETE", { id: store.id })).status, 409);
+  assert.equal((await call("PATCH", { id: mainId, action: "deactivate" })).status, 409, "the default warehouse cannot be deactivated");
+  assert.equal((await call("PATCH", { id: store.id, action: "update", name: "Jebel Ali", code: "JA" })).status, 200);
+
+  // Switching the default keeps every warehouse's quantity: the old default's remainder becomes explicit.
+  assert.equal((await call("PATCH", { id: store.id, action: "setDefault" })).status, 200);
+  assert.deepEqual((await list()).map((row) => [row.code, row.isDefault, row.quantity]), [["JA", true, 6], ["MAIN", false, 8]]);
+  assert.equal((await database.query("SELECT count(*)::int AS count FROM warehouse_stock WHERE warehouse_id = $1", [store.id])).rows[0].count, 0, "the default warehouse keeps no explicit rows");
+  assert.equal((await database.query("SELECT sum(quantity)::float AS total FROM items WHERE location_id = $1", [location])).rows[0].total, 14);
+
+  // A warehouse without stock can be deactivated and removed.
+  const empty = (await (await call("POST", { locationId: location, name: "Overflow", code: "OVF" })).json()).warehouse;
+  assert.equal((await call("PATCH", { id: empty.id, action: "deactivate" })).status, 200);
+  assert.equal((await call("DELETE", { id: empty.id })).status, 200);
+  assert.equal((await database.query("SELECT count(*)::int AS count FROM audit_log WHERE entity_type = 'warehouse' AND company_id = $1", [company])).rows[0].count >= 6, true);
+});
