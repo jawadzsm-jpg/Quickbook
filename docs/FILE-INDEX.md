@@ -134,7 +134,6 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/warranty-center.tsx` — Warranty/RMA slips: create (optionally from a bill), list, print, delete; `/api/warranty-slips`.
 - `app/workspace-calculator.tsx` — Header calculator that can stay open beside a document.
 - `app/workspace-clock.tsx` — Live UAE date/time in the header.
-- `app/cheque-template-designer.tsx` — Company Setup cheque template designer: bank picker, draggable fields over an optional scan, date boxes, printer feed, test print; `/api/cheque-templates`.
 - `app/pdc-cheques.tsx` — Banking list of post-dated cheques with their reminder (change, turn off, default); `/api/records` `cheque-reminder`.
 - `app/workspace-notifications.tsx` — Header notifications bell: unread count, list (opens the document), mark read, email opt-out; `/api/notifications`.
 - `app/workspace-online-users.tsx` — Header list of online users and last activity; `/api/online-users`.
@@ -224,7 +223,6 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/out-of-scope-items.ts` — Items bought outside VAT scope. **DB**
 - `lib/out-of-scope-rules.ts` — Out-of-scope purchases must be sold out of scope; sales document checks.
 - `lib/password.ts` — Async scrypt password hashing and verification.
-- `lib/cheque-template.ts` — Cheque template model: defaults from the bank layouts, validation, date boxes, word wrap, A4/cheque page placement and the print HTML.
 - `lib/cheque-reminders.ts` — PDC reminder rules in UAE time: post-dated check, default reminder (7 days before, 09:00), datetime-local conversion, "due in" text.
 - `lib/notifications.ts` — **server** Notification recipients (company admins and accountants), cheque notices, due PDC reminders, email delivery of pending notices. **DB**
 - `lib/payment-terms.ts` — Due date from transaction date and payment terms.

@@ -555,7 +555,7 @@ export const inventoryMovements = pgTable("inventory_movements", {
   warehouseId: integer("warehouse_id").references(() => warehouses.id, { onDelete: "set null" }),
 }, (table) => [index("idx_inventory_movements_warehouse").on(table.warehouseId), index("idx_inventory_movements_item_date").on(table.itemId, table.movementDate), index("idx_inventory_movements_transaction").on(table.transactionId)]);
 
-// Company cheque template per bank cheque layout (migration 0114); `config` is lib/cheque-template.ts JSON.
+// Unused since bank-cheque printing was removed: cheque templates saved earlier (migration 0114) are kept, not dropped.
 export const chequeTemplates = pgTable("cheque_templates", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
