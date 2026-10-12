@@ -321,6 +321,23 @@ export const warehouseStock = pgTable("warehouse_stock", {
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 }, (table) => [uniqueIndex("idx_warehouse_stock_warehouse_item").on(table.warehouseId, table.itemId), index("idx_warehouse_stock_item").on(table.itemId)]);
 
+// Moves between warehouses of one inventory (warehouses Phase 3): warehouse stock only; items.quantity is unchanged.
+export const warehouseTransfers = pgTable("warehouse_transfers", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  locationId: integer("location_id").notNull().references(() => inventoryLocations.id, { onDelete: "cascade" }),
+  itemId: integer("item_id").notNull().references(() => items.id, { onDelete: "cascade" }),
+  fromWarehouseId: integer("from_warehouse_id").notNull().references(() => warehouses.id, { onDelete: "no action" }),
+  toWarehouseId: integer("to_warehouse_id").notNull().references(() => warehouses.id, { onDelete: "no action" }),
+  quantity: doublePrecision("quantity").notNull(),
+  reference: text("reference").notNull(),
+  transferDate: text("transfer_date").notNull(),
+  notes: text("notes").notNull().default(""),
+  createdByUserId: integer("created_by_user_id").references(() => appUsers.id, { onDelete: "set null" }),
+  createdByName: text("created_by_name").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, (table) => [index("idx_warehouse_transfers_location").on(table.companyId, table.locationId, table.createdAt), index("idx_warehouse_transfers_item").on(table.itemId)]);
+
 export const stockTransfers = pgTable("stock_transfers", {
   id: serial("id").primaryKey(),
   reference: text("reference").notNull(),

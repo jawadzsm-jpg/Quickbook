@@ -3710,3 +3710,46 @@ test("warehouses: bill edits keep or move their warehouse and invoice edits take
   assert.deepEqual([await total(), await inStore()], [14, 1]);
   assert.equal((await database.query("SELECT count(*)::int AS n FROM inventory_movements WHERE transaction_id=$1 AND warehouse_id=$2", [invoiceId, store])).rows[0].n, 2);
 });
+
+test("warehouses: moves between warehouses shift warehouse stock only, can be reversed, and items show a per-warehouse breakdown", async () => {
+  const companyId = (await database.query("INSERT INTO companies(name) VALUES ('Warehouse moves') RETURNING id")).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES ($1,'WHM','WHM','WHM') RETURNING id", [companyId])).rows[0].id;
+  const single = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES ($1,'WHS','WHS','WHS') RETURNING id", [companyId])).rows[0].id;
+  const itemId = (await database.query("INSERT INTO items(company_id,location_id,sku,name,quantity,cost,item_type) VALUES ($1,$2,'WHM-1','Laptop',10,40,'stock-part') RETURNING id", [companyId, locationId])).rows[0].id;
+  await database.query("INSERT INTO items(company_id,location_id,sku,name,quantity,cost,item_type) VALUES ($1,$2,'WHS-1','Mouse',3,5,'stock-part')", [companyId, single]);
+  const mainId = (await database.query("SELECT id FROM warehouses WHERE location_id=$1 AND is_default", [locationId])).rows[0].id;
+  const store = (await database.query("INSERT INTO warehouses(company_id,location_id,code,name) VALUES ($1,$2,'STORE','Store') RETURNING id", [companyId, locationId])).rows[0].id;
+  const route = await vite.ssrLoadModule("/app/api/warehouse-transfers/route.ts");
+  const records = await vite.ssrLoadModule("/app/api/records/route.ts");
+  const call = (method, body) => route[method](new Request("https://app.test/api/warehouse-transfers", { method, headers: { "content-type": "application/json", origin: "https://app.test" }, body: JSON.stringify({ companyId, ...body }) }));
+  const total = async () => Number((await database.query("SELECT quantity FROM items WHERE id=$1", [itemId])).rows[0].quantity);
+  const inStore = async () => Number((await database.query("SELECT COALESCE(SUM(quantity),0) AS q FROM warehouse_stock WHERE warehouse_id=$1 AND item_id=$2", [store, itemId])).rows[0].q);
+
+  assert.equal((await call("POST", { locationId, fromWarehouseId: mainId, toWarehouseId: mainId, lines: [{ itemId, quantity: 1 }] })).status, 400);
+  assert.equal((await call("POST", { locationId, fromWarehouseId: mainId, toWarehouseId: store, lines: [{ itemId, quantity: 11 }] })).status, 409, "the default warehouse only has 10");
+  const moved = await call("POST", { locationId, fromWarehouseId: mainId, toWarehouseId: store, reference: "wh-1", lines: [{ itemId, quantity: 4 }] });
+  assert.equal(moved.status, 201, await moved.clone().text());
+  const move = (await moved.json()).transfers[0];
+  assert.equal(move.reference, "WH-1");
+  assert.deepEqual([await total(), await inStore()], [10, 4], "a move changes warehouse stock, not the inventory total");
+  assert.equal((await database.query("SELECT count(*)::int AS n FROM inventory_movements WHERE item_id=$1", [itemId])).rows[0].n, 0, "moves write no stock movement or journal");
+
+  const listed = (await (await records.GET(new Request(`https://app.test/api/records?kind=items&companyId=${companyId}&locationId=${locationId}`))).json()).records.find((row) => row.id === itemId);
+  assert.deepEqual(listed.warehouses.map((share) => [share.name, share.quantity]), [["Main warehouse", 6], ["Store", 4]]);
+  const singleListed = (await (await records.GET(new Request(`https://app.test/api/records?kind=items&companyId=${companyId}&locationId=${single}`))).json()).records[0];
+  assert.equal(singleListed.warehouses, undefined, "single-warehouse inventories carry no breakdown");
+
+  // Sell 3 from Store: only 1 is left there, so reversing the 4-unit move is refused.
+  await database.query("INSERT INTO contacts(company_id,type,name,currency,status) VALUES ($1,'customer','WHM Customer','AED','active')", [companyId]);
+  const sale = await records.POST(new Request("https://app.test/api/records", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "transactions", companyId, locationId, type: "invoice", number: "WHM-I1", party: "WHM Customer", transactionDate: "2026-10-12", dueDate: "2026-10-12", currency: "AED", exchangeRate: 1, account: "Sales Revenue", warehouseId: store, lines: [{ itemId, description: "Laptop", quantity: 3, unitPrice: 100, unitCost: 40, vatCode: "ZERO" }] }) }));
+  assert.equal(sale.status, 201, await sale.clone().text());
+  assert.equal((await call("DELETE", { id: move.id })).status, 409);
+  const back = await call("POST", { locationId, fromWarehouseId: mainId, toWarehouseId: store, lines: [{ itemId, quantity: 3 }] });
+  assert.equal(back.status, 201);
+  assert.equal((await call("DELETE", { id: move.id })).status, 200, "with Store restocked the first move can be reversed");
+  assert.deepEqual([await total(), await inStore()], [7, 0]);
+  const history = (await (await route.GET(new Request(`https://app.test/api/warehouse-transfers?companyId=${companyId}&locationId=${locationId}`))).json()).transfers;
+  assert.equal(history.length, 1);
+  const warehousesRoute = await vite.ssrLoadModule("/app/api/warehouses/route.ts");
+  assert.equal((await warehousesRoute.DELETE(new Request("https://app.test/api/warehouses", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ companyId, id: store }) }))).status, 409, "warehouses with history cannot be removed");
+});

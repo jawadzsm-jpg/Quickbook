@@ -130,6 +130,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/vendor-report-table.tsx` — Vendor report table renderer.
 - `app/warehouse-manager.tsx` — Management → Inventories: warehouses inside one inventory (add, rename, default, deactivate, remove); `/api/warehouses`.
 - `app/warehouse-picker.tsx` — Warehouse picker on stock documents, shown when the inventory has more than one active warehouse; `/api/warehouses`.
+- `app/warehouse-transfers.tsx` — Stock Transfers: move stock between warehouses of the active inventory, with recent moves and Reverse; `/api/warehouse-transfers`.
 - `app/warranty-center.tsx` — Warranty/RMA slips: create (optionally from a bill), list, print, delete; `/api/warranty-slips`.
 - `app/workspace-calculator.tsx` — Header calculator that can stay open beside a document.
 - `app/workspace-clock.tsx` — Live UAE date/time in the header.
@@ -265,7 +266,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/vat-report.ts` — VAT report keys, groups, filters, columns and summaries.
 - `lib/vendor-bank.ts` — Supplier bank details on vendors: validation and printable lines.
 - `lib/vendor-report.ts` — Vendor/AP report keys, groups, summaries, supplier lookup and filters.
-- `lib/warehouses.ts` — Warehouse stock summaries (default warehouse = inventory total minus other warehouses), default-warehouse switching, document warehouse resolution, per-warehouse quantities and stock adjustment.
+- `lib/warehouses.ts` — Warehouse stock summaries (default warehouse = inventory total minus other warehouses), default-warehouse switching, document warehouse resolution, per-warehouse quantities and stock adjustment, and per-item warehouse breakdowns for lists.
 - `lib/warranty-status.ts` — Warranty statuses and normalisation.
 
 ### `lib/layout/` — document layout builder model
