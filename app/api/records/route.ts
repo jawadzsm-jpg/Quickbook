@@ -1,4 +1,4 @@
-import { defaultReminderAt, isPostDated, uaeLocalToIso } from "@/lib/cheque-reminders";
+import { defaultReminderAt, isPostDated, reminderBeforeCheque, uaeLocalToIso } from "@/lib/cheque-reminders";
 import { notifyChequeWritten } from "@/lib/notifications";
 import { companyBankAccounts } from "@/lib/bank-accounts";
 import { adjustWarehouseStock, itemWarehouseBreakdown, resolveDocumentWarehouse, warehouseDocumentTypes, warehouseQuantities, type DocumentWarehouse } from "@/lib/warehouses";
@@ -550,7 +550,16 @@ export async function GET(request: Request) {
       }) });
     }
     const transactionFilter = Number.isInteger(locationId) && locationId > 0 ? and(and(eq(transactions.companyId, companyId), documentVisibility(authorization)), eq(transactions.locationId, locationId)) : and(eq(transactions.companyId, companyId), documentVisibility(authorization));
-    return Response.json({ records: (await db.select().from(transactions).where(transactionFilter).orderBy(desc(transactions.transactionDate), desc(transactions.id)).limit(500)).map(paymentDisplayRecord) });
+    const transactionRows = await db.select().from(transactions).where(transactionFilter).orderBy(desc(transactions.transactionDate), desc(transactions.id)).limit(500);
+    // Cheques carry the bank they are paid from (the credited bank account in their journal), e.g. for the PDC list.
+    const chequeIds = transactionRows.filter((row) => row.type === "cheque").map((row) => row.id);
+    const chequeBanks = new Map<number, string>();
+    if (chequeIds.length) {
+      const bankRows = await db.select({ transactionId: journalEntries.transactionId, accountName: journalLines.accountName }).from(journalLines).innerJoin(journalEntries, eq(journalEntries.id, journalLines.journalEntryId))
+        .where(and(inArray(journalEntries.transactionId, chequeIds), sql`${journalLines.credit} > 0`)).orderBy(asc(journalLines.id));
+      for (const row of bankRows) if (row.transactionId && !chequeBanks.has(row.transactionId)) chequeBanks.set(row.transactionId, row.accountName);
+    }
+    return Response.json({ records: transactionRows.map((row) => ({ ...paymentDisplayRecord(row), ...(row.type === "cheque" ? { bankName: chequeBanks.get(row.id) ?? "" } : {}) })) });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: error instanceof RequestError ? error.status : 500 });
   }
@@ -1277,8 +1286,9 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       else if (local) {
         reminderAt = uaeLocalToIso(local);
         if (!reminderAt) return Response.json({ error: "Enter a valid reminder date and time." }, { status: 400 });
+        if (!reminderBeforeCheque(reminderAt, transactionDate)) return Response.json({ error: "Set the reminder on or before the cheque date." }, { status: 400 });
         reminderCustom = reminderAt !== defaultReminderAt(transactionDate);
-      } else if (replacing?.reminderCustom) { reminderAt = replacing.reminderAt; reminderCustom = true; }
+      } else if (replacing?.reminderCustom && (!replacing.reminderAt || reminderBeforeCheque(replacing.reminderAt, transactionDate))) { reminderAt = replacing.reminderAt; reminderCustom = true; }
       else reminderAt = defaultReminderAt(transactionDate);
     }
     const sameReminder = Boolean(replacing) && (replacing?.reminderAt ? Date.parse(replacing.reminderAt) : null) === (reminderAt ? Date.parse(reminderAt) : null);
@@ -1584,6 +1594,7 @@ async function handlePATCH(request: Request) {
           else {
             reminderAt = uaeLocalToIso(String(payload.reminderLocal ?? ""));
             if (!reminderAt) return Response.json({ error: "Enter a valid reminder date and time." }, { status: 400 });
+            if (!reminderBeforeCheque(reminderAt, existing.transactionDate)) return Response.json({ error: "Set the reminder on or before the cheque date." }, { status: 400 });
             reminderCustom = reminderAt !== defaultReminderAt(existing.transactionDate);
           }
           const [record] = await db.update(transactions).set({ reminderAt, reminderCustom, remindedAt: null }).where(eq(transactions.id, id)).returning();

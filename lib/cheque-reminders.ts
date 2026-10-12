@@ -39,6 +39,17 @@ export function defaultReminderAt(chequeDate: string, now = new Date()): string 
   return new Date(Math.max(reminder, now.getTime())).toISOString();
 }
 
+/** The latest useful reminder: the end of the cheque date (23:59 UAE). A later reminder would arrive after the cheque. */
+export function latestReminderAt(chequeDate: string) {
+  const [year, month, day] = chequeDate.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day, 23, 59) - UAE_OFFSET_MS).toISOString();
+}
+
+/** A reminder time is allowed when it is on or before the end of the cheque date. */
+export function reminderBeforeCheque(reminderIso: string, chequeDate: string) {
+  return Date.parse(reminderIso) <= Date.parse(latestReminderAt(chequeDate));
+}
+
 /** "in 7 days", "tomorrow", "today" for the reminder notice. */
 export function daysUntil(chequeDate: string, now = new Date()) {
   const days = Math.round((Date.parse(`${chequeDate}T00:00:00Z`) - Date.parse(`${uaeToday(now)}T00:00:00Z`)) / 86_400_000);

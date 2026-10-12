@@ -10,7 +10,7 @@ import { matchesSearch } from "@/lib/search";
 import { WorkspaceOnlineUsers } from "./workspace-online-users";
 import { WorkspaceNotifications } from "./workspace-notifications";
 import { PdcCheques } from "./pdc-cheques";
-import { defaultReminderAt, isoToUaeLocal, isPostDated } from "@/lib/cheque-reminders";
+import { defaultReminderAt, isoToUaeLocal, isPostDated, latestReminderAt } from "@/lib/cheque-reminders";
 import { useRecordRole, useCanDeleteRecord, InvoiceItemsEditorProvider, useInvoiceItemsEditor } from "./record-permissions";
 import { PurchaseWorkflowPanel, PurchaseRegisterSummary } from "./purchase-workflow-panel";
 import { SalesWorkflowPanel, SalesRegisterSummary } from "./sales-workflow-panel";
@@ -3040,7 +3040,7 @@ function CashTransactionFields({ form, setForm, contacts, accounts, locations, l
       <Field label={payBill ? "Payment Date" : receivePayment ? "Payment Date" : "Cheque Date"} name="transactionDate" type="date" form={form} setForm={setForm} required />
       {form.type === "cheque" && isPostDated(form.transactionDate || "") && <div className="space-y-2">
         <Label htmlFor="pdc-reminder">PDC reminder</Label>
-        <Input id="pdc-reminder" type="datetime-local" disabled={form.reminderOff === "true"} value={form.reminderOff === "true" ? "" : form.reminderLocal || isoToUaeLocal(defaultReminderAt(form.transactionDate))} onChange={(event) => setForm({ ...form, reminderLocal: event.target.value, reminderOff: "" })} />
+        <Input id="pdc-reminder" type="datetime-local" max={isoToUaeLocal(latestReminderAt(form.transactionDate))} disabled={form.reminderOff === "true"} value={form.reminderOff === "true" ? "" : form.reminderLocal || isoToUaeLocal(defaultReminderAt(form.transactionDate))} onChange={(event) => setForm({ ...form, reminderLocal: event.target.value, reminderOff: "" })} />
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <label className="flex items-center gap-1.5"><input type="checkbox" className="size-3.5 accent-primary" checked={form.reminderOff === "true"} onChange={(event) => setForm({ ...form, reminderOff: event.target.checked ? "true" : "", reminderLocal: "" })} />No reminder</label>
           {form.reminderLocal ? <button type="button" className="underline underline-offset-2" onClick={() => setForm({ ...form, reminderLocal: "" })}>Use default (7 days before, 9:00)</button> : <span>Post-dated: admins and accountants are reminded 7 days before at 9:00 (UAE).</span>}
