@@ -142,6 +142,23 @@ test("supplier tracking migration sends separate SQL commands to the production 
   assert.ok(statements.every((statement) => (statement.match(/;/g) || []).length === 1));
 });
 
+test("Warranty slips: customer slips hide the supplier, supplier receipts hide the customer, files carry the customer name", () => {
+  const warranty = readFileSync(new URL("../app/warranty-center.tsx", import.meta.url), "utf8");
+  const rows = warranty.match(/const documentRows = supplierReceipt\s*\/\/[^\n]*\n\s*\? (\[\[.*?\]\])\n\s*: (\[\[.*?\]\]);/s);
+  assert.ok(rows, "document rows");
+  const [, supplierRows, customerRows] = rows;
+  const labels = (list) => [...list.matchAll(/\["([^"]+)",/g)].map((match) => match[1]);
+  assert.deepEqual(labels(customerRows), ["Brand", "Specifications", "Serial #", "Problem", "Remarks", "Returned for repair", "Received back from repair", "Status"], "no supplier name or bill on the customer slip");
+  assert.doesNotMatch(customerRows, /supplierName|purchaseNumber|purchaseDate/);
+  assert.doesNotMatch(supplierRows, /customer|contact/i, "no customer on the supplier receipt");
+  assert.doesNotMatch(customerRows + supplierRows, /Model|Included items|customerReference/);
+  assert.doesNotMatch(warranty, /Customer ID/);
+  assert.doesNotMatch(warranty, /Included items \/ accessories/);
+  assert.match(warranty, /<label className=\{fieldClass\}>Problem <span className="text-red-600">\*<\/span>/);
+  assert.match(warranty, /documentPdfFileName\(partyName/);
+  assert.match(warranty, /<title>\$\{fileTitle/);
+});
+
 test("supplier bills and Warranty RMA slips are connected in both directions", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const warranty = readFileSync(new URL("../app/warranty-center.tsx", import.meta.url), "utf8");
