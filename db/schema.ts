@@ -551,10 +551,11 @@ export const inventoryCheckReports = pgTable("inventory_check_reports", {
   companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   locationId: integer("location_id").notNull().references(() => inventoryLocations.id, { onDelete: "cascade" }),
   memo: text("memo").notNull().default(""),
+  warehouseId: integer("warehouse_id").references(() => warehouses.id, { onDelete: "set null" }),
   createdByUserId: integer("created_by_user_id").references(() => appUsers.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
-}, (table) => [index("idx_inventory_check_reports_company_date").on(table.companyId, table.createdAt), index("idx_inventory_check_reports_location").on(table.locationId)]);
+}, (table) => [index("idx_inventory_check_reports_company_date").on(table.companyId, table.createdAt), index("idx_inventory_check_reports_location").on(table.locationId), index("idx_inventory_check_reports_warehouse").on(table.warehouseId)]);
 
 export const inventoryCheckLines = pgTable("inventory_check_lines", {
   id: serial("id").primaryKey(),

@@ -1,6 +1,6 @@
 # Data model
 
-Every PostgreSQL table, what it stores, and how tables relate. The typed schema is [`db/schema.ts`](../db/schema.ts); SQL migrations in [`drizzle/`](../drizzle/) (`0000`–`0110`) are applied in filename order by `scripts/migrate.mjs` (production) or `scripts/dev-local.mjs` (PGlite), which record each applied file in `__comnet_migrations`. Use this document instead of re-reading the schema; update it whenever a migration adds or changes a table.
+Every PostgreSQL table, what it stores, and how tables relate. The typed schema is [`db/schema.ts`](../db/schema.ts); SQL migrations in [`drizzle/`](../drizzle/) (`0000`–`0111`) are applied in filename order by `scripts/migrate.mjs` (production) or `scripts/dev-local.mjs` (PGlite), which record each applied file in `__comnet_migrations`. Use this document instead of re-reading the schema; update it whenever a migration adds or changes a table.
 
 ## Conventions
 
@@ -111,7 +111,7 @@ erDiagram
 | --- | --- |
 | `packing_lists`, `packing_list_lines` | Packing lists for invoices: cartons, weights, CBM, HS codes |
 | `warranty_slips` | Warranty/RMA slips from customer to supplier and back, with status and stamp |
-| `inventory_check_reports`, `inventory_check_lines` | Stock counts: system vs counted quantity and remarks |
+| `inventory_check_reports`, `inventory_check_lines` | Stock counts: system vs counted quantity and remarks. `inventory_check_reports.warehouse_id` (migration 0111, nullable) marks a count of one warehouse; NULL is the cross-company comparison |
 
 ## Backups
 
