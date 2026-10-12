@@ -1,3 +1,4 @@
+import { adjustWarehouseStock, warehouseQuantities } from "@/lib/warehouses";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
 import { accounts, auditLog, companies, inventoryMovements, items, journalEntries, journalLines, packingListLines, transactionLines, transactions, vatCodes, warrantySlips } from "@/db/schema";
@@ -116,8 +117,10 @@ export async function applyInventoryInvoiceEdit(db: Db, input: { companyId: numb
   const take = (itemId: number, quantity: number) => requested.set(itemId, round((requested.get(itemId) ?? 0) + quantity));
   for (const swap of swaps) { take(swap.itemId, Number(swap.line.quantity)); take(swap.line.itemId!, -Number(swap.line.quantity)); }
   for (const line of appended) take(line.itemId, line.quantity);
-  const shortage = [...requested].map(([id, quantity]) => ({ item: itemById.get(id)!, quantity })).find(({ item, quantity }) => item?.itemType === "stock-part" && quantity > 0 && quantity > Number(item.quantity));
-  if (shortage) return fail(`Not enough stock. ${shortage.item.sku} ${shortage.item.name}: available ${shortage.item.quantity}, needed ${shortage.quantity}.`, 409);
+  // Stock is checked and moved in the invoice's warehouse.
+  const inWarehouse = await warehouseQuantities(db, invoice.warehouseId, [...requested.keys()]);
+  const shortage = [...requested].map(([id, quantity]) => ({ item: itemById.get(id)!, quantity })).find(({ item, quantity }) => item?.itemType === "stock-part" && quantity > 0 && quantity > (inWarehouse.get(item.id) ?? Number(item.quantity)));
+  if (shortage) return fail(`Not enough stock. ${shortage.item.sku} ${shortage.item.name}: available ${inWarehouse.get(shortage.item.id) ?? shortage.item.quantity}, needed ${shortage.quantity}.`, 409);
   // Stock on hold for another sales rep stays reserved; the invoice's own sales rep may use it.
   const held = await heldByOthers([...requested.keys()], invoice.salesman);
   const heldShortage = [...requested].map(([id, quantity]) => ({ item: itemById.get(id)!, quantity })).find(({ item, quantity }) => item?.itemType === "stock-part" && quantity > 0 && quantity > Number(item.quantity) - (held.get(item.id) ?? 0));
@@ -147,14 +150,14 @@ export async function applyInventoryInvoiceEdit(db: Db, input: { companyId: numb
       const homeCogs = round(quantity * Number(swap.line.unitCost) * exchangeRate);
       debit(accountFor(oldItem, "cogsAccountId", "COGS", "Cost of Goods Sold"), -homeCogs);
       debit(accountFor(oldItem, "assetAccountId", "INVENTORY", "Inventory Asset"), homeCogs);
-      await db.insert(inventoryMovements).values({ itemId: oldItem.id, transactionId: invoice.id, movementDate, movementType: "invoice item change", quantity, unitCost: Number(swap.line.unitCost), reference });
+      await db.insert(inventoryMovements).values({ itemId: oldItem.id, transactionId: invoice.id, movementDate, movementType: "invoice item change", quantity, unitCost: Number(swap.line.unitCost), reference, warehouseId: invoice.warehouseId });
     }
     const unitCost = unitCostFor(newItem);
     if (newItem.itemType === "stock-part") {
       const homeCogs = round(quantity * unitCost * exchangeRate);
       debit(accountFor(newItem, "cogsAccountId", "COGS", "Cost of Goods Sold"), homeCogs);
       debit(accountFor(newItem, "assetAccountId", "INVENTORY", "Inventory Asset"), -homeCogs);
-      await db.insert(inventoryMovements).values({ itemId: newItem.id, transactionId: invoice.id, movementDate, movementType: "invoice item change", quantity: -quantity, unitCost, reference });
+      await db.insert(inventoryMovements).values({ itemId: newItem.id, transactionId: invoice.id, movementDate, movementType: "invoice item change", quantity: -quantity, unitCost, reference, warehouseId: invoice.warehouseId });
     }
     await db.update(transactionLines).set({ itemId: newItem.id, description: fullItemDescription(newItem) || newItem.name, unitCost }).where(eq(transactionLines.id, swap.line.id));
   }
@@ -174,11 +177,14 @@ export async function applyInventoryInvoiceEdit(db: Db, input: { companyId: numb
       const homeCogs = round(row.quantity * row.unitCost * exchangeRate);
       debit(accountFor(item, "cogsAccountId", "COGS", "Cost of Goods Sold"), homeCogs);
       debit(accountFor(item, "assetAccountId", "INVENTORY", "Inventory Asset"), -homeCogs);
-      await db.insert(inventoryMovements).values({ itemId: item.id, transactionId: invoice.id, movementDate, movementType: "invoice", quantity: -row.quantity, unitCost: row.unitCost, reference });
+      await db.insert(inventoryMovements).values({ itemId: item.id, transactionId: invoice.id, movementDate, movementType: "invoice", quantity: -row.quantity, unitCost: row.unitCost, reference, warehouseId: invoice.warehouseId });
     }
   }
   for (const [itemId, quantity] of requested) {
-    if (quantity && itemById.get(itemId)?.itemType === "stock-part") await db.update(items).set({ quantity: Number(itemById.get(itemId)!.quantity) - quantity }).where(eq(items.id, itemId));
+    if (quantity && itemById.get(itemId)?.itemType === "stock-part") {
+      await db.update(items).set({ quantity: Number(itemById.get(itemId)!.quantity) - quantity }).where(eq(items.id, itemId));
+      await adjustWarehouseStock(db, invoice.warehouseId, itemId, -quantity);
+    }
   }
 
   const journal = [...adjustments].filter(([, amount]) => amount !== 0);

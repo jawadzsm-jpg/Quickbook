@@ -3608,3 +3608,105 @@ test("warehouses: every inventory gets a default warehouse that holds the remain
   assert.equal((await call("DELETE", { id: empty.id })).status, 200);
   assert.equal((await database.query("SELECT count(*)::int AS count FROM audit_log WHERE entity_type = 'warehouse' AND company_id = $1", [company])).rows[0].count >= 6, true);
 });
+
+test("warehouses: stock documents post to their warehouse, shortages are checked per warehouse, and voids/deletes return stock there", async () => {
+  const companyId = (await database.query("INSERT INTO companies(name) VALUES ('Warehouse posting') RETURNING id")).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES ($1,'WHP','WHP','WHP') RETURNING id", [companyId])).rows[0].id;
+  const otherLocation = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES ($1,'WHO','WHO','WHO') RETURNING id", [companyId])).rows[0].id;
+  const itemId = (await database.query("INSERT INTO items(company_id,location_id,sku,name,quantity,cost,item_type) VALUES ($1,$2,'WHP-1','Laptop',10,40,'stock-part') RETURNING id", [companyId, locationId])).rows[0].id;
+  await database.query("INSERT INTO contacts(company_id,type,name,currency,status) VALUES ($1,'customer','WH Customer','AED','active'),($1,'vendor','WH Vendor','AED','active')", [companyId]);
+  const mainId = (await database.query("SELECT id FROM warehouses WHERE location_id=$1 AND is_default", [locationId])).rows[0].id;
+  const store = (await database.query("INSERT INTO warehouses(company_id,location_id,code,name) VALUES ($1,$2,'STORE','Store') RETURNING id", [companyId, locationId])).rows[0].id;
+  const closed = (await database.query("INSERT INTO warehouses(company_id,location_id,code,name,active) VALUES ($1,$2,'OLD','Old',false) RETURNING id", [companyId, locationId])).rows[0].id;
+  const foreignWarehouse = (await database.query("SELECT id FROM warehouses WHERE location_id=$1", [otherLocation])).rows[0].id;
+  const { POST, DELETE } = await vite.ssrLoadModule("/app/api/records/route.ts");
+  const req = (method, body) => new Request("https://app.test/api/records", { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const base = { kind: "transactions", companyId, locationId, currency: "AED", exchangeRate: 1, transactionDate: "2026-10-12", dueDate: "2026-10-12" };
+  const bill = (quantity, warehouseId, number) => POST(req("POST", { ...base, type: "bill", number, party: "WH Vendor", account: "Accounts Payable", ...(warehouseId ? { warehouseId } : {}), lines: [{ itemId, description: "Laptop", quantity, unitPrice: 40, unitCost: 40, vatCode: "ZERO" }] }));
+  const invoice = (quantity, warehouseId, number) => POST(req("POST", { ...base, type: "invoice", number, party: "WH Customer", account: "Sales Revenue", ...(warehouseId ? { warehouseId } : {}), lines: [{ itemId, description: "Laptop", quantity, unitPrice: 100, unitCost: 40, vatCode: "ZERO" }] }));
+  const remove = (id) => DELETE(req("DELETE", { deletionReason: "Warehouse test", kind: "transactions", companyId, id }));
+  const total = async () => Number((await database.query("SELECT quantity FROM items WHERE id=$1", [itemId])).rows[0].quantity);
+  const inStore = async () => Number((await database.query("SELECT COALESCE(SUM(quantity),0) AS q FROM warehouse_stock WHERE warehouse_id=$1 AND item_id=$2", [store, itemId])).rows[0].q);
+  const inMain = async () => (await total()) - (await inStore());
+
+  assert.equal((await bill(1, closed, "WH-B0")).status, 400, "inactive warehouses are rejected");
+  assert.equal((await bill(1, foreignWarehouse, "WH-B0")).status, 400, "another inventory's warehouse is rejected");
+
+  const received = await bill(5, store, "WH-B1");
+  assert.equal(received.status, 201, await received.clone().text());
+  const billRecord = (await received.json()).record;
+  assert.equal(billRecord.warehouseId, store);
+  assert.deepEqual([await total(), await inStore(), await inMain()], [15, 5, 10]);
+  assert.equal((await database.query("SELECT warehouse_id FROM inventory_movements WHERE transaction_id=$1", [billRecord.id])).rows[0].warehouse_id, store);
+
+  const tooMuchMain = await invoice(12, null, "WH-I0");
+  assert.equal(tooMuchMain.status, 409, "the default warehouse only has 10");
+  const tooMuchStore = await invoice(6, store, "WH-I0");
+  assert.equal(tooMuchStore.status, 409);
+  assert.match((await tooMuchStore.json()).error, /available in Store 5/);
+
+  const fromStore = await invoice(4, store, "WH-I1");
+  assert.equal(fromStore.status, 201, await fromStore.clone().text());
+  const storeInvoice = (await fromStore.json()).record;
+  assert.deepEqual([await total(), await inStore(), await inMain()], [11, 1, 10]);
+  const fromMain = await invoice(3, null, "WH-I2");
+  assert.equal(fromMain.status, 201, await fromMain.clone().text());
+  assert.equal((await fromMain.json()).record.warehouseId, mainId, "documents without a warehouse use the default");
+  assert.deepEqual([await total(), await inStore(), await inMain()], [8, 1, 7]);
+
+  // The bill's 5 units went into Store, which now has 1: deleting the bill would take Store negative.
+  assert.equal((await remove(billRecord.id)).status, 409);
+  // Voiding the Store invoice brings its 4 units back to Store, not to the default warehouse.
+  assert.equal((await remove(storeInvoice.id)).status, 200);
+  assert.deepEqual([await total(), await inStore(), await inMain()], [12, 5, 7]);
+  assert.equal((await remove(billRecord.id)).status, 200);
+  assert.deepEqual([await total(), await inStore(), await inMain()], [7, 0, 7]);
+
+  const route = await vite.ssrLoadModule("/app/api/warehouses/route.ts");
+  const removeWarehouse = await route.DELETE(new Request("https://app.test/api/warehouses", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ companyId, id: store }) }));
+  assert.equal(removeWarehouse.status, 409, "a warehouse used by documents or stock history cannot be removed");
+});
+
+test("warehouses: bill edits keep or move their warehouse and invoice edits take stock from the invoice's warehouse", async () => {
+  const companyId = (await database.query("INSERT INTO companies(name) VALUES ('Warehouse edits') RETURNING id")).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES ($1,'WHE','WHE','WHE') RETURNING id", [companyId])).rows[0].id;
+  const itemId = (await database.query("INSERT INTO items(company_id,location_id,sku,name,quantity,cost,item_type) VALUES ($1,$2,'WHE-1','Laptop',10,40,'stock-part') RETURNING id", [companyId, locationId])).rows[0].id;
+  await database.query("INSERT INTO contacts(company_id,type,name,currency,status) VALUES ($1,'customer','WHE Customer','AED','active'),($1,'vendor','WHE Vendor','AED','active')", [companyId]);
+  const mainId = (await database.query("SELECT id FROM warehouses WHERE location_id=$1 AND is_default", [locationId])).rows[0].id;
+  const store = (await database.query("INSERT INTO warehouses(company_id,location_id,code,name) VALUES ($1,$2,'STORE','Store') RETURNING id", [companyId, locationId])).rows[0].id;
+  const { GET, POST, PATCH } = await vite.ssrLoadModule("/app/api/records/route.ts");
+  const req = (method, body) => new Request("https://app.test/api/records", { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const revision = async (id) => (await (await GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${companyId}&id=${id}`))).json());
+  const total = async () => Number((await database.query("SELECT quantity FROM items WHERE id=$1", [itemId])).rows[0].quantity);
+  const inStore = async () => Number((await database.query("SELECT COALESCE(SUM(quantity),0) AS q FROM warehouse_stock WHERE warehouse_id=$1 AND item_id=$2", [store, itemId])).rows[0].q);
+  const billBody = { kind: "transactions", companyId, locationId, type: "bill", number: "WHE-B1", party: "WHE Vendor", transactionDate: "2026-10-12", account: "Accounts Payable", status: "open", currency: "AED", exchangeRate: 1, lines: [{ itemId, description: "Laptop", quantity: 5, unitPrice: 40, unitCost: 40, vatCode: "ZERO" }] };
+  const created = await POST(req("POST", { ...billBody, warehouseId: store }));
+  assert.equal(created.status, 201, await created.clone().text());
+  const billId = (await created.json()).record.id;
+  assert.deepEqual([await total(), await inStore()], [15, 5]);
+
+  let edited = await PATCH(req("PATCH", { ...billBody, id: billId, revision: (await revision(billId)).revision, lines: [{ ...billBody.lines[0], quantity: 3 }] }));
+  assert.equal(edited.status, 200, await edited.clone().text());
+  assert.equal((await edited.json()).record.warehouseId, store, "an edit without a warehouse keeps the bill's warehouse");
+  assert.deepEqual([await total(), await inStore()], [13, 3]);
+  edited = await PATCH(req("PATCH", { ...billBody, id: billId, revision: (await revision(billId)).revision, warehouseId: mainId, lines: [{ ...billBody.lines[0], quantity: 3 }] }));
+  assert.equal(edited.status, 200, await edited.clone().text());
+  assert.deepEqual([await total(), await inStore()], [13, 0], "moving the bill to the default warehouse moves its stock out of Store");
+
+  assert.equal((await POST(req("POST", { ...billBody, number: "WHE-B2", warehouseId: store, lines: [{ ...billBody.lines[0], quantity: 4 }] }))).status, 201);
+  const sold = await POST(req("POST", { kind: "transactions", companyId, locationId, type: "invoice", number: "WHE-I1", party: "WHE Customer", transactionDate: "2026-10-12", dueDate: "2026-10-12", currency: "AED", exchangeRate: 1, account: "Sales Revenue", warehouseId: store, lines: [{ itemId, description: "Laptop", quantity: 2, unitPrice: 100, unitCost: 40, vatCode: "ZERO" }] }));
+  assert.equal(sold.status, 201, await sold.clone().text());
+  const invoiceId = (await sold.json()).record.id;
+  assert.deepEqual([await total(), await inStore()], [15, 2]);
+  const details = async (quantity) => {
+    const detail = await revision(invoiceId);
+    const line = detail.lines[0];
+    return PATCH(req("PATCH", { kind: "transactions", companyId, id: invoiceId, editMode: "details", revision: detail.revision, number: "WHE-I1", transactionDate: "2026-10-12", dueDate: "2026-10-12", lineDetails: [{ id: line.id, description: line.description, quantity, unitPrice: line.unitPrice, vatCode: line.vatCode, comments: "", serialNumber: "" }] }));
+  };
+  const more = await details(3);
+  assert.equal(more.status, 200, await more.clone().text());
+  assert.deepEqual([await total(), await inStore()], [14, 1]);
+  assert.equal((await details(5)).status, 409, "Store has 1 left, so 2 more cannot come from it");
+  assert.deepEqual([await total(), await inStore()], [14, 1]);
+  assert.equal((await database.query("SELECT count(*)::int AS n FROM inventory_movements WHERE transaction_id=$1 AND warehouse_id=$2", [invoiceId, store])).rows[0].n, 2);
+});

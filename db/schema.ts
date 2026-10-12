@@ -362,6 +362,8 @@ export const transactions = pgTable("transactions", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   locationId: integer("location_id").references(() => inventoryLocations.id, { onDelete: "set null" }),
+  // Stock documents record the warehouse they posted to (warehouses Phase 2).
+  warehouseId: integer("warehouse_id").references(() => warehouses.id, { onDelete: "set null" }),
   number: text("number").notNull(),
   type: text("type").notNull(),
   party: text("party").notNull(),
@@ -524,7 +526,8 @@ export const inventoryMovements = pgTable("inventory_movements", {
   quantity: doublePrecision("quantity").notNull(),
   unitCost: doublePrecision("unit_cost").notNull().default(0),
   reference: text("reference").notNull(),
-}, (table) => [index("idx_inventory_movements_item_date").on(table.itemId, table.movementDate), index("idx_inventory_movements_transaction").on(table.transactionId)]);
+  warehouseId: integer("warehouse_id").references(() => warehouses.id, { onDelete: "set null" }),
+}, (table) => [index("idx_inventory_movements_warehouse").on(table.warehouseId), index("idx_inventory_movements_item_date").on(table.itemId, table.movementDate), index("idx_inventory_movements_transaction").on(table.transactionId)]);
 
 export const inventoryCheckReports = pgTable("inventory_check_reports", {
   id: serial("id").primaryKey(),
