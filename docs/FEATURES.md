@@ -3,7 +3,8 @@
 ## Company workspace
 
 - Multiple independent companies with home currency, legal identity, TRN, address, contact, and bank details.
-- Multiple inventories/warehouses per company, each with its own code, invoice prefix, and next invoice number.
+- Multiple inventories per company, each with its own code, invoice prefix, and next invoice number.
+- **Warehouses inside an inventory** (Management → Inventories, Phase 1): each inventory card lists its warehouses with item and unit counts. Administrators add, rename, set the default, deactivate (empty warehouses only) and remove (empty, non-default) warehouses. Every inventory has a default "Main warehouse"; stock not placed in another warehouse is counted there, so the inventory total is unchanged. Changing the default moves no stock. Documents, transfers and reports do not use warehouses yet (Phases 2–3).
 - Company and inventory selectors that scope forms, lists, dashboard data, and most reports.
 - Per-user company assignments, global administration, company administration, and six operational roles.
 - **Forgot password?** on the sign-in page: users enter their email and receive a one-use reset link (valid 30 minutes) through the configured email server, then choose a new password. Without SMTP settings, users are told to ask their administrator.

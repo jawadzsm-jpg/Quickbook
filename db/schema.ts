@@ -299,6 +299,28 @@ export const apiKeys = pgTable("api_keys", {
   revokedByName: text("revoked_by_name").notNull().default(""),
 }, (table) => [uniqueIndex("idx_api_keys_hash").on(table.keyHash), index("idx_api_keys_company").on(table.companyId)]);
 
+// Warehouses inside an inventory. items.quantity stays the inventory total; warehouse_stock holds explicit quantities for
+// non-default warehouses only, and the default warehouse holds the remainder (see drizzle/0108_warehouses.sql).
+export const warehouses = pgTable("warehouses", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  locationId: integer("location_id").notNull().references(() => inventoryLocations.id, { onDelete: "cascade" }),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  isDefault: boolean("is_default").notNull().default(false),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("idx_warehouses_location_code").on(table.locationId, table.code), uniqueIndex("idx_warehouses_location_default").on(table.locationId).where(sql`${table.isDefault}`), index("idx_warehouses_company").on(table.companyId)]);
+
+export const warehouseStock = pgTable("warehouse_stock", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  warehouseId: integer("warehouse_id").notNull().references(() => warehouses.id, { onDelete: "cascade" }),
+  itemId: integer("item_id").notNull().references(() => items.id, { onDelete: "cascade" }),
+  quantity: doublePrecision("quantity").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("idx_warehouse_stock_warehouse_item").on(table.warehouseId, table.itemId), index("idx_warehouse_stock_item").on(table.itemId)]);
+
 export const stockTransfers = pgTable("stock_transfers", {
   id: serial("id").primaryKey(),
   reference: text("reference").notNull(),
