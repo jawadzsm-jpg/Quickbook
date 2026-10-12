@@ -116,7 +116,7 @@ export async function adjustWarehouseStock(db: Executor, warehouseId: number | n
 
 /** Whether documents or stock history still point at a warehouse (it then cannot be removed). */
 export async function warehouseInUse(db: Executor, warehouseId: number) {
-  const result = await db.execute(sql`SELECT EXISTS (SELECT 1 FROM transactions WHERE warehouse_id = ${warehouseId}) OR EXISTS (SELECT 1 FROM inventory_movements WHERE warehouse_id = ${warehouseId}) OR EXISTS (SELECT 1 FROM warehouse_transfers WHERE from_warehouse_id = ${warehouseId} OR to_warehouse_id = ${warehouseId}) AS used`);
+  const result = await db.execute(sql`SELECT EXISTS (SELECT 1 FROM transactions WHERE warehouse_id = ${warehouseId}) OR EXISTS (SELECT 1 FROM inventory_movements WHERE warehouse_id = ${warehouseId}) OR EXISTS (SELECT 1 FROM warehouse_transfers WHERE from_warehouse_id = ${warehouseId} OR to_warehouse_id = ${warehouseId}) OR EXISTS (SELECT 1 FROM inventory_check_reports WHERE warehouse_id = ${warehouseId}) AS used`);
   return Boolean(result.rows[0]?.used);
 }
 

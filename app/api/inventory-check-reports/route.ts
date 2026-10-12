@@ -1,7 +1,8 @@
 import { skuWrite } from "@/lib/sku-locks";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
-import { appUsers, auditLog, companies, inventoryCheckLines, inventoryCheckReports, inventoryLocations, items } from "@/db/schema";
+import { appUsers, auditLog, companies, inventoryCheckLines, inventoryCheckReports, inventoryLocations, items, warehouses } from "@/db/schema";
+import { warehouseQuantities } from "@/lib/warehouses";
 import { requireCompanyAccess, type SessionUser } from "@/lib/auth";
 
 type CompanyQuantity = { companyId: number; companyName: string; quantity: number; countedQuantity: number | null; checkedByUserId?: number; checkedBy?: string; checkedByEmail?: string; checkedAt?: string };
@@ -21,7 +22,37 @@ async function reportForCompany(id: number, companyId: number) {
   return record;
 }
 
-async function availableStock(user: SessionUser): Promise<{ companies: Array<{ id: number; name: string }>; items: StockOption[] }> {
+type CountWarehouse = { id: number; companyId: number; locationId: number; name: string; active: boolean };
+
+/** A warehouse of this company's inventory to count, or an error response. Missing/empty means the cross-company check. */
+async function countWarehouse(value: unknown, companyId: number, locationId: number): Promise<CountWarehouse | null | Response> {
+  if (value === undefined || value === null || value === "") return null;
+  const id = Number(value);
+  if (!Number.isSafeInteger(id) || id <= 0) return Response.json({ error: "Select a valid warehouse." }, { status: 400 });
+  const [warehouse] = await getDb().select({ id: warehouses.id, companyId: warehouses.companyId, locationId: warehouses.locationId, name: warehouses.name, active: warehouses.active }).from(warehouses)
+    .where(and(eq(warehouses.id, id), eq(warehouses.companyId, companyId), eq(warehouses.locationId, locationId))).limit(1);
+  return warehouse ?? Response.json({ error: "Select a warehouse of this inventory." }, { status: 400 });
+}
+
+/** In-stock items of one warehouse, with that warehouse's quantity under its company only. */
+async function warehouseStock(warehouse: CountWarehouse): Promise<{ companies: Array<{ id: number; name: string }>; items: StockOption[] }> {
+  const db = getDb();
+  const [company] = await db.select({ id: companies.id, name: companies.name }).from(companies).where(eq(companies.id, warehouse.companyId)).limit(1);
+  if (!company) return { companies: [], items: [] };
+  const rows = await db.select({ itemId: items.id, itemNumber: items.itemNumber, sku: items.sku, itemName: items.name }).from(items)
+    .where(and(eq(items.companyId, warehouse.companyId), eq(items.locationId, warehouse.locationId), eq(items.status, "active"), eq(items.itemType, "stock-part"))).orderBy(asc(items.name));
+  const quantities = await warehouseQuantities(db, warehouse.id, rows.map((row) => row.itemId));
+  const bySku = new Map<string, StockOption>();
+  for (const row of rows) {
+    const key = skuKey(row.sku), quantity = quantities.get(row.itemId) ?? 0;
+    if (!key || quantity <= 0.000001 || bySku.has(key)) continue;
+    bySku.set(key, { itemId: row.itemId, itemNumber: row.itemNumber ?? "", sku: row.sku, itemName: row.itemName, totalQuantity: quantity, companyQuantities: [{ companyId: company.id, companyName: company.name, quantity, countedQuantity: null }] });
+  }
+  return { companies: [company], items: [...bySku.values()].sort((a, b) => a.itemName.localeCompare(b.itemName) || a.sku.localeCompare(b.sku)) };
+}
+
+async function availableStock(user: SessionUser, warehouse?: CountWarehouse | null): Promise<{ companies: Array<{ id: number; name: string }>; items: StockOption[] }> {
+  if (warehouse) return warehouseStock(warehouse);
   const db = getDb();
   const companyRows = user.role === "all_admin"
     ? await db.select({ id: companies.id, name: companies.name }).from(companies).where(eq(companies.active, true)).orderBy(asc(companies.name))
@@ -100,7 +131,11 @@ export async function GET(request: Request) {
     const user = await requireCompanyAccess(request, companyId, "inventory:read");
     if (user instanceof Response) return user;
     const db = getDb();
-    if (url.searchParams.get("options") === "1") return Response.json(await availableStock(user));
+    if (url.searchParams.get("options") === "1") {
+      const warehouse = await countWarehouse(url.searchParams.get("warehouseId"), companyId, locationId);
+      if (warehouse instanceof Response) return warehouse;
+      return Response.json(await availableStock(user, warehouse));
+    }
     if (Number.isInteger(reportId) && reportId > 0) {
       const record = await reportForCompany(reportId, companyId);
       if (!record) return Response.json({ error: "Inventory check report not found." }, { status: 404 });
@@ -109,7 +144,8 @@ export async function GET(request: Request) {
       const lines = stored.map((line) => ({ ...line, companyQuantities: parsedQuantities(line.companyQuantities, ownerCompany ? { companyId: ownerCompany.id, companyName: ownerCompany.name, quantity: Number(line.systemQuantity), countedQuantity: line.countedQuantity } : undefined) }));
       const companyMap = new Map<number, { id: number; name: string }>();
       for (const line of lines) for (const company of line.companyQuantities) companyMap.set(company.companyId, { id: company.companyId, name: company.companyName });
-      return Response.json({ record, lines, companies: [...companyMap.values()] });
+      const [warehouse] = record.warehouseId ? await db.select({ name: warehouses.name }).from(warehouses).where(eq(warehouses.id, record.warehouseId)).limit(1) : [];
+      return Response.json({ record: { ...record, warehouseName: warehouse?.name ?? null }, lines, companies: [...companyMap.values()] });
     }
     const conditions = [eq(inventoryCheckReports.companyId, companyId)];
     if (Number.isInteger(locationId) && locationId > 0) conditions.push(eq(inventoryCheckReports.locationId, locationId));
@@ -117,8 +153,10 @@ export async function GET(request: Request) {
       id: inventoryCheckReports.id, companyId: inventoryCheckReports.companyId, locationId: inventoryCheckReports.locationId,
       memo: inventoryCheckReports.memo, createdAt: inventoryCheckReports.createdAt, updatedAt: inventoryCheckReports.updatedAt,
       creator: appUsers.fullName, creatorEmail: appUsers.email, locationName: inventoryLocations.name,
+      warehouseId: inventoryCheckReports.warehouseId, warehouseName: warehouses.name,
     }).from(inventoryCheckReports)
       .leftJoin(appUsers, eq(inventoryCheckReports.createdByUserId, appUsers.id))
+      .leftJoin(warehouses, eq(inventoryCheckReports.warehouseId, warehouses.id))
       .innerJoin(inventoryLocations, eq(inventoryCheckReports.locationId, inventoryLocations.id))
       .where(and(...conditions)).orderBy(desc(inventoryCheckReports.createdAt));
     const reportIds = records.map((record) => record.id);
@@ -158,7 +196,10 @@ async function handlePOST(request: Request) {
     const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations)
       .where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId), eq(inventoryLocations.active, true))).limit(1);
     if (!location) return Response.json({ error: "Inventory not found for this company." }, { status: 404 });
-    const stock = await availableStock(user);
+    const warehouse = await countWarehouse(payload.warehouseId, companyId, locationId);
+    if (warehouse instanceof Response) return warehouse;
+    if (warehouse && !warehouse.active) return Response.json({ error: `Warehouse ${warehouse.name} is inactive.` }, { status: 409 });
+    const stock = await availableStock(user, warehouse);
     const available = new Map(stock.items.map((item) => [skuKey(item.sku), item]));
     const selected = new Map<string, { option: StockOption; remark: string; counts: unknown }>();
     for (const line of requestedLines) {
@@ -168,12 +209,12 @@ async function handlePOST(request: Request) {
     }
     if (!selected.size) return Response.json({ error: "The selected items are no longer in stock." }, { status: 409 });
     const checkedAt = new Date().toISOString();
-    const [record] = await db.insert(inventoryCheckReports).values({ companyId, locationId, memo, createdByUserId: user.id, createdAt: checkedAt, updatedAt: checkedAt }).returning();
+    const [record] = await db.insert(inventoryCheckReports).values({ companyId, locationId, warehouseId: warehouse?.id ?? null, memo, createdByUserId: user.id, createdAt: checkedAt, updatedAt: checkedAt }).returning();
     await db.insert(inventoryCheckLines).values([...selected.values()].map(({ option, remark, counts }) => ({
       reportId: record.id, itemId: option.itemId, itemNumber: option.itemNumber, sku: option.sku, itemName: option.itemName,
       systemQuantity: option.totalQuantity, companyQuantities: JSON.stringify(quantitiesWithCounts(option.companyQuantities, counts, user, checkedAt)), remark,
     })));
-    await db.insert(auditLog).values({ companyId, action: "created", entityType: "inventory_check_report", entityId: record.id, details: `Inventory check report #${record.id} created with ${selected.size} selected item(s) by ${user.email}` });
+    await db.insert(auditLog).values({ companyId, action: "created", entityType: "inventory_check_report", entityId: record.id, details: `Inventory check report #${record.id} created with ${selected.size} selected item(s)${warehouse ? ` for warehouse ${warehouse.name}` : ""} by ${user.email}` });
     return Response.json({ record }, { status: 201 });
   } catch (error) { return Response.json({ error: databaseError(error) }, { status: 500 }); }
 }
@@ -211,7 +252,8 @@ async function handlePATCH(request: Request) {
     }
     for (const line of current) if (!keepIds.has(line.id)) await db.delete(inventoryCheckLines).where(and(eq(inventoryCheckLines.id, line.id), eq(inventoryCheckLines.reportId, id)));
     if (additions.length) {
-      const stock = await availableStock(user);
+      const [warehouse] = record.warehouseId ? await db.select({ id: warehouses.id, companyId: warehouses.companyId, locationId: warehouses.locationId, name: warehouses.name, active: warehouses.active }).from(warehouses).where(eq(warehouses.id, record.warehouseId)).limit(1) : [];
+      const stock = await availableStock(user, warehouse);
       const available = new Map(stock.items.map((item) => [skuKey(item.sku), item]));
       const rows = additions.map((line) => ({ line, option: available.get(line.sku) })).filter((entry): entry is { line: { sku: string; remark: string; counts: unknown }; option: StockOption } => Boolean(entry.option));
       if (rows.length !== additions.length) throw new Error("One or more selected items are no longer in stock. Refresh the report and try again.");

@@ -3784,3 +3784,34 @@ test("stock reports filter to one warehouse's quantities and offer only multi-wa
   assert.equal((await open(`&locationId=0&warehouseId=${singleMain}`)).status, 400, "single-warehouse inventories cannot be filtered");
   assert.equal((await open(`&locationId=${single}&warehouseId=${store}`)).status, 400, "a warehouse outside the selected inventory is refused");
 });
+
+test("inventory check reports can count one warehouse with that warehouse's quantities", async () => {
+  const company = (await database.query("INSERT INTO companies (name) VALUES ('Warehouse count') RETURNING id")).rows[0].id;
+  const location = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'WCT', 'WCT', 'WCT') RETURNING id", [company])).rows[0].id;
+  const laptop = (await database.query("INSERT INTO items (company_id, location_id, sku, name, quantity, cost, item_type) VALUES ($1, $2, 'WCT-1', 'Laptop', 10, 40, 'stock-part') RETURNING id", [company, location])).rows[0].id;
+  await database.query("INSERT INTO items (company_id, location_id, sku, name, quantity, cost, item_type) VALUES ($1, $2, 'WCT-2', 'Cable', 2, 5, 'stock-part')", [company, location]);
+  const store = (await database.query("INSERT INTO warehouses (company_id, location_id, code, name) VALUES ($1, $2, 'STORE', 'Store') RETURNING id", [company, location])).rows[0].id;
+  const mainId = (await database.query("SELECT id FROM warehouses WHERE location_id = $1 AND is_default", [location])).rows[0].id;
+  await database.query("INSERT INTO warehouse_stock (company_id, warehouse_id, item_id, quantity) VALUES ($1, $2, $3, 4)", [company, store, laptop]);
+  const route = await vite.ssrLoadModule("/app/api/inventory-check-reports/route.ts");
+  const options = async (warehouseId) => { const response = await route.GET(new Request(`https://app.test/api/inventory-check-reports?companyId=${company}&locationId=${location}&options=1&warehouseId=${warehouseId}`)); return { status: response.status, data: await response.json() }; };
+
+  const inStore = await options(store);
+  assert.deepEqual(inStore.data.items.map((item) => [item.sku, item.totalQuantity, item.companyQuantities.length]), [["WCT-1", 4, 1]], "only stock in Store, under its own company");
+  const inMain = await options(mainId);
+  assert.deepEqual(inMain.data.items.map((item) => [item.sku, item.totalQuantity]).sort(), [["WCT-1", 6], ["WCT-2", 2]], "the default warehouse holds the remainder");
+  const other = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'WCO', 'WCO', 'WCO') RETURNING id", [company])).rows[0].id;
+  assert.equal((await route.GET(new Request(`https://app.test/api/inventory-check-reports?companyId=${company}&locationId=${other}&options=1&warehouseId=${store}`))).status, 400, "a warehouse of another inventory is refused");
+
+  const created = await route.POST(new Request("https://app.test/api/inventory-check-reports", { method: "POST", headers: { "content-type": "application/json", origin: "https://app.test" }, body: JSON.stringify({ companyId: company, locationId: location, warehouseId: store, memo: "Store count", lines: [{ sku: "WCT-1", counts: { [company]: 3 } }, { sku: "WCT-2" }] }) }));
+  assert.equal(created.status, 201, await created.clone().text());
+  const record = (await created.json()).record;
+  assert.equal(record.warehouseId, store);
+  const lines = (await database.query("SELECT sku, system_quantity, company_quantities FROM inventory_check_lines WHERE report_id = $1", [record.id])).rows;
+  assert.deepEqual(lines.map((line) => [line.sku, Number(line.system_quantity), JSON.parse(line.company_quantities)[0].countedQuantity]), [["WCT-1", 4, 3]], "items without stock in Store are not added");
+  const listed = (await (await route.GET(new Request(`https://app.test/api/inventory-check-reports?companyId=${company}&locationId=${location}`))).json()).records;
+  assert.equal(listed[0].warehouseName, "Store");
+  const { warehouseInUse } = await vite.ssrLoadModule("/lib/warehouses.ts");
+  const { getDb } = await vite.ssrLoadModule("/db/index.ts");
+  assert.equal(await warehouseInUse(getDb(), store), true, "a counted warehouse cannot be removed");
+});
