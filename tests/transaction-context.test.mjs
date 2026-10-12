@@ -977,8 +977,11 @@ test('purchase to sale inventory lifecycle blocks shortages and safely reverses 
   const orderResponse = await create('sales order', 3); assert.equal(orderResponse.status, 201);
   const order = (await orderResponse.json()).record;
   assert.equal((await stock()).quantity, 10);
+  assert.equal(order.bankAccountKey, '', 'new documents follow their currency');
+  await database.query("UPDATE transactions SET bank_account_key='usd-chosen' WHERE id=$1", [order.id]);
   const invoiceResponse = await create('invoice', 3, { sourceTransactionId: order.id }); assert.equal(invoiceResponse.status, 201);
   const invoice = (await invoiceResponse.json()).record;
+  assert.equal(invoice.bankAccountKey, 'usd-chosen', 'a converted invoice keeps the bank account chosen on its source');
   // Documents saved without payment terms, and invoices converted from them, are due on receipt; bills stay blank.
   assert.equal(order.terms, 'Due on receipt'); assert.equal(invoice.terms, 'Due on receipt'); assert.equal(bill.terms, '');
   assert.equal((await stock()).quantity, 7);
@@ -1382,7 +1385,9 @@ for (const sourceType of ['estimate', 'proforma invoice', 'sales order']) test(`
   assert.equal((await invoice(1,{locationId:foreign})).status,400);
   assert.equal((await invoice(1,{transactionDate:'2026-02-30'})).status,400);
   assert.equal((await invoice(1,{lines:[{sourceLineId,quantity:1},{sourceLineId,quantity:1}]})).status,400);
+  await database.query("UPDATE transactions SET bank_account_key='default' WHERE id=$1",[source.id]);
   response=await invoice(3,{lines:[{sourceLineId,quantity:3,comments:"Source invoice item",serialNumber:"SOURCE-1"}]});assert.equal(response.status,201); const first=(await response.json()).record;
+  assert.equal(first.bankAccountKey,'default','a partial invoice keeps the bank account chosen on its source');
   assert.deepEqual((await database.query('SELECT comments,serial_number FROM transaction_lines WHERE transaction_id=$1',[first.id])).rows[0],{comments:'Source invoice item',serial_number:'SOURCE-1'});
   assert.equal(first.total,315);assert.equal(first.currency,'USD');assert.equal(first.salesSourceId,source.id);assert.equal(first.sourceTransactionId,null);
   assert.equal(await stock(destinationItem),0); assert.equal(await stock(sourceItem),5);

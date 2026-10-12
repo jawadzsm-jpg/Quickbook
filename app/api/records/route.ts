@@ -863,6 +863,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const comments = ["invoice", "pending invoice", "bill"].includes(type) ? String(payload.comments ?? replacing?.comments ?? "") : "";
     const serialNumber = ["invoice", "pending invoice", "bill"].includes(type) ? String(payload.serialNumber ?? replacing?.serialNumber ?? "") : "";
     const conversionSourceId = ["invoice", "bill"].includes(type) ? Number(payload.sourceTransactionId) : NaN;
+    // An invoice made from a quotation, estimate, proforma or sales order keeps the bank account chosen on its source.
+    let sourceBankAccountKey = "";
     let rawLines = Array.isArray(payload.lines) ? payload.lines as InputLine[] : [];
     if (Number.isInteger(conversionSourceId) && conversionSourceId > 0) {
       if (rawLines.some(isInvoiceStockReturn)) return Response.json({ error: "Save the source conversion first, then edit the invoice to add stock-return lines." }, { status: 400 });
@@ -884,6 +886,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       payload.exchangeRate = source.exchangeRate;
       if (type === "invoice") payload.account = source.account;
       payload.memo = [source.memo, `Converted from ${source.type} ${source.number}`].filter(Boolean).join(" · ");
+      if (validSalesConversion) sourceBankAccountKey = source.bankAccountKey;
     }
     const salesSourceId = payload.salesSourceId ? Number(payload.salesSourceId) : null;
     const salesAllocations: { sourceLineId: number; quantity: number }[] = [];
@@ -892,6 +895,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const [source] = await db.select().from(transactions).where(and(eq(transactions.id, salesSourceId), eq(transactions.companyId, companyId))).for("update");
       if (!source || !["estimate", "proforma invoice", "sales order"].includes(source.type)) return Response.json({ error: "Select an estimate, proforma invoice or sales order in this company." }, { status: 400 });
       if (source.convertedInvoiceId || !["open", "draft", "pending", "overdue", "sent", "accepted", "approved", "partially invoiced"].includes(source.status)) return Response.json({ error: "This sales document is not open for invoicing." }, { status: 409 });
+      sourceBankAccountKey = source.bankAccountKey;
       if (!Number.isSafeInteger(locationId) || locationId <= 0) return Response.json({ error: "Select an invoice inventory." }, { status: 400 });
       const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId)));
       if (!location) return Response.json({ error: "Select an inventory in this company." }, { status: 400 });
@@ -1270,6 +1274,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       account: String(payload.account ?? "Accounts Receivable"), status: type === "pending invoice" ? "pending" : ["customer payment", "cheque", "transfer"].includes(type) && total > 0 ? "paid" : String(payload.status ?? "open"), ...(["customer payment", "cheque", "transfer"].includes(type) && total > 0 ? { paidAt: new Date().toISOString() } : {}), memo: String(payload.memo ?? ""), comments, serialNumber,
       subtotal, vatRate: Number(payload.vatRate ?? 5), vatAmount, total, currency, exchangeRate, baseTotal,
       sourceTransactionId: replacing ? replacing.sourceTransactionId : Number.isInteger(conversionSourceId) && conversionSourceId > 0 ? conversionSourceId : null,
+      ...(replacing ? {} : { bankAccountKey: sourceBankAccountKey }),
     };
     const [record] = replacing
       ? await db.update(transactions).set(values).where(eq(transactions.id, replacing.id)).returning()
