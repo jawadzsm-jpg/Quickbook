@@ -633,7 +633,7 @@ test("Inventory Overview exposes read-only customization popups and received age
   const page = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
   const api = readFileSync(new URL("../app/api/inventory-overview/route.ts", import.meta.url), "utf8");
   assert.match(app, /sales: \["cargos", "dashboard", "sales", "customers", "inventory-overview"\]/);
-  assert.match(app, /view === "inventory-overview" \? <InventoryOverview \/>/);
+  assert.match(app, /view === "inventory-overview" \? <InventoryOverview(?: [^>]*)? \/>/);
   assert.doesNotMatch(app, /view === "inventory-overview" \? currentUser\.role === "sales"/);
   assert.match(page, /Product Customization Details/);
   assert.match(page, /View product customization details/);
