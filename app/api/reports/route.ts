@@ -1,3 +1,4 @@
+import { warehouseQuantities } from "@/lib/warehouses";
 import { loadIncomeTax } from '@/lib/income-tax-data';
 import { vendorBankLines } from "@/lib/vendor-bank";
 import { defaultTaxConfig } from '@/lib/income-tax';
@@ -17,7 +18,7 @@ import { getDb } from "../../../db";
 import { accounts, auditLog, billPaymentAllocations, companies, contacts, exchangeRates, inventoryLocations, invoicePaymentAllocations, items, journalEntries, journalLines, purchaseReceiptAllocations, salesInvoiceAllocations, transactionLines, transactions, vatCodes } from "../../../db/schema";
 import { stockPricingRows } from "@/lib/stock-pricing";
 import { canAccessCompany, hasPermission, isAdministrator, requireApiUser } from "@/lib/auth";
-import { inventoryAssetAccountLink } from "@/lib/inventory-report";
+import { inventoryAssetAccountLink, inventoryReportKeys } from "@/lib/inventory-report";
 import { contactAddressLines } from "@/lib/contact-address";
 import { purchaseDocumentAccount, purchaseRemainingLine, purchaseReportKeys } from "@/lib/purchase-report";
 import { salesDocumentAccounts, salesFulfilment, salesReportKeys } from "@/lib/sales-report";
@@ -191,7 +192,24 @@ export async function GET(request: Request) {
       const amount = weighted && weighted.quantity > 0 ? weighted.value / weighted.quantity : Number(item.lastPurchasePrice) || Number(item.cost) || 0;
       return Math.round(amount * 100) / 100;
     };
-    const stockItems = allItems.filter((item) => item.itemType === "stock-part" && (item.status === "active" || Math.abs(Number(item.quantity)) > 0.000001));
+    let stockItems = allItems.filter((item) => item.itemType === "stock-part" && (item.status === "active" || Math.abs(Number(item.quantity)) > 0.000001));
+    // Stock reports can be limited to one warehouse: items of that warehouse's inventory, with that warehouse's quantity.
+    let warehouseOptions: Array<{ id: number; name: string; locationId: number; locationName: string }> | undefined;
+    let reportWarehouse: { id: number; name: string; locationName: string } | undefined;
+    if (inventoryReportKeys.has(key)) {
+      const itemLocations = [...new Set(stockItems.map((item) => Number(item.locationId)))];
+      const warehouseRows = itemLocations.length ? (await db.execute(sql`SELECT w.id, w.name, w.location_id, w.active, l.name AS location_name, (SELECT count(*) FROM warehouses x WHERE x.location_id = w.location_id) AS siblings FROM warehouses w JOIN inventory_locations l ON l.id = w.location_id WHERE w.company_id = ${companyId} AND w.location_id IN (${sql.join(itemLocations.map((id) => sql`${id}`), sql`, `)}) ORDER BY l.name, w.is_default DESC, w.name`)).rows : [];
+      const multi = warehouseRows.filter((row) => Number(row.siblings) > 1);
+      if (multi.length) warehouseOptions = multi.map((row) => ({ id: Number(row.id), name: String(row.name), locationId: Number(row.location_id), locationName: String(row.location_name) }));
+      const requestedWarehouse = Number(url.searchParams.get("warehouseId"));
+      if (Number.isSafeInteger(requestedWarehouse) && requestedWarehouse > 0) {
+        const chosen = warehouseOptions?.find((option) => option.id === requestedWarehouse);
+        if (!chosen) return Response.json({ error: "Select a warehouse of this report's inventory." }, { status: 400 });
+        const inWarehouse = await warehouseQuantities(db, chosen.id, stockItems.filter((item) => Number(item.locationId) === chosen.locationId).map((item) => item.id));
+        stockItems = stockItems.filter((item) => Number(item.locationId) === chosen.locationId).map((item) => ({ ...item, quantity: inWarehouse.get(item.id) ?? 0 })).filter((item) => item.status === "active" || Math.abs(Number(item.quantity)) > 0.000001);
+        reportWarehouse = { id: chosen.id, name: chosen.name, locationName: chosen.locationName };
+      }
+    }
     let inventoryAging: Array<{ band: string; items: number; quantity: number; value: number }> | undefined;
     const pnlAmount = (entry: typeof journal[number]) => incomeTypes.has(entryAccountType(entry)) ? Number(entry.credit) - Number(entry.debit) : expenseTypes.has(entryAccountType(entry)) ? Number(entry.debit) - Number(entry.credit) : 0;
     const periodProfit = (start: string, end: string) => journal.filter((entry) => entry.date >= start && entry.date <= end).reduce((sum, entry) => sum + (incomeTypes.has(entryAccountType(entry)) ? Number(entry.credit) - Number(entry.debit) : -(expenseTypes.has(entryAccountType(entry)) ? Number(entry.debit) - Number(entry.credit) : 0)), 0);
@@ -1303,7 +1321,8 @@ export async function GET(request: Request) {
     if (["accounts-receivable-graph", "accounts-payable-graph", "net-worth-graph"].includes(key)) rows = rows.filter(row => (!periodStart || String(row.month) >= periodStart.slice(0,7)) && (!periodEnd || String(row.month) <= periodEnd.slice(0,7)));
     if (vendorReportKeys.has(key) && key !== "accounts-payable-graph") addVendorAccounts();
     // Stock valuation reports reconcile stock value to each inventory asset account's posted ledger balance.
-    const inventoryLedger = ["inventory-valuation", "inventory-valuation-detail", "inventory-status", "inventory-status-supplier", "inventory-stock-aging"].includes(key) ? (() => {
+    // The ledger reconciliation compares inventory totals with the asset accounts, so it is not shown for one warehouse.
+    const inventoryLedger = !reportWarehouse && ["inventory-valuation", "inventory-valuation-detail", "inventory-status", "inventory-status-supplier", "inventory-stock-aging"].includes(key) ? (() => {
       const stockByAccount = new Map<number, { account: string; stock: number }>();
       for (const item of stockItems) {
         const link = inventoryAccountLinkFor(item);
@@ -1347,7 +1366,7 @@ export async function GET(request: Request) {
     const budget = key.startsWith("budget-") ? { from: budgetStart, to: budgetEnd, baselineFrom: priorBudgetStart, baselineTo: priorBudgetEnd } : undefined;
     const budgetIssues = budget ? [...new Set(journal.filter(entry => ((entry.date >= budgetStart && entry.date <= budgetEnd) || (entry.date >= priorBudgetStart && entry.date <= priorBudgetEnd)) && !journalAccount(entry)).map(entry => `Account “${entry.account}” has no unique Chart of Accounts match. Its postings are excluded from baseline and actual totals; review the account mapping.`))] : [];
 
-    return Response.json({ report: { key, period, companyId, supplierId: supplierReport ? supplierId : undefined, canViewAccounts: hasPermission(authorization, "accounting:manage"), budget, accountLinkIssues: [...linkedAccounts.issues, ...budgetIssues, ...((accountantReportKeys.has(key) || listReportKeys.has(key)) ? accountantAccountIssues(linkedAccounts.rows, columns) : [])], vatCodes: vatReportKeys.has(key) ? configuredVatCodes.map(({ code, name, rate }) => ({ code, name, rate })) : undefined, title, generatedAt: new Date().toISOString(), currency: reportCurrency, columns, rows: linkedAccounts.rows, chart, summary, apLedger, inventoryLedger, inventoryAging, inventoryScope: inventoryLedger ? (scoped ? "inventory" : "company") : undefined } }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ report: { key, period, companyId, supplierId: supplierReport ? supplierId : undefined, canViewAccounts: hasPermission(authorization, "accounting:manage"), budget, accountLinkIssues: [...linkedAccounts.issues, ...budgetIssues, ...((accountantReportKeys.has(key) || listReportKeys.has(key)) ? accountantAccountIssues(linkedAccounts.rows, columns) : [])], vatCodes: vatReportKeys.has(key) ? configuredVatCodes.map(({ code, name, rate }) => ({ code, name, rate })) : undefined, title, generatedAt: new Date().toISOString(), currency: reportCurrency, columns, rows: linkedAccounts.rows, chart, summary, apLedger, inventoryLedger, inventoryAging, inventoryScope: inventoryLedger ? (scoped ? "inventory" : "company") : undefined, warehouseOptions, warehouse: reportWarehouse } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not generate report." }, { status: 500 });
   }
