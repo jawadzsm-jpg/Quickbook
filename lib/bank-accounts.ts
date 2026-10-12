@@ -80,6 +80,27 @@ export function bankForCurrency(company: CompanyBankFields, currency: string | u
   return matching.find((account) => account.primary) ?? (fallback?.currency === wanted && wanted ? fallback : matching[0]) ?? fallback;
 }
 
+/** Every company bank account a document can print: the main account (id "default") first, then the extra accounts. */
+export function companyBankAccounts(company: CompanyBankFields): BankAccount[] {
+  const main = defaultAccount(company);
+  return [...(main ? [main] : []), ...readBankAccounts(company.bankAccounts)];
+}
+
+/**
+ * The account to print on one document: the account chosen on it (`bankAccountKey`), otherwise the account for its
+ * currency. A chosen account that was since removed from Company Setup falls back to the currency rule.
+ */
+export function bankForDocument(company: CompanyBankFields, currency: string | undefined, bankAccountKey: unknown): BankAccount | null {
+  const key = String(bankAccountKey ?? "");
+  return (key && companyBankAccounts(company).find((account) => account.id === key)) || bankForCurrency(company, currency);
+}
+
+/** Short label for choosing an account: bank, currency and the end of the account number or IBAN. */
+export function bankAccountLabel(account: BankAccount): string {
+  const number = account.accountNumber || account.iban;
+  return [account.bankName || account.accountName || "Bank account", account.currency, number && `…${number.slice(-4)}`, account.id === "default" && "main"].filter(Boolean).join(" · ");
+}
+
 export function bankLines(account: BankAccount | null): string[] {
   if (!account) return [];
   return [account.bankName, account.accountName && `Account name: ${account.accountName}`, account.accountNumber && `Account no.: ${account.accountNumber}`, account.iban && `IBAN: ${account.iban}`, account.swift && `SWIFT: ${account.swift}`, account.currency && `Currency: ${account.currency}`].filter(Boolean) as string[];

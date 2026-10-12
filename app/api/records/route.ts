@@ -1,3 +1,4 @@
+import { companyBankAccounts } from "@/lib/bank-accounts";
 import { adjustWarehouseStock, itemWarehouseBreakdown, resolveDocumentWarehouse, warehouseDocumentTypes, warehouseQuantities, type DocumentWarehouse } from "@/lib/warehouses";
 import { formatInvoiceNumber, invoiceSeriesError } from "@/lib/invoice-series";
 import { contactOrganization } from "@/lib/contact-hierarchy";
@@ -1510,6 +1511,23 @@ async function handlePATCH(request: Request) {
           if (deliveryAddress === existing.deliveryAddress) return Response.json({ record: existing });
           const [record] = await db.update(transactions).set({ deliveryAddress }).where(eq(transactions.id, id)).returning();
           await db.insert(auditLog).values({ companyId, action: "updated", entityType: "transaction", entityId: id, details: JSON.stringify({ mode: "delivery-address", actorId: authorization.id, number: existing.number, before: existing.deliveryAddress, after: deliveryAddress }) });
+          return Response.json({ record });
+        }
+        // Bank account printed on a saved sales document: "" follows the document currency, otherwise one of the company's
+        // bank accounts from Company Setup. Only the printed bank box changes; amounts, lines and postings are untouched.
+        if (payload.editMode === "bank-account") {
+          if (Object.keys(payload).some(key => !["kind", "id", "companyId", "editMode", "bankAccountKey"].includes(key)) || typeof payload.bankAccountKey !== "string") return Response.json({ error: "Send the bank account only." }, { status: 400 });
+          if (!shipToDocumentTypes.includes(existing.type)) return Response.json({ error: "This document does not print company bank details." }, { status: 400 });
+          // Sales users never receive the company's bank details, so the choice belongs to accountants and administrators.
+          if (authorization.role !== "accountant" && !isAdministrator(authorization)) return Response.json({ error: "Only an accountant or administrator can change the bank account on documents." }, { status: 403 });
+          const bankAccountKey = payload.bankAccountKey.trim();
+          if (bankAccountKey) {
+            const [company] = await db.select({ bankName: companies.bankName, bankAccountNumber: companies.bankAccountNumber, bankIban: companies.bankIban, bankCurrency: companies.bankCurrency, baseCurrency: companies.baseCurrency, bankAccounts: companies.bankAccounts }).from(companies).where(eq(companies.id, companyId)).limit(1);
+            if (!company || !companyBankAccounts(company).some((account) => account.id === bankAccountKey)) return Response.json({ error: "Choose one of the company's bank accounts from Company Setup." }, { status: 400 });
+          }
+          if (bankAccountKey === existing.bankAccountKey) return Response.json({ record: existing });
+          const [record] = await db.update(transactions).set({ bankAccountKey }).where(eq(transactions.id, id)).returning();
+          await db.insert(auditLog).values({ companyId, action: "updated", entityType: "transaction", entityId: id, details: JSON.stringify({ mode: "bank-account", actorId: authorization.id, number: existing.number, before: existing.bankAccountKey, after: bankAccountKey }) });
           return Response.json({ record });
         }
         // Saved documents are otherwise read-only for sales users; an accountant or administrator makes any change.
