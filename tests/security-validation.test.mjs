@@ -28,7 +28,7 @@ const { API_TOKEN_PREFIX, apiTokenDigest, apiTokenFromHeaders, generateApiToken 
 const { decodeCursor, encodeCursor, parseProductQuery } = await sourceModule("../lib/public-api-query.ts");
 const { friendlyEmailError } = await sourceModule("../lib/email-errors.ts");
 const { autoCategoryColor, categoryColor, categoryColorKey, categoryPalette, isCategoryColor } = await sourceModule("../lib/category-colors.ts");
-const { OFFER_MAX_DAYS, canManageOffers, offerEndsText, offerShareText, offerState, offerTime, validateOffer } = await sourceModule("../lib/item-offers.ts");
+const { OFFER_MAX_DAYS, canManageOffers, offerEndsText, offerRemaining, offerShareText, offerState, offerTime, validateOffer } = await sourceModule("../lib/item-offers.ts");
 
 test("header calculator provides safe everyday arithmetic", () => {
   assert.equal(calculatorResult(0.1, 0.2, "+"), 0.3);
@@ -1074,7 +1074,15 @@ test("statements for one customer or vendor print their address and TRN under St
 test("Today Offer: validated offer price and start/end, managed by administrators and inventory managers", () => {
   const now = Date.parse("2026-10-11T08:00:00Z");
   const ok = validateOffer({ offerPrice: "1499.999", startsAt: "2026-10-11T08:00:00Z", endsAt: "2026-10-11T19:59:00Z", note: " While stock lasts " }, now);
-  assert.deepEqual(ok, { value: { offerPrice: 1500, startsAt: "2026-10-11T08:00:00.000Z", endsAt: "2026-10-11T19:59:00.000Z", note: "While stock lasts" } });
+  assert.deepEqual(ok, { value: { offerPrice: 1500, offerQuantity: null, startsAt: "2026-10-11T08:00:00.000Z", endsAt: "2026-10-11T19:59:00.000Z", note: "While stock lasts" } });
+  // Offer quantity: optional, above zero.
+  const limited = { offerPrice: 10, startsAt: "2026-10-11T08:00:00Z", endsAt: "2026-10-11T20:00:00Z", note: "" };
+  assert.equal(validateOffer({ ...limited, offerQuantity: " 12 " }, now).value.offerQuantity, 12);
+  assert.equal(validateOffer({ ...limited, offerQuantity: "" }, now).value.offerQuantity, null);
+  for (const bad of ["0", "-3", "abc", "2000000"]) assert.match(validateOffer({ ...limited, offerQuantity: bad }, now).error, /offer quantity above zero/);
+  assert.equal(offerRemaining({ offerQuantity: 10, soldQuantity: 3 }), 7);
+  assert.equal(offerRemaining({ offerQuantity: 10, soldQuantity: 12 }), 0);
+  assert.equal(offerRemaining({ offerQuantity: null, soldQuantity: 5 }), null);
   assert.match(validateOffer({ offerPrice: 0, startsAt: "2026-10-11T08:00:00Z", endsAt: "2026-10-11T20:00:00Z", note: "" }, now).error, /above zero/);
   assert.match(validateOffer({ offerPrice: 10, startsAt: "2026-10-11T20:00:00Z", endsAt: "2026-10-11T08:00:00Z", note: "" }, now).error, /end after it starts/);
   assert.match(validateOffer({ offerPrice: 10, startsAt: "2026-10-10T08:00:00Z", endsAt: "2026-10-11T07:00:00Z", note: "" }, now).error, /in the future/);
@@ -1104,6 +1112,7 @@ test("WhatsApp, Telegram and email shares show a running Today Offer", () => {
   const telegram = offerShareText({ ...base, channel: "telegram" });
   assert.equal(telegram.price, "~~AED 1,800~~ **AED 1,599** (VAT excluded)");
   assert.match(telegram.offerLine, /^\*\*TODAY OFFER\*\* until 11 Oct, 07:44 pm$/i);
+  assert.match(offerShareText({ ...base, channel: "whatsapp", remaining: 4 }).offerLine, /^\*TODAY OFFER\* until 11 Oct, 07:44 pm · only 4 left$/i, "limited offers say how many are left");
   assert.equal(offerShareText({ ...base, channel: "email" }).price, "AED 1,599 (was AED 1,800, VAT excluded)");
   assert.equal(offerShareText({ ...base, channel: "email", vatLabel: "" }).price, "AED 1,599 (was AED 1,800)");
   const ui = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
@@ -1159,7 +1168,7 @@ test("Excel export adds Today offer price and Offer ends columns only when an ex
   assert.match(offerEndsText("2026-10-11 19:44:00+04"), /^11 Oct, 07:44 pm$/i);
   const ui = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
   assert.match(ui, /const offerColumns = showPrice && exportRecords\.some\(\(record\) => offerFor\(record\)\)/);
-  assert.match(ui, /headers\.push\(`Today offer price\$\{mode === "include" \? " including 5% VAT" : mode === "zero" \? " \(0% VAT\)" : ""\}`, "Offer ends \(UAE time\)"\)/);
+  assert.match(ui, /headers\.push\(`Today offer price\$\{mode === "include" \? " including 5% VAT" : mode === "zero" \? " \(0% VAT\)" : ""\}`, "Offer ends \(UAE time\)", "Offer quantity left"\)/);
   assert.match(ui, /priceFor\(\{ salesPrice: offer\.offerPrice \}, mode\)/);
 });
 

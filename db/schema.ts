@@ -533,6 +533,8 @@ export const itemOffers = pgTable("item_offers", {
   companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   itemId: integer("item_id").notNull().references(() => items.id, { onDelete: "cascade" }),
   offerPrice: doublePrecision("offer_price").notNull(),
+  // Migration 0118: how many may be sold at the offer (null = no limit); the offer is over once that many are sold.
+  offerQuantity: doublePrecision("offer_quantity"),
   startsAt: timestamp("starts_at", { withTimezone: true, mode: "string" }).notNull(),
   endsAt: timestamp("ends_at", { withTimezone: true, mode: "string" }).notNull(),
   note: text("note").notNull().default(""),

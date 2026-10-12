@@ -6,6 +6,8 @@ import { apiKeys, companies } from "@/db/schema";
 import { apiTokenDigest, apiTokenFromHeaders } from "@/lib/api-keys";
 import { consumeRateLimit } from "@/lib/rate-limit";
 import { encodeCursor, type ProductQuery } from "@/lib/public-api-query";
+import { offerRemaining } from "@/lib/item-offers";
+import { offerSoldQuantity } from "@/lib/item-offers-sql";
 
 export { parseProductQuery } from "@/lib/public-api-query";
 
@@ -73,8 +75,10 @@ export async function listProducts(client: ApiClient, query: ProductQuery) {
     FROM items i JOIN inventory_locations l ON l.id = i.location_id AND l.company_id = i.company_id
     WHERE ${filters} AND i.sku IN (${sql.join(skus.map((sku) => sql`${sku}`), sql`, `)}) ORDER BY i.sku, l.id`)).rows;
   const ids = items.map((item) => Number(item.id));
-  const offers = (await db.execute(sql`SELECT item_id, offer_price, starts_at, ends_at FROM item_offers
-    WHERE item_id IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)}) AND ended_at IS NULL AND starts_at <= now() AND ends_at > now() ORDER BY starts_at`)).rows;
+  // Running offers only; a limited offer whose quantity is sold is over.
+  const offers = (await db.execute(sql`SELECT item_id, offer_price, offer_quantity, ${offerSoldQuantity} AS sold, starts_at, ends_at FROM item_offers
+    WHERE item_id IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)}) AND ended_at IS NULL AND starts_at <= now() AND ends_at > now()
+      AND (offer_quantity IS NULL OR ${offerSoldQuantity} < offer_quantity) ORDER BY starts_at`)).rows;
   const offerByItem = new Map(offers.map((offer) => [Number(offer.item_id), offer]));
   const grouped = new Map<string, Row[]>();
   for (const item of items) grouped.set(String(item.sku), [...(grouped.get(String(item.sku)) ?? []), item]);
@@ -113,7 +117,7 @@ function productJson(rows: Row[], offerByItem: Map<number, Row>, currency: strin
     upc: String(first.upc_number ?? "") || null,
     status: rows.some((row) => row.status === "active") ? "active" : "inactive",
     price: { amount: round(Number(first.sales_price) || 0), currency, includes_vat: first.amounts_include_vat === true },
-    offer: offer ? { price: round(Number(offer.offer_price)), starts_at: apiIso(offer.starts_at), ends_at: apiIso(offer.ends_at) } : null,
+    offer: offer ? { price: round(Number(offer.offer_price)), starts_at: apiIso(offer.starts_at), ends_at: apiIso(offer.ends_at), quantity: offer.offer_quantity == null ? null : Number(offer.offer_quantity), remaining: offerRemaining({ offerQuantity: offer.offer_quantity == null ? null : Number(offer.offer_quantity), soldQuantity: Number(offer.sold) }) } : null,
     stock: { quantity: inventories.reduce((sum, entry) => sum + entry.quantity, 0), available: inventories.reduce((sum, entry) => sum + entry.available, 0), inventories },
     weight_kg: Number(first.weight_kg) || null,
     dimensions_cm: Number(first.length_cm) || Number(first.width_cm) || Number(first.height_cm) ? { length: Number(first.length_cm) || 0, width: Number(first.width_cm) || 0, height: Number(first.height_cm) || 0 } : null,

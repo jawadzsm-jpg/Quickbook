@@ -78,7 +78,7 @@ erDiagram
 | `contacts` | Customers, vendors and employees | `type`, `name`, company/billing name, phone/WhatsApp, country, TRN, postal address (`address_line_1/2`, `city`, `region`, `postal_code`), currency, `ledger_account_id`, `balance`, vendor bank details, employee salary/loan/vacation fields, `parent_contact_id`, `sales_owner_id`, `status` |
 | `items` | Products per inventory | `sku`, `item_number`, name, `category`, description, `specifications` (JSON), customization details, part/serial/UPC, HS code, origin, dimensions/weight, `quantity`, `reorder_point`, `sales_price`, `cost`, `last_purchase_price`, VAT codes, GL accounts, `status`, `updated_at` (set by the `trg_items_updated_at` trigger on every update) |
 | `stock_holds` | Stock reserved for a sales rep until expiry | `item_id`, `quantity`, `sales_rep`, `expires_at`, `released_at` |
-| `item_offers` | Today Offer: special price between start and end | `item_id`, `offer_price`, `starts_at`, `ends_at`, `ended_at` |
+| `item_offers` | Today Offer: special price between start and end, optionally for a set quantity | `item_id`, `offer_price`, `offer_quantity` (migration 0118; null = no limit — the quantity sold is counted from non-void invoice and sales receipt lines created during the offer, `lib/item-offers-sql.ts`, and the offer is over once it is reached), `starts_at`, `ends_at`, `ended_at` |
 | `sku_work_locks` | Short-lived editor locks per SKU and inventory | `lock_key`, `user_id`, `token`, `expires_at` |
 | `cargos` | Shared cargo/freight agent list | name, phones, email, modes, destinations |
 
