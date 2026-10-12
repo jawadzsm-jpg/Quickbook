@@ -1978,7 +1978,7 @@ async function handlePATCH(request: Request) {
         }
         if (existing?.purchaseOrderId && existing.type !== "bill") return Response.json({ error: "Remove and recreate this linked receipt to change received quantities." }, { status: 409 });
         if (!existing) return Response.json({ error: "Purchase not found." }, { status: 404 });
-        if (!["pending invoice", "estimate", "proforma invoice", "sales order", "bill", "purchase order", "item receipt", "received item bill", "expense", "bill payment", "vendor payment", "vendor credit"].includes(existing.type)) return Response.json({ error: "This document is not an editable purchase." }, { status: 400 });
+        if (!["pending invoice", "estimate", "proforma invoice", "sales order", "bill", "purchase order", "item receipt", "received item bill", "expense", "bill payment", "vendor payment", "vendor credit", "cheque"].includes(existing.type)) return Response.json({ error: "This document is not an editable purchase." }, { status: 400 });
         const [salesChild] = await db.select({ id: transactions.id }).from(transactions).where(and(sql`(${transactions.salesSourceId} = ${id} or ${transactions.sourceTransactionId} = ${id})`, sql`lower(${transactions.status}) NOT IN ('void', 'voided', 'cancelled', 'canceled')`)).limit(1);
         if (salesChild) return Response.json({ error: "Remove linked invoices before editing or deleting this source document." }, { status: 409 });
         const [receipt] = await db.select({ id: transactions.id }).from(transactions).where(eq(transactions.purchaseOrderId, id)).limit(1);
@@ -1987,7 +1987,14 @@ async function handlePATCH(request: Request) {
         const [invoiceAllocation] = await db.select({ id: invoicePaymentAllocations.id }).from(invoicePaymentAllocations).where(eq(invoicePaymentAllocations.invoiceId, id)).limit(1);
         const [billAllocation] = await db.select({ id: billPaymentAllocations.id }).from(billPaymentAllocations).where(eq(billPaymentAllocations.billId, id)).limit(1);
         if (allocated || invoiceAllocation || billAllocation) return Response.json({ error: "Remove linked payments before editing this bill." }, { status: 409 });
-        if (existing.convertedInvoiceId || !["open", "draft", "pending", "overdue"].includes(existing.status)) return Response.json({ error: "Only open, overdue, draft or pending purchases can be edited. Converted or settled documents are locked." }, { status: 409 });
+        // Cheques (administrators): payee, amount, date, accounts and bank can be corrected and the journal is reposted.
+        // Cheques that settle supplier bills or employee loans stay locked; delete and write a new cheque instead.
+        if (existing.type === "cheque") {
+          if (["void", "voided", "cancelled", "canceled"].includes(String(existing.status).toLowerCase())) return Response.json({ error: "Cancelled or void cheques cannot be edited." }, { status: 409 });
+          const [settles] = await db.select({ id: billPaymentAllocations.id }).from(billPaymentAllocations).where(eq(billPaymentAllocations.paymentId, id)).limit(1);
+          if (settles || existing.billId || existing.employeeLoanContactId) return Response.json({ error: "This cheque settles supplier bills or an employee loan. Delete it and write a new cheque to change it." }, { status: 409 });
+        }
+        if (existing.convertedInvoiceId || (existing.type !== "cheque" && !["open", "draft", "pending", "overdue"].includes(existing.status))) return Response.json({ error: "Only open, overdue, draft or pending purchases can be edited. Converted or settled documents are locked." }, { status: 409 });
         const oldLines = await db.select().from(transactionLines).where(eq(transactionLines.transactionId, id)).orderBy(asc(transactionLines.id));
         if (payload.revision !== purchaseRevision(existing, oldLines)) return Response.json({ error: "This purchase changed. Close the editor and reopen it before saving." }, { status: 409 });
         if (payload.type !== existing.type || Number(payload.locationId) !== existing.locationId) return Response.json({ error: "Keep the original document type and inventory when editing." }, { status: 400 });
@@ -2022,7 +2029,9 @@ async function handlePATCH(request: Request) {
           await db.update(items).set({ quantity: sql`${items.quantity} - ${previous}` }).where(eq(items.id, item.id));
           for (const movement of own) await adjustWarehouseStock(db, movement.warehouseId, item.id, -movement.quantity);
         }
-        const balance = contactBalanceChange(existing.type, existing.total);
+        // A cheque against Accounts Payable lowered the vendor's balance; undo it before reposting.
+        const [existingPosting] = existing.type === "cheque" ? await db.select({ systemRole: accounts.systemRole }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.name, existing.account))).limit(1) : [];
+        const balance = contactBalanceChange(existing.type, existing.total, existingPosting?.systemRole ?? "");
         if (balance) await db.update(contacts).set({ balance: sql`${contacts.balance} - ${balance}` }).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "vendor"), eq(contacts.name, existing.party)));
         await db.delete(inventoryMovements).where(eq(inventoryMovements.transactionId, id));
         await db.delete(journalEntries).where(eq(journalEntries.transactionId, id));
