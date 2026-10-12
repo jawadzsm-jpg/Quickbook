@@ -1,6 +1,6 @@
 # Data model
 
-Every PostgreSQL table, what it stores, and how tables relate. The typed schema is [`db/schema.ts`](../db/schema.ts); SQL migrations in [`drizzle/`](../drizzle/) (`0000`–`0115`) are applied in filename order by `scripts/migrate.mjs` (production) or `scripts/dev-local.mjs` (PGlite), which record each applied file in `__comnet_migrations`. Use this document instead of re-reading the schema; update it whenever a migration adds or changes a table.
+Every PostgreSQL table, what it stores, and how tables relate. The typed schema is [`db/schema.ts`](../db/schema.ts); SQL migrations in [`drizzle/`](../drizzle/) (`0000`–`0116`) are applied in filename order by `scripts/migrate.mjs` (production) or `scripts/dev-local.mjs` (PGlite), which record each applied file in `__comnet_migrations`. Use this document instead of re-reading the schema; update it whenever a migration adds or changes a table.
 
 ## Conventions
 
@@ -41,7 +41,7 @@ erDiagram
 | Table | Purpose | Key columns |
 | --- | --- | --- |
 | `app_users` | Users and their sign-in state | `email` (unique), `password_hash` (scrypt), `role` (`all_admin`, `admin`, `accountant`, `sales`, `purchasing`, `inventory`, `customization`, `viewer`), `active`, `must_change_password`, `failed_login_attempts`, `locked_until`, last-login IP/agent, appearance, share-emoji styles |
-| `notifications` | In-app notifications, one row per recipient (migration 0113): cheque written / updated notices for the company's active administrators and accountants plus the writer | `company_id`, `user_id`, `kind` (`cheque-written`, `cheque-updated`, `pdc-reminder`), `title`, `body`, `transaction_id` (set null on delete), `read_at`, `email_status` (`pending`, `sending`, `sent`, `failed`, `skipped`), `emailed_at`. `app_users.notification_emails` (default true) turns the email copies off |
+| `notifications` | In-app notifications, one row per recipient (migration 0113): cheque written / updated notices for post-dated cheques only (migration 0116 removed earlier notices for cheques dated on or before the notice day) for the company's active administrators and accountants plus the writer | `company_id`, `user_id`, `kind` (`cheque-written`, `cheque-updated`, `pdc-reminder`), `title`, `body`, `transaction_id` (set null on delete), `read_at`, `email_status` (`pending`, `sending`, `sent`, `failed`, `skipped`), `emailed_at`. `app_users.notification_emails` (default true) turns the email copies off |
 | `cheque_templates` | Unused: held company cheque templates for bank-cheque printing (migration 0114), which was removed. Rows saved before the removal are kept and still included in company backups; the table can be dropped by a later migration | `company_id`, `layout_key` (unique per company), `config` (JSON, `lib/cheque-template.ts`), `background_data`, `updated_by_name`, `updated_at` |
 | `app_user_companies` *(migration only)* | Which companies a non-All-Admin user may access | `user_id`, `company_id` |
 | `auth_sessions` | Sign-in sessions (12 h) | `token_hash` (SHA-256), `expires_at`, `last_seen_at`, `ip_address` |
