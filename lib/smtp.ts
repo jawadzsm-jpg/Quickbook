@@ -49,7 +49,8 @@ export async function saveEmailSettings(input: {
   return saved;
 }
 
-async function transporter() {
+/** Opens one connection with the saved settings; reuse it for a batch of emails. */
+export async function openMailer() {
   const settings = await getEmailSettings();
   if (!settings?.host || !settings.username || !settings.passwordEncrypted || !settings.fromEmail) throw new Error("Complete the SMTP settings first.");
   return {
@@ -65,6 +66,9 @@ async function transporter() {
     }),
   };
 }
+
+export type Mailer = Awaited<ReturnType<typeof openMailer>>;
+const transporter = openMailer;
 
 export async function verifySmtpConnection() {
   const { client } = await transporter();
@@ -107,14 +111,14 @@ export async function sendTestEmail(to: string) {
     from: { name: settings.fromName, address: settings.fromEmail },
     to,
     subject: "ComNet Accounting test email",
-    text: `This is a test email from ComNet Accounting.\n\nIf you received it, the email server can send login, password-reset and invitation emails.\nServer: ${settings.host}:${settings.port}\nSender: ${settings.fromName} <${settings.fromEmail}>`,
-    html: `<div style="font-family:Arial,sans-serif;max-width:560px;color:#0f172a"><h2>Test email</h2><p>This is a test email from ComNet Accounting.</p><p>If you received it, the email server can send login, password-reset and invitation emails.</p><p style="color:#475569;font-size:13px">Server: ${escapeHtml(settings.host)}:${settings.port}<br>Sender: ${escapeHtml(settings.fromName)} &lt;${escapeHtml(settings.fromEmail)}&gt;</p></div>`,
+    text: `This is a test email from ComNet Accounting.\n\nIf you received it, the email server can send login, password-reset, invitation, notification and document emails.\nServer: ${settings.host}:${settings.port}\nSender: ${settings.fromName} <${settings.fromEmail}>`,
+    html: `<div style="font-family:Arial,sans-serif;max-width:560px;color:#0f172a"><h2>Test email</h2><p>This is a test email from ComNet Accounting.</p><p>If you received it, the email server can send login, password-reset, invitation, notification and document emails.</p><p style="color:#475569;font-size:13px">Server: ${escapeHtml(settings.host)}:${settings.port}<br>Sender: ${escapeHtml(settings.fromName)} &lt;${escapeHtml(settings.fromEmail)}&gt;</p></div>`,
   });
 }
 
 /** One in-app notification as an email: a short title, the detail line and a link back to the app. */
-export async function sendNotificationEmail(input: { to: string; name: string; title: string; body: string; appUrl: string }) {
-  const { client, settings } = await transporter();
+export async function sendNotificationEmail(input: { to: string; name: string; title: string; body: string; appUrl: string }, mailer?: Mailer) {
+  const { client, settings } = mailer ?? await transporter();
   await client.sendMail({
     from: { name: settings.fromName, address: settings.fromEmail },
     to: input.to,
@@ -122,4 +126,38 @@ export async function sendNotificationEmail(input: { to: string; name: string; t
     text: `Hello ${input.name},\n\n${input.title}\n${input.body}\n\nOpen ComNet Accounting: ${input.appUrl}\n\nYou receive this because you are an administrator or accountant of the company. Turn these emails off from the notifications bell in the app.`,
     html: `<div style="font-family:Arial,sans-serif;max-width:560px;color:#0f172a"><p>Hello ${escapeHtml(input.name)},</p><div style="background:#f1f5f9;border-radius:10px;padding:16px"><p style="margin:0 0 6px;font-weight:bold">${escapeHtml(input.title)}</p><p style="margin:0">${escapeHtml(input.body)}</p></div><p><a href="${escapeHtml(input.appUrl)}">Open ComNet Accounting</a></p><p style="color:#475569;font-size:13px">You receive this because you are an administrator or accountant of the company. Turn these emails off from the notifications bell in the app.</p></div>`,
   });
+}
+
+const messageHtml = (text: string) => `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.55;color:#0f172a;max-width:640px">${text.split(/\n{2,}/).map((paragraph) => `<p style="margin:0 0 12px">${escapeHtml(paragraph).replace(/\n/g, "<br>")}</p>`).join("")}</div>`;
+
+/**
+ * A document emailed to a customer or supplier: the person's message (plain text, kept as written) with the PDF
+ * attached. Replies go to the person who sent it. More than RECIPIENTS_PER_MESSAGE addresses are sent as further
+ * copies of the same email; Cc goes on the first copy only. Returns how many messages the server accepted.
+ */
+export async function sendDocumentEmail(input: {
+  to: string[][]; cc: string[]; replyTo?: { name: string; address: string }; subject: string; body: string;
+  attachment?: { filename: string; content: Buffer };
+}) {
+  const { client, settings } = await transporter();
+  let sent = 0;
+  try {
+    for (const [index, to] of input.to.entries()) {
+      await client.sendMail({
+        from: { name: settings.fromName, address: settings.fromEmail },
+        to,
+        ...(index === 0 && input.cc.length ? { cc: input.cc } : {}),
+        ...(input.replyTo ? { replyTo: input.replyTo } : {}),
+        subject: input.subject,
+        text: input.body,
+        html: messageHtml(input.body),
+        ...(input.attachment ? { attachments: [{ filename: input.attachment.filename, content: input.attachment.content, contentType: "application/pdf" }] } : {}),
+      });
+      sent += 1;
+    }
+    return sent;
+  } catch (error) {
+    // Earlier copies may already be on their way; the caller reports how many went out.
+    throw Object.assign(error instanceof Error ? error : new Error(String(error)), { sentMessages: sent });
+  } finally { client.close(); }
 }

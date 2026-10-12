@@ -1,7 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Download, FileDown, Printer, Save } from "lucide-react";
+import { Download, FileDown, Mail, Printer, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PrintOrientationSelect, type PrintOrientation } from "@/components/print-orientation-select";
 import { resolveDocumentDesign, type TemplateDocumentType } from "@/lib/document-design";
@@ -17,6 +17,10 @@ import { transactionDocumentData, type CompanyBranding } from "./layout-builder/
 import type { DocumentStamp } from "@/lib/layout/document-data";
 import { LayoutPreview } from "./layout-builder/layout-preview";
 import { printLayout } from "./layout-builder/print-layout";
+import { LayoutDocument } from "./layout-builder/layout-document";
+import { layoutCss } from "@/lib/layout/styles";
+import { DocumentEmailDialog } from "./document-email-dialog";
+import { canEmailDocuments } from "@/lib/email-templates";
 import { bankAccountLabel, bankForCurrency, bankForDocument, bankLines, companyBankAccounts } from "@/lib/bank-accounts";
 import { vendorBankLines } from "@/lib/vendor-bank";
 import { contentBox, parseLayoutCollection } from "@/lib/layout/schema";
@@ -99,6 +103,7 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
   // Signed invoices: which copy Print, Save as PDF and Download produce (the preview shows Customer unless Inventory is chosen).
   const [copy, setCopy] = useState<"customer" | "inventory" | "both">("customer");
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [emailOpen, setEmailOpen] = useState(false);
   // Stamp placement is saved per document type; unsaved edits are kept per type until saved.
   const [savedPositions, setSavedPositions] = useState(() => readStampPositions(setup.stampPositions));
   const [stampEdits, setStampEdits] = useState<StampPositions>({});
@@ -286,10 +291,10 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
       return { ...data, stamps: signedInvoiceCopies ? stampsFor(documentCopy) : pageStamps, company: { ...data.company, bank: { ...data.company.bank, stamp: "" } }, letterhead: letterhead ? { template: letterhead, company: setup } : undefined };
     };
     const customer = documentData(customerLines, "customer");
-    if (!signedInvoiceCopies) return { preview: customer, print: [{ data: customer }] };
+    if (!signedInvoiceCopies) return { preview: customer, customer, print: [{ data: customer }] };
     // Signed invoices print the chosen copy, or a customer copy and an inventory-team copy each starting on its own page.
     const inventory = documentData(inventoryLines, "inventory");
-    return { preview: selectedCopy === "inventory" ? inventory : customer, print: [...(wantsCopy("customer") ? [{ data: customer }] : []), ...(wantsCopy("inventory") ? [{ data: inventory }] : [])] };
+    return { preview: selectedCopy === "inventory" ? inventory : customer, customer, print: [...(wantsCopy("customer") ? [{ data: customer }] : []), ...(wantsCopy("inventory") ? [{ data: inventory }] : [])] };
   })();
   const printWithBuilder = (pdf: boolean) => {
     if (!builderLayout || !builderCopies) return false;
@@ -385,6 +390,23 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
     }
   };
 
+  // Email: always the customer's copy, as a PDF built the same way as Download. A Layout Builder design is drawn
+  // off-screen at true A4 size for the PDF.
+  const emailPaperRef = useRef<HTMLDivElement>(null);
+  const canEmail = canEmailDocuments(String(role)) && Number(record.id) > 0 && !record.voidedAt && !["void", "voided", "cancelled", "canceled"].includes(String(record.status ?? "").toLowerCase());
+  const makeEmailPdf = async () => {
+    const fileName = documentPdfFileName(customerName, referenceNumber);
+    const title = fileName.replace(/\.pdf$/i, "");
+    if (builderLayout) {
+      const paper = emailPaperRef.current?.querySelector<HTMLElement>(".layout-paper");
+      if (!paper) return null;
+      return { blob: await createA4PdfBlob(paper, { orientation: builderLayout.page.orientation === "landscape" ? "landscape" : "portrait", marginMm: 0, paginate: true, title }), fileName };
+    }
+    const element = (selectedCopy === "customer" ? screenPreviewRef : alternatePreviewRef).current?.querySelector<HTMLElement>(".custom-invoice");
+    if (!element) return null;
+    return { blob: await atTrueSize(() => createA4PdfBlob(element, { orientation: a4Design.orientation, marginMm: a4Design.margin, title })), fileName };
+  };
+
   const downloadPdf = async () => {
     if (printWithBuilder(true)) return;
     const targets = pdfTargets();
@@ -455,6 +477,9 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
         <Button type="button" variant="outline" onClick={() => void downloadPdf()} disabled={pdfBusy}>
           <Download className="size-4" />Download
         </Button>
+        {canEmail ? <Button type="button" variant="outline" onClick={() => setEmailOpen(true)}>
+          <Mail className="size-4" />Email
+        </Button> : null}
       </div>
     </div>
     {movableStamp && canEditStamps && <div className="document-internal-only mb-4 grid gap-3 rounded-xl border bg-card p-4 text-sm text-card-foreground">
@@ -485,6 +510,9 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
       {signedInvoiceCopies && <div ref={alternatePreviewRef} data-invoice-copy={selectedCopy === "customer" ? "inventory" : "customer"} className="invoice-screen-only pointer-events-none absolute top-0 w-full" style={{ left: -100000 }} aria-hidden="true" inert>{renderDocument(selectedCopy === "customer" ? "inventory" : "customer")}</div>}
     </div>
     <div className="invoice-print-only">{renderDocument(selectedCopy, true)}</div>
+    {emailOpen && builderLayout && builderCopies ? <div ref={emailPaperRef} className="invoice-screen-only pointer-events-none absolute top-0" style={{ left: -100000 }} aria-hidden="true" inert><style>{layoutCss(outputLayout ?? builderLayout)}</style><div className="layout-paper relative bg-white" style={{ width: `${contentBox(builderLayout.page).pageWidth}mm`, minHeight: `${contentBox(builderLayout.page).pageHeight}mm`, padding: `${builderLayout.page.margins.top}mm ${builderLayout.page.margins.right}mm ${builderLayout.page.margins.bottom}mm ${builderLayout.page.margins.left}mm` }}><LayoutDocument layout={outputLayout ?? builderLayout} data={builderCopies.customer} mode="print" /></div></div> : null}
+    {canEmail ? <DocumentEmailDialog open={emailOpen} onOpenChange={setEmailOpen} companyId={Number(record.companyId)} companyName={String(setup.name || "")} partyName={customerName} makePdf={makeEmailPdf}
+      document={{ id: Number(record.id), type: String(record.type), number: referenceNumber, party: String(record.party ?? ""), total: Number(record.total || 0), currency: String(record.currency || "AED"), transactionDate: String(record.transactionDate ?? ""), dueDate: String(record.dueDate ?? "") }} /> : null}
     {connectedPackingList ? <InvoicePackingListDialog bankAccountKey={bankKey} open={packingOpen} onOpenChange={setPackingOpen} companyId={Number(record.companyId)} companyName={String(setup.name || "Company")} setup={setup} invoiceId={Number(record.id)} initialView={packingView} stampPositions={savedPositions} onSaveStampPositions={setup.id && (setup.stampData || bankForCurrency(setup, documentCurrency)) ? persistStampPositions : undefined} savingStampPositions={savingStamps} /> : null}
   </>;
 }

@@ -579,7 +579,43 @@ export const notifications = pgTable("notifications", {
   readAt: timestamp("read_at", { withTimezone: true, mode: "string" }),
   emailStatus: text("email_status").notNull().default("pending"),
   emailedAt: timestamp("emailed_at", { withTimezone: true, mode: "string" }),
+  // Migration 0117: failed emails are retried up to 3 attempts; `emailClaimedAt` lets an interrupted send be picked up again.
+  emailAttempts: integer("email_attempts").notNull().default(0),
+  emailClaimedAt: timestamp("email_claimed_at", { withTimezone: true, mode: "string" }),
+  emailError: text("email_error").notNull().default(""),
 }, (table) => [index("idx_notifications_user").on(table.userId, table.createdAt)]);
+
+// Email templates (migration 0117): each user's own, optionally shared with the company. `documentType` is a
+// transaction type ("invoice", "purchase order", …) or "any". Subject and body use {placeholders}.
+export const emailTemplates = pgTable("email_templates", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  ownerUserId: integer("owner_user_id").references(() => appUsers.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  documentType: text("document_type").notNull().default("any"),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  shared: boolean("shared").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, (table) => [index("idx_email_templates_company_owner").on(table.companyId, table.ownerUserId)]);
+
+// Documents emailed with their PDF (migration 0117). `recipients` and `cc` are JSON arrays; `status` sent or failed.
+export const documentEmails = pgTable("document_emails", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  transactionId: integer("transaction_id").references(() => transactions.id, { onDelete: "set null" }),
+  sentByUserId: integer("sent_by_user_id").references(() => appUsers.id, { onDelete: "set null" }),
+  sentByName: text("sent_by_name").notNull().default(""),
+  party: text("party").notNull().default(""),
+  recipients: text("recipients").notNull().default("[]"),
+  cc: text("cc").notNull().default("[]"),
+  subject: text("subject").notNull().default(""),
+  attachmentName: text("attachment_name").notNull().default(""),
+  status: text("status").notNull().default("sent"),
+  error: text("error").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, (table) => [index("idx_document_emails_transaction").on(table.transactionId, table.createdAt), index("idx_document_emails_party").on(table.companyId, table.party, table.createdAt)]);
 
 export const inventoryCheckReports = pgTable("inventory_check_reports", {
   id: serial("id").primaryKey(),
