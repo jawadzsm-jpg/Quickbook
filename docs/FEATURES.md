@@ -428,7 +428,14 @@ When the same product is on several lines of one form, each line shows the stock
 
 Company Setup is laid out like Admin Controls. Four status cards (Company with TRN, Company stamp, Bank accounts with their currencies, Login page) flag missing items with **Action needed** and open their section. A tab bar (Identity, Stamp, Bank accounts, E-invoicing, Layout Builder, Login page, and Clear company for those allowed) shows one section at a time; the last tab is remembered, and unsaved edits survive switching tabs. Each section says how it is saved: name, logos and stamp with the sticky **Save Company Setup** bar (shown on the Identity and Stamp tabs); bank accounts and e-invoicing with their own buttons; each logo can also be saved alone. Logos and login images sit side by side on wider screens; bank accounts by currency wrap to 2–3 columns until very wide screens; Clear company is styled as a danger zone.
 
-Company Setup → Clear lets the assigned company Administrator clear selected data with their password and a confirmation. Options cover transactions, stock, contacts, saved reports, VAT/currency controls and company setup. Items and inventory locations are protected like the Chart of Accounts and are never deleted. **Reset stock to zero, keep items** sets all stock quantities to zero; it runs together with Transactions, which it selects automatically. Inventory-check reports are cleared with Saved reports.
+Company Setup → Clear lets the assigned company Administrator (never All-Admin) clear selected data. The options are grouped, and each shows how many records it would clear (for example Transactions: Sales 120 · Purchases 40 · Banking 30 · Journal entries 200), or "Nothing to clear":
+- **Accounting and stock:** Transactions, payments and cheques (with packing lists, VAT returns and their attachments; account and contact balances reset to zero); **Reset stock to zero, keep items**, which also clears warehouse stock, moves between warehouses and stock holds and runs together with Transactions (selected automatically).
+- **Customers, vendors and employees** separately: customers with their warranty slips; vendors (warranty slips keep the slip without the supplier link); employees with their attachments.
+- **Operations:** Warranty / RMA slips; Today offers and stock holds; Cargo list; RCM declarations.
+- **Reports, documents and messages:** Saved reports and attachments (memorised reports, inventory checks, salary sheets, income tax working papers, every remaining attachment); Email templates and sent emails; Notifications.
+- **Settings and setup:** VAT, currencies and company controls (standard UAE VAT codes restored); Company setup and templates.
+
+**Select all** and **Clear selection** help choose; a red summary lists what will be cleared with the record total and suggests a backup first. Clearing needs the company name typed exactly, the confirmation tick and the administrator password. The Chart of Accounts and every sub-account, items with their inventory locations and warehouses, the company name and base currency, users and the audit history are always kept.
 
 ## Register row actions
 
