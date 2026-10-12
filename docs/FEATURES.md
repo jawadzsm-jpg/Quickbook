@@ -66,7 +66,7 @@
 - Serial Number Search finds purchases and sales by full or partial serial (latest 100 matches) across the company. Results show an All / Purchases / Sales pill toolbar with the match count on the same line; from 1,280 px they are a table with right-aligned amounts, and on narrower screens each match is a card (two per row from tablet width) with the document link, total, item, serial, party, inventory, quantity/rate and status.
 - Inventory check reports with selected in-stock items, actual counts, and cross-company quantity comparison.
 - Multi-line transfers between inventories or companies, with revisions and reversal.
-- Stock pricing with conflict detection and stock revaluation controls.
+- Stock pricing with conflict detection and stock revaluation controls. On Stock Pricing and Stock Revaluation the editable cost/price inputs are 192 px wide so full amounts and the "Receipt cost" placeholder stay readable, the table fits a 1,120 px screen, and on phones the Inventory and Search filters take the full width.
 - Shared-item comparison and copying across accessible companies.
 - SKU reservations and database locks to prevent overlapping inventory edits.
 
