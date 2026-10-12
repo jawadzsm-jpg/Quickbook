@@ -72,7 +72,7 @@
 
 ## Accounting and banking
 
-- Company chart of accounts with standard system roles, multi-currency control accounts, parent/sub-account structure, and opening balances. On wide screens the account table keeps its four row actions (view, edit, active/inactive, delete) on one line with 32 px icons, and its column widths give linked-use and type labels enough room; below 1,280 px each account becomes a card with 5 fields per row on small laptops, 4 on tablets, 2 on large phones and 1 on small phones.
+- Company chart of accounts with standard system roles, multi-currency control accounts, parent/sub-account structure, and opening balances. On wide screens the account table keeps its four row actions (view, edit, active/inactive, delete) on one line with 32 px icons, and its column widths give linked-use and type labels enough room; below 1,280 px each account becomes a card with 5 fields per row on small laptops, 4 on tablets, 2 on large phones and 1 on small phones. The four header stats (Active, System linked, VAT controls, Sub-accounts) are two-up on phones.
 - Automatic double-entry journals for posting sales, purchases, payments, banking, VAT, and stock effects.
 - Manual general journal entries with balanced debit/credit validation and inventory location selection.
 - Deposits, cheques, credit-card charges, transfers, cheque orders, and opening balances.
