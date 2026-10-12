@@ -3486,7 +3486,8 @@ test('company bank accounts by currency are validated, saved by accountants and 
   const patch=(body)=>PATCH(new Request('https://app.test/api/company-setup',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({companyId,...body})}));
   const usd={id:'usd',currency:'usd',bankName:'Mashreq',accountName:'Co',accountNumber:'1',iban:'ae01',swift:'boml'};
   try { globalThis.__transferTestUser={id:9,role:'accountant',companyIds:[companyId]};
-    assert.equal((await patch({bankAccounts:JSON.stringify([usd,{...usd,id:'usd2'}])})).status,400);
+    assert.equal((await patch({bankAccounts:JSON.stringify([usd,{...usd,id:'usd2'}])})).status,200,'two accounts in one currency are allowed');
+    assert.equal((await patch({bankAccounts:JSON.stringify([{...usd,primary:true},{...usd,id:'usd2',primary:true}])})).status,400,'only one may print per currency');
     assert.equal((await patch({bankAccounts:JSON.stringify([{...usd,currency:'XX'}])})).status,400);
     const saved=await patch({bankAccounts:JSON.stringify([usd])});assert.equal(saved.status,200,JSON.stringify(await saved.clone().json()));
     assert.deepEqual(JSON.parse((await saved.json()).record.bankAccounts),[{id:'usd',currency:'USD',bankName:'Mashreq',accountName:'Co',accountNumber:'1',iban:'AE01',swift:'BOML'}]);

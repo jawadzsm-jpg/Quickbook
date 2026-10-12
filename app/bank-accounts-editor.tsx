@@ -5,9 +5,9 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { draftBankAccounts, MAX_BANK_ACCOUNTS, MAX_BANK_REMARK_LENGTH, validBankStamp, type BankAccount } from "@/lib/bank-accounts";
+import { draftBankAccounts, MAX_BANK_REMARK_LENGTH, validBankStamp, type BankAccount } from "@/lib/bank-accounts";
 
-const fields: { key: keyof Omit<BankAccount, "id" | "currency" | "stampData" | "remark">; label: string; max: number }[] = [
+const fields: { key: keyof Omit<BankAccount, "id" | "currency" | "stampData" | "remark" | "primary">; label: string; max: number }[] = [
   { key: "bankName", label: "Bank Name", max: 120 }, { key: "accountName", label: "Account Name", max: 120 },
   { key: "accountNumber", label: "Account Number", max: 80 }, { key: "iban", label: "IBAN", max: 80 }, { key: "swift", label: "SWIFT / BIC", max: 40 },
 ];
@@ -44,22 +44,29 @@ export function BankRemarkField({ id, currency, value, onChange, disabled }: { i
 
 const newBankId = () => `bank-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
 
-/** Extra company bank accounts, one per currency; documents print the account matching their currency. */
+/**
+ * Extra company bank accounts: any number, in any currency, several per currency allowed. Documents print the account
+ * matching their currency; when a currency has more than one account, the one ticked "Print on documents" is used.
+ */
 export function BankAccountsEditor({ value, defaultCurrency, onChange, disabled }: { value: string; defaultCurrency: string; onChange: (value: string) => void; disabled?: boolean }) {
   const accounts = draftBankAccounts(value);
   const save = (next: BankAccount[]) => onChange(JSON.stringify(next));
   const update = (id: string, patch: Partial<BankAccount>) => save(accounts.map((account) => account.id === id ? { ...account, ...patch } : account));
   const used = new Set([defaultCurrency.toUpperCase(), ...accounts.map((account) => account.currency)]);
-  const nextCurrency = ["USD", "EUR", "GBP", "SAR", "AED", "INR", "OMR", "QAR", "KWD", "BHD"].find((code) => !used.has(code)) ?? "";
+  const nextCurrency = ["USD", "EUR", "GBP", "SAR", "AED", "INR", "OMR", "QAR", "KWD", "BHD"].find((code) => !used.has(code)) ?? (defaultCurrency.toUpperCase() || "USD");
+  // Accounts sharing a currency (the default account counts too) need one chosen to print on documents.
+  const sameCurrency = (currency: string) => accounts.filter((entry) => entry.currency === currency).length + (currency && currency === defaultCurrency.toUpperCase() ? 1 : 0);
+  const choosePrinted = (account: BankAccount, checked: boolean) => save(accounts.map((entry) => entry.currency !== account.currency ? entry : { ...entry, primary: entry.id === account.id && checked ? true : undefined }));
   return <div className="mt-5 grid gap-3 border-t pt-4">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <div><h3 className="font-semibold">Bank accounts by currency</h3><p className="text-sm text-muted-foreground">Documents show the account matching their currency. The account above ({defaultCurrency || "default"}) is used when no currency matches.</p></div>
-      <Button type="button" variant="outline" size="sm" disabled={disabled || accounts.length >= MAX_BANK_ACCOUNTS} onClick={() => save([...accounts, { id: newBankId(), currency: nextCurrency, bankName: "", accountName: "", accountNumber: "", iban: "", swift: "" }])}><Plus className="size-4" />Add currency account</Button>
+      <div><h3 className="font-semibold">Bank accounts by currency</h3><p className="text-sm text-muted-foreground">Add as many accounts as you need, in any currency. Documents show the account matching their currency; when a currency has more than one, tick the one to print. The account above ({defaultCurrency || "default"}) is used when no currency matches.</p></div>
+      <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => save([...accounts, { id: newBankId(), currency: nextCurrency, bankName: "", accountName: "", accountNumber: "", iban: "", swift: "" }])}><Plus className="size-4" />Add bank account</Button>
     </div>
     {accounts.map((account) => <div key={account.id} className="grid gap-3 rounded-lg border p-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-[6rem_repeat(5,minmax(0,1fr))_auto] 2xl:items-end">
-      <div className="space-y-1"><Label htmlFor={`${account.id}-currency`}>Currency</Label><Input id={`${account.id}-currency`} value={account.currency} maxLength={3} disabled={disabled} className="uppercase" aria-invalid={!/^[A-Z]{3}$/.test(account.currency) || accounts.filter((entry) => entry.currency === account.currency).length > 1} onChange={(event) => update(account.id, { currency: event.target.value.toUpperCase().replace(/[^A-Z]/g, "") })} /></div>
+      <div className="space-y-1"><Label htmlFor={`${account.id}-currency`}>Currency</Label><Input id={`${account.id}-currency`} value={account.currency} maxLength={3} disabled={disabled} className="uppercase" aria-invalid={!/^[A-Z]{3}$/.test(account.currency)} onChange={(event) => update(account.id, { currency: event.target.value.toUpperCase().replace(/[^A-Z]/g, "") })} /></div>
       {fields.map((field) => <div key={field.key} className="min-w-0 space-y-1"><Label htmlFor={`${account.id}-${field.key}`}>{field.label}</Label><Input id={`${account.id}-${field.key}`} value={account[field.key]} maxLength={field.max} disabled={disabled} onChange={(event) => update(account.id, { [field.key]: event.target.value })} /></div>)}
       <Button type="button" variant="ghost" size="icon" className="order-first -mb-2 justify-self-end text-destructive sm:col-span-full 2xl:order-none 2xl:col-span-1 2xl:mb-0 2xl:self-end" aria-label={`Remove ${account.currency || "currency"} bank account`} disabled={disabled} onClick={() => save(accounts.filter((entry) => entry.id !== account.id))}><Trash2 className="size-4" /></Button>
+      {sameCurrency(account.currency) > 1 ? <label className="flex items-center gap-2 text-sm sm:col-span-full"><input type="checkbox" className="size-4 accent-primary" checked={Boolean(account.primary)} disabled={disabled} onChange={(event) => choosePrinted(account, event.target.checked)} />Print this account on {account.currency} documents<span className="text-xs text-muted-foreground">{accounts.some((entry) => entry.currency === account.currency && entry.primary) ? "" : account.currency === defaultCurrency.toUpperCase() ? "(none ticked: the account above prints)" : "(none ticked: the first one prints)"}</span></label> : null}
       <div className="sm:col-span-full"><BankRemarkField id={account.id} currency={account.currency} value={account.remark ?? ""} disabled={disabled} onChange={(remark) => update(account.id, { remark })} /></div>
       <div className="sm:col-span-full"><BankStampPicker id={account.id} currency={account.currency} value={account.stampData ?? ""} disabled={disabled} onChange={(stampData) => update(account.id, stampData ? { stampData } : { stampData: undefined })} /></div>
     </div>)}
