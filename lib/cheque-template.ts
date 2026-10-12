@@ -29,14 +29,31 @@ export const chequeFieldKeys: ChequeFieldKey[] = ["date", "payee", "words", "amo
 const A4 = { width: 210, height: 297 };
 const round = (value: number) => Math.round(value * 10) / 10;
 
-/** Starting template for a bank layout, from the built-in (approximate) positions. */
+// Positions measured on a real cheque (mm from the cheque's top-left corner, about ±2 mm). They describe the cheque
+// itself, not the printer; the printer feed offset is set per company in the template.
+const measuredFields: Partial<Record<string, { fields: Partial<Record<ChequeFieldKey, ChequeField>>; wordsLine2: { left: number; top: number; width: number } }>> = {
+  // Habib Bank AG Zurich, measured from an Al Fahidi branch cheque (187 × 90 mm): date in the Date box on the right,
+  // payee on the "Pay against this cheque to" line, words on the "Dirhams" line and the line below, amount in the box.
+  "habib-bank-ag-zurich": {
+    fields: {
+      date: { left: 130, top: 16.5, width: 37, fontPt: 11 },
+      payee: { left: 16, top: 31.5, width: 150, fontPt: 11 },
+      words: { left: 15, top: 43, width: 112, fontPt: 9.5 },
+      amount: { left: 131, top: 46, width: 46, fontPt: 10.5 },
+    },
+    wordsLine2: { left: 6, top: 51.5, width: 120 },
+  },
+};
+
+/** Starting template for a bank layout: measured positions where known, otherwise the built-in (approximate) ones. */
 export function defaultChequeTemplate(layoutKey: string): ChequeTemplate {
   const layout = uaeChequeLayout(layoutKey);
   const field = (position: { left: number; top: number; width: number }, fontPt: number): ChequeField => ({ ...position, fontPt });
+  const measured = measuredFields[layout.key];
   return {
     widthMm: layout.widthMm, heightMm: layout.heightMm,
-    fields: { date: field(layout.date, 11), payee: field(layout.payee, 11), words: field(layout.words, 9.5), amount: field(layout.amount, 10.5), crossing: field(layout.crossing, 9) },
-    wordsLine2: { left: layout.words.left, top: round(layout.words.top + 7), width: layout.words.width },
+    fields: { date: field(layout.date, 11), payee: field(layout.payee, 11), words: field(layout.words, 9.5), amount: field(layout.amount, 10.5), crossing: field(layout.crossing, 9), ...measured?.fields },
+    wordsLine2: measured?.wordsLine2 ?? { left: layout.words.left, top: round(layout.words.top + 7), width: layout.words.width },
     dateMode: "text", datePitchMm: 4.5, dateGroupGapMm: 1.5,
     page: "cheque", align: "left", offsetXMm: 0, offsetYMm: 0,
   };
