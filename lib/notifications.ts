@@ -4,7 +4,8 @@ import { after } from "next/server";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { appUsers, notifications } from "@/db/schema";
-import { emailDeliveryConfigured, sendNotificationEmail } from "@/lib/smtp";
+import { emailDeliveryConfigured, openMailer, sendNotificationEmail, type Mailer } from "@/lib/smtp";
+import { friendlyEmailError } from "@/lib/email-errors";
 import { daysUntil, isPostDated } from "@/lib/cheque-reminders";
 
 type Executor = { execute: (query: ReturnType<typeof sql>) => Promise<{ rows: Record<string, unknown>[] }> };
@@ -59,14 +60,24 @@ export function queueNotificationEmails(ids: number[]) {
   try { after(() => deliverNotificationEmails(ids)); } catch { /* No request scope: left pending. */ }
 }
 
+/** A failed email is tried again on later runs until this many attempts. */
+export const NOTIFICATION_EMAIL_ATTEMPTS = 3;
+/** A row left "sending" this long (the run was cut off) is picked up again. */
+const STALE_SENDING = sql`now() - interval '15 minutes'`;
+
 /**
- * Email pending notifications (all of them, or the given ids). A row is claimed before sending so two runs never send
- * it twice. Without SMTP settings, an address or the user's consent the row is marked skipped; errors mark it failed.
+ * Email pending notifications (all of them, or the given ids), plus failed ones with attempts left and ones a cut-off
+ * run left "sending". A row is claimed before sending so two runs never send it twice. Without SMTP settings, an
+ * address or the user's consent the row is marked skipped; errors mark it failed with the reason. One connection is
+ * used for the whole run.
  */
 export async function deliverNotificationEmails(ids?: number[]) {
   const db = getDb();
-  const claimed = await db.update(notifications).set({ emailStatus: "sending" })
-    .where(and(eq(notifications.emailStatus, "pending"), ids ? inArray(notifications.id, ids.length ? ids : [0]) : undefined))
+  const due = sql`(${notifications.emailStatus} = 'pending'
+    OR (${notifications.emailStatus} = 'failed' AND ${notifications.emailAttempts} < ${NOTIFICATION_EMAIL_ATTEMPTS})
+    OR (${notifications.emailStatus} = 'sending' AND ${notifications.emailClaimedAt} < ${STALE_SENDING}))`;
+  const claimed = await db.update(notifications).set({ emailStatus: "sending", emailClaimedAt: sql`now()`, emailAttempts: sql`${notifications.emailAttempts} + 1` })
+    .where(and(due, ids ? inArray(notifications.id, ids.length ? ids : [0]) : undefined))
     .returning();
   if (!claimed.length) return { sent: 0, skipped: 0, failed: 0 };
   const configured = await emailDeliveryConfigured().catch(() => false);
@@ -74,18 +85,21 @@ export async function deliverNotificationEmails(ids?: number[]) {
   const byId = new Map(users.map((user) => [user.id, user]));
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://comnet-enterprise-accounting.vercel.app";
   const result = { sent: 0, skipped: 0, failed: 0 };
+  let mailer: Mailer | null = null;
   for (const row of claimed) {
     const user = byId.get(row.userId);
     if (!configured || !user?.active || !user.notificationEmails || !user.email) {
       await db.update(notifications).set({ emailStatus: "skipped" }).where(eq(notifications.id, row.id)); result.skipped += 1; continue;
     }
     try {
-      await sendNotificationEmail({ to: user.email, name: user.fullName || user.email, title: row.title, body: row.body, appUrl });
-      await db.update(notifications).set({ emailStatus: "sent", emailedAt: new Date().toISOString() }).where(eq(notifications.id, row.id)); result.sent += 1;
-    } catch {
-      await db.update(notifications).set({ emailStatus: "failed" }).where(eq(notifications.id, row.id)); result.failed += 1;
+      mailer ??= await openMailer();
+      await sendNotificationEmail({ to: user.email, name: user.fullName || user.email, title: row.title, body: row.body, appUrl }, mailer);
+      await db.update(notifications).set({ emailStatus: "sent", emailedAt: new Date().toISOString(), emailError: "" }).where(eq(notifications.id, row.id)); result.sent += 1;
+    } catch (error) {
+      await db.update(notifications).set({ emailStatus: "failed", emailError: friendlyEmailError(error).slice(0, 500) }).where(eq(notifications.id, row.id)); result.failed += 1;
     }
   }
+  mailer?.client.close();
   return result;
 }
 

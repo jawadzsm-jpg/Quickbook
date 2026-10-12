@@ -1187,6 +1187,9 @@ test("email failures are explained in plain language and the login email can be 
   assert.equal(friendlyEmailError({ message: "Data command failed: 566 SMTP limit exceeded", responseCode: 566 }), "Your email provider's sending limit is reached. Copy the login details and send them yourself, or send the email again later. (Data command failed: 566 SMTP limit exceeded)");
   assert.match(friendlyEmailError({ message: "550 5.4.5 Daily user sending quota exceeded." }), /^Your email provider's sending limit is reached/);
   assert.match(friendlyEmailError({ message: "Invalid login: 535 Authentication failed", code: "EAUTH", responseCode: 535 }), /^The email server rejected the SMTP username or password/);
+  // turboSMTP: TLS on a STARTTLS port (or the reverse) and oversized attachments get plain advice.
+  assert.match(friendlyEmailError({ message: "C0B6F1E401000000:error:0A00010B:SSL routines:ssl3_get_record:wrong version number", code: "ESOCKET" }), /^The security setting does not match the port\. Use port 465 with TLS, or port 587 or 2525 with STARTTLS/);
+  assert.match(friendlyEmailError({ message: "552 5.3.4 Message size exceeds fixed limit", responseCode: 552 }), /^The email is larger than the email server accepts/);
   assert.match(friendlyEmailError({ message: "Connection timeout", code: "ETIMEDOUT" }), /^Could not reach the email server/);
   assert.match(friendlyEmailError({ message: "553 Sender address not allowed", responseCode: 553 }), /^The email server would not send from the sender address/);
   assert.equal(friendlyEmailError(new Error("Complete the SMTP settings first.")), "Complete the SMTP settings first.");
@@ -1208,6 +1211,7 @@ test("email failures are explained in plain language and the login email can be 
 test("Send test email sends a real message only to the signed-in All-Admin", () => {
   const route = readFileSync(new URL("../app/api/email-settings/test-email/route.ts", import.meta.url), "utf8");
   const ui = readFileSync(new URL("../app/smtp-settings.tsx", import.meta.url), "utf8");
+  assert.match(ui, /id="smtp-username" type="text"/, "turboSMTP API consumer keys are not email addresses");
   assert.match(route, /requireApiUser\(request, true, true\)/);
   assert.match(route, /user\.role !== "all_admin"/);
   assert.match(route, /await sendTestEmail\(user\.email\)/);

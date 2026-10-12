@@ -34,6 +34,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/customer-sales-owner.tsx` — Assign a customer to a sales user; `/api/sales-work`.
 - `app/data-export-toolbar.tsx` — Global toolbar exporting visible report/transaction tables to Excel, CSV or PDF.
 - `app/delivery-note-template.tsx` — Delivery note print template with customer address and bilingual Customer TRN line.
+- `app/document-email-dialog.tsx` — Email a document with its PDF: template choice, unlimited To/Cc address chips with suggestions, message, Templates tab (own and shared templates with placeholders) and send History; `/api/document-emails`, `/api/email-templates`.
 - `app/document-extra-fields.tsx` — Document comments and serial number fields.
 - `app/einvoicing-center.tsx` — UAE e-invoicing (Peppol/PINT-AE) readiness: company setup, customer/invoice readiness badges; `/api/company-setup`.
 - `app/employee-hr-fields.tsx` — Employee salary, loan and vacation fields and read-only view.
@@ -93,7 +94,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/report-date-filter.tsx` — From/to date bar with Apply for reports.
 - `app/required-field-highlighter.tsx` — Outlines empty required fields in the active window after a failed save.
 - `app/sales-daily-work.tsx` — Sales rep daily work panel (customer activity and documents for a date); `/api/sales-work`.
-- `app/sales-document-template.tsx` — Renders printable sales documents (invoice, quote, delivery note, packing list…) from saved company templates.
+- `app/sales-document-template.tsx` — Renders printable sales documents (invoice, quote, delivery note, packing list…) from saved company templates; Email button opens `document-email-dialog.tsx` with the customer-copy PDF.
 - `app/sales-incoming.tsx` — Incoming-stock list for sales users from `/api/inventory-overview`.
 - `app/sales-report-filters.tsx` — Column filters for sales report rows.
 - `app/sales-report-library.tsx` — Sales report card library.
@@ -190,7 +191,8 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/document-print.ts` — Paper size and `@page` CSS from a document design.
 - `lib/document-vat.ts` — One VAT code per sales/purchase document (return lines excluded).
 - `lib/einvoice-readiness.ts` — UAE e-invoicing readiness: TRN format, company/customer (address, city)/invoice issue lists.
-- `lib/email-errors.ts` — Plain-language advice for SMTP failures (sending limit, login rejected, unreachable, unverified sender).
+- `lib/email-errors.ts` — Plain-language advice for SMTP failures (TLS/port mismatch, oversize message, sending limit, login rejected, unreachable, unverified sender).
+- `lib/email-templates.ts` — Email template placeholders, document types, standard wording, address-list parsing and per-message batching; who may email documents.
 - `lib/email-validation.ts` — Email format check.
 - `lib/employee-hr-save.ts` — Validates employee HR/payroll fields and accounts before saving. **DB**
 - `lib/employee-hr.ts` — Employee salary/loan/vacation field rules and redaction.
@@ -224,7 +226,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/out-of-scope-rules.ts` — Out-of-scope purchases must be sold out of scope; sales document checks.
 - `lib/password.ts` — Async scrypt password hashing and verification.
 - `lib/cheque-reminders.ts` — PDC reminder rules in UAE time: post-dated check, default reminder (7 days before, 09:00), datetime-local conversion, "due in" text.
-- `lib/notifications.ts` — **server** Notification recipients (company admins and accountants), cheque notices, due PDC reminders, email delivery of pending notices. **DB**
+- `lib/notifications.ts` — **server** Notification recipients (company admins and accountants), cheque notices, due PDC reminders, email delivery of pending notices (failed ones retried up to 3 attempts, one connection per run). **DB**
 - `lib/payment-terms.ts` — Due date from transaction date and payment terms.
 - `lib/period-lock-shared.ts` — Period-lock PIN header and `PERIOD_LOCKED` code shared by server and browser.
 - `lib/period-lock.ts` — Filed/locked VAT and tax period checks with PIN override. **DB**
@@ -252,7 +254,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/share-emoji.ts` — WhatsApp/Telegram emoji style presets.
 - `lib/share-format.ts` — Share editor formatting (WhatsApp and Telegram markers, links) and `telegramHtml` for formatted Telegram paste.
 - `lib/sku-locks.ts` — SKU edit reservations and the `skuWrite` route wrapper. **DB**
-- `lib/smtp.ts` — **server** Encrypted SMTP settings, connection check, invitation, password-reset, notification and test emails. **DB**
+- `lib/smtp.ts` — **server** Encrypted SMTP settings, connection check, invitation, password-reset, notification, test and document emails (PDF attached, Reply-To the sender, sent in batches). **DB**
 - `lib/specification-presets.ts` — Item specification fields and preset values.
 - `lib/staff-salary-pdf.ts` — Staff salary sheet PDF.
 - `lib/staff-salary-sheet.ts` — Staff salary sheet types, totals, validation and file name.

@@ -13,11 +13,13 @@ const previousUrl = process.env.DATABASE_URL;
 process.env.DATABASE_URL = "postgresql://test:test@localhost/test";
 const vite = await createServer({
   appType: "custom", configFile: false, root,
-  ssr: { noExternal: ["@neondatabase/serverless", "drizzle-orm"] },
-  resolve: { alias: { "@": root, "@neondatabase/serverless": "\0test-neon", "drizzle-orm/neon-http": "\0test-driver", "drizzle-orm/neon-serverless": "\0test-driver" } }, server: { middlewareMode: true, hmr: false, ws: false, watch: { ignored: ["**/.next/**"] } },
+  ssr: { noExternal: ["@neondatabase/serverless", "drizzle-orm", "nodemailer"] },
+  resolve: { alias: { "@": root, "@neondatabase/serverless": "\0test-neon", "drizzle-orm/neon-http": "\0test-driver", "drizzle-orm/neon-serverless": "\0test-driver", nodemailer: "\0test-mail" } }, server: { middlewareMode: true, hmr: false, ws: false, watch: { ignored: ["**/.next/**"] } },
   plugins: [{
     name: "embedded-postgres", enforce: "pre",
     transform(code, id) {
+      // Never reach a real mail server from tests.
+      if (id.endsWith("/lib/smtp.ts")) return code.replaceAll('"nodemailer"', '"/__test-mail.js"');
       if (id.endsWith("/db/index.ts")) return code.replaceAll('"@neondatabase/serverless"', '"/__test-neon.js"').replaceAll('"drizzle-orm/neon-http"', '"/__test-driver.js"').replaceAll('"drizzle-orm/neon-serverless"', '"/__test-driver.js"');
     },
     resolveId(id) {
@@ -27,9 +29,12 @@ const vite = await createServer({
       if (["drizzle-orm/neon-http", "drizzle-orm/neon-serverless"].includes(id)) return "\0test-driver";
       if (/\/lib\/auth(?:\.ts)?$/.test(id)) return "\0test-auth";
       if (id === "server-only") return "\0server-only";
+      if (id === "nodemailer" || id === "/__test-mail.js") return "\0test-mail";
     },
     load(id) {
       if (id === "\0server-only") return "export {}";
+      // A fake mail server: messages are kept in globalThis.__sentMail; set globalThis.__mailFail to make sends fail.
+      if (id === "\0test-mail") return `export default { createTransport: (options) => ({ verify: async () => true, close() {}, sendMail: async (message) => { const fail = globalThis.__mailFail; if (typeof fail === "function" ? fail(message) : fail) throw Object.assign(new Error(typeof fail === "string" ? fail : "550 Mailbox unavailable"), { responseCode: 550 }); (globalThis.__sentMail ??= []).push({ ...message, transport: options }); return { messageId: "test" }; } }) };`;
       if (id === "\0test-neon") return `export const neon = () => ({}); export const neonConfig = {}; export class Pool { async end() { globalThis.__comnetPoolClosed++; } }`;
       if (id === "\0test-driver") return `import { drizzle as pg } from "drizzle-orm/pglite"; export const drizzle = (client, config) => pg(globalThis.__comnetPg, config);`;
       if (id === "\0test-auth") return `
@@ -4119,4 +4124,150 @@ test("migration 0116 keeps cheque notices only for post-dated cheques", async ()
   const left = (await database.query("SELECT id FROM notifications WHERE company_id = $1 ORDER BY id", [companyId])).rows.map((row) => row.id);
   assert.deepEqual(left, [kept, reminder]);
   assert.ok(!left.includes(removed));
+});
+
+test("email templates: each user's own, shared ones usable by colleagues, changed only by the owner or an administrator", async () => {
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Template Co') RETURNING id")).rows[0].id;
+  const user = async (name, role) => (await database.query("INSERT INTO app_users (full_name, email, password_hash, role) VALUES ($1, $2, 'test', $3) RETURNING id", [name, `${name.toLowerCase()}@template.test`, role])).rows[0].id;
+  const amira = await user("Amira", "accountant"), bilal = await user("Bilal", "accountant"), boss = await user("Boss", "admin"), seller = await user("Seller", "sales");
+  const route = await vite.ssrLoadModule("/app/api/email-templates/route.ts");
+  const as = async (id, role, run) => { globalThis.__transferTestUser = { id, fullName: String(id), email: `${id}@template.test`, role, companyIds: [companyId] }; try { return await run(); } finally { delete globalThis.__transferTestUser; } };
+  const send = (method, body) => route[method](new Request("https://app.test/api/email-templates", { method, headers: { "content-type": "application/json" }, body: JSON.stringify({ companyId, ...body }) }));
+  const list = async () => (await (await route.GET(new Request(`https://app.test/api/email-templates?companyId=${companyId}`))).json()).templates;
+  const template = { name: "Invoice friendly", documentType: "invoice", subject: "{type} {number}", body: "Dear {name},\n\nAttached." };
+
+  const own = await as(amira, "accountant", async () => (await (await send("POST", template)).json()).template);
+  const sharedOne = await as(amira, "accountant", async () => (await (await send("POST", { ...template, name: "Team wording", shared: true })).json()).template);
+  assert.equal(own.ownerUserId ?? own.owner_user_id, amira);
+  assert.deepEqual((await as(bilal, "accountant", list)).map((row) => [row.name, row.editable]), [["Team wording", false]], "colleagues see only shared templates and cannot change them");
+  assert.deepEqual((await as(amira, "accountant", list)).map((row) => [row.name, row.mine, row.editable]), [["Invoice friendly", true, true], ["Team wording", true, true]]);
+  assert.equal((await as(bilal, "accountant", () => send("PATCH", { ...template, id: sharedOne.id, name: "Hijack", shared: true }))).status, 403);
+  assert.equal((await as(bilal, "accountant", () => send("PATCH", { id: own.id, remove: true }))).status, 404, "another person's private template is invisible");
+  assert.equal((await as(boss, "admin", () => send("PATCH", { ...template, id: sharedOne.id, name: "Team wording v2", shared: true }))).status, 200, "administrators may change shared templates");
+  assert.equal((await as(seller, "sales", () => send("POST", template))).status, 403, "sales users do not email documents");
+  assert.equal((await as(amira, "accountant", () => send("POST", { ...template, documentType: "payslip" }))).status, 400);
+  assert.equal((await as(amira, "accountant", () => send("POST", { ...template, subject: "" }))).status, 400);
+  assert.equal((await as(amira, "accountant", () => send("PATCH", { id: own.id, remove: true }))).status, 200, "owners delete their own templates (through PATCH)");
+  assert.deepEqual((await as(amira, "accountant", list)).map((row) => row.name), ["Team wording v2"]);
+
+  const { fillEmailTemplate, parseEmailList, recipientBatches, defaultEmailTemplate } = await vite.ssrLoadModule("/lib/email-templates.ts");
+  assert.equal(fillEmailTemplate("Dear {name}, {type} {number} {unknown}", { name: "ABC", type: "Invoice", number: "INV-1" }), "Dear ABC, Invoice INV-1 {unknown}");
+  assert.deepEqual(parseEmailList("A@x.com; b@x.com,\nName <c@x.com> a@x.com nope mailto:d@x.com"), { valid: ["a@x.com", "b@x.com", "c@x.com", "d@x.com"], invalid: ["nope"] });
+  assert.deepEqual(recipientBatches([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]]);
+  assert.match(defaultEmailTemplate("purchase order").body, /Kindly confirm receipt/);
+});
+
+test("documents are emailed with their PDF to any number of addresses, replies go to the sender, and every send is recorded", async () => {
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Mail Co') RETURNING id")).rows[0].id;
+  const accountant = (await database.query("INSERT INTO app_users (full_name, email, password_hash, role) VALUES ('Sara Accounts', 'sara@mail.test', 'test', 'accountant') RETURNING id")).rows[0].id;
+  await database.query("INSERT INTO contacts (company_id, type, name, email) VALUES ($1, 'customer', 'Gulf Traders', 'buyer@gulf.test; ap@gulf.test')", [companyId]);
+  await database.query("INSERT INTO contacts (company_id, type, name, email) VALUES ($1, 'vendor', 'Parts Supplier', 'sales@parts.test')", [companyId]);
+  const doc = async (type, number, party, extra = "") => (await database.query(`INSERT INTO transactions (company_id, type, number, party, total, subtotal, transaction_date, status${extra ? ", voided_at" : ""}) VALUES ($1, $2, $3, $4, 1050, 1000, '2026-10-13', 'open'${extra ? ", now()" : ""}) RETURNING id`, [companyId, type, number, party])).rows[0].id;
+  const invoice = await doc("invoice", "INV-77", "Gulf Traders"), order = await doc("purchase order", "PO-9", "Parts Supplier"), voided = await doc("invoice", "INV-78", "Gulf Traders", "void"), cheque = await doc("cheque", "CHQ-1", "Gulf Traders");
+  const route = await vite.ssrLoadModule("/app/api/document-emails/route.ts");
+  const { saveEmailSettings } = await vite.ssrLoadModule("/lib/smtp.ts");
+  const as = async (role, run, id = accountant) => { globalThis.__transferTestUser = { id, fullName: "Sara Accounts", email: "sara@mail.test", role, companyIds: [companyId] }; try { return await run(); } finally { delete globalThis.__transferTestUser; } };
+  const details = async (transactionId) => (await route.GET(new Request(`https://app.test/api/document-emails?companyId=${companyId}&transactionId=${transactionId}`))).json();
+  const pdf = new File([Buffer.from("%PDF-1.7\n% test document\n")], "Gulf_Traders_INV-77.pdf", { type: "application/pdf" });
+  const post = (fields, file = pdf) => {
+    const form = new FormData();
+    for (const [key, value] of Object.entries({ companyId, transactionId: invoice, subject: "Invoice INV-77", body: "Dear Gulf Traders,\n\nPlease find attached.\n\nSara", ...fields })) form.set(key, String(value));
+    if (file) form.set("pdf", file);
+    return route.POST(new Request("https://app.test/api/document-emails", { method: "POST", body: form }));
+  };
+
+  // Before the email server is set up nothing is sent.
+  assert.equal((await as("accountant", () => details(invoice))).configured, false);
+  assert.equal((await as("accountant", () => post({ to: "buyer@gulf.test" }))).status, 409);
+  await saveEmailSettings({ host: "pro.turbo-smtp.com", port: 465, secure: true, username: "key", password: "secret", fromName: "Mail Co", fromEmail: "accounts@mailco.test" });
+
+  const first = await as("accountant", () => details(invoice));
+  assert.equal(first.configured, true);
+  assert.deepEqual(first.suggestions, { contact: ["buyer@gulf.test", "ap@gulf.test"], previous: [] }, "the customer's saved addresses");
+  assert.deepEqual(first.sender, { name: "Sara Accounts", email: "sara@mail.test" });
+  assert.deepEqual((await as("accountant", () => details(order))).suggestions.contact, ["sales@parts.test"], "purchase documents suggest the supplier");
+
+  // 120 To addresses go out as three copies of 50/50/20; Cc only on the first; replies go to the sender.
+  globalThis.__sentMail = [];
+  const many = Array.from({ length: 118 }, (_, index) => `person${index}@gulf.test`);
+  const sent = await as("accountant", () => post({ to: ["buyer@gulf.test", "ap@gulf.test", ...many].join(", "), cc: "boss@mailco.test, buyer@gulf.test" }));
+  assert.equal(sent.status, 200, await sent.clone().text());
+  assert.deepEqual(await sent.json(), { ok: true, id: (await database.query("SELECT max(id) AS id FROM document_emails")).rows[0].id, messages: 3, recipients: 121 });
+  assert.deepEqual(globalThis.__sentMail.map((mail) => mail.to.length), [50, 50, 20]);
+  assert.deepEqual(globalThis.__sentMail.map((mail) => mail.cc ?? null), [["boss@mailco.test"], null, null], "an address already in To is not copied again");
+  const [mail] = globalThis.__sentMail;
+  assert.deepEqual(mail.from, { name: "Mail Co", address: "accounts@mailco.test" });
+  assert.deepEqual(mail.replyTo, { name: "Sara Accounts", address: "sara@mail.test" });
+  assert.equal(mail.subject, "Invoice INV-77");
+  assert.match(mail.html, /<p style="margin:0 0 12px">Dear Gulf Traders,<\/p>/);
+  assert.equal(mail.attachments[0].filename, "Gulf_Traders_INV-77.pdf");
+  assert.equal(mail.attachments[0].contentType, "application/pdf");
+  assert.equal(mail.transport.port, 465); assert.equal(mail.transport.secure, true);
+  const history = (await as("accountant", () => details(invoice))).history;
+  assert.equal(history.length, 1);
+  assert.equal(history[0].status, "sent"); assert.equal(history[0].sentByName, "Sara Accounts"); assert.equal(history[0].recipients.length, 120); assert.deepEqual(history[0].cc, ["boss@mailco.test"]);
+  assert.ok((await as("accountant", () => details(invoice))).suggestions.previous.includes("person0@gulf.test"), "earlier recipients are offered next time");
+
+  // Without the PDF, with bad input, for the wrong roles or documents.
+  globalThis.__sentMail = [];
+  assert.equal((await as("accountant", () => post({ to: "buyer@gulf.test" }, null))).status, 200, "sending without the attachment is allowed");
+  assert.equal(globalThis.__sentMail[0].attachments, undefined);
+  assert.equal((await as("accountant", () => post({ to: "buyer@gulf.test, not-an-email" }))).status, 400);
+  assert.equal((await as("accountant", () => post({ to: "" }))).status, 400);
+  assert.equal((await as("accountant", () => post({ to: "buyer@gulf.test", subject: "" }))).status, 400);
+  assert.equal((await as("accountant", () => post({ to: "buyer@gulf.test" }, new File(["<html>"], "x.pdf")))).status, 400, "only real PDFs are attached");
+  assert.equal((await as("accountant", () => post({ to: Array.from({ length: 501 }, (_, i) => `p${i}@x.test`).join(",") }))).status, 400);
+  assert.equal((await as("accountant", () => post({ to: "buyer@gulf.test", transactionId: voided }))).status, 409);
+  assert.equal((await as("accountant", () => post({ to: "buyer@gulf.test", transactionId: cheque }))).status, 400);
+  for (const role of ["sales", "viewer", "inventory", "purchasing"]) assert.equal((await as(role, () => post({ to: "buyer@gulf.test" }))).status, 403, role);
+  assert.equal((await as("admin", () => post({ to: "sales@parts.test", transactionId: order }))).status, 200, "administrators email suppliers too");
+
+  // A rejected send is recorded with the reason, including partial sends.
+  globalThis.__mailFail = (message) => message.to.includes("person60@gulf.test");
+  const failed = await as("accountant", () => post({ to: many.join(",") }));
+  assert.equal(failed.status, 502);
+  assert.match((await failed.json()).error, /^Sent to the first 50 addresses, then: 550 Mailbox unavailable/);
+  globalThis.__mailFail = "Invalid login: 535 Authentication failed";
+  const rejected = await as("accountant", () => post({ to: "buyer@gulf.test" }));
+  assert.match((await rejected.json()).error, /rejected the SMTP username or password/);
+  delete globalThis.__mailFail;
+  const statuses = (await database.query("SELECT status, error FROM document_emails WHERE transaction_id = $1 ORDER BY id", [invoice])).rows;
+  assert.deepEqual(statuses.map((row) => row.status), ["sent", "sent", "failed", "failed"]);
+});
+
+test("notification emails retry failures up to 3 attempts and pick up interrupted sends", async () => {
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Retry Co') RETURNING id")).rows[0].id;
+  const userId = (await database.query("INSERT INTO app_users (full_name, email, password_hash, role) VALUES ('Retry', 'retry@notice.test', 'test', 'accountant') RETURNING id")).rows[0].id;
+  const { saveEmailSettings } = await vite.ssrLoadModule("/lib/smtp.ts");
+  await saveEmailSettings({ host: "pro.turbo-smtp.com", port: 587, secure: false, username: "key", password: "secret", fromName: "Retry Co", fromEmail: "accounts@retry.test" });
+  const { deliverNotificationEmails } = await vite.ssrLoadModule("/lib/notifications.ts");
+  const notice = async (status = "pending", extra = "") => (await database.query(`INSERT INTO notifications (company_id, user_id, kind, title, email_status${extra ? ", email_claimed_at" : ""}) VALUES ($1, $2, 'test', 'Hello', $3${extra ? `, ${extra}` : ""}) RETURNING id`, [companyId, userId, status])).rows[0].id;
+  const row = async (id) => (await database.query("SELECT email_status, email_attempts, email_error FROM notifications WHERE id = $1", [id])).rows[0];
+  const id = await notice();
+  globalThis.__mailFail = "Invalid login: 535 Authentication failed";
+  try {
+    assert.deepEqual(await deliverNotificationEmails([id]), { sent: 0, skipped: 0, failed: 1 });
+    assert.equal((await row(id)).email_attempts, 1);
+    assert.match((await row(id)).email_error, /rejected the SMTP username or password/);
+    await deliverNotificationEmails([id]); await deliverNotificationEmails([id]);
+    assert.deepEqual(await row(id), { ...await row(id), email_status: "failed", email_attempts: 3 });
+    assert.deepEqual(await deliverNotificationEmails([id]), { sent: 0, skipped: 0, failed: 0 }, "no fourth attempt");
+  } finally { delete globalThis.__mailFail; }
+  const retried = await notice("failed"), stale = await notice("sending", "now() - interval '1 hour'"), busy = await notice("sending", "now()");
+  globalThis.__sentMail = [];
+  assert.deepEqual(await deliverNotificationEmails([retried, stale, busy]), { sent: 2, skipped: 0, failed: 0 }, "a send still in progress elsewhere is left alone");
+  assert.equal((await row(stale)).email_status, "sent");
+  assert.equal((await row(busy)).email_status, "sending");
+  assert.equal(globalThis.__sentMail.length, 2);
+  assert.equal(globalThis.__sentMail[0].transport.port, 587);
+});
+
+test("migration 0117 does not retry notification emails that failed before it", async () => {
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Old notices') RETURNING id")).rows[0].id;
+  const userId = (await database.query("INSERT INTO app_users (full_name, email, password_hash, role) VALUES ('Old', 'old@notice.test', 'test', 'accountant') RETURNING id")).rows[0].id;
+  const id = (await database.query("INSERT INTO notifications (company_id, user_id, kind, title, email_status) VALUES ($1, $2, 'test', 'Old', 'failed') RETURNING id", [companyId, userId])).rows[0].id;
+  const { readFileSync } = await import("node:fs");
+  const update = readFileSync(new URL("../drizzle/0117_document_emails.sql", import.meta.url), "utf8").split("--> statement-breakpoint").map((part) => part.trim()).filter((part) => part.includes("UPDATE"));
+  for (const statement of update) await database.exec(statement);
+  assert.equal((await database.query("SELECT email_attempts FROM notifications WHERE id = $1", [id])).rows[0].email_attempts, 3);
 });
