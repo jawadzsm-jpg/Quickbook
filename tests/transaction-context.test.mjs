@@ -4033,6 +4033,8 @@ test("PDC reminders: default 7 days before at 09:00 UAE, custom or off, follow t
   assert.equal(rules.uaeLocalToIso("2026-10-20T14:30"), "2026-10-20T10:30:00.000Z"); assert.equal(rules.uaeLocalToIso("bad"), "");
   assert.equal(rules.isoToUaeLocal("2026-10-20T10:30:00.000Z"), "2026-10-20T14:30");
   assert.equal(rules.daysUntil("2026-10-19", now), "in 7 days"); assert.equal(rules.daysUntil("2026-10-13", now), "tomorrow");
+  assert.equal(rules.latestReminderAt("2026-10-13"), "2026-10-13T19:59:00.000Z", "end of the cheque day in the UAE");
+  assert.equal(rules.reminderBeforeCheque("2026-11-12T16:43:00.000Z", "2026-10-13"), false, "a reminder after the cheque date is refused");
 
   const companyId = (await database.query("INSERT INTO companies (name) VALUES ('PDC reminders') RETURNING id")).rows[0].id;
   const locationId = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'PDC', 'PDC', 'PDC') RETURNING id", [companyId])).rows[0].id;
@@ -4055,6 +4057,10 @@ test("PDC reminders: default 7 days before at 09:00 UAE, custom or off, follow t
   const off = await create({ number: "PDC-3", transactionDate: day(30), reminderOff: true });
   assert.equal((await row(off.id)).reminder_at, null); assert.equal((await row(off.id)).reminder_custom, true);
   assert.equal((await POST(new Request("https://app.test/api/records", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body({ number: "PDC-X", transactionDate: day(30), reminderLocal: "soon" })) }))).status, 400);
+  assert.equal((await POST(new Request("https://app.test/api/records", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body({ number: "PDC-Y", transactionDate: day(30), reminderLocal: `${day(31)}T09:00` })) }))).status, 400, "not after the cheque date");
+  // The list shows each cheque's bank.
+  const listed = (await (await GET(new Request(`https://app.test/api/records?kind=transactions&companyId=${companyId}&locationId=${locationId}`))).json()).records;
+  assert.equal(listed.find((record) => record.id === pdc.id).bankName, "PDC Bank");
 
   // Editing the date moves a default reminder; a custom one stays.
   const edit = async (cheque, changes) => { const { revision } = await (await GET(new Request(`https://app.test/api/records?kind=transactions&id=${cheque.id}&companyId=${companyId}`))).json(); const response = await PATCH(new Request("https://app.test/api/records", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body(changes), id: cheque.id, number: cheque.number, revision }) })); assert.equal(response.status, 200, await response.clone().text()); };
@@ -4070,6 +4076,7 @@ test("PDC reminders: default 7 days before at 09:00 UAE, custom or off, follow t
   assert.equal((await reminder(off.id, { reminderOff: true }, { id: 9, role: "purchasing", companyIds: [companyId] })).status, 403);
   assert.equal((await reminder(today.id, { reminderOff: true })).status, 409, "only post-dated cheques");
   assert.equal((await reminder(off.id, { reminderLocal: "nope" })).status, 400);
+  assert.equal((await reminder(off.id, { reminderLocal: `${day(31)}T09:00` })).status, 400, "the list cannot set a reminder after the cheque date");
 
   // Sending: due reminders notify once, with the PDC wording; later ones wait.
   const { sendDueChequeReminders } = await vite.ssrLoadModule("/lib/notifications.ts");
