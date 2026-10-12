@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bold, Code, Italic, List as ListIcon, ListOrdered, Quote, Strikethrough, Lock, Pencil, BadgeDollarSign, Boxes, CalendarClock, ChevronDown, Clock, Download, Eye, FileSpreadsheet, Mail, PackageCheck, PackageOpen, PackageX, PlaneLanding, Printer, RefreshCw, Rocket, Search, ShoppingCart, TriangleAlert, UserRound, Warehouse, X, Tag, Underline, EyeOff, Link as LinkIcon } from "lucide-react";
+import { Bold, Code, Italic, List as ListIcon, ListOrdered, Quote, Strikethrough, Lock, Pencil, BadgeDollarSign, Boxes, CalendarClock, ChevronDown, Clock, Download, Eye, FileSpreadsheet, Mail, PackageCheck, PackageOpen, PackageX, PlaneLanding, Printer, RefreshCw, Rocket, Search, ShoppingCart, Trash2, TriangleAlert, UserRound, Warehouse, X, Tag, Underline, EyeOff, Link as LinkIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { FilePlus2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -174,7 +175,13 @@ function specificationValue(record: OverviewItem, labels: string[]) {
   } catch { return ""; }
 }
 
-export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocument?: (id: number) => void; onOpenItem?: (id: number) => void } = {}) {
+/** Sales documents the Inventory Overview cart can start. */
+export type OverviewCartDocument = "invoice" | "sales order" | "proforma invoice" | "estimate";
+type CartEntry = { key: number; sku: string; name: string; quantity: number; inventories: Array<{ companyId: number; locationId: number; itemId: number; companyName: string; locationName: string; quantity: number }> };
+const cartStorageKey = "comnet-overview-cart";
+const cartDocuments: Array<[OverviewCartDocument, string]> = [["invoice", "Invoice"], ["sales order", "Sales Order"], ["proforma invoice", "Proforma Invoice"], ["estimate", "Estimate"]];
+
+export function InventoryOverview({ onOpenDocument, onOpenItem, onCreateDocument }: { onOpenDocument?: (id: number) => void; onOpenItem?: (id: number) => void; onCreateDocument?: (request: { type: OverviewCartDocument; companyId: number; locationId: number; lines: Array<{ itemId: number; quantity: number; sku: string; name: string }> }) => void } = {}) {
   const [records, setRecords] = useState<OverviewItem[]>([]);
   const [activity, setActivity] = useState<InventoryActivity>(emptyActivity);
   const [activityView, setActivityView] = useState<ActivityView | "offers">("incoming");
@@ -203,6 +210,35 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   const [priceAdjust, setPriceAdjust] = useState<PriceAdjust>({ mode: "percent", value: "" });
   const [loadedAt, setLoadedAt] = useState(() => Date.now());
   const [detailRecord, setDetailRecord] = useState<ConsolidatedItem | null>(null);
+  // Cart: products and quantities to start an invoice, sales order, proforma or estimate (kept for this browser tab).
+  const [cart, setCart] = useState<CartEntry[]>(() => { try { return JSON.parse(window.sessionStorage.getItem(cartStorageKey) || "[]") as CartEntry[]; } catch { return []; } });
+  const [cartQuantities, setCartQuantities] = useState<Record<number, string>>({});
+  useEffect(() => { try { window.sessionStorage.setItem(cartStorageKey, JSON.stringify(cart)); } catch { /* optional */ } }, [cart]);
+  const addToCart = (record: ConsolidatedItem) => {
+    const quantity = Number(cartQuantities[record.id] ?? "1");
+    if (!Number.isFinite(quantity) || quantity <= 0) return toast.error("Enter a quantity above zero.");
+    const inventories = record.inventories.map((inventory) => ({ companyId: inventory.companyId, locationId: inventory.locationId, itemId: inventory.id, companyName: inventory.companyName, locationName: inventory.locationName, quantity: Number(inventory.quantity) }));
+    setCart((current) => current.some((entry) => entry.key === record.id)
+      ? current.map((entry) => entry.key === record.id ? { ...entry, quantity: entry.quantity + quantity, inventories } : entry)
+      : [...current, { key: record.id, sku: record.sku, name: record.name, quantity, inventories }]);
+    setCartQuantities((current) => ({ ...current, [record.id]: "1" }));
+    toast.success(`${quantity.toLocaleString()} × ${record.name} added to the cart`);
+  };
+  const createFromCart = (type: OverviewCartDocument) => {
+    if (!onCreateDocument || !cart.length) return;
+    // The document is made in the inventory that holds the most cart products (most stock breaks a tie).
+    const places = new Map<string, { companyId: number; locationId: number; lines: number; stock: number }>();
+    for (const entry of cart) for (const inventory of entry.inventories) {
+      const key = `${inventory.companyId}:${inventory.locationId}`;
+      const place = places.get(key) ?? { companyId: inventory.companyId, locationId: inventory.locationId, lines: 0, stock: 0 };
+      places.set(key, { ...place, lines: place.lines + 1, stock: place.stock + inventory.quantity });
+    }
+    const target = [...places.values()].sort((a, b) => b.lines - a.lines || b.stock - a.stock)[0];
+    if (!target) return;
+    onCreateDocument({ type, companyId: target.companyId, locationId: target.locationId, lines: cart.map((entry) => ({ itemId: entry.inventories.find((inventory) => inventory.companyId === target.companyId && inventory.locationId === target.locationId)?.itemId ?? 0, quantity: entry.quantity, sku: entry.sku, name: entry.name })) });
+    setCart([]);
+  };
+  const cartUnits = cart.reduce((sum, entry) => sum + entry.quantity, 0);
   const [holds, setHolds] = useState<StockHold[]>([]);
   const [canManageHolds, setCanManageHolds] = useState(false);
   const [editor, setEditor] = useState<{ channel: ShareChannel; text: string } | null>(null);
@@ -706,6 +742,22 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
         </div>
       </div>
 
+      {onCreateDocument && cart.length > 0 && <div className="flex flex-wrap items-center gap-2 border-b bg-rose-500/5 px-4 py-2.5" aria-label="Cart">
+        <span className="inline-flex items-center gap-2 text-sm font-semibold"><ShoppingCart className="size-4 text-rose-600" />Cart: {cart.length} {cart.length === 1 ? "product" : "products"} · {cartUnits.toLocaleString()} {cartUnits === 1 ? "unit" : "units"}</span>
+        <DropdownMenu modal={false}>
+          <DropdownMenuTrigger asChild><Button type="button" size="sm" variant="outline" className="h-8"><Eye className="size-3.5" />View cart<ChevronDown className="size-3.5" /></Button></DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-80 max-w-[calc(100vw-2rem)] p-2">
+            <ul className="max-h-72 space-y-1 overflow-y-auto">{cart.map((entry) => <li key={entry.key} className="flex items-center gap-2 rounded-md px-1 py-1 text-sm"><span className="min-w-0 flex-1"><span className="block truncate font-medium">{entry.name}</span><span className="block truncate font-mono text-[11px] text-muted-foreground">{entry.sku}</span></span><Input type="number" min="1" step="1" aria-label={`Quantity of ${entry.name}`} className="h-8 w-20 text-right" value={entry.quantity} onChange={(event) => { const quantity = Number(event.target.value); if (Number.isFinite(quantity) && quantity > 0) setCart((current) => current.map((item) => item.key === entry.key ? { ...item, quantity } : item)); }} /><Button type="button" size="icon" variant="ghost" className="size-8 text-rose-600" aria-label={`Remove ${entry.name} from the cart`} onClick={() => setCart((current) => current.filter((item) => item.key !== entry.key))}><Trash2 className="size-4" /></Button></li>)}</ul>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <Button type="button" size="sm" variant="ghost" className="h-8" onClick={() => setCart([])}>Clear</Button>
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild><Button type="button" size="sm" className="h-8 bg-gradient-to-r from-rose-600 to-orange-500 text-white hover:from-rose-700 hover:to-orange-600"><FilePlus2 className="size-3.5" />Create<ChevronDown className="size-3.5" /></Button></DropdownMenuTrigger>
+            <DropdownMenuContent align="end">{cartDocuments.map(([type, label]) => <DropdownMenuItem key={type} onSelect={() => createFromCart(type)}>{label}</DropdownMenuItem>)}</DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>}
       {/* Share bar: price display options on the left, copy and export actions on the right. Labels collapse to icons before the row wraps. */}
       <div className="@container flex flex-wrap items-center gap-2 border-b px-4 py-2 whitespace-nowrap [&_[data-slot=button]]:h-8 [&_[data-slot=button]]:gap-1.5 [&_[data-slot=button]]:px-2.5 [&_[data-slot=button]]:text-xs [&_[data-slot=button]_svg]:size-3.5">
         <span className={`inline-flex h-8 items-center rounded-md px-2.5 text-xs font-semibold tabular-nums ${selectedRecords.length ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>{selectedRecords.length} selected</span>
@@ -767,6 +819,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
                       <span className="ml-auto flex shrink-0 items-center gap-1">
                         <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setDetailRecord(record)} aria-label={`View product customization details for ${record.name}`}><PackageOpen className="size-3.5" />Details</Button>
                         {canManageHolds && Number(record.quantity) > 0 && <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setHoldTarget(record)} aria-label={`Put ${record.name} on hold`}><Lock className="size-3.5" />Hold</Button>}
+                        {onCreateDocument && <span className="ml-1 inline-flex items-center gap-1.5 rounded-lg bg-muted/60 p-0.5"><Input type="number" min="1" step="1" inputMode="numeric" aria-label={`Quantity of ${record.name} to add`} className="h-7 w-16 border-0 bg-background text-center text-sm" value={cartQuantities[record.id] ?? "1"} onChange={(event) => setCartQuantities((current) => ({ ...current, [record.id]: event.target.value }))} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addToCart(record); } }} /><Button type="button" size="sm" className="h-7 gap-1.5 bg-gradient-to-r from-rose-600 to-orange-500 px-2.5 text-xs font-semibold text-white hover:from-rose-700 hover:to-orange-600" onClick={() => addToCart(record)} aria-label={`Add ${record.name} to the cart`}><ShoppingCart className="size-3.5" />Add to Cart</Button></span>}
                       </span>
                     </div>
                   </TableCell>
