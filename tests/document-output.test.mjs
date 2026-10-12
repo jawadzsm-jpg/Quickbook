@@ -134,3 +134,14 @@ test('document stamp is after totals and disappears completely when switched off
     assert.match(off,/ITEM ROW/);
   } finally {await vite.close();}
 });
+
+test('PDF images are embedded at 300 dpi for their printed size, never enlarged', async () => {
+  const source=readFileSync(new URL('../lib/document-output.ts',import.meta.url),'utf8');
+  const {pdfImagePixels}=await import(`data:text/javascript;base64,${Buffer.from(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText).toString('base64')}`);
+  // A 4000 × 2000 px logo printed 50.8 mm (2 in) wide is embedded at 600 × 300 px.
+  assert.deepEqual(pdfImagePixels(4000,2000,50.8,25.4),{width:600,height:300});
+  // A small image is kept as it is.
+  assert.deepEqual(pdfImagePixels(200,100,50.8,25.4),{width:200,height:100});
+  // Aspect ratio follows the tighter side.
+  assert.deepEqual(pdfImagePixels(3000,3000,25.4,12.7),{width:150,height:150});
+});

@@ -108,7 +108,9 @@ export async function POST(request: Request) {
   } catch (error) {
     const sentMessages = Number((error as { sentMessages?: number }).sentMessages ?? 0);
     const reason = friendlyEmailError(error);
-    const detail = sentMessages ? `Sent to the first ${sentMessages * RECIPIENTS_PER_MESSAGE} addresses, then: ${reason}` : reason;
+    // The PDF's size helps tell an attachment the server refuses from an account limit.
+    const pdfNote = attachment ? ` The attached PDF was ${(attachment.content.length / 1024 / 1024).toFixed(2)} MB; if the email goes through without the PDF, the server is refusing the attachment.` : "";
+    const detail = (sentMessages ? `Sent to the first ${sentMessages * RECIPIENTS_PER_MESSAGE} addresses, then: ${reason}` : reason) + pdfNote;
     try { await getDb().insert(documentEmails).values({ ...record, status: "failed", error: detail.slice(0, 1000) }); } catch { /* The person still sees the reason. */ }
     return Response.json({ error: detail }, { status: 502 });
   }

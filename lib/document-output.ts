@@ -40,7 +40,18 @@ async function imageAsDataUrl(image: HTMLImageElement): Promise<string | null> {
   }
 }
 
-async function flattenImageDataUrl(dataUrl: string): Promise<string> {
+/** Images are embedded at this resolution for the size they print at: sharp on paper, small enough to email. */
+export const PDF_IMAGE_DPI = 300;
+
+/** Pixel size for an image printed at `widthMm` × `heightMm`: never larger than the original, at most PDF_IMAGE_DPI. */
+export function pdfImagePixels(naturalWidth: number, naturalHeight: number, widthMm: number, heightMm: number, dpi = PDF_IMAGE_DPI) {
+  const maxWidth = Math.max(1, Math.ceil(widthMm / 25.4 * dpi)), maxHeight = Math.max(1, Math.ceil(heightMm / 25.4 * dpi));
+  const ratio = Math.min(1, maxWidth / Math.max(1, naturalWidth), maxHeight / Math.max(1, naturalHeight));
+  return { width: Math.max(1, Math.round(naturalWidth * ratio)), height: Math.max(1, Math.round(naturalHeight * ratio)) };
+}
+
+// A full-resolution logo or scanned stamp can make one invoice several MB, which email servers may refuse.
+async function flattenImageDataUrl(dataUrl: string, widthMm: number, heightMm: number): Promise<string> {
   if (!dataUrl.startsWith("data:image/")) return dataUrl;
   try {
     const image = await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -49,8 +60,7 @@ async function flattenImageDataUrl(dataUrl: string): Promise<string> {
       loaded.onerror = () => reject(new Error("Could not prepare the document logo."));
       loaded.src = dataUrl;
     });
-    const width = Math.max(1, image.naturalWidth || image.width);
-    const height = Math.max(1, image.naturalHeight || image.height);
+    const { width, height } = pdfImagePixels(Math.max(1, image.naturalWidth || image.width), Math.max(1, image.naturalHeight || image.height), widthMm, heightMm);
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
@@ -59,7 +69,7 @@ async function flattenImageDataUrl(dataUrl: string): Promise<string> {
     context.fillStyle = "#ffffff";
     context.fillRect(0, 0, width, height);
     context.drawImage(image, 0, 0, width, height);
-    return canvas.toDataURL("image/jpeg", 0.98);
+    return canvas.toDataURL("image/jpeg", 0.92);
   } catch {
     return dataUrl;
   }
@@ -206,10 +216,10 @@ export async function createA4PdfBlob(element: HTMLElement, options: PdfPageOpti
   for (const image of images) {
     const originalDataUrl = await imageAsDataUrl(image);
     if (!originalDataUrl) continue;
-    const dataUrl = await flattenImageDataUrl(originalDataUrl);
+    const rect = image.getBoundingClientRect();
+    const dataUrl = await flattenImageDataUrl(originalDataUrl, rect.width * scale, rect.height * scale);
     const format = imageFormat(dataUrl);
     if (!format) continue;
-    const rect = image.getBoundingClientRect();
     try {
       pdf.addImage(dataUrl, format, xOf(rect.left), yOf(rect.top), rect.width * scale, rect.height * scale, undefined, "FAST");
     } catch {
