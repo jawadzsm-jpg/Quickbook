@@ -87,6 +87,8 @@ export const appUsers = pgTable("app_users", {
   appearanceMode: text("appearance_mode", { enum: ["light", "dark"] }).notNull().default("light"),
   shareEmojiWhatsapp: text("share_emoji_whatsapp").notNull().default("classic"),
   shareEmojiTelegram: text("share_emoji_telegram").notNull().default("classic"),
+  // Email copies of in-app notifications (migration 0113); the in-app list is always kept.
+  notificationEmails: boolean("notification_emails").notNull().default(true),
   passwordHash: text("password_hash").notNull(),
   role: text("role", { enum: ["admin", "accountant", "sales", "purchasing", "inventory", "customization", "viewer"] }).notNull().default("viewer"),
   active: boolean("active").notNull().default(true),
@@ -548,6 +550,21 @@ export const inventoryMovements = pgTable("inventory_movements", {
   reference: text("reference").notNull(),
   warehouseId: integer("warehouse_id").references(() => warehouses.id, { onDelete: "set null" }),
 }, (table) => [index("idx_inventory_movements_warehouse").on(table.warehouseId), index("idx_inventory_movements_item_date").on(table.itemId, table.movementDate), index("idx_inventory_movements_transaction").on(table.transactionId)]);
+
+// In-app notifications, one row per recipient (migration 0113). `emailStatus`: pending, sent, failed or skipped.
+export const notifications = pgTable("notifications", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  userId: integer("user_id").notNull().references(() => appUsers.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull().default(""),
+  transactionId: integer("transaction_id").references(() => transactions.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  readAt: timestamp("read_at", { withTimezone: true, mode: "string" }),
+  emailStatus: text("email_status").notNull().default("pending"),
+  emailedAt: timestamp("emailed_at", { withTimezone: true, mode: "string" }),
+}, (table) => [index("idx_notifications_user").on(table.userId, table.createdAt)]);
 
 export const inventoryCheckReports = pgTable("inventory_check_reports", {
   id: serial("id").primaryKey(),
