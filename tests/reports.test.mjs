@@ -1431,7 +1431,7 @@ test('purchase summaries provide purchasing KPIs and export all Purchase reports
 
 test('inventory summaries provide stock KPIs and export all Inventory reports to fitted A4 portrait by default', async () => {
   const { inventoryReportKeys, inventorySummary, inventoryDetailTarget } = await vite.ssrLoadModule('/lib/inventory-report.ts');
-  assert.equal(inventoryReportKeys.size, 8);
+  assert.equal(inventoryReportKeys.size, 9);
   const valuation = inventorySummary({ key: 'inventory-valuation', rows: [{ account: 'Inventory Asset', category: 'Laptop', items: 2, quantity: 8, value: 5000 }, { account: 'Inventory Asset', category: 'Monitor', items: 1, quantity: 4, value: 1000 }] });
   assert.deepEqual(valuation.cards.map(card => card.value), [6000, 12, 3, 2, 1]);
   assert.equal(inventoryDetailTarget('inventory-valuation'), 'inventory-valuation-detail');

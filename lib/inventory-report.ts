@@ -7,6 +7,7 @@ export const inventoryReportKeys = new Set([
   "negative-item-list",
   "physical-inventory",
   "pending-builds",
+  "stock-movements",
 ]);
 
 export type InventorySummaryCard = {
@@ -19,8 +20,8 @@ export type InventorySummaryCard = {
 export type InventoryReportRow = Record<string, string | number | null>;
 export type InventoryReportColumn = { key: string; label: string; type?: "money" };
 export type InventoryReportFilters = { query: string; account: string; status: string; sort: string };
-const quantityKeys = new Set(["quantity", "onHand", "onHold", "available", "reorder", "required", "buildLevel", "shortageQuantity", "items", "lowStock", "outOfStock", "ageDays", "count", "difference"]);
-const additiveKeys = new Set(["quantity", "onHand", "onHold", "available", "required", "shortageQuantity", "items", "lowStock", "outOfStock", "value", "shortageValue"]);
+const quantityKeys = new Set(["quantityIn", "quantityOut", "quantity", "onHand", "onHold", "available", "reorder", "required", "buildLevel", "shortageQuantity", "items", "lowStock", "outOfStock", "ageDays", "count", "difference"]);
+const additiveKeys = new Set(["quantityIn", "quantityOut", "quantity", "onHand", "onHold", "available", "required", "shortageQuantity", "items", "lowStock", "outOfStock", "value", "shortageValue"]);
 
 export function inventoryColumnKind(column: InventoryReportColumn): "text" | "quantity" | "price" | "amount" {
   if (column.type === "money") return ["cost", "unitCost"].includes(column.key) ? "price" : "amount";
@@ -67,6 +68,7 @@ export const inventoryReportGroups = [
   { title: "Stock valuation", description: "Understand your inventory investment and linked asset accounts.", keys: ["inventory-valuation", "inventory-valuation-detail"] },
   { title: "Availability & purchasing", description: "Find available stock, supplier exposure and replenishment needs.", keys: ["inventory-status", "inventory-status-supplier", "pending-builds"] },
   { title: "Stock health & verification", description: "Identify aging stock, shortages and items to count.", keys: ["inventory-stock-aging", "negative-item-list", "physical-inventory"] },
+  { title: "Stock activity", description: "Trace every stock movement in and out, by warehouse.", keys: ["stock-movements"] },
 ];
 
 type InventoryReportLike = {
@@ -117,6 +119,9 @@ export function inventorySummary(report: InventoryReportLike): { cards: Inventor
   }
   if (key === "negative-item-list") {
     return { cards: [number("Negative items", rows.length, "negative"), number("Shortage quantity", sum(rows, "shortageQuantity"), "negative"), money("Shortage value", sum(rows, "shortageValue"), "negative"), number("Categories", unique(rows, "category")), number("Inventories affected", unique(rows, "inventory"), "accent")], note: "Only active stock items below zero are included. Shortage value uses the current weighted average purchase cost. Select an item to open and correct its Inventory record." };
+  }
+  if (key === "stock-movements") {
+    return { cards: [number("Movements", rows.length), number("Quantity in", sum(rows, "quantityIn"), "positive"), number("Quantity out", sum(rows, "quantityOut"), "negative"), money("Net value", sum(rows, "value"), "accent"), number("Items", unique(rows, "sku"))], note: "Posted stock documents, moves between warehouses and transfers between inventories in the period. Document rows use the cost recorded on the movement; moves and transfers use the current weighted average cost. Select a reference to open its document or an item to open Inventory." };
   }
   if (key === "customization-details") {
     return { cards: [number("Products", rows.length), number("Customized", sum(rows, "hasCustomization"), "positive"), number("Serial assigned", sum(rows, "hasSerial")), number("UPC assigned", sum(rows, "hasUpc")), number("Needs user details", sum(rows, "needsDetails"), "negative")], note: "Product customization data is maintained by authorized Product Customization, Inventory Manager and Administrator users." };

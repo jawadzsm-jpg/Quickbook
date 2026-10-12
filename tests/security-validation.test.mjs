@@ -562,15 +562,15 @@ test("all 10 Purchase reports have professional summaries, one export control, A
   assert.match(css, /\[data-appearance="dark"\] \.report-dialog \.purchase-summary/);
 });
 
-test("all 8 Inventory reports have professional summaries, one export control, A4 output, links, attachments, and movable stamps", () => {
+test("all 9 Inventory reports have professional summaries, one export control, A4 output, links, attachments, and movable stamps", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   const api = readFileSync(new URL("../app/api/reports/route.ts", import.meta.url), "utf8");
   const inventory = readFileSync(new URL("../lib/inventory-report.ts", import.meta.url), "utf8");
   const sharedExport = readFileSync(new URL("../lib/report-export.ts", import.meta.url), "utf8");
   const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
   const definitions = [...app.matchAll(/\["[^"]+",\s*"[^"]+",\s*"Inventory",\s*"([^"]+)"\]/g)].map((match) => match[1]);
-  assert.equal(definitions.length, 8);
-  assert.equal(new Set(definitions).size, 8);
+  assert.equal(definitions.length, 9);
+  assert.equal(new Set(definitions).size, 9);
   assert.match(app, /inventoryOverview && <section className="inventory-summary"/);
   assert.match(app, /isBudgetReport \|\| isSalesReport \|\| isCustomerReport \|\| isVendorReport \|\| isPurchaseReport \|\| isInventoryReport \|\| isBankingReport \|\| isAccountantReport \? <DropdownMenu>/);
   assert.match(app, /stampReport = [^;]+isInventoryReport/);

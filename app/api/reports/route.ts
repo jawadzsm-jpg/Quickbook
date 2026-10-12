@@ -1225,6 +1225,52 @@ export async function GET(request: Request) {
       }).sort((a, b) => b.ageDays - a.ageDays || b.value - a.value);
       inventoryAging = bandNames.map((band) => { const total = bandTotals.get(band)!; return { band, items: total.items.size, quantity: Math.round(total.quantity * 1000) / 1000, value: Math.round(total.value * 100) / 100 }; });
       columns = [{ key: "account", label: "Inventory Asset Account" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "inventory", label: "Inventory" }, { key: "quantity", label: "On Hand" }, { key: "unitCost", label: "Unit Cost", ...money }, { key: "value", label: "Stock Value", ...money }, { key: "lastReceipt", label: "Latest Receipt" }, { key: "oldestLayer", label: "Oldest Stock From" }, { key: "ageDays", label: "Oldest Age (Days)" }, { key: "ageBand", label: "Aging Band" }, { key: "sourceReference", label: "Oldest Layer Source" }];
+    } else if (key === "stock-movements") {
+      title = "Stock Movements";
+      // Every stock change in the period: posted documents (with their warehouse), moves between warehouses (both sides)
+      // and transfers between inventories (which use each inventory's default warehouse).
+      const stockById = new Map(allItems.filter((item) => item.itemType === "stock-part").map((item) => [item.id, item]));
+      const stockIds = [...stockById.keys()];
+      const locationIds = [...new Set(allItems.map((item) => Number(item.locationId)))];
+      const inPeriod = (date: string) => (!period.from || date >= period.from) && (!period.to || date <= period.to);
+      const companyWarehouses = (await db.execute(sql`SELECT id, name, location_id, is_default FROM warehouses WHERE company_id = ${companyId}`)).rows;
+      const warehouseNames = new Map(companyWarehouses.map((row) => [Number(row.id), String(row.name)]));
+      const defaultWarehouse = new Map(companyWarehouses.filter((row) => row.is_default).map((row) => [Number(row.location_id), Number(row.id)]));
+      const idList = (ids: number[]) => sql.join(ids.map((id) => sql`${id}`), sql`, `);
+      const [movementRows, moveRows, transferRows] = stockIds.length ? await Promise.all([
+        db.execute(sql`SELECT m.id, m.item_id, m.transaction_id, m.movement_date, m.movement_type, m.quantity, m.unit_cost, m.reference, m.warehouse_id FROM inventory_movements m WHERE m.item_id IN (${idList(stockIds)})`),
+        db.execute(sql`SELECT id, item_id, from_warehouse_id, to_warehouse_id, quantity, reference, transfer_date FROM warehouse_transfers WHERE company_id = ${companyId} AND item_id IN (${idList(stockIds)})`),
+        locationIds.length ? db.execute(sql`SELECT id, reference, sku, quantity, transfer_date, source_company_id, source_location_id, destination_company_id, destination_location_id FROM stock_transfers WHERE (source_company_id = ${companyId} AND source_location_id IN (${idList(locationIds)})) OR (destination_company_id = ${companyId} AND destination_location_id IN (${idList(locationIds)}))`) : Promise.resolve({ rows: [] }),
+      ]) : [{ rows: [] }, { rows: [] }, { rows: [] }];
+      const typeLabel = (type: string) => type === "vendor credit" ? "Purchase return" : type.charAt(0).toUpperCase() + type.slice(1);
+      type MovementRow = { order: string; date: string; reference: string; transactionId: number; status: string; item: typeof allItems[number]; warehouseId: number | null; quantity: number; unitCost: number };
+      const entries: MovementRow[] = [];
+      for (const row of movementRows.rows) {
+        const item = stockById.get(Number(row.item_id));
+        if (!item || !inPeriod(String(row.movement_date))) continue;
+        entries.push({ order: `${row.movement_date}|1|${String(row.id).padStart(10, "0")}`, date: String(row.movement_date), reference: String(row.reference), transactionId: Number(row.transaction_id), status: typeLabel(String(row.movement_type)), item, warehouseId: row.warehouse_id === null ? defaultWarehouse.get(Number(item.locationId)) ?? null : Number(row.warehouse_id), quantity: Number(row.quantity), unitCost: Number(row.unit_cost) });
+      }
+      for (const row of moveRows.rows) {
+        const item = stockById.get(Number(row.item_id));
+        if (!item || !inPeriod(String(row.transfer_date))) continue;
+        const base = { date: String(row.transfer_date), reference: String(row.reference), transactionId: 0, status: "Warehouse move", item, unitCost: inventoryCostFor(item) };
+        entries.push({ ...base, order: `${row.transfer_date}|2|${String(row.id).padStart(10, "0")}|a`, warehouseId: Number(row.from_warehouse_id), quantity: -Number(row.quantity) });
+        entries.push({ ...base, order: `${row.transfer_date}|2|${String(row.id).padStart(10, "0")}|b`, warehouseId: Number(row.to_warehouse_id), quantity: Number(row.quantity) });
+      }
+      const bySku = new Map(allItems.filter((item) => item.itemType === "stock-part").map((item) => [`${item.locationId}|${String(item.sku).trim().toUpperCase()}`, item]));
+      for (const row of transferRows.rows) {
+        if (!inPeriod(String(row.transfer_date))) continue;
+        const sides: Array<[number, number, string]> = [];
+        if (Number(row.source_company_id) === companyId) sides.push([Number(row.source_location_id), -Number(row.quantity), "Transfer out"]);
+        if (Number(row.destination_company_id) === companyId) sides.push([Number(row.destination_location_id), Number(row.quantity), "Transfer in"]);
+        for (const [location, quantity, status] of sides) {
+          const item = bySku.get(`${location}|${String(row.sku).trim().toUpperCase()}`);
+          if (!item) continue;
+          entries.push({ order: `${row.transfer_date}|3|${String(row.id).padStart(10, "0")}|${status}`, date: String(row.transfer_date), reference: String(row.reference), transactionId: 0, status, item, warehouseId: defaultWarehouse.get(location) ?? null, quantity, unitCost: inventoryCostFor(item) });
+        }
+      }
+      rows = entries.filter((entry) => !reportWarehouse || entry.warehouseId === reportWarehouse.id).sort((a, b) => a.order.localeCompare(b.order)).map((entry) => ({ date: entry.date, reference: entry.reference, transactionId: entry.transactionId, status: entry.status, itemId: entry.item.id, ...inventoryAccountLinkFor(entry.item), itemNumber: entry.item.itemNumber || "—", sku: entry.item.sku, name: entry.item.name, inventory: locations.find((location) => location.id === entry.item.locationId)?.name || "—", warehouse: entry.warehouseId ? warehouseNames.get(entry.warehouseId) ?? "—" : "—", quantityIn: entry.quantity > 0 ? entry.quantity : 0, quantityOut: entry.quantity < 0 ? -entry.quantity : 0, unitCost: entry.unitCost, value: Math.round(entry.quantity * entry.unitCost * 100) / 100 }));
+      columns = [{ key: "date", label: "Date" }, { key: "reference", label: "Reference" }, { key: "status", label: "Type" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "inventory", label: "Inventory" }, { key: "warehouse", label: "Warehouse" }, { key: "quantityIn", label: "In" }, { key: "quantityOut", label: "Out" }, { key: "unitCost", label: "Unit Cost", ...money }, { key: "value", label: "Value", ...money }, { key: "account", label: "Inventory Asset Account" }];
     } else if (key === "negative-item-list") {
       title = "Negative Item List";
       rows = stockItems.filter((row) => Number(row.quantity) < 0).map((row) => ({ itemId: row.id, ...inventoryAccountLinkFor(row), itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, category: row.category || "General", inventory: locations.find((location) => location.id === row.locationId)?.name || "—", quantity: row.quantity, shortageQuantity: Math.abs(row.quantity), shortageValue: Math.abs(row.quantity) * inventoryCostFor(row), status: "Negative stock" })).sort((a, b) => a.quantity - b.quantity || a.name.localeCompare(b.name));
