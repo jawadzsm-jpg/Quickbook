@@ -551,6 +551,17 @@ export const inventoryMovements = pgTable("inventory_movements", {
   warehouseId: integer("warehouse_id").references(() => warehouses.id, { onDelete: "set null" }),
 }, (table) => [index("idx_inventory_movements_warehouse").on(table.warehouseId), index("idx_inventory_movements_item_date").on(table.itemId, table.movementDate), index("idx_inventory_movements_transaction").on(table.transactionId)]);
 
+// Company cheque template per bank cheque layout (migration 0114); `config` is lib/cheque-template.ts JSON.
+export const chequeTemplates = pgTable("cheque_templates", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  layoutKey: text("layout_key").notNull(),
+  config: text("config").notNull().default("{}"),
+  backgroundData: text("background_data").notNull().default(""),
+  updatedByName: text("updated_by_name").notNull().default(""),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("idx_cheque_templates_company_layout").on(table.companyId, table.layoutKey)]);
+
 // In-app notifications, one row per recipient (migration 0113). `emailStatus`: pending, sent, failed or skipped.
 export const notifications = pgTable("notifications", {
   id: serial("id").primaryKey(),

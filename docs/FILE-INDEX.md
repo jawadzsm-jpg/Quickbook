@@ -134,6 +134,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/warranty-center.tsx` — Warranty/RMA slips: create (optionally from a bill), list, print, delete; `/api/warranty-slips`.
 - `app/workspace-calculator.tsx` — Header calculator that can stay open beside a document.
 - `app/workspace-clock.tsx` — Live UAE date/time in the header.
+- `app/cheque-template-designer.tsx` — Company Setup cheque template designer: bank picker, draggable fields over an optional scan, date boxes, printer feed, test print; `/api/cheque-templates`.
 - `app/workspace-notifications.tsx` — Header notifications bell: unread count, list (opens the document), mark read, email opt-out; `/api/notifications`.
 - `app/workspace-online-users.tsx` — Header list of online users and last activity; `/api/online-users`.
 - `app/workspace-shortcuts.tsx` — Ctrl/Cmd+K command palette to jump to views.
@@ -222,6 +223,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/out-of-scope-items.ts` — Items bought outside VAT scope. **DB**
 - `lib/out-of-scope-rules.ts` — Out-of-scope purchases must be sold out of scope; sales document checks.
 - `lib/password.ts` — Async scrypt password hashing and verification.
+- `lib/cheque-template.ts` — Cheque template model: defaults from the bank layouts, validation, date boxes, word wrap, A4/cheque page placement and the print HTML.
 - `lib/notifications.ts` — **server** Notification recipients (company admins and accountants), cheque notices, email delivery of pending notices. **DB**
 - `lib/payment-terms.ts` — Due date from transaction date and payment terms.
 - `lib/period-lock-shared.ts` — Period-lock PIN header and `PERIOD_LOCKED` code shared by server and browser.

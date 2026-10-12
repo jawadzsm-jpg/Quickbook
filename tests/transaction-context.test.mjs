@@ -3981,3 +3981,52 @@ test("every cheque notifies the company's administrators and accountants, and ed
   assert.equal((await noticesFor(admin)).every((notice) => notice.email_status === "skipped"), true);
   assert.deepEqual(await deliverNotificationEmails(), { sent: 0, skipped: 0, failed: 0 });
 });
+
+test("cheque templates: per-bank positions, date boxes, printer feed and the company API", async () => {
+  const lib = await vite.ssrLoadModule("/lib/cheque-template.ts");
+  const base = lib.defaultChequeTemplate("emirates-nbd-business");
+  assert.deepEqual([base.widthMm, base.heightMm, base.page], [190.5, 88.9, "cheque"]);
+  assert.equal(lib.defaultChequeTemplate("habib-bank-ag-zurich").widthMm, 187);
+  // Out-of-range or broken input falls back to safe values.
+  const clamped = lib.normalizeChequeTemplate("emirates-nbd-business", { widthMm: 5000, fields: { date: { left: -10, top: "x", width: 40, fontPt: 99 } }, page: "a4", align: "center", offsetYMm: 12 });
+  assert.equal(clamped.widthMm, 250); assert.equal(clamped.fields.date.left, 0); assert.equal(clamped.fields.date.top, base.fields.date.top); assert.equal(clamped.fields.date.fontPt, 20);
+  assert.deepEqual(lib.normalizeChequeTemplate("emirates-nbd-business", "not json"), base);
+  // A4 feed: a centred cheque starts (210 − width) / 2 from the left, plus the offsets.
+  assert.deepEqual(lib.chequeOrigin(clamped), { x: (210 - 250) / 2, y: 12 });
+  assert.deepEqual(lib.chequeOrigin({ ...base, page: "a4", align: "center" }, { x: 1, y: 2 }), { x: 10.8, y: 2 });
+  // Date in digit boxes: eight digits, spaced by the pitch with a gap between DD, MM and YYYY.
+  const boxes = { ...base, dateMode: "boxes", datePitchMm: 5, dateGroupGapMm: 2, fields: { ...base.fields, date: { left: 100, top: 10, width: 50, fontPt: 11 } } };
+  const data = { date: "2026-10-31", payee: "ABC Trading", words: "Six Thousand US Dollars Only", amount: 6000, currency: "USD", crossed: true };
+  const digits = lib.chequePieces(boxes, data).filter((piece) => piece.key.startsWith("date-"));
+  assert.deepEqual(digits.map((piece) => piece.text).join(""), "31102026");
+  assert.deepEqual(digits.map((piece) => piece.left), [100, 105, 112, 117, 124, 129, 134, 139]);
+  assert.equal(lib.chequePieces(base, data).find((piece) => piece.key === "date").text, "31/10/2026");
+  assert.equal(lib.chequePieces(base, { ...data, crossed: false }).some((piece) => piece.key === "crossing"), false);
+  // Long amounts in words continue on the second line.
+  const [line1, line2] = lib.splitChequeWords("** One Hundred Twenty Five Thousand Four Hundred Thirty UAE Dirhams and Fifty Fils Only **", { ...base, fields: { ...base.fields, words: { ...base.fields.words, width: 60 } } });
+  assert.ok(line1.length > 0 && line2.length > 0); assert.ok(!line1.includes("Only"));
+  const page = lib.chequePrintDocument({ ...base, page: "a4", align: "center" }, data, { testOutline: true });
+  assert.match(page.styles, /@page\{size:210mm 297mm;margin:0\}/); assert.match(page.html, /class="edge"/); assert.match(page.html, /\*\* ABC TRADING \*\*|\*\* ABC Trading \*\*/);
+
+  // Company API: save, read back, list, reset; banking roles only.
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Cheque templates') RETURNING id")).rows[0].id;
+  const route = await vite.ssrLoadModule("/app/api/cheque-templates/route.ts");
+  const call = (method, body) => route[method](new Request("https://app.test/api/cheque-templates", { method, headers: { "content-type": "application/json", origin: "https://app.test" }, body: JSON.stringify({ companyId, ...body }) }));
+  const read = async (query = "") => (await route.GET(new Request(`https://app.test/api/cheque-templates?companyId=${companyId}${query}`))).json();
+  assert.equal((await read("&layoutKey=mashreq-business")).saved, false);
+  assert.equal((await call("PUT", { layoutKey: "not-a-bank", template: {} })).status, 400);
+  assert.equal((await call("PUT", { layoutKey: "mashreq-business", template: {}, backgroundData: "data:image/svg+xml;base64,PHN2Zz4=" })).status, 400, "only PNG, JPG or WebP scans");
+  const saved = await call("PUT", { layoutKey: "mashreq-business", template: { ...lib.defaultChequeTemplate("mashreq-business"), dateMode: "boxes", page: "a4", align: "center", offsetYMm: 8 }, backgroundData: "data:image/png;base64,iVBORw0KGgo=" });
+  assert.equal(saved.status, 200, await saved.clone().text());
+  const loaded = await read("&layoutKey=mashreq-business");
+  assert.equal(loaded.saved, true); assert.equal(loaded.template.dateMode, "boxes"); assert.equal(loaded.template.offsetYMm, 8); assert.equal(loaded.backgroundData, "data:image/png;base64,iVBORw0KGgo=");
+  assert.deepEqual((await read()).templates.map((row) => row.layoutKey), ["mashreq-business"]);
+  try {
+    globalThis.__transferTestUser = { id: 9, role: "purchasing", companyIds: [companyId] };
+    assert.equal((await call("PUT", { layoutKey: "mashreq-business", template: {} })).status, 403, "cheque templates need banking access");
+    globalThis.__transferTestUser = { id: 9, role: "accountant", companyIds: [companyId] };
+    assert.equal((await call("PUT", { layoutKey: "habib-bank-ag-zurich", template: {} })).status, 200, "accountants maintain templates");
+  } finally { delete globalThis.__transferTestUser; }
+  assert.equal((await (await call("DELETE", { layoutKey: "mashreq-business" })).json()).deleted, true);
+  assert.equal((await read("&layoutKey=mashreq-business")).saved, false);
+});
