@@ -7,7 +7,7 @@ import { LetterheadBrand, LetterheadFooter, LetterheadStamp } from './letterhead
 import { defaultLetterhead, type LetterheadTemplate } from '@/lib/letterhead';
 import { defaultElementProperties, type DocumentDesign } from '@/lib/document-design';
 import { invoiceItemDescription } from '@/lib/item-description';
-import { bankForCurrency, bankLines, type CompanyBankFields } from '@/lib/bank-accounts';
+import { bankForDocument, bankLines, type CompanyBankFields } from '@/lib/bank-accounts';
 import { contactAddressLines } from '@/lib/contact-address';
 type Data = Record<string, string | number | boolean>;
 const templateToday = new Date().toISOString().slice(0,10);
@@ -113,7 +113,7 @@ export function CustomInvoiceTemplate({content,design,record,lines,setup,contact
  const money=(v:unknown)=>Number(v||0).toLocaleString('en-US',{minimumFractionDigits:design.printTrailingZeros?design.decimals:0,maximumFractionDigits:design.decimals});
  const values:Record<string,unknown>={number:record.number,date:record.transactionDate,billTo:[contact?.billingName||contact?.company||record.party,...contactAddressLines(contact),String(contact?.trn??'').trim()?`TRN ${String(contact?.trn).trim()}`:''].filter(Boolean).join('\n'),shipTo:record.deliveryAddress||contact?.shippingAddress||contactAddressLines(contact).join('\n')||'',terms:record.terms||contact?.paymentTerms||'',dueDate:record.dueDate,salesman:record.salesman,trn:setup.trn,source:record.sourceDocumentNumber||'',subtotal:record.subtotal,vatAmount:record.vatAmount,total:record.total,balance:record.balance??(record.status==='paid'?0:record.total),message:design.message,disclaimer:design.disclaimer};
  // Bank details follow the document currency (customer currency), falling back to the company's default account.
- const bankAccount=billingDocument(record.type)?bankForCurrency(setup,String(record.currency||setup.baseCurrency||'')):null;
+ const bankAccount=billingDocument(record.type)?bankForDocument(setup,String(record.currency||setup.baseCurrency||''),record.bankAccountKey):null;
  values.bankDetails=bankLines(bankAccount).join('\n');
  const textFooter=footer.filter(f=>['message','disclaimer'].includes(f.key)||f.key.startsWith('custom-footer-')||(f.key==='bankDetails'&&values.bankDetails));
  // The bank stamp belongs to the account printed for the document currency and only shows with those bank details.

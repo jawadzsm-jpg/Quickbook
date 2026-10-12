@@ -1,6 +1,6 @@
 # Data model
 
-Every PostgreSQL table, what it stores, and how tables relate. The typed schema is [`db/schema.ts`](../db/schema.ts); SQL migrations in [`drizzle/`](../drizzle/) (`0000`–`0111`) are applied in filename order by `scripts/migrate.mjs` (production) or `scripts/dev-local.mjs` (PGlite), which record each applied file in `__comnet_migrations`. Use this document instead of re-reading the schema; update it whenever a migration adds or changes a table.
+Every PostgreSQL table, what it stores, and how tables relate. The typed schema is [`db/schema.ts`](../db/schema.ts); SQL migrations in [`drizzle/`](../drizzle/) (`0000`–`0112`) are applied in filename order by `scripts/migrate.mjs` (production) or `scripts/dev-local.mjs` (PGlite), which record each applied file in `__comnet_migrations`. Use this document instead of re-reading the schema; update it whenever a migration adds or changes a table.
 
 ## Conventions
 
@@ -82,7 +82,7 @@ erDiagram
 
 | Table | Purpose | Key columns |
 | --- | --- | --- |
-| `transactions` | Every document: sales, purchases, payments, cheques, expenses, journal-linked documents | `type`, `number`, `party`, `salesman`, dates, `status`, totals, VAT, `currency`/`exchange_rate`/`base_total`, links (`sales_source_id`, `purchase_order_id`, `bill_id`, `invoice_id`, `source_transaction_id`, `converted_invoice_id`), `warehouse_id` (stock documents: the warehouse they post to), delivery, void and cheque-print fields |
+| `transactions` | Every document: sales, purchases, payments, cheques, expenses, journal-linked documents | `type`, `number`, `party`, `salesman`, dates, `status`, totals, VAT, `currency`/`exchange_rate`/`base_total`, links (`sales_source_id`, `purchase_order_id`, `bill_id`, `invoice_id`, `source_transaction_id`, `converted_invoice_id`), `warehouse_id` (stock documents: the warehouse they post to), delivery, void and cheque-print fields `bank_account_key` (migration 0112): the company bank account printed on a sales document — `''` follows the document currency, `default` is the main account, otherwise an extra account id from `companies.bank_accounts` |
 | `transaction_lines` | Document lines | `item_id`, description, `serial_number`, `quantity`, `unit_price`, `unit_cost`, freight flag, VAT code/rate, totals |
 | `record_attachments` *(migration only)* | Files attached to documents and records | `company_id`, `entity_type`, `entity_id`, `file_name`, `mime_type`, `file_data`, `file_size` |
 | `invoice_payment_allocations` | Customer payment ↔ invoice amounts | `payment_id`, `invoice_id`, `amount` |

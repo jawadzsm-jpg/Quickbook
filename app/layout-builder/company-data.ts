@@ -1,4 +1,4 @@
-import { bankForCurrency, type CompanyBankFields } from "@/lib/bank-accounts";
+import { bankForDocument, type CompanyBankFields } from "@/lib/bank-accounts";
 import type { DocumentData, DocumentLine } from "@/lib/layout/document-data";
 import { contactAddressLines } from "@/lib/contact-address";
 
@@ -13,9 +13,9 @@ const text = (value: unknown) => value === null || value === undefined ? "" : St
 const number = (value: unknown) => { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : 0; };
 const round = (value: number) => Math.round(value * 100) / 100;
 
-/** Company details for a document; bank details follow the document currency when an account exists for it. */
-export function companyDocumentData(setup: CompanyBranding, currency?: string): DocumentData["company"] {
-  const bank = bankForCurrency(setup, currency || setup.bankCurrency || setup.baseCurrency);
+/** Company details for a document; bank details are the account chosen on it, else the one for its currency. */
+export function companyDocumentData(setup: CompanyBranding, currency?: string, bankAccountKey?: unknown): DocumentData["company"] {
+  const bank = bankForDocument(setup, currency || setup.bankCurrency || setup.baseCurrency, bankAccountKey);
   return {
     name: setup.name, addressLines: [setup.addressLine1, setup.addressLine2, [setup.city, setup.country].filter(Boolean).join(", ")].filter((line) => line.trim()),
     phone: setup.phone, email: setup.email ?? "", trn: setup.trn, leftLogo: setup.logoData, rightLogo: setup.rightLogoData ?? "", stamp: setup.stampData ?? "",
@@ -39,7 +39,7 @@ export function transactionDocumentData(record: RecordData, lines: RecordData[],
   const paid = number(record.paidAmount ?? record.amountPaid);
   const billingName = text(contact?.billingName || contact?.company || record.party);
   return {
-    company: companyDocumentData(setup, text(record.currency)),
+    company: companyDocumentData(setup, text(record.currency), record.bankAccountKey),
     billTo: [billingName, ...contactAddressLines({ addressLine1: contact?.addressLine1 || contact?.address, addressLine2: contact?.addressLine2 }, false), [...contactAddressLines({ city: contact?.city, region: contact?.region, postalCode: contact?.postalCode }, false), text(contact?.country)].filter(Boolean).join(", "), contact?.trn ? `TRN ${text(contact.trn)}` : ""].filter(Boolean),
     shipTo: text(record.deliveryAddress || contact?.shippingAddress).split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
     details: {

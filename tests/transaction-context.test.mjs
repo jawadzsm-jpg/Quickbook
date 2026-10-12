@@ -3847,3 +3847,36 @@ test("stock transfers report lists only item transfers, filtered by period and w
   assert.deepEqual(receiving.rows.map((row) => [row.reference, row.to]), [["TRF-1", "MVB · Main warehouse"]], "the receiving inventory also lists the transfer");
 });
 
+
+test("a sales document can print a chosen company bank account", async () => {
+  const usd = { id: "usd1", currency: "USD", bankName: "Mashreq", accountName: "Co", accountNumber: "0191", iban: "", swift: "" };
+  const usd2 = { ...usd, id: "usd2", bankName: "ADCB", accountNumber: "7788" };
+  const company = (await database.query("INSERT INTO companies (name, bank_name, bank_account_number, bank_currency, bank_accounts) VALUES ('Bank choice', 'ENBD', '1015', 'AED', $1) RETURNING id", [JSON.stringify([usd, usd2])])).rows[0].id;
+  const invoice = (await database.query("INSERT INTO transactions (company_id, type, number, party, total, subtotal, transaction_date, status, currency) VALUES ($1, 'invoice', 'BANK-INV-1', 'Customer', 100, 100, '2026-10-12', 'open', 'USD') RETURNING id", [company])).rows[0].id;
+  const bill = (await database.query("INSERT INTO transactions (company_id, type, number, party, total, subtotal, transaction_date, status) VALUES ($1, 'bill', 'BANK-BILL-1', 'Supplier', 100, 100, '2026-10-12', 'open') RETURNING id", [company])).rows[0].id;
+  const { PATCH } = await vite.ssrLoadModule("/app/api/records/route.ts");
+  const choose = (id, bankAccountKey) => PATCH(new Request("https://app.test/api/records", { method: "PATCH", headers: { "content-type": "application/json", origin: "https://app.test" }, body: JSON.stringify({ kind: "transactions", id, companyId: company, editMode: "bank-account", bankAccountKey }) }));
+  const saved = await choose(invoice, "usd2");
+  assert.equal(saved.status, 200, await saved.clone().text());
+  assert.equal((await saved.json()).record.bankAccountKey, "usd2");
+  assert.equal((await choose(invoice, "default")).status, 200, "the main bank account can be chosen");
+  assert.equal((await choose(invoice, "missing")).status, 400, "only the company's own accounts");
+  assert.equal((await choose(bill, "usd2")).status, 400, "purchase documents print the supplier's bank");
+  try {
+    globalThis.__transferTestUser = { id: 9, role: "inventory", companyIds: [company] };
+    assert.equal((await choose(invoice, "usd1")).status, 403);
+  } finally { delete globalThis.__transferTestUser; }
+  assert.equal((await choose(invoice, "")).status, 200, "back to the currency rule");
+  assert.equal((await database.query("SELECT bank_account_key FROM transactions WHERE id = $1", [invoice])).rows[0].bank_account_key, "");
+
+  const { bankForDocument, companyBankAccounts } = await vite.ssrLoadModule("/lib/bank-accounts.ts");
+  const setup = { bankName: "ENBD", bankAccountNumber: "1015", bankCurrency: "AED", bankAccounts: JSON.stringify([usd, usd2]) };
+  assert.deepEqual(companyBankAccounts(setup).map((account) => account.id), ["default", "usd1", "usd2"]);
+  assert.equal(bankForDocument(setup, "USD", "").bankName, "Mashreq", "automatic: the first USD account");
+  assert.equal(bankForDocument(setup, "USD", "usd2").bankName, "ADCB");
+  assert.equal(bankForDocument(setup, "USD", "default").bankName, "ENBD", "the main AED account on a USD invoice when chosen");
+  assert.equal(bankForDocument(setup, "USD", "removed").bankName, "Mashreq", "a removed account falls back to the currency rule");
+  const { transactionDocumentData } = await vite.ssrLoadModule("/app/layout-builder/company-data.ts");
+  const branding = { name: "Co", logoData: "", phone: "", trn: "", addressLine1: "", addressLine2: "", city: "", country: "", ...setup };
+  assert.equal(transactionDocumentData({ currency: "USD", total: 1, bankAccountKey: "usd2" }, [], null, branding).company.bank.name, "ADCB");
+});
