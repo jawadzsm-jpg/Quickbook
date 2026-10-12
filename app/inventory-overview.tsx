@@ -419,6 +419,14 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   }, [hiddenRows, showMoreRows]);
 
   const selectedRecords = useMemo(() => canSelectItems ? consolidatedRecords.filter((record) => selectedIds.has(record.id)) : [], [canSelectItems, consolidatedRecords, selectedIds]);
+  // Copy and Excel export follow the Warehouse filter: that warehouse's quantity, leaving out selected items it does not hold.
+  const warehouseLabel = warehouseFilter ? warehouseOptions.find(([id]) => id === warehouseFilter)?.[1] ?? "" : "";
+  const shareRecords = selectedRecords.flatMap((record) => {
+    const inventories = inWarehouse(record.inventories, warehouseFilter);
+    return inventories.length ? [{ ...record, inventories, quantity: inventories.reduce((sum, inventory) => sum + Number(inventory.quantity), 0) }] : [];
+  });
+  const leftOutText = () => { const skipped = selectedRecords.length - shareRecords.length; return `${warehouseLabel ? ` · ${warehouseLabel}` : ""}${skipped ? ` (${skipped} with no stock there left out)` : ""}`; };
+  const noShareRecords = (action: string) => toast.error(selectedRecords.length ? `None of the selected items have stock in ${warehouseLabel}.` : `Select at least one item to ${action}.`);
   const visibleActivity = activityView === "offers" ? [] : activity[activityView];
 
   const openActivityRecord = (entry: ActivityRecord, kind: "document" | "item") => {
@@ -459,10 +467,10 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     }
   };
   const shareText = (channel: ShareChannel) => {
-    if (!selectedRecords.length) return "";
+    if (!shareRecords.length) return "";
     // Items on a running Today Offer share the struck-through normal price, the offer price and when the offer ends.
     const offerByItem = new Map(runningOffers(offers).map((offer) => [offer.itemId, offer]));
-    const items = selectedRecords.map((record) => {
+    const items = shareRecords.map((record) => {
       const description = specificationText(record);
       const emoji = channel === "email" ? shareEmojiStyle("none") : emojiFor(channel, record.companyId);
       // WhatsApp's Classic style keeps its plain detail lines; every other style marks them too.
@@ -501,7 +509,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   const copyForChannel = async (channel: ShareChannel, edited?: string) => {
     if (!canSelectItems || loading) return;
     const text = edited ?? shareText(channel);
-    if (!text) return toast.error("Select at least one item to copy.");
+    if (!text) return noShareRecords("copy");
     try {
       // Telegram: put rich text (bold, italic, strikethrough, code, quotes) on the clipboard so it pastes already
       // formatted; the markdown stays as the plain-text fallback.
@@ -518,7 +526,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
       document.execCommand("copy");
       textarea.remove();
     }
-    toast.success(`${channelName(channel)} format copied for ${selectedRecords.length} selected ${selectedRecords.length === 1 ? "item" : "items"}`);
+    toast.success(`${channelName(channel)} format copied for ${shareRecords.length} selected ${shareRecords.length === 1 ? "item" : "items"}${leftOutText()}`);
   };
   // Edit before copying: the message opens in a text box for one-off changes; nothing typed there is saved.
   // WhatsApp-style formatting bar: change the selected words or lines, then keep them selected.
@@ -542,20 +550,14 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   const openEditor = (channel: ShareChannel) => {
     if (!canSelectItems || loading) return;
     const text = shareText(channel);
-    if (!text) return toast.error("Select at least one item to edit.");
+    if (!text) return noShareRecords("edit");
     setEditor({ channel, text });
   };
 
   const exportExcel = (mode: VatMode) => {
     if (!canSelectItems || loading) return;
-    if (!selectedRecords.length) return toast.error("Select at least one item to export.");
-    // With a warehouse filter, the export lists that warehouse's quantity and leaves out selected items it does not hold.
-    const warehouseLabel = warehouseFilter ? warehouseOptions.find(([id]) => id === warehouseFilter)?.[1] ?? "" : "";
-    const exportRecords = selectedRecords.flatMap((record) => {
-      const inventories = inWarehouse(record.inventories, warehouseFilter);
-      return inventories.length ? [{ ...record, inventories, quantity: inventories.reduce((sum, inventory) => sum + Number(inventory.quantity), 0) }] : [];
-    });
-    if (!exportRecords.length) return toast.error(`None of the selected items have stock in ${warehouseLabel}.`);
+    const exportRecords = shareRecords;
+    if (!exportRecords.length) return noShareRecords("export");
     const headers = ["Company", "Inventory", ...(warehouseFilter ? ["Warehouse"] : []), "Category", "Item No.", "SKU", "Item", "Specifications", "Screen Details"];
     if (showQuantity) headers.push("Quantity");
     if (showPrice) headers.push(`${mode === "include" ? "Price including 5% VAT" : mode === "zero" ? "Price (0% VAT)" : "Export price excluding VAT"}${adjustLabel ? ` (${adjustLabel.trim()})` : ""}`, "Currency");
@@ -588,8 +590,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     anchor.download = `comnet-stock-${mode === "include" ? "vat-included" : mode === "zero" ? "zero-vat" : "export-no-vat"}.xls`;
     anchor.click();
     URL.revokeObjectURL(url);
-    const skipped = selectedRecords.length - exportRecords.length;
-    toast.success(`${exportRecords.length} items exported for Excel${warehouseLabel ? ` · ${warehouseLabel}` : ""}${skipped ? ` (${skipped} with no stock there left out)` : ""}`);
+    toast.success(`${exportRecords.length} items exported for Excel${leftOutText()}`);
   };
 
   // Full-width filter chips; the active chip uses the user's accent colour and each count keeps its status colour.

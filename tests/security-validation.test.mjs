@@ -1146,9 +1146,12 @@ test("Excel export adds Today offer price and Offer ends columns only when an ex
   assert.match(ui, /priceFor\(\{ salesPrice: offer\.offerPrice \}, mode\)/);
 });
 
-test("Inventory Overview Excel export follows the Warehouse filter", () => {
+test("Inventory Overview copy buttons and Excel export follow the Warehouse filter", () => {
   const ui = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
-  assert.match(ui, /const exportRecords = selectedRecords\.flatMap\(\(record\) => \{\s*const inventories = inWarehouse\(record\.inventories, warehouseFilter\);/);
+  assert.match(ui, /const shareRecords = selectedRecords\.flatMap\(\(record\) => \{\s*const inventories = inWarehouse\(record\.inventories, warehouseFilter\);/);
+  assert.match(ui, /const items = shareRecords\.map\(\(record\) => \{/);
+  assert.match(ui, /format copied for \$\{shareRecords\.length\}/);
+  assert.match(ui, /const exportRecords = shareRecords;/);
   assert.match(ui, /\.\.\.\(warehouseFilter \? \["Warehouse"\] : \[\]\)/);
   assert.match(ui, /const bodyRows = exportRecords\.map/);
   assert.match(ui, /with no stock there left out/);
