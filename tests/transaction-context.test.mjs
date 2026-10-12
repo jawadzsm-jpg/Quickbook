@@ -3986,7 +3986,13 @@ test("cheque templates: per-bank positions, date boxes, printer feed and the com
   const lib = await vite.ssrLoadModule("/lib/cheque-template.ts");
   const base = lib.defaultChequeTemplate("emirates-nbd-business");
   assert.deepEqual([base.widthMm, base.heightMm, base.page], [190.5, 88.9, "cheque"]);
-  assert.equal(lib.defaultChequeTemplate("habib-bank-ag-zurich").widthMm, 187);
+  const habib = lib.defaultChequeTemplate("habib-bank-ag-zurich");
+  assert.deepEqual([habib.widthMm, habib.heightMm], [187, 90]);
+  // Habib starts from positions measured on a real cheque: date box on the right, words on the Dirhams line.
+  assert.deepEqual([habib.fields.date.left, habib.fields.date.top], [130, 16.5]);
+  assert.deepEqual([habib.fields.amount.left, habib.fields.amount.top, habib.fields.amount.width], [131, 46, 46]);
+  assert.deepEqual(habib.wordsLine2, { left: 6, top: 51.5, width: 120 });
+  assert.deepEqual(lib.normalizeChequeTemplate("habib-bank-ag-zurich", {}), habib, "the measured values pass validation unchanged");
   // Out-of-range or broken input falls back to safe values.
   const clamped = lib.normalizeChequeTemplate("emirates-nbd-business", { widthMm: 5000, fields: { date: { left: -10, top: "x", width: 40, fontPt: 99 } }, page: "a4", align: "center", offsetYMm: 12 });
   assert.equal(clamped.widthMm, 250); assert.equal(clamped.fields.date.left, 0); assert.equal(clamped.fields.date.top, base.fields.date.top); assert.equal(clamped.fields.date.fontPt, 20);
