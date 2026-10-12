@@ -1184,8 +1184,12 @@ test("Inventory Overview prints an A4 stock list that follows the Warehouse filt
 });
 
 test("email failures are explained in plain language and the login email can be sent again", () => {
-  assert.equal(friendlyEmailError({ message: "Data command failed: 566 SMTP limit exceeded", responseCode: 566 }), "Your email provider's sending limit is reached. Copy the login details and send them yourself, or send the email again later. (Data command failed: 566 SMTP limit exceeded)");
+  assert.equal(friendlyEmailError({ message: "Data command failed: 566 SMTP limit exceeded", responseCode: 566 }, undefined, { loginDetails: true }), "Your email provider's sending limit is reached. Copy the login details and send them yourself, or send the email again later. (Data command failed: 566 SMTP limit exceeded)");
   assert.match(friendlyEmailError({ message: "550 5.4.5 Daily user sending quota exceeded." }), /^Your email provider's sending limit is reached/);
+  // Document and notification emails do not mention login details.
+  const documentLimit = friendlyEmailError({ message: "Data command failed: 566 SMTP limit exceeded", responseCode: 566 });
+  assert.match(documentLimit, /^Your email provider's sending limit is reached \(for turboSMTP, check your plan's quota in the turboSMTP dashboard\)/);
+  assert.doesNotMatch(documentLimit, /login details/);
   assert.match(friendlyEmailError({ message: "Invalid login: 535 Authentication failed", code: "EAUTH", responseCode: 535 }), /^The email server rejected the SMTP username or password/);
   // turboSMTP: TLS on a STARTTLS port (or the reverse) and oversized attachments get plain advice.
   assert.match(friendlyEmailError({ message: "C0B6F1E401000000:error:0A00010B:SSL routines:ssl3_get_record:wrong version number", code: "ESOCKET" }), /^The security setting does not match the port\. Use port 465 with TLS, or port 587 or 2525 with STARTTLS/);

@@ -97,7 +97,7 @@ export async function POST(request: Request) {
   let emailSent = false; let emailWarning = "";
   if (payload.sendEmail === true) {
     try { await sendUserInvitation({ to: email, name: fullName, temporaryPassword: password, roleLabel: roleNames[role], loginUrl: process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin }); emailSent = true; }
-    catch (error) { emailWarning = friendlyEmailError(error, "The user was added, but the email could not be sent."); }
+    catch (error) { emailWarning = friendlyEmailError(error, "The user was added, but the email could not be sent.", { loginDetails: true }); }
   }
   return Response.json({ user: await publicUser(created, administrator), emailSent, emailWarning }, { status: 201 });
 }
@@ -168,7 +168,7 @@ export async function PATCH(request: Request) {
   let emailSent = false; let emailWarning = "";
   if (payload.sendEmail === true && payload.password !== undefined) {
     try { await sendUserInvitation({ to: updated.email, name: updated.fullName || updated.email, temporaryPassword: String(payload.password), roleLabel: roleNames[updated.role as AppRole], loginUrl: process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin }); emailSent = true; }
-    catch (error) { emailWarning = friendlyEmailError(error, "The password was reset, but the email could not be sent."); }
+    catch (error) { emailWarning = friendlyEmailError(error, "The password was reset, but the email could not be sent.", { loginDetails: true }); }
   }
   return Response.json({ user: await publicUser(updated, administrator), emailSent, emailWarning });
 }

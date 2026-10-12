@@ -24,5 +24,5 @@ export async function POST(request: Request) {
   try {
     await sendUserInvitation({ to: target.email, name: target.fullName || target.email, temporaryPassword: password, roleLabel: roleNames[targetRole], loginUrl: process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin });
     return Response.json({ emailSent: true, emailWarning: "" });
-  } catch (error) { return Response.json({ emailSent: false, emailWarning: friendlyEmailError(error) }); }
+  } catch (error) { return Response.json({ emailSent: false, emailWarning: friendlyEmailError(error, undefined, { loginDetails: true }) }); }
 }

@@ -3,7 +3,8 @@
 
 type MailError = { message?: unknown; responseCode?: unknown; code?: unknown };
 
-export function friendlyEmailError(error: unknown, fallback = "The email could not be sent.") {
+// `loginDetails`: the email carried someone's login (invitation or password reset), which can be handed over another way.
+export function friendlyEmailError(error: unknown, fallback = "The email could not be sent.", options: { loginDetails?: boolean } = {}) {
   const mail = (error && typeof error === "object" ? error : {}) as MailError;
   const raw = String(mail.message ?? (typeof error === "string" ? error : "")).trim();
   if (!raw) return fallback;
@@ -11,7 +12,9 @@ export function friendlyEmailError(error: unknown, fallback = "The email could n
   const kind = String(mail.code ?? "");
   const withCause = (advice: string) => `${advice} (${raw})`;
   if (code === 566 || /limit exceeded|quota|rate limit|too many (?:messages|emails|recipients)|sending limit|daily (?:user )?sending/i.test(raw)) {
-    return withCause("Your email provider's sending limit is reached. Copy the login details and send them yourself, or send the email again later.");
+    return withCause(options.loginDetails
+      ? "Your email provider's sending limit is reached. Copy the login details and send them yourself, or send the email again later."
+      : "Your email provider's sending limit is reached (for turboSMTP, check your plan's quota in the turboSMTP dashboard). Send the email again after the limit resets, or raise the limit with your provider.");
   }
   if (kind === "EAUTH" || code === 535 || code === 534 || /authentication|invalid login|username and password/i.test(raw)) {
     return withCause("The email server rejected the SMTP username or password. Check Admin Controls → Email server.");
