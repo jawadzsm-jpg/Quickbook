@@ -3,12 +3,11 @@ import { useCompanyDocumentOutput } from "./company-document-output";
 
 import { toast } from "sonner";
 import { useState } from "react";
-import { Check, FileText, Pencil, Printer, X } from "lucide-react";
+import { Check, FileText, Pencil, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { inferUaeChequeLayout, uaeChequeLayout } from "@/lib/uae-cheque-layouts";
-import { chequePrintDocument, normalizeChequeTemplate } from "@/lib/cheque-template";
 
 type RecordValue = string | number | boolean;
 type ChequeRecord = Record<string, RecordValue> & { id: number };
@@ -25,7 +24,7 @@ function integerWords(value: number): string {
   return "Zero";
 }
 
-export function amountInWords(amount: number, currency: string): string {
+function amountInWords(amount: number, currency: string): string {
   const safe = Math.max(0, Math.round(amount * 100) / 100);
   const whole = Math.floor(safe);
   const fils = Math.round((safe - whole) * 100);
@@ -41,7 +40,7 @@ function escapeMarkup(value: unknown): string {
   return String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character] || character);
 }
 
-export function printIsolatedDocument(title: string, styles: string, body: string) {
+function printIsolatedDocument(title: string, styles: string, body: string) {
   const frame = document.createElement("iframe");
   frame.title = title;
   frame.setAttribute("aria-hidden", "true");
@@ -90,24 +89,6 @@ export function UaeBankCheque({ record, lines, journal, companyName, revision, c
   const [editingNumber, setEditingNumber] = useState(false);
   const [savingNumber, setSavingNumber] = useState(false);
   const [numberError, setNumberError] = useState("");
-  // Bank cheque: printed with the company's saved template for this bank (Company Setup → Cheque templates), plus an
-  // optional one-off nudge for this print only.
-  const [nudgeX, setNudgeX] = useState("0");
-  const [nudgeY, setNudgeY] = useState("0");
-  const [printingCheque, setPrintingCheque] = useState(false);
-  async function printCheque() {
-    setPrintingCheque(true);
-    try {
-      const response = await fetch(`/api/cheque-templates?companyId=${Number(record.companyId)}&layoutKey=${encodeURIComponent(selectedLayout.key)}`, { cache: "no-store" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not load the cheque template.");
-      if (!data.saved) toast.info(`No saved template for ${selectedLayout.name} yet: printing with the built-in positions. Adjust them in Company Setup → Cheque templates.`);
-      const document = chequePrintDocument(normalizeChequeTemplate(selectedLayout.key, data.template), { date, payee: String(record.party), words, amount, currency, crossed: String(record.terms || "account-payee") !== "bearer" }, { nudge: { x: Number(nudgeX) || 0, y: Number(nudgeY) || 0 } });
-      printIsolatedDocument(`Cheque ${chequeNumber}`, document.styles, document.html);
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not print the cheque."); }
-    finally { setPrintingCheque(false); }
-  }
-
   function printVoucher() {
     const styles = `@page{size:A4 portrait;margin:10mm}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:#0f172a;font-family:Arial,sans-serif}.voucher-page{width:190mm;min-height:277mm;padding:9mm;border:1px solid #cbd5e1;break-inside:avoid;page-break-inside:avoid}.voucher-page header{display:flex;justify-content:space-between;gap:12mm;padding-bottom:7mm;border-bottom:1px solid #cbd5e1}.company{margin:0;color:#047857;font-size:10pt;font-weight:800;letter-spacing:.18em}.voucher-page h1{margin:3mm 0 1mm;font-size:21pt}.muted{margin:0;color:#64748b;font-size:10pt}.number{text-align:right}.number span,.facts span,.words span,.details span{display:block;color:#64748b;font-size:8.5pt;font-weight:700;letter-spacing:.05em}.number strong{display:block;margin-top:2mm;font:700 13pt monospace}.facts{display:grid;grid-template-columns:repeat(4,1fr);gap:6mm;margin-top:10mm}.facts strong{display:block;margin-top:2mm;font-size:10.5pt}.words{margin-top:9mm;padding:6mm;border:1px solid #cbd5e1;border-radius:3mm;background:#f8fafc}.words strong{display:block;margin-top:2mm;font-size:11pt;text-transform:uppercase}.details{display:grid;grid-template-columns:1fr 1fr;gap:10mm;margin-top:9mm;padding-top:7mm;border-top:1px solid #cbd5e1}.details p{margin:2mm 0 0;font-size:10.5pt;white-space:pre-wrap}footer{display:grid;grid-template-columns:repeat(3,1fr);gap:10mm;margin-top:28mm;padding-top:12mm}footer p{margin:0;padding-top:3mm;border-top:1px solid #64748b;text-align:center;color:#64748b;font-size:8.5pt;font-weight:700}@media print{.voucher-page{break-after:avoid;page-break-after:avoid}}`;
     const body = voucherPrintBody({ companyName, chequeNumber, bankName, layoutName: selectedLayout.name, party: String(record.party), date, amount, currency, words, details: String(lines[0]?.description || "Cheque payment"), memo: String(record.memo || "") });
@@ -140,15 +121,7 @@ export function UaeBankCheque({ record, lines, journal, companyName, revision, c
     <div className="document-internal-only space-y-4 rounded-xl border bg-slate-50 p-4 print:hidden">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div><p className="font-bold text-slate-900">UAE Bank Cheque</p><p className="text-sm text-slate-500">Saved cheque {chequeNumber}</p></div>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" disabled={printingCheque} onClick={() => void printCheque()}><Printer className="size-4" />{printingCheque ? "Preparing…" : "Print on bank cheque"}</Button>
-          <Button type="button" variant="outline" onClick={printVoucher}><FileText className="size-4" />Print A4 voucher</Button>
-        </div>
-      </div>
-      <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-white p-3 text-xs text-slate-600">
-        <p className="min-w-56 flex-1">Prints on the <strong>{selectedLayout.name}</strong> cheque with your company&apos;s template (Company Setup → Cheque templates). In the print dialog set Scale to 100% / Actual size and Margins to None. If the text still comes out smaller and shifted to the top-left, set the template&apos;s Paper to A4.</p>
-        <label className="grid gap-1 font-medium">This print only: right + / left − (mm)<Input type="number" step="0.5" className="h-8 w-28" value={nudgeX} onChange={(event) => setNudgeX(event.target.value)} /></label>
-        <label className="grid gap-1 font-medium">down + / up − (mm)<Input type="number" step="0.5" className="h-8 w-28" value={nudgeY} onChange={(event) => setNudgeY(event.target.value)} /></label>
+        <Button type="button" variant="outline" onClick={printVoucher}><FileText className="size-4" />Print A4 voucher</Button>
       </div>
       {canEditNumber && <div className="rounded-lg border bg-white p-3">
         <div className="flex flex-wrap items-end gap-2">

@@ -801,7 +801,7 @@ test("complete business final report links executive measures to detailed report
   assert.match(view, /Detailed report: \{row\.detailReport\}/);
 });
 
-test("UAE bank cheque is linked to Banking and prints on the bank cheque (company template) or an A4 voucher", () => {
+test("UAE bank cheque is linked to Banking and prints only the A4 voucher", () => {
   const app = readFileSync("app/enterprise-app.tsx", "utf8");
   const cheque = readFileSync("app/uae-bank-cheque.tsx", "utf8");
   const layouts = readFileSync("lib/uae-cheque-layouts.ts", "utf8");
@@ -810,8 +810,7 @@ test("UAE bank cheque is linked to Banking and prints on the bank cheque (compan
   assert.match(app, /A\/C Payee Only \(recommended\)/);
   assert.match(app, /Cheque bank layout \*/);
   assert.match(app, /<UaeBankCheque record=\{record\}/);
-  assert.match(cheque, /Print on bank cheque/);
-  assert.match(cheque, /chequePrintDocument\(normalizeChequeTemplate\(selectedLayout\.key, data\.template\)/);
+  assert.doesNotMatch(cheque, /Print on bank cheque/);
   assert.match(cheque, /Print A4 voucher/);
   assert.match(cheque, /Edit cheque number/);
   assert.match(cheque, /editMode: "cheque-number"/);
