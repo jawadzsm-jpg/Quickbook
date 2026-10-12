@@ -4076,3 +4076,75 @@ test("administrators can edit a saved cheque; the journal is reposted and bill o
     assert.equal((await edit({ revision: (await detail()).revision })).status, 403, "only administrators edit cheques");
   } finally { delete globalThis.__transferTestUser; }
 });
+
+test("PDC reminders: default 7 days before at 09:00 UAE, custom or off, follow the date, and are sent once", async () => {
+  const rules = await vite.ssrLoadModule("/lib/cheque-reminders.ts");
+  const now = new Date("2026-10-12T08:00:00Z"); // 12:00 in the UAE
+  assert.equal(rules.uaeToday(new Date("2026-10-12T21:00:00Z")), "2026-10-13", "after 20:00 UTC it is already tomorrow in the UAE");
+  assert.equal(rules.isPostDated("2026-10-12", now), false); assert.equal(rules.isPostDated("2026-10-13", now), true);
+  assert.equal(rules.defaultReminderAt("2026-10-31", now), "2026-10-24T05:00:00.000Z", "24 Oct 09:00 UAE");
+  assert.equal(rules.defaultReminderAt("2026-10-15", now), now.toISOString(), "within a week: due now");
+  assert.equal(rules.defaultReminderAt("2026-10-10", now), null);
+  assert.equal(rules.uaeLocalToIso("2026-10-20T14:30"), "2026-10-20T10:30:00.000Z"); assert.equal(rules.uaeLocalToIso("bad"), "");
+  assert.equal(rules.isoToUaeLocal("2026-10-20T10:30:00.000Z"), "2026-10-20T14:30");
+  assert.equal(rules.daysUntil("2026-10-19", now), "in 7 days"); assert.equal(rules.daysUntil("2026-10-13", now), "tomorrow");
+
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('PDC reminders') RETURNING id")).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'PDC', 'PDC', 'PDC') RETURNING id", [companyId])).rows[0].id;
+  const rows = (await database.query("INSERT INTO accounts (company_id, code, name, type, system_role, currency) VALUES ($1, 'PB', 'PDC Bank', 'Bank', 'BANK', 'AED'), ($1, 'PE', 'PDC Rent', 'Expense', 'EXPENSE', 'AED') RETURNING id, name", [companyId])).rows;
+  const bankAccountId = rows.find((row) => row.name === "PDC Bank").id;
+  const accountant = (await database.query("INSERT INTO app_users (full_name, email, password_hash, role) VALUES ('PDC Accountant', 'pdc-accountant@notice.test', 'test', 'accountant') RETURNING id")).rows[0].id;
+  await database.query("INSERT INTO app_user_companies (user_id, company_id) VALUES ($1, $2)", [accountant, companyId]);
+  const day = (offset) => rules.uaeToday(new Date(Date.now() + offset * 86_400_000));
+  const { POST, PATCH, GET } = await vite.ssrLoadModule("/app/api/records/route.ts");
+  const body = (changes = {}) => ({ kind: "transactions", companyId, locationId, type: "cheque", chequeType: "expense", party: "Landlord LLC", account: "PDC Rent", bankAccountId, chequeBankKey: "emirates-nbd-business", terms: "account-payee", currency: "AED", exchangeRate: 1, lines: [{ description: "Rent", quantity: 1, unitPrice: 25000, unitCost: 0, vatCode: "ZERO" }], ...changes });
+  const create = async (changes) => { const response = await POST(new Request("https://app.test/api/records", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body(changes)) })); assert.equal(response.status, 201, await response.clone().text()); return (await response.json()).record; };
+  const row = async (id) => (await database.query("SELECT reminder_at, reminder_custom, reminded_at, transaction_date FROM transactions WHERE id = $1", [id])).rows[0];
+
+  const today = await create({ number: "PDC-0", transactionDate: day(0) });
+  assert.equal((await row(today.id)).reminder_at, null, "a cheque dated today is not post-dated");
+  const pdc = await create({ number: "PDC-1", transactionDate: day(30) });
+  assert.equal(new Date((await row(pdc.id)).reminder_at).toISOString(), rules.defaultReminderAt(day(30)));
+  const custom = await create({ number: "PDC-2", transactionDate: day(30), reminderLocal: `${day(20)}T15:00` });
+  assert.equal(new Date((await row(custom.id)).reminder_at).toISOString(), rules.uaeLocalToIso(`${day(20)}T15:00`)); assert.equal((await row(custom.id)).reminder_custom, true);
+  const off = await create({ number: "PDC-3", transactionDate: day(30), reminderOff: true });
+  assert.equal((await row(off.id)).reminder_at, null); assert.equal((await row(off.id)).reminder_custom, true);
+  assert.equal((await POST(new Request("https://app.test/api/records", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body({ number: "PDC-X", transactionDate: day(30), reminderLocal: "soon" })) }))).status, 400);
+
+  // Editing the date moves a default reminder; a custom one stays.
+  const edit = async (cheque, changes) => { const { revision } = await (await GET(new Request(`https://app.test/api/records?kind=transactions&id=${cheque.id}&companyId=${companyId}`))).json(); const response = await PATCH(new Request("https://app.test/api/records", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body(changes), id: cheque.id, number: cheque.number, revision }) })); assert.equal(response.status, 200, await response.clone().text()); };
+  await edit(pdc, { transactionDate: day(40) });
+  assert.equal(new Date((await row(pdc.id)).reminder_at).toISOString(), rules.defaultReminderAt(day(40)));
+  await edit(custom, { transactionDate: day(40) });
+  assert.equal(new Date((await row(custom.id)).reminder_at).toISOString(), rules.uaeLocalToIso(`${day(20)}T15:00`));
+
+  // The reminder update from the PDC list.
+  const reminder = (id, change, user) => { globalThis.__transferTestUser = user; return PATCH(new Request("https://app.test/api/records", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "transactions", id, companyId, editMode: "cheque-reminder", ...change }) })).finally(() => { delete globalThis.__transferTestUser; }); };
+  assert.equal((await reminder(off.id, { reminderDefault: true }, { id: accountant, role: "accountant", companyIds: [companyId] })).status, 200, "accountants manage reminders");
+  assert.equal((await row(off.id)).reminder_custom, false);
+  assert.equal((await reminder(off.id, { reminderOff: true }, { id: 9, role: "purchasing", companyIds: [companyId] })).status, 403);
+  assert.equal((await reminder(today.id, { reminderOff: true })).status, 409, "only post-dated cheques");
+  assert.equal((await reminder(off.id, { reminderLocal: "nope" })).status, 400);
+
+  // Sending: due reminders notify once, with the PDC wording; later ones wait.
+  const { sendDueChequeReminders } = await vite.ssrLoadModule("/lib/notifications.ts");
+  await database.query("UPDATE transactions SET reminder_at = now() - interval '1 minute' WHERE id = $1", [pdc.id]);
+  assert.equal(await sendDueChequeReminders([companyId]), 1);
+  assert.equal(await sendDueChequeReminders([companyId]), 0, "never twice");
+  const notice = (await database.query("SELECT kind, title, body FROM notifications WHERE user_id = $1 AND transaction_id = $2 AND kind = 'pdc-reminder'", [accountant, pdc.id])).rows;
+  assert.equal(notice.length, 1); assert.equal(notice[0].kind, "pdc-reminder");
+  assert.equal(notice[0].title, `PDC PDC-1 due ${rules.daysUntil(day(40))}: AED 25,000.00`);
+  assert.match(notice[0].body, /^Pay to Landlord LLC · cheque date .* · from PDC Bank · make sure the bank account has the funds$/);
+  assert.ok((await row(pdc.id)).reminded_at);
+  // Changing the reminder sends it again; a void cheque never reminds.
+  assert.equal((await reminder(pdc.id, { reminderLocal: `${day(1)}T09:00` })).status, 200);
+  assert.equal((await row(pdc.id)).reminded_at, null);
+  await database.query("UPDATE transactions SET reminder_at = now() - interval '1 minute', status = 'void' WHERE id = $1", [custom.id]);
+  assert.equal(await sendDueChequeReminders([companyId]), 0);
+  // The bell checks too: opening notifications sends a due reminder for the user's companies.
+  await database.query("UPDATE transactions SET reminder_at = now() - interval '1 minute' WHERE id = $1", [pdc.id]);
+  const route = await vite.ssrLoadModule("/app/api/notifications/route.ts");
+  globalThis.__transferTestUser = { id: accountant, role: "accountant", companyIds: [companyId] };
+  try { const listed = await (await route.GET(new Request("https://app.test/api/notifications"))).json(); assert.equal(listed.notifications.filter((item) => item.kind === "pdc-reminder").length, 2); }
+  finally { delete globalThis.__transferTestUser; }
+});

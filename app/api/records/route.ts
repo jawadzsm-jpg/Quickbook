@@ -1,3 +1,4 @@
+import { defaultReminderAt, isPostDated, uaeLocalToIso } from "@/lib/cheque-reminders";
 import { notifyChequeWritten } from "@/lib/notifications";
 import { companyBankAccounts } from "@/lib/bank-accounts";
 import { adjustWarehouseStock, itemWarehouseBreakdown, resolveDocumentWarehouse, warehouseDocumentTypes, warehouseQuantities, type DocumentWarehouse } from "@/lib/warehouses";
@@ -1265,6 +1266,23 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     }
     // Bank account printed on a sales document: chosen in the form by accountants and administrators (sales users never
     // see the company's bank details, so their saves keep what the document already had), else the source's choice.
+    // PDC reminder: only for cheques dated after today (UAE). It follows the cheque date (7 days before, 09:00) unless a
+    // person set a time (`reminderLocal`, UAE "YYYY-MM-DDTHH:mm") or turned it off (`reminderOff`). A changed reminder
+    // is sent again.
+    let reminderAt: string | null = null, reminderCustom = false;
+    if (type === "cheque" && isPostDated(transactionDate)) {
+      const off = payload.reminderOff === true || payload.reminderOff === "true";
+      const local = typeof payload.reminderLocal === "string" ? payload.reminderLocal.trim() : "";
+      if (off) reminderCustom = true;
+      else if (local) {
+        reminderAt = uaeLocalToIso(local);
+        if (!reminderAt) return Response.json({ error: "Enter a valid reminder date and time." }, { status: 400 });
+        reminderCustom = reminderAt !== defaultReminderAt(transactionDate);
+      } else if (replacing?.reminderCustom) { reminderAt = replacing.reminderAt; reminderCustom = true; }
+      else reminderAt = defaultReminderAt(transactionDate);
+    }
+    const sameReminder = Boolean(replacing) && (replacing?.reminderAt ? Date.parse(replacing.reminderAt) : null) === (reminderAt ? Date.parse(reminderAt) : null);
+    const remindedAt = sameReminder ? replacing?.remindedAt ?? null : null;
     let bankAccountKey = replacing?.bankAccountKey ?? sourceBankAccountKey;
     if (!shipToDocumentTypes.includes(type)) bankAccountKey = "";
     else if (typeof payload.bankAccountKey === "string" && (authorization.role === "accountant" || isAdministrator(authorization))) {
@@ -1287,7 +1305,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       account: String(payload.account ?? "Accounts Receivable"), status: type === "pending invoice" ? "pending" : ["customer payment", "cheque", "transfer"].includes(type) && total > 0 ? "paid" : String(payload.status ?? "open"), ...(["customer payment", "cheque", "transfer"].includes(type) && total > 0 ? { paidAt: new Date().toISOString() } : {}), memo: String(payload.memo ?? ""), comments, serialNumber,
       subtotal, vatRate: Number(payload.vatRate ?? 5), vatAmount, total, currency, exchangeRate, baseTotal,
       sourceTransactionId: replacing ? replacing.sourceTransactionId : Number.isInteger(conversionSourceId) && conversionSourceId > 0 ? conversionSourceId : null,
-      bankAccountKey,
+      bankAccountKey, reminderAt, reminderCustom, remindedAt,
     };
     const [record] = replacing
       ? await db.update(transactions).set(values).where(eq(transactions.id, replacing.id)).returning()
@@ -1549,6 +1567,27 @@ async function handlePATCH(request: Request) {
           if (bankAccountKey === existing.bankAccountKey) return Response.json({ record: existing });
           const [record] = await db.update(transactions).set({ bankAccountKey }).where(eq(transactions.id, id)).returning();
           await db.insert(auditLog).values({ companyId, action: "updated", entityType: "transaction", entityId: id, details: JSON.stringify({ mode: "bank-account", actorId: authorization.id, number: existing.number, before: existing.bankAccountKey, after: bankAccountKey }) });
+          return Response.json({ record });
+        }
+        // PDC reminder on a saved cheque (accountants and administrators): { reminderLocal } sets a UAE date and time,
+        // { reminderOff: true } turns it off, { reminderDefault: true } follows the cheque date again. Only the reminder
+        // changes; a changed reminder is sent again.
+        if (payload.editMode === "cheque-reminder") {
+          if (Object.keys(payload).some(key => !["kind", "id", "companyId", "editMode", "reminderLocal", "reminderOff", "reminderDefault"].includes(key))) return Response.json({ error: "Send the reminder only." }, { status: 400 });
+          if (existing.type !== "cheque") return Response.json({ error: "Only cheques have PDC reminders." }, { status: 400 });
+          if (authorization.role !== "accountant" && !isAdministrator(authorization)) return Response.json({ error: "Only an accountant or administrator can change cheque reminders." }, { status: 403 });
+          if (["cancelled", "canceled", "void", "voided"].includes(String(existing.status).toLowerCase())) return Response.json({ error: "Cancelled or void cheques have no reminder." }, { status: 409 });
+          if (!isPostDated(existing.transactionDate)) return Response.json({ error: "Only cheques dated after today can have a reminder." }, { status: 409 });
+          let reminderAt: string | null, reminderCustom: boolean;
+          if (payload.reminderDefault === true) { reminderAt = defaultReminderAt(existing.transactionDate); reminderCustom = false; }
+          else if (payload.reminderOff === true) { reminderAt = null; reminderCustom = true; }
+          else {
+            reminderAt = uaeLocalToIso(String(payload.reminderLocal ?? ""));
+            if (!reminderAt) return Response.json({ error: "Enter a valid reminder date and time." }, { status: 400 });
+            reminderCustom = reminderAt !== defaultReminderAt(existing.transactionDate);
+          }
+          const [record] = await db.update(transactions).set({ reminderAt, reminderCustom, remindedAt: null }).where(eq(transactions.id, id)).returning();
+          await db.insert(auditLog).values({ companyId, action: "updated", entityType: "transaction", entityId: id, details: JSON.stringify({ mode: "cheque-reminder", actorId: authorization.id, number: existing.number, before: existing.reminderAt, after: reminderAt }) });
           return Response.json({ record });
         }
         // Saved documents are otherwise read-only for sales users; an accountant or administrator makes any change.

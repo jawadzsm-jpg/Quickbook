@@ -410,6 +410,10 @@ export const transactions = pgTable("transactions", {
   // Company bank account printed on this sales document (migration 0112): "" follows the document currency, "default"
   // is the main bank account, otherwise an extra account's id from companies.bank_accounts.
   bankAccountKey: text("bank_account_key").notNull().default(""),
+  // Post-dated cheque reminder (migration 0115): due instant, set by a person or following the cheque date, and sent time.
+  reminderAt: timestamp("reminder_at", { withTimezone: true, mode: "string" }),
+  reminderCustom: boolean("reminder_custom").notNull().default(false),
+  remindedAt: timestamp("reminded_at", { withTimezone: true, mode: "string" }),
   // Invoice marked as delivered by inventory staff (migration 0094); printed as a DELIVERED stamp.
   deliveredAt: timestamp("delivered_at", { withTimezone: true, mode: "string" }),
   deliveredByUserId: integer("delivered_by_user_id").references(() => appUsers.id, { onDelete: "set null" }),

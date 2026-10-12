@@ -5,6 +5,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { appUsers, notifications } from "@/db/schema";
 import { emailDeliveryConfigured, sendNotificationEmail } from "@/lib/smtp";
+import { daysUntil } from "@/lib/cheque-reminders";
 
 type Executor = { execute: (query: ReturnType<typeof sql>) => Promise<{ rows: Record<string, unknown>[] }> };
 type Inserter = Pick<ReturnType<typeof getDb>, "insert">;
@@ -84,4 +85,37 @@ export async function deliverNotificationEmails(ids?: number[]) {
     }
   }
   return result;
+}
+
+/**
+ * PDC reminders: cheques whose reminder is due and not yet sent notify the company's administrators and accountants
+ * (and whoever saved the cheque). Claiming and marking happen in one statement, so a reminder is sent only once even
+ * when the scheduler and an open app check at the same time. `companyIds` limits the check (an open app checks only
+ * its user's companies).
+ */
+export async function sendDueChequeReminders(companyIds?: number[]) {
+  if (companyIds && !companyIds.length) return 0;
+  const db = getDb();
+  const scope = companyIds ? sql`AND company_id IN (${sql.join(companyIds.map((id) => sql`${id}`), sql`, `)})` : sql``;
+  const due = (await db.execute(sql`
+    UPDATE transactions t SET reminded_at = now()
+    WHERE t.id IN (
+      SELECT id FROM transactions
+      WHERE type = 'cheque' AND reminder_at IS NOT NULL AND reminder_at <= now() AND reminded_at IS NULL
+        AND lower(status) NOT IN ('void', 'voided', 'cancelled', 'canceled') ${scope}
+      FOR UPDATE SKIP LOCKED)
+    RETURNING t.id, t.company_id, t.number, t.party, t.total, t.currency, t.transaction_date, t.created_by_user_id,
+      (SELECT jl.account_name FROM journal_lines jl JOIN journal_entries je ON je.id = jl.journal_entry_id WHERE je.transaction_id = t.id AND jl.credit > 0 ORDER BY jl.id LIMIT 1) AS bank_name`)).rows;
+  const ids: number[] = [];
+  for (const cheque of due) {
+    const companyId = Number(cheque.company_id), date = String(cheque.transaction_date);
+    const recipients = await companyNotificationRecipients(db, companyId, cheque.created_by_user_id ? Number(cheque.created_by_user_id) : undefined);
+    if (!recipients.length) continue;
+    const title = `PDC ${cheque.number} due ${daysUntil(date)}: ${money(Number(cheque.total), String(cheque.currency))}`;
+    const body = [`Pay to ${cheque.party || "—"}`, `cheque date ${day(date)}`, cheque.bank_name && `from ${cheque.bank_name}`, "make sure the bank account has the funds"].filter(Boolean).join(" · ");
+    const rows = await db.insert(notifications).values(recipients.map((userId) => ({ companyId, userId, kind: "pdc-reminder", title, body, transactionId: Number(cheque.id) }))).returning();
+    ids.push(...rows.map((row) => row.id));
+  }
+  queueNotificationEmails(ids);
+  return due.length;
 }
