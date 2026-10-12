@@ -4229,7 +4229,9 @@ test("documents are emailed with their PDF to any number of addresses, replies g
   assert.match((await failed.json()).error, /^Sent to the first 50 addresses, then: 550 Mailbox unavailable/);
   globalThis.__mailFail = "Invalid login: 535 Authentication failed";
   const rejected = await as("accountant", () => post({ to: "buyer@gulf.test" }));
-  assert.match((await rejected.json()).error, /rejected the SMTP username or password/);
+  const rejectedError = (await rejected.json()).error;
+  assert.match(rejectedError, /rejected the SMTP username or password/);
+  assert.match(rejectedError, /The attached PDF was 0\.00 MB; if the email goes through without the PDF, the server is refusing the attachment\.$/);
   delete globalThis.__mailFail;
   const statuses = (await database.query("SELECT status, error FROM document_emails WHERE transaction_id = $1 ORDER BY id", [invoice])).rows;
   assert.deepEqual(statuses.map((row) => row.status), ["sent", "sent", "failed", "failed"]);
