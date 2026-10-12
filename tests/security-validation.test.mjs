@@ -1157,6 +1157,15 @@ test("Inventory Overview copy buttons and Excel export follow the Warehouse filt
   assert.match(ui, /with no stock there left out/);
 });
 
+test("Inventory Overview prints an A4 stock list that follows the Warehouse filter", () => {
+  const ui = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
+  assert.match(ui, /const list = selectedRecords\.length \? shareRecords : filtered;/);
+  assert.match(ui, /\.\.\.\(warehouseFilter \? \["Warehouse"\] : \[\]\), \.\.\.\(showQuantity \? \["Qty"\] : \[\]\)/);
+  assert.match(ui, /warehouseLabel \|\| "All warehouses"/);
+  assert.match(ui, /@page\{size:A4;margin:12mm\}/);
+  assert.match(ui, /aria-label="Print stock list"/);
+});
+
 test("email failures are explained in plain language and the login email can be sent again", () => {
   assert.equal(friendlyEmailError({ message: "Data command failed: 566 SMTP limit exceeded", responseCode: 566 }), "Your email provider's sending limit is reached. Copy the login details and send them yourself, or send the email again later. (Data command failed: 566 SMTP limit exceeded)");
   assert.match(friendlyEmailError({ message: "550 5.4.5 Daily user sending quota exceeded." }), /^Your email provider's sending limit is reached/);
