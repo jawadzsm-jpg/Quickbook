@@ -3889,3 +3889,26 @@ test("a sales document can print a chosen company bank account", async () => {
   const branding = { name: "Co", logoData: "", phone: "", trn: "", addressLine1: "", addressLine2: "", city: "", country: "", ...setup };
   assert.equal(transactionDocumentData({ currency: "USD", total: 1, bankAccountKey: "usd2" }, [], null, branding).company.bank.name, "ADCB");
 });
+
+test("sales forms save the chosen bank account; sales users cannot change it", async () => {
+  const usd = { id: "usd1", currency: "USD", bankName: "Mashreq", accountName: "Co", accountNumber: "0191", iban: "", swift: "" };
+  const companyId = (await database.query("INSERT INTO companies (name, bank_name, bank_account_number, bank_currency, bank_accounts) VALUES ('Form bank', 'ENBD', '1015', 'AED', $1) RETURNING id", [JSON.stringify([usd])])).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'FBK', 'FBK', 'FBK') RETURNING id", [companyId])).rows[0].id;
+  const itemId = (await database.query("INSERT INTO items (company_id, location_id, sku, name, quantity, cost) VALUES ($1, $2, 'FBK-1', 'Laptop', 5, 20) RETURNING id", [companyId, locationId])).rows[0].id;
+  const { POST } = await vite.ssrLoadModule("/app/api/records/route.ts");
+  const save = (type, number, extra = {}) => POST(new Request("https://app.test/api/records", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "transactions", companyId, locationId, type, party: "Form party", number, transactionDate: "2026-10-12", currency: "USD", exchangeRate: 3.675, account: "Sales Revenue", lines: [{ itemId, description: "Laptop", quantity: 1, unitPrice: 100, unitCost: 20, vatCode: "ZERO" }], ...extra }) }));
+  const quote = await save("quotation", "FBK-Q1", { bankAccountKey: "usd1" });
+  assert.equal(quote.status, 201, await quote.clone().text());
+  assert.equal((await quote.json()).record.bankAccountKey, "usd1");
+  assert.equal((await save("proforma invoice", "FBK-P1", { bankAccountKey: "default" })).status, 201, "the main account can be chosen");
+  assert.equal((await save("estimate", "FBK-E1", { bankAccountKey: "nope" })).status, 400, "unknown accounts are refused");
+  const plain = await save("estimate", "FBK-E2");
+  assert.equal((await plain.json()).record.bankAccountKey, "", "no choice: Automatic");
+  try {
+    await database.query("INSERT INTO contacts (company_id, type, name, currency, status, sales_owner_id) VALUES ($1, 'customer', 'Form party', 'USD', 'active', 1)", [companyId]);
+    globalThis.__transferTestUser = { id: 1, role: "sales", companyIds: [companyId] };
+    const salesQuote = await save("quotation", "FBK-Q2", { bankAccountKey: "usd1" });
+    assert.equal(salesQuote.status, 201, await salesQuote.clone().text());
+    assert.equal((await database.query("SELECT bank_account_key FROM transactions WHERE company_id = $1 AND number = 'FBK-Q2'", [companyId])).rows[0].bank_account_key, "", "sales users never pick the company bank account");
+  } finally { delete globalThis.__transferTestUser; }
+});

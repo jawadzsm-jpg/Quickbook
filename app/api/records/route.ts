@@ -1262,6 +1262,18 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
         payload.account = payableAccount.name;
       }
     }
+    // Bank account printed on a sales document: chosen in the form by accountants and administrators (sales users never
+    // see the company's bank details, so their saves keep what the document already had), else the source's choice.
+    let bankAccountKey = replacing?.bankAccountKey ?? sourceBankAccountKey;
+    if (!shipToDocumentTypes.includes(type)) bankAccountKey = "";
+    else if (typeof payload.bankAccountKey === "string" && (authorization.role === "accountant" || isAdministrator(authorization))) {
+      const requested = payload.bankAccountKey.trim();
+      if (requested && requested !== bankAccountKey) {
+        const [company] = await db.select({ bankName: companies.bankName, bankAccountNumber: companies.bankAccountNumber, bankIban: companies.bankIban, bankCurrency: companies.bankCurrency, baseCurrency: companies.baseCurrency, bankAccounts: companies.bankAccounts }).from(companies).where(eq(companies.id, companyId)).limit(1);
+        if (!company || !companyBankAccounts(company).some((account) => account.id === requested)) return Response.json({ error: "Choose one of the company's bank accounts from Company Setup." }, { status: 400 });
+      }
+      bankAccountKey = requested;
+    }
     const values = {
       createdByUserId: replacing?.createdByUserId ?? (authorization.role === "sales" ? authorization.id : null), companyId, locationId: Number.isInteger(locationId) ? locationId : null, warehouseId: documentWarehouse?.id ?? null, number, type, party, employeeLoanContactId, billId, invoiceId, purchaseOrderId, salesSourceId,
       salesman: String(payload.salesman ?? ""), isImport: payload.isImport === true || String(payload.isImport) === "true" || usesImportGoodsVat,
@@ -1274,7 +1286,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       account: String(payload.account ?? "Accounts Receivable"), status: type === "pending invoice" ? "pending" : ["customer payment", "cheque", "transfer"].includes(type) && total > 0 ? "paid" : String(payload.status ?? "open"), ...(["customer payment", "cheque", "transfer"].includes(type) && total > 0 ? { paidAt: new Date().toISOString() } : {}), memo: String(payload.memo ?? ""), comments, serialNumber,
       subtotal, vatRate: Number(payload.vatRate ?? 5), vatAmount, total, currency, exchangeRate, baseTotal,
       sourceTransactionId: replacing ? replacing.sourceTransactionId : Number.isInteger(conversionSourceId) && conversionSourceId > 0 ? conversionSourceId : null,
-      ...(replacing ? {} : { bankAccountKey: sourceBankAccountKey }),
+      bankAccountKey,
     };
     const [record] = replacing
       ? await db.update(transactions).set(values).where(eq(transactions.id, replacing.id)).returning()
