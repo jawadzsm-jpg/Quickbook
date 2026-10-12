@@ -1141,9 +1141,17 @@ test("category colours: fixed light/dark palette, automatic colour per name, sav
 test("Excel export adds Today offer price and Offer ends columns only when an exported product has a running offer", () => {
   assert.match(offerEndsText("2026-10-11 19:44:00+04"), /^11 Oct, 07:44 pm$/i);
   const ui = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
-  assert.match(ui, /const offerColumns = showPrice && selectedRecords\.some\(\(record\) => offerFor\(record\)\)/);
+  assert.match(ui, /const offerColumns = showPrice && exportRecords\.some\(\(record\) => offerFor\(record\)\)/);
   assert.match(ui, /headers\.push\(`Today offer price\$\{mode === "include" \? " including 5% VAT" : mode === "zero" \? " \(0% VAT\)" : ""\}`, "Offer ends \(UAE time\)"\)/);
   assert.match(ui, /priceFor\(\{ salesPrice: offer\.offerPrice \}, mode\)/);
+});
+
+test("Inventory Overview Excel export follows the Warehouse filter", () => {
+  const ui = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
+  assert.match(ui, /const exportRecords = selectedRecords\.flatMap\(\(record\) => \{\s*const inventories = inWarehouse\(record\.inventories, warehouseFilter\);/);
+  assert.match(ui, /\.\.\.\(warehouseFilter \? \["Warehouse"\] : \[\]\)/);
+  assert.match(ui, /const bodyRows = exportRecords\.map/);
+  assert.match(ui, /with no stock there left out/);
 });
 
 test("email failures are explained in plain language and the login email can be sent again", () => {

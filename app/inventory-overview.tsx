@@ -349,6 +349,11 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     for (const record of records) for (const share of record.warehouses ?? []) options.set(String(share.warehouseId), `${record.locationName} · ${share.name}`);
     return [...options].sort((a, b) => a[1].localeCompare(b[1]));
   }, [records]);
+  // A warehouse filter keeps only stock held in that warehouse and shows its quantity.
+  const inWarehouse = <T extends { quantity: number; warehouses?: Array<{ warehouseId: number; quantity: number }> }>(inventories: T[], warehouseId: string) => !warehouseId ? inventories : inventories.flatMap((inventory) => {
+    const share = inventory.warehouses?.find((entry) => String(entry.warehouseId) === warehouseId);
+    return share && share.quantity > 0 ? [{ ...inventory, quantity: share.quantity }] : [];
+  });
   const extraFilters = Boolean(category || brand || condition || priceMin || priceMax || warehouseFilter);
   const clearExtraFilters = () => { setCategory(""); setBrand(""); setCondition(""); setPriceMin(""); setPriceMax(""); setWarehouseFilter(""); };
 
@@ -367,11 +372,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
       if (max !== null && Number.isFinite(max) && Number(record.salesPrice) > max) return [];
       const locationId = filter.startsWith("location:") ? Number(filter.split(":")[1]) : null;
       const located = locationId === null ? record.inventories : record.inventories.filter((inventory) => inventory.locationId === locationId);
-      // A warehouse filter keeps only stock held in that warehouse and shows its quantity.
-      const inventories = !warehouseFilter ? located : located.flatMap((inventory) => {
-        const share = inventory.warehouses?.find((entry) => String(entry.warehouseId) === warehouseFilter);
-        return share && share.quantity > 0 ? [{ ...inventory, quantity: share.quantity }] : [];
-      });
+      const inventories = inWarehouse(located, warehouseFilter);
       if (!inventories.length) return [];
       if (term && !matchesSearch([record.name, record.sku, record.itemNumber, record.category, record.description, record.specifications, record.companyName, ...inventories.flatMap((inventory) => [inventory.locationName, inventory.locationCode])], term)) return [];
       return [{
@@ -548,18 +549,25 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   const exportExcel = (mode: VatMode) => {
     if (!canSelectItems || loading) return;
     if (!selectedRecords.length) return toast.error("Select at least one item to export.");
-    const headers = ["Company", "Inventory", "Category", "Item No.", "SKU", "Item", "Specifications", "Screen Details"];
+    // With a warehouse filter, the export lists that warehouse's quantity and leaves out selected items it does not hold.
+    const warehouseLabel = warehouseFilter ? warehouseOptions.find(([id]) => id === warehouseFilter)?.[1] ?? "" : "";
+    const exportRecords = selectedRecords.flatMap((record) => {
+      const inventories = inWarehouse(record.inventories, warehouseFilter);
+      return inventories.length ? [{ ...record, inventories, quantity: inventories.reduce((sum, inventory) => sum + Number(inventory.quantity), 0) }] : [];
+    });
+    if (!exportRecords.length) return toast.error(`None of the selected items have stock in ${warehouseLabel}.`);
+    const headers = ["Company", "Inventory", ...(warehouseFilter ? ["Warehouse"] : []), "Category", "Item No.", "SKU", "Item", "Specifications", "Screen Details"];
     if (showQuantity) headers.push("Quantity");
     if (showPrice) headers.push(`${mode === "include" ? "Price including 5% VAT" : mode === "zero" ? "Price (0% VAT)" : "Export price excluding VAT"}${adjustLabel ? ` (${adjustLabel.trim()})` : ""}`, "Currency");
     // Running Today Offers: two extra columns, added only when an exported product has one.
     const offerByItem = new Map(runningOffers(offers).map((offer) => [offer.itemId, offer]));
     const offerFor = (record: ConsolidatedItem) => record.recordIds.map((id) => offerByItem.get(id)).find(Boolean);
-    const offerColumns = showPrice && selectedRecords.some((record) => offerFor(record));
+    const offerColumns = showPrice && exportRecords.some((record) => offerFor(record));
     if (offerColumns) headers.push(`Today offer price${mode === "include" ? " including 5% VAT" : mode === "zero" ? " (0% VAT)" : ""}`, "Offer ends (UAE time)");
     const headerRow = headers.map((header) => `<Cell ss:StyleID="Header"><Data ss:Type="String">${xml(header)}</Data></Cell>`).join("");
-    const bodyRows = selectedRecords.map((record) => {
+    const bodyRows = exportRecords.map((record) => {
       const values: Array<{ value: unknown; type?: "Number"; style?: string }> = [
-        { value: record.companyName }, { value: record.inventories.map((inventory) => inventory.locationName).join(", ") }, { value: record.category, style: `Category-${categoryColor(record.category, categoryColors).id}` },
+        { value: record.companyName }, { value: record.inventories.map((inventory) => inventory.locationName).join(", ") }, ...(warehouseFilter ? [{ value: warehouseLabel.split(" · ").slice(1).join(" · ") || warehouseLabel }] : []), { value: record.category, style: `Category-${categoryColor(record.category, categoryColors).id}` },
         { value: record.itemNumber ?? "" }, { value: record.sku }, { value: record.name }, { value: specificationText(record) }, { value: record.customizationScreen ?? "" },
       ];
       if (showQuantity) values.push({ value: Number(record.quantity), type: "Number", style: "Number" });
@@ -572,7 +580,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     }).join("");
     // Category cells use their Inventory Overview colour (light shade; Excel has no dark mode).
     const categoryStyles = categoryPalette.map((color) => `<Style ss:ID="Category-${color.id}"><Interior ss:Color="${color.fill}" ss:Pattern="Solid"/><Font ss:Bold="1" ss:Color="${color.ink}"/></Style>`).join("");
-    const workbook = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Styles><Style ss:ID="Default"><Alignment ss:Vertical="Top"/><Font ss:FontName="Arial" ss:Size="10"/></Style><Style ss:ID="Header"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#0F172A" ss:Pattern="Solid"/></Style><Style ss:ID="Number"><NumberFormat ss:Format="#,##0.##"/></Style><Style ss:ID="Money"><NumberFormat ss:Format="#,##0.00"/></Style>${categoryStyles}</Styles><Worksheet ss:Name="Stock List"><Table><Column ss:Width="120"/><Column ss:Width="110"/><Column ss:Width="90"/><Column ss:Width="75"/><Column ss:Width="90"/><Column ss:Width="190"/><Column ss:Width="420"/><Column ss:Width="160"/><Row>${headerRow}</Row>${bodyRows}</Table></Worksheet></Workbook>`;
+    const workbook = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Styles><Style ss:ID="Default"><Alignment ss:Vertical="Top"/><Font ss:FontName="Arial" ss:Size="10"/></Style><Style ss:ID="Header"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#0F172A" ss:Pattern="Solid"/></Style><Style ss:ID="Number"><NumberFormat ss:Format="#,##0.##"/></Style><Style ss:ID="Money"><NumberFormat ss:Format="#,##0.00"/></Style>${categoryStyles}</Styles><Worksheet ss:Name="Stock List"><Table><Column ss:Width="120"/><Column ss:Width="110"/>${warehouseFilter ? '<Column ss:Width="110"/>' : ""}<Column ss:Width="90"/><Column ss:Width="75"/><Column ss:Width="90"/><Column ss:Width="190"/><Column ss:Width="420"/><Column ss:Width="160"/><Row>${headerRow}</Row>${bodyRows}</Table></Worksheet></Workbook>`;
     const blob = new Blob([workbook], { type: "application/vnd.ms-excel;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -580,7 +588,8 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     anchor.download = `comnet-stock-${mode === "include" ? "vat-included" : mode === "zero" ? "zero-vat" : "export-no-vat"}.xls`;
     anchor.click();
     URL.revokeObjectURL(url);
-    toast.success(`${selectedRecords.length} items exported for Excel`);
+    const skipped = selectedRecords.length - exportRecords.length;
+    toast.success(`${exportRecords.length} items exported for Excel${warehouseLabel ? ` · ${warehouseLabel}` : ""}${skipped ? ` (${skipped} with no stock there left out)` : ""}`);
   };
 
   // Full-width filter chips; the active chip uses the user's accent colour and each count keeps its status colour.
