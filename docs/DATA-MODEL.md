@@ -1,6 +1,6 @@
 # Data model
 
-Every PostgreSQL table, what it stores, and how tables relate. The typed schema is [`db/schema.ts`](../db/schema.ts); SQL migrations in [`drizzle/`](../drizzle/) (`0000`–`0114`) are applied in filename order by `scripts/migrate.mjs` (production) or `scripts/dev-local.mjs` (PGlite), which record each applied file in `__comnet_migrations`. Use this document instead of re-reading the schema; update it whenever a migration adds or changes a table.
+Every PostgreSQL table, what it stores, and how tables relate. The typed schema is [`db/schema.ts`](../db/schema.ts); SQL migrations in [`drizzle/`](../drizzle/) (`0000`–`0115`) are applied in filename order by `scripts/migrate.mjs` (production) or `scripts/dev-local.mjs` (PGlite), which record each applied file in `__comnet_migrations`. Use this document instead of re-reading the schema; update it whenever a migration adds or changes a table.
 
 ## Conventions
 
@@ -41,7 +41,7 @@ erDiagram
 | Table | Purpose | Key columns |
 | --- | --- | --- |
 | `app_users` | Users and their sign-in state | `email` (unique), `password_hash` (scrypt), `role` (`all_admin`, `admin`, `accountant`, `sales`, `purchasing`, `inventory`, `customization`, `viewer`), `active`, `must_change_password`, `failed_login_attempts`, `locked_until`, last-login IP/agent, appearance, share-emoji styles |
-| `notifications` | In-app notifications, one row per recipient (migration 0113): cheque written / updated notices for the company's active administrators and accountants plus the writer | `company_id`, `user_id`, `kind` (`cheque-written`, `cheque-updated`), `title`, `body`, `transaction_id` (set null on delete), `read_at`, `email_status` (`pending`, `sending`, `sent`, `failed`, `skipped`), `emailed_at`. `app_users.notification_emails` (default true) turns the email copies off |
+| `notifications` | In-app notifications, one row per recipient (migration 0113): cheque written / updated notices for the company's active administrators and accountants plus the writer | `company_id`, `user_id`, `kind` (`cheque-written`, `cheque-updated`, `pdc-reminder`), `title`, `body`, `transaction_id` (set null on delete), `read_at`, `email_status` (`pending`, `sending`, `sent`, `failed`, `skipped`), `emailed_at`. `app_users.notification_emails` (default true) turns the email copies off |
 | `cheque_templates` | Company cheque template per UAE bank cheque layout (migration 0114): size, field positions, date style and printer feed, plus an optional blank-cheque scan used only as the designer background. Included in company backups | `company_id`, `layout_key` (unique per company), `config` (JSON, `lib/cheque-template.ts`), `background_data`, `updated_by_name`, `updated_at` |
 | `app_user_companies` *(migration only)* | Which companies a non-All-Admin user may access | `user_id`, `company_id` |
 | `auth_sessions` | Sign-in sessions (12 h) | `token_hash` (SHA-256), `expires_at`, `last_seen_at`, `ip_address` |
@@ -84,7 +84,7 @@ erDiagram
 
 | Table | Purpose | Key columns |
 | --- | --- | --- |
-| `transactions` | Every document: sales, purchases, payments, cheques, expenses, journal-linked documents | `type`, `number`, `party`, `salesman`, dates, `status`, totals, VAT, `currency`/`exchange_rate`/`base_total`, links (`sales_source_id`, `purchase_order_id`, `bill_id`, `invoice_id`, `source_transaction_id`, `converted_invoice_id`), `warehouse_id` (stock documents: the warehouse they post to), delivery, void and cheque-print fields `bank_account_key` (migration 0112): the company bank account printed on a sales document — `''` follows the document currency, `default` is the main account, otherwise an extra account id from `companies.bank_accounts` |
+| `transactions` | Every document: sales, purchases, payments, cheques, expenses, journal-linked documents | `type`, `number`, `party`, `salesman`, dates, `status`, totals, VAT, `currency`/`exchange_rate`/`base_total`, links (`sales_source_id`, `purchase_order_id`, `bill_id`, `invoice_id`, `source_transaction_id`, `converted_invoice_id`), `warehouse_id` (stock documents: the warehouse they post to), delivery, void and cheque-print fields `bank_account_key` (migration 0112): the company bank account printed on a sales document — `''` follows the document currency, `default` is the main account, otherwise an extra account id from `companies.bank_accounts` `reminder_at`, `reminder_custom`, `reminded_at` (migration 0115): PDC reminder for post-dated cheques — due instant (default 7 days before the cheque date at 09:00 UAE), whether a person set it, and when it was sent |
 | `transaction_lines` | Document lines | `item_id`, description, `serial_number`, `quantity`, `unit_price`, `unit_cost`, freight flag, VAT code/rate, totals |
 | `record_attachments` *(migration only)* | Files attached to documents and records | `company_id`, `entity_type`, `entity_id`, `file_name`, `mime_type`, `file_data`, `file_size` |
 | `invoice_payment_allocations` | Customer payment ↔ invoice amounts | `payment_id`, `invoice_id`, `amount` |

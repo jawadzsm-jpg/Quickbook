@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { appUsers, companies, notifications, transactions } from "@/db/schema";
 import { requireApiUser } from "@/lib/auth";
+import { sendDueChequeReminders } from "@/lib/notifications";
 
 const message = (error: unknown) => error instanceof Error ? error.message : "Could not load notifications.";
 
@@ -11,6 +12,8 @@ export async function GET(request: Request) {
   if (user instanceof Response) return user;
   try {
     const db = getDb();
+    // If the scheduler is late or down, due PDC reminders for this user's companies go out when the app checks.
+    await sendDueChequeReminders(user.role === "all_admin" ? undefined : user.companyIds).catch(() => 0);
     const visible = and(eq(notifications.userId, user.id), user.role === "all_admin" ? undefined : user.companyIds.length ? inArray(notifications.companyId, user.companyIds) : sql`false`);
     const [rows, [unread], [preference]] = await Promise.all([
       db.select({ id: notifications.id, companyId: notifications.companyId, companyName: companies.name, kind: notifications.kind, title: notifications.title, body: notifications.body, transactionId: notifications.transactionId, transactionType: transactions.type, createdAt: notifications.createdAt, readAt: notifications.readAt })
