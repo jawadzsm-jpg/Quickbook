@@ -92,6 +92,7 @@ export async function POST(request: Request) {
         // Keep every item (names, SKUs, prices, specifications, HS codes) and its inventory location; only on-hand stock
         // starts again from zero. Movements were removed with the transactions above.
         await db.execute(sql`UPDATE items SET quantity=0 WHERE company_id=${companyId}`);
+        await db.execute(sql`DELETE FROM warehouse_stock WHERE company_id=${companyId}`);
       }
 
       if (selected.has("contacts")) {

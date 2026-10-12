@@ -1,3 +1,4 @@
+import { warehouseQuantities } from "@/lib/warehouses";
 import { skuWrite } from "@/lib/sku-locks";
 import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -80,6 +81,8 @@ async function handlePATCH(request: Request) {
         const destination = stock.find((item) => item.companyId === original.destinationCompanyId && item.locationId === original.destinationLocationId);
         if (!source || !destination || source.id === destination.id || source.itemNumber !== original.itemNumber || destination.itemNumber !== original.itemNumber || source.status !== "active" || destination.status !== "active") return Response.json({ error: "The original product is no longer available in both inventories. Quantity cannot be edited." }, { status: 409 });
         if (source.quantity - delta < 0 || destination.quantity + delta < 0) return Response.json({ error: "Not enough stock to make this correction. The source needs stock for an increase; the destination needs stock for a decrease." }, { status: 409 });
+        const defaults = await warehouseQuantities(db, null, [source.id, destination.id]);
+        if ((defaults.get(source.id) ?? 0) - delta < -0.000001 || (defaults.get(destination.id) ?? 0) + delta < -0.000001) return Response.json({ error: "Not enough stock in the default warehouse to make this correction; some stock is in other warehouses." }, { status: 409 });
         await db.update(items).set({ quantity: sql`${items.quantity} - ${delta}` }).where(eq(items.id, source.id));
         await db.update(items).set({ quantity: sql`${items.quantity} + ${delta}` }).where(eq(items.id, destination.id));
       }
@@ -117,6 +120,7 @@ async function handleDELETE(request: Request) {
       const destination = stock.find((item) => item.companyId === original.destinationCompanyId && item.locationId === original.destinationLocationId);
       if (!source || !destination || source.id === destination.id || source.itemNumber !== original.itemNumber || destination.itemNumber !== original.itemNumber || source.status !== "active" || destination.status !== "active") return Response.json({ error: "The original product is no longer available in both inventories. The transfer cannot be deleted safely." }, { status: 409 });
       if (!Number.isFinite(original.quantity) || original.quantity <= 0 || !Number.isFinite(source.quantity + original.quantity) || !Number.isFinite(destination.quantity) || destination.quantity < original.quantity) return Response.json({ error: "The destination does not have enough stock to reverse this transfer." }, { status: 409 });
+      if (((await warehouseQuantities(db, null, [destination.id])).get(destination.id) ?? 0) < original.quantity - 0.000001) return Response.json({ error: "The destination's default warehouse does not have enough stock to reverse this transfer; some stock is in other warehouses." }, { status: 409 });
       await db.update(items).set({ quantity: sql`${items.quantity} + ${original.quantity}` }).where(eq(items.id, source.id));
       await db.update(items).set({ quantity: sql`${items.quantity} - ${original.quantity}` }).where(eq(items.id, destination.id));
       await db.insert(auditLog).values({ companyId: original.sourceCompanyId, action: "deleted", entityType: "stock_transfer", entityId: id, details: JSON.stringify({ userId: user.id, before: original, stockReversed: true }) });
@@ -158,6 +162,10 @@ async function handlePOST(request: Request) {
       const blocked = stock.find((item) => (requestedByItem.get(item.id) ?? 0) > Number(item.quantity) - (held.get(item.id) ?? 0));
       if (blocked) return Response.json({ error: `Stock is on hold for another sales rep. ${heldStockMessage(blocked, held.get(blocked.id) ?? 0, requestedByItem.get(blocked.id) ?? 0)}` }, { status: 409 });
     }
+    // Transfers move stock out of and into each inventory's default warehouse; stock placed in other warehouses stays put.
+    const inDefault = await warehouseQuantities(db, null, [...requestedByItem.keys()]);
+    const defaultShort = [...requestedByItem].find(([itemId, quantity]) => inDefault.has(itemId) && quantity > (inDefault.get(itemId) ?? 0) + 0.000001);
+    if (defaultShort) return Response.json({ error: `Only ${inDefault.get(defaultShort[0])} of this product is in the source inventory's default warehouse; the rest is in other warehouses. Transfer at most that quantity.` }, { status: 409 });
     const result = await db.execute(sql`
       with input_lines as (
         select * from jsonb_to_recordset(${JSON.stringify(lines)}::jsonb) as line("lineIndex" integer, "itemId" integer, "sourceLocationId" integer, "destinationLocationId" integer, "quantity" double precision)

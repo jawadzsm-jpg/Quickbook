@@ -3,7 +3,7 @@ import { getDb, withWriteTransaction } from "../../../db";
 import { auditLog, inventoryLocations, warehouses } from "../../../db/schema";
 import { canAccessCompany, requireApiUser } from "@/lib/auth";
 import { normalizeComparableText } from "@/lib/text-normalization";
-import { explicitWarehouseQuantity, switchDefaultWarehouse, warehouseCodePattern, warehouseSummaries } from "@/lib/warehouses";
+import { explicitWarehouseQuantity, switchDefaultWarehouse, warehouseCodePattern, warehouseInUse, warehouseSummaries } from "@/lib/warehouses";
 
 const message = (error: unknown) => error instanceof Error ? error.message : "Could not update warehouses.";
 const positiveId = (value: unknown) => { const id = Number(value); return Number.isSafeInteger(id) && id > 0 ? id : null; };
@@ -107,7 +107,7 @@ export async function PATCH(request: Request) {
   } catch (error) { return Response.json({ error: message(error) }, { status: 500 }); }
 }
 
-/** Remove a non-default warehouse that holds no stock (Phase 1: no documents reference warehouses yet). */
+/** Remove a non-default warehouse that holds no stock and that no document or stock history uses. */
 export async function DELETE(request: Request) {
   const authorization = await requireApiUser(request, true, true);
   if (authorization instanceof Response) return authorization;
@@ -122,6 +122,7 @@ export async function DELETE(request: Request) {
       if (!existing) return Response.json({ error: "Warehouse not found." }, { status: 404 });
       if (existing.isDefault) return Response.json({ error: "The default warehouse cannot be removed." }, { status: 409 });
       if (await explicitWarehouseQuantity(db, id) > 0.000001) return Response.json({ error: "This warehouse still holds stock. Move its stock to another warehouse first." }, { status: 409 });
+      if (await warehouseInUse(db, id)) return Response.json({ error: "Documents or stock history use this warehouse, so it cannot be removed. Deactivate it instead." }, { status: 409 });
       await db.delete(warehouses).where(eq(warehouses.id, id));
       await db.insert(auditLog).values({ companyId, action: "deleted", entityType: "warehouse", entityId: id, details: JSON.stringify({ actorId: authorization.id, before: existing }) });
       return Response.json({ ok: true });

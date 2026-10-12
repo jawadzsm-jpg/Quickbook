@@ -1,3 +1,4 @@
+import { adjustWarehouseStock, resolveDocumentWarehouse, warehouseDocumentTypes, warehouseQuantities, type DocumentWarehouse } from "@/lib/warehouses";
 import { formatInvoiceNumber, invoiceSeriesError } from "@/lib/invoice-series";
 import { contactOrganization } from "@/lib/contact-hierarchy";
 import { validInvoiceQuantity, isInvoiceStockReturn } from "@/lib/invoice-stock-lines";
@@ -1071,6 +1072,13 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     }
     const stockItemIds = new Set(linkedItems.filter((item) => item.itemType === "stock-part").map((item) => item.id));
     if (type === "invoice" && prepared.some(line => isInvoiceStockReturn(line) && (!line.itemId || !stockItemIds.has(line.itemId)))) return Response.json({ error: "Stock returns require a stock item in the invoice inventory and a zero selling price." }, { status: 400 });
+    // Stock documents post to one warehouse of the inventory: the one chosen on the form, or the inventory's default.
+    let documentWarehouse: DocumentWarehouse | null = null;
+    if (warehouseDocumentTypes.includes(type) && Number.isInteger(locationId) && locationId > 0) {
+      const resolved = await resolveDocumentWarehouse(db, companyId, locationId, payload.warehouseId);
+      if ("error" in resolved) return Response.json({ error: resolved.error }, { status: 400 });
+      documentWarehouse = resolved;
+    }
     const stockReducing = ["invoice", "sales receipt", "vendor credit"].includes(type);
     let usedAdminNegativeStockOverride = false;
     if (stockReducing) {
@@ -1090,9 +1098,12 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
           usedAdminNegativeStockOverride = true;
         }
         if (!overrideApproved) {
-          const shortages = available.filter((item) => (requestedByItem.get(item.id) ?? 0) > 0 && Number(item.quantity) < (requestedByItem.get(item.id) ?? 0));
+          // Shortages are checked in the document's warehouse, not across the whole inventory.
+          const inWarehouse = await warehouseQuantities(db, documentWarehouse?.id, itemIds);
+          const shortages = available.filter((item) => (requestedByItem.get(item.id) ?? 0) > 0 && (inWarehouse.get(item.id) ?? Number(item.quantity)) < (requestedByItem.get(item.id) ?? 0));
           if (shortages.length) {
-            const detail = shortages.map((item) => `${item.sku} ${item.name}: available ${item.quantity}, requested ${requestedByItem.get(item.id)}`).join("; ");
+            const where = documentWarehouse && !documentWarehouse.isDefault ? ` in ${documentWarehouse.name}` : "";
+            const detail = shortages.map((item) => `${item.sku} ${item.name}: available${where} ${inWarehouse.get(item.id) ?? item.quantity}, requested ${requestedByItem.get(item.id)}`).join("; ");
             return Response.json({ error: `${type === "vendor credit" ? "Purchase return" : "Invoice"} blocked to prevent negative stock. ${detail}` }, { status: 409 });
           }
         }
@@ -1245,7 +1256,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       }
     }
     const values = {
-      createdByUserId: replacing?.createdByUserId ?? (authorization.role === "sales" ? authorization.id : null), companyId, locationId: Number.isInteger(locationId) ? locationId : null, number, type, party, employeeLoanContactId, billId, invoiceId, purchaseOrderId, salesSourceId,
+      createdByUserId: replacing?.createdByUserId ?? (authorization.role === "sales" ? authorization.id : null), companyId, locationId: Number.isInteger(locationId) ? locationId : null, warehouseId: documentWarehouse?.id ?? null, number, type, party, employeeLoanContactId, billId, invoiceId, purchaseOrderId, salesSourceId,
       salesman: String(payload.salesman ?? ""), isImport: payload.isImport === true || String(payload.isImport) === "true" || usesImportGoodsVat,
       billOfEntryNumber: usesImportGoodsVat && type === "bill" ? billOfEntryNumber : "", airwayBillNumber: usesImportGoodsVat && type === "bill" ? airwayBillNumber : "",
       // Conversions copy the source's terms into the payload after the check above; blank customer terms mean due on receipt.
@@ -1418,7 +1429,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
         if (!stockItemIds.has(line.itemId!)) continue;
         const quantity = direction * line.quantity;
         await db.update(items).set({ quantity: sql`${items.quantity} + ${quantity}` }).where(eq(items.id, line.itemId!));
-        await db.insert(inventoryMovements).values({ itemId: line.itemId!, transactionId: record.id, movementDate: transactionDate, movementType: type, quantity, unitCost: ["bill", "vendor credit"].includes(type) ? homeCurrencyPurchaseCost : line.unitCost, reference: number });
+        await adjustWarehouseStock(db, documentWarehouse?.id, line.itemId!, quantity);
+        await db.insert(inventoryMovements).values({ itemId: line.itemId!, transactionId: record.id, movementDate: transactionDate, movementType: type, quantity, unitCost: ["bill", "vendor credit"].includes(type) ? homeCurrencyPurchaseCost : line.unitCost, reference: number, warehouseId: documentWarehouse?.id ?? null });
       }
       const balanceChange = contactBalanceChange(type, total, postingAccountRole);
       if (balanceChange && partyContactType) await db.update(contacts).set({ balance: sql`${contacts.balance} + ${balanceChange}` }).where(and(eq(contacts.companyId, companyId), eq(contacts.name, party), eq(contacts.type, partyContactType)));
@@ -1763,12 +1775,16 @@ async function handlePATCH(request: Request) {
                 const item = itemRows.find(item => item.id === old.itemId);
                 if (item?.itemType === "stock-part") requestedByItem.set(item.id, round((requestedByItem.get(item.id) ?? 0) + line.quantity - Number(old.quantity)));
               }
-              const shortage = itemRows.find(item => item.itemType === "stock-part" && (requestedByItem.get(item.id) ?? 0) > 0 && (requestedByItem.get(item.id) ?? 0) > Number(item.quantity));
-              if (shortage) return Response.json({ error: `Invoice blocked to prevent negative stock. ${shortage.sku} ${shortage.name}: available ${shortage.quantity}, additional ${requestedByItem.get(shortage.id)}.` }, { status: 409 });
+              const editWarehouse = await warehouseQuantities(db, existing.warehouseId, itemRows.map(item => item.id));
+              const shortage = itemRows.find(item => item.itemType === "stock-part" && (requestedByItem.get(item.id) ?? 0) > 0 && (requestedByItem.get(item.id) ?? 0) > (editWarehouse.get(item.id) ?? Number(item.quantity)));
+              if (shortage) return Response.json({ error: `Invoice blocked to prevent negative stock. ${shortage.sku} ${shortage.name}: available ${editWarehouse.get(shortage.id) ?? shortage.quantity}, additional ${requestedByItem.get(shortage.id)}.` }, { status: 409 });
               const heldForEdit = await heldByOthers([...requestedByItem.keys()], String(payload.salesman ?? existing.salesman));
               const heldShortage = itemRows.find(item => (requestedByItem.get(item.id) ?? 0) > 0 && (requestedByItem.get(item.id) ?? 0) > Number(item.quantity) - (heldForEdit.get(item.id) ?? 0));
               if (heldShortage) return Response.json({ error: `Stock is on hold for another sales rep. ${heldStockMessage(heldShortage, heldForEdit.get(heldShortage.id) ?? 0, requestedByItem.get(heldShortage.id) ?? 0)}` }, { status: 409 });
-              for (const [itemId, delta] of requestedByItem) if (delta) await db.update(items).set({ quantity: sql`${items.quantity} - ${delta}` }).where(eq(items.id, itemId));
+              for (const [itemId, delta] of requestedByItem) if (delta) {
+                await db.update(items).set({ quantity: sql`${items.quantity} - ${delta}` }).where(eq(items.id, itemId));
+                await adjustWarehouseStock(db, existing.warehouseId, itemId, -delta);
+              }
               for (const line of financialChanged) {
                 const old = oldLines.find(old => old.id === line.id)!;
                 const item = itemRows.find(item => item.id === old.itemId);
@@ -1781,7 +1797,7 @@ async function handlePATCH(request: Request) {
                   const inventoryAccount = accountRows.find(account => account.id === item.assetAccountId)?.name ?? roleAccount("INVENTORY", "Inventory Asset");
                   cogs.set(cogsAccount, round((cogs.get(cogsAccount) ?? 0) + homeCogs));
                   inventory.set(inventoryAccount, round((inventory.get(inventoryAccount) ?? 0) + homeCogs));
-                  await db.insert(inventoryMovements).values({ itemId: item.id, transactionId: id, movementDate: transactionDate, movementType: "invoice edit", quantity: -quantityDelta, unitCost: Number(old.unitCost), reference: number });
+                  await db.insert(inventoryMovements).values({ itemId: item.id, transactionId: id, movementDate: transactionDate, movementType: "invoice edit", quantity: -quantityDelta, unitCost: Number(old.unitCost), reference: number, warehouseId: existing.warehouseId });
                 }
               }
               const residual = round(baseDelta - vatDelta - [...income.values()].reduce((sum, amount) => sum + amount, 0));
@@ -1822,8 +1838,9 @@ async function handlePATCH(request: Request) {
             }
             const requested = new Map<number, number>();
             for (const line of appended) if (line.itemId && stockIds.has(line.itemId)) requested.set(line.itemId, round((requested.get(line.itemId) ?? 0) + line.quantity));
-            const shortages = itemRows.filter((item) => stockIds.has(item.id) && (requested.get(item.id) ?? 0) > 0 && Number(item.quantity) < (requested.get(item.id) ?? 0));
-            if (shortages.length) return Response.json({ error: `Invoice blocked to prevent negative stock. ${shortages.map((item) => `${item.sku} ${item.name}: available ${item.quantity}, requested ${requested.get(item.id)}`).join("; ")}` }, { status: 409 });
+            const appendWarehouse = await warehouseQuantities(db, existing.warehouseId, [...requested.keys()]);
+            const shortages = itemRows.filter((item) => stockIds.has(item.id) && (requested.get(item.id) ?? 0) > 0 && (appendWarehouse.get(item.id) ?? Number(item.quantity)) < (requested.get(item.id) ?? 0));
+            if (shortages.length) return Response.json({ error: `Invoice blocked to prevent negative stock. ${shortages.map((item) => `${item.sku} ${item.name}: available ${appendWarehouse.get(item.id) ?? item.quantity}, requested ${requested.get(item.id)}`).join("; ")}` }, { status: 409 });
             const heldForAppend = await heldByOthers([...requested.keys()], String(payload.salesman ?? existing.salesman));
             const heldShortages = itemRows.filter((item) => stockIds.has(item.id) && (requested.get(item.id) ?? 0) > 0 && (requested.get(item.id) ?? 0) > Number(item.quantity) - (heldForAppend.get(item.id) ?? 0));
             if (heldShortages.length) return Response.json({ error: `Stock is on hold for another sales rep. ${heldShortages.map((item) => heldStockMessage(item, heldForAppend.get(item.id) ?? 0, requested.get(item.id) ?? 0)).join("; ")}` }, { status: 409 });
@@ -1840,7 +1857,8 @@ async function handlePATCH(request: Request) {
             await db.insert(transactionLines).values(appended.map((line) => ({ ...line, transactionId: id })));
             for (const line of appended) if (line.itemId && stockIds.has(line.itemId)) {
               await db.update(items).set({ quantity: sql`${items.quantity} - ${line.quantity}` }).where(eq(items.id, line.itemId));
-              await db.insert(inventoryMovements).values({ itemId: line.itemId, transactionId: id, movementDate: transactionDate, movementType: "invoice", quantity: -line.quantity, unitCost: line.unitCost, reference: number });
+              await adjustWarehouseStock(db, existing.warehouseId, line.itemId, -line.quantity);
+              await db.insert(inventoryMovements).values({ itemId: line.itemId, transactionId: id, movementDate: transactionDate, movementType: "invoice", quantity: -line.quantity, unitCost: line.unitCost, reference: number, warehouseId: existing.warehouseId });
             }
 
             const [postingCompany] = await db.select({ baseCurrency: companies.baseCurrency }).from(companies).where(eq(companies.id, companyId)).limit(1);
@@ -1946,11 +1964,22 @@ async function handlePATCH(request: Request) {
         if (affectedIds.some((itemId) => !Number.isInteger(itemId) || itemId <= 0)) return Response.json({ error: "Select valid inventory items." }, { status: 400 });
         const stock = affectedIds.length ? await db.select().from(items).where(inArray(items.id, affectedIds)).orderBy(asc(items.id)).for("update") : [];
         if (stock.length !== affectedIds.length || stock.some((item) => item.companyId !== companyId || item.locationId !== existing.locationId)) return Response.json({ error: "Select items from this purchase inventory." }, { status: 400 });
+        // The edited document keeps its warehouse unless the form chose another one.
+        if (payload.warehouseId === undefined || payload.warehouseId === null || payload.warehouseId === "") payload.warehouseId = existing.warehouseId;
+        const editWarehouseId = Number(payload.warehouseId) || null;
         for (const item of stock) {
-          const previous = movements.filter((movement) => movement.itemId === item.id).reduce((sum, movement) => sum + movement.quantity, 0);
+          const own = movements.filter((movement) => movement.itemId === item.id);
+          const previous = own.reduce((sum, movement) => sum + movement.quantity, 0);
           const incoming = ["bill", "item receipt"].includes(existing.type) ? newLines.filter((line) => Number(line.itemId) === item.id).reduce((sum, line) => sum + Number(line.quantity), 0) : 0;
           if (item.quantity - previous + incoming < -0.000001) return Response.json({ error: `Cannot reduce ${item.name}: some received stock has already been used.` }, { status: 409 });
+          // Received stock must also still be in the warehouse it went into.
+          for (const warehouseId of [...new Set(own.map((movement) => movement.warehouseId))]) {
+            const fromWarehouse = own.filter((movement) => movement.warehouseId === warehouseId).reduce((sum, movement) => sum + movement.quantity, 0);
+            const inWarehouse = (await warehouseQuantities(db, warehouseId, [item.id])).get(item.id) ?? item.quantity;
+            if (inWarehouse - fromWarehouse + (warehouseId === editWarehouseId ? incoming : 0) < -0.000001) return Response.json({ error: `Cannot reduce ${item.name}: some received stock in its warehouse has already been used or moved.` }, { status: 409 });
+          }
           await db.update(items).set({ quantity: sql`${items.quantity} - ${previous}` }).where(eq(items.id, item.id));
+          for (const movement of own) await adjustWarehouseStock(db, movement.warehouseId, item.id, -movement.quantity);
         }
         const balance = contactBalanceChange(existing.type, existing.total);
         if (balance) await db.update(contacts).set({ balance: sql`${contacts.balance} - ${balance}` }).where(and(eq(contacts.companyId, companyId), eq(contacts.type, "vendor"), eq(contacts.name, existing.party)));
@@ -2287,13 +2316,23 @@ async function handleDELETE(request: Request) {
           const netByItem = new Map(itemIds.map((itemId) => [itemId, Math.round(movements.filter((movement) => movement.itemId === itemId).reduce((sum, movement) => sum + movement.quantity, 0) * 1e6) / 1e6]));
           // Returned stock this invoice brought in must still be on hand before it can be taken back out.
           for (const item of stock) if ((netByItem.get(item.id) ?? 0) > 0 && item.quantity - (netByItem.get(item.id) ?? 0) < -0.000001) return Response.json({ error: `Cannot void this invoice: returned stock for ${item.name} has already been used.` }, { status: 409 });
-          for (const itemId of itemIds) {
-            const own = movements.filter((movement) => movement.itemId === itemId);
-            const net = netByItem.get(itemId) ?? 0;
-            if (Math.abs(net) < 0.000001) continue;
-            const value = own.reduce((sum, movement) => sum + movement.quantity * movement.unitCost, 0);
-            await db.insert(inventoryMovements).values({ itemId, transactionId: id, movementDate: dubaiDay(voidedAt), movementType: "invoice void", quantity: -net, unitCost: round(value / net), reference: record.number });
-            await db.update(items).set({ quantity: sql`${items.quantity} - ${net}` }).where(eq(items.id, itemId));
+          // Stock goes back into the warehouse it left (returned stock comes out of the warehouse it went into).
+          const byItemWarehouse = new Map<string, { itemId: number; warehouseId: number | null; net: number; value: number }>();
+          for (const movement of movements) {
+            const key = `${movement.itemId}:${movement.warehouseId ?? ""}`;
+            const entry = byItemWarehouse.get(key) ?? { itemId: movement.itemId, warehouseId: movement.warehouseId, net: 0, value: 0 };
+            entry.net = Math.round((entry.net + movement.quantity) * 1e6) / 1e6; entry.value += movement.quantity * movement.unitCost;
+            byItemWarehouse.set(key, entry);
+          }
+          for (const entry of byItemWarehouse.values()) if (entry.net > 0) {
+            const inWarehouse = (await warehouseQuantities(db, entry.warehouseId, [entry.itemId])).get(entry.itemId) ?? 0;
+            if (inWarehouse - entry.net < -0.000001) return Response.json({ error: `Cannot void this invoice: returned stock for ${stock.find((item) => item.id === entry.itemId)?.name ?? "an item"} has already been used or moved from its warehouse.` }, { status: 409 });
+          }
+          for (const entry of byItemWarehouse.values()) {
+            if (Math.abs(entry.net) < 0.000001) continue;
+            await db.insert(inventoryMovements).values({ itemId: entry.itemId, transactionId: id, movementDate: dubaiDay(voidedAt), movementType: "invoice void", quantity: -entry.net, unitCost: round(entry.value / entry.net), reference: record.number, warehouseId: entry.warehouseId });
+            await db.update(items).set({ quantity: sql`${items.quantity} - ${entry.net}` }).where(eq(items.id, entry.itemId));
+            await adjustWarehouseStock(db, entry.warehouseId, entry.itemId, -entry.net);
           }
           await db.update(journalEntries).set({ posted: false }).where(eq(journalEntries.transactionId, id));
           const [postingAccount] = await db.select({ systemRole: accounts.systemRole }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.name, record.account))).limit(1);
@@ -2321,9 +2360,15 @@ async function handleDELETE(request: Request) {
         const itemIds = [...new Set(movements.map((movement) => movement.itemId))].sort((a, b) => a - b);
         const stock = itemIds.length ? await db.select().from(items).where(inArray(items.id, itemIds)).orderBy(asc(items.id)).for("update") : [];
         for (const item of stock) {
-          const received = movements.filter((movement) => movement.itemId === item.id).reduce((sum, movement) => sum + movement.quantity, 0);
+          const own = movements.filter((movement) => movement.itemId === item.id);
+          const received = own.reduce((sum, movement) => sum + movement.quantity, 0);
           if (received > 0 && item.quantity - received < -0.000001) return Response.json({ error: `Cannot delete this document: received stock for ${item.name} has already been used.` }, { status: 409 });
+          for (const warehouseId of [...new Set(own.map((movement) => movement.warehouseId))]) {
+            const fromWarehouse = own.filter((movement) => movement.warehouseId === warehouseId).reduce((sum, movement) => sum + movement.quantity, 0);
+            if (fromWarehouse > 0 && ((await warehouseQuantities(db, warehouseId, [item.id])).get(item.id) ?? 0) - fromWarehouse < -0.000001) return Response.json({ error: `Cannot delete this document: received stock for ${item.name} has already been used or moved from its warehouse.` }, { status: 409 });
+          }
           await db.update(items).set({ quantity: sql`${items.quantity} - ${received}` }).where(eq(items.id, item.id));
+          for (const movement of own) await adjustWarehouseStock(db, movement.warehouseId, item.id, -movement.quantity);
         }
         const [postingAccount] = await db.select({ systemRole: accounts.systemRole }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.name, record.account))).limit(1);
         const balanceChange = contactBalanceChange(record.type, record.total, postingAccount?.systemRole ?? "");

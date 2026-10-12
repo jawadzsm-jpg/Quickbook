@@ -58,3 +58,64 @@ export async function switchDefaultWarehouse(db: Executor, companyId: number, lo
   await db.execute(sql`UPDATE warehouses SET is_default = false WHERE id = ${oldDefaultId}`);
   await db.execute(sql`UPDATE warehouses SET is_default = true, active = true WHERE id = ${newDefaultId}`);
 }
+
+export type DocumentWarehouse = { id: number; isDefault: boolean; name: string };
+
+/** Stock document types that post to a warehouse. */
+export const warehouseDocumentTypes = ["bill", "item receipt", "invoice", "sales receipt", "vendor credit"];
+
+/**
+ * The warehouse a stock document posts to: the requested active warehouse of this inventory, or its default warehouse.
+ * Returns an error string when a requested warehouse does not belong to the inventory or is inactive.
+ */
+export async function resolveDocumentWarehouse(db: Executor, companyId: number, locationId: number, requested: unknown): Promise<DocumentWarehouse | { error: string }> {
+  const requestedId = Number(requested);
+  if (requested !== undefined && requested !== null && requested !== "" && Number.isSafeInteger(requestedId) && requestedId > 0) {
+    const result = await db.execute(sql`SELECT id, is_default, name, active FROM warehouses WHERE id = ${requestedId} AND company_id = ${companyId} AND location_id = ${locationId}`);
+    const row = result.rows[0];
+    if (!row) return { error: "Select a warehouse of this inventory." };
+    if (!row.active) return { error: `Warehouse ${String(row.name)} is inactive. Choose another warehouse.` };
+    return { id: Number(row.id), isDefault: Boolean(row.is_default), name: String(row.name) };
+  }
+  const result = await db.execute(sql`SELECT id, name FROM warehouses WHERE company_id = ${companyId} AND location_id = ${locationId} AND is_default`);
+  const row = result.rows[0];
+  if (!row) return { error: "This inventory has no default warehouse. Open Management > Inventories." };
+  return { id: Number(row.id), isDefault: true, name: String(row.name) };
+}
+
+/** Quantity of each item available in one warehouse (default warehouse: inventory total minus the other warehouses). */
+export async function warehouseQuantities(db: Executor, warehouseId: number | null | undefined, itemIds: number[]): Promise<Map<number, number>> {
+  const quantities = new Map<number, number>();
+  if (!itemIds.length) return quantities;
+  const ids = sql.join(itemIds.map((id) => sql`${id}`), sql`, `);
+  const warehouse = warehouseId ? (await db.execute(sql`SELECT is_default FROM warehouses WHERE id = ${warehouseId}`)).rows[0] : undefined;
+  if (warehouse && !warehouse.is_default) {
+    const result = await db.execute(sql`SELECT item_id, quantity FROM warehouse_stock WHERE warehouse_id = ${warehouseId} AND item_id IN (${ids})`);
+    for (const id of itemIds) quantities.set(id, 0);
+    for (const row of result.rows) quantities.set(Number(row.item_id), Number(row.quantity));
+    return quantities;
+  }
+  const result = await db.execute(sql`
+    SELECT i.id, i.quantity - COALESCE((SELECT SUM(ws.quantity) FROM warehouse_stock ws JOIN warehouses w ON w.id = ws.warehouse_id WHERE ws.item_id = i.id AND NOT w.is_default), 0) AS quantity
+    FROM items i WHERE i.id IN (${ids})`);
+  for (const row of result.rows) quantities.set(Number(row.id), Number(row.quantity));
+  return quantities;
+}
+
+/**
+ * Record a stock change in a warehouse alongside the change to items.quantity (which callers make themselves). Only
+ * non-default warehouses keep explicit rows; the default warehouse holds the remainder, so it needs no row.
+ */
+export async function adjustWarehouseStock(db: Executor, warehouseId: number | null | undefined, itemId: number, delta: number) {
+  if (!warehouseId || Math.abs(delta) < 0.000000001) return;
+  await db.execute(sql`
+    INSERT INTO warehouse_stock (company_id, warehouse_id, item_id, quantity)
+    SELECT w.company_id, w.id, ${itemId}, ${delta} FROM warehouses w WHERE w.id = ${warehouseId} AND NOT w.is_default
+    ON CONFLICT (warehouse_id, item_id) DO UPDATE SET quantity = warehouse_stock.quantity + excluded.quantity, updated_at = now()`);
+}
+
+/** Whether documents or stock history still point at a warehouse (it then cannot be removed). */
+export async function warehouseInUse(db: Executor, warehouseId: number) {
+  const result = await db.execute(sql`SELECT EXISTS (SELECT 1 FROM transactions WHERE warehouse_id = ${warehouseId}) OR EXISTS (SELECT 1 FROM inventory_movements WHERE warehouse_id = ${warehouseId}) AS used`);
+  return Boolean(result.rows[0]?.used);
+}

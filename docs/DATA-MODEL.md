@@ -1,6 +1,6 @@
 # Data model
 
-Every PostgreSQL table, what it stores, and how tables relate. The typed schema is [`db/schema.ts`](../db/schema.ts); SQL migrations in [`drizzle/`](../drizzle/) (`0000`–`0108`) are applied in filename order by `scripts/migrate.mjs` (production) or `scripts/dev-local.mjs` (PGlite), which record each applied file in `__comnet_migrations`. Use this document instead of re-reading the schema; update it whenever a migration adds or changes a table.
+Every PostgreSQL table, what it stores, and how tables relate. The typed schema is [`db/schema.ts`](../db/schema.ts); SQL migrations in [`drizzle/`](../drizzle/) (`0000`–`0109`) are applied in filename order by `scripts/migrate.mjs` (production) or `scripts/dev-local.mjs` (PGlite), which record each applied file in `__comnet_migrations`. Use this document instead of re-reading the schema; update it whenever a migration adds or changes a table.
 
 ## Conventions
 
@@ -81,7 +81,7 @@ erDiagram
 
 | Table | Purpose | Key columns |
 | --- | --- | --- |
-| `transactions` | Every document: sales, purchases, payments, cheques, expenses, journal-linked documents | `type`, `number`, `party`, `salesman`, dates, `status`, totals, VAT, `currency`/`exchange_rate`/`base_total`, links (`sales_source_id`, `purchase_order_id`, `bill_id`, `invoice_id`, `source_transaction_id`, `converted_invoice_id`), delivery, void and cheque-print fields |
+| `transactions` | Every document: sales, purchases, payments, cheques, expenses, journal-linked documents | `type`, `number`, `party`, `salesman`, dates, `status`, totals, VAT, `currency`/`exchange_rate`/`base_total`, links (`sales_source_id`, `purchase_order_id`, `bill_id`, `invoice_id`, `source_transaction_id`, `converted_invoice_id`), `warehouse_id` (stock documents: the warehouse they post to), delivery, void and cheque-print fields |
 | `transaction_lines` | Document lines | `item_id`, description, `serial_number`, `quantity`, `unit_price`, `unit_cost`, freight flag, VAT code/rate, totals |
 | `record_attachments` *(migration only)* | Files attached to documents and records | `company_id`, `entity_type`, `entity_id`, `file_name`, `mime_type`, `file_data`, `file_size` |
 | `invoice_payment_allocations` | Customer payment ↔ invoice amounts | `payment_id`, `invoice_id`, `amount` |
@@ -91,7 +91,7 @@ erDiagram
 | `accounts` | Chart of accounts | `code`, `name`, `type`, `system_role` (AR, AP, BANK, INVENTORY, VAT…), `currency`, `parent_account_id`, `balance` |
 | `journal_entries` | Posted journals (manual or from documents) | `transaction_id`, `entry_date`, `reference`, currency/rate, `posted` |
 | `journal_lines` | Debit/credit lines | `account_id`, `account_name`, original and home-currency debit/credit |
-| `inventory_movements` | Stock in/out per item and document | `item_id`, `transaction_id`, `movement_type`, `quantity`, `unit_cost` |
+| `inventory_movements` | Stock in/out per item and document | `item_id`, `transaction_id`, `movement_type`, `quantity`, `unit_cost`, `warehouse_id` (the warehouse the stock moved in or out of; migration 0109 set existing rows to their inventory's default warehouse) |
 | `stock_transfers` | Transfers between inventories/companies | source and destination company/location, SKU, quantity, date |
 
 ## VAT, tax and HR
