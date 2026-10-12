@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bold, Code, Italic, List as ListIcon, ListOrdered, Quote, Strikethrough, Lock, Pencil, BadgeDollarSign, Boxes, CalendarClock, ChevronDown, Clock, Download, Eye, FileSpreadsheet, Mail, PackageCheck, PackageOpen, PackageX, PlaneLanding, RefreshCw, Rocket, Search, ShoppingCart, TriangleAlert, UserRound, Warehouse, X, Tag, Underline, EyeOff, Link as LinkIcon } from "lucide-react";
+import { Bold, Code, Italic, List as ListIcon, ListOrdered, Quote, Strikethrough, Lock, Pencil, BadgeDollarSign, Boxes, CalendarClock, ChevronDown, Clock, Download, Eye, FileSpreadsheet, Mail, PackageCheck, PackageOpen, PackageX, PlaneLanding, Printer, RefreshCw, Rocket, Search, ShoppingCart, TriangleAlert, UserRound, Warehouse, X, Tag, Underline, EyeOff, Link as LinkIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -593,6 +593,33 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     toast.success(`${exportRecords.length} items exported for Excel${leftOutText()}`);
   };
 
+  // Print: an A4 stock list of the selected items (or every listed item when none are selected). Quantities follow the
+  // Warehouse filter like the copy buttons and Excel export; Hide qty / Hide price and the VAT format apply too.
+  const printStockList = () => {
+    if (loading) return;
+    const list = selectedRecords.length ? shareRecords : filtered;
+    if (!list.length) return selectedRecords.length ? noShareRecords("print") : toast.error("No items to print.");
+    const money = (value: number) => value.toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const headers = ["Item No.", "SKU", "Item", "Specifications", "Inventory", ...(warehouseFilter ? ["Warehouse"] : []), ...(showQuantity ? ["Qty"] : []), ...(showPrice ? [`Price${vatLabels[vatMode]}`] : [])];
+    const numeric = new Set(["Qty", `Price${vatLabels[vatMode]}`]);
+    const warehouseName = warehouseLabel.split(" · ").slice(1).join(" · ") || warehouseLabel;
+    const body = list.map((record) => `<tr><td>${xml(record.itemNumber ?? "")}</td><td>${xml(record.sku)}</td><td><strong>${xml(record.name)}</strong></td><td>${xml(specificationText(record))}</td><td>${xml(record.inventories.map((inventory) => inventory.locationName).join(", "))}</td>${warehouseFilter ? `<td>${xml(warehouseName)}</td>` : ""}${showQuantity ? `<td class="num">${xml(plainMoney(Number(record.quantity)))}</td>` : ""}${showPrice ? `<td class="num">${xml(`${record.currency} ${money(priceFor(record))}`)}</td>` : ""}</tr>`).join("");
+    const totalQuantity = list.reduce((sum, record) => sum + Number(record.quantity), 0);
+    const footer = showQuantity ? `<tfoot><tr><td colspan="${headers.length - 1 - Number(showPrice)}">Total quantity</td><td class="num">${xml(plainMoney(totalQuantity))}</td>${showPrice ? "<td></td>" : ""}</tr></tfoot>` : "";
+    const companies = [...new Set(list.map((record) => record.companyName))].join(", ");
+    const printedAt = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Dubai", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date());
+    const meta = [companies, warehouseLabel || "All warehouses", `${list.length} ${list.length === 1 ? "item" : "items"}`, `Printed ${printedAt}`].filter(Boolean).join(" · ");
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Stock List</title><style>@page{size:A4;margin:12mm}body{margin:0;font:9.5pt Arial,Helvetica,sans-serif;color:#0f172a}h1{margin:0;font-size:16pt}p{margin:4px 0 12px;color:#475569}table{width:100%;border-collapse:collapse}th{background:#0f172a;color:#fff;text-align:left;padding:5px 6px;font-size:8.5pt}td{border-bottom:1px solid #cbd5e1;padding:5px 6px;vertical-align:top}tfoot td{border-top:2px solid #0f172a;border-bottom:0;font-weight:700}.num{text-align:right;white-space:nowrap}tr{break-inside:avoid}thead{display:table-header-group}</style></head><body><h1>Stock List</h1><p>${xml(meta)}</p><table><thead><tr>${headers.map((header) => `<th${numeric.has(header) ? ' class="num"' : ""}>${xml(header)}</th>`).join("")}</tr></thead><tbody>${body}</tbody>${footer}</table></body></html>`;
+    const frame = document.createElement("iframe");
+    frame.setAttribute("aria-hidden", "true");
+    frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0";
+    frame.onload = () => { frame.contentWindow?.focus(); frame.contentWindow?.print(); setTimeout(() => frame.remove(), 60_000); };
+    frame.srcdoc = html;
+    document.body.appendChild(frame);
+    const skipped = selectedRecords.length - shareRecords.length;
+    if (selectedRecords.length && skipped) toast.info(`${skipped} selected ${skipped === 1 ? "item has" : "items have"} no stock in ${warehouseLabel} and ${skipped === 1 ? "is" : "are"} not printed.`);
+  };
+
   // Full-width filter chips; the active chip uses the user's accent colour and each count keeps its status colour.
   const chip = (active: boolean) => `inline-flex h-9 min-w-0 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border px-3 text-[13px] font-semibold transition-colors ${active ? "border-primary bg-primary/15 text-foreground ring-1 ring-primary" : "border-border bg-card text-foreground/80 hover:border-foreground/30 hover:text-foreground"}`;
   const countPill = "inline-flex h-5 min-w-6 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-bold tabular-nums";
@@ -695,6 +722,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
           {emojiPicker("telegram")}
           <Button size="sm" variant="outline" disabled={shareDisabled} onClick={() => copyForChannel("email")} title="Copy email format" aria-label="Copy email format"><Mail /><span className="@max-[90rem]:hidden">Email</span></Button>
           <Button size="sm" variant="outline" disabled={shareDisabled} onClick={() => openEditor("whatsapp")} title="Edit the message before copying" aria-label="Edit the message before copying"><Pencil /><span className="@max-[90rem]:hidden">Edit</span></Button>
+          <Button size="sm" variant="outline" disabled={loading || (!selectedRecords.length && !filtered.length)} onClick={printStockList} title={selectedRecords.length ? "Print the selected items" : "Print the listed items"} aria-label="Print stock list"><Printer /><span className="@max-[90rem]:hidden">Print</span></Button>
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild><Button size="sm" variant="outline" disabled={shareDisabled} title="Export Excel" aria-label="Export Excel"><FileSpreadsheet /><span className="@max-[90rem]:hidden">Excel</span><ChevronDown /></Button></DropdownMenuTrigger>
             <DropdownMenuContent align="end">
