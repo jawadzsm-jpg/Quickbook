@@ -42,7 +42,7 @@ curl -H "Authorization: Bearer ebk_live_…" "https://<domain>/api/v1/products?l
   "upc": null,
   "status": "active",
   "price": { "amount": 1800, "currency": "AED", "includes_vat": false },
-  "offer": { "price": 1650, "starts_at": "2026-10-11T08:00:00.000Z", "ends_at": "2026-10-11T19:59:00.000Z" },
+  "offer": { "price": 1650, "starts_at": "2026-10-11T08:00:00.000Z", "ends_at": "2026-10-11T19:59:00.000Z", "quantity": 10, "remaining": 4 },
   "stock": {
     "quantity": 12,
     "available": 10,
@@ -56,7 +56,7 @@ curl -H "Authorization: Bearer ebk_live_…" "https://<domain>/api/v1/products?l
 ```
 
 - `price.amount` is the selling price in the company's currency; `includes_vat` says whether it already contains VAT (UAE VAT is 5%).
-- `offer` is the running **Today Offer** (a sale price with start and end) or `null`. Show it as the sale/compare-at price until `ends_at`.
+- `offer` is the running **Today Offer** (a sale price with start and end) or `null`. Show it as the sale/compare-at price until `ends_at`. `quantity` is how many are offered (`null` = no limit) and `remaining` how many are left (`null` without a limit); an offer whose quantity is sold returns `offer: null`.
 - `stock.available` = quantity minus stock held for sales reps — use it for "in stock" and order limits.
 - Cost, purchase prices, suppliers and accounting data are never returned.
 

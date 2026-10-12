@@ -5,7 +5,7 @@ import { appUsers, companies, companySettings, inventoryLocations, itemOffers, i
 import { activeHoldCondition } from "@/lib/stock-holds";
 import { savedCategoryColors } from "@/lib/category-colors-sql";
 import { canManageOffers } from "@/lib/item-offers";
-import { currentOfferCondition } from "@/lib/item-offers-sql";
+import { currentOfferCondition, offerSoldQuantity } from "@/lib/item-offers-sql";
 import { hasPermission, isAdministrator, requireApiUser } from "@/lib/auth";
 
 function errorMessage(error: unknown) {
@@ -181,7 +181,7 @@ export async function GET(request: Request) {
     const canManageCategories = hasPermission(authorization, "inventory:manage");
     // Today Offer: running and scheduled offers on active items in the user's companies.
     const offers = await db.select({
-      id: itemOffers.id, itemId: itemOffers.itemId, offerPrice: itemOffers.offerPrice, startsAt: itemOffers.startsAt, endsAt: itemOffers.endsAt,
+      id: itemOffers.id, itemId: itemOffers.itemId, offerPrice: itemOffers.offerPrice, offerQuantity: itemOffers.offerQuantity, soldQuantity: offerSoldQuantity, startsAt: itemOffers.startsAt, endsAt: itemOffers.endsAt,
       note: itemOffers.note, createdByName: itemOffers.createdByName, itemName: items.name, sku: items.sku, itemNumber: items.itemNumber,
       salesPrice: items.salesPrice, quantity: items.quantity, companyId: companies.id, companyName: companies.name, currency: companies.baseCurrency,
       locationId: inventoryLocations.id, locationName: inventoryLocations.name,

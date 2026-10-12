@@ -4273,3 +4273,39 @@ test("migration 0117 does not retry notification emails that failed before it", 
   for (const statement of update) await database.exec(statement);
   assert.equal((await database.query("SELECT email_attempts FROM notifications WHERE id = $1", [id])).rows[0].email_attempts, 3);
 });
+
+test("Today Offer quantity counts down with invoice and sales receipt sales after the start and ends the offer when sold", async () => {
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Offer qty Co') RETURNING id")).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'OQ', 'Main', 'OQ') RETURNING id", [companyId])).rows[0].id;
+  const itemId = (await database.query("INSERT INTO items (company_id, location_id, sku, name, quantity, sales_price) VALUES ($1, $2, 'OFFER-QTY', 'Monitor', 20, 500) RETURNING id", [companyId, locationId])).rows[0].id;
+  const route = await vite.ssrLoadModule("/app/api/item-offers/route.ts");
+  const { currentOfferCondition, offerSoldQuantity } = await vite.ssrLoadModule("/lib/item-offers-sql.ts");
+  const { itemOffers } = await vite.ssrLoadModule("/db/schema.ts");
+  const { and, eq } = await import("drizzle-orm");
+  const minutes = (n) => new Date(Date.now() + n * 60_000).toISOString();
+  const post = (body) => route.POST(new Request("https://app.test/api/item-offers", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ companyId, itemId, offerPrice: 450, startsAt: minutes(-30), endsAt: minutes(60), note: "", ...body }) }));
+  const current = async () => getDb().select({ id: itemOffers.id, offerQuantity: itemOffers.offerQuantity, sold: offerSoldQuantity }).from(itemOffers).where(and(eq(itemOffers.itemId, itemId), currentOfferCondition()));
+  const sale = async (type, quantity, createdAt, status = "open") => {
+    const id = (await database.query("INSERT INTO transactions (company_id, type, number, party, total, subtotal, transaction_date, status, created_at) VALUES ($1, $2, $3, 'Buyer', 1, 1, '2026-10-13', $4, $5) RETURNING id", [companyId, type, `S-${Math.random()}`, status, createdAt])).rows[0].id;
+    await database.query("INSERT INTO transaction_lines (transaction_id, item_id, description, quantity) VALUES ($1, $2, 'Monitor', $3)", [id, itemId, quantity]);
+    return id;
+  };
+
+  assert.equal((await post({ offerQuantity: "0" })).status, 400);
+  const created = await post({ offerQuantity: 3 });
+  assert.equal(created.status, 201, await created.clone().text());
+  assert.equal((await created.json()).offer.offerQuantity, 3);
+  await sale("invoice", 5, minutes(-45)); // before the offer started: not counted
+  await sale("quotation", 4, minutes(-5)); // not a sale
+  await sale("invoice", 9, minutes(-5), "void"); // void: not counted
+  await sale("invoice", 2, minutes(-5));
+  assert.deepEqual((await current()).map((row) => [row.offerQuantity, row.sold]), [[3, 2]], "1 of 3 left");
+  const receipt = await sale("sales receipt", 1, minutes(-1));
+  assert.deepEqual(await current(), [], "sold out: the offer is over");
+  // A stock return on the receipt brings one back.
+  await database.query("INSERT INTO transaction_lines (transaction_id, item_id, description, quantity) VALUES ($1, $2, 'Return', -1)", [receipt, itemId]);
+  assert.deepEqual((await current()).map((row) => row.sold), [2]);
+  // Without a quantity the offer has no limit.
+  assert.equal((await post({ offerQuantity: "" })).status, 201);
+  assert.deepEqual((await current()).map((row) => [row.offerQuantity, row.sold]), [[null, 2]]);
+});

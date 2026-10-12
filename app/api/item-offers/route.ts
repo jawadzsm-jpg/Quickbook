@@ -17,9 +17,9 @@ export async function POST(request: Request) {
   if (!canManageOffers(user)) return json({ error: "Only an administrator or inventory manager can create offers." }, 403);
   const itemId = Number(payload.itemId);
   if (!Number.isInteger(itemId) || itemId <= 0) return json({ error: "Select an item." }, 400);
-  const checked = validateOffer({ offerPrice: payload.offerPrice, startsAt: payload.startsAt, endsAt: payload.endsAt, note: payload.note });
+  const checked = validateOffer({ offerPrice: payload.offerPrice, offerQuantity: payload.offerQuantity, startsAt: payload.startsAt, endsAt: payload.endsAt, note: payload.note });
   if ("error" in checked) return json({ error: checked.error }, 400);
-  const { offerPrice, startsAt, endsAt, note } = checked.value;
+  const { offerPrice, offerQuantity, startsAt, endsAt, note } = checked.value;
   return withWriteTransaction(async () => {
     const db = getDb();
     const [item] = await db.select().from(items).where(and(eq(items.id, itemId), eq(items.companyId, companyId))).limit(1).for("update");
@@ -28,8 +28,8 @@ export async function POST(request: Request) {
     const now = new Date().toISOString();
     const endedByName = user.fullName || user.email;
     await db.update(itemOffers).set({ endedAt: now, endedByName }).where(and(eq(itemOffers.itemId, itemId), currentOfferCondition()));
-    const [offer] = await db.insert(itemOffers).values({ companyId, itemId, offerPrice, startsAt, endsAt, note, createdByUserId: user.id, createdByName: endedByName }).returning();
-    await db.insert(auditLog).values({ companyId, action: "created", entityType: "item_offer", entityId: offer.id, details: JSON.stringify({ itemId, sku: item.sku, salesPrice: item.salesPrice, offerPrice, startsAt, endsAt, actorId: user.id }) });
+    const [offer] = await db.insert(itemOffers).values({ companyId, itemId, offerPrice, offerQuantity, startsAt, endsAt, note, createdByUserId: user.id, createdByName: endedByName }).returning();
+    await db.insert(auditLog).values({ companyId, action: "created", entityType: "item_offer", entityId: offer.id, details: JSON.stringify({ itemId, sku: item.sku, salesPrice: item.salesPrice, offerPrice, offerQuantity, startsAt, endsAt, actorId: user.id }) });
     return json({ offer }, 201);
   });
 }

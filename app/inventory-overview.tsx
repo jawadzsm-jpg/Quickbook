@@ -20,7 +20,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { TelegramIcon, WhatsAppIcon } from "./brand-icons";
 import { CopyOnHover } from "./copy-on-hover";
 import { TodayOffersPanel, runningOffers, type TodayOffer } from "./today-offers";
-import { offerEndsText, offerShareText } from "@/lib/item-offers";
+import { offerEndsText, offerRemaining, offerShareText } from "@/lib/item-offers";
 import { categoryColor, categoryPalette } from "@/lib/category-colors";
 import { CategoryColorPicker } from "./category-color-picker";
 
@@ -525,7 +525,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem, onCreateDocument
         details.push(channel === "email" ? `Quantity: ${quantity}` : marked(emoji.quantity, `Qty: ${quantity}`));
       }
       const offer = record.recordIds.map((id) => offerByItem.get(id)).find(Boolean);
-      const offerText = showPrice && offer ? offerShareText({ channel, currency: record.currency, normalPrice: priceFor(record), offerPrice: priceFor({ salesPrice: offer.offerPrice }), endsAt: offer.endsAt, vatLabel: vatLabels[vatMode], mark: channel !== "email" && emoji.id !== "none" ? "🔥" : "" }) : null;
+      const offerText = showPrice && offer ? offerShareText({ channel, currency: record.currency, normalPrice: priceFor(record), offerPrice: priceFor({ salesPrice: offer.offerPrice }), endsAt: offer.endsAt, vatLabel: vatLabels[vatMode], mark: channel !== "email" && emoji.id !== "none" ? "🔥" : "", remaining: offerRemaining(offer) }) : null;
       if (showPrice) {
         const price = priceFor(record);
         const value = offerText?.price ?? `${record.currency} ${plainMoney(price)}${vatLabels[vatMode]}`;
@@ -601,7 +601,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem, onCreateDocument
     const offerByItem = new Map(runningOffers(offers).map((offer) => [offer.itemId, offer]));
     const offerFor = (record: ConsolidatedItem) => record.recordIds.map((id) => offerByItem.get(id)).find(Boolean);
     const offerColumns = showPrice && exportRecords.some((record) => offerFor(record));
-    if (offerColumns) headers.push(`Today offer price${mode === "include" ? " including 5% VAT" : mode === "zero" ? " (0% VAT)" : ""}`, "Offer ends (UAE time)");
+    if (offerColumns) headers.push(`Today offer price${mode === "include" ? " including 5% VAT" : mode === "zero" ? " (0% VAT)" : ""}`, "Offer ends (UAE time)", "Offer quantity left");
     const headerRow = headers.map((header) => `<Cell ss:StyleID="Header"><Data ss:Type="String">${xml(header)}</Data></Cell>`).join("");
     const bodyRows = exportRecords.map((record) => {
       const values: Array<{ value: unknown; type?: "Number"; style?: string }> = [
@@ -612,7 +612,8 @@ export function InventoryOverview({ onOpenDocument, onOpenItem, onCreateDocument
       if (showPrice) values.push({ value: priceFor(record, mode), type: "Number", style: "Money" }, { value: record.currency });
       if (offerColumns) {
         const offer = offerFor(record);
-        values.push(offer ? { value: priceFor({ salesPrice: offer.offerPrice }, mode), type: "Number", style: "Money" } : { value: "" }, { value: offer ? offerEndsText(offer.endsAt) : "" });
+        const remaining = offer ? offerRemaining(offer) : null;
+        values.push(offer ? { value: priceFor({ salesPrice: offer.offerPrice }, mode), type: "Number", style: "Money" } : { value: "" }, { value: offer ? offerEndsText(offer.endsAt) : "" }, remaining === null ? { value: offer ? "No limit" : "" } : { value: remaining, type: "Number", style: "Number" });
       }
       return `<Row>${values.map((entry) => `<Cell${entry.style ? ` ss:StyleID="${entry.style}"` : ""}><Data ss:Type="${entry.type ?? "String"}">${xml(entry.value)}</Data></Cell>`).join("")}</Row>`;
     }).join("");

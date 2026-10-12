@@ -9,10 +9,10 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ItemSearchSelect, itemSearchDetail, itemSearchFields } from "./item-search-select";
-import { OFFER_MAX_DAYS, offerState, offerTime } from "@/lib/item-offers";
+import { OFFER_MAX_DAYS, offerRemaining, offerState, offerTime } from "@/lib/item-offers";
 
 export type TodayOffer = {
-  id: number; itemId: number; offerPrice: number; startsAt: string; endsAt: string; note: string; createdByName: string;
+  id: number; itemId: number; offerPrice: number; offerQuantity: number | null; soldQuantity: number; startsAt: string; endsAt: string; note: string; createdByName: string;
   itemName: string; sku: string; itemNumber: string | null; salesPrice: number; quantity: number;
   companyId: number; companyName: string; currency: string; locationId: number; locationName: string;
 };
@@ -22,6 +22,7 @@ const money = (value: number, currency: string) => {
   try { return new Intl.NumberFormat("en-AE", { style: "currency", currency, maximumFractionDigits: 2 }).format(value); }
   catch { return `${currency} ${value.toLocaleString("en-AE", { maximumFractionDigits: 2 })}`; }
 };
+const qty = (value: number) => value.toLocaleString("en-AE", { maximumFractionDigits: 4 });
 const when = (value: string) => new Intl.DateTimeFormat("en-AE", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(offerTime(value));
 // <input type="datetime-local"> works in the browser's local time.
 const localInput = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
@@ -60,20 +61,27 @@ export function TodayOffersPanel({ offers, items, canManage, loading, onChanged,
 
   return <>
     <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2.5">
-      <p className="text-sm text-muted-foreground">Special selling prices with a start and end time. Running offers are counted on the tab.</p>
+      <p className="text-sm text-muted-foreground">Special selling prices with a start and end time, optionally for a set quantity. Running offers are counted on the tab.</p>
       {canManage ? <Button type="button" size="sm" onClick={() => setAdding(true)}><Plus className="size-4" />Add offer</Button> : null}
     </div>
     <div className="overflow-x-auto">
       <Table className="min-w-[900px]">
-        <TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Company · inventory</TableHead><TableHead>Offer price</TableHead><TableHead>Offer time</TableHead><TableHead>Note</TableHead><TableHead className="w-44 text-right">Actions</TableHead></TableRow></TableHeader>
+        <TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Company · inventory</TableHead><TableHead>Offer price</TableHead><TableHead>Offer quantity</TableHead><TableHead>Offer time</TableHead><TableHead>Note</TableHead><TableHead className="w-44 text-right">Actions</TableHead></TableRow></TableHeader>
         <TableBody>
-          {loading ? <TableRow><TableCell colSpan={6} className="h-28 text-center text-muted-foreground">Loading offers…</TableCell></TableRow> : visible.length ? visible.map((offer) => {
+          {loading ? <TableRow><TableCell colSpan={7} className="h-28 text-center text-muted-foreground">Loading offers…</TableCell></TableRow> : visible.length ? visible.map((offer) => {
             const state = offerState(offer, now);
             const saving = offer.salesPrice > offer.offerPrice ? Math.round((1 - offer.offerPrice / offer.salesPrice) * 100) : 0;
+            const remaining = offerRemaining(offer);
+            const sold = Math.max(0, Number(offer.soldQuantity) || 0);
             return <TableRow key={offer.id} className="align-top">
               <TableCell><p className="font-semibold text-primary">{offer.itemName}</p><p className="mt-1 text-xs text-muted-foreground">SKU {offer.sku}{offer.itemNumber ? ` · #${offer.itemNumber}` : ""} · {Number(offer.quantity).toLocaleString("en-AE")} in stock</p></TableCell>
               <TableCell><p className="font-medium">{offer.companyName}</p><p className="mt-1 text-xs text-muted-foreground">{offer.locationName}</p></TableCell>
               <TableCell><p className="font-semibold"><span className="text-muted-foreground line-through">{money(offer.salesPrice, offer.currency)}</span><span className="mx-2">→</span><span className="text-violet-600 dark:text-violet-400">{money(offer.offerPrice, offer.currency)}</span></p>{saving > 0 ? <p className="mt-1 text-xs font-semibold text-emerald-600">{saving}% off</p> : null}</TableCell>
+              <TableCell className="whitespace-nowrap">{remaining === null ? <><p className="font-medium">No limit</p>{sold ? <p className="mt-1 text-xs text-muted-foreground">{qty(sold)} sold</p> : null}</> : <>
+                <p className="font-semibold"><span className={remaining <= Math.max(1, Number(offer.offerQuantity) * 0.2) ? "text-rose-600" : "text-violet-600 dark:text-violet-400"}>{qty(remaining)}</span> <span className="text-muted-foreground">of {qty(Number(offer.offerQuantity))} left</span></p>
+                <div className="mt-1.5 h-1.5 w-28 overflow-hidden rounded-full bg-muted" role="progressbar" aria-label={`${qty(sold)} of ${qty(Number(offer.offerQuantity))} sold`} aria-valuemin={0} aria-valuemax={Number(offer.offerQuantity)} aria-valuenow={Math.min(sold, Number(offer.offerQuantity))}><div className="h-full rounded-full bg-violet-600" style={{ width: `${Math.min(100, sold / Number(offer.offerQuantity) * 100)}%` }} /></div>
+                <p className="mt-1 text-xs text-muted-foreground">{qty(sold)} sold · ends when sold out</p>
+              </>}</TableCell>
               <TableCell className="whitespace-nowrap">
                 <Badge className={state === "active" ? "bg-violet-600 text-white" : "bg-muted text-foreground"}>{state === "active" ? "Running" : "Scheduled"}</Badge>
                 <p className="mt-1.5 text-xs"><span className="text-muted-foreground">Start offer:</span> {when(offer.startsAt)}</p>
@@ -83,7 +91,7 @@ export function TodayOffersPanel({ offers, items, canManage, loading, onChanged,
               <TableCell><p className="text-sm">{offer.note || "—"}</p>{offer.createdByName ? <p className="mt-1 text-xs text-muted-foreground">By {offer.createdByName}</p> : null}</TableCell>
               <TableCell className="text-right"><div className="flex justify-end gap-2"><Button type="button" size="sm" variant="outline" onClick={() => onOpenItem(offer)}><Eye className="size-4" />Item</Button>{canManage ? <Button type="button" size="sm" variant="outline" disabled={endingId === offer.id} onClick={() => void endOffer(offer)}><TimerOff className="size-4" />{state === "active" ? "End" : "Cancel"}</Button> : null}</div></TableCell>
             </TableRow>;
-          }) : <TableRow><TableCell colSpan={6} className="h-28 text-center text-muted-foreground">No offers running or scheduled.{canManage ? " Use Add offer to create one." : ""}</TableCell></TableRow>}
+          }) : <TableRow><TableCell colSpan={7} className="h-28 text-center text-muted-foreground">No offers running or scheduled.{canManage ? " Use Add offer to create one." : ""}</TableCell></TableRow>}
         </TableBody>
       </Table>
     </div>
@@ -94,6 +102,7 @@ export function TodayOffersPanel({ offers, items, canManage, loading, onChanged,
 function AddOfferDialog({ items, onClose, onSaved }: { items: OfferItem[]; onClose: () => void; onSaved: () => void }) {
   const [itemId, setItemId] = useState("");
   const [offerPrice, setOfferPrice] = useState("");
+  const [offerQuantity, setOfferQuantity] = useState("");
   const [startsAt, setStartsAt] = useState(() => localInput(new Date()));
   const [endsAt, setEndsAt] = useState(() => localInput(endOfToday()));
   const [note, setNote] = useState("");
@@ -107,7 +116,7 @@ function AddOfferDialog({ items, onClose, onSaved }: { items: OfferItem[]; onClo
     if (!item) return setError("Select an item.");
     setSaving(true);
     try {
-      const response = await fetch("/api/item-offers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId: item.companyId, itemId: item.id, offerPrice: Number(offerPrice), startsAt: new Date(startsAt).toISOString(), endsAt: new Date(endsAt).toISOString(), note }) });
+      const response = await fetch("/api/item-offers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId: item.companyId, itemId: item.id, offerPrice: Number(offerPrice), offerQuantity: offerQuantity.trim(), startsAt: new Date(startsAt).toISOString(), endsAt: new Date(endsAt).toISOString(), note }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not save the offer.");
       toast.success(`Offer saved for ${item.sku}.`);
@@ -122,6 +131,7 @@ function AddOfferDialog({ items, onClose, onSaved }: { items: OfferItem[]; onClo
       <div className="grid gap-4">
         <label className="grid gap-2 text-sm font-medium">Item<ItemSearchSelect value={itemId} onValueChange={(value) => { setItemId(value); const picked = items.find((entry) => String(entry.id) === value); if (picked && !offerPrice) setOfferPrice(String(picked.salesPrice || "")); }} options={options} ariaLabel="Offer item" /></label>
         <label className="grid gap-2 text-sm font-medium">Offer price{item ? <span className="text-xs font-normal text-muted-foreground">Normal selling price {money(Number(item.salesPrice), item.currency)}</span> : null}<Input type="number" inputMode="decimal" min="0.01" step="0.01" value={offerPrice} onChange={(event) => setOfferPrice(event.target.value)} placeholder="0.00" /></label>
+        <label className="grid gap-2 text-sm font-medium">Offer quantity (optional){item ? <span className="text-xs font-normal text-muted-foreground">{qty(Number(item.quantity ?? 0))} in stock</span> : null}<Input type="number" inputMode="decimal" min="0" step="any" value={offerQuantity} onChange={(event) => setOfferQuantity(event.target.value)} placeholder="No limit" /><span className="text-xs font-normal text-muted-foreground">Sales of this item on invoices and sales receipts after the offer starts count down; the offer ends when this many are sold.</span></label>
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="grid gap-2 text-sm font-medium">Start offer<Input type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} /></label>
           <label className="grid gap-2 text-sm font-medium">End offer<Input type="datetime-local" value={endsAt} min={startsAt} onChange={(event) => setEndsAt(event.target.value)} /></label>
