@@ -3753,3 +3753,34 @@ test("warehouses: moves between warehouses shift warehouse stock only, can be re
   const warehousesRoute = await vite.ssrLoadModule("/app/api/warehouses/route.ts");
   assert.equal((await warehousesRoute.DELETE(new Request("https://app.test/api/warehouses", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ companyId, id: store }) }))).status, 409, "warehouses with history cannot be removed");
 });
+
+test("stock reports filter to one warehouse's quantities and offer only multi-warehouse inventories", async () => {
+  const company = (await database.query("INSERT INTO companies (name) VALUES ('Warehouse reports') RETURNING id")).rows[0].id;
+  const location = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'WRP', 'WRP', 'WRP') RETURNING id", [company])).rows[0].id;
+  const single = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'WRS', 'WRS', 'WRS') RETURNING id", [company])).rows[0].id;
+  const laptop = (await database.query("INSERT INTO items (company_id, location_id, sku, name, quantity, cost, item_type) VALUES ($1, $2, 'WRP-1', 'Laptop', 10, 40, 'stock-part') RETURNING id", [company, location])).rows[0].id;
+  await database.query("INSERT INTO items (company_id, location_id, sku, name, quantity, cost, item_type) VALUES ($1, $2, 'WRP-2', 'Cable', 2, 5, 'stock-part')", [company, location]);
+  await database.query("INSERT INTO items (company_id, location_id, sku, name, quantity, cost, item_type) VALUES ($1, $2, 'WRS-1', 'Mouse', 3, 5, 'stock-part')", [company, single]);
+  const store = (await database.query("INSERT INTO warehouses (company_id, location_id, code, name) VALUES ($1, $2, 'STORE', 'Store') RETURNING id", [company, location])).rows[0].id;
+  const mainId = (await database.query("SELECT id FROM warehouses WHERE location_id = $1 AND is_default", [location])).rows[0].id;
+  const singleMain = (await database.query("SELECT id FROM warehouses WHERE location_id = $1 AND is_default", [single])).rows[0].id;
+  await database.query("INSERT INTO warehouse_stock (company_id, warehouse_id, item_id, quantity) VALUES ($1, $2, $3, 4)", [company, store, laptop]);
+  const { GET } = await vite.ssrLoadModule("/app/api/reports/route.ts");
+  const open = async (query) => { const response = await GET(new Request(`https://app.test/api/reports?type=inventory-valuation-detail&companyId=${company}&currency=AED${query}`)); return { status: response.status, report: (await response.json()).report }; };
+
+  const all = await open("&locationId=0");
+  assert.deepEqual(all.report.warehouseOptions.map((option) => option.name), ["Main warehouse", "Store"], "single-warehouse inventories are not offered");
+  assert.equal(all.report.warehouse, undefined);
+  assert.ok(all.report.inventoryLedger, "the unfiltered report keeps the ledger check");
+
+  const inStore = await open(`&locationId=${location}&warehouseId=${store}`);
+  assert.equal(inStore.status, 200);
+  assert.equal(inStore.report.warehouse.name, "Store");
+  assert.equal(inStore.report.inventoryLedger, undefined, "the ledger check is hidden for one warehouse");
+  assert.deepEqual(inStore.report.rows.map((row) => [row.sku, row.quantity, row.value]).sort(), [["WRP-1", 4, 160], ["WRP-2", 0, 0]], "Store quantities only; active items with none there show zero like the unfiltered report");
+  const inMain = await open(`&locationId=0&warehouseId=${mainId}`);
+  assert.deepEqual(inMain.report.rows.map((row) => [row.sku, row.quantity]).sort(), [["WRP-1", 6], ["WRP-2", 2]], "the default warehouse holds the remainder; other inventories drop out");
+
+  assert.equal((await open(`&locationId=0&warehouseId=${singleMain}`)).status, 400, "single-warehouse inventories cannot be filtered");
+  assert.equal((await open(`&locationId=${single}&warehouseId=${store}`)).status, 400, "a warehouse outside the selected inventory is refused");
+});
