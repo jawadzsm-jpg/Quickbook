@@ -164,7 +164,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/backup-oidc.ts` — Authorizes the scheduled backup worker from OIDC JWT claims.
 - `lib/backup-schedule.ts` — Backup schedule parsing (once/daily/weekly/monthly, retention) and next run in Asia/Dubai.
 - `lib/backup-snapshot.ts` — Tables included in company backups, per-table company scope, snapshot export.
-- `lib/bank-accounts.ts` — Company bank accounts per currency (max 10, stamps, remarks), `bankForCurrency`, printable lines.
+- `lib/bank-accounts.ts` — Company bank accounts in any currency (unlimited, several per currency with one marked to print; stamps, remarks), `bankForCurrency`, printable lines.
 - `lib/banking-report.ts` — Banking report keys, summary cards and detail targets.
 - `lib/budget-report.ts` — Budget vs actual report keys, basis note, bar sizing and summaries.
 - `lib/calculator.ts` — Header calculator arithmetic.

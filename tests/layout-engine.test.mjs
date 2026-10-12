@@ -154,12 +154,14 @@ test("saved invoices map onto the renderer input without freight or pending line
   assert.equal(data.details.number, "INV-9"); assert.equal(data.company.addressLines.at(-1), "Dubai, UAE"); assert.equal(data.company.bank.name, "ENBD");
 });
 
-test("bank accounts validate per currency and documents pick the account matching their currency", async () => {
+test("bank accounts: any number in any currency, and documents pick the account matching their currency", async () => {
   const { parseBankAccounts, bankForCurrency, bankLines, draftBankAccounts } = await vite.ssrLoadModule("/lib/bank-accounts.ts");
   const usd = { id: "b1", currency: "usd", bankName: "Mashreq", accountName: "ComNet LLC", accountNumber: "0191", iban: "ae070330000010191", swift: "boml" };
   const accounts = parseBankAccounts(JSON.stringify([usd]));
   assert.deepEqual(accounts[0], { id: "b1", currency: "USD", bankName: "Mashreq", accountName: "ComNet LLC", accountNumber: "0191", iban: "AE070330000010191", swift: "BOML" });
-  assert.throws(() => parseBankAccounts([usd, { ...usd, id: "b2" }]), /one bank account per currency/);
+  // Any number of accounts, several per currency; only one per currency may be ticked to print.
+  assert.equal(parseBankAccounts(Array.from({ length: 25 }, (_, index) => ({ ...usd, id: `many${index}` }))).length, 25);
+  assert.throws(() => parseBankAccounts([{ ...usd, primary: true }, { ...usd, id: "b2", primary: true }]), /only one USD account to print/);
   assert.throws(() => parseBankAccounts([{ ...usd, currency: "US" }]), /three-letter/);
   assert.throws(() => parseBankAccounts([{ id: "b3", currency: "EUR" }]), /bank name, account number or IBAN/);
   assert.equal(draftBankAccounts(JSON.stringify([{ ...usd, currency: "U" }]))[0].currency, "U"); // half-typed entries survive editing
@@ -168,6 +170,12 @@ test("bank accounts validate per currency and documents pick the account matchin
   assert.equal(bankForCurrency(company, "AED").bankName, "Emirates NBD");
   assert.equal(bankForCurrency(company, "EUR").bankName, "Emirates NBD"); // no EUR account: default account
   assert.equal(bankForCurrency({}, "USD"), null);
+  const second = { ...usd, id: "b2", bankName: "ADCB" };
+  assert.equal(bankForCurrency({ ...company, bankAccounts: JSON.stringify([usd, second]) }, "USD").bankName, "Mashreq", "none ticked: the first USD account prints");
+  assert.equal(bankForCurrency({ ...company, bankAccounts: JSON.stringify([usd, { ...second, primary: true }]) }, "USD").bankName, "ADCB", "the ticked USD account prints");
+  const extraAed = { ...usd, id: "b4", currency: "AED", bankName: "FAB" };
+  assert.equal(bankForCurrency({ ...company, bankAccounts: JSON.stringify([extraAed]) }, "AED").bankName, "Emirates NBD", "none ticked: the main account prints for its currency");
+  assert.equal(bankForCurrency({ ...company, bankAccounts: JSON.stringify([{ ...extraAed, primary: true }]) }, "AED").bankName, "FAB", "a ticked extra account overrides the main account");
   assert.deepEqual(bankLines(bankForCurrency(company, "USD")), ["Mashreq", "Account name: ComNet LLC", "Account no.: 0191", "IBAN: AE070330000010191", "SWIFT: BOML", "Currency: USD"]);
   const { transactionDocumentData } = await vite.ssrLoadModule("/app/layout-builder/company-data.ts");
   const branding = { name: "ComNet", logoData: "", phone: "", trn: "", addressLine1: "", addressLine2: "", city: "", country: "", ...company };
