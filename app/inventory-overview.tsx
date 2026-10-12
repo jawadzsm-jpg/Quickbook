@@ -51,9 +51,11 @@ type OverviewItem = {
   locationId: number;
   locationName: string;
   locationCode: string;
+  /** Per-warehouse quantities, present only when the inventory has more than one warehouse. */
+  warehouses?: Array<{ warehouseId: number; name: string; code: string; isDefault: boolean; quantity: number }>;
 };
 
-type InventoryPresence = Pick<OverviewItem, "id" | "companyId" | "companyName" | "currency" | "locationId" | "locationName" | "locationCode" | "quantity" | "reorderPoint" | "salesPrice">;
+type InventoryPresence = Pick<OverviewItem, "id" | "companyId" | "companyName" | "currency" | "locationId" | "locationName" | "locationCode" | "quantity" | "reorderPoint" | "salesPrice" | "warehouses">;
 
 type ConsolidatedItem = OverviewItem & {
   inventories: InventoryPresence[];
@@ -194,6 +196,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
   const [category, setCategory] = useState("");
   const [brand, setBrand] = useState("");
   const [condition, setCondition] = useState("");
+  const [warehouseFilter, setWarehouseFilter] = useState("");
   const [priceMin, setPriceMin] = useState("");
   const [priceMax, setPriceMax] = useState("");
   // Price adjustment for what is shown and shared (WhatsApp, Telegram, email, Excel); saved prices never change.
@@ -273,6 +276,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
         quantity: Number(record.quantity),
         reorderPoint: Number(record.reorderPoint),
         salesPrice: Number(record.salesPrice),
+        warehouses: record.warehouses,
       };
       const existing = grouped.get(key);
       if (existing) {
@@ -339,8 +343,14 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
     out: outOfStockRecords.length,
     hold: consolidatedRecords.filter((record) => record.recordIds.some((id) => heldByItem.has(id))).length,
   }), [outOfStockRecords, consolidatedRecords, heldByItem]);
-  const extraFilters = Boolean(category || brand || condition || priceMin || priceMax);
-  const clearExtraFilters = () => { setCategory(""); setBrand(""); setCondition(""); setPriceMin(""); setPriceMax(""); };
+  // Warehouses of inventories that have more than one (the filter only appears when there are any).
+  const warehouseOptions = useMemo(() => {
+    const options = new Map<string, string>();
+    for (const record of records) for (const share of record.warehouses ?? []) options.set(String(share.warehouseId), `${record.locationName} · ${share.name}`);
+    return [...options].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [records]);
+  const extraFilters = Boolean(category || brand || condition || priceMin || priceMax || warehouseFilter);
+  const clearExtraFilters = () => { setCategory(""); setBrand(""); setCondition(""); setPriceMin(""); setPriceMax(""); setWarehouseFilter(""); };
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -356,7 +366,12 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
       if (min !== null && Number.isFinite(min) && Number(record.salesPrice) < min) return [];
       if (max !== null && Number.isFinite(max) && Number(record.salesPrice) > max) return [];
       const locationId = filter.startsWith("location:") ? Number(filter.split(":")[1]) : null;
-      const inventories = locationId === null ? record.inventories : record.inventories.filter((inventory) => inventory.locationId === locationId);
+      const located = locationId === null ? record.inventories : record.inventories.filter((inventory) => inventory.locationId === locationId);
+      // A warehouse filter keeps only stock held in that warehouse and shows its quantity.
+      const inventories = !warehouseFilter ? located : located.flatMap((inventory) => {
+        const share = inventory.warehouses?.find((entry) => String(entry.warehouseId) === warehouseFilter);
+        return share && share.quantity > 0 ? [{ ...inventory, quantity: share.quantity }] : [];
+      });
       if (!inventories.length) return [];
       if (term && !matchesSearch([record.name, record.sku, record.itemNumber, record.category, record.description, record.specifications, record.companyName, ...inventories.flatMap((inventory) => [inventory.locationName, inventory.locationCode])], term)) return [];
       return [{
@@ -366,7 +381,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
         reorderPoint: inventories.reduce((sum, inventory) => sum + Number(inventory.reorderPoint), 0),
       }];
     });
-  }, [consolidatedRecords, outOfStockRecords, filter, search, category, brand, condition, priceMin, priceMax, heldByItem, loadedAt]);
+  }, [consolidatedRecords, outOfStockRecords, filter, search, category, brand, condition, priceMin, priceMax, warehouseFilter, heldByItem, loadedAt]);
 
   const categories = useMemo(() => {
     const grouped = new Map<string, ConsolidatedItem[]>();
@@ -647,6 +662,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
           <label className="grid min-w-0 flex-1 gap-1 sm:min-w-40 text-xs font-medium text-muted-foreground sm:flex-none">Category<select className="h-9 w-full min-w-0 rounded-lg border border-input bg-card px-2 text-sm text-foreground" value={category} onChange={(event) => setCategory(event.target.value)}><option value="">All categories</option>{categoryOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
           <label className="grid min-w-0 flex-1 gap-1 sm:min-w-36 text-xs font-medium text-muted-foreground sm:flex-none">Brand<select className="h-9 w-full min-w-0 rounded-lg border border-input bg-card px-2 text-sm text-foreground" value={brand} onChange={(event) => setBrand(event.target.value)}><option value="">All brands</option>{brandOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
           <label className="grid min-w-0 flex-1 gap-1 sm:min-w-36 text-xs font-medium text-muted-foreground sm:flex-none">Condition<select className="h-9 w-full min-w-0 rounded-lg border border-input bg-card px-2 text-sm text-foreground" value={condition} onChange={(event) => setCondition(event.target.value)}><option value="">All conditions</option>{conditionOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+          {warehouseOptions.length > 0 && <label className="grid min-w-0 flex-1 gap-1 sm:min-w-44 text-xs font-medium text-muted-foreground sm:flex-none">Warehouse<select className="h-9 w-full min-w-0 rounded-lg border border-input bg-card px-2 text-sm text-foreground" value={warehouseFilter} onChange={(event) => setWarehouseFilter(event.target.value)}><option value="">All warehouses</option>{warehouseOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>}
           <div className="col-span-2 grid gap-1 text-xs font-medium text-muted-foreground">Selling price (excl. VAT)<div className="flex items-center gap-1.5"><Input aria-label="Minimum price" type="number" min="0" inputMode="decimal" placeholder="Min" value={priceMin} onChange={(event) => setPriceMin(event.target.value)} className="h-9 min-w-0 flex-1 sm:w-24 sm:flex-none" /><span>–</span><Input aria-label="Maximum price" type="number" min="0" inputMode="decimal" placeholder="Max" value={priceMax} onChange={(event) => setPriceMax(event.target.value)} className="h-9 min-w-0 flex-1 sm:w-24 sm:flex-none" /></div></div>
           {(extraFilters || filter !== "all") && <Button type="button" variant="ghost" size="sm" className="h-9" onClick={() => { clearExtraFilters(); setFilter("all"); }}><X className="size-4" />Clear filters</Button>}
           <span className="ml-auto self-center text-xs text-muted-foreground"><strong className="text-foreground tabular-nums">{filtered.length}</strong> {filtered.length === 1 ? "product" : "products"}</span>
@@ -707,6 +723,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem }: { onOpenDocume
                       <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-semibold ${out ? "bg-rose-500/15 text-rose-600 dark:text-rose-300" : low ? "bg-amber-500/15 text-amber-700 dark:text-amber-300" : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"}`}><span className={`size-1.5 rounded-full ${out ? "bg-rose-500" : low ? "bg-amber-500" : "bg-emerald-500"}`} />{out ? "Out of stock" : low ? "Low stock" : "In stock"}</span>
                       {partNumber && partAt < 0 && <span className="inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 font-medium text-muted-foreground">Part No. <CopyOnHover value={partNumber} label="Part No." /></span>}
                       {record.inventories.map((inventory) => <span key={inventory.locationId} className="inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 font-medium text-muted-foreground" title={`${inventory.companyName} · Qty ${Number(inventory.quantity).toLocaleString()}`}><Warehouse className="size-3 shrink-0" /><span className="truncate">{inventory.locationName}</span>{record.inventories.length > 1 && <span className="font-semibold tabular-nums text-foreground">{Number(inventory.quantity).toLocaleString()}</span>}</span>)}
+                      {!warehouseFilter && record.inventories.flatMap((inventory) => (inventory.warehouses ?? []).filter((share) => share.quantity !== 0).map((share) => <span key={`${inventory.locationId}:${share.warehouseId}`} className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground" title={`${inventory.locationName} · ${share.name}`}>{share.name}<span className="font-semibold tabular-nums text-foreground">{share.quantity.toLocaleString()}</span></span>))}
                       {held > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 font-semibold text-amber-700 dark:text-amber-300"><Lock className="size-3" />{held.toLocaleString()} on hold</span>}
                       <span className="inline-flex items-center gap-1 text-muted-foreground"><Clock className="size-3" />{receivedAge(record.latestReceivedAt)}</span>
                       <span className="ml-auto flex shrink-0 items-center gap-1">

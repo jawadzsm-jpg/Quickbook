@@ -1,4 +1,4 @@
-import { adjustWarehouseStock, resolveDocumentWarehouse, warehouseDocumentTypes, warehouseQuantities, type DocumentWarehouse } from "@/lib/warehouses";
+import { adjustWarehouseStock, itemWarehouseBreakdown, resolveDocumentWarehouse, warehouseDocumentTypes, warehouseQuantities, type DocumentWarehouse } from "@/lib/warehouses";
 import { formatInvoiceNumber, invoiceSeriesError } from "@/lib/invoice-series";
 import { contactOrganization } from "@/lib/contact-hierarchy";
 import { validInvoiceQuantity, isInvoiceStockReturn } from "@/lib/invoice-stock-lines";
@@ -487,10 +487,12 @@ export async function GET(request: Request) {
       const onPoByItem = new Map(openPurchaseOrders.flatMap((row) => row.itemId ? [[row.itemId, Number(row.onPo)] as const] : []));
       // Items bought outside the scope of VAT; sales documents lock their VAT code to OUT_OF_SCOPE.
       const outOfScope = await outOfScopeItemIds(companyId, records.map((item) => item.id));
+      // Per-warehouse quantities, only for inventories with more than one warehouse.
+      const warehouseShares = await itemWarehouseBreakdown(db, records.map((item) => ({ id: item.id, locationId: Number(item.locationId), quantity: Number(item.quantity) })));
       return Response.json({ records: records.map((item) => {
         const weighted = weightedCosts.get(item.id);
         const averageCost = weighted && weighted.quantity > 0 ? round(weighted.value / weighted.quantity) : round(Number(item.lastPurchasePrice) || Number(item.cost) || 0);
-        return { ...item, averageCost, onPo: round(onPoByItem.get(item.id) ?? 0), outOfScope: outOfScope.has(item.id) };
+        return { ...item, averageCost, onPo: round(onPoByItem.get(item.id) ?? 0), outOfScope: outOfScope.has(item.id), ...(warehouseShares.has(item.id) ? { warehouses: warehouseShares.get(item.id) } : {}) };
       }) });
     }
     if (kind === "accounts") {

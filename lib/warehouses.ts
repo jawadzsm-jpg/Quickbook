@@ -116,6 +116,37 @@ export async function adjustWarehouseStock(db: Executor, warehouseId: number | n
 
 /** Whether documents or stock history still point at a warehouse (it then cannot be removed). */
 export async function warehouseInUse(db: Executor, warehouseId: number) {
-  const result = await db.execute(sql`SELECT EXISTS (SELECT 1 FROM transactions WHERE warehouse_id = ${warehouseId}) OR EXISTS (SELECT 1 FROM inventory_movements WHERE warehouse_id = ${warehouseId}) AS used`);
+  const result = await db.execute(sql`SELECT EXISTS (SELECT 1 FROM transactions WHERE warehouse_id = ${warehouseId}) OR EXISTS (SELECT 1 FROM inventory_movements WHERE warehouse_id = ${warehouseId}) OR EXISTS (SELECT 1 FROM warehouse_transfers WHERE from_warehouse_id = ${warehouseId} OR to_warehouse_id = ${warehouseId}) AS used`);
   return Boolean(result.rows[0]?.used);
+}
+
+export type WarehouseShare = { warehouseId: number; name: string; code: string; isDefault: boolean; quantity: number };
+
+/**
+ * Per-warehouse quantities for items whose inventory has more than one warehouse (others get no entry, so screens stay
+ * unchanged for single-warehouse inventories). `items` carry their inventory total; the default warehouse gets the rest.
+ */
+export async function itemWarehouseBreakdown(db: Executor, rows: Array<{ id: number; locationId: number; quantity: number }>): Promise<Map<number, WarehouseShare[]>> {
+  const breakdown = new Map<number, WarehouseShare[]>();
+  const locationIds = [...new Set(rows.map((row) => Number(row.locationId)).filter((id) => id > 0))];
+  if (!locationIds.length) return breakdown;
+  const warehouseRows = (await db.execute(sql`SELECT id, location_id, name, code, is_default, active FROM warehouses WHERE location_id IN (${sql.join(locationIds.map((id) => sql`${id}`), sql`, `)}) ORDER BY is_default DESC, name`)).rows;
+  const byLocation = new Map<number, Record<string, unknown>[]>();
+  for (const row of warehouseRows) byLocation.set(Number(row.location_id), [...(byLocation.get(Number(row.location_id)) ?? []), row]);
+  const multi = new Set([...byLocation].filter(([, list]) => list.length > 1).map(([locationId]) => locationId));
+  const itemIds = rows.filter((row) => multi.has(Number(row.locationId))).map((row) => row.id);
+  if (!itemIds.length) return breakdown;
+  const explicit = new Map<string, number>();
+  for (const row of (await db.execute(sql`SELECT item_id, warehouse_id, quantity FROM warehouse_stock WHERE item_id IN (${sql.join(itemIds.map((id) => sql`${id}`), sql`, `)})`)).rows) explicit.set(`${row.item_id}:${row.warehouse_id}`, Number(row.quantity));
+  for (const item of rows) {
+    const list = byLocation.get(Number(item.locationId));
+    if (!list || list.length < 2) continue;
+    const others = list.filter((warehouse) => !warehouse.is_default).map((warehouse) => ({ warehouseId: Number(warehouse.id), name: String(warehouse.name), code: String(warehouse.code), isDefault: false, active: Boolean(warehouse.active), quantity: explicit.get(`${item.id}:${warehouse.id}`) ?? 0 }));
+    const fallback = list.find((warehouse) => warehouse.is_default);
+    const shares: WarehouseShare[] = fallback ? [{ warehouseId: Number(fallback.id), name: String(fallback.name), code: String(fallback.code), isDefault: true, quantity: Math.round((Number(item.quantity) - others.reduce((sum, share) => sum + share.quantity, 0)) * 1e6) / 1e6 }] : [];
+    // Inactive warehouses are listed only while they still hold stock of this item.
+    shares.push(...others.filter((share) => share.active || Math.abs(share.quantity) > 0.000001).map((share) => ({ warehouseId: share.warehouseId, name: share.name, code: share.code, isDefault: false, quantity: share.quantity })));
+    breakdown.set(item.id, shares);
+  }
+  return breakdown;
 }

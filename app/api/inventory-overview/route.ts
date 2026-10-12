@@ -1,3 +1,4 @@
+import { itemWarehouseBreakdown } from "@/lib/warehouses";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { appUsers, companies, companySettings, inventoryLocations, itemOffers, items, stockHolds } from "../../../db/schema";
@@ -168,7 +169,9 @@ export async function GET(request: Request) {
       `),
     ]);
     const receivedAt = new Map(receivedResult.rows.map((row) => [Number(row.itemId), row.receivedAt]));
-    const records = rawRecords.map((record) => ({ ...record, latestReceivedAt: (receivedAt.get(record.id) ?? record.createdAt) as string | null }));
+    // Per-warehouse quantities for inventories with more than one warehouse (others carry no breakdown).
+    const warehouseShares = await itemWarehouseBreakdown(db, rawRecords.map((record) => ({ id: record.id, locationId: record.locationId, quantity: Number(record.quantity) })));
+    const records = rawRecords.map((record) => ({ ...record, latestReceivedAt: (receivedAt.get(record.id) ?? record.createdAt) as string | null, ...(warehouseShares.has(record.id) ? { warehouses: warehouseShares.get(record.id) } : {}) }));
     // Active stock holds on the listed items (who it is held for, how much, until when).
     const recordIds = records.map((record) => record.id);
     const holds = recordIds.length ? await db.select({ id: stockHolds.id, itemId: stockHolds.itemId, companyId: stockHolds.companyId, quantity: stockHolds.quantity, salesRep: stockHolds.salesRep, note: stockHolds.note, expiresAt: stockHolds.expiresAt, createdByName: stockHolds.createdByName, createdAt: stockHolds.createdAt })

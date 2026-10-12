@@ -1,6 +1,6 @@
 # Data model
 
-Every PostgreSQL table, what it stores, and how tables relate. The typed schema is [`db/schema.ts`](../db/schema.ts); SQL migrations in [`drizzle/`](../drizzle/) (`0000`–`0109`) are applied in filename order by `scripts/migrate.mjs` (production) or `scripts/dev-local.mjs` (PGlite), which record each applied file in `__comnet_migrations`. Use this document instead of re-reading the schema; update it whenever a migration adds or changes a table.
+Every PostgreSQL table, what it stores, and how tables relate. The typed schema is [`db/schema.ts`](../db/schema.ts); SQL migrations in [`drizzle/`](../drizzle/) (`0000`–`0110`) are applied in filename order by `scripts/migrate.mjs` (production) or `scripts/dev-local.mjs` (PGlite), which record each applied file in `__comnet_migrations`. Use this document instead of re-reading the schema; update it whenever a migration adds or changes a table.
 
 ## Conventions
 
@@ -59,6 +59,7 @@ erDiagram
 | `inventory_locations` | Warehouses/inventories of a company | `code`, `name`, invoice prefix and number format/padding, `next_invoice_number`, `active` |
 | `warehouses` | Warehouses inside an inventory (migration 0108); every inventory has exactly one default warehouse, created by the `trg_inventory_locations_default_warehouse` trigger | `location_id`, `code` (unique per inventory), `name`, `is_default`, `active` |
 | `warehouse_stock` | Explicit stock per item in **non-default** warehouses only. `items.quantity` stays the inventory total; the default warehouse holds the remainder (total minus the other warehouses), so totals always agree | `warehouse_id`, `item_id` (unique pair), `quantity` |
+| `warehouse_transfers` | Moves between warehouses of one inventory (migration 0110). They change only warehouse stock; `items.quantity`, cost and the ledger are unchanged, so no stock movement or journal is written | `location_id`, `item_id`, `from_warehouse_id`, `to_warehouse_id`, `quantity`, `reference`, `transfer_date`, `notes`, created by |
 | `vat_codes` | VAT codes per company | `code`, `rate`, `system`, `active` |
 | `exchange_rates` | Currency rates to the home currency | `currency_code`, `rate` |
 | `specification_options` | Shared choice lists: item categories, specification names and values | `label` (or `__item_categories__`, `__specification_detail_names__`), `value`, `active` |
