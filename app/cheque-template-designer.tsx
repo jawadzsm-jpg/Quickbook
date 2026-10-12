@@ -183,7 +183,7 @@ export function ChequeTemplateDesigner({ companyId, disabled = false }: { compan
           {numberInput("feed-x", "Move all: right + / left − (mm)", template.offsetXMm, (value) => change({ ...template, offsetXMm: Number(value) }))}
           {numberInput("feed-y", "Move all: down + / up − (mm)", template.offsetYMm, (value) => change({ ...template, offsetYMm: Number(value) }))}
         </div>
-        <p className="text-xs text-muted-foreground">If every field prints shifted the same way, fix it here. Print at 100% / Actual size with no margins.</p>
+        <p className="text-xs text-muted-foreground">If every field prints shifted the same way, fix it here. Print at 100% / Actual size with no margins. If the print comes out smaller (everything pulled toward the top-left), the printer is scaling the cheque-size page: choose A4 here instead.</p>
       </section>
     </div>
 

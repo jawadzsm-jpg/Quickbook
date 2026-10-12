@@ -146,7 +146,7 @@ export function UaeBankCheque({ record, lines, journal, companyName, revision, c
         </div>
       </div>
       <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-white p-3 text-xs text-slate-600">
-        <p className="min-w-56 flex-1">Prints on the <strong>{selectedLayout.name}</strong> cheque with your company&apos;s template (Company Setup → Cheque templates). Print at 100% / Actual size with no margins.</p>
+        <p className="min-w-56 flex-1">Prints on the <strong>{selectedLayout.name}</strong> cheque with your company&apos;s template (Company Setup → Cheque templates). In the print dialog set Scale to 100% / Actual size and Margins to None. If the text still comes out smaller and shifted to the top-left, set the template&apos;s Paper to A4.</p>
         <label className="grid gap-1 font-medium">This print only: right + / left − (mm)<Input type="number" step="0.5" className="h-8 w-28" value={nudgeX} onChange={(event) => setNudgeX(event.target.value)} /></label>
         <label className="grid gap-1 font-medium">down + / up − (mm)<Input type="number" step="0.5" className="h-8 w-28" value={nudgeY} onChange={(event) => setNudgeY(event.target.value)} /></label>
       </div>

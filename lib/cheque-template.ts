@@ -43,6 +43,19 @@ const measuredFields: Partial<Record<string, { fields: Partial<Record<ChequeFiel
     },
     wordsLine2: { left: 6, top: 51.5, width: 120 },
   },
+  // Emirates NBD business cheque (190.5 × 88.9 mm), measured from an Al Souk branch cheque: date on the line between
+  // "Date" and the Arabic label, payee after "Pay against this cheque", words after "Dirhams" and on the line below,
+  // amount between "AED" and the Arabic label in the box, A/C Payee Only top left above the branch name.
+  "emirates-nbd-business": {
+    fields: {
+      date: { left: 118, top: 17, width: 46, fontPt: 11 },
+      payee: { left: 25, top: 28, width: 140, fontPt: 11 },
+      words: { left: 16, top: 38, width: 99, fontPt: 9.5 },
+      amount: { left: 134, top: 45.5, width: 46, fontPt: 10.5 },
+      crossing: { left: 10, top: 3, width: 44, fontPt: 9 },
+    },
+    wordsLine2: { left: 15, top: 48.5, width: 100 },
+  },
 };
 
 /** Starting template for a bank layout: measured positions where known, otherwise the built-in (approximate) ones. */

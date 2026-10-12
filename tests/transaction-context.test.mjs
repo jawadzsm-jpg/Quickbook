@@ -3993,6 +3993,10 @@ test("cheque templates: per-bank positions, date boxes, printer feed and the com
   assert.deepEqual([habib.fields.amount.left, habib.fields.amount.top, habib.fields.amount.width], [131, 46, 46]);
   assert.deepEqual(habib.wordsLine2, { left: 6, top: 51.5, width: 120 });
   assert.deepEqual(lib.normalizeChequeTemplate("habib-bank-ag-zurich", {}), habib, "the measured values pass validation unchanged");
+  const enbd = lib.defaultChequeTemplate("emirates-nbd-business");
+  assert.deepEqual([enbd.fields.date.left, enbd.fields.payee.left, enbd.fields.amount.left, enbd.wordsLine2.top], [118, 25, 134, 48.5], "Emirates NBD business starts from measured positions");
+  assert.deepEqual(lib.normalizeChequeTemplate("emirates-nbd-business", {}), enbd);
+  assert.notDeepEqual(lib.defaultChequeTemplate("emirates-nbd-personal").fields.date, enbd.fields.date, "the personal book keeps its own layout");
   // Out-of-range or broken input falls back to safe values.
   const clamped = lib.normalizeChequeTemplate("emirates-nbd-business", { widthMm: 5000, fields: { date: { left: -10, top: "x", width: 40, fontPt: 99 } }, page: "a4", align: "center", offsetYMm: 12 });
   assert.equal(clamped.widthMm, 250); assert.equal(clamped.fields.date.left, 0); assert.equal(clamped.fields.date.top, base.fields.date.top); assert.equal(clamped.fields.date.fontPt, 20);
