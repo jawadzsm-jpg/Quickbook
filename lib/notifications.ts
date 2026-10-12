@@ -5,7 +5,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { appUsers, notifications } from "@/db/schema";
 import { emailDeliveryConfigured, sendNotificationEmail } from "@/lib/smtp";
-import { daysUntil } from "@/lib/cheque-reminders";
+import { daysUntil, isPostDated } from "@/lib/cheque-reminders";
 
 type Executor = { execute: (query: ReturnType<typeof sql>) => Promise<{ rows: Record<string, unknown>[] }> };
 type Inserter = Pick<ReturnType<typeof getDb>, "insert">;
@@ -33,12 +33,14 @@ type ChequeFields = { id: number; number: string; party: string; total: number; 
 const chequeSignature = (cheque: ChequeFields, bankName: string) => JSON.stringify([cheque.number, cheque.party, Number(cheque.total), cheque.currency, cheque.transactionDate, bankName]);
 
 /**
- * Tell the company's administrators and accountants (and the writer) that a cheque was written, or that its amount,
+ * Tell the company's administrators and accountants (and the writer) that a post-dated cheque was written, or that its amount,
  * date, payee, number or bank changed. Rows are written inside the caller's transaction; emails go out after the
  * response, only for rows that were committed.
  */
 export async function notifyChequeWritten(db: Executor & Inserter, input: { companyId: number; cheque: ChequeFields; bankName: string; actorId: number; actorName: string; previous?: ChequeFields & { bankName?: string } }) {
   const { cheque, bankName } = input;
+  // Only post-dated cheques (dated after today in the UAE) are announced; cheques dated today or earlier are not.
+  if (!isPostDated(cheque.transactionDate)) return [];
   if (input.previous && chequeSignature(input.previous, input.previous.bankName ?? bankName) === chequeSignature(cheque, bankName)) return [];
   const updated = Boolean(input.previous);
   const title = `Cheque ${cheque.number} ${updated ? "updated" : "written"}: ${money(Number(cheque.total), cheque.currency)}`;

@@ -3927,7 +3927,7 @@ test("every cheque notifies the company's administrators and accountants, and ed
   const otherAccountant = await user("OtherAccountant", "accountant", other), sales = await user("NoticeSales", "sales", companyId), retired = await user("RetiredAdmin", "admin", companyId, false);
   const writer = await user("NoticePurchasing", "purchasing", companyId);
   const { POST } = await vite.ssrLoadModule("/app/api/records/route.ts");
-  const body = (changes = {}) => ({ kind: "transactions", companyId, type: "cheque", chequeType: "expense", number: "CHQ-N1", party: "ABC Trading", account: "Notice Expense", bankAccountId, chequeBankKey: "emirates-nbd-business", currency: "AED", exchangeRate: 1, transactionDate: "2026-10-20", lines: [{ description: "Rent", quantity: 1, unitPrice: 25000, unitCost: 0, vatCode: "ZERO" }], ...changes });
+  const body = (changes = {}) => ({ kind: "transactions", companyId, type: "cheque", chequeType: "expense", number: "CHQ-N1", party: "ABC Trading", account: "Notice Expense", bankAccountId, chequeBankKey: "emirates-nbd-business", currency: "AED", exchangeRate: 1, transactionDate: "2099-10-20", lines: [{ description: "Rent", quantity: 1, unitPrice: 25000, unitCost: 0, vatCode: "ZERO" }], ...changes });
   const noticesFor = async (userId) => (await database.query("SELECT kind, title, body, transaction_id, email_status, read_at FROM notifications WHERE user_id = $1 AND company_id = $2 ORDER BY id", [userId, companyId])).rows;
   try {
     globalThis.__transferTestUser = { id: accountant, fullName: "Nadia Writer", email: "NoticeAccountant@notice.test", role: "accountant", companyIds: [companyId] };
@@ -3937,11 +3937,15 @@ test("every cheque notifies the company's administrators and accountants, and ed
     const [notice] = await noticesFor(admin);
     assert.equal(notice.kind, "cheque-written");
     assert.equal(notice.title, "Cheque CHQ-N1 written: AED 25,000.00");
-    assert.equal(notice.body, "Pay to ABC Trading · cheque date 20 Oct 2026 · from Notice Bank · by Nadia Writer");
+    assert.equal(notice.body, "Pay to ABC Trading · cheque date 20 Oct 2099 · from Notice Bank · by Nadia Writer");
     assert.equal(notice.transaction_id, cheque.id);
     assert.equal(notice.email_status, "pending", "emails go out after the response (or from the scheduler)");
     assert.equal((await noticesFor(accountant)).length, 1);
     for (const id of [otherAccountant, sales, retired]) assert.equal((await noticesFor(id)).length, 0, "only active admins and accountants of this company");
+    // Cheques dated today or earlier are not announced; only post-dated cheques are.
+    const todayCheque = await POST(new Request("https://app.test/api/records", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body({ number: "CHQ-N0", transactionDate: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" }).format(new Date()) })) }));
+    assert.equal(todayCheque.status, 201, await todayCheque.clone().text());
+    assert.equal((await database.query("SELECT count(*)::int AS n FROM notifications WHERE transaction_id = $1", [(await todayCheque.json()).record.id])).rows[0].n, 0);
   } finally { delete globalThis.__transferTestUser; }
 
   // Edits: unchanged details send nothing; a new amount or date sends an "updated" notice.
@@ -3953,7 +3957,7 @@ test("every cheque notifies the company's administrators and accountants, and ed
   const ids = await notifyChequeWritten(getDb(), { companyId, cheque: { ...base, total: 30000 }, bankName: "Notice Bank", actorId: admin, actorName: "Admin", previous: base });
   assert.ok(ids.length >= 2);
   assert.equal((await noticesFor(accountant)).at(-1).title, "Cheque CHQ-N1 updated: AED 30,000.00");
-  await notifyChequeWritten(getDb(), { companyId, cheque: { ...base, transactionDate: "2026-10-27" }, bankName: "Notice Bank", actorId: writer, actorName: "Writer", previous: base });
+  await notifyChequeWritten(getDb(), { companyId, cheque: { ...base, transactionDate: "2099-10-27" }, bankName: "Notice Bank", actorId: writer, actorName: "Writer", previous: base });
   assert.equal((await noticesFor(writer)).length, 1, "the writer gets a copy even without an admin or accountant role");
 
   // The bell API: the user's own notices, mark read, and the email setting.
@@ -3988,7 +3992,7 @@ test("administrators can edit a saved cheque; the journal is reposted and bill o
   const rows = (await database.query("INSERT INTO accounts (company_id, code, name, type, system_role, currency) VALUES ($1, 'EB', 'Edit Bank', 'Bank', 'BANK', 'AED'), ($1, 'EE', 'Edit Expense', 'Expense', 'EXPENSE', 'AED') RETURNING id, name", [companyId])).rows;
   const bankAccountId = rows.find((row) => row.name === "Edit Bank").id;
   const { POST, PATCH, GET } = await vite.ssrLoadModule("/app/api/records/route.ts");
-  const body = (changes = {}) => ({ kind: "transactions", companyId, locationId, type: "cheque", chequeType: "expense", number: "CHQ-E1", party: "Office Rent LLC", account: "Edit Expense", bankAccountId, chequeBankKey: "emirates-nbd-business", terms: "account-payee", currency: "AED", exchangeRate: 1, transactionDate: "2026-10-20", lines: [{ description: "Rent", quantity: 1, unitPrice: 1000, unitCost: 0, vatCode: "ZERO" }], ...changes });
+  const body = (changes = {}) => ({ kind: "transactions", companyId, locationId, type: "cheque", chequeType: "expense", number: "CHQ-E1", party: "Office Rent LLC", account: "Edit Expense", bankAccountId, chequeBankKey: "emirates-nbd-business", terms: "account-payee", currency: "AED", exchangeRate: 1, transactionDate: "2099-10-20", lines: [{ description: "Rent", quantity: 1, unitPrice: 1000, unitCost: 0, vatCode: "ZERO" }], ...changes });
   const created = await POST(new Request("https://app.test/api/records", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body()) }));
   assert.equal(created.status, 201, await created.clone().text());
   const cheque = (await created.json()).record;
@@ -3996,10 +4000,10 @@ test("administrators can edit a saved cheque; the journal is reposted and bill o
   const edit = (changes) => PATCH(new Request("https://app.test/api/records", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body(changes), id: cheque.id }) }));
   const { revision } = await detail();
   assert.equal((await edit({ revision: "stale", lines: [{ description: "Rent", quantity: 1, unitPrice: 1500, unitCost: 0, vatCode: "ZERO" }] })).status, 409, "a stale editor is refused");
-  const saved = await edit({ revision, transactionDate: "2026-10-27", lines: [{ description: "Rent", quantity: 1, unitPrice: 1500, unitCost: 0, vatCode: "ZERO" }] });
+  const saved = await edit({ revision, transactionDate: "2099-10-27", lines: [{ description: "Rent", quantity: 1, unitPrice: 1500, unitCost: 0, vatCode: "ZERO" }] });
   assert.equal(saved.status, 200, await saved.clone().text());
   const after = await detail();
-  assert.equal(Number(after.record.total), 1500); assert.equal(after.record.transactionDate, "2026-10-27"); assert.equal(after.record.number, "CHQ-E1");
+  assert.equal(Number(after.record.total), 1500); assert.equal(after.record.transactionDate, "2099-10-27"); assert.equal(after.record.number, "CHQ-E1");
   const journal = (await database.query("SELECT jl.account_name, jl.debit, jl.credit FROM journal_lines jl JOIN journal_entries je ON je.id = jl.journal_entry_id WHERE je.transaction_id = $1 ORDER BY jl.id", [cheque.id])).rows;
   assert.deepEqual(journal.map((line) => [line.account_name, Number(line.debit), Number(line.credit)]), [["Edit Expense", 1500, 0], ["Edit Bank", 0, 1500]], "one reposted entry, not two");
   const updated = (await database.query("SELECT title FROM notifications WHERE transaction_id = $1 AND kind = 'cheque-updated' LIMIT 1", [cheque.id])).rows[0];
@@ -4099,4 +4103,20 @@ test("PDC reminders: default 7 days before at 09:00 UAE, custom or off, follow t
   globalThis.__transferTestUser = { id: accountant, role: "accountant", companyIds: [companyId] };
   try { const listed = await (await route.GET(new Request("https://app.test/api/notifications"))).json(); assert.equal(listed.notifications.filter((item) => item.kind === "pdc-reminder").length, 2); }
   finally { delete globalThis.__transferTestUser; }
+});
+
+test("migration 0116 keeps cheque notices only for post-dated cheques", async () => {
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('PDC cleanup') RETURNING id")).rows[0].id;
+  const userId = (await database.query("INSERT INTO app_users (full_name, email, password_hash, role) VALUES ('Cleanup', 'cleanup@notice.test', 'test', 'accountant') RETURNING id")).rows[0].id;
+  const cheque = async (number, date) => (await database.query("INSERT INTO transactions (company_id, type, number, party, total, subtotal, transaction_date, status) VALUES ($1, 'cheque', $2, 'Payee', 10, 10, $3, 'paid') RETURNING id", [companyId, number, date])).rows[0].id;
+  const notice = async (transactionId, kind, createdAt) => (await database.query("INSERT INTO notifications (company_id, user_id, kind, title, transaction_id, created_at) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id", [companyId, userId, kind, kind, transactionId, createdAt])).rows[0].id;
+  const current = await cheque("CL-1", "2026-10-12"), pdc = await cheque("CL-2", "2026-10-30");
+  const removed = await notice(current, "cheque-written", "2026-10-12T08:00:00Z");
+  const kept = await notice(pdc, "cheque-written", "2026-10-12T08:00:00Z");
+  const reminder = await notice(current, "pdc-reminder", "2026-10-12T08:00:00Z");
+  const { readFileSync } = await import("node:fs");
+  await database.exec(readFileSync(new URL("../drizzle/0116_pdc_only_notifications.sql", import.meta.url), "utf8"));
+  const left = (await database.query("SELECT id FROM notifications WHERE company_id = $1 ORDER BY id", [companyId])).rows.map((row) => row.id);
+  assert.deepEqual(left, [kept, reminder]);
+  assert.ok(!left.includes(removed));
 });
