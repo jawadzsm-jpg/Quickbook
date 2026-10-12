@@ -1548,7 +1548,9 @@ type OverviewWorkflowAction = { label: string; detail: string; icon: typeof Rece
 
 // Inventory users create purchase-side stock documents only; the records API enforces the same list.
 const inventoryCreatableTypes = ["purchase order", "item receipt", "bill", "received item bill"];
-function homeActionFor(role: AppRole, action: OverviewWorkflowAction): OverviewWorkflowAction | null {
+function homeActionFor(role: AppRole, input: OverviewWorkflowAction): OverviewWorkflowAction | null {
+  // Administrators have no separate Write Cheque page in the menu; the cheque task opens the cheque form from Banking.
+  const action = input.view === "write-cheque" && !roleViews[role].includes("write-cheque") && roleViews[role].includes("banking") ? { ...input, view: "banking" as View } : input;
   if (!roleViews[role].includes(action.view)) return null;
   if (!action.transaction) return action;
   if (role === "inventory") {
