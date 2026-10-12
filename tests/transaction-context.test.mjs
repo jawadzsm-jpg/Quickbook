@@ -3867,6 +3867,10 @@ test("a sales document can print a chosen company bank account", async () => {
   assert.equal((await choose(invoice, "default")).status, 200, "the main bank account can be chosen");
   assert.equal((await choose(invoice, "missing")).status, 400, "only the company's own accounts");
   assert.equal((await choose(bill, "usd2")).status, 400, "purchase documents print the supplier's bank");
+  const receipt = (await database.query("INSERT INTO transactions (company_id, type, number, party, total, subtotal, transaction_date, status, currency) VALUES ($1, 'sales receipt', 'BANK-SR-1', 'Customer', 50, 50, '2026-10-12', 'paid', 'USD') RETURNING id", [company])).rows[0].id;
+  const receiptSaved = await choose(receipt, "usd2");
+  assert.equal(receiptSaved.status, 200, await receiptSaved.clone().text());
+  assert.equal((await receiptSaved.json()).record.bankAccountKey, "usd2", "sales receipts take a chosen bank account too");
   try {
     globalThis.__transferTestUser = { id: 9, role: "inventory", companyIds: [company] };
     assert.equal((await choose(invoice, "usd1")).status, 403);
