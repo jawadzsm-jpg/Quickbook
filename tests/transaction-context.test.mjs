@@ -3981,3 +3981,43 @@ test("every cheque notifies the company's administrators and accountants, and ed
   assert.equal((await noticesFor(admin)).every((notice) => notice.email_status === "skipped"), true);
   assert.deepEqual(await deliverNotificationEmails(), { sent: 0, skipped: 0, failed: 0 });
 });
+
+test("administrators can edit a saved cheque; the journal is reposted and bill or loan cheques stay locked", async () => {
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Cheque edit') RETURNING id")).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'CQE', 'CQE', 'CQE') RETURNING id", [companyId])).rows[0].id;
+  const rows = (await database.query("INSERT INTO accounts (company_id, code, name, type, system_role, currency) VALUES ($1, 'EB', 'Edit Bank', 'Bank', 'BANK', 'AED'), ($1, 'EE', 'Edit Expense', 'Expense', 'EXPENSE', 'AED') RETURNING id, name", [companyId])).rows;
+  const bankAccountId = rows.find((row) => row.name === "Edit Bank").id;
+  const { POST, PATCH, GET } = await vite.ssrLoadModule("/app/api/records/route.ts");
+  const body = (changes = {}) => ({ kind: "transactions", companyId, locationId, type: "cheque", chequeType: "expense", number: "CHQ-E1", party: "Office Rent LLC", account: "Edit Expense", bankAccountId, chequeBankKey: "emirates-nbd-business", terms: "account-payee", currency: "AED", exchangeRate: 1, transactionDate: "2026-10-20", lines: [{ description: "Rent", quantity: 1, unitPrice: 1000, unitCost: 0, vatCode: "ZERO" }], ...changes });
+  const created = await POST(new Request("https://app.test/api/records", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body()) }));
+  assert.equal(created.status, 201, await created.clone().text());
+  const cheque = (await created.json()).record;
+  const detail = async () => (await GET(new Request(`https://app.test/api/records?kind=transactions&id=${cheque.id}&companyId=${companyId}`))).json();
+  const edit = (changes) => PATCH(new Request("https://app.test/api/records", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body(changes), id: cheque.id }) }));
+  const { revision } = await detail();
+  assert.equal((await edit({ revision: "stale", lines: [{ description: "Rent", quantity: 1, unitPrice: 1500, unitCost: 0, vatCode: "ZERO" }] })).status, 409, "a stale editor is refused");
+  const saved = await edit({ revision, transactionDate: "2026-10-27", lines: [{ description: "Rent", quantity: 1, unitPrice: 1500, unitCost: 0, vatCode: "ZERO" }] });
+  assert.equal(saved.status, 200, await saved.clone().text());
+  const after = await detail();
+  assert.equal(Number(after.record.total), 1500); assert.equal(after.record.transactionDate, "2026-10-27"); assert.equal(after.record.number, "CHQ-E1");
+  const journal = (await database.query("SELECT jl.account_name, jl.debit, jl.credit FROM journal_lines jl JOIN journal_entries je ON je.id = jl.journal_entry_id WHERE je.transaction_id = $1 ORDER BY jl.id", [cheque.id])).rows;
+  assert.deepEqual(journal.map((line) => [line.account_name, Number(line.debit), Number(line.credit)]), [["Edit Expense", 1500, 0], ["Edit Bank", 0, 1500]], "one reposted entry, not two");
+  const updated = (await database.query("SELECT title FROM notifications WHERE transaction_id = $1 AND kind = 'cheque-updated' LIMIT 1", [cheque.id])).rows[0];
+  assert.equal(updated?.title, "Cheque CHQ-E1 updated: AED 1,500.00");
+
+  // Locked cheques: one that settles bills, an employee loan cheque, and a void one.
+  for (const [column, value] of [["employee_loan_contact_id", null], ["status", "'void'"]]) {
+    if (!value) continue;
+    await database.query(`UPDATE transactions SET ${column} = ${value} WHERE id = $1`, [cheque.id]);
+    const blocked = await edit({ revision: (await detail()).revision });
+    assert.equal(blocked.status, 409, column);
+    await database.query("UPDATE transactions SET status = 'paid' WHERE id = $1", [cheque.id]);
+  }
+  const bill = (await database.query("INSERT INTO transactions (company_id, location_id, type, number, party, total, subtotal, transaction_date, status) VALUES ($1, $2, 'bill', 'CQE-BILL', 'Office Rent LLC', 100, 100, '2026-10-01', 'open') RETURNING id", [companyId, locationId])).rows[0].id;
+  await database.query("INSERT INTO bill_payment_allocations (payment_id, bill_id, amount) VALUES ($1, $2, 100)", [cheque.id, bill]);
+  assert.equal((await edit({ revision: (await detail()).revision })).status, 409, "a cheque that settles bills stays locked");
+  try {
+    globalThis.__transferTestUser = { id: 9, role: "accountant", companyIds: [companyId] };
+    assert.equal((await edit({ revision: (await detail()).revision })).status, 403, "only administrators edit cheques");
+  } finally { delete globalThis.__transferTestUser; }
+});
