@@ -78,9 +78,10 @@ export function WorkspaceNotifications({ onOpenDocument }: { onOpenDocument?: (t
 
   return <Popover open={open} onOpenChange={(next) => { setOpen(next); if (next) void refresh(); }}>
     <PopoverTrigger asChild>
-      <Button type="button" variant="ghost" size="icon" aria-label={`Notifications${unread ? ` (${unread} unread)` : ""}`} title="Notifications" className="relative">
+      <Button type="button" variant="ghost" size="icon" aria-label={`Notifications${unread || upcoming.length ? ` (${[unread && `${unread} unread`, upcoming.length && `${upcoming.length} upcoming ${upcoming.length === 1 ? "reminder" : "reminders"}`].filter(Boolean).join(", ")})` : ""}`} title="Notifications" className="relative">
         <Bell className="size-4" />
-        {unread > 0 ? <span aria-hidden="true" className="absolute right-0.5 top-0.5 grid min-w-3.5 place-items-center rounded-full bg-rose-500 px-1 text-[9px] font-bold leading-3.5 text-white">{unread > 9 ? "9+" : unread}</span> : null}
+        {/* Badge: unread notices plus upcoming PDC reminders (All-Admin, Admin, Accountant). Red when something is unread, amber when only reminders are scheduled. */}
+        {unread + upcoming.length > 0 ? <span aria-hidden="true" className={`absolute right-0.5 top-0.5 grid min-w-3.5 place-items-center rounded-full px-1 text-[9px] font-bold leading-3.5 text-white ${unread ? "bg-rose-500" : "bg-amber-500"}`}>{unread + upcoming.length > 9 ? "9+" : unread + upcoming.length}</span> : null}
       </Button>
     </PopoverTrigger>
     <PopoverContent align="end" className="w-96 max-w-[calc(100vw-2rem)] p-0">
