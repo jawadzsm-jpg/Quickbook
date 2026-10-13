@@ -38,6 +38,10 @@
   --destructive: #e7000b;
   --border: #dfe4ea;
   --input: #94a3b8;
+  /* Form fields: a soft fill so every input, text box and dropdown stands out from white cards and dialogs. */
+  --field: #f1f5f9;
+  --field-border: #c3cedb;
+  --field-border-hover: #94a3b8;
   --ring: #10b981;
   --chart-1: #10b981;
   --chart-2: #38bdf8;
@@ -210,6 +214,9 @@ body {
   --accent-foreground: #f8fafc;
   --border: #29384b;
   --input: #52667f;
+  --field: #0b1524;
+  --field-border: #3a4b61;
+  --field-border-hover: #5b7090;
   --user-workspace: #0a1220;
 }
 
@@ -1006,6 +1013,27 @@ body {
 
   :where(textarea, select):not([data-slot]) { border-color: var(--input); background: var(--card); color: var(--foreground); box-shadow: 0 1px 2px rgb(15 23 42 / .04); transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease; }
   :where(textarea, select):not([data-slot]):focus { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 18%, transparent); outline: none; }
+
+  /* Every form field in the app (shared components and plain inputs, text boxes and dropdowns) gets the same soft
+     fill and border, turning white while typing. Borderless table-cell editors, transparent fields and fields on dark
+     or glass surfaces keep their own look. */
+  :is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"], [data-slot="native-select"],
+      input:not([data-slot]):not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"], [type="hidden"], [type="submit"], [type="button"], [type="reset"], [type="image"]),
+      textarea:not([data-slot]), select:not([data-slot])):not(.border-0, .bg-transparent, [class*="bg-white/"], [class*="bg-slate-9"], [class*="bg-slate-8"]) {
+    /* !important: older dark-mode rules force .bg-white / .bg-slate-50 surfaces with !important. */
+    background-color: var(--field) !important;
+    border-color: var(--field-border);
+    transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+  }
+  :is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"], [data-slot="native-select"],
+      input:not([data-slot]):not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"], [type="hidden"], [type="submit"], [type="button"], [type="reset"], [type="image"]),
+      textarea:not([data-slot]), select:not([data-slot])):not(.border-0, .bg-transparent, [class*="bg-white/"], [class*="bg-slate-9"], [class*="bg-slate-8"]):not(:disabled):hover { border-color: var(--field-border-hover); }
+  :is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"], [data-slot="native-select"],
+      input:not([data-slot]):not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"], [type="hidden"], [type="submit"], [type="button"], [type="reset"], [type="image"]),
+      textarea:not([data-slot]), select:not([data-slot])):not(.border-0, .bg-transparent, [class*="bg-white/"], [class*="bg-slate-9"], [class*="bg-slate-8"]):is(:focus, :focus-visible, [data-state="open"]) { background-color: var(--card) !important; border-color: var(--ring); }
+  :is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"], [data-slot="native-select"],
+      input:not([data-slot]):not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"], [type="hidden"], [type="submit"], [type="button"], [type="reset"], [type="image"]),
+      textarea:not([data-slot]), select:not([data-slot])):not(.border-0, .bg-transparent):is([aria-invalid="true"]) { border-color: var(--destructive); }
   :where(label) { text-wrap: pretty; }
   :where(h1, h2, h3) { text-wrap: balance; }
   :where(p) { text-wrap: pretty; }
@@ -1015,7 +1043,7 @@ body {
   .brand-status-line:focus-visible { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 16%, transparent); }
 
   [data-appearance="dark"] .app-header { background: color-mix(in srgb, #0d1726 92%, transparent) !important; border-color: var(--border) !important; }
-  [data-appearance="dark"] :where(textarea, select):not([data-slot]) { background: #101a2a; color: #f8fafc; }
+  [data-appearance="dark"] :where(textarea, select):not([data-slot]) { background: var(--field); color: #f8fafc; }
   [data-appearance="dark"] [data-slot="popover-content"],
   [data-appearance="dark"] [data-slot="dropdown-menu-content"] { box-shadow: 0 18px 48px rgb(0 0 0 / .42); }
 }
