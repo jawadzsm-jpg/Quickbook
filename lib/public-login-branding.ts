@@ -5,13 +5,13 @@ import { companies } from "@/db/schema";
 
 const fields = {
   id: companies.id, name: companies.name, logoData: companies.logoData,
-  loginLogoData: companies.loginLogoData, loginLogoOffset: companies.loginLogoOffset, loginCompanyLogoData: companies.loginCompanyLogoData,
+  loginLogoData: companies.loginLogoData, loginLogoOffset: companies.loginLogoOffset, loginTopLogoData: companies.loginTopLogoData, loginTopLogoHidden: companies.loginTopLogoHidden, loginLogosSwapped: companies.loginLogosSwapped, loginCompanyLogoData: companies.loginCompanyLogoData,
   loginDisplayName: companies.loginDisplayName, loginCopyrightYears: companies.loginCopyrightYears,
   backgroundData: companies.loginBackgroundData, backgroundColor: companies.loginBackgroundColor,
 };
 
 export type PublicLoginBranding = {
-  id: number; name: string; logoData: string; loginLogoData: string; loginLogoOffset: number; loginCompanyLogoData: string;
+  id: number; name: string; logoData: string; loginLogoData: string; loginLogoOffset: number; loginTopLogoData: string; loginTopLogoHidden: boolean; loginLogosSwapped: boolean; loginCompanyLogoData: string;
   loginDisplayName: string; loginCopyrightYears: string; backgroundData: string; backgroundColor: string;
 };
 
@@ -35,6 +35,10 @@ export async function publicLoginBranding(companyId?: number): Promise<PublicLog
     loginLogoData: selected.loginLogoData || shared?.loginLogoData || "",
     // The EasyBook logo position: the company's own, else the default login company's.
     loginLogoOffset: selected.loginLogoOffset || shared?.loginLogoOffset || 0,
+    // Top logo: the company's own replacement, hide and order choices, else the default login company's.
+    loginTopLogoData: selected.loginTopLogoData || shared?.loginTopLogoData || "",
+    loginTopLogoHidden: selected.loginTopLogoHidden || Boolean(shared?.loginTopLogoHidden),
+    loginLogosSwapped: selected.loginLogosSwapped || Boolean(shared?.loginLogosSwapped),
     backgroundData: selected.backgroundData || shared?.backgroundData || "",
     backgroundColor: selected.backgroundColor === "#f3f6fa" && !selected.backgroundData
       ? shared?.backgroundColor || selected.backgroundColor : selected.backgroundColor,
