@@ -114,6 +114,9 @@ export const appSettings = pgTable("app_settings", {
 
 export const emailSettings = pgTable("email_settings", {
   id: integer("id").primaryKey(),
+  // "smtp" or "turbosmtp_api" (migration 0121); for the API, username is the consumer key and the password the secret.
+  provider: text("provider", { enum: ["smtp", "turbosmtp_api"] }).notNull().default("smtp"),
+  apiRegion: text("api_region", { enum: ["global", "eu"] }).notNull().default("global"),
   host: text("host").notNull().default("smtp.gmail.com"),
   port: integer("port").notNull().default(465),
   secure: boolean("secure").notNull().default(true),

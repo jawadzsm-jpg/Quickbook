@@ -4445,3 +4445,39 @@ test("EasyBook edition: All-Admin changes it, a downgrade is refused while extra
   const saved = await editionRoute.PUT(request("/api/edition", "PUT", { edition: "multi_company" }));
   assert.equal(saved.status, 200);
 });
+
+test("turboSMTP API: settings choose the API, and documents are sent as JSON with consumer key headers, Reply-To and the PDF", async () => {
+  const settingsRoute = await vite.ssrLoadModule("/app/api/email-settings/route.ts");
+  const smtp = await vite.ssrLoadModule("/lib/smtp.ts");
+  const { friendlyEmailError } = await vite.ssrLoadModule("/lib/email-errors.ts");
+  const patch = (body) => settingsRoute.PATCH(new Request("https://app.test/api/email-settings", { method: "PATCH", headers: { origin: "https://app.test", "content-type": "application/json" }, body: JSON.stringify(body) }));
+  const api = { provider: "turbosmtp_api", apiRegion: "eu", username: "ck-123", fromName: "Comnet \"Sales\"", fromEmail: "Sales@Comnet.test" };
+  await database.query("DELETE FROM email_settings");
+  assert.equal((await patch(api)).status, 400, "the consumer secret is required");
+  assert.equal((await patch({ ...api, password: "cs-secret" })).status, 200);
+  const saved = await smtp.getEmailSettings();
+  assert.equal(saved.provider, "turbosmtp_api"); assert.equal(saved.apiRegion, "eu"); assert.notEqual(saved.passwordEncrypted, "cs-secret");
+  assert.equal(await smtp.emailDeliveryConfigured(), true);
+  assert.equal((await patch({ ...api, provider: "smtp", host: "smtp.example.test", port: 465, secure: true })).status, 400, "switching back to SMTP needs its password");
+
+  const realFetch = globalThis.fetch, calls = [];
+  globalThis.fetch = async (url, init) => { calls.push({ url: String(url), init }); return Response.json({ message: "OK", mid: "m-1" }); };
+  try {
+    const sent = await smtp.sendDocumentEmail({ to: [["a@x.test", "b@x.test"]], cc: ["c@x.test"], replyTo: { name: "Jo", address: "jo@comnet.test" }, subject: "Invoice INV-1", body: "Hello\n\nThanks", attachment: { filename: "INV-1.pdf", content: Buffer.from("%PDF-1") } });
+    assert.equal(sent, 1);
+    assert.equal(calls[0].url, "https://api.eu.turbo-smtp.com/api/v2/mail/send");
+    assert.equal(calls[0].init.headers.consumerKey, "ck-123"); assert.equal(calls[0].init.headers.consumerSecret, "cs-secret");
+    assert.equal(calls[0].init.headers.Authorization, undefined, "/mail/send rejects an Authorization header");
+    const body = JSON.parse(calls[0].init.body);
+    assert.equal(body.from, '"Comnet Sales" <sales@comnet.test>');
+    assert.equal(body.to, "a@x.test,b@x.test"); assert.equal(body.cc, "c@x.test"); assert.equal(body.subject, "Invoice INV-1");
+    assert.equal(body.content, "Hello\n\nThanks"); assert.match(body.html_content, /<p/);
+    assert.deepEqual(body.custom_headers, { "Reply-To": '"Jo" <jo@comnet.test>' });
+    assert.deepEqual(body.attachments, [{ name: "INV-1.pdf", type: "application/pdf", content: Buffer.from("%PDF-1").toString("base64") }]);
+
+    globalThis.fetch = async () => Response.json({ message: "invalid consumer key" }, { status: 401 });
+    const failure = await smtp.sendTestEmail("admin@x.test").catch((error) => error);
+    assert.equal(failure.responseCode, 401);
+    assert.match(friendlyEmailError(failure), /turboSMTP rejected the consumer key or secret/);
+  } finally { globalThis.fetch = realFetch; await database.query("DELETE FROM email_settings"); }
+});
