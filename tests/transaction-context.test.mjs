@@ -4608,7 +4608,7 @@ test("security: sign-in limits and lockout, passwordless accounts, two-step code
   assert.equal(publicErrorMessage(new Error("Select a company."), "x"), "Select a company.");
 });
 
-test("upcoming PDC reminders: shown in the bell before they are due, to the people they will notify", async () => {
+test("upcoming PDC reminders: shown in the bell before they are due, to All-Admins, Admins and Accountants", async () => {
   const route = await vite.ssrLoadModule("/app/api/notifications/route.ts");
   const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Upcoming PDC Co') RETURNING id")).rows[0].id;
   const otherCompany = (await database.query("INSERT INTO companies (name) VALUES ('Upcoming Other Co') RETURNING id")).rows[0].id;
@@ -4626,6 +4626,8 @@ test("upcoming PDC reminders: shown in the bell before they are due, to the peop
     finally { delete globalThis.__transferTestUser; }
   };
   assert.deepEqual(await upcomingFor({ id: 500, role: "accountant", companyIds: [companyId] }), ["UP-1", "UP-2"], "soonest first; void, already sent and due ones excluded");
-  assert.deepEqual(await upcomingFor({ id: writer, role: "purchasing", companyIds: [companyId] }), ["UP-1"], "other roles see only cheques they saved");
+  assert.deepEqual(await upcomingFor({ id: 503, role: "admin", companyIds: [companyId] }), ["UP-1", "UP-2"], "administrators of the company");
+  assert.deepEqual(await upcomingFor({ id: 504, role: "all_admin", companyIds: [] }).then((rows) => rows.filter((number) => number.startsWith("UP-"))), ["UP-1", "UP-2"], "All-Admins see every company");
+  assert.deepEqual(await upcomingFor({ id: writer, role: "purchasing", companyIds: [companyId] }), [], "only All-Admin, Admin and Accountant see upcoming reminders");
   assert.deepEqual(await upcomingFor({ id: 502, role: "admin", companyIds: [otherCompany] }), [], "not another company's cheques");
 });

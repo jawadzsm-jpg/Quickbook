@@ -8,19 +8,19 @@ import { publicErrorMessage } from "@/lib/errors";
 const message = (error: unknown) => publicErrorMessage(error, "Could not load notifications.");
 
 /**
- * Scheduled PDC reminders not sent yet, soonest first: the same people a reminder will notify see it in advance
- * (administrators and accountants for their companies, All-Admins everywhere, other users for cheques they saved).
+ * Scheduled PDC reminders not sent yet, soonest first, for All-Admins (every company) and the administrators and
+ * accountants of the cheque's company. They are shown in advance and counted in the bell badge.
  */
 async function upcomingReminders(user: { id: number; role: string; companyIds: number[] }) {
+  if (!["all_admin", "admin", "accountant"].includes(user.role)) return [];
   if (user.role !== "all_admin" && !user.companyIds.length) return [];
   const companyScope = user.role === "all_admin" ? sql`` : sql`AND t.company_id IN (${sql.join(user.companyIds.map((id) => sql`${id}`), sql`, `)})`;
-  const ownerScope = ["all_admin", "admin", "accountant"].includes(user.role) ? sql`` : sql`AND t.created_by_user_id = ${user.id}`;
   const result = await getDb().execute(sql`
     SELECT t.id, t.company_id AS "companyId", c.name AS "companyName", t.number, t.party, t.total, t.currency,
       t.transaction_date AS "chequeDate", t.reminder_at AS "remindAt"
     FROM transactions t JOIN companies c ON c.id = t.company_id
     WHERE t.type = 'cheque' AND t.reminder_at IS NOT NULL AND t.reminder_at > now() AND t.reminded_at IS NULL
-      AND lower(t.status) NOT IN ('void', 'voided', 'cancelled', 'canceled') AND c.active ${companyScope} ${ownerScope}
+      AND lower(t.status) NOT IN ('void', 'voided', 'cancelled', 'canceled') AND c.active ${companyScope}
     ORDER BY t.reminder_at, t.id
     LIMIT 20`);
   return result.rows.map((row) => ({ ...row, total: Number(row.total) }));
