@@ -1160,6 +1160,9 @@ body {
     width: 277mm !important;
     min-height: 190mm !important;
   }
+  /* Inventory Check Report browser print: the dialog's A4 layout choice picks the named page. */
+  body:has(.inventory-check-print-portrait) { page: report-portrait; }
+  body:has(.inventory-check-print-landscape) { page: report-landscape; }
 }
 
 /* Inventory reporting: readable stock data without squeezing numeric columns. */

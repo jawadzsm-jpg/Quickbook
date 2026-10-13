@@ -23,6 +23,7 @@ import { TodayOffersPanel, runningOffers, type TodayOffer } from "./today-offers
 import { offerEndsText, offerRemaining, offerShareText } from "@/lib/item-offers";
 import { categoryColor, categoryPalette } from "@/lib/category-colors";
 import { CategoryColorPicker } from "./category-color-picker";
+import type { PrintOrientation } from "@/components/print-orientation-select";
 
 
 type OverviewItem = {
@@ -212,6 +213,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem, onCreateDocument
   const [showPrice, setShowPrice] = useState(true);
   // Shared price format: VAT excluded (net), VAT included (+5%), or 0% VAT (zero-rated, e.g. exports: net price, labelled).
   const [vatMode, setVatMode] = useState<VatMode>("exclude");
+  const [printOrientation, setPrintOrientation] = useState<PrintOrientation>("portrait");
   const [category, setCategory] = useState("");
   const [brand, setBrand] = useState("");
   const [condition, setCondition] = useState("");
@@ -656,7 +658,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem, onCreateDocument
     const companies = [...new Set(list.map((record) => record.companyName))].join(", ");
     const printedAt = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Dubai", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date());
     const meta = [companies, warehouseLabel || "All warehouses", `${list.length} ${list.length === 1 ? "item" : "items"}`, `Printed ${printedAt}`].filter(Boolean).join(" · ");
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Stock List</title><style>@page{size:A4;margin:12mm}body{margin:0;font:9.5pt Arial,Helvetica,sans-serif;color:#0f172a}h1{margin:0;font-size:16pt}p{margin:4px 0 12px;color:#475569}table{width:100%;border-collapse:collapse}th{background:#0f172a;color:#fff;text-align:left;padding:5px 6px;font-size:8.5pt}td{border-bottom:1px solid #cbd5e1;padding:5px 6px;vertical-align:top}tfoot td{border-top:2px solid #0f172a;border-bottom:0;font-weight:700}.num{text-align:right;white-space:nowrap}tr{break-inside:avoid}thead{display:table-header-group}</style></head><body><h1>Stock List</h1><p>${xml(meta)}</p><table><thead><tr>${headers.map((header) => `<th${numeric.has(header) ? ' class="num"' : ""}>${xml(header)}</th>`).join("")}</tr></thead><tbody>${body}</tbody>${footer}</table></body></html>`;
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Stock List</title><style>@page{size:A4 ${printOrientation};margin:12mm}body{margin:0;font:9.5pt Arial,Helvetica,sans-serif;color:#0f172a}h1{margin:0;font-size:16pt}p{margin:4px 0 12px;color:#475569}table{width:100%;border-collapse:collapse}th{background:#0f172a;color:#fff;text-align:left;padding:5px 6px;font-size:8.5pt}td{border-bottom:1px solid #cbd5e1;padding:5px 6px;vertical-align:top}tfoot td{border-top:2px solid #0f172a;border-bottom:0;font-weight:700}.num{text-align:right;white-space:nowrap}tr{break-inside:avoid}thead{display:table-header-group}</style></head><body><h1>Stock List</h1><p>${xml(meta)}</p><table><thead><tr>${headers.map((header) => `<th${numeric.has(header) ? ' class="num"' : ""}>${xml(header)}</th>`).join("")}</tr></thead><tbody>${body}</tbody>${footer}</table></body></html>`;
     const frame = document.createElement("iframe");
     frame.setAttribute("aria-hidden", "true");
     frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0";
@@ -786,6 +788,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem, onCreateDocument
           <Button size="sm" variant="outline" disabled={shareDisabled} onClick={() => copyForChannel("email")} title="Copy email format" aria-label="Copy email format"><Mail /><span className="@max-[90rem]:hidden">Email</span></Button>
           <Button size="sm" variant="outline" disabled={shareDisabled} onClick={() => openEditor("whatsapp")} title="Edit the message before copying" aria-label="Edit the message before copying"><Pencil /><span className="@max-[90rem]:hidden">Edit</span></Button>
           <Button size="sm" variant="outline" disabled={loading || (!selectedRecords.length && !filtered.length)} onClick={printStockList} title={selectedRecords.length ? "Print the selected items" : "Print the listed items"} aria-label="Print stock list"><Printer /><span className="@max-[90rem]:hidden">Print</span></Button>
+          <select aria-label="A4 print orientation" title="A4 print orientation" className="h-8 w-[5.75rem] rounded-md border border-input bg-card px-1.5 text-xs text-foreground" value={printOrientation} onChange={(event) => setPrintOrientation(event.target.value as PrintOrientation)}><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select>
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild><Button size="sm" variant="outline" disabled={shareDisabled} title="Export Excel" aria-label="Export Excel"><FileSpreadsheet /><span className="@max-[90rem]:hidden">Excel</span><ChevronDown /></Button></DropdownMenuTrigger>
             <DropdownMenuContent align="end">
