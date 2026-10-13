@@ -1,9 +1,11 @@
-// Email lists for Inventory Overview emails: a Sales list (customers) and a Purchase list (suppliers) per company.
+// Email lists for Inventory Overview emails: a Sales list (customers) and a Purchase list (suppliers) per company and
+// user. Each user's addresses are private; Admins and All-Admins see and manage everyone's.
 // Shared by the email dialog and the server.
 import { isValidEmail } from "@/lib/email-validation";
 
 export type EmailListType = "sales" | "purchase";
-export type EmailListContact = { id: number; name: string; email: string };
+/** ownerName: who added it (shown to administrators, who see every user's addresses). */
+export type EmailListContact = { id: number; name: string; email: string; ownerName?: string };
 export const EMAIL_LIST_TYPES: readonly EmailListType[] = ["sales", "purchase"];
 export const emailListLabel = (type: EmailListType) => type === "sales" ? "Sales list" : "Purchase list";
 

@@ -1,13 +1,14 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { getDb } from "@/db";
-import { auditLog, emailListContacts } from "@/db/schema";
-import { requireCompanyAccess } from "@/lib/auth";
+import { appUsers, auditLog, emailListContacts } from "@/db/schema";
+import { isAdministrator, requireCompanyAccess, type SessionUser } from "@/lib/auth";
 import { canUseEmailList, EMAIL_LIST_IMPORT_MAX, EMAIL_LIST_MAX, EMAIL_LIST_NAME_MAX, emailListLabel, isEmailListType, type EmailListType } from "@/lib/email-lists";
 import { isValidEmail } from "@/lib/email-validation";
 import { publicErrorMessage } from "@/lib/errors";
 
-// The company's Sales list (customers) and Purchase list (suppliers) for Inventory Overview emails. Shared by the
-// company's users; Sales users use the Sales list only and Viewers neither (lib/email-lists.ts canUseEmailList).
+// The Sales list (customers) and Purchase list (suppliers) for Inventory Overview emails. Each user's addresses are
+// private to them; Admins and All-Admins see and manage everyone's in the company. Sales users use the Sales list only
+// and Viewers neither (lib/email-lists.ts canUseEmailList).
 
 const json = (data: unknown, status = 200) => Response.json(data, { status, headers: { "Cache-Control": "no-store" } });
 const failed = (error: unknown) => json({ error: publicErrorMessage(error, "Could not update the email list.") }, 500);
@@ -19,8 +20,12 @@ async function access(request: Request, companyId: number, type: unknown, mutati
   return canUseEmailList(user.role, type) ? { user, type } : json({ error: `Your role cannot use the ${emailListLabel(type)}.` }, 403);
 }
 
-const listOf = (companyId: number, type: EmailListType) => getDb().select({ id: emailListContacts.id, name: emailListContacts.name, email: emailListContacts.email })
-  .from(emailListContacts).where(and(eq(emailListContacts.companyId, companyId), eq(emailListContacts.listType, type)))
+/** The user's own addresses; administrators get everyone's in the company. */
+const ownedBy = (user: SessionUser): SQL | undefined => isAdministrator(user) ? undefined : eq(emailListContacts.createdByUserId, user.id);
+
+const listOf = (user: SessionUser, companyId: number, type: EmailListType) => getDb().select({ id: emailListContacts.id, name: emailListContacts.name, email: emailListContacts.email, ownerName: sql<string>`coalesce(nullif(${appUsers.fullName}, ''), ${appUsers.email}, '')` })
+  .from(emailListContacts).leftJoin(appUsers, eq(appUsers.id, emailListContacts.createdByUserId))
+  .where(and(eq(emailListContacts.companyId, companyId), eq(emailListContacts.listType, type), ownedBy(user)))
   .orderBy(asc(sql`lower(coalesce(nullif(${emailListContacts.name}, ''), ${emailListContacts.email}))`), asc(emailListContacts.id));
 
 /** GET ?companyId=&type=sales|purchase → the list's contacts. */
@@ -29,7 +34,7 @@ export async function GET(request: Request) {
   const companyId = Number(params.get("companyId"));
   const allowed = await access(request, companyId, params.get("type"));
   if (allowed instanceof Response) return allowed;
-  try { return json({ contacts: await listOf(companyId, allowed.type) }); } catch (error) { return failed(error); }
+  try { return json({ contacts: await listOf(allowed.user, companyId, allowed.type), seesAll: isAdministrator(allowed.user) }); } catch (error) { return failed(error); }
 }
 
 /** POST { companyId, type, contacts: [{ name, email }] } — add contacts (typed or imported from CSV); repeats are skipped. */
@@ -56,12 +61,12 @@ export async function POST(request: Request) {
   if (!rows.length) return json({ error: "No valid email addresses to add." }, 400);
   try {
     const db = getDb();
-    const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(emailListContacts).where(and(eq(emailListContacts.companyId, companyId), eq(emailListContacts.listType, allowed.type)));
+    const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(emailListContacts).where(and(eq(emailListContacts.companyId, companyId), eq(emailListContacts.listType, allowed.type), eq(emailListContacts.createdByUserId, allowed.user.id)));
     if (Number(count) + rows.length > EMAIL_LIST_MAX) return json({ error: `A list can hold at most ${EMAIL_LIST_MAX.toLocaleString("en")} addresses. Remove some first.` }, 400);
     const added = await db.insert(emailListContacts).values(rows.map((row) => ({ companyId, listType: allowed.type, ...row, createdByUserId: allowed.user.id })))
       .onConflictDoNothing().returning();
     if (added.length) await db.insert(auditLog).values({ companyId, action: "created", entityType: "email_list", entityId: added[0].id, details: `${added.length} address(es) added to the ${emailListLabel(allowed.type)} by ${allowed.user.email}` });
-    return json({ added: added.length, alreadyListed: rows.length - added.length, invalid, contacts: await listOf(companyId, allowed.type) }, 201);
+    return json({ added: added.length, alreadyListed: rows.length - added.length, invalid, contacts: await listOf(allowed.user, companyId, allowed.type) }, 201);
   } catch (error) { return failed(error); }
 }
 
@@ -79,8 +84,8 @@ export async function PATCH(request: Request) {
   if (payload.action !== "remove" || !ids.length || ids.length > EMAIL_LIST_MAX) return json({ error: "Choose the addresses to remove." }, 400);
   try {
     const db = getDb();
-    const removed = await db.delete(emailListContacts).where(and(eq(emailListContacts.companyId, companyId), eq(emailListContacts.listType, allowed.type), inArray(emailListContacts.id, ids))).returning();
+    const removed = await db.delete(emailListContacts).where(and(eq(emailListContacts.companyId, companyId), eq(emailListContacts.listType, allowed.type), inArray(emailListContacts.id, ids), ownedBy(allowed.user))).returning();
     if (removed.length) await db.insert(auditLog).values({ companyId, action: "deleted", entityType: "email_list", entityId: removed[0].id, details: `${removed.length} address(es) removed from the ${emailListLabel(allowed.type)} by ${allowed.user.email}` });
-    return json({ removed: removed.length, contacts: await listOf(companyId, allowed.type) });
+    return json({ removed: removed.length, contacts: await listOf(allowed.user, companyId, allowed.type) });
   } catch (error) { return failed(error); }
 }

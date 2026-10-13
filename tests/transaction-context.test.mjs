@@ -4724,7 +4724,7 @@ test("personal notes: private to each user, kept per company, edit, done and del
   assert.equal((await as(bob, () => route.GET(new Request(`https://app.test/api/user-notes?companyId=${otherCompany}`)))).status, 403, "only companies the user belongs to");
 });
 
-test("inventory overview emails: shared Sales and Purchase lists, CSV import, and hidden (Bcc) sending", async () => {
+test("inventory overview emails: private Sales and Purchase lists (administrators see all), CSV import, and hidden (Bcc) sending", async () => {
   const { parseEmailListCsv, canUseEmailList } = await vite.ssrLoadModule("/lib/email-lists.ts");
   assert.deepEqual(parseEmailListCsv("﻿Name,Email\nGulf Traders,Buyer@Gulf.test\n\"Doe, John\",john@doe.test\nNo address,\nGulf again,buyer@gulf.test"), { contacts: [{ name: "Gulf Traders", email: "buyer@gulf.test" }, { name: "Doe, John", email: "john@doe.test" }], skipped: 1 });
   assert.deepEqual(parseEmailListCsv("a@x.test;Alpha\nBeta;b@x.test").contacts, [{ name: "Alpha", email: "a@x.test" }, { name: "Beta", email: "b@x.test" }], "no header: the address cell is found in each row");
@@ -4735,7 +4735,8 @@ test("inventory overview emails: shared Sales and Purchase lists, CSV import, an
   const lists = await vite.ssrLoadModule("/app/api/email-lists/route.ts");
   const mail = await vite.ssrLoadModule("/app/api/inventory-emails/route.ts");
   const { saveEmailSettings } = await vite.ssrLoadModule("/lib/smtp.ts");
-  const as = async (role, run) => { globalThis.__transferTestUser = { id: seller, fullName: "Sam Sales", email: "sam@listco.test", role, companyIds: [companyId] }; try { return await run(); } finally { delete globalThis.__transferTestUser; } };
+  const rana = (await database.query("INSERT INTO app_users (full_name, email, password_hash, role) VALUES ('Rana Sales', 'rana@listco.test', 'test', 'sales') RETURNING id")).rows[0].id;
+  const as = async (role, run, id = seller) => { globalThis.__transferTestUser = { id, fullName: id === seller ? "Sam Sales" : "Rana Sales", email: id === seller ? "sam@listco.test" : "rana@listco.test", role, companyIds: [companyId] }; try { return await run(); } finally { delete globalThis.__transferTestUser; } };
   const call = (route, method, body, query = "") => route[method](new Request(`https://app.test/api/${route === mail ? "inventory-emails" : "email-lists"}${query}`, method === "GET" ? undefined : { method, headers: { origin: "https://app.test", "content-type": "application/json" }, body: JSON.stringify({ companyId, ...body }) }));
 
   const added = await as("sales", async () => (await call(lists, "POST", { type: "sales", contacts: [{ name: "Gulf", email: "Buyer@Gulf.test" }, { name: "Gulf", email: "buyer@gulf.test" }, { email: "nope" }, { name: "Delta", email: "ops@delta.test" }] })).json());
@@ -4748,6 +4749,16 @@ test("inventory overview emails: shared Sales and Purchase lists, CSV import, an
   const salesList = (await (await as("sales", () => call(lists, "GET", null, `?companyId=${companyId}&type=sales`))).json()).contacts;
   assert.deepEqual(salesList.map((row) => row.email), ["ops@delta.test", "buyer@gulf.test"], "sorted by name, kept apart from the Purchase list");
   const purchaseList = (await (await as("admin", () => call(lists, "GET", null, `?companyId=${companyId}&type=purchase`))).json()).contacts;
+  // Lists are private: another sales user keeps her own (the same address is allowed) and sees only hers; administrators see everyone's.
+  assert.equal((await as("sales", async () => (await call(lists, "POST", { type: "sales", contacts: [{ name: "Gulf", email: "buyer@gulf.test" }] })).json(), rana)).added, 1);
+  const ranaList = (await (await as("sales", () => call(lists, "GET", null, `?companyId=${companyId}&type=sales`), rana)).json()).contacts;
+  assert.deepEqual(ranaList.map((row) => row.email), ["buyer@gulf.test"]);
+  assert.equal((await (await as("sales", () => call(lists, "GET", null, `?companyId=${companyId}&type=sales`))).json()).contacts.length, 2, "Sam does not see Rana's addresses");
+  const adminView = await (await as("admin", () => call(lists, "GET", null, `?companyId=${companyId}&type=sales`), rana)).json();
+  assert.equal(adminView.seesAll, true);
+  assert.deepEqual(adminView.contacts.map((row) => row.ownerName).sort(), ["Rana Sales", "Sam Sales", "Sam Sales"]);
+  assert.equal((await as("sales", () => call(mail, "POST", { type: "sales", contactIds: [ranaList[0].id], subject: "Hi", body: "Stock" }))).status, 404, "a user cannot send to another user's addresses");
+  assert.equal((await (await as("sales", () => call(lists, "PATCH", { type: "sales", action: "remove", ids: [ranaList[0].id] }))).json()).removed, 0, "or remove them");
 
   await saveEmailSettings({ host: "pro.turbo-smtp.com", port: 465, secure: true, username: "key", password: "secret", fromName: "List Co", fromEmail: "stock@listco.test" });
   globalThis.__sentMail = [];
