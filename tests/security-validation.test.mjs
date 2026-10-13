@@ -92,11 +92,13 @@ test("item identity appears once in titles and Item No. is reserved for invoice 
   assert.equal(inventoryItemDetails("CORE 7-240H | ITEM NO. #10754", "10754"), "CORE 7-240H #10754");
   assert.equal(inventoryShareDescription("BRAND NEW | NO | DOS | NO #13041", "13041"), "BRAND NEW | DOS");
   assert.equal(inventoryShareDescription("BRAND NEW | 16GB RAM | ITEM NO. #13041", "13041"), "BRAND NEW | 16GB RAM");
+  // WhatsApp, Telegram and Email copies leave out the "#Item No.".
+  assert.equal(inventoryItemLine("Dell XPS", "ABC123", "BRAND NEW | 16GB RAM | ITEM NO. #13040", "13040", false), "DELL XPS ABC123 | BRAND NEW | 16GB RAM");
   assert.equal(inventoryItemLine("Dell Alienware 16 Aurora AC16250", "73B1DA", "BRAND NEW | CORE 7-240H | NO | 16GB RAM"), "DELL ALIENWARE 16 AURORA AC16250 73B1DA | BRAND NEW | CORE 7-240H | 16GB RAM");
-  assert.equal(inventorySocialShareText("Dell Alienware 16 Aurora AC16250", "73B1DA", "BRAND NEW | CORE 7-240H | NO | 16GB RAM", "whatsapp", "13040"), "🔺 *DELL ALIENWARE 16 AURORA AC16250 73B1DA* 🔺 | ⚡ *BRAND NEW* ⚡ |\n*CORE 7-240H | 16GB RAM #13040*");
+  assert.equal(inventorySocialShareText("Dell Alienware 16 Aurora AC16250", "73B1DA", "BRAND NEW | CORE 7-240H | NO | 16GB RAM", "whatsapp", "13040"), "🔺 *DELL ALIENWARE 16 AURORA AC16250 73B1DA* 🔺 | ⚡ *BRAND NEW* ⚡ |\n*CORE 7-240H | 16GB RAM*");
   // Share emoji styles: a chosen style replaces the title and condition marks; "No emoji" (or an administrator's off switch) leaves plain text.
-  assert.equal(inventorySocialShareText("Dell XPS", "ABC123", "BRAND NEW | 16GB RAM", "whatsapp", "13040", { title: "🔥", condition: "✨" }), "🔥 *DELL XPS ABC123* 🔥 | ✨ *BRAND NEW* ✨ |\n*16GB RAM #13040*");
-  assert.equal(inventorySocialShareText("Dell XPS", "ABC123", "BRAND NEW | 16GB RAM", "telegram", "13040", { title: "", condition: "" }), "**DELL XPS ABC123** | **BRAND NEW** |\n**16GB RAM #13040**");
+  assert.equal(inventorySocialShareText("Dell XPS", "ABC123", "BRAND NEW | 16GB RAM", "whatsapp", "13040", { title: "🔥", condition: "✨" }), "🔥 *DELL XPS ABC123* 🔥 | ✨ *BRAND NEW* ✨ |\n*16GB RAM*");
+  assert.equal(inventorySocialShareText("Dell XPS", "ABC123", "BRAND NEW | 16GB RAM", "telegram", "13040", { title: "", condition: "" }), "**DELL XPS ABC123** | **BRAND NEW** |\n**16GB RAM**");
   for (const condition of ["BRAND NEW", "OPEN BOX", "REFURBISHED", "USED"]) assert.match(inventorySocialShareText("Test model", "ABC123", `${condition} | NO | 16GB RAM`, "telegram"), new RegExp(`🔺 \\*\\*TEST MODEL ABC123\\*\\* 🔺 \\| ⚡ \\*\\*${condition}\\*\\* ⚡ \\|\\n\\*\\*16GB RAM\\*\\*`));
   assert.equal(itemSpecificationDescription("DELL ALIENWARE | 16 AURORA AC16250 | SKU: 73B1DA | BRAND NEW | ITEM NO. #13040", "DELL ALIENWARE 16 AURORA AC16250", "73B1DA", "13040"), "BRAND NEW");
   assert.equal(invoiceItemDescription("BRAND NEW | ITEM NO. #13040", "13040"), "BRAND NEW | ITEM NO. #13040");
