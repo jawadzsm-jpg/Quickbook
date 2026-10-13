@@ -4,7 +4,9 @@ import { auditLog, companies } from "@/db/schema";
 import { canAccessCompany, isAdministrator, requireApiUser } from "@/lib/auth";
 
 const imageFields = new Set(["logoData", "rightLogoData", "loginLogoData", "loginCompanyLogoData", "loginBackgroundData"]);
-const fields = new Set([...imageFields, "loginDisplayName", "loginCopyrightYears", "loginBackgroundColor", "loginBranding"]);
+const fields = new Set([...imageFields, "loginDisplayName", "loginCopyrightYears", "loginBackgroundColor", "loginBranding", "loginLogoOffset"]);
+/** How far the sign-in EasyBook logo may move up or down, in px. */
+const LOGO_OFFSET_MAX = 150;
 
 export async function PATCH(request: Request) {
   const user = await requireApiUser(request, true, true);
@@ -20,6 +22,8 @@ export async function PATCH(request: Request) {
     if (typeof field !== "string" || !fields.has(field)) return Response.json({ error: "Choose a company logo or login page setting." }, { status: 400 });
     if (field === "loginBranding") {
       if (typeof value !== "boolean") return Response.json({ error: "Choose whether to show this company on the login page." }, { status: 400 });
+    } else if (field === "loginLogoOffset") {
+      if (typeof value !== "number" || !Number.isInteger(value) || Math.abs(value) > LOGO_OFFSET_MAX) return Response.json({ error: `Move the logo at most ${LOGO_OFFSET_MAX} px up or down.` }, { status: 400 });
     } else if (typeof value !== "string") return Response.json({ error: "Choose a valid setting." }, { status: 400 });
     if (imageFields.has(field) && value && (typeof value !== "string" || !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(value) || value.length > (field === "loginBackgroundData" ? 2_700_000 : 700_000))) {
       return Response.json({ error: `Upload a PNG, JPG, or WebP image smaller than ${field === "loginBackgroundData" ? "2 MB" : "500 KB"}.` }, { status: 400 });
@@ -42,6 +46,7 @@ export async function PATCH(request: Request) {
       if (!existing) return Response.json({ error: "Company not found." }, { status: 404 });
       if (field === "loginBranding" && value) await db.update(companies).set({ loginBranding: false }).where(ne(companies.id, companyId));
       const change = field === "loginBranding" ? { loginBranding: value as boolean }
+        : field === "loginLogoOffset" ? { loginLogoOffset: value as number }
         : field === "loginBackgroundColor" ? { loginBackgroundColor: value as string }
         : field === "loginBackgroundData" ? { loginBackgroundData: value as string }
         : field === "loginLogoData" ? { loginLogoData: value as string }

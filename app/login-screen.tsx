@@ -110,7 +110,8 @@ export function LoginScreen({ branding: initialBranding, companies = [] }: { bra
     <div className="relative w-full max-w-lg space-y-6 text-center">
       <div className="flex min-h-32 flex-col items-center justify-center gap-3">
         {/* The software name comes first; the company's own images and name follow it. */}
-        <Image src="/easybook-logo.png" alt="" width={1200} height={800} priority className="h-32 w-auto max-w-full rounded-2xl object-contain drop-shadow-sm" />
+        {/* Admin Controls → Company setup → Login page can move the logo up (negative) or down (positive). */}
+        <Image src="/easybook-logo.png" alt="" width={1200} height={800} priority className="relative h-32 w-auto max-w-full rounded-2xl object-contain drop-shadow-sm" style={branding?.loginLogoOffset ? { transform: `translateY(${branding.loginLogoOffset}px)` } : undefined} />
         <h1 className="sr-only">EasyBook Online Accounting ERP</h1>
         {upperImage ? <Image src={upperImage} alt={`${displayName} upper login image`} width={380} height={240} unoptimized priority className="max-h-52 w-auto max-w-full object-contain" /> : null}
         {companyLogo ? <Image src={companyLogo} alt={`${displayName} company logo`} width={420} height={130} unoptimized priority className="max-h-20 w-auto max-w-full object-contain drop-shadow-sm" /> : null}
