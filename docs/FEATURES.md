@@ -415,7 +415,7 @@ Parents must be the same contact type and company; sales users can select only t
 
 Authorized users can also Activate/Make inactive directly from a contact row. This narrow action preserves identity details and rejects stale status changes.
 
-- **Invoice line Pending Cart:** per-line Pending and Restore actions in invoice entry/editing; atomic save to non-posting customer drafts in Sales → Pending Cart, with stock/accounting reversal for posted lines and payment, packing, source-link and revision protection.
+- **Invoice line Pending Cart:** one **Pending** button next to Save record moves every saleable invoice line to the Pending Cart at once (per-line Restore and Restore all before saving); atomic save to non-posting customer drafts in Sales → Pending Cart, with stock/accounting reversal for posted lines and payment, packing, source-link and revision protection.
 
 - **Complete invoice series customization:** administrators can replace the full invoice format per inventory, including fixed text, separators, suffixes, optional company/prefix placeholders, number padding and next sequence. Live previews use the same formatter as posting; saved invoice numbers remain unchanged, with duplicate and stale-editor protection.
 
