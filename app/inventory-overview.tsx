@@ -513,7 +513,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem, onCreateDocument
       const lineEmoji = (mark: string) => channel === "email" || (channel === "whatsapp" && emoji.id === "classic") ? "" : mark;
       const marked = (mark: string, text: string) => lineEmoji(mark) ? `${lineEmoji(mark)} ${text}` : text;
       const title = channel === "email"
-        ? `***${inventoryItemLine(record.name, record.sku, description, record.itemNumber)}***`
+        ? `***${inventoryItemLine(record.name, record.sku, description, record.itemNumber, false)}***`
         : inventorySocialShareText(record.name, record.sku, description, channel, record.itemNumber, emoji);
       const lines = [title];
       // Screen Details entered in Product Customization Details (the spec fallback is already in the description).
