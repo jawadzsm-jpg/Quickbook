@@ -23,6 +23,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/business-final-report.tsx` — Management overview report with sectioned metrics linking to detail reports.
 - `app/cargo-list.tsx` — Shared cargo/freight agent directory: add, edit, delete, search; `/api/cargos`.
 - `app/category-color-picker.tsx` — Palette picker for an item category's colour (or Auto); `/api/category-colors`.
+- `app/change-password-dialog.tsx` — Change password for every signed-in user (sidebar, next to Sign out); `/api/auth/session` PATCH.
 - `app/company-clear-button.tsx` — Company Setup → Clear: grouped options with record counts, Select all, a summary of what will be cleared, typed company name and admin password; `/api/company-setup/clear`.
 - `app/company-document-output.tsx` — Context/hook for printing to A4 and exporting PDFs with the company's saved document design.
 - `app/contact-organization-fields.tsx` — Contact status (active/inactive) and "Sub-account of" parent fields.

@@ -9,6 +9,7 @@ import { ItemImport } from "./item-import";
 import { matchesSearch } from "@/lib/search";
 import { WorkspaceOnlineUsers } from "./workspace-online-users";
 import { IdleSignOut } from "./idle-sign-out";
+import { ChangePasswordButton } from "./change-password-dialog";
 import { DEFAULT_EDITION, editionDetails, type Edition } from "@/lib/edition";
 import { WorkspaceNotifications } from "./workspace-notifications";
 import { PdcCheques } from "./pdc-cheques";
@@ -1425,6 +1426,7 @@ export default function EnterpriseApp({ currentUser, edition = DEFAULT_EDITION }
           <div className="mt-1 flex items-center gap-3 rounded-xl border border-white/6 bg-white/5 p-2 group-data-[collapsible=icon]:hidden">
             {currentUser.avatarData ? <Image src={currentUser.avatarData} alt={`${currentUser.fullName || currentUser.email} profile`} width={32} height={32} unoptimized className="size-8 rounded-full border border-white/15 object-cover" /> : <div className="grid size-8 place-items-center rounded-full bg-slate-700 text-xs font-bold">{(currentUser.fullName || currentUser.email).slice(0, 2).toUpperCase()}</div>}
             <div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold text-white">{currentUser.fullName || roleLabels[currentUser.role]}</p><p className="truncate text-[11px] text-slate-500">{roleLabels[currentUser.role]} · {currentUser.email}</p></div>
+            <ChangePasswordButton email={currentUser.email} />
             <Button type="button" variant="ghost" size="icon" aria-label="Sign out" title="Sign out" onClick={signOut} className="size-8 shrink-0 text-slate-400 hover:bg-white/10 hover:text-white"><LogOut className="size-4" /></Button>
           </div>
         </SidebarFooter>

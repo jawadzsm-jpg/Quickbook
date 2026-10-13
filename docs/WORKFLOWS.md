@@ -21,7 +21,8 @@ flowchart TD
 4. A temporary-password account is sent to the password-change screen. Changing it revokes every session, requiring a new login.
 5. The server loads the application shell with role, company assignments, name, avatar, and appearance mode (light or dark) and accent colour (Emerald, Ocean, Indigo, Violet, Rose or Amber), both saved per user.
 6. The user selects a company and inventory location. All subsequent operational calls send those identifiers, and the API verifies them again.
-7. After the user's idle time without keyboard, mouse, touch or scrolling (15 minutes by default, set per user in Users & access), a one-minute countdown appears and the session is then ended; the server also refuses a session idle longer than the limit.
+7. Any signed-in user can change their own password from the key button next to Sign out (current password required); all their sessions end. A user who forgot it uses **Forgot password?** on the sign-in page.
+8. After the user's idle time without keyboard, mouse, touch or scrolling (15 minutes by default, set per user in Users & access), a one-minute countdown appears and the session is then ended; the server also refuses a session idle longer than the limit.
 
 ## 2. Master-data workflow
 
