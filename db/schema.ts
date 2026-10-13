@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { bigint, boolean, check, uuid, doublePrecision, index, integer, pgTable, serial, text, timestamp, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { bigint, boolean, check, primaryKey, uuid, doublePrecision, index, integer, pgTable, serial, text, timestamp, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
 
 export const companies = pgTable("companies", {
   id: serial("id").primaryKey(),
@@ -599,6 +599,8 @@ export const notifications = pgTable("notifications", {
   title: text("title").notNull(),
   body: text("body").notNull().default(""),
   transactionId: integer("transaction_id").references(() => transactions.id, { onDelete: "set null" }),
+  // Migration 0125: the announcement a notice belongs to (edited and removed with it).
+  announcementId: integer("announcement_id").references((): AnyPgColumn => announcements.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
   readAt: timestamp("read_at", { withTimezone: true, mode: "string" }),
   emailStatus: text("email_status").notNull().default("pending"),
@@ -608,6 +610,33 @@ export const notifications = pgTable("notifications", {
   emailClaimedAt: timestamp("email_claimed_at", { withTimezone: true, mode: "string" }),
   emailError: text("email_error").notNull().default(""),
 }, (table) => [index("idx_notifications_user").on(table.userId, table.createdAt)]);
+
+// Announcements (migration 0125): a message from an administrator to all users of a company ("all") or chosen users
+// ("users", announcement_recipients). Shown on Company Home until dismissed and as a bell notice.
+export const announcements = pgTable("announcements", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  body: text("body").notNull().default(""),
+  audience: text("audience", { enum: ["all", "users"] }).notNull().default("all"),
+  createdByUserId: integer("created_by_user_id").references(() => appUsers.id, { onDelete: "set null" }),
+  createdByName: text("created_by_name").notNull().default(""),
+  endsAt: timestamp("ends_at", { withTimezone: true, mode: "string" }),
+  removedAt: timestamp("removed_at", { withTimezone: true, mode: "string" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, (table) => [index("idx_announcements_company").on(table.companyId, table.createdAt)]);
+
+export const announcementRecipients = pgTable("announcement_recipients", {
+  announcementId: integer("announcement_id").notNull().references(() => announcements.id, { onDelete: "cascade" }),
+  userId: integer("user_id").notNull().references(() => appUsers.id, { onDelete: "cascade" }),
+}, (table) => [primaryKey({ columns: [table.announcementId, table.userId] })]);
+
+export const announcementDismissals = pgTable("announcement_dismissals", {
+  announcementId: integer("announcement_id").notNull().references(() => announcements.id, { onDelete: "cascade" }),
+  userId: integer("user_id").notNull().references(() => appUsers.id, { onDelete: "cascade" }),
+  dismissedAt: timestamp("dismissed_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.announcementId, table.userId] })]);
 
 // Email templates (migration 0117): each user's own, optionally shared with the company. `documentType` is a
 // transaction type ("invoice", "purchase order", …) or "any". Subject and body use {placeholders}.
