@@ -1884,6 +1884,15 @@ test('individual login settings save independently of unfinished company changes
     for (const bad of [151, -151, 2.5, '20']) assert.equal((await save(first, 'loginLogoOffset', bad)).status, 400, String(bad));
     const { publicLoginBranding } = await vite.ssrLoadModule('/lib/public-login-branding.ts');
     assert.equal((await publicLoginBranding(first)).loginLogoOffset, -40);
+    // A replacement top logo, hiding it and swapping it below the company logo.
+    assert.equal((await save(first, 'loginTopLogoData', logo)).status, 200);
+    assert.equal((await save(first, 'loginTopLogoData', 'data:image/svg+xml;base64,PHN2Zz4=')).status, 400);
+    assert.equal((await save(first, 'loginTopLogoHidden', true)).status, 200);
+    assert.equal((await save(first, 'loginLogosSwapped', true)).status, 200);
+    assert.equal((await save(first, 'loginLogosSwapped', 'yes')).status, 400);
+    const top = await publicLoginBranding(first);
+    assert.deepEqual([top.loginTopLogoData, top.loginTopLogoHidden, top.loginLogosSwapped], [logo, true, true]);
+    assert.equal((await save(first, 'loginTopLogoData', '')).status, 200, "back to the EasyBook logo");
     globalThis.__transferTestUser = { id: 9, email: 'admin@test', role: 'admin', companyIds: [first] };
     assert.equal((await save(first, 'loginBranding', true)).status, 200);
     assert.equal((await save(second, 'loginBranding', true)).status, 403);

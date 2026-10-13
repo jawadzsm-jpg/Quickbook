@@ -11,6 +11,10 @@ export const companies = pgTable("companies", {
   loginLogoData: text("login_logo_data").notNull().default(""),
   // Sign-in page EasyBook logo moved up (negative) or down (positive), in px (migration 0128).
   loginLogoOffset: integer("login_logo_offset").notNull().default(0),
+  // Sign-in top logo (migration 0129): uploaded replacement for EasyBook (empty = EasyBook), hidden, or shown after the company logos.
+  loginTopLogoData: text("login_top_logo_data").notNull().default(""),
+  loginTopLogoHidden: boolean("login_top_logo_hidden").notNull().default(false),
+  loginLogosSwapped: boolean("login_logos_swapped").notNull().default(false),
   loginCompanyLogoData: text("login_company_logo_data").notNull().default(""),
   loginDisplayName: text("login_display_name").notNull().default(""),
   loginCopyrightYears: text("login_copyright_years").notNull().default("1996-2021"),

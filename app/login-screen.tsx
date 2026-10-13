@@ -103,18 +103,25 @@ export function LoginScreen({ branding: initialBranding, companies = [] }: { bra
   const companyImage = branding?.loginCompanyLogoData || branding?.logoData || "";
   const companyLogo = /^data:image\/(png|jpeg|webp);base64,/.test(companyImage) ? companyImage : "";
   const displayName = branding?.loginDisplayName?.trim() || branding?.name || companies.find((company) => company.id === selectedCompanyId)?.name || "EasyBook Online Accounting ERP";
+  const topLogoData = branding?.loginTopLogoData && /^data:image\/(png|jpeg|webp);base64,/.test(branding.loginTopLogoData) ? branding.loginTopLogoData : "";
+  const topLogoStyle = branding?.loginLogoOffset ? { transform: `translateY(${branding.loginLogoOffset}px)` } : undefined;
+  const topLogo = branding?.loginTopLogoHidden ? null : topLogoData
+    ? <Image src={topLogoData} alt={`${displayName} logo`} width={600} height={400} unoptimized priority className="relative h-32 w-auto max-w-full rounded-2xl object-contain drop-shadow-sm" style={topLogoStyle} />
+    : <Image src="/easybook-logo.png" alt="" width={1200} height={800} priority className="relative h-32 w-auto max-w-full rounded-2xl object-contain drop-shadow-sm" style={topLogoStyle} />;
+  const companyImages = <>
+    {upperImage ? <Image src={upperImage} alt={`${displayName} upper login image`} width={380} height={240} unoptimized priority className="max-h-52 w-auto max-w-full object-contain" /> : null}
+    {companyLogo ? <Image src={companyLogo} alt={`${displayName} company logo`} width={420} height={130} unoptimized priority className="max-h-20 w-auto max-w-full object-contain drop-shadow-sm" /> : null}
+  </>;
   const years = branding?.loginCopyrightYears && /^(?:19|20)\d{2}(?:-(?:19|20)\d{2})?$/.test(branding.loginCopyrightYears) ? branding.loginCopyrightYears : "1996-2021";
 
   return <main className="login-workspace relative flex min-h-screen items-center justify-center overflow-hidden bg-cover bg-center px-4 py-8 text-slate-800 sm:py-12" style={{ backgroundColor, ...(backgroundImage ? { backgroundImage: `linear-gradient(rgb(243 246 250 / 30%), rgb(243 246 250 / 30%)), url("${backgroundImage}")` } : {}) }}>
     <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,.1),rgba(248,250,252,.38))]" />
     <div className="relative w-full max-w-lg space-y-6 text-center">
       <div className="flex min-h-32 flex-col items-center justify-center gap-3">
-        {/* The software name comes first; the company's own images and name follow it. */}
-        {/* Admin Controls → Company setup → Login page can move the logo up (negative) or down (positive). */}
-        <Image src="/easybook-logo.png" alt="" width={1200} height={800} priority className="relative h-32 w-auto max-w-full rounded-2xl object-contain drop-shadow-sm" style={branding?.loginLogoOffset ? { transform: `translateY(${branding.loginLogoOffset}px)` } : undefined} />
+        {/* The top logo (EasyBook, or the company's uploaded replacement) comes first unless the company swapped the
+            order or hid it; Admin Controls → Company setup → Login page can also move it up or down. */}
         <h1 className="sr-only">EasyBook Online Accounting ERP</h1>
-        {upperImage ? <Image src={upperImage} alt={`${displayName} upper login image`} width={380} height={240} unoptimized priority className="max-h-52 w-auto max-w-full object-contain" /> : null}
-        {companyLogo ? <Image src={companyLogo} alt={`${displayName} company logo`} width={420} height={130} unoptimized priority className="max-h-20 w-auto max-w-full object-contain drop-shadow-sm" /> : null}
+        {branding?.loginLogosSwapped ? <>{companyImages}{topLogo}</> : <>{topLogo}{companyImages}</>}
         <p className="text-lg font-semibold tracking-tight text-slate-950">{displayName}</p>
       </div>
 

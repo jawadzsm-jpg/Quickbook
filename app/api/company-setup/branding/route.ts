@@ -3,8 +3,9 @@ import { getDb, withWriteTransaction } from "@/db";
 import { auditLog, companies } from "@/db/schema";
 import { canAccessCompany, isAdministrator, requireApiUser } from "@/lib/auth";
 
-const imageFields = new Set(["logoData", "rightLogoData", "loginLogoData", "loginCompanyLogoData", "loginBackgroundData"]);
-const fields = new Set([...imageFields, "loginDisplayName", "loginCopyrightYears", "loginBackgroundColor", "loginBranding", "loginLogoOffset"]);
+const imageFields = new Set(["logoData", "rightLogoData", "loginLogoData", "loginCompanyLogoData", "loginBackgroundData", "loginTopLogoData"]);
+const booleanFields = new Set(["loginBranding", "loginTopLogoHidden", "loginLogosSwapped"]);
+const fields = new Set([...imageFields, "loginDisplayName", "loginCopyrightYears", "loginBackgroundColor", "loginBranding", "loginLogoOffset", "loginTopLogoHidden", "loginLogosSwapped"]);
 /** How far the sign-in EasyBook logo may move up or down, in px. */
 const LOGO_OFFSET_MAX = 150;
 
@@ -20,8 +21,8 @@ export async function PATCH(request: Request) {
       return Response.json({ error: "Company administrator access required." }, { status: 403 });
     }
     if (typeof field !== "string" || !fields.has(field)) return Response.json({ error: "Choose a company logo or login page setting." }, { status: 400 });
-    if (field === "loginBranding") {
-      if (typeof value !== "boolean") return Response.json({ error: "Choose whether to show this company on the login page." }, { status: 400 });
+    if (booleanFields.has(field)) {
+      if (typeof value !== "boolean") return Response.json({ error: "Choose on or off for this login page setting." }, { status: 400 });
     } else if (field === "loginLogoOffset") {
       if (typeof value !== "number" || !Number.isInteger(value) || Math.abs(value) > LOGO_OFFSET_MAX) return Response.json({ error: `Move the logo at most ${LOGO_OFFSET_MAX} px up or down.` }, { status: 400 });
     } else if (typeof value !== "string") return Response.json({ error: "Choose a valid setting." }, { status: 400 });
@@ -47,6 +48,9 @@ export async function PATCH(request: Request) {
       if (field === "loginBranding" && value) await db.update(companies).set({ loginBranding: false }).where(ne(companies.id, companyId));
       const change = field === "loginBranding" ? { loginBranding: value as boolean }
         : field === "loginLogoOffset" ? { loginLogoOffset: value as number }
+        : field === "loginTopLogoData" ? { loginTopLogoData: value as string }
+        : field === "loginTopLogoHidden" ? { loginTopLogoHidden: value as boolean }
+        : field === "loginLogosSwapped" ? { loginLogosSwapped: value as boolean }
         : field === "loginBackgroundColor" ? { loginBackgroundColor: value as string }
         : field === "loginBackgroundData" ? { loginBackgroundData: value as string }
         : field === "loginLogoData" ? { loginLogoData: value as string }
