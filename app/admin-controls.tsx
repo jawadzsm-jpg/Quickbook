@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { Archive, Eye, EyeOff, KeyRound, LockKeyhole, Mail, Plug, ShieldCheck, Smile, Users } from "lucide-react";
+import { Archive, Eye, EyeOff, KeyRound, LayoutGrid, LockKeyhole, Mail, Plug, ShieldCheck, Smile, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,8 +12,9 @@ import { AdminBackupCenter, type BackupStatus } from "./admin-backup-center";
 import { SmtpSettings } from "./smtp-settings";
 import { ApiIntegrations } from "./api-integrations";
 import { UserRoleCenter, type UserSummary } from "./user-role-center";
+import { EditionSettings } from "./edition-settings";
 
-type Tab = "users" | "security" | "email" | "backups" | "api";
+type Tab = "users" | "security" | "email" | "backups" | "api" | "edition";
 type Override = { id: number; entityId: number; details: string; createdAt: string };
 type PinState = { configured: boolean; lastChange: { action: string; createdAt: string } | null; overrides: Override[]; shareEmojis?: boolean };
 
@@ -23,6 +24,7 @@ const tabs: Array<{ id: Tab; label: string; icon: typeof Users }> = [
   { id: "email", label: "Email server", icon: Mail },
   { id: "backups", label: "Backups", icon: Archive },
   { id: "api", label: "API & Integrations", icon: Plug },
+  { id: "edition", label: "EasyBook edition", icon: LayoutGrid },
 ];
 // Database timestamps can arrive as "2026-10-08 10:21:08+04"; normalise them so every browser parses them.
 const parseTime = (value: string) => new Date(value.replace(" ", "T").replace(/([+-]\d{2})$/, "$1:00"));
@@ -183,6 +185,7 @@ export function AdminControlsCenter({ companyId, companyName, currentUserEmail, 
     <div role="tabpanel" id="admin-panel-security" aria-labelledby="admin-tab-security" hidden={tab !== "security"}><SecurityPanel key={companyId} companyId={companyId} companyName={companyName} currentUserEmail={currentUserEmail} onPinStatus={setPinConfigured} /></div>
     {canManageEmail && <div role="tabpanel" id="admin-panel-email" aria-labelledby="admin-tab-email" hidden={tab !== "email"}><SmtpSettings onStatus={setSmtpConfigured} /></div>}
     <div role="tabpanel" id="admin-panel-backups" aria-labelledby="admin-tab-backups" hidden={tab !== "backups"}><AdminBackupCenter key={companyId} companyId={companyId} companyName={companyName} onStatus={setBackup} /></div>
+    <div role="tabpanel" id="admin-panel-edition" aria-labelledby="admin-tab-edition" hidden={tab !== "edition"}>{tab === "edition" ? <EditionSettings /> : null}</div>
     <div role="tabpanel" id="admin-panel-api" aria-labelledby="admin-tab-api" hidden={tab !== "api"}>{tab === "api" ? <ApiIntegrations key={companyId} companyId={companyId} companyName={companyName} /> : null}</div>
   </div>;
 }

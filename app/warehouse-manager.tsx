@@ -12,7 +12,7 @@ type WarehouseRow = { id: number; code: string; name: string; isDefault: boolean
 const quantity = (value: number) => value.toLocaleString("en-AE", { maximumFractionDigits: 2 });
 
 /** Management → Inventories: the warehouses inside one inventory. The default warehouse holds stock not placed in another warehouse. */
-export function WarehouseManager({ companyId, locationId, locationName }: { companyId: number; locationId: number; locationName: string }) {
+export function WarehouseManager({ companyId, locationId, locationName, multiWarehouse = true }: { companyId: number; locationId: number; locationName: string; multiWarehouse?: boolean }) {
   const [rows, setRows] = useState<WarehouseRow[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -29,6 +29,9 @@ export function WarehouseManager({ companyId, locationId, locationName }: { comp
   }, [companyId, locationId]);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load(); }, [load]);
+
+  // A one-warehouse EasyBook edition hides Add and Activate once a warehouse is active (the API enforces the same limit).
+  const canActivateMore = multiWarehouse || !rows?.some((row) => row.active);
 
   async function send(method: "POST" | "PATCH" | "DELETE", body: Record<string, unknown>, success: string) {
     setBusy(true);
@@ -61,7 +64,7 @@ export function WarehouseManager({ companyId, locationId, locationName }: { comp
   return <div className="mt-4 border-t pt-3" aria-label={`Warehouses in ${locationName}`}>
     <div className="flex items-center justify-between gap-2">
       <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><Warehouse className="size-3.5" />Warehouses{rows ? ` · ${rows.length}` : ""}</p>
-      {!adding && <Button type="button" size="sm" variant="ghost" className="h-7 px-2" disabled={busy} onClick={() => setAdding(true)}><Plus className="size-3.5" />Add warehouse</Button>}
+      {!adding && canActivateMore && <Button type="button" size="sm" variant="ghost" className="h-7 px-2" disabled={busy} onClick={() => setAdding(true)}><Plus className="size-3.5" />Add warehouse</Button>}
     </div>
     {rows === null ? <p className="mt-2 text-xs text-muted-foreground">Loading warehouses…</p> : <ul className="mt-2 space-y-1.5">{rows.map((row) => <li key={row.id} className={`rounded-lg border px-2.5 py-2 text-sm ${row.active ? "" : "opacity-60"}`}>
       {editing?.id === row.id ? <form onSubmit={saveEdit} className="flex flex-wrap items-center gap-1.5">
@@ -77,7 +80,7 @@ export function WarehouseManager({ companyId, locationId, locationName }: { comp
         <div className="flex shrink-0 items-center [&_button]:size-8">
           <Button type="button" size="icon" variant="ghost" disabled={busy} title="Rename" aria-label={`Rename ${row.name}`} onClick={() => setEditing({ id: row.id, name: row.name, code: row.code })}><Pencil className="size-3.5" /></Button>
           {!row.isDefault && row.active && <Button type="button" size="icon" variant="ghost" disabled={busy} title="Make default" aria-label={`Make ${row.name} the default warehouse`} onClick={() => makeDefault(row)}><Star className="size-3.5" /></Button>}
-          {!row.isDefault && <Button type="button" size="sm" variant="ghost" className="!w-auto px-2 text-xs" disabled={busy} onClick={() => void send("PATCH", { id: row.id, action: row.active ? "deactivate" : "activate" }, row.active ? "Warehouse deactivated" : "Warehouse activated")}>{row.active ? "Deactivate" : "Activate"}</Button>}
+          {!row.isDefault && (row.active || canActivateMore) && <Button type="button" size="sm" variant="ghost" className="!w-auto px-2 text-xs" disabled={busy} onClick={() => void send("PATCH", { id: row.id, action: row.active ? "deactivate" : "activate" }, row.active ? "Warehouse deactivated" : "Warehouse activated")}>{row.active ? "Deactivate" : "Activate"}</Button>}
           {!row.isDefault && <Button type="button" size="icon" variant="ghost" className="text-rose-600" disabled={busy} title="Remove" aria-label={`Remove ${row.name}`} onClick={() => remove(row)}><Trash2 className="size-3.5" /></Button>}
         </div>
       </div>}

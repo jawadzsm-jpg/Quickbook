@@ -46,6 +46,7 @@ erDiagram
 | `document_emails` | Every document emailed to a customer or supplier (migration 0117) | `company_id`, `transaction_id` (set null on delete), `sent_by_user_id`, `sent_by_name`, `party`, `recipients` / `cc` (JSON arrays), `subject`, `attachment_name`, `status` (`sent`, `failed`), `error`, `created_at` |
 | `cheque_templates` | Unused: held company cheque templates for bank-cheque printing (migration 0114), which was removed. Rows saved before the removal are kept and still included in company backups; the table can be dropped by a later migration | `company_id`, `layout_key` (unique per company), `config` (JSON, `lib/cheque-template.ts`), `background_data`, `updated_by_name`, `updated_at` |
 | `app_user_companies` *(migration only)* | Which companies a non-All-Admin user may access | `user_id`, `company_id` |
+| `app_settings` | Installation settings, one row (`id` = 1, migration 0120) | `edition` (`multi_company` default, `single_company`, `single_inventory`, `single_warehouse`; rules in `lib/edition.ts`), `updated_at`, `updated_by` |
 | `auth_sessions` | Sign-in sessions (12 h) | `token_hash` (SHA-256), `expires_at`, `last_seen_at` (any request, including heartbeats), `last_active_at` (migration 0119; last keyboard/mouse/touch activity, used for automatic sign-out), `ip_address` |
 | `password_reset_tokens` | Forgot-password links (30 min, one use) | `token_hash`, `expires_at`, `used_at` |
 | `auth_rate_limits` *(migration only)* | Shared rate-limit buckets (login, API keys) | `bucket`, `attempts`, `reset_at` |
@@ -125,7 +126,7 @@ erDiagram
 | `company_backups` | Backup runs: status, Blob path, SHA-256, size, rows, verification, expiry |
 | `backup_worker_status` | Last scheduler heartbeat |
 
-Excluded from company backups: `notifications` (per-user), `app_users`, `app_user_companies`, `auth_sessions`, `password_reset_tokens`, `api_keys`, `email_settings`, `auth_rate_limits`, `idempotency_requests`, `sku_work_locks`, `backup_schedules`, `company_backups`, `backup_worker_status`. See [Company backups](BACKUPS.md).
+Excluded from company backups: `notifications` (per-user), `app_settings` (EasyBook edition), `app_users`, `app_user_companies`, `auth_sessions`, `password_reset_tokens`, `api_keys`, `email_settings`, `auth_rate_limits`, `idempotency_requests`, `sku_work_locks`, `backup_schedules`, `company_backups`, `backup_worker_status`. See [Company backups](BACKUPS.md).
 
 ## Database objects beyond tables
 

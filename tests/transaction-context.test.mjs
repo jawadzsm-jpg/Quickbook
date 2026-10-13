@@ -4409,3 +4409,39 @@ test("automatic sign-out: per-user idle limit from Users & access, enforced by t
   await database.query("UPDATE auth_sessions SET last_active_at = now() - interval '6 hours' WHERE user_id = $1", [user.id]);
   assert.ok(await auth.getRequestUser(new Request("https://app.test/", { headers: { cookie: `comnet_session=${neverToken}` } })), "Never keeps the session until it expires");
 });
+
+test("EasyBook edition: All-Admin changes it, a downgrade is refused while extras are active, and limits block new records", async () => {
+  const editionRoute = await vite.ssrLoadModule("/app/api/edition/route.ts");
+  const workspaces = await vite.ssrLoadModule("/app/api/workspaces/route.ts");
+  const warehouseRoute = await vite.ssrLoadModule("/app/api/warehouses/route.ts");
+  const request = (url, method, body) => new Request(`https://app.test${url}`, { method, headers: { origin: "https://app.test", "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
+  const setEdition = (edition) => database.query("UPDATE app_settings SET edition = $1 WHERE id = 1", [edition]);
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Edition Co') RETURNING id")).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'ED', 'Main', 'ED') RETURNING id", [companyId])).rows[0].id;
+  if (!(await database.query("SELECT 1 FROM warehouses WHERE location_id = $1", [locationId])).rows.length) await database.query("INSERT INTO warehouses (company_id, location_id, code, name, is_default) VALUES ($1, $2, 'MAIN', 'Main warehouse', true)", [companyId, locationId]);
+
+  const initial = await (await editionRoute.GET(request("/api/edition", "GET"))).json();
+  assert.equal(initial.edition, "multi_company");
+  assert.ok(initial.usage.companies > 1);
+  assert.equal((await editionRoute.PUT(request("/api/edition", "PUT", { edition: "basic" }))).status, 400);
+  const refused = await editionRoute.PUT(request("/api/edition", "PUT", { edition: "single_company" }));
+  assert.equal(refused.status, 409);
+  assert.match((await refused.json()).blockers[0], /active companies/);
+  globalThis.__transferTestUser = { id: 2, email: "admin@example.test", role: "admin", companyIds: [companyId], mustChangePassword: false };
+  try { assert.equal((await editionRoute.PUT(request("/api/edition", "PUT", { edition: "multi_company" }))).status, 403, "company Administrators cannot change it"); }
+  finally { delete globalThis.__transferTestUser; }
+
+  try {
+    await setEdition("single_warehouse");
+    const company = await workspaces.POST(request("/api/workspaces", "POST", { type: "company", name: "Second edition co", baseCurrency: "AED" }));
+    assert.equal(company.status, 409);
+    assert.equal((await company.json()).code, "EDITION_LIMIT");
+    assert.equal((await workspaces.POST(request("/api/workspaces", "POST", { type: "location", companyId, name: "Store", code: "STORE" }))).status, 409);
+    assert.equal((await warehouseRoute.POST(request("/api/warehouses", "POST", { companyId, locationId, name: "Back room", code: "BACK" }))).status, 409);
+    await setEdition("single_inventory");
+    assert.equal((await warehouseRoute.POST(request("/api/warehouses", "POST", { companyId, locationId, name: "Back room", code: "BACK" }))).status, 201, "many warehouses allowed");
+    assert.equal((await workspaces.POST(request("/api/workspaces", "POST", { type: "location", companyId, name: "Store", code: "STORE" }))).status, 409);
+  } finally { await setEdition("multi_company"); }
+  const saved = await editionRoute.PUT(request("/api/edition", "PUT", { edition: "multi_company" }));
+  assert.equal(saved.status, 200);
+});

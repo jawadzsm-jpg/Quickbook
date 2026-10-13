@@ -54,7 +54,7 @@ Use this file to locate implementation ownership without rescanning the whole re
 | Letterhead/design | `letterhead-center.tsx`, `letterhead-page.tsx`, `layout-builder/*` (document layout builder) | `company-setup/*` |
 | Attachments | `invoice-attachments.tsx`, `record-attachments.tsx`, `attachment-capture.tsx` | `attachments` |
 | UAE cheque | `uae-bank-cheque.tsx` | `records` |
-| User/admin controls | `admin-controls.tsx` (tabbed shell, security PIN/password), `user-role-center.tsx` (users & access, login details, Send email again), `smtp-settings.tsx` (Test connection, Send test email), `admin-backup-center.tsx`, `api-integrations.tsx` (API keys); `lib/user-management.ts`, `lib/email-errors.ts`, `lib/smtp.ts` | `admin-users`, `admin-users/resend-invitation`, `admin-settings`, `email-settings`, `email-settings/test-email`, `admin-backups`, `api-keys` |
+| User/admin controls | `admin-controls.tsx` (tabbed shell, security PIN/password), `user-role-center.tsx` (users & access, login details, Send email again), `smtp-settings.tsx` (Test connection, Send test email), `admin-backup-center.tsx`, `api-integrations.tsx` (API keys), `edition-settings.tsx` (EasyBook edition; `lib/edition.ts`, `lib/edition-server.ts`); `lib/user-management.ts`, `lib/email-errors.ts`, `lib/smtp.ts` | `admin-users`, `admin-users/resend-invitation`, `admin-settings`, `email-settings`, `email-settings/test-email`, `admin-backups`, `api-keys`, `edition` |
 
 ## Domain module ownership
 
