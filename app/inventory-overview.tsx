@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bold, Code, Italic, List as ListIcon, ListOrdered, Quote, Strikethrough, Lock, Pencil, BadgeDollarSign, Boxes, CalendarClock, ChevronDown, Clock, Download, Eye, FileSpreadsheet, Mail, PackageCheck, PackageOpen, PackageX, PlaneLanding, Printer, RefreshCw, Rocket, Search, ShoppingCart, Trash2, TriangleAlert, UserRound, Warehouse, X, Tag, Underline, EyeOff, Link as LinkIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { FilePlus2 } from "lucide-react";
+import { FilePlus2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -24,6 +24,7 @@ import { offerEndsText, offerRemaining, offerShareText } from "@/lib/item-offers
 import { categoryColor, categoryPalette } from "@/lib/category-colors";
 import { CategoryColorPicker } from "./category-color-picker";
 import type { PrintOrientation } from "@/components/print-orientation-select";
+import { InventoryEmailDialog } from "./inventory-email-dialog";
 
 
 type OverviewItem = {
@@ -194,8 +195,9 @@ type CartEntry = { key: number; sku: string; name: string; quantity: number; inv
 const cartStorageKey = "comnet-overview-cart";
 const cartDocuments: Array<[OverviewCartDocument, string]> = [["invoice", "Invoice"], ["sales order", "Sales Order"], ["proforma invoice", "Proforma Invoice"], ["estimate", "Estimate"]];
 
-export function InventoryOverview({ onOpenDocument, onOpenItem, onCreateDocument }: { onOpenDocument?: (id: number) => void; onOpenItem?: (id: number) => void; onCreateDocument?: (request: { type: OverviewCartDocument; companyId: number; locationId: number; lines: Array<{ itemId: number; quantity: number; sku: string; name: string }> }) => void } = {}) {
+export function InventoryOverview({ onOpenDocument, onOpenItem, onCreateDocument, emailFrom }: { emailFrom?: { companyId: number; companyName: string; role: string; name: string; email: string }; onOpenDocument?: (id: number) => void; onOpenItem?: (id: number) => void; onCreateDocument?: (request: { type: OverviewCartDocument; companyId: number; locationId: number; lines: Array<{ itemId: number; quantity: number; sku: string; name: string }> }) => void } = {}) {
   const [records, setRecords] = useState<OverviewItem[]>([]);
+  const [emailOpen, setEmailOpen] = useState(false);
   const [activity, setActivity] = useState<InventoryActivity>(emptyActivity);
   const [activityView, setActivityView] = useState<ActivityView | "offers">("incoming");
   const [offers, setOffers] = useState<TodayOffer[]>([]);
@@ -786,6 +788,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem, onCreateDocument
           <Button size="sm" disabled={shareDisabled} onClick={() => copyForChannel("telegram")} title="Copy Telegram format" aria-label="Copy Telegram format" className="bg-[#1a77ad] text-white hover:bg-[#15638f]"><TelegramIcon /><span className="@max-[90rem]:hidden">Telegram</span></Button>
           {emojiPicker("telegram")}
           <Button size="sm" variant="outline" disabled={shareDisabled} onClick={() => copyForChannel("email")} title="Copy email format" aria-label="Copy email format"><Mail /><span className="@max-[90rem]:hidden">Email</span></Button>
+          {emailFrom && emailFrom.role !== "viewer" ? <Button size="sm" variant="outline" disabled={shareDisabled} onClick={() => setEmailOpen(true)} title="Send the selected items by email to your Sales or Purchase list" aria-label="Send by email"><Send /><span className="@max-[90rem]:hidden">Send</span></Button> : null}
           <Button size="sm" variant="outline" disabled={shareDisabled} onClick={() => openEditor("whatsapp")} title="Edit the message before copying" aria-label="Edit the message before copying"><Pencil /><span className="@max-[90rem]:hidden">Edit</span></Button>
           <Button size="sm" variant="outline" disabled={loading || (!selectedRecords.length && !filtered.length)} onClick={printStockList} title={selectedRecords.length ? "Print the selected items" : "Print the listed items"} aria-label="Print stock list"><Printer /><span className="@max-[90rem]:hidden">Print</span></Button>
           <select aria-label="A4 print orientation" title="A4 print orientation" className="h-8 w-[5.75rem] rounded-md border border-input bg-card px-1.5 text-xs text-foreground" value={printOrientation} onChange={(event) => setPrintOrientation(event.target.value as PrintOrientation)}><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select>
@@ -849,6 +852,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem, onCreateDocument
       <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-muted/20 px-4 py-2.5 text-xs text-muted-foreground"><span>Showing {filtered.length} products</span><span>{totals.healthy} healthy · {totals.low} low stock</span></div>
     </section>
 
+    {emailFrom && emailOpen ? <InventoryEmailDialog open={emailOpen} onOpenChange={setEmailOpen} companyId={emailFrom.companyId} companyName={emailFrom.companyName} role={emailFrom.role} sender={{ name: emailFrom.name, email: emailFrom.email }} itemsText={shareText("email").replace(/\*\*\*/g, "")} itemCount={shareRecords.length} /> : null}
     <StockHoldDialog key={holdTarget?.id ?? "none"} target={holdTarget} holds={holds} onClose={() => setHoldTarget(null)} onSaved={() => { setHoldTarget(null); void load(); }} />
     <Dialog open={Boolean(editor)} onOpenChange={(open) => { if (!open) setEditor(null); }}><DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
       <DialogHeader><DialogTitle>Edit before copying</DialogTitle><DialogDescription>Change any words for this message only, then copy. Your emoji style and selected items fill it in; edits are not saved.</DialogDescription></DialogHeader>

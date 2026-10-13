@@ -53,6 +53,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/inventory-check-reports.tsx` — Stock-count reports: create, edit, list; `/api/inventory-check-reports`.
 - `app/inventory-invoice-editor.tsx` — Inventory users' limited invoice editor: free lines, stock returns, serials, comments; `/api/records`.
 - `app/inventory-overview.tsx` — Inventory Overview: filters, coloured category groups, activity tabs (Incoming, New Arrival, Price Change, Just Sold, Today Offer), holds, one-line share bar (WhatsApp/Telegram/email/Edit/Excel); `/api/inventory-overview`.
+- `app/inventory-email-dialog.tsx` — Inventory Overview "Send" dialog: Sales/Purchase list, search, select, add, CSV import, remove; stock-list templates ({items}); sends hidden (Bcc) via `/api/inventory-emails`.
 - `app/inventory-report-library.tsx` — Inventory report card library.
 - `app/inventory-report-table.tsx` — Inventory report table renderer.
 - `app/invoice-attachments.tsx` — Attachment list and upload for invoices and other records; `/api/attachments`.
@@ -202,6 +203,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/email-delivery.ts` — turboSMTP delivery statuses: labels, tone, worst-first summary, final statuses.
 - `lib/email-errors.ts` — Plain-language advice for SMTP failures (TLS/port mismatch, oversize message, sending limit, login rejected, unreachable, unverified sender).
 - `lib/email-templates.ts` — Email template placeholders, document types, standard wording, address-list parsing and per-message batching; who may email documents.
+- `lib/email-lists.ts` — Email list types and limits, who may use each list (`canUseEmailList`), CSV parsing (`parseEmailListCsv`), the standard stock email.
 - `lib/email-validation.ts` — Email format check.
 - `lib/employee-hr-save.ts` — Validates employee HR/payroll fields and accounts before saving. **DB**
 - `lib/employee-hr.ts` — Employee salary/loan/vacation field rules and redaction.

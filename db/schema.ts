@@ -664,6 +664,18 @@ export const emailTemplates = pgTable("email_templates", {
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 }, (table) => [index("idx_email_templates_company_owner").on(table.companyId, table.ownerUserId)]);
 
+// Email lists (migration 0127): the Sales list (customers) and the Purchase list (suppliers) of a company, used by
+// Inventory Overview emails. Unique per list on lower(email).
+export const emailListContacts = pgTable("email_list_contacts", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  listType: text("list_type").notNull(),
+  name: text("name").notNull().default(""),
+  email: text("email").notNull(),
+  createdByUserId: integer("created_by_user_id").references(() => appUsers.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+});
+
 // Documents emailed with their PDF (migration 0117). `recipients` and `cc` are JSON arrays; `status` sent or failed.
 export const documentEmails = pgTable("document_emails", {
   id: serial("id").primaryKey(),

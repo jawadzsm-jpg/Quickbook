@@ -2,20 +2,22 @@ import { and, asc, eq, or } from "drizzle-orm";
 import { getDb } from "@/db";
 import { appUsers, emailTemplates } from "@/db/schema";
 import { isAdministrator, requireCompanyAccess, type SessionUser } from "@/lib/auth";
-import { canEmailDocuments, EMAIL_BODY_MAX, EMAIL_SUBJECT_MAX, EMAIL_TEMPLATE_NAME_MAX, emailDocumentTypeValues } from "@/lib/email-templates";
+import { canEmailDocuments, EMAIL_BODY_MAX, EMAIL_SUBJECT_MAX, EMAIL_TEMPLATE_NAME_MAX, emailDocumentTypeValues, STOCK_EMAIL_TYPE } from "@/lib/email-templates";
 import { publicErrorMessage } from "@/lib/errors";
 
 const message = (error: unknown) => publicErrorMessage(error, "Could not save the email template.");
 const denied = () => Response.json({ error: "Only accountants and administrators use email templates." }, { status: 403 });
+// Other roles (Sales included, Viewer excluded) keep only Inventory Overview stock templates.
+const stockOnly = (user: SessionUser) => !canEmailDocuments(user.role);
 
 async function access(request: Request, companyId: number, mutating = false) {
   const user = await requireCompanyAccess(request, companyId, false, mutating);
   if (user instanceof Response) return user;
-  return canEmailDocuments(user.role) ? user : denied();
+  return canEmailDocuments(user.role) || user.role !== "viewer" ? user : denied();
 }
 
 /** Templates the person can use in a company: their own and the ones shared with the company. */
-const visibleTo = (user: SessionUser, companyId: number) => and(eq(emailTemplates.companyId, companyId), or(eq(emailTemplates.ownerUserId, user.id), eq(emailTemplates.shared, true)));
+const visibleTo = (user: SessionUser, companyId: number) => and(eq(emailTemplates.companyId, companyId), or(eq(emailTemplates.ownerUserId, user.id), eq(emailTemplates.shared, true)), stockOnly(user) ? eq(emailTemplates.documentType, STOCK_EMAIL_TYPE) : undefined);
 
 function readTemplate(payload: Record<string, unknown>) {
   const name = String(payload.name ?? "").trim().slice(0, EMAIL_TEMPLATE_NAME_MAX);
@@ -49,6 +51,7 @@ export async function POST(request: Request) {
     const companyId = Number(payload.companyId);
     const user = await access(request, companyId, true);
     if (user instanceof Response) return user;
+    if (stockOnly(user) && payload.documentType !== STOCK_EMAIL_TYPE) return Response.json({ error: "Your role keeps Inventory Overview stock templates only." }, { status: 403 });
     const template = readTemplate(payload);
     if (typeof template === "string") return Response.json({ error: template }, { status: 400 });
     const [saved] = await getDb().insert(emailTemplates).values({ companyId, ownerUserId: user.id, ...template }).returning();
@@ -76,6 +79,7 @@ export async function PATCH(request: Request) {
       await getDb().delete(emailTemplates).where(eq(emailTemplates.id, current.id));
       return Response.json({ ok: true });
     }
+    if (stockOnly(user) && payload.documentType !== STOCK_EMAIL_TYPE) return Response.json({ error: "Your role keeps Inventory Overview stock templates only." }, { status: 403 });
     const template = readTemplate(payload);
     if (typeof template === "string") return Response.json({ error: template }, { status: 400 });
     const [saved] = await getDb().update(emailTemplates).set({ ...template, updatedAt: new Date().toISOString() }).where(eq(emailTemplates.id, current.id)).returning();

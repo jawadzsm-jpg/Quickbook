@@ -4155,6 +4155,11 @@ test("email templates: each user's own, shared ones usable by colleagues, change
   assert.equal((await as(bilal, "accountant", () => send("PATCH", { id: own.id, remove: true }))).status, 404, "another person's private template is invisible");
   assert.equal((await as(boss, "admin", () => send("PATCH", { ...template, id: sharedOne.id, name: "Team wording v2", shared: true }))).status, 200, "administrators may change shared templates");
   assert.equal((await as(seller, "sales", () => send("POST", template))).status, 403, "sales users do not email documents");
+  // Sales users (not Viewers) keep Inventory Overview stock templates and see only that type.
+  const stockTemplate = { ...template, name: "Stock offer", documentType: "stock list", body: "Dear customer,\n\n{items}" };
+  assert.equal((await as(seller, "sales", () => send("POST", stockTemplate))).status, 201, "sales users save stock-list templates");
+  assert.deepEqual((await as(seller, "sales", list)).map((row) => row.documentType), ["stock list"], "sales users see stock-list templates only");
+  assert.equal((await as(seller, "viewer", () => send("POST", stockTemplate))).status, 403, "viewers keep no templates");
   assert.equal((await as(amira, "accountant", () => send("POST", { ...template, documentType: "payslip" }))).status, 400);
   assert.equal((await as(amira, "accountant", () => send("POST", { ...template, subject: "" }))).status, 400);
   assert.equal((await as(amira, "accountant", () => send("PATCH", { id: own.id, remove: true }))).status, 200, "owners delete their own templates (through PATCH)");
@@ -4702,4 +4707,46 @@ test("personal notes: private to each user, kept per company, edit, done and del
   await as(alice, () => route.PATCH(json("PATCH", { companyId, id: note.id, action: "delete" })));
   assert.deepEqual(await notes(alice), []);
   assert.equal((await as(bob, () => route.GET(new Request(`https://app.test/api/user-notes?companyId=${otherCompany}`)))).status, 403, "only companies the user belongs to");
+});
+
+test("inventory overview emails: shared Sales and Purchase lists, CSV import, and hidden (Bcc) sending", async () => {
+  const { parseEmailListCsv, canUseEmailList } = await vite.ssrLoadModule("/lib/email-lists.ts");
+  assert.deepEqual(parseEmailListCsv("﻿Name,Email\nGulf Traders,Buyer@Gulf.test\n\"Doe, John\",john@doe.test\nNo address,\nGulf again,buyer@gulf.test"), { contacts: [{ name: "Gulf Traders", email: "buyer@gulf.test" }, { name: "Doe, John", email: "john@doe.test" }], skipped: 1 });
+  assert.deepEqual(parseEmailListCsv("a@x.test;Alpha\nBeta;b@x.test").contacts, [{ name: "Alpha", email: "a@x.test" }, { name: "Beta", email: "b@x.test" }], "no header: the address cell is found in each row");
+  assert.deepEqual([canUseEmailList("sales", "sales"), canUseEmailList("sales", "purchase"), canUseEmailList("viewer", "sales"), canUseEmailList("purchasing", "purchase")], [true, false, false, true]);
+
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('List Co') RETURNING id")).rows[0].id;
+  const seller = (await database.query("INSERT INTO app_users (full_name, email, password_hash, role) VALUES ('Sam Sales', 'sam@listco.test', 'test', 'sales') RETURNING id")).rows[0].id;
+  const lists = await vite.ssrLoadModule("/app/api/email-lists/route.ts");
+  const mail = await vite.ssrLoadModule("/app/api/inventory-emails/route.ts");
+  const { saveEmailSettings } = await vite.ssrLoadModule("/lib/smtp.ts");
+  const as = async (role, run) => { globalThis.__transferTestUser = { id: seller, fullName: "Sam Sales", email: "sam@listco.test", role, companyIds: [companyId] }; try { return await run(); } finally { delete globalThis.__transferTestUser; } };
+  const call = (route, method, body, query = "") => route[method](new Request(`https://app.test/api/${route === mail ? "inventory-emails" : "email-lists"}${query}`, method === "GET" ? undefined : { method, headers: { origin: "https://app.test", "content-type": "application/json" }, body: JSON.stringify({ companyId, ...body }) }));
+
+  const added = await as("sales", async () => (await call(lists, "POST", { type: "sales", contacts: [{ name: "Gulf", email: "Buyer@Gulf.test" }, { name: "Gulf", email: "buyer@gulf.test" }, { email: "nope" }, { name: "Delta", email: "ops@delta.test" }] })).json());
+  assert.deepEqual([added.added, added.alreadyListed, added.invalid], [2, 0, 1], JSON.stringify(added));
+  const again = await as("sales", async () => (await call(lists, "POST", { type: "sales", contacts: [{ email: "BUYER@gulf.test" }] })).json());
+  assert.deepEqual([again.added, again.alreadyListed], [0, 1], "an address is listed once (any case)");
+  assert.equal((await as("sales", () => call(lists, "GET", null, `?companyId=${companyId}&type=purchase`))).status, 403, "sales users do not use the Purchase list");
+  assert.equal((await as("viewer", () => call(lists, "GET", null, `?companyId=${companyId}&type=sales`))).status, 403);
+  assert.equal((await as("purchasing", () => call(lists, "POST", { type: "purchase", contacts: [{ name: "Parts", email: "sales@parts.test" }] }))).status, 201);
+  const salesList = (await (await as("sales", () => call(lists, "GET", null, `?companyId=${companyId}&type=sales`))).json()).contacts;
+  assert.deepEqual(salesList.map((row) => row.email), ["ops@delta.test", "buyer@gulf.test"], "sorted by name, kept apart from the Purchase list");
+  const purchaseList = (await (await as("admin", () => call(lists, "GET", null, `?companyId=${companyId}&type=purchase`))).json()).contacts;
+
+  await saveEmailSettings({ host: "pro.turbo-smtp.com", port: 465, secure: true, username: "key", password: "secret", fromName: "List Co", fromEmail: "stock@listco.test" });
+  globalThis.__sentMail = [];
+  const message = { type: "sales", contactIds: [...salesList.map((row) => row.id), purchaseList[0].id], subject: "Available stock", body: "Dear customer,\n\nDELL XPS | Qty: 2" };
+  const sent = await as("sales", () => call(mail, "POST", message));
+  assert.equal(sent.status, 200, await sent.clone().text());
+  assert.equal((await sent.json()).recipients, 2, "an address from the other list is ignored");
+  const [copy] = globalThis.__sentMail;
+  assert.deepEqual([[...copy.bcc].sort(), copy.to.address ?? copy.to], [["buyer@gulf.test", "ops@delta.test"], "stock@listco.test"], "recipients are hidden (Bcc), To is the sender");
+  assert.equal(copy.replyTo.address, "sam@listco.test");
+  assert.equal((await as("sales", () => call(mail, "POST", { ...message, type: "purchase" }))).status, 403);
+  assert.equal((await as("sales", () => call(mail, "POST", { ...message, subject: "" }))).status, 400);
+
+  const removed = await as("sales", async () => (await call(lists, "PATCH", { type: "sales", action: "remove", ids: [salesList[0].id, purchaseList[0].id] })).json());
+  assert.deepEqual([removed.removed, removed.contacts.map((row) => row.email)], [1, ["buyer@gulf.test"]], "removing only touches the chosen list");
+  delete globalThis.__sentMail;
 });

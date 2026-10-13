@@ -30,6 +30,8 @@ export const EMAIL_DOCUMENT_TYPES = [
   { value: "purchase order", label: "Purchase order" },
   { value: "bill", label: "Supplier bill" },
   { value: "vendor credit", label: "Purchase return" },
+  // Inventory Overview emails to the Sales or Purchase list; {items} is the selected stock.
+  { value: "stock list", label: "Inventory Overview stock list" },
 ] as const;
 export const emailDocumentTypeValues: readonly string[] = EMAIL_DOCUMENT_TYPES.map((type) => type.value);
 export const emailDocumentTypeLabel = (value: string) => EMAIL_DOCUMENT_TYPES.find((type) => type.value === value)?.label ?? value;
@@ -91,3 +93,5 @@ export function recipientBatches<T>(recipients: T[], size = RECIPIENTS_PER_MESSA
 
 /** Accountants and administrators email documents and keep email templates. */
 export const canEmailDocuments = (role: string) => ["all_admin", "admin", "accountant"].includes(role);
+/** The template type for Inventory Overview emails; every role except Viewer may keep templates of this type. */
+export const STOCK_EMAIL_TYPE = "stock list";
