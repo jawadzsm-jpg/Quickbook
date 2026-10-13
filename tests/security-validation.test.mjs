@@ -798,7 +798,8 @@ test("application windows are wide and A4 output offers portrait or landscape wi
   // PDF output draws each element's own text at its position: labels and values are separate elements, and the
   // totals avoid "→", which the standard PDF font cannot encode.
   assert.match(packing, /<strong>Customer Name:<\/strong> <span>\$\{escapeHtml\(data\.invoice\.party\)\}<\/span>/);
-  assert.match(packing, /<span>\$\{escapeHtml\(line\.description\)\}<\/span><small>/);
+  // The printed packing list leaves out the item number (no "#13115" line under the description).
+  assert.match(packing, /<td class="description"><span>\$\{escapeHtml\(line\.description\)\}<\/span><\/td>/);
   assert.doesNotMatch(packing, /→/);
   assert.match(documents, /activeMode === "delivery-note" \|\| activeMode === "packing-list" \? withoutPrices\(layout\) : layout/);
   assert.match(css, /@page \{ size: A4 portrait; margin: 10mm; \}/);

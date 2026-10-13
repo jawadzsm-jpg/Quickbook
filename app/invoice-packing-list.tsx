@@ -284,7 +284,7 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
       const dimensions = line.lengthCm > 0 || line.widthCm > 0 || line.heightCm > 0
         ? `${display(line.lengthCm)}×${display(line.widthCm)}×${display(line.heightCm)}`
         : line.dimensionText || "—";
-      return `<tr><td>${index + 1}</td><td class="description"><span>${escapeHtml(line.description)}</span><small>${escapeHtml(line.itemNumber ? `#${line.itemNumber}` : line.sku)}</small></td><td>${display(line.packedQuantity, 2)}</td><td>${display(line.grossWeightKg)}</td><td>${escapeHtml(line.countryOfOrigin || "—")}</td><td>${escapeHtml(line.hsCode || "—")}</td><td>${keys.length}</td><td>${escapeHtml(line.cartonReference || keys.join(", "))}</td><td>${cartonWeight}</td><td><span>${escapeHtml(dimensions)}</span><small>${display(line.cbmPerCarton)} m³</small></td><td>${display(line.totalCbm)} m³</td></tr>`;
+      return `<tr><td>${index + 1}</td><td class="description"><span>${escapeHtml(line.description)}</span></td><td>${display(line.packedQuantity, 2)}</td><td>${display(line.grossWeightKg)}</td><td>${escapeHtml(line.countryOfOrigin || "—")}</td><td>${escapeHtml(line.hsCode || "—")}</td><td>${keys.length}</td><td>${escapeHtml(line.cartonReference || keys.join(", "))}</td><td>${cartonWeight}</td><td><span>${escapeHtml(dimensions)}</span><small>${display(line.cbmPerCarton)} m³</small></td><td>${display(line.totalCbm)} m³</td></tr>`;
     }).join("");
     const quantity = list.lines.reduce((sum, line) => sum + Number(line.packedQuantity), 0);
     const cartons = uniqueCartonCount(list);
