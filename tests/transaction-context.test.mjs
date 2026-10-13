@@ -3048,6 +3048,12 @@ test('sales workspace enforces ownership, proforma handoff, private costs and ad
     const spaces = await (await spacesRoute.GET(req('/api/workspaces'))).json(); assert.equal(spaces.companies[0].bankName,undefined); assert.equal(spaces.companies[0].locations[0].payable,undefined);
     for(const path of ['/api/reports','/api/warranty-slips','/api/serial-search','/api/transfers','/api/packing-lists','/api/stock-pricing','/api/stock-revaluation','/api/account-history','/api/employee-loan-links','/api/company-setup/letterhead']) assert.equal(salesRouteAllowed(path,'GET'),false,path);
     assert.equal(salesRouteAllowed('/api/payment-terms','POST'),false);
+    // Every user, sales included, may choose category colours.
+    assert.equal(incoming.canManageCategories,true);
+    const colorsRoute = await vite.ssrLoadModule('/app/api/category-colors/route.ts');
+    const colored = await colorsRoute.PUT(req('/api/category-colors','PUT',{category:'Sales colour test',color:'teal'}));
+    assert.equal(colored.status,200,await colored.clone().text()); assert.equal((await colored.json()).categoryColors['SALES COLOUR TEST'],'teal');
+    assert.equal((await colorsRoute.PUT(req('/api/category-colors','PUT',{category:'Sales colour test',color:'auto'}))).status,200);
     // Duplicate validation sees customers owned by another sales user.
     const customerBody = {kind:'contacts',type:'customer',name:'OMEGA SYSTEMZ',company:'OMEGA SYSTEMZ',phone:'+971500333333',whatsapp:'+971500333333',country:'UAE',reseller:'Reseller',planet:'No',currency:'AED'};
     assert.equal((await post(customerBody)).status,409);

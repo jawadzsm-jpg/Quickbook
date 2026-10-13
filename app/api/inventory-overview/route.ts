@@ -6,7 +6,7 @@ import { activeHoldCondition } from "@/lib/stock-holds";
 import { savedCategoryColors } from "@/lib/category-colors-sql";
 import { canManageOffers } from "@/lib/item-offers";
 import { currentOfferCondition, offerSoldQuantity } from "@/lib/item-offers-sql";
-import { hasPermission, isAdministrator, requireApiUser } from "@/lib/auth";
+import { isAdministrator, requireApiUser } from "@/lib/auth";
 import { publicErrorMessage } from "@/lib/errors";
 
 function errorMessage(error: unknown) {
@@ -179,7 +179,8 @@ export async function GET(request: Request) {
       .from(stockHolds).where(and(inArray(stockHolds.itemId, recordIds), activeHoldCondition())).orderBy(asc(stockHolds.expiresAt)) : [];
     const canManageHolds = isAdministrator(authorization) || authorization.role === "accountant";
     const categoryColors = await savedCategoryColors();
-    const canManageCategories = hasPermission(authorization, "inventory:manage");
+    // Every user may choose category colours (shared by everyone).
+    const canManageCategories = true;
     // Today Offer: running and scheduled offers on active items in the user's companies.
     const offers = await db.select({
       id: itemOffers.id, itemId: itemOffers.itemId, offerPrice: itemOffers.offerPrice, offerQuantity: itemOffers.offerQuantity, soldQuantity: offerSoldQuantity, startsAt: itemOffers.startsAt, endsAt: itemOffers.endsAt,
@@ -218,7 +219,7 @@ export async function GET(request: Request) {
       // names, purchase documents or purchase prices.
       const sellingPrice = (itemId: unknown) => records.find(item => item.id === Number(itemId))?.salesPrice ?? null;
       const safe = (row: Record<string, unknown>) => ({ id: row.id, itemId: row.itemId, itemName: row.itemName, sku: row.sku, itemNumber: row.itemNumber, companyId: row.companyId, companyName: row.companyName, locationId: row.locationId, locationName: row.locationName, currency: row.currency, quantity: row.quantity, date: row.date });
-      return Response.json({ records, holds, shareEmoji, categoryColors, canManageCategories: false, canManageHolds: false, canManageOffers: false, offers: offers.map((offer) => ({ ...offer, createdByName: "" })), canSelectItems: true, canBulkSelect: false, salesOnly: true, activity: {
+      return Response.json({ records, holds, shareEmoji, categoryColors, canManageCategories: true, canManageHolds: false, canManageOffers: false, offers: offers.map((offer) => ({ ...offer, createdByName: "" })), canSelectItems: true, canBulkSelect: false, salesOnly: true, activity: {
         incoming: incomingResult.rows.map(row => ({ ...safe(row), date: undefined, price: sellingPrice(row.itemId) })),
         launched: launchedResult.rows.map(row => ({ ...safe(row), price: sellingPrice(row.itemId) })),
         priceChanges: priceChanges.map((row: Record<string, unknown>) => ({ ...safe(row), price: sellingPrice(row.itemId), previousPrice: row.previousPrice, currentPrice: row.currentPrice })),
