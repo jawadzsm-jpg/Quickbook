@@ -795,6 +795,11 @@ test("application windows are wide and A4 output offers portrait or landscape wi
   assert.match(documents, /orientationChoice\[activeMode\] \?\? \(activeMode === "packing-list" \? "landscape" : "portrait"\)/);
   assert.match(packing, /useState<PrintOrientation>\("landscape"\)/);
   assert.match(packing, /@page\{size:A4 \$\{packingOrientation\}/);
+  // PDF output draws each element's own text at its position: labels and values are separate elements, and the
+  // totals avoid "→", which the standard PDF font cannot encode.
+  assert.match(packing, /<strong>Customer Name:<\/strong> <span>\$\{escapeHtml\(data\.invoice\.party\)\}<\/span>/);
+  assert.match(packing, /<span>\$\{escapeHtml\(line\.description\)\}<\/span><small>/);
+  assert.doesNotMatch(packing, /→/);
   assert.match(css, /@page \{ size: A4 portrait; margin: 10mm; \}/);
 });
 
