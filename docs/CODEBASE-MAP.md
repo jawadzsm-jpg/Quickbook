@@ -28,7 +28,8 @@ Use this file to locate implementation ownership without rescanning the whole re
 | --- | --- | --- |
 | Login/password | `login-screen.tsx`, `password-change-screen.tsx`, `password-reset-forms.tsx` (forgot password), `idle-sign-out.tsx` (automatic sign-out when idle), `change-password-dialog.tsx` (signed-in users change their own password) | `auth/session`, `auth/activity`, `auth/password-reset`, `login-branding` |
 | Main records and transactions | `enterprise-app.tsx` | `records` |
-| Company home/report cards | `enterprise-app.tsx`, `live-profit-loss-summary.tsx`, `company-announcements.tsx` (announcements), `user-notes.tsx` (My notes) | `reports`, `records`, `announcements`, `user-notes` |
+| Company home/report cards | `enterprise-app.tsx`, `live-profit-loss-summary.tsx` | `reports`, `records` |
+| Announcements / My notes (sidebar → Overview) | `company-announcements.tsx`, `user-notes.tsx` | `announcements`, `user-notes` |
 | Customer reporting | `customer-open-balance.tsx`, `active-customers-report.tsx`, `statement-layout.tsx` | `reports`, `records` |
 | Sales conversion | `open-sales-documents.tsx`, `sales-source-invoicing.tsx` | `records` |
 | Purchase receiving/returns | `open-purchase-orders.tsx`, `purchase-order-receiving.tsx`, `purchase-return-source.tsx` | `records` |

@@ -4,7 +4,7 @@ import { userNotes } from "@/db/schema";
 import { requireCompanyAccess } from "@/lib/auth";
 import { publicErrorMessage } from "@/lib/errors";
 
-// Personal notes on Company Home: every query is limited to the signed-in user's own notes in a company they can open.
+// Personal notes (My notes page): every query is limited to the signed-in user's own notes in a company they can open.
 // (Removal is PATCH { action: "delete" }: DELETE requests are reserved for administrators app-wide.)
 
 const NOTE_MAX = 1000;
