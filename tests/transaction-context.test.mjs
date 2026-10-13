@@ -4607,3 +4607,25 @@ test("security: sign-in limits and lockout, passwordless accounts, two-step code
   assert.equal(publicErrorMessage(Object.assign(new Error("Failed query: select * from app_users\nparams: secret"), { name: "DrizzleQueryError" }), "Could not load."), "Could not load.");
   assert.equal(publicErrorMessage(new Error("Select a company."), "x"), "Select a company.");
 });
+
+test("upcoming PDC reminders: shown in the bell before they are due, to the people they will notify", async () => {
+  const route = await vite.ssrLoadModule("/app/api/notifications/route.ts");
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Upcoming PDC Co') RETURNING id")).rows[0].id;
+  const otherCompany = (await database.query("INSERT INTO companies (name) VALUES ('Upcoming Other Co') RETURNING id")).rows[0].id;
+  const cheque = (number, remind, createdBy = null, status = "open", reminded = null) => database.query(
+    "INSERT INTO transactions (company_id, type, number, party, total, currency, transaction_date, status, reminder_at, reminded_at, created_by_user_id) VALUES ($1, 'cheque', $2, 'Supplier LLC', 40000, 'USD', '2026-12-25', $3, now() + $4::interval, $5, $6) RETURNING id",
+    [companyId, number, status, remind, reminded, createdBy]);
+  const writer = (await database.query("INSERT INTO app_users (email, password_hash, role) VALUES ('pdc-writer@example.test', 'x', 'purchasing') RETURNING id")).rows[0].id;
+  await cheque("UP-2", "10 days"); await cheque("UP-1", "5 days", writer);
+  await cheque("UP-VOID", "3 days", null, "void");
+  await cheque("UP-SENT", "2 days", null, "open", new Date().toISOString());
+  await cheque("UP-DUE", "-1 hour");
+  const upcomingFor = async (user) => {
+    globalThis.__transferTestUser = { email: "u@example.test", mustChangePassword: false, ...user };
+    try { return (await (await route.GET(new Request("https://app.test/api/notifications"))).json()).upcoming.map((row) => row.number); }
+    finally { delete globalThis.__transferTestUser; }
+  };
+  assert.deepEqual(await upcomingFor({ id: 500, role: "accountant", companyIds: [companyId] }), ["UP-1", "UP-2"], "soonest first; void, already sent and due ones excluded");
+  assert.deepEqual(await upcomingFor({ id: writer, role: "purchasing", companyIds: [companyId] }), ["UP-1"], "other roles see only cheques they saved");
+  assert.deepEqual(await upcomingFor({ id: 502, role: "admin", companyIds: [otherCompany] }), [], "not another company's cheques");
+});
