@@ -112,6 +112,8 @@ test("item identity appears once in titles and Item No. is reserved for invoice 
   assert.match(records, /previewIdentity/);
   assert.match(records, /generatedItemDescription\(specifications, name, sku, itemNumber\)/);
   assert.match(overview, /inventorySocialShareText\(record\.name, record\.sku, description, channel, record\.itemNumber, emoji\)/);
+  // Shared copies leave out Product Customization Details (no "Screen:" line).
+  assert.doesNotMatch(overview, /`Screen: \$\{/);
   assert.match(app, /const documentItemLineDescription = .*inventoryItemLine\(item\.name, item\.sku, inventoryShareDescription\(itemDisplayDescription\(item\), item\.itemNumber\)\)/);
   assert.match(overview, /w-full max-w-full whitespace-normal break-words.*\[overflow-wrap:anywhere\]/);
   const salesTemplate = readFileSync(new URL("../app/sales-document-template.tsx", import.meta.url), "utf8");
