@@ -1,7 +1,7 @@
 import { and, eq, gte, isNotNull, lte, or, type AnyColumn } from "drizzle-orm";
 import { getDb } from "@/db";
 import { auditLog, companySettings, incomeTaxWorkingPapers, vatReturns } from "@/db/schema";
-import { verifyAdminPin } from "./admin-pin";
+import { checkAdminPin, pinBlockedMessage } from "./pin-attempts";
 import { PERIOD_LOCK_PIN_HEADER, PERIOD_LOCKED } from "./period-lock-shared";
 
 export { PERIOD_LOCK_PIN_HEADER, PERIOD_LOCKED };
@@ -40,7 +40,8 @@ export async function guardFiledPeriod(request: Request, companyId: number, date
   if (!settings?.pinHash) return Response.json({ error: `This date is in a filed period: ${label}. Ask an administrator to set the Admin PIN in Management > Admin Controls before changing it.`, code: PERIOD_LOCKED, period, pinConfigured: false }, { status: 423 });
   const pin = request.headers.get(PERIOD_LOCK_PIN_HEADER) ?? "";
   if (!pin) return Response.json({ error: `This date is in a filed period: ${label}. An administrator must enter the Admin PIN to change it.`, code: PERIOD_LOCKED, period, pinConfigured: true }, { status: 423 });
-  if (!verifyAdminPin(pin, settings.pinHash)) return Response.json({ error: "Incorrect Admin PIN. The filed period was not changed.", code: PERIOD_LOCKED, period, pinConfigured: true, wrongPin: true }, { status: 423 });
+  const pinCheck = await checkAdminPin(companyId, actor.id, pin, settings.pinHash);
+  if (!pinCheck.ok) return Response.json({ error: pinCheck.blocked ? pinBlockedMessage(pinCheck.retryAfter) : "Incorrect Admin PIN. The filed period was not changed.", code: PERIOD_LOCKED, period, pinConfigured: true, wrongPin: true }, { status: 423 });
   await db.insert(auditLog).values({ companyId, action: "filed-period override", entityType: "period_lock", entityId: 0, details: JSON.stringify({ action, period: label, dates: dates.filter(isDate), actorId: actor.id, actorName: actor.fullName || actor.email }) });
   return null;
 }

@@ -2,6 +2,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { appUsers, auditLog, rcmDeclarations } from "@/db/schema";
 import { requireCompanyAccess } from "@/lib/auth";
+import { publicErrorMessage } from "@/lib/errors";
 
 const clean = (value: unknown, max: number) => String(value ?? "").trim().slice(0, max);
 const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
@@ -16,7 +17,7 @@ export async function GET(request: Request) {
       .orderBy(desc(rcmDeclarations.id)).limit(500);
     return Response.json({ declarations: rows.map(({ declaration, createdBy }) => ({ ...declaration, createdBy: createdBy || "" })) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Could not load RCM declarations." }, { status: 500 });
+    return Response.json({ error: publicErrorMessage(error, "Could not load RCM declarations.") }, { status: 500 });
   }
 }
 
@@ -67,7 +68,7 @@ async function save(request: Request, editing: boolean) {
       return Response.json({ declaration }, { status: 201 });
     });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Could not save RCM declaration." }, { status: 500 });
+    return Response.json({ error: publicErrorMessage(error, "Could not save RCM declaration.") }, { status: 500 });
   }
 }
 

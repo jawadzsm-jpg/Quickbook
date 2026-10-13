@@ -6,6 +6,8 @@ import { friendlyEmailError } from "@/lib/email-errors";
 import { canEmailDocuments, EMAIL_BODY_MAX, EMAIL_SUBJECT_MAX, MAX_ATTACHMENT_BYTES, MAX_RECIPIENTS, RECIPIENTS_PER_MESSAGE, emailDocumentTypeValues, parseEmailList, recipientBatches, SUPPLIER_DOCUMENT_TYPES } from "@/lib/email-templates";
 import { checkDeliveries, emailDeliveryConfigured, sendDocumentEmail } from "@/lib/smtp";
 import { deliveryLabel, summarizeDelivery, type DeliveryCheck } from "@/lib/email-delivery";
+import { publicErrorMessage } from "@/lib/errors";
+import { consumeRateLimit } from "@/lib/rate-limit";
 
 // Documents that can be emailed with their PDF: the sales and purchase documents the A4 template prints.
 const emailableTypes = new Set([...emailDocumentTypeValues.filter((type) => type !== "any"), "pending invoice"]);
@@ -69,7 +71,7 @@ export async function GET(request: Request) {
       configured, suggestions, sender: { name: user.fullName || user.email, email: user.email },
       history: history.map((row) => ({ id: row.id, createdAt: row.createdAt, sentByName: row.sentByName, recipients: list(row.recipients), cc: list(row.cc), subject: row.subject, attachmentName: row.attachmentName, status: row.status, error: row.error, delivery: deliveryOf(row) })),
     }, { headers: { "Cache-Control": "no-store" } });
-  } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Could not load the email history." }, { status: 500 }); }
+  } catch (error) { return Response.json({ error: publicErrorMessage(error, "Could not load the email history.") }, { status: 500 }); }
 }
 
 /**
@@ -82,6 +84,9 @@ export async function POST(request: Request) {
   const companyId = Number(form.get("companyId"));
   const user = await access(request, companyId, true);
   if (user instanceof Response) return user;
+  // Protects the sender reputation and the email plan's quota from a misused account.
+  const sendBudget = await consumeRateLimit(`document-email:${user.id}`, 100, 3600);
+  if (!sendBudget.allowed) return Response.json({ error: "Too many emails sent in the last hour. Try again later." }, { status: 429, headers: { "Retry-After": String(sendBudget.retryAfter) } });
   const document = await documentFor(companyId, Number(form.get("transactionId")));
   if (!document) return Response.json({ error: "Document not found." }, { status: 404 });
   if (!emailableTypes.has(document.type)) return Response.json({ error: "This document cannot be emailed." }, { status: 400 });

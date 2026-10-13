@@ -25,7 +25,7 @@ import {
   accounts, appUsers, auditLog, companies, companySettings, contacts, exchangeRates, inventoryLocations, inventoryMovements, items, journalEntries,
   journalLines, transactionLines, transactions, vatCodes, billPaymentAllocations, invoicePaymentAllocations, packingListLines, packingLists, purchaseReceiptAllocations, salesInvoiceAllocations,
 } from "../../../db/schema";
-import { verifyAdminPin } from "../../../lib/admin-pin";
+import { checkAdminPin, pinBlockedMessage } from "@/lib/pin-attempts";
 import { customerConflict, validInternationalPhone } from "../../../lib/customer-identity";
 import { canAccessCompany, isAdministrator, hasPermission, requireApiUser, type Permission, type SessionUser } from "@/lib/auth";
 import { normalizeComparableText, uppercaseText } from "@/lib/text-normalization";
@@ -38,6 +38,7 @@ import { activeVatCode } from "@/lib/standard-vat-codes";
 import { outOfScopeItemIds } from "@/lib/out-of-scope-items";
 import { OUT_OF_SCOPE_CODE, hasOutOfScopeItem, outOfScopeProblem, outOfScopeSalesTypes } from "@/lib/out-of-scope-rules";
 import { guardFiledPeriod, unlockedDocumentTypes } from "@/lib/period-lock";
+import { publicErrorMessage } from "@/lib/errors";
 
 type RecordKind = "transactions" | "contacts" | "items" | "accounts";
 const defaultPaymentTerms = "Due on receipt";
@@ -45,7 +46,7 @@ const customerTermsTypes = ["invoice", "sales receipt", "pending invoice", "quot
 type InputLine = { pending?: boolean; comments?: string; serialNumber?: string; freightCharge?: number | string; isFreightCharge?: boolean; orderLineId?: number; sourceLineId?: number; itemId?: number | string | null; description?: string; quantity?: number | string; unitPrice?: number | string; unitCost?: number | string; vatCode?: string; vatRate?: number | string };
 
 function errorMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : "Unexpected database error";
+  const message = publicErrorMessage(error, "Unexpected database error");
   return message.includes("does not exist") ? "The accounting database is being updated. Please refresh in a moment." : message;
 }
 
@@ -223,7 +224,7 @@ async function refreshPurchaseOrder(orderId: number) {
 
 // Supplier bank details: validated, and only for vendor contacts.
 function vendorBankFromPayload(payload: Record<string, unknown>) {
-  try { return vendorBankChanges(payload); } catch (error) { throw new RequestError(error instanceof Error ? error.message : "Check the supplier bank details."); }
+  try { return vendorBankChanges(payload); } catch (error) { throw new RequestError(publicErrorMessage(error, "Check the supplier bank details.")); }
 }
 
 export async function GET(request: Request) {
@@ -636,6 +637,22 @@ async function handlePOST(request: Request) {
 }
 
 // Called for edits only inside the locked, atomic PATCH transaction.
+// Free text on new records is bounded: 5,000 characters per field by default (as the edit path allows for the memo),
+// 20,000 for comments, serial numbers and specifications (the edit path's limit), 50,000 for delivery addresses, and at
+// most 1,000 document lines.
+const textLimits: Record<string, number> = { serialNumber: 20_000, serialNumbers: 20_000, comments: 20_000, specifications: 20_000, description: 20_000, lineDetails: 50_000, deliveryAddress: 50_000 };
+function oversizedText(value: unknown, key = "", depth = 0): string | null {
+  if (depth > 6) return key || "record";
+  if (typeof value === "string") return value.length > (textLimits[key] ?? 5_000) ? key || "text" : null;
+  if (Array.isArray(value)) {
+    if (value.length > 1_000) return key || "list";
+    for (const entry of value) { const found = oversizedText(entry, key, depth + 1); if (found) return found; }
+    return null;
+  }
+  if (value && typeof value === "object") for (const [name, entry] of Object.entries(value)) { const found = oversizedText(entry, name, depth + 1); if (found) return found; }
+  return null;
+}
+
 async function saveNewRecord(request: Request, replacing?: typeof transactions.$inferSelect) {
   const authorization = await requireApiUser(request, false, true);
   if (authorization instanceof Response) return authorization;
@@ -643,6 +660,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const payload = (await request.json()) as Record<string, unknown>;
     const kind = payload.kind as RecordKind;
     if (!["transactions", "contacts", "items", "accounts"].includes(kind)) return Response.json({ error: "Invalid record kind." }, { status: 400 });
+    const oversized = oversizedText(payload);
+    if (oversized) return Response.json({ error: `The ${oversized === "lines" || oversized === "list" ? "document has too many lines" : `"${oversized}" field is too long`}. Shorten it and try again.` }, { status: 400 });
     if (kind === "transactions") {
       if (authorization.role === "sales" && !salesDocumentTypes.includes(String(payload.type))) return Response.json({ error: "Sales users may create quotations, estimates, sales orders, proformas and invoices only." }, { status: 403 });
       if (payload.type === "pending invoice" && !canManagePendingInvoices(authorization)) return Response.json({ error: "Only administrators and accountants can create pending invoices." }, { status: 403 });
@@ -668,7 +687,10 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     }
     // Verify the credential before dispatching on any client-selected record type.
     const [stockSettings] = await db.select({ pinHash: companySettings.negativeStockPinHash }).from(companySettings).where(eq(companySettings.companyId, companyId)).limit(1);
-    const stockPinVerified = verifyAdminPin(String(payload.adminOverridePin ?? ""), stockSettings?.pinHash ?? "");
+    // Checked only when a PIN was entered; wrong PINs are limited per user and per company (lib/pin-attempts.ts).
+    const enteredPin = String(payload.adminOverridePin ?? "");
+    const stockPinCheck = enteredPin ? await checkAdminPin(companyId, authorization.id, enteredPin, stockSettings?.pinHash ?? "") : null;
+    const stockPinVerified = stockPinCheck?.ok === true;
 
     if (kind === "contacts") {
       if (authorization.role === "sales" && payload.type !== "customer") return Response.json({ error: "Sales users can add customers only." }, { status: 403 });
@@ -702,7 +724,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       const contactRows = await db.select().from(contacts).where(eq(contacts.companyId, companyId));
       let organization;
       try { organization = contactOrganization(payload, { id: 0, companyId, type: contactType, status: "active" }, contactRows, authorization.role === "sales" ? authorization.id : undefined); }
-      catch (error) { throw new RequestError(error instanceof Error ? error.message : "Invalid contact organization."); }
+      catch (error) { throw new RequestError(publicErrorMessage(error, "Invalid contact organization.")); }
       let ledgerAccountId: number | null = null;
       let generatedAccount: { id: number; code: string; name: string; currency: string } | null = null;
       if (contactType === "customer" || contactType === "vendor") {
@@ -734,6 +756,9 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
 
     if (kind === "items") {
       if (!Number.isInteger(locationId) || locationId <= 0) return Response.json({ error: "Select an inventory location." }, { status: 400 });
+      // The inventory must belong to this company (no item may point at another company's inventory).
+      const [itemLocation] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).limit(1);
+      if (!itemLocation) return Response.json({ error: "Select a valid inventory in this company." }, { status: 400 });
       const duplicateOfItemId = Number(payload.duplicateOfItemId);
       const [duplicateSource] = Number.isInteger(duplicateOfItemId) && duplicateOfItemId > 0
         ? await db.select({ id: items.id, sku: items.sku }).from(items).where(and(eq(items.id, duplicateOfItemId), eq(items.companyId, companyId), eq(items.locationId, locationId))).limit(1)
@@ -1076,6 +1101,11 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     if (prepared.some((line) => line.itemId !== null && (!Number.isInteger(line.itemId) || line.itemId <= 0))) {
       return Response.json({ error: "Select a valid inventory item on every stock line." }, { status: 400 });
     }
+    // Any document that names an inventory must name one of this company's inventories.
+    if (Number.isInteger(locationId) && locationId > 0) {
+      const [documentLocation] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).limit(1);
+      if (!documentLocation) return Response.json({ error: "Select a valid inventory in this company." }, { status: 400 });
+    }
     const linkedItemIds = [...new Set(prepared.flatMap((line) => line.itemId ? [line.itemId] : []))];
     let linkedItems: Array<{ id: number; itemType: string; status: string; cost: number; lastPurchasePrice?: number; amountsIncludeVat: boolean; purchaseVatCode: string; cogsAccountId: number | null; incomeAccountId: number | null; assetAccountId: number | null }> = [];
     if (["bill", "invoice", "estimate", "proforma invoice", "sales order", "quotation"].includes(type) || linkedItemIds.length) {
@@ -1111,7 +1141,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
         let overrideApproved = false;
         if (wantsOverride) {
           if (!stockSettings?.pinHash) return Response.json({ error: "Admin PIN is not configured. Open Management > Admin Controls." }, { status: 403 });
-          if (!stockPinVerified) return Response.json({ error: "Incorrect admin PIN. Negative stock was not allowed." }, { status: 403 });
+          if (!stockPinVerified) return Response.json({ error: stockPinCheck && !stockPinCheck.ok && stockPinCheck.blocked ? pinBlockedMessage(stockPinCheck.retryAfter) : "Incorrect admin PIN. Negative stock was not allowed." }, { status: stockPinCheck && !stockPinCheck.ok && stockPinCheck.blocked ? 429 : 403 });
           overrideApproved = true;
           usedAdminNegativeStockOverride = true;
         }
@@ -2118,7 +2148,7 @@ async function handlePATCH(request: Request) {
         const rows = await db.select().from(contacts).where(eq(contacts.companyId, companyId));
         let organization;
         try { organization = contactOrganization(payload, current, rows, authorization.role === "sales" ? authorization.id : undefined); }
-        catch (error) { throw new RequestError(error instanceof Error ? error.message : "Invalid contact status."); }
+        catch (error) { throw new RequestError(publicErrorMessage(error, "Invalid contact status.")); }
         const [record] = await db.update(contacts).set({ status: organization.status }).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId))).returning();
         await db.insert(auditLog).values({ companyId, action: "updated", entityType: "contact", entityId: id, details: JSON.stringify({ actorId: authorization.id, mode: "contact-status", before: current.status, after: organization.status }) });
         return Response.json({ record });
@@ -2170,7 +2200,7 @@ async function handlePATCH(request: Request) {
       const contactRows = await db.select().from(contacts).where(eq(contacts.companyId, companyId));
       let organization;
       try { organization = contactOrganization(payload, existing as typeof contacts.$inferSelect, contactRows, authorization.role === "sales" ? authorization.id : undefined); }
-      catch (error) { throw new RequestError(error instanceof Error ? error.message : "Invalid contact organization."); }
+      catch (error) { throw new RequestError(publicErrorMessage(error, "Invalid contact organization.")); }
       const changes: Record<string, string> = { name };
       for (const field of ["company", "billingName", "email", "phone", "whatsapp", "country", "trn", "reseller", "planet", "passport", "description"] as const) {
         if (payload[field] !== undefined) changes[field] = String(payload[field]).trim();

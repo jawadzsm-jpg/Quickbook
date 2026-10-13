@@ -21,6 +21,9 @@ export function LoginScreen({ branding: initialBranding, companies = [] }: { bra
   const [rememberEmail, setRememberEmail] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  // Two-step sign-in: shown after a correct password when the account uses an authenticator app.
+  const [mfaStep, setMfaStep] = useState(false);
+  const [mfaCode, setMfaCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<"login" | "forgot" | "reset">("login");
   const [resetToken, setResetToken] = useState("");
@@ -77,8 +80,14 @@ export function LoginScreen({ branding: initialBranding, companies = [] }: { bra
   async function submit(event: FormEvent) {
     event.preventDefault(); setLoading(true); setError("");
     try {
-      const response = await fetch("/api/auth/session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
+      const response = await fetch("/api/auth/session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password, ...(mfaStep ? { mfaCode } : {}) }) });
       const data = await response.json();
+      if (data.mfaRequired) {
+        // The password was right; ask for the authenticator code (the error explains a wrong or missing code).
+        if (mfaStep) setError(data.error || "The code is incorrect."); else { setMfaStep(true); setMfaCode(""); }
+        setLoading(false);
+        return;
+      }
       if (!response.ok) throw new Error(data.error || "Sign in failed.");
       try {
         if (rememberEmail) window.localStorage.setItem("comnet_login_email", email);
@@ -121,11 +130,12 @@ export function LoginScreen({ branding: initialBranding, companies = [] }: { bra
         }} className="mt-2 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm shadow-xs outline-none transition focus:border-blue-500 focus:ring-3 focus:ring-blue-500/15">
           {companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
         </select></div> : null}
-        <div className="space-y-2"><Label htmlFor="email">Email address</Label><div className="relative"><Mail className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input id="email" type="email" autoComplete="username" placeholder="name@company.com" value={email} onChange={(event) => setEmail(event.target.value)} required autoFocus className="h-11 bg-white pl-10 text-base sm:text-sm" /></div></div>
-        <div className="space-y-2"><div className="flex items-center justify-between gap-3"><Label htmlFor="password">Password</Label><button type="button" onClick={() => { setError(""); setMode("forgot"); }} className="text-sm font-medium text-blue-700 hover:underline">Forgot password?</button></div><div className="relative"><LockKeyhole className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input id="password" type="password" autoComplete="current-password" placeholder="Enter your password" value={password} onChange={(event) => setPassword(event.target.value)} required className="h-11 bg-white pl-10 text-base sm:text-sm" /></div></div>
+        <div className="space-y-2"><Label htmlFor="email">Email address</Label><div className="relative"><Mail className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input id="email" type="email" autoComplete="username" placeholder="name@company.com" value={email} onChange={(event) => { setEmail(event.target.value); setMfaStep(false); }} required autoFocus className="h-11 bg-white pl-10 text-base sm:text-sm" /></div></div>
+        <div className="space-y-2"><div className="flex items-center justify-between gap-3"><Label htmlFor="password">Password</Label><button type="button" onClick={() => { setError(""); setMode("forgot"); }} className="text-sm font-medium text-blue-700 hover:underline">Forgot password?</button></div><div className="relative"><LockKeyhole className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input id="password" type="password" autoComplete="current-password" placeholder="Enter your password" value={password} onChange={(event) => { setPassword(event.target.value); setMfaStep(false); }} required className="h-11 bg-white pl-10 text-base sm:text-sm" /></div></div>
+        {mfaStep && <div className="space-y-2 rounded-xl border border-blue-200 bg-blue-50/60 p-3"><Label htmlFor="mfa-code">Authenticator code</Label><Input id="mfa-code" inputMode="numeric" autoComplete="one-time-code" autoFocus maxLength={11} placeholder="123 456" value={mfaCode} onChange={(event) => setMfaCode(event.target.value)} required className="h-11 bg-white text-center font-mono text-lg tracking-[0.3em]" /><p className="text-xs text-slate-600">Open your authenticator app and enter the 6-digit code for EasyBook. Lost your phone? Enter one of your backup codes, or ask your administrator to reset two-step sign-in.</p></div>}
         {notice && !error && <p role="status" className="rounded-lg bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">{notice}</p>}
         {error && <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">{error}</p>}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-600"><input type="checkbox" checked={rememberEmail} onChange={(event) => setRememberEmail(event.target.checked)} className="size-4 rounded accent-blue-600" />Remember email</label><Button type="submit" disabled={loading} className="h-11 min-w-36 bg-blue-600 px-6 text-white shadow-sm hover:bg-blue-700"><KeyRound className="size-4" />{loading ? "Signing in…" : "Log In"}</Button></div>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-600"><input type="checkbox" checked={rememberEmail} onChange={(event) => setRememberEmail(event.target.checked)} className="size-4 rounded accent-blue-600" />Remember email</label><Button type="submit" disabled={loading} className="h-11 min-w-36 bg-blue-600 px-6 text-white shadow-sm hover:bg-blue-700"><KeyRound className="size-4" />{loading ? "Signing in…" : mfaStep ? "Verify" : "Log In"}</Button></div>
       </form> : null}
       <p className="px-3 text-xs font-medium text-slate-600">Copyright © {years} <span className="text-blue-700">{displayName}</span>. All rights reserved.</p>
     </div>

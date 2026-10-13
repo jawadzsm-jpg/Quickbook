@@ -1032,7 +1032,9 @@ test("forgot password sends single-use, expiring, hashed reset links without rev
   assert.match(route, /randomBytes\(32\)\.toString\("base64url"\)/);
   assert.match(route, /tokenHash: tokenDigest\(token\)/);
   assert.match(route, /MAX_LINKS_PER_HOUR = 3/);
-  assert.match(route, /NEXT_PUBLIC_APP_URL/);
+  // Reset links use the configured public address (lib/app-url.ts), never the request's Host header.
+  assert.match(route, /appBaseUrl\(request\)/);
+  assert.match(readFileSync(new URL("../lib/app-url.ts", import.meta.url), "utf8"), /NEXT_PUBLIC_APP_URL/);
   // Same answer for known and unknown emails, and the token is claimed atomically before the password changes.
   assert.match(route, /return Response\.json\(\{ ok: true, message: sentMessage \}/);
   assert.match(route, /isNull\(passwordResetTokens\.usedAt\), gt\(passwordResetTokens\.expiresAt, now\)/);
@@ -1213,7 +1215,7 @@ test("email failures are explained in plain language and the login email can be 
   // Resend has its own endpoint: same-origin user manager, administrator scope, only the unchanged temporary password, no update.
   assert.match(resend, /requireUserManager\(request, true\)/);
   assert.match(resend, /if \(isCompanyAdmin\(administrator\) && !canManage\(administrator, targetRole, await companyIdsForUser\(id\)\)\) return outOfScope\(\);/);
-  assert.match(resend, /!target\.active \|\| !target\.mustChangePassword \|\| !verifyPassword\(password, target\.passwordHash\)/);
+  assert.match(resend, /!target\.active \|\| !target\.mustChangePassword \|\| !\(await verifyPassword\(password, target\.passwordHash\)\)/);
   assert.doesNotMatch(resend, /\.update\(|\.insert\(|\.delete\(/);
   assert.doesNotMatch(route, /resendInvitation/);
   assert.equal((route.match(/friendlyEmailError\(error/g) ?? []).length, 2);

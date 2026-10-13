@@ -78,7 +78,7 @@ const { nextBackupAt, parseBackupSchedule } = await vite.ssrLoadModule("/lib/bac
 const service = await vite.ssrLoadModule("/lib/company-backups.ts");
 const { validBackupClaims, authorizeBackupWorker } = await vite.ssrLoadModule("/lib/backup-oidc.ts");
 const db=getDb();
-await database.exec("INSERT INTO companies(name) VALUES ('Backup One'),('Backup Two'); UPDATE app_users SET role='all_admin' WHERE id=1");
+await database.exec("INSERT INTO companies(name) VALUES ('Backup One'),('Backup Two'); UPDATE app_users SET role='all_admin', active=true, password_hash='test-only' WHERE id=1");
 const companyId=Number((await database.query("SELECT id FROM companies WHERE name='Backup One'")).rows[0].id);
 const otherId=Number((await database.query("SELECT id FROM companies WHERE name='Backup Two'")).rows[0].id);
 await database.query("INSERT INTO contacts(company_id,type,name) VALUES ($1,'customer','Own Customer'),($2,'customer','Other Customer')",[companyId,otherId]);
@@ -159,7 +159,7 @@ test('scheduler stops if schedule owner loses administrator access',async()=>{
   await database.query("UPDATE backup_schedules SET enabled=true,lease_until=NULL,next_run_at=now()-interval '1 minute' WHERE company_id=$1",[companyId]);
   assert.equal((await service.runScheduledBackups()).completed,0);
   assert.equal((await database.query('SELECT enabled FROM backup_schedules WHERE company_id=$1',[companyId])).rows[0].enabled,false);
-  await database.exec("UPDATE app_users SET role='all_admin' WHERE id=1");
+  await database.exec("UPDATE app_users SET role='all_admin', active=true, password_hash='test-only' WHERE id=1");
 });
 test('worker rejects unrelated repositories, pull requests, workflow paths and unsigned requests',async()=>{
   const claims={repository_id:'1359351844',repository:'jawadzsm-jpg/Quickbook',ref:'refs/heads/main',sub:'repo:jawadzsm-jpg/Quickbook:ref:refs/heads/main',workflow_ref:'jawadzsm-jpg/Quickbook/.github/workflows/backups.yml@refs/heads/main',event_name:'schedule'};

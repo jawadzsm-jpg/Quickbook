@@ -3,6 +3,7 @@ import { getDb } from "@/db";
 import { auditLog, cargos } from "@/db/schema";
 import { isAdministrator, requireCompanyAccess } from "@/lib/auth";
 import { parseCargo } from "@/lib/cargo";
+import { publicErrorMessage } from "@/lib/errors";
 
 // Shared cargo / freight agent list: every signed-in user with access to the company can view and add entries.
 // The user who added an entry, or an administrator, can edit it; only administrators can delete.
@@ -24,7 +25,7 @@ export async function POST(request: Request) {
   const user = await requireCompanyAccess(request, companyId, false, true);
   if (user instanceof Response) return user;
   let cargo;
-  try { cargo = parseCargo(payload); } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Check the cargo details." }, { status: 400 }); }
+  try { cargo = parseCargo(payload); } catch (error) { return Response.json({ error: publicErrorMessage(error, "Check the cargo details.") }, { status: 400 }); }
   const db = getDb();
   const [record] = await db.insert(cargos).values({ companyId, ...cargo, modes: cargo.modes.join(","), destinations: cargo.destinations.join(","), createdByUserId: user.id, createdByName: user.fullName }).returning();
   await db.insert(auditLog).values({ companyId, action: "created", entityType: "cargo", entityId: record.id, details: JSON.stringify({ actorId: user.id, name: record.name }) });
@@ -41,7 +42,7 @@ export async function PATCH(request: Request) {
   if (!existing) return Response.json({ error: "Cargo entry not found." }, { status: 404 });
   if (!isAdministrator(user) && existing.createdByUserId !== user.id) return Response.json({ error: "Only the person who added this cargo entry or an administrator can edit it." }, { status: 403 });
   let cargo;
-  try { cargo = parseCargo(payload); } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Check the cargo details." }, { status: 400 }); }
+  try { cargo = parseCargo(payload); } catch (error) { return Response.json({ error: publicErrorMessage(error, "Check the cargo details.") }, { status: 400 }); }
   const [record] = await db.update(cargos).set({ ...cargo, modes: cargo.modes.join(","), destinations: cargo.destinations.join(","), updatedAt: new Date().toISOString() }).where(eq(cargos.id, id)).returning();
   await db.insert(auditLog).values({ companyId, action: "updated", entityType: "cargo", entityId: id, details: JSON.stringify({ actorId: user.id, name: record.name }) });
   return Response.json({ record: toRow(record) });

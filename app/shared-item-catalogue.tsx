@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { csvCell } from '@/lib/export';
 
 type SharedItem = { id:number; itemNumber:string; sku:string; name:string; description:string; specifications:string; category:string; company:string; inventory:string };
 const PAGE_SIZE = 25;
@@ -37,7 +38,7 @@ export function SharedItemCatalogue({search,refresh,companyId,locationId,canUse,
  const pagedRows=rows.slice((currentPage-1)*PAGE_SIZE,currentPage*PAGE_SIZE);
  const description=(row:SharedItem)=>{try{const specs=JSON.parse(row.specifications) as {value:string}[];return specs.map(s=>s.value).filter(v=>v&&v.trim().toLowerCase()!=='no').join(' | ')||row.description;}catch{return row.description;}};
  const exportCsv=()=>{
-  const quote=(value:unknown)=>`"${String(value??'').replaceAll('"','""')}"`;
+  const quote=csvCell; // quotes and neutralises spreadsheet formulas (=, +, -, @)
   const csv=[['Company','Inventory','Item No.','SKU','Item','Category','Description','Qty','Price','Selling price','GRN'],...rows.map(r=>[r.company,r.inventory,r.itemNumber||13000+r.id,r.sku,r.name,r.category,description(r),0,0,0,0])].map(row=>row.map(quote).join(',')).join('\r\n');
   const url=URL.createObjectURL(new Blob(['\uFEFF',csv],{type:'text/csv;charset=utf-8'}));const link=document.createElement('a');link.href=url;link.download='shared-items-all-companies.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
  };

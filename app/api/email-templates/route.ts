@@ -3,8 +3,9 @@ import { getDb } from "@/db";
 import { appUsers, emailTemplates } from "@/db/schema";
 import { isAdministrator, requireCompanyAccess, type SessionUser } from "@/lib/auth";
 import { canEmailDocuments, EMAIL_BODY_MAX, EMAIL_SUBJECT_MAX, EMAIL_TEMPLATE_NAME_MAX, emailDocumentTypeValues } from "@/lib/email-templates";
+import { publicErrorMessage } from "@/lib/errors";
 
-const message = (error: unknown) => error instanceof Error ? error.message : "Could not save the email template.";
+const message = (error: unknown) => publicErrorMessage(error, "Could not save the email template.");
 const denied = () => Response.json({ error: "Only accountants and administrators use email templates." }, { status: 403 });
 
 async function access(request: Request, companyId: number, mutating = false) {

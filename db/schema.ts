@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, check, uuid, doublePrecision, index, integer, pgTable, serial, text, timestamp, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { bigint, boolean, check, uuid, doublePrecision, index, integer, pgTable, serial, text, timestamp, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
 
 export const companies = pgTable("companies", {
   id: serial("id").primaryKey(),
@@ -91,6 +91,13 @@ export const appUsers = pgTable("app_users", {
   notificationEmails: boolean("notification_emails").notNull().default(true),
   // Minutes without keyboard/mouse/touch activity before the user is signed out; 0 = never (migration 0119).
   idleTimeoutMinutes: integer("idle_timeout_minutes").notNull().default(15),
+  // Two-step sign-in with an authenticator app (migration 0123; lib/totp.ts, lib/secret-box.ts).
+  mfaEnabled: boolean("mfa_enabled").notNull().default(false),
+  mfaSecretEncrypted: text("mfa_secret_encrypted").notNull().default(""),
+  mfaPendingSecretEncrypted: text("mfa_pending_secret_encrypted").notNull().default(""),
+  mfaBackupCodes: text("mfa_backup_codes").notNull().default("[]"),
+  mfaLastStep: bigint("mfa_last_step", { mode: "number" }).notNull().default(0),
+  mfaEnabledAt: timestamp("mfa_enabled_at", { withTimezone: true, mode: "string" }),
   passwordHash: text("password_hash").notNull(),
   role: text("role", { enum: ["admin", "accountant", "sales", "purchasing", "inventory", "customization", "viewer"] }).notNull().default("viewer"),
   active: boolean("active").notNull().default(true),

@@ -6,6 +6,7 @@ import { eq, ne, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { auditLog, companies } from "@/db/schema";
 import { canAccessCompany, isAdministrator, requireApiUser } from "@/lib/auth";
+import { publicErrorMessage } from "@/lib/errors";
 
 const templates = new Set(["classic", "modern", "minimal"]);
 
@@ -14,7 +15,7 @@ function text(value: unknown, max: number) {
 }
 
 function errorMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : "Could not save company setup.";
+  const message = publicErrorMessage(error, "Could not save company setup.");
   if (message.includes("idx_companies_name")) return "A company with that name already exists.";
   return message.includes("does not exist") ? "The company database is being updated. Please refresh in a moment." : message;
 }
@@ -48,9 +49,9 @@ export async function PATCH(request: Request) {
       if (Object.keys(payload).some(key => key !== "companyId" && !keys.includes(key))) return Response.json({ error: "Accountants may update bank details and the company stamp only." }, { status: 403 });
       const updates: Record<string, string> = {};
       for (const key of keys) if (payload[key] !== undefined && key !== "bankAccounts" && key !== "stampPositions") updates[key] = text(payload[key], key === "stampData" || key === "bankStampData" ? 700001 : key === "bankRemark" ? MAX_BANK_REMARK_LENGTH : 120);
-      if (payload.bankAccounts !== undefined) { try { updates.bankAccounts = JSON.stringify(parseBankAccounts(payload.bankAccounts)); } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Check the bank accounts." }, { status: 400 }); } }
+      if (payload.bankAccounts !== undefined) { try { updates.bankAccounts = JSON.stringify(parseBankAccounts(payload.bankAccounts)); } catch (error) { return Response.json({ error: publicErrorMessage(error, "Check the bank accounts.") }, { status: 400 }); } }
       if (updates.stampData && (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(updates.stampData) || updates.stampData.length > 700000)) return Response.json({ error: "Upload a PNG, JPG or WebP stamp smaller than 500 KB." }, { status: 400 });
-      if (payload.stampPositions !== undefined) { try { updates.stampPositions = JSON.stringify(parseStampPositions(payload.stampPositions)); } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Check the stamp positions." }, { status: 400 }); } }
+      if (payload.stampPositions !== undefined) { try { updates.stampPositions = JSON.stringify(parseStampPositions(payload.stampPositions)); } catch (error) { return Response.json({ error: publicErrorMessage(error, "Check the stamp positions.") }, { status: 400 }); } }
       if (updates.bankStampData && !validBankStamp(updates.bankStampData)) return Response.json({ error: "Upload a PNG, JPG or WebP bank stamp smaller than 500 KB." }, { status: 400 });
       if (updates.bankCurrency !== undefined && !/^[A-Z]{3}$/.test(updates.bankCurrency)) return Response.json({ error: "Enter a three-letter bank currency." }, { status: 400 });
       if (!Object.keys(updates).length) return Response.json({ error: "Nothing to save." }, { status: 400 });
@@ -88,7 +89,7 @@ export async function PATCH(request: Request) {
       if (raw.length > 4_000_000) return Response.json({ error: "The layout is too large. Use smaller images." }, { status: 413 });
       let documentLayout = "";
       if (raw) {
-        try { documentLayout = serializeLayoutCollection(parseLayoutCollection(raw)); } catch (error) { return Response.json({ error: `Check the layout: ${error instanceof Error ? error.message : "invalid layout"}` }, { status: 400 }); }
+        try { documentLayout = serializeLayoutCollection(parseLayoutCollection(raw)); } catch (error) { return Response.json({ error: `Check the layout: ${publicErrorMessage(error, "invalid layout")}` }, { status: 400 }); }
       }
       return withWriteTransaction(async () => {
         const [record] = await getDb().update(companies).set({ documentLayout }).where(eq(companies.id, companyId)).returning();
@@ -120,21 +121,21 @@ export async function PATCH(request: Request) {
     const documentColor = text(payload.documentColor, 7);
     if (!Number.isInteger(companyId) || companyId <= 0 || !name) return Response.json({ error: "Company name is required." }, { status: 400 });
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return Response.json({ error: "Enter a valid company email address." }, { status: 400 });
-    if (logoData && (!/^data:image\/(png|jpeg|webp);base64,/.test(logoData) || logoData.length > 700_000)) return Response.json({ error: "Upload a PNG, JPG, or WebP logo smaller than 500 KB." }, { status: 400 });
+    if (logoData && (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(logoData) || logoData.length > 700_000)) return Response.json({ error: "Upload a PNG, JPG, or WebP logo smaller than 500 KB." }, { status: 400 });
     if (loginLogoData && (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(loginLogoData) || loginLogoData.length > 700_000)) return Response.json({ error: "Upload a PNG, JPG, or WebP login image smaller than 500 KB." }, { status: 400 });
     if (loginCompanyLogoData && (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(loginCompanyLogoData) || loginCompanyLogoData.length > 700_000)) return Response.json({ error: "Upload a PNG, JPG, or WebP login company logo smaller than 500 KB." }, { status: 400 });
     if (!/^(?:19|20)\d{2}(?:-(?:19|20)\d{2})?$/.test(loginCopyrightYears)) return Response.json({ error: "Enter copyright years such as 1996-2021." }, { status: 400 });
     if (loginBackgroundData && (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(loginBackgroundData) || loginBackgroundData.length > 2_700_000)) return Response.json({ error: "Upload a PNG, JPG, or WebP background smaller than 2 MB." }, { status: 400 });
     if (!/^#[0-9a-fA-F]{6}$/.test(loginBackgroundColor)) return Response.json({ error: "Choose a valid login background color." }, { status: 400 });
     if (typeof loginBranding !== "boolean") return Response.json({ error: "Choose whether to show this company on the login page." }, { status: 400 });
-    if (rightLogoData && (!/^data:image\/(png|jpeg|webp);base64,/.test(rightLogoData) || rightLogoData.length > 700_000)) return Response.json({ error: "Upload a PNG, JPG, or WebP right logo smaller than 500 KB." }, { status: 400 });
-    if (stampData && (!/^data:image\/[a-z0-9.+-]+;base64,/i.test(stampData) || stampData.length > 700_000)) return Response.json({ error: "Upload an image stamp smaller than 500 KB." }, { status: 400 });
+    if (rightLogoData && (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(rightLogoData) || rightLogoData.length > 700_000)) return Response.json({ error: "Upload a PNG, JPG, or WebP right logo smaller than 500 KB." }, { status: 400 });
+    if (stampData && (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(stampData) || stampData.length > 700_000)) return Response.json({ error: "Upload a PNG, JPG or WebP stamp smaller than 500 KB." }, { status: 400 });
     if (!/^[A-Z]{3}$/.test(bankCurrency)) return Response.json({ error: "Choose a valid bank account currency." }, { status: 400 });
     const bankStampData = payload.bankStampData === undefined ? existing.bankStampData : String(payload.bankStampData ?? "");
     if (!validBankStamp(bankStampData)) return Response.json({ error: "Upload a PNG, JPG or WebP bank stamp smaller than 500 KB." }, { status: 400 });
     let bankAccounts = existing.bankAccounts;
     if (payload.bankAccounts !== undefined) {
-      try { bankAccounts = JSON.stringify(parseBankAccounts(payload.bankAccounts)); } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Check the bank accounts." }, { status: 400 }); }
+      try { bankAccounts = JSON.stringify(parseBankAccounts(payload.bankAccounts)); } catch (error) { return Response.json({ error: publicErrorMessage(error, "Check the bank accounts.") }, { status: 400 }); }
     }
     if (!templates.has(documentTemplate) || !/^#[0-9a-fA-F]{6}$/.test(documentColor)) return Response.json({ error: "Choose a valid document design and color." }, { status: 400 });
     return await withWriteTransaction(async () => {

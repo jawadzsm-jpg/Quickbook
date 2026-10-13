@@ -4,6 +4,7 @@ import { getDb, withWriteTransaction } from "@/db";
 import { accounts, auditLog, companies, inventoryLocations, journalEntries, journalLines, transactionLines, transactions, vatAdjustments, vatCodes, vatReturns } from "@/db/schema";
 import { canAccessCompany, requireApiUser, requireCompanyAccess } from "@/lib/auth";
 import { guardFiledPeriod } from "@/lib/period-lock";
+import { publicErrorMessage } from "@/lib/errors";
 
 const round = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
@@ -154,7 +155,7 @@ async function getVatManagement(request: Request) {
       db.select().from(vatAdjustments).where(eq(vatAdjustments.companyId, companyId)).orderBy(desc(vatAdjustments.adjustmentDate), desc(vatAdjustments.id)).limit(100),
     ]);
     return Response.json({ summary, returns, adjustments });
-  } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Could not load VAT management." }, { status: 500 }); }
+  } catch (error) { return Response.json({ error: publicErrorMessage(error, "Could not load VAT management.") }, { status: 500 }); }
 }
 
 async function updateVatManagement(request: Request) {
@@ -219,7 +220,7 @@ async function updateVatManagement(request: Request) {
     }
 
     return Response.json({ error: "Choose a valid VAT action." }, { status: 400 });
-  } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Could not update VAT." }, { status: 500 }); }
+  } catch (error) { return Response.json({ error: publicErrorMessage(error, "Could not update VAT.") }, { status: 500 }); }
 }
 
 function noStore(response: Response) {

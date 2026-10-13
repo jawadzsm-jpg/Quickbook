@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { csvCell } from '@/lib/export';
 
 type SharedItem = { id:number; itemNumber:string; sku:string; name:string; description:string; specifications:string; category:string };
 export function SharedOutOfStock({search,refresh,companyId,locationId,canUse,onUsed}:{search:string;refresh:number;companyId?:number;locationId?:number;canUse:boolean;onUsed:()=>void}) {
@@ -28,7 +29,7 @@ export function SharedOutOfStock({search,refresh,companyId,locationId,canUse,onU
  const rows=Array.from(new Map(filteredRows.map(row=>[(row.sku||`id-${row.id}`).trim().toLowerCase(),row])).values());
  const description=(row:SharedItem)=>{try{const specs=JSON.parse(row.specifications) as {value:string}[];return specs.map(s=>s.value).filter(v=>v&&v.trim().toLowerCase()!=='no').join(' | ')||row.description;}catch{return row.description;}};
  const exportCsv=()=>{
-  const quote=(value:unknown)=>`"${String(value??'').replaceAll('"','""')}"`;
+  const quote=csvCell; // quotes and neutralises spreadsheet formulas (=, +, -, @)
   const csv=[['Item No.','SKU','Item','Category','Description','Status'],...rows.map(r=>[r.itemNumber||13000+r.id,r.sku,r.name,r.category,description(r),'Not in selected inventory'])].map(row=>row.map(quote).join(',')).join('\r\n');
   const url=URL.createObjectURL(new Blob(['\uFEFF',csv],{type:'text/csv;charset=utf-8'}));const link=document.createElement('a');link.href=url;link.download='out-of-stock-all-companies.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
  };

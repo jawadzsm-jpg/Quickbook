@@ -7,7 +7,8 @@ import { normalizeComparableText } from "@/lib/text-normalization";
 import { standardAccounts } from "@/lib/standard-accounts";
 import { standardVatCodes } from "@/lib/standard-vat-codes";
 import { editionLimitResponse } from "@/lib/edition-server";
-const message = (error: unknown) => error instanceof Error ? error.message : "Could not update companies and inventory locations.";
+import { publicErrorMessage } from "@/lib/errors";
+const message = (error: unknown) => publicErrorMessage(error, "Could not update companies and inventory locations.");
 
 export async function GET(request: Request) {
   const authorization = await requireApiUser(request, "workspace:read");

@@ -1,18 +1,19 @@
 import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { auditLog, companies, exchangeRates } from "../../../db/schema";
-import { requireApiUser } from "@/lib/auth";
+import { requireCompanyAccess } from "@/lib/auth";
+import { publicErrorMessage } from "@/lib/errors";
 
 function message(error: unknown) {
-  return error instanceof Error ? error.message : "Could not update exchange rates.";
+  return publicErrorMessage(error, "Could not update exchange rates.");
 }
 
 export async function GET(request: Request) {
-  const authorization = await requireApiUser(request, "workspace:read");
+  const companyId = Number(new URL(request.url).searchParams.get("companyId"));
+  // Only companies the user belongs to (requireCompanyAccess also rejects invalid IDs).
+  const authorization = await requireCompanyAccess(request, companyId, "workspace:read");
   if (authorization instanceof Response) return authorization;
   try {
-    const companyId = Number(new URL(request.url).searchParams.get("companyId"));
-    if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     const db = getDb();
     const rates = await db.select().from(exchangeRates).where(eq(exchangeRates.companyId, companyId)).orderBy(asc(exchangeRates.currencyCode));
     return Response.json({ rates });
@@ -20,11 +21,13 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const authorization = await requireApiUser(request, true, true);
+  let payload: Record<string, unknown>;
+  try { payload = (await request.json()) as Record<string, unknown>; } catch { return Response.json({ error: "Invalid request." }, { status: 400 }); }
+  const companyId = Number(payload.companyId);
+  // Administrators change rates only in their own companies.
+  const authorization = await requireCompanyAccess(request, companyId, true, true);
   if (authorization instanceof Response) return authorization;
   try {
-    const payload = (await request.json()) as Record<string, unknown>;
-    const companyId = Number(payload.companyId);
     const currencyCode = String(payload.currencyCode ?? "").trim().toUpperCase();
     const rate = Number(payload.rate);
     if (!Number.isInteger(companyId) || companyId <= 0 || !/^[A-Z]{3}$/.test(currencyCode) || !Number.isFinite(rate) || rate <= 0 || rate > 1_000_000) {
@@ -44,11 +47,13 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const authorization = await requireApiUser(request, true, true);
+  let payload: Record<string, unknown>;
+  try { payload = (await request.json()) as Record<string, unknown>; } catch { return Response.json({ error: "Invalid request." }, { status: 400 }); }
+  const companyId = Number(payload.companyId);
+  // Administrators change rates only in their own companies.
+  const authorization = await requireCompanyAccess(request, companyId, true, true);
   if (authorization instanceof Response) return authorization;
   try {
-    const payload = (await request.json()) as Record<string, unknown>;
-    const companyId = Number(payload.companyId);
     const id = Number(payload.id);
     const rate = Number(payload.rate);
     if (!Number.isInteger(companyId) || !Number.isInteger(id) || !Number.isFinite(rate) || rate <= 0 || rate > 1_000_000) return Response.json({ error: "Enter a valid exchange rate greater than zero." }, { status: 400 });

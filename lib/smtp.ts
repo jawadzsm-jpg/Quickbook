@@ -1,37 +1,17 @@
 import "server-only";
 
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import nodemailer from "nodemailer";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { emailSettings } from "@/db/schema";
+import { decryptSecret, encryptSecret } from "./secret-box";
 import { turboSmtpClient, type MailMessage } from "./turbosmtp-api";
 import type { DeliveryCheck } from "./email-delivery";
 
 const settingId = 1;
 
-function encryptionKey() {
-  // Prefer a dedicated key; the existing server-only database credential keeps
-  // encryption functional until that optional key is configured in Vercel.
-  const secret = process.env.SMTP_ENCRYPTION_KEY || process.env.DATABASE_URL || "";
-  if (secret.length < 32) throw new Error("SMTP encryption is not configured.");
-  return createHash("sha256").update(secret).digest();
-}
-
-export function encryptSmtpPassword(password: string) {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", encryptionKey(), iv);
-  const encrypted = Buffer.concat([cipher.update(password, "utf8"), cipher.final()]);
-  return ["v1", iv.toString("base64url"), cipher.getAuthTag().toString("base64url"), encrypted.toString("base64url")].join(".");
-}
-
-function decryptSmtpPassword(value: string) {
-  const [version, iv, tag, encrypted] = value.split(".");
-  if (version !== "v1" || !iv || !tag || !encrypted) throw new Error("The saved SMTP password is invalid.");
-  const decipher = createDecipheriv("aes-256-gcm", encryptionKey(), Buffer.from(iv, "base64url"));
-  decipher.setAuthTag(Buffer.from(tag, "base64url"));
-  return Buffer.concat([decipher.update(Buffer.from(encrypted, "base64url")), decipher.final()]).toString("utf8");
-}
+export const encryptSmtpPassword = encryptSecret;
+const decryptSmtpPassword = decryptSecret;
 
 export async function getEmailSettings() {
   const [settings] = await getDb().select().from(emailSettings).where(eq(emailSettings.id, settingId)).limit(1);

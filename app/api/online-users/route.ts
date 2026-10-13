@@ -1,4 +1,4 @@
-import { and, desc, eq, gt } from "drizzle-orm";
+import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { appUsers, authSessions } from "@/db/schema";
 import { isAdministrator, requireApiUser, touchRequestSession } from "@/lib/auth";
@@ -21,7 +21,11 @@ export async function POST(request: Request) {
     lastSeenAt: authSessions.lastSeenAt,
   }).from(authSessions)
     .innerJoin(appUsers, eq(authSessions.userId, appUsers.id))
-    .where(and(gt(authSessions.lastSeenAt, activeSince), gt(authSessions.expiresAt, now.toISOString()), eq(appUsers.active, true)))
+    .where(and(gt(authSessions.lastSeenAt, activeSince), gt(authSessions.expiresAt, now.toISOString()), eq(appUsers.active, true),
+      // Company users see colleagues who share one of their companies (and All-Admins); an All-Admin sees everyone.
+      currentUser.role === "all_admin" ? undefined : currentUser.companyIds.length
+        ? sql`(${appUsers.role} = 'all_admin' OR EXISTS (SELECT 1 FROM app_user_companies uc WHERE uc.user_id = ${appUsers.id} AND uc.company_id IN (${sql.join(currentUser.companyIds.map((id) => sql`${id}`), sql`, `)})))`
+        : eq(appUsers.id, currentUser.id)))
     .orderBy(desc(authSessions.lastSeenAt));
 
   // Every user sees who is online; only administrators see sign-in IP addresses.

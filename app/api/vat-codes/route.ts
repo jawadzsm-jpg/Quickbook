@@ -1,11 +1,12 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "../../../db";
 import { auditLog, companies, vatCodes } from "../../../db/schema";
-import { canAccessCompany, requireApiUser, requireCompanyAccess } from "@/lib/auth";
+import { canAccessCompany, hasPermission, requireApiUser, requireCompanyAccess } from "@/lib/auth";
 import { standardVatCodes } from "@/lib/standard-vat-codes";
+import { publicErrorMessage } from "@/lib/errors";
 
 function errorMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : "Could not update VAT codes.";
+  const message = publicErrorMessage(error, "Could not update VAT codes.");
   if (message.includes("idx_vat_codes_company_code")) return "That VAT code already exists for this company.";
   return message.includes("does not exist") ? "The accounting database is being updated. Please refresh in a moment." : message;
 }
@@ -33,8 +34,10 @@ async function getVatCodes(request: Request) {
     if (url.searchParams.has("id")) {
       const code = codes.find((entry) => entry.id === requestedId);
       if (!code) return Response.json({ error: "VAT code not found." }, { status: 404 });
+      // The document list crosses every role's document visibility, so only accounting roles see it.
+      const seesDocuments = hasPermission(authorization, "accounting:manage");
       const [documents, itemUsage, attachments] = await Promise.all([
-        db.execute(sql`
+        !seesDocuments ? Promise.resolve({ rows: [] }) : db.execute(sql`
           SELECT DISTINCT t.id, t.transaction_date AS "transactionDate", t.number, t.type, t.party, t.currency, t.total
           FROM transaction_lines line
           JOIN transactions t ON t.id=line.transaction_id

@@ -40,6 +40,8 @@ const vite = await createServer({
       if (id === "\0test-auth") return `
         export * from "/lib/access.ts";
         export * from "/lib/password.ts";
+        // Session functions are the real ones (sign-in, two-step and password routes are tested end to end).
+        export { createSession, getRequestUser, requestIpAddress, sessionCookie, revokeRequestSession, touchRequestSession, markRequestSessionActive } from "/lib/auth.ts?real";
         import { salesRouteAllowed } from "/lib/sales-access.ts";
         import { hasPermission, isAdministrator, canAccessCompany } from "/lib/access.ts";
         export const requireApiUser = async (request, required = false) => {
@@ -4523,4 +4525,85 @@ test("email delivery status: turboSMTP message IDs are kept, Check delivery save
     assert.equal((await test.json()).delivery.label, "Delivered");
     assert.equal((await testDelivery.POST(json("/api/email-settings/delivery", "POST", { ids: ["../x"] }))).status, 400);
   } finally { globalThis.fetch = realFetch; await database.query("DELETE FROM email_settings"); }
+});
+
+test("security: sign-in limits and lockout, passwordless accounts, two-step codes, PIN guessing, company isolation", async () => {
+  const session = await vite.ssrLoadModule("/app/api/auth/session/route.ts");
+  const mfaRoute = await vite.ssrLoadModule("/app/api/auth/mfa/route.ts");
+  const { totpCode, currentStep } = await vite.ssrLoadModule("/lib/totp.ts");
+  const { hashPassword } = await vite.ssrLoadModule("/lib/password.ts");
+  const { checkAdminPin } = await vite.ssrLoadModule("/lib/pin-attempts.ts");
+  const { hashAdminPin } = await vite.ssrLoadModule("/lib/admin-pin.ts");
+  const { csvCell } = await vite.ssrLoadModule("/lib/export.ts");
+  const { publicErrorMessage } = await vite.ssrLoadModule("/lib/errors.ts");
+  const post = (body, cookie = "", ip = "203.0.113.9") => new Request("https://app.test/api/auth/session", { method: "POST", headers: { origin: "https://app.test", host: "app.test", "content-type": "application/json", "x-forwarded-for": ip, ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body) });
+
+  // RFC 6238 test vector (SHA-1 key "12345678901234567890", T=59s → 94287082, last 6 digits).
+  assert.equal(totpCode("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", 1), "287082");
+
+  const password = "correct horse battery 9";
+  const userId = (await database.query("INSERT INTO app_users (email, password_hash, role) VALUES ('secure@example.test', $1, 'viewer') RETURNING id", [await hashPassword(password)])).rows[0].id;
+  assert.equal((await session.POST(post({ email: "secure@example.test", password: "wrong" }))).status, 401, "a wrong password is refused");
+  const ok = await session.POST(post({ email: "secure@example.test", password }));
+  assert.equal(ok.status, 200, await ok.clone().text());
+  assert.match(ok.headers.get("set-cookie"), /comnet_session=.+HttpOnly; Secure; SameSite=Strict/);
+
+  // Passwordless accounts (the old Admin-PIN sign-in) cannot sign in, and migration 0124 deactivated the seeded one.
+  await database.query("INSERT INTO app_users (email, password_hash, role) VALUES ('nopass@example.test', '', 'admin')");
+  assert.equal((await session.POST(post({ email: "nopass@example.test", password: "1234" }))).status, 401);
+  assert.equal((await database.query("SELECT active FROM app_users WHERE email = 'admin@comnet.local'")).rows[0]?.active ?? false, false);
+
+  // Five parallel wrong guesses lock the account (the counter is atomic); the right password is then refused too.
+  await Promise.all(Array.from({ length: 5 }, () => session.POST(post({ email: "secure@example.test", password: "guess" }))));
+  assert.ok((await database.query("SELECT locked_until FROM app_users WHERE id = $1", [userId])).rows[0].locked_until, "locked after 5 failures");
+  const locked = await session.POST(post({ email: "secure@example.test", password }));
+  assert.equal(locked.status, 401);
+  assert.equal((await locked.json()).error, (await (await session.POST(post({ email: "nobody@example.test", password: "x" }))).json()).error, "locked and unknown accounts get the same answer");
+  await database.query("UPDATE app_users SET locked_until = NULL, failed_login_attempts = 0 WHERE id = $1", [userId]);
+
+  // Two-step sign-in: set up, then a code is required; codes cannot be reused; backup codes work once.
+  const cookie = ok.headers.get("set-cookie").split(";")[0];
+  const mfa = (body) => mfaRoute.POST(new Request("https://app.test/api/auth/mfa", { method: "POST", headers: { origin: "https://app.test", host: "app.test", "content-type": "application/json", cookie }, body: JSON.stringify(body) }));
+  const started = await (await mfa({ action: "start" })).json();
+  const secret = started.secret.replace(/\s/g, "");
+  assert.match(started.qrCode, /^data:image\/svg\+xml;base64,/);
+  assert.equal((await mfa({ action: "enable", code: "000000" })).status, 400);
+  const enabled = await (await mfa({ action: "enable", code: totpCode(secret, currentStep()) })).json();
+  assert.equal(enabled.backupCodes.length, 10);
+  const needsCode = await session.POST(post({ email: "secure@example.test", password }));
+  assert.equal(needsCode.status, 401); assert.equal((await needsCode.json()).mfaRequired, true);
+  const nextCode = totpCode(secret, currentStep() + 1);
+  assert.equal((await session.POST(post({ email: "secure@example.test", password, mfaCode: nextCode }))).status, 200);
+  assert.equal((await session.POST(post({ email: "secure@example.test", password, mfaCode: nextCode }))).status, 401, "a used code is refused");
+  assert.equal((await session.POST(post({ email: "secure@example.test", password, mfaCode: enabled.backupCodes[0] }))).status, 200);
+  assert.equal((await session.POST(post({ email: "secure@example.test", password, mfaCode: enabled.backupCodes[0] }))).status, 401, "a backup code works once");
+  await database.query("UPDATE app_users SET locked_until = NULL, failed_login_attempts = 0 WHERE id = $1", [userId]);
+
+  // Admin PIN: wrong guesses are limited per user and company; the right PIN works until the limit is reached.
+  const pinCompany = (await database.query("INSERT INTO companies (name) VALUES ('PIN Co') RETURNING id")).rows[0].id;
+  const pinHash = hashAdminPin("482915");
+  assert.equal((await checkAdminPin(pinCompany, 77, "482915", pinHash)).ok, true);
+  for (let attempt = 0; attempt < 5; attempt++) assert.equal((await checkAdminPin(pinCompany, 77, "000000", pinHash)).ok, false);
+  const blocked = await checkAdminPin(pinCompany, 77, "482915", pinHash);
+  assert.equal(blocked.ok, false); assert.equal(blocked.blocked, true, "even the right PIN waits after 5 wrong ones");
+  assert.equal((await checkAdminPin(pinCompany, 78, "482915", pinHash)).ok, true, "other users are not blocked");
+
+  // Company isolation: an Administrator of one company cannot change another company's exchange rates or employee files.
+  const rates = await vite.ssrLoadModule("/app/api/exchange-rates/route.ts");
+  const attachments = await vite.ssrLoadModule("/app/api/attachments/route.ts");
+  const otherCompany = (await database.query("INSERT INTO companies (name, base_currency) VALUES ('Other Co', 'AED') RETURNING id")).rows[0].id;
+  const json = (url, method, body) => new Request(`https://app.test${url}`, { method, headers: { origin: "https://app.test", "content-type": "application/json" }, body: JSON.stringify(body) });
+  globalThis.__transferTestUser = { id: 90, email: "admin1@example.test", role: "admin", companyIds: [pinCompany], mustChangePassword: false };
+  try {
+    assert.equal((await rates.POST(json("/api/exchange-rates", "POST", { companyId: otherCompany, currencyCode: "USD", rate: 0.01 }))).status, 403);
+    assert.equal((await rates.GET(new Request(`https://app.test/api/exchange-rates?companyId=${otherCompany}`))).status, 403);
+    globalThis.__transferTestUser = { id: 91, email: "viewer@example.test", role: "viewer", companyIds: [pinCompany], mustChangePassword: false };
+    assert.equal((await attachments.GET(new Request(`https://app.test/api/attachments?companyId=${pinCompany}&entityType=employee&entityId=1`))).status, 403, "employee files are for administrators");
+  } finally { delete globalThis.__transferTestUser; }
+
+  // Exports neutralise spreadsheet formulas; database errors never reach the browser.
+  assert.equal(csvCell('=HYPERLINK("http://x")'), `"'=HYPERLINK(""http://x"")"`);
+  assert.equal(csvCell("\t=1+1").startsWith(`"'`), true);
+  assert.equal(publicErrorMessage(Object.assign(new Error("Failed query: select * from app_users\nparams: secret"), { name: "DrizzleQueryError" }), "Could not load."), "Could not load.");
+  assert.equal(publicErrorMessage(new Error("Select a company."), "x"), "Select a company.");
 });

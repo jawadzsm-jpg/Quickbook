@@ -7,6 +7,7 @@ import { ChevronDown, Download, FileSpreadsheet, FileText, Table2 } from "lucide
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
+import { csvCell } from "@/lib/export";
 
 type ExportTable = { title: string; headers: string[]; rows: string[][] };
 
@@ -85,12 +86,6 @@ function downloadBlob(blob: Blob, filename: string) {
   anchor.click();
   anchor.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function csvCell(value: string) {
-  let safe = value;
-  if (/^[=+\-@]/.test(safe)) safe = `'${safe}`;
-  return `"${safe.replaceAll('"', '""')}"`;
 }
 
 function exportCsv(tables: ExportTable[]) {

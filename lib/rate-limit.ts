@@ -24,3 +24,10 @@ export async function limitLogin(email: string) {
   if (!budget.allowed) return Response.json({ error: "Too many sign-in attempts. Please try again later." }, { status: 429, headers: { "Retry-After": String(budget.retryAfter) } });
   return null;
 }
+
+/** Whether a bucket is already over its limit, without counting this request (for failure-only limits). */
+export async function rateLimitBlocked(bucket: string, limit: number) {
+  const result = await getDb().execute(sql`SELECT attempts, GREATEST(1, CEIL(EXTRACT(EPOCH FROM (reset_at - now()))))::int AS retry_after FROM auth_rate_limits WHERE bucket = ${bucket} AND reset_at > now()`);
+  const row = result.rows[0];
+  return row && Number(row.attempts) >= limit ? { blocked: true, retryAfter: Number(row.retry_after) } : { blocked: false, retryAfter: 0 };
+}

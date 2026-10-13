@@ -4,8 +4,9 @@ import { auditLog, items, warehouses, warehouseTransfers } from "../../../db/sch
 import { canAccessCompany, requireApiUser } from "@/lib/auth";
 import { dubaiDay } from "@/lib/document-access";
 import { adjustWarehouseStock, warehouseQuantities } from "@/lib/warehouses";
+import { publicErrorMessage } from "@/lib/errors";
 
-const message = (error: unknown) => error instanceof Error ? error.message : "Could not move stock between warehouses.";
+const message = (error: unknown) => publicErrorMessage(error, "Could not move stock between warehouses.");
 const positiveId = (value: unknown) => { const id = Number(value); return Number.isSafeInteger(id) && id > 0 ? id : null; };
 
 /** Recent moves between warehouses of one inventory (?companyId=&locationId=). */
