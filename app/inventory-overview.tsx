@@ -130,6 +130,18 @@ function specificationText(record: OverviewItem) {
   return itemSpecificationDescription(record.description, record.name, record.sku, record.itemNumber);
 }
 
+/**
+ * The specifications for WhatsApp, Telegram, Email copies and the Excel export: Product Customization Details (RAM,
+ * Storage, Screen Details, Part Number, Serial, UPC No.) are left out. Saving them also writes RAM, Storage and Part
+ * Number into the specifications, so any specification equal to a customization value is dropped too.
+ */
+function shareSpecificationText(record: OverviewItem) {
+  const custom = new Set([record.customizationRam, record.customizationStorage, record.customizationScreen, record.partNumber, record.itemSerialNumber, record.upcNumber]
+    .map((value) => String(value ?? "").trim().toLocaleUpperCase("en")).filter(Boolean));
+  if (!custom.size) return specificationText(record);
+  return specificationText(record).split("|").map((part) => part.trim()).filter((part) => part && !custom.has(part.toLocaleUpperCase("en"))).join(" | ");
+}
+
 const noCondition = "Not specified";
 // Condition (BRAND NEW, OPEN BOX, ...) as written in the product's specifications or description.
 const conditionOf = (record: OverviewItem) => inventoryItemCondition(record.name, record.sku, specificationText(record), record.itemNumber) || noCondition;
@@ -507,7 +519,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem, onCreateDocument
     // Items on a running Today Offer share the struck-through normal price, the offer price and when the offer ends.
     const offerByItem = new Map(runningOffers(offers).map((offer) => [offer.itemId, offer]));
     const items = shareRecords.map((record) => {
-      const description = specificationText(record);
+      const description = shareSpecificationText(record);
       const emoji = channel === "email" ? shareEmojiStyle("none") : emojiFor(channel, record.companyId);
       // WhatsApp's Classic style keeps its plain detail lines; every other style marks them too.
       const lineEmoji = (mark: string) => channel === "email" || (channel === "whatsapp" && emoji.id === "classic") ? "" : mark;
@@ -592,7 +604,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem, onCreateDocument
     if (!canSelectItems || loading) return;
     const exportRecords = shareRecords;
     if (!exportRecords.length) return noShareRecords("export");
-    const headers = ["Company", "Inventory", ...(warehouseFilter ? ["Warehouse"] : []), "Category", "Item No.", "SKU", "Item", "Specifications", "Screen Details"];
+    const headers = ["Company", "Inventory", ...(warehouseFilter ? ["Warehouse"] : []), "Category", "Item No.", "SKU", "Item", "Specifications"];
     if (showQuantity) headers.push("Quantity");
     if (showPrice) headers.push(`${mode === "include" ? "Price including 5% VAT" : mode === "zero" ? "Price (0% VAT)" : "Export price excluding VAT"}${adjustLabel ? ` (${adjustLabel.trim()})` : ""}`, "Currency");
     // Running Today Offers: two extra columns, added only when an exported product has one.
@@ -604,7 +616,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem, onCreateDocument
     const bodyRows = exportRecords.map((record) => {
       const values: Array<{ value: unknown; type?: "Number"; style?: string }> = [
         { value: record.companyName }, { value: record.inventories.map((inventory) => inventory.locationName).join(", ") }, ...(warehouseFilter ? [{ value: warehouseLabel.split(" · ").slice(1).join(" · ") || warehouseLabel }] : []), { value: record.category, style: `Category-${categoryColor(record.category, categoryColors).id}` },
-        { value: record.itemNumber ?? "" }, { value: record.sku }, { value: record.name }, { value: specificationText(record) }, { value: record.customizationScreen ?? "" },
+        { value: record.itemNumber ?? "" }, { value: record.sku }, { value: record.name }, { value: shareSpecificationText(record) },
       ];
       if (showQuantity) values.push({ value: Number(record.quantity), type: "Number", style: "Number" });
       if (showPrice) values.push({ value: priceFor(record, mode), type: "Number", style: "Money" }, { value: record.currency });
