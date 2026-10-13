@@ -11,6 +11,7 @@ import { WorkspaceOnlineUsers } from "./workspace-online-users";
 import { IdleSignOut } from "./idle-sign-out";
 import { ChangePasswordButton } from "./change-password-dialog";
 import { CompanyAnnouncements } from "./company-announcements";
+import { UserNotes } from "./user-notes";
 import { DEFAULT_EDITION, editionDetails, type Edition } from "@/lib/edition";
 import { WorkspaceNotifications } from "./workspace-notifications";
 import { PdcCheques } from "./pdc-cheques";
@@ -1595,7 +1596,7 @@ function Dashboard({ companyId, locationId, metrics, records, companyName, curre
   return <div className="space-y-6">
     <CompanyAnnouncements key={companyId} companyId={companyId} canManage={canManageAnnouncements} />
     <div className="flex w-fit rounded-xl border border-slate-200 bg-white p-1 shadow-sm" role="tablist" aria-label="Overview sections"><button type="button" role="tab" aria-selected={dashboardTab === "home"} onClick={() => setDashboardTab("home")} className={`rounded-lg px-5 py-2 text-sm font-bold transition ${dashboardTab === "home" ? "brand-primary-button shadow-sm" : "text-slate-500 hover:bg-slate-100"}`}>Home Page</button><button type="button" role="tab" aria-selected={dashboardTab === "insights"} onClick={() => setDashboardTab("insights")} className={`rounded-lg px-5 py-2 text-sm font-bold transition ${dashboardTab === "insights" ? "brand-primary-button shadow-sm" : "text-slate-500 hover:bg-slate-100"}`}>Insights</button></div>
-    {dashboardTab === "home" ? <WorkflowHome canViewReports={canViewReports} allowAction={allowAction} onNavigate={onNavigate} onWorkflow={onWorkflow} /> : <>
+    {dashboardTab === "home" ? <><UserNotes key={companyId} companyId={companyId} /><WorkflowHome canViewReports={canViewReports} allowAction={allowAction} onNavigate={onNavigate} onWorkflow={onWorkflow} /></> : <>
     <section className="brand-hero rounded-2xl p-6 text-white shadow-sm lg:flex lg:items-center lg:justify-between">
       <div><div className="brand-hero-signal mb-3 flex items-center gap-2 text-xs font-semibold tracking-[.15em]"><span className="brand-hero-dot size-2 rounded-full" /> COMPANY FILE ACTIVE</div><h2 className="text-2xl font-bold">{companyName}</h2><p className="mt-1 text-sm text-slate-300">Post transactions, control stock and close your books from one workspace.</p></div>
       <div className="mt-5 flex flex-wrap gap-2 lg:mt-0">{canViewReports && <Button variant="outline" onClick={() => onNavigate("reports")} className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white"><FileBarChart2 />View reports</Button>}{canCreate && <Button onClick={onCreate} className="brand-primary-button"><Plus />Record transaction</Button>}</div>

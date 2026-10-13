@@ -115,7 +115,7 @@ test('company archive includes children, attachments and templates but excludes 
   for(const [table,rows] of Object.entries(archive.tables))assert.equal(archive.manifest.rowCounts[table],rows.length);
 });
 test('every migrated table has an explicit backup inclusion or exclusion decision',async()=>{
-  const excluded=['announcements','announcement_recipients','announcement_dismissals','app_settings','app_users','app_user_companies','auth_sessions','password_reset_tokens','api_keys','email_settings','auth_rate_limits','idempotency_requests','sku_work_locks','backup_schedules','company_backups','backup_worker_status','notifications'];
+  const excluded=['user_notes','announcements','announcement_recipients','announcement_dismissals','app_settings','app_users','app_user_companies','auth_sessions','password_reset_tokens','api_keys','email_settings','auth_rate_limits','idempotency_requests','sku_work_locks','backup_schedules','company_backups','backup_worker_status','notifications'];
   const tables=(await database.query("SELECT tablename FROM pg_tables WHERE schemaname='public'")).rows.map(r=>r.tablename);
   assert.deepEqual(tables.filter(t=>!backupTables.includes(t)&&!excluded.includes(t)),[]);
 });

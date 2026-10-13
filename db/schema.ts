@@ -611,6 +611,17 @@ export const notifications = pgTable("notifications", {
   emailError: text("email_error").notNull().default(""),
 }, (table) => [index("idx_notifications_user").on(table.userId, table.createdAt)]);
 
+// Personal notes on Company Home (migration 0126): private to the user, kept per company.
+export const userNotes = pgTable("user_notes", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => appUsers.id, { onDelete: "cascade" }),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  body: text("body").notNull(),
+  done: boolean("done").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, (table) => [index("idx_user_notes_user_company").on(table.userId, table.companyId, table.createdAt)]);
+
 // Announcements (migration 0125): a message from an administrator to all users of a company ("all") or chosen users
 // ("users", announcement_recipients). Shown on Company Home until dismissed and as a bell notice.
 export const announcements = pgTable("announcements", {
