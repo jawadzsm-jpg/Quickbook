@@ -63,7 +63,7 @@ erDiagram
 
 | Table | Purpose | Key columns |
 | --- | --- | --- |
-| `companies` | Legal entity and its branding | name, `base_currency`, address, TRN, logos, login branding, document design/template/colour/layout, letterhead, stamps and positions, bank accounts, UAE e-invoicing setup (`einvoice_enabled`, Peppol ID, ASP, go-live), `active` |
+| `companies` | Legal entity and its branding | name, `base_currency`, address, TRN, logos, login branding (incl. `login_logo_offset`, migration 0128), document design/template/colour/layout, letterhead, stamps and positions, bank accounts, UAE e-invoicing setup (`einvoice_enabled`, Peppol ID, ASP, go-live), `active` |
 | `inventory_locations` | Warehouses/inventories of a company | `code`, `name`, invoice prefix and number format/padding, `next_invoice_number`, `active` |
 | `warehouses` | Warehouses inside an inventory (migration 0108); every inventory has exactly one default warehouse, created by the `trg_inventory_locations_default_warehouse` trigger | `location_id`, `code` (unique per inventory), `name`, `is_default`, `active` |
 | `warehouse_stock` | Explicit stock per item in **non-default** warehouses only. `items.quantity` stays the inventory total; the default warehouse holds the remainder (total minus the other warehouses), so totals always agree | `warehouse_id`, `item_id` (unique pair), `quantity` |

@@ -5,13 +5,13 @@ import { companies } from "@/db/schema";
 
 const fields = {
   id: companies.id, name: companies.name, logoData: companies.logoData,
-  loginLogoData: companies.loginLogoData, loginCompanyLogoData: companies.loginCompanyLogoData,
+  loginLogoData: companies.loginLogoData, loginLogoOffset: companies.loginLogoOffset, loginCompanyLogoData: companies.loginCompanyLogoData,
   loginDisplayName: companies.loginDisplayName, loginCopyrightYears: companies.loginCopyrightYears,
   backgroundData: companies.loginBackgroundData, backgroundColor: companies.loginBackgroundColor,
 };
 
 export type PublicLoginBranding = {
-  id: number; name: string; logoData: string; loginLogoData: string; loginCompanyLogoData: string;
+  id: number; name: string; logoData: string; loginLogoData: string; loginLogoOffset: number; loginCompanyLogoData: string;
   loginDisplayName: string; loginCopyrightYears: string; backgroundData: string; backgroundColor: string;
 };
 
@@ -33,6 +33,8 @@ export async function publicLoginBranding(companyId?: number): Promise<PublicLog
     // A company's logo/name stay its own. The shared upper image and background
     // provide the same login layout for newly added companies until customized.
     loginLogoData: selected.loginLogoData || shared?.loginLogoData || "",
+    // The EasyBook logo position: the company's own, else the default login company's.
+    loginLogoOffset: selected.loginLogoOffset || shared?.loginLogoOffset || 0,
     backgroundData: selected.backgroundData || shared?.backgroundData || "",
     backgroundColor: selected.backgroundColor === "#f3f6fa" && !selected.backgroundData
       ? shared?.backgroundColor || selected.backgroundColor : selected.backgroundColor,

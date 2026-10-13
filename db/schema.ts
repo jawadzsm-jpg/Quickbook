@@ -9,6 +9,8 @@ export const companies = pgTable("companies", {
   rightLogoData: text("right_logo_data").notNull().default(""),
   loginBranding: boolean("login_branding").notNull().default(false),
   loginLogoData: text("login_logo_data").notNull().default(""),
+  // Sign-in page EasyBook logo moved up (negative) or down (positive), in px (migration 0128).
+  loginLogoOffset: integer("login_logo_offset").notNull().default(0),
   loginCompanyLogoData: text("login_company_logo_data").notNull().default(""),
   loginDisplayName: text("login_display_name").notNull().default(""),
   loginCopyrightYears: text("login_copyright_years").notNull().default("1996-2021"),

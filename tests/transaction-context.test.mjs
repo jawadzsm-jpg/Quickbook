@@ -1878,6 +1878,12 @@ test('individual login settings save independently of unfinished company changes
     assert.equal((await save(first, 'loginCompanyLogoData', 'data:image/svg+xml;base64,PHN2Zz4=')).status, 400);
     assert.equal((await save(first, 'loginDisplayName', 'a'.repeat(121))).status, 400);
     assert.equal((await save(first, 'loginCopyrightYears', '1996-<script>')).status, 400);
+    // The sign-in upper image moves up (negative) or down (positive), whole pixels within ±150.
+    assert.equal((await save(first, 'loginLogoOffset', -40)).status, 200);
+    assert.equal((await database.query('SELECT login_logo_offset FROM companies WHERE id=$1', [first])).rows[0].login_logo_offset, -40);
+    for (const bad of [151, -151, 2.5, '20']) assert.equal((await save(first, 'loginLogoOffset', bad)).status, 400, String(bad));
+    const { publicLoginBranding } = await vite.ssrLoadModule('/lib/public-login-branding.ts');
+    assert.equal((await publicLoginBranding(first)).loginLogoOffset, -40);
     globalThis.__transferTestUser = { id: 9, email: 'admin@test', role: 'admin', companyIds: [first] };
     assert.equal((await save(first, 'loginBranding', true)).status, 200);
     assert.equal((await save(second, 'loginBranding', true)).status, 403);
