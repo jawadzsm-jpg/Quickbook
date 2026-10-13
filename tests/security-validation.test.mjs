@@ -800,6 +800,7 @@ test("application windows are wide and A4 output offers portrait or landscape wi
   assert.match(packing, /<strong>Customer Name:<\/strong> <span>\$\{escapeHtml\(data\.invoice\.party\)\}<\/span>/);
   assert.match(packing, /<span>\$\{escapeHtml\(line\.description\)\}<\/span><small>/);
   assert.doesNotMatch(packing, /→/);
+  assert.match(documents, /activeMode === "delivery-note" \|\| activeMode === "packing-list" \? withoutPrices\(layout\) : layout/);
   assert.match(css, /@page \{ size: A4 portrait; margin: 10mm; \}/);
 });
 

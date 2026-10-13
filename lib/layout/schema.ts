@@ -163,3 +163,24 @@ export function parseLayoutCollection(value: unknown): LayoutCollection {
 }
 
 export const serializeLayoutCollection = (collection: LayoutCollection) => JSON.stringify({ version: 3, layouts: collection });
+
+const priceColumns: ReadonlySet<string> = new Set(["unitPrice", "subtotal", "vatRate", "vatAmount", "total"]);
+/**
+ * Delivery notes and packing lists show quantities only: whatever their Layout Builder design holds, the price columns
+ * (Rate, Subtotal, VAT %, VAT, Amount) and the totals block are left out, and Description takes the freed width.
+ */
+export function withoutPrices(layout: Layout): Layout {
+  const rows = layout.rows.map((row) => {
+    const keep = row.sections.map((section) => section.type !== "totals");
+    const sections = row.sections.filter((_, index) => keep[index]).map((section): Section => {
+      if (section.type !== "lineItems") return section;
+      const columns = section.props.columns.filter((column) => !priceColumns.has(column.key));
+      if (!columns.length) return section;
+      const freed = section.props.columns.filter((column) => priceColumns.has(column.key)).reduce((sum, column) => sum + column.width, 0);
+      const target = Math.max(0, columns.findIndex((column) => column.key === "description"));
+      return { ...section, props: { ...section.props, columns: columns.map((column, index) => index === target ? { ...column, width: Math.min(100, column.width + freed) } : column) } };
+    });
+    return { ...row, sections, ratios: row.ratios.filter((_, index) => keep[index]) };
+  }).filter((row) => row.sections.length);
+  return rows.some((row) => row.repeat === "none") ? { ...layout, rows } : layout;
+}

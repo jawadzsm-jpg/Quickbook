@@ -9,7 +9,7 @@ after(() => vite.close());
 
 const { defaultLayout, newSection } = await vite.ssrLoadModule("/lib/layout/defaults.ts");
 const { historyReducer, initialHistory, layoutReducer } = await vite.ssrLoadModule("/lib/layout/reducer.ts");
-const { parseLayout, contentBox } = await vite.ssrLoadModule("/lib/layout/schema.ts");
+const { parseLayout, contentBox, withoutPrices } = await vite.ssrLoadModule("/lib/layout/schema.ts");
 const { migrateDocumentDesign } = await vite.ssrLoadModule("/lib/layout/migrate.ts");
 const { defaultDocumentDesign } = await vite.ssrLoadModule("/lib/document-design.ts");
 const { mockDocument } = await vite.ssrLoadModule("/lib/layout/document-data.ts");
@@ -422,4 +422,21 @@ test("line-item headings show Arabic under the English heading when Arabic label
   for (const arabic of ["الوصف", "الكمية", "السعر", "المبلغ"]) assert.match(html, new RegExp(`<span class="lb-th-ar" dir="rtl" lang="ar">${arabic}</span>`), arabic);
   const off = renderToStaticMarkup(React.createElement(LayoutDocument, { layout: { ...layout, theme: { ...layout.theme, arabicLabels: false } }, data: mockDocument("short"), mode: "print" }));
   assert.doesNotMatch(off, /lb-th-ar/);
+});
+
+test("delivery notes and packing lists drop price columns and totals from any Layout Builder design", () => {
+  const layout = defaultLayout("invoice");
+  const priced = layout.rows.flatMap((row) => row.sections).find((section) => section.type === "lineItems");
+  assert.ok(priced.props.columns.some((column) => column.key === "total"));
+  const plain = withoutPrices(layout);
+  parseLayout(plain);
+  const sections = plain.rows.flatMap((row) => row.sections);
+  assert.equal(sections.some((section) => section.type === "totals"), false);
+  const columns = sections.find((section) => section.type === "lineItems").props.columns;
+  for (const key of ["unitPrice", "subtotal", "vatRate", "vatAmount", "total"]) assert.equal(columns.some((column) => column.key === key), false, key);
+  assert.ok(columns.some((column) => column.key === "quantity"));
+  assert.ok(columns.find((column) => column.key === "description").width > priced.props.columns.find((column) => column.key === "description").width);
+  for (const row of plain.rows) assert.equal(row.ratios.length, row.sections.length);
+  // The original design is not changed.
+  assert.ok(layout.rows.flatMap((row) => row.sections).some((section) => section.type === "totals"));
 });

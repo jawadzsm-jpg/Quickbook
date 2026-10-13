@@ -23,7 +23,7 @@ import { DocumentEmailDialog } from "./document-email-dialog";
 import { canEmailDocuments } from "@/lib/email-templates";
 import { bankAccountLabel, bankForCurrency, bankForDocument, bankLines, companyBankAccounts } from "@/lib/bank-accounts";
 import { vendorBankLines } from "@/lib/vendor-bank";
-import { contentBox, parseLayoutCollection } from "@/lib/layout/schema";
+import { contentBox, parseLayoutCollection, withoutPrices } from "@/lib/layout/schema";
 import { PAGE_STAMP_SIZE, clampPageStamp, type MovePageStamp } from "./page-stamps";
 import { useRecordRole } from "./record-permissions";
 import { readStampPositions, type DocumentStampPositions, type StampPlacement, type StampPositions } from "@/lib/stamp-positions";
@@ -153,7 +153,8 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
     if (!type || !setup.documentLayout) return null;
     try {
       const layout = parseLayoutCollection(setup.documentLayout)[type];
-      return layout?.enabled ? layout : null;
+      if (!layout?.enabled) return null;
+      return activeMode === "delivery-note" || activeMode === "packing-list" ? withoutPrices(layout) : layout;
     } catch { return null; }
   }, [activeMode, setup.documentLayout]);
   // A Layout Builder "{status}" stamp overlay is lifted out of the fixed design so it can be moved like the other stamps.
