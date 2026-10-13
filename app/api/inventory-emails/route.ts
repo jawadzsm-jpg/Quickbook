@@ -1,7 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
 import { auditLog, emailListContacts } from "@/db/schema";
-import { requireCompanyAccess } from "@/lib/auth";
+import { isAdministrator, requireCompanyAccess } from "@/lib/auth";
 import { friendlyEmailError } from "@/lib/email-errors";
 import { canUseEmailList, emailListLabel, INVENTORY_EMAIL_MAX_RECIPIENTS, isEmailListType } from "@/lib/email-lists";
 import { EMAIL_BODY_MAX, EMAIL_SUBJECT_MAX, RECIPIENTS_PER_MESSAGE, recipientBatches } from "@/lib/email-templates";
@@ -36,7 +36,9 @@ export async function POST(request: Request) {
 
   const db = getDb();
   const rows = await db.select({ email: emailListContacts.email }).from(emailListContacts)
-    .where(and(eq(emailListContacts.companyId, companyId), eq(emailListContacts.listType, type), inArray(emailListContacts.id, ids)));
+    .where(and(eq(emailListContacts.companyId, companyId), eq(emailListContacts.listType, type), inArray(emailListContacts.id, ids),
+      // Each user sends only to their own addresses; administrators to anyone's in the company.
+      isAdministrator(user) ? undefined : eq(emailListContacts.createdByUserId, user.id)));
   const recipients = [...new Set(rows.map((row) => row.email.toLowerCase()))];
   if (!recipients.length) return json({ error: "The selected addresses are no longer in the list." }, 404);
   if (!await emailDeliveryConfigured().catch(() => false)) return json({ error: "Emails are not set up yet. An All-Admin can set the email server in Admin Controls → Email server." }, 409);

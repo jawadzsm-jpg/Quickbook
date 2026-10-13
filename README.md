@@ -171,7 +171,7 @@ Permissions are named (`workspace:read`, `inventory:read`, `inventory:manage`, `
 | `/api/auth/activity` | POST | Signed-in user | Record activity for automatic sign-out when idle |
 | `/api/announcements` | GET, POST, PATCH | Company users; writes Administrator | Announcements page: messages to all or chosen users |
 | `/api/user-notes` | GET, POST, PATCH | Company users, own notes | Private notes on the My notes page |
-| `/api/email-lists` | GET, POST, PATCH | Company users except Viewers; Sales: Sales list only | Shared Sales/Purchase email lists, CSV import |
+| `/api/email-lists` | GET, POST, PATCH | Company users except Viewers; Sales: Sales list only | Private Sales/Purchase email lists (admins see all), CSV import |
 | `/api/inventory-emails` | POST | As email lists | Email selected Inventory Overview stock to chosen list addresses (Bcc) |
 | `/api/auth/mfa` | GET, POST | Signed-in user | Two-step sign-in: set up with an authenticator app, backup codes, turn off |
 | `/api/edition` | GET, PUT | Administrator; PUT All-Admin | EasyBook edition: limits on companies, inventories and warehouses |

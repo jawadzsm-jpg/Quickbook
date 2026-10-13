@@ -26,7 +26,8 @@ const errorText = (error: unknown) => error instanceof Error ? error.message : "
 
 /**
  * Email the selected Inventory Overview stock to chosen addresses of the company's Sales or Purchase list.
- * Lists are shared per company and filled by hand or from a CSV file; recipients are hidden from each other.
+ * Each user keeps their own lists (administrators see everyone's), filled by hand or from a CSV file; recipients are
+ * hidden from each other.
  */
 export function InventoryEmailDialog({ open, onOpenChange, companyId, companyName, role, sender, itemsText, itemCount }: {
   open: boolean; onOpenChange: (open: boolean) => void; companyId: number; companyName: string; role: string;
@@ -35,6 +36,7 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
   const lists = useMemo(() => emailListsFor(role), [role]);
   const [type, setType] = useState<EmailListType>(lists[0] ?? "sales");
   const [contacts, setContacts] = useState<EmailListContact[] | null>(null);
+  const [seesAll, setSeesAll] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [search, setSearch] = useState("");
   const [newAddress, setNewAddress] = useState({ name: "", email: "" });
@@ -55,7 +57,7 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
 
   const loadList = useCallback(async (list: EmailListType) => {
     setContacts(null);
-    try { setContacts((await call(`/api/email-lists?companyId=${companyId}&type=${list}`, "GET")).contacts ?? []); }
+    try { const data = await call(`/api/email-lists?companyId=${companyId}&type=${list}`, "GET"); setContacts(data.contacts ?? []); setSeesAll(data.seesAll === true); }
     catch (error) { setContacts([]); toast.error(errorText(error)); }
   }, [companyId]);
 
@@ -102,7 +104,7 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
   };
   const removeSelected = () => {
     const ids = [...selected];
-    if (!ids.length || !window.confirm(`Remove ${ids.length} ${ids.length === 1 ? "address" : "addresses"} from the ${emailListLabel(type)}? This affects everyone in this company.`)) return;
+    if (!ids.length || !window.confirm(`Remove ${ids.length} ${ids.length === 1 ? "address" : "addresses"} from the ${emailListLabel(type)}? ${seesAll ? " This removes them for the users who added them." : ""}`)) return;
     void run(async () => { const data = await call("/api/email-lists", "PATCH", { companyId, type, action: "remove", ids }); setContacts(data.contacts ?? []); setSelected(new Set()); toast.success(`${data.removed} removed`); });
   };
   const chooseTemplate = (id: string) => { setTemplateId(id); const template = templates.find((entry) => String(entry.id) === id); fill(template ?? defaultStockEmail); };
@@ -135,6 +137,7 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
       {!lists.length ? <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">Your role cannot send stock emails.</p> : <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
         <section className="min-w-0 space-y-3" aria-label="Email list">
           <div className="flex flex-wrap gap-2" role="group" aria-label="Email list">{lists.map((list) => <Button key={list} type="button" size="sm" variant={type === list ? "default" : "outline"} aria-pressed={type === list} onClick={() => chooseList(list)}>{emailListLabel(list)}</Button>)}</div>
+          <p className="text-xs text-muted-foreground">{seesAll ? "Administrator view: every user's addresses in this company." : "Only you see your addresses. Administrators can see every user's list."}</p>
           <div className="flex flex-wrap gap-2">
             <Input aria-label="Search addresses" placeholder="Search name or email" value={search} onChange={(event) => setSearch(event.target.value)} className="h-9 min-w-0 flex-1" />
             <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={(event) => void importCsv(event)} />
@@ -143,8 +146,8 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
           <div className="rounded-lg border">
             <label className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2 text-xs font-medium"><Checkbox checked={allShownSelected} disabled={!shown.length} onCheckedChange={toggleShown} />Select {search ? "shown" : "all"} · {selected.size} of {contacts?.length ?? 0} selected</label>
             <ul className="max-h-72 divide-y overflow-y-auto">
-              {contacts === null ? <li className="p-4 text-sm text-muted-foreground">Loading…</li> : !shown.length ? <li className="p-4 text-sm text-muted-foreground">{contacts.length ? "No address matches the search." : `The ${emailListLabel(type)} is empty. Add an address below or import a CSV file.`}</li>
-                : shown.map((contact) => <li key={contact.id}><label className="flex min-w-0 cursor-pointer items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50"><Checkbox checked={selected.has(contact.id)} onCheckedChange={() => toggle(contact.id)} /><span className="min-w-0 flex-1"><span className="block truncate font-medium">{contact.name || contact.email}</span>{contact.name ? <span className="block truncate text-xs text-muted-foreground">{contact.email}</span> : null}</span></label></li>)}
+              {contacts === null ? <li className="p-4 text-sm text-muted-foreground">Loading…</li> : !shown.length ? <li className="p-4 text-sm text-muted-foreground">{contacts.length ? "No address matches the search." : `Your ${emailListLabel(type)} is empty. Add an address below or import a CSV file.`}</li>
+                : shown.map((contact) => <li key={contact.id}><label className="flex min-w-0 cursor-pointer items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50"><Checkbox checked={selected.has(contact.id)} onCheckedChange={() => toggle(contact.id)} /><span className="min-w-0 flex-1"><span className="block truncate font-medium">{contact.name || contact.email}</span>{contact.name ? <span className="block truncate text-xs text-muted-foreground">{contact.email}</span> : null}{seesAll && contact.ownerName ? <span className="block truncate text-[11px] text-muted-foreground">Added by {contact.ownerName}</span> : null}</span></label></li>)}
             </ul>
           </div>
           <form onSubmit={addOne} className="grid gap-2 sm:grid-cols-[1fr_1.2fr_auto]">
