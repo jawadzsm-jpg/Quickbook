@@ -1,12 +1,15 @@
 import { requireApiUser } from "@/lib/auth";
 import { friendlyEmailError } from "@/lib/email-errors";
 import { sendTestEmail } from "@/lib/smtp";
+import { consumeRateLimit } from "@/lib/rate-limit";
 
 /** Send test email: a real message through the saved settings, always to the signed-in All-Admin's own address. */
 export async function POST(request: Request) {
   const user = await requireApiUser(request, true, true);
   if (user instanceof Response) return user;
   if (user.role !== "all_admin") return Response.json({ error: "Only an All-Admin can manage the email server." }, { status: 403 });
+  const sendBudget = await consumeRateLimit(`test-email:${user.id}`, 10, 3600);
+  if (!sendBudget.allowed) return Response.json({ error: "Too many test emails. Try again in an hour." }, { status: 429, headers: { "Retry-After": String(sendBudget.retryAfter) } });
   try {
     const { messageIds } = await sendTestEmail(user.email);
     return Response.json({ ok: true, to: user.email, messageIds });

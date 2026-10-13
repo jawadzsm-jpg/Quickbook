@@ -3,7 +3,8 @@ import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
 import { appUsers, auditLog, companies, inventoryCheckLines, inventoryCheckReports, inventoryLocations, items, warehouses } from "@/db/schema";
 import { warehouseQuantities } from "@/lib/warehouses";
-import { requireCompanyAccess, type SessionUser } from "@/lib/auth";
+import { canAccessCompany, requireCompanyAccess, type SessionUser } from "@/lib/auth";
+import { publicErrorMessage } from "@/lib/errors";
 
 type CompanyQuantity = { companyId: number; companyName: string; quantity: number; countedQuantity: number | null; checkedByUserId?: number; checkedBy?: string; checkedByEmail?: string; checkedAt?: string };
 type StockOption = { itemId: number; itemNumber: string; sku: string; itemName: string; totalQuantity: number; companyQuantities: CompanyQuantity[] };
@@ -12,7 +13,7 @@ const clean = (value: unknown, max = 240) => String(value ?? "").trim().slice(0,
 const skuKey = (value: unknown) => clean(value, 160).toUpperCase();
 
 function databaseError(error: unknown) {
-  const message = error instanceof Error ? error.message : "Could not update inventory check reports.";
+  const message = publicErrorMessage(error, "Could not update inventory check reports.");
   return message.includes("does not exist") ? "The inventory-check database is being updated. Please refresh in a moment." : message;
 }
 
@@ -141,7 +142,8 @@ export async function GET(request: Request) {
       if (!record) return Response.json({ error: "Inventory check report not found." }, { status: 404 });
       const [ownerCompany] = await db.select({ id: companies.id, name: companies.name }).from(companies).where(eq(companies.id, record.companyId)).limit(1);
       const stored = await db.select().from(inventoryCheckLines).where(eq(inventoryCheckLines.reportId, reportId)).orderBy(asc(inventoryCheckLines.itemName));
-      const lines = stored.map((line) => ({ ...line, companyQuantities: parsedQuantities(line.companyQuantities, ownerCompany ? { companyId: ownerCompany.id, companyName: ownerCompany.name, quantity: Number(line.systemQuantity), countedQuantity: line.countedQuantity } : undefined) }));
+      // The creator's snapshot may include other companies' stock; each reader sees only companies they belong to.
+      const lines = stored.map((line) => ({ ...line, companyQuantities: parsedQuantities(line.companyQuantities, ownerCompany ? { companyId: ownerCompany.id, companyName: ownerCompany.name, quantity: Number(line.systemQuantity), countedQuantity: line.countedQuantity } : undefined).filter((entry) => entry.companyId === record.companyId || canAccessCompany(user, entry.companyId)) }));
       const companyMap = new Map<number, { id: number; name: string }>();
       for (const line of lines) for (const company of line.companyQuantities) companyMap.set(company.companyId, { id: company.companyId, name: company.companyName });
       const [warehouse] = record.warehouseId ? await db.select({ name: warehouses.name }).from(warehouses).where(eq(warehouses.id, record.warehouseId)).limit(1) : [];

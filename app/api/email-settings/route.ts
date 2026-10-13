@@ -2,6 +2,8 @@ import { isValidEmail } from "@/lib/email-validation";
 import { getEmailSettings, saveEmailSettings, verifySmtpConnection } from "@/lib/smtp";
 import { requireApiUser } from "@/lib/auth";
 import { friendlyEmailError } from "@/lib/email-errors";
+import { publicMailHostError, SMTP_PORTS } from "@/lib/network-guard";
+import { publicErrorMessage } from "@/lib/errors";
 
 // SMTP settings are shared by every company, so only an All-Admin may read or change them.
 async function requireAllAdmin(request: Request, mutating = false) {
@@ -38,6 +40,12 @@ export async function PATCH(request: Request) {
     const fromEmail = String(payload.fromEmail ?? "").trim().toLowerCase();
     if (provider === "turbosmtp_api" && (!username || !fromName || !isValidEmail(fromEmail))) return Response.json({ error: "Complete the turboSMTP consumer key, sender name and sender email." }, { status: 400 });
     if (!host || !Number.isInteger(port) || port < 1 || port > 65535 || !username || !fromName || !isValidEmail(fromEmail)) return Response.json({ error: "Complete the SMTP server, port, username, sender name and sender email." }, { status: 400 });
+    if (provider === "smtp") {
+      if (!(SMTP_PORTS as readonly number[]).includes(port)) return Response.json({ error: "Use an email port: 465 (TLS), 587 or 2525 (STARTTLS), or 25." }, { status: 400 });
+      const hostError = await publicMailHostError(host);
+      if (hostError) return Response.json({ error: hostError }, { status: 400 });
+    }
+    if (host.length > 253 || username.length > 320 || fromName.length > 120 || password.length > 500) return Response.json({ error: "One of the values is too long." }, { status: 400 });
     const current = await getEmailSettings();
     // A saved secret belongs to the method it was entered for: switching method needs the new password or secret.
     const keepsSecret = Boolean(current?.passwordEncrypted) && (current?.provider ?? "smtp") === provider;
@@ -45,7 +53,7 @@ export async function PATCH(request: Request) {
     await saveEmailSettings({ provider, apiRegion, host, port, secure, username, ...(password ? { password } : {}), fromName, fromEmail });
     return Response.json({ ok: true });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Could not save SMTP settings." }, { status: 500 });
+    return Response.json({ error: publicErrorMessage(error, "Could not save SMTP settings.") }, { status: 500 });
   }
 }
 

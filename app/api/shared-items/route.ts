@@ -59,7 +59,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
- const user = await requireApiUser(request, 'inventory:manage');
+ const user = await requireApiUser(request, 'inventory:manage', true);
  if (user instanceof Response) return user;
  if (!hasPermission(user, 'inventory:manage')) return Response.json({error:'Inventory editing permission required.'},{status:403});
  const payload=await request.json().catch(()=>null);

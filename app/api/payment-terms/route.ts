@@ -3,6 +3,7 @@ import { getDb } from "../../../db";
 import { specificationOptions } from "../../../db/schema";
 import { requireApiUser } from "@/lib/auth";
 import { normalizeComparableText } from "@/lib/text-normalization";
+import { publicErrorMessage } from "@/lib/errors";
 
 const PAYMENT_TERMS_SCOPE = "__payment_terms__";
 const defaults = ["Due on receipt", "Net 7", "Net 15", "Net 30", "Net 45", "Net 60", "Advance payment", "50% advance · 50% on delivery"];
@@ -35,7 +36,7 @@ export async function GET(request: Request) {
       .filter((value, index, list) => !disabled.has(normalizeComparableText(value)) && list.findIndex((candidate) => normalizeComparableText(candidate) === normalizeComparableText(value)) === index);
     return Response.json({ terms });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Could not load payment terms." }, { status: 500 });
+    return Response.json({ error: publicErrorMessage(error, "Could not load payment terms.") }, { status: 500 });
   }
 }
 
@@ -50,7 +51,7 @@ export async function POST(request: Request) {
     await save(existing?.value ?? value, true);
     return Response.json({ ok: true }, { status: 201 });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Could not add payment terms." }, { status: 500 });
+    return Response.json({ error: publicErrorMessage(error, "Could not add payment terms.") }, { status: 500 });
   }
 }
 
@@ -68,7 +69,7 @@ export async function PATCH(request: Request) {
     await save(newValue, true);
     return Response.json({ ok: true });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Could not rename payment terms." }, { status: 500 });
+    return Response.json({ error: publicErrorMessage(error, "Could not rename payment terms.") }, { status: 500 });
   }
 }
 
@@ -81,6 +82,6 @@ export async function DELETE(request: Request) {
     await save(value, false);
     return Response.json({ ok: true });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Could not remove payment terms." }, { status: 500 });
+    return Response.json({ error: publicErrorMessage(error, "Could not remove payment terms.") }, { status: 500 });
   }
 }

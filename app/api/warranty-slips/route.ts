@@ -6,6 +6,7 @@ import { appUsers, auditLog, contacts, items, transactionLines, transactions, wa
 import { requireCompanyAccess } from "@/lib/auth";
 import { normalizeComparableText } from "@/lib/text-normalization";
 import { normalizeWarrantyStatus } from "@/lib/warranty-status";
+import { publicErrorMessage } from "@/lib/errors";
 
 // Supplier bills a warranty item can be traced to: normal bills and bills created by receiving a purchase order.
 const purchaseBillTypes = ["bill", "received item bill"];
@@ -97,7 +98,7 @@ export async function GET(request: Request) {
     const linkedPurchaseBills = availablePurchaseBills.map((bill) => ({ ...bill, supplierId: suppliers.find((supplier) => supplierMatchesBill(supplier, bill.party))?.id ?? null }));
     return Response.json({ slips: slips.map(({ slip, customerName, customerCompany, createdBy }) => ({ ...slip, status: normalizeWarrantyStatus(slip.status) ?? slip.status, customerName, customerCompany, createdBy: createdBy || "" })), customers, invoices, suppliers, purchaseBills: linkedPurchaseBills }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Could not load warranty slips." }, { status: 500 });
+    return Response.json({ error: publicErrorMessage(error, "Could not load warranty slips.") }, { status: 500 });
   }
 }
 
@@ -198,7 +199,7 @@ async function save(request: Request, editing: boolean) {
       return Response.json({ slip }, { status: 201 });
     });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Could not save warranty slip." }, { status: 500 });
+    return Response.json({ error: publicErrorMessage(error, "Could not save warranty slip.") }, { status: 500 });
   }
 }
 
@@ -225,6 +226,6 @@ export async function DELETE(request: Request) {
       return Response.json({ deleted: true, id });
     });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Could not delete the warranty receipt." }, { status: 500 });
+    return Response.json({ error: publicErrorMessage(error, "Could not delete the warranty receipt.") }, { status: 500 });
   }
 }

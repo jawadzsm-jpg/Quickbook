@@ -23,7 +23,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/business-final-report.tsx` — Management overview report with sectioned metrics linking to detail reports.
 - `app/cargo-list.tsx` — Shared cargo/freight agent directory: add, edit, delete, search; `/api/cargos`.
 - `app/category-color-picker.tsx` — Palette picker for an item category's colour (or Auto); `/api/category-colors`.
-- `app/change-password-dialog.tsx` — Change password for every signed-in user (sidebar, next to Sign out); `/api/auth/session` PATCH.
+- `app/change-password-dialog.tsx` — Account security window for every signed-in user (sidebar key button): Password tab (`/api/auth/session` PATCH) and Two-step sign-in tab.
 - `app/company-clear-button.tsx` — Company Setup → Clear: grouped options with record counts, Select all, a summary of what will be cleared, typed company name and admin password; `/api/company-setup/clear`.
 - `app/company-document-output.tsx` — Context/hook for printing to A4 and exporting PDFs with the company's saved document design.
 - `app/contact-organization-fields.tsx` — Contact status (active/inactive) and "Sub-account of" parent fields.
@@ -118,6 +118,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/stock-revaluation.tsx` — Bulk stock revaluation of cost and sales price; `/api/stock-revaluation`.
 - `app/today-offers.tsx` — Today Offer tab: running/scheduled offers, Add offer dialog, end/cancel; `/api/item-offers`.
 - `app/transfer-center.tsx` — Multi-line inventory transfers between locations/companies; `/api/transfers`.
+- `app/two-step-settings.tsx` — Account security → Two-step sign-in: QR setup, first code, backup codes, turn off; `/api/auth/mfa`.
 - `app/uae-bank-cheque.tsx` — Printable UAE bank cheque layout with editable cheque number.
 - `app/unpaid-bills.tsx` — Picker of a vendor's unpaid bills for a bill payment.
 - `app/unpaid-invoices.tsx` — Picker of a customer's unpaid invoices for a received payment.
@@ -165,6 +166,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/admin-pin.ts` — Admin/override PIN format, scrypt hashing and verification.
 - `lib/api-keys.ts` — Integration API tokens (`ebk_live_…`): generation, low-cost scrypt digest, reading Bearer/X-API-Key headers.
 - `lib/api.ts` — `apiRoute` wrapper (errors, idempotency, writes) and `readJsonBody` size/type limits. **DB**
+- `lib/app-url.ts` — Public address for emailed links (NEXT_PUBLIC_APP_URL or Vercel production domain), never the Host header.
 - `lib/attachments.ts` — Attachment validation (3 MB per file, at most 10 files).
 - `lib/auth.ts` — **server** Sessions (with the idle sign-out check), cookies, password hashing, role permissions, `requireApiUser`, `requireCompanyAccess`, request IP. **DB**
 - `lib/backup-oidc.ts` — Authorizes the scheduled backup worker from OIDC JWT claims.
@@ -202,7 +204,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/employee-hr-save.ts` — Validates employee HR/payroll fields and accounts before saving. **DB**
 - `lib/employee-hr.ts` — Employee salary/loan/vacation field rules and redaction.
 - `lib/employee-report.ts` — Employee balance/payment report keys and summaries.
-- `lib/errors.ts` — `RequestError`, database error codes and safe JSON error responses.
+- `lib/errors.ts` — `RequestError`, database error codes, safe JSON error responses and `publicErrorMessage` (hides SQL/driver errors from browsers).
 - `lib/export.ts` — CSV cell quoting (blocks spreadsheet formulas) and HTML escaping.
 - `lib/financial-presentation.ts` — Financial report account links and summary cards.
 - `lib/financial-reports.ts` — Financial report data (income/expense by party and others). **DB**
@@ -229,15 +231,18 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/letterhead.ts` — Letterhead templates per document: validation, selection, footer lines and styles.
 - `lib/line-extras.ts` — Document types whose lines carry comments and serial numbers.
 - `lib/list-report.ts` — List report keys, groups, summaries, targets and filters.
+- `lib/mfa.ts` — **server** Checks a second-factor code (authenticator code without reuse, or a one-time backup code); MFA reset fields.
+- `lib/network-guard.ts` — **server** Rejects private/loopback/metadata addresses and non-mail ports for the SMTP host.
 - `lib/openapi.ts` — OpenAPI 3.1 document for the Integration API.
 - `lib/out-of-scope-items.ts` — Items bought outside VAT scope. **DB**
 - `lib/out-of-scope-rules.ts` — Out-of-scope purchases must be sold out of scope; sales document checks.
-- `lib/password.ts` — Async scrypt password hashing and verification.
+- `lib/password.ts` — The only password implementation: async scrypt hashing and verification, 128-character limit.
 - `lib/cheque-reminders.ts` — PDC reminder rules in UAE time: post-dated check, default reminder (7 days before, 09:00), datetime-local conversion, "due in" text.
 - `lib/notifications.ts` — **server** Notification recipients (company admins and accountants), cheque notices, due PDC reminders, email delivery of pending notices (failed ones retried up to 3 attempts, one connection per run). **DB**
 - `lib/payment-terms.ts` — Due date from transaction date and payment terms.
 - `lib/period-lock-shared.ts` — Period-lock PIN header and `PERIOD_LOCKED` code shared by server and browser.
 - `lib/period-lock.ts` — Filed/locked VAT and tax period checks with PIN override. **DB**
+- `lib/pin-attempts.ts` — Admin PIN check with failure limits per user and per company (15 minutes). **DB**
 - `lib/pnl-export.ts` — Profit & Loss CSV, Excel and PDF (with stamp) export.
 - `lib/pnl-presentation.ts` — P&L summary cards and amount formatting.
 - `lib/profit-loss.ts` — Profit & Loss report data with item activity and warnings. **DB**
@@ -245,7 +250,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/public-api.ts` — **server** Integration API: key authentication, 120/min rate limit, JSON errors, products and categories queries. **DB**
 - `lib/public-login-branding.ts` — **server** Companies and branding for the public login page. **DB**
 - `lib/purchase-report.ts` — Purchase report keys, groups, columns, supplier lookup and filters.
-- `lib/rate-limit.ts` — Database-backed rate limiting (`consumeRateLimit`, `limitLogin`). **DB**
+- `lib/rate-limit.ts` — Database-backed rate limiting (`consumeRateLimit`, `limitLogin`, `rateLimitBlocked` for failure-only limits). **DB**
 - `lib/record-attachments.ts` — Saves attachments for transactions and employees. **DB**
 - `lib/record-list-export.ts` — Date filtering and export data for transaction, contact, item and account lists.
 - `lib/report-account-links.ts` — Matches report rows to chart-of-accounts IDs.
@@ -259,6 +264,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/sales-invoicing.ts` — Converting orders/quotations into invoices (source lines, inventory lines, refresh). **DB**
 - `lib/sales-report.ts` — Sales report keys, groups, columns, customer lookup and filters.
 - `lib/search.ts` — Shared search (every word must match, any order) and highlight ranges.
+- `lib/secret-box.ts` — **server** AES-256-GCM encryption of stored secrets (SMTP_ENCRYPTION_KEY "v2", DATABASE_URL-derived "v1" still readable).
 - `lib/share-emoji.ts` — WhatsApp/Telegram emoji style presets.
 - `lib/share-format.ts` — Share editor formatting (WhatsApp and Telegram markers, links) and `telegramHtml` for formatted Telegram paste.
 - `lib/sku-locks.ts` — SKU edit reservations and the `skuWrite` route wrapper. **DB**
@@ -273,6 +279,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/stock-holds.ts` — Stock hold durations (max 7 days), active-hold SQL, held-by-others checks. **DB**
 - `lib/stock-pricing.ts` — Stock pricing rows from stock per location and purchase prices.
 - `lib/text-normalization.ts` — Comparable-text normalisation and upper-casing.
+- `lib/totp.ts` — **server** Authenticator codes (RFC 6238), base32, otpauth URI, one-time backup codes.
 - `lib/turbosmtp-api.ts` — **server** turboSMTP HTTPS API sender (POST /mail/send with consumer key headers; key check; delivery status from GET /analytics/{id}) behind the same sendMail/verify/close interface as SMTP.
 - `lib/uae-cheque-layouts.ts` — UAE bank cheque print layouts and alignment bounds.
 - `lib/user-management.ts` — **server** Role names, user company IDs, who may manage whom, `requireUserManager`. **DB**

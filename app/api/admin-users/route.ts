@@ -7,6 +7,9 @@ import { canManage, companyIdsForUser, isCompanyAdmin, outOfScope, requireUserMa
 import { sendUserInvitation } from "@/lib/smtp";
 import { friendlyEmailError } from "@/lib/email-errors";
 import { DEFAULT_IDLE_TIMEOUT_MINUTES, isValidIdleTimeout } from "@/lib/idle-timeout";
+import { databaseErrorCode, publicErrorMessage } from "@/lib/errors";
+import { appBaseUrl } from "@/lib/app-url";
+import { mfaCleared } from "@/lib/mfa";
 
 const validRole = (value: string): value is AppRole => appRoles.includes(value as AppRole);
 const validAvatar = (value: string) => !value || (/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(value) && value.length <= 1_100_000);
@@ -22,7 +25,7 @@ async function publicUser(user: typeof appUsers.$inferSelect, manager: SessionUs
   const companyIds = userRole === "all_admin" ? [] : await companyIdsForUser(user.id);
   return {
     id: user.id, fullName: user.fullName, email: user.email, phone: user.phone, whatsapp: user.whatsapp, avatarData: user.avatarData,
-    themeColor: user.themeColor, appearanceMode: user.appearanceMode, role: userRole, active: user.active, mustChangePassword: user.mustChangePassword, idleTimeoutMinutes: user.idleTimeoutMinutes, createdAt: user.createdAt,
+    themeColor: user.themeColor, appearanceMode: user.appearanceMode, role: userRole, active: user.active, mustChangePassword: user.mustChangePassword, idleTimeoutMinutes: user.idleTimeoutMinutes, mfaEnabled: user.mfaEnabled, createdAt: user.createdAt,
     lastLoginAt: user.lastLoginAt, lastLoginIp: user.lastLoginIp, lastLoginUserAgent: user.lastLoginUserAgent, isCurrent: user.id === manager.id,
     companyIds, manageable: canManage(manager, userRole, companyIds),
   };
@@ -85,21 +88,20 @@ export async function POST(request: Request) {
   try {
     // User and company access are saved together, so a failed assignment never leaves a half-created user behind.
     const response = await withWriteTransaction(async () => {
-      [created] = await getDb().insert(appUsers).values({ fullName, email, phone, whatsapp, avatarData, idleTimeoutMinutes, role: role as never, passwordHash: hashPassword(password), mustChangePassword: true }).returning();
+      [created] = await getDb().insert(appUsers).values({ fullName, email, phone, whatsapp, avatarData, idleTimeoutMinutes, role: role as never, passwordHash: await hashPassword(password), mustChangePassword: true }).returning();
       if (role !== "all_admin") await replaceCompanies(created.id, companyIds);
       return Response.json({ ok: true });
     });
     if (!response.ok) return response;
   } catch (error) {
-    // Drizzle wraps database errors ("Failed query: ..."); the PostgreSQL message is on `cause`.
-    const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : "";
-    const message = `${error instanceof Error ? error.message : ""} ${cause}`;
-    console.error("Could not add user", cause || error);
-    return Response.json({ error: message.includes("idx_app_users_email") || message.includes("duplicate key") ? "A user with this email already exists." : `Could not add user.${cause ? ` ${cause}` : ""}` }, { status: 409 });
+    // Database details stay on the server (logged by SQLSTATE code only); a duplicate email gets a clear message.
+    const duplicate = databaseErrorCode(error) === "23505";
+    console.error(JSON.stringify({ event: "add_user_failed", code: databaseErrorCode(error) ?? "unknown" }));
+    return Response.json({ error: duplicate ? "A user with this email already exists." : publicErrorMessage(error, "Could not add user. Try again.") }, { status: 409 });
   }
   let emailSent = false; let emailWarning = "";
   if (payload.sendEmail === true) {
-    try { await sendUserInvitation({ to: email, name: fullName, temporaryPassword: password, roleLabel: roleNames[role], loginUrl: process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin }); emailSent = true; }
+    try { await sendUserInvitation({ to: email, name: fullName, temporaryPassword: password, roleLabel: roleNames[role], loginUrl: appBaseUrl(request) }); emailSent = true; }
     catch (error) { emailWarning = friendlyEmailError(error, "The user was added, but the email could not be sent.", { loginDetails: true }); }
   }
   return Response.json({ user: await publicUser(created, administrator), emailSent, emailWarning }, { status: 201 });
@@ -145,7 +147,7 @@ export async function PATCH(request: Request) {
   if (payload.password !== undefined) {
     const password = String(payload.password);
     if (password.length < 12 || password.length > 128) return Response.json({ error: "Temporary password must contain 12 to 128 characters." }, { status: 400 });
-    updates.passwordHash = hashPassword(password); updates.mustChangePassword = true;
+    updates.passwordHash = await hashPassword(password); updates.mustChangePassword = true;
   }
   if (payload.fullName !== undefined) {
     const fullName = String(payload.fullName).trim();
@@ -162,6 +164,8 @@ export async function PATCH(request: Request) {
     if (!isValidIdleTimeout(payload.idleTimeoutMinutes)) return Response.json({ error: "Choose a valid automatic sign-out time." }, { status: 400 });
     updates.idleTimeoutMinutes = payload.idleTimeoutMinutes;
   }
+  // Reset two-step sign-in (lost phone): clears the authenticator key and backup codes; the user signs in with the password.
+  if (payload.resetMfa === true) Object.assign(updates, mfaCleared);
   // Access and password changes sign the user out; profile-only edits (name, phone, picture, automatic sign-out time) keep their sessions.
   const revokeSessions = updates.role !== undefined || companyIds !== null || updates.active !== undefined || updates.passwordHash !== undefined;
   let updated!: typeof appUsers.$inferSelect;
@@ -174,7 +178,7 @@ export async function PATCH(request: Request) {
   if (!saved.ok) return saved;
   let emailSent = false; let emailWarning = "";
   if (payload.sendEmail === true && payload.password !== undefined) {
-    try { await sendUserInvitation({ to: updated.email, name: updated.fullName || updated.email, temporaryPassword: String(payload.password), roleLabel: roleNames[updated.role as AppRole], loginUrl: process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin }); emailSent = true; }
+    try { await sendUserInvitation({ to: updated.email, name: updated.fullName || updated.email, temporaryPassword: String(payload.password), roleLabel: roleNames[updated.role as AppRole], loginUrl: appBaseUrl(request) }); emailSent = true; }
     catch (error) { emailWarning = friendlyEmailError(error, "The password was reset, but the email could not be sent.", { loginDetails: true }); }
   }
   return Response.json({ user: await publicUser(updated, administrator), emailSent, emailWarning });

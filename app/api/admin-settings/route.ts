@@ -1,13 +1,15 @@
 import { and, desc, eq, like } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { auditLog, companies, companySettings } from "../../../db/schema";
-import { hashAdminPin, isValidAdminPin, verifyAdminPin } from "../../../lib/admin-pin";
+import { hashAdminPin, isValidAdminPin } from "../../../lib/admin-pin";
+import { checkAdminPin, pinBlockedMessage } from "@/lib/pin-attempts";
 import { requireCompanyAccess } from "@/lib/auth";
+import { publicErrorMessage } from "@/lib/errors";
 
 const json = (data: unknown, status = 200) => Response.json(data, { status, headers: { "Cache-Control": "private, no-store" } });
 
 function errorMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : "Unexpected database error";
+  const message = publicErrorMessage(error, "Unexpected database error");
   return message.includes("does not exist") ? "The accounting database is being updated. Please refresh in a moment." : message;
 }
 
@@ -44,7 +46,10 @@ export async function POST(request: Request) {
     const [company] = await db.select({ id: companies.id }).from(companies).where(eq(companies.id, companyId)).limit(1);
     if (!company) return json({ error: "Company not found." }, 404);
     const [existing] = await db.select({ pinHash: companySettings.negativeStockPinHash }).from(companySettings).where(eq(companySettings.companyId, companyId)).limit(1);
-    if (existing?.pinHash && !verifyAdminPin(currentPin, existing.pinHash)) return json({ error: "The current admin PIN is incorrect." }, 403);
+    if (existing?.pinHash) {
+      const pinCheck = await checkAdminPin(companyId, authorization.id, currentPin, existing.pinHash);
+      if (!pinCheck.ok) return json({ error: pinCheck.blocked ? pinBlockedMessage(pinCheck.retryAfter) : "The current admin PIN is incorrect." }, pinCheck.blocked ? 429 : 403);
+    }
 
     if (action === "clear") {
       if (!existing?.pinHash) return json({ configured: false });

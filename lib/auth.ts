@@ -2,7 +2,7 @@ import { salesRouteAllowed } from "./sales-access";
 import { canDeleteBusinessRecord } from "./document-access";
 import "server-only";
 
-import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { and, eq, gt, sql } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { getDb } from "@/db";
@@ -57,25 +57,8 @@ export function requestIpAddress(request: Request) {
   return (forwardedIp || request.headers.get("x-real-ip") || "Unknown").slice(0, 64);
 }
 
-export function hashPassword(password: string) {
-  const salt = randomBytes(16);
-  const hash = scryptSync(password, salt, 64, { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
-  return ["scrypt", 16384, 8, 1, salt.toString("hex"), hash.toString("hex")].join("$");
-}
-
-export function verifyPassword(password: string, stored: string) {
-  const [algorithm, n, r, p, saltHex, hashHex] = stored.split("$");
-  if (algorithm !== "scrypt" || !saltHex || !hashHex) return false;
-  try {
-    const expected = Buffer.from(hashHex, "hex");
-    const actual = scryptSync(password, Buffer.from(saltHex, "hex"), expected.length, {
-      N: Number(n), r: Number(r), p: Number(p), maxmem: 64 * 1024 * 1024,
-    });
-    return expected.length === actual.length && timingSafeEqual(expected, actual);
-  } catch {
-    return false;
-  }
-}
+// One password implementation: asynchronous scrypt (does not block the server) with a 128-character limit.
+export { hashPassword, verifyPassword } from "./password";
 
 export function sessionCookie(token: string, maxAge = SESSION_HOURS * 60 * 60) {
   return `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`;

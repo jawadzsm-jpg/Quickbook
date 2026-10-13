@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { TwoStepSettings } from "./two-step-settings";
 
 function PasswordField({ id, label, value, onChange, autoComplete, visible }: { id: string; label: string; value: string; onChange: (value: string) => void; autoComplete: string; visible: boolean }) {
   return <div className="space-y-2"><Label htmlFor={id}>{label}</Label><Input id={id} type={visible ? "text" : "password"} autoComplete={autoComplete} minLength={autoComplete === "new-password" ? 12 : undefined} maxLength={128} value={value} onChange={(event) => onChange(event.target.value)} required /></div>;
@@ -23,10 +24,11 @@ export function ChangePasswordButton({ email }: { email: string }) {
   const [confirm, setConfirm] = useState("");
   const [visible, setVisible] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [tab, setTab] = useState<"password" | "two-step">("password");
 
   function reset(nextOpen: boolean) {
     setOpen(nextOpen);
-    if (!nextOpen) { setCurrent(""); setNext(""); setConfirm(""); setVisible(false); }
+    if (!nextOpen) { setCurrent(""); setNext(""); setConfirm(""); setVisible(false); setTab("password"); }
   }
 
   async function submit(event: FormEvent) {
@@ -47,11 +49,13 @@ export function ChangePasswordButton({ email }: { email: string }) {
   const strength = next.length >= 16 && /[A-Z]/.test(next) && /[0-9]/.test(next) && /[^A-Za-z0-9]/.test(next) ? "Strong" : next.length >= 12 ? "Acceptable" : next ? "Too short" : "";
 
   return <>
-    <Button type="button" variant="ghost" size="icon" aria-label="Change password" title="Change password" onClick={() => setOpen(true)} className="size-8 shrink-0 text-slate-400 hover:bg-white/10 hover:text-white"><KeyRound className="size-4" /></Button>
+    <Button type="button" variant="ghost" size="icon" aria-label="Password and two-step sign-in" title="Password and two-step sign-in" onClick={() => setOpen(true)} className="size-8 shrink-0 text-slate-400 hover:bg-white/10 hover:text-white"><KeyRound className="size-4" /></Button>
     <Dialog open={open} onOpenChange={reset}>
       <DialogContent className="sm:max-w-md">
-        <DialogHeader><DialogTitle>Change password</DialogTitle><DialogDescription>{email} · You will be signed out on every device and sign in again with the new password.</DialogDescription></DialogHeader>
-        <form onSubmit={submit} className="space-y-4">
+        <DialogHeader><DialogTitle>Account security</DialogTitle><DialogDescription>{email}</DialogDescription></DialogHeader>
+        <div role="tablist" aria-label="Account security" className="flex gap-1 rounded-lg border bg-muted/40 p-1">{([["password", "Password"], ["two-step", "Two-step sign-in"]] as const).map(([value, label]) => <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => setTab(value)} className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${tab === value ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>{label}</button>)}</div>
+        {tab === "two-step" ? <TwoStepSettings /> : <form onSubmit={submit} className="space-y-4">
+          <p className="text-xs text-muted-foreground">You will be signed out on every device and sign in again with the new password.</p>
           <PasswordField id="change-current-password" label="Current password" value={current} onChange={setCurrent} autoComplete="current-password" visible={visible} />
           <PasswordField id="change-new-password" label="New password" value={next} onChange={setNext} autoComplete="new-password" visible={visible} />
           {strength && <p className={`text-xs ${strength === "Too short" ? "text-destructive" : strength === "Strong" ? "text-emerald-700 dark:text-emerald-300" : "text-muted-foreground"}`}>Strength: {strength}{strength !== "Strong" ? " · 16+ characters with upper-case, numbers and symbols is strongest" : ""}</p>}
@@ -60,7 +64,7 @@ export function ChangePasswordButton({ email }: { email: string }) {
           <button type="button" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground" onClick={() => setVisible((value) => !value)}>{visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}{visible ? "Hide passwords" : "Show passwords"}</button>
           <p className="text-xs text-muted-foreground">Forgot your current password? Sign out and use <strong>Forgot password?</strong> on the sign-in page to get a reset link by email.</p>
           <DialogFooter><Button type="button" variant="outline" disabled={saving} onClick={() => reset(false)}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? "Changing…" : "Change password"}</Button></DialogFooter>
-        </form>
+        </form>}
       </DialogContent>
     </Dialog>
   </>;

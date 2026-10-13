@@ -23,6 +23,7 @@ import { contactAddressLines } from "@/lib/contact-address";
 import { purchaseDocumentAccount, purchaseRemainingLine, purchaseReportKeys } from "@/lib/purchase-report";
 import { salesDocumentAccounts, salesFulfilment, salesReportKeys } from "@/lib/sales-report";
 import { linkReportAccounts } from "@/lib/report-account-links";
+import { publicErrorMessage } from "@/lib/errors";
 
 type Row = Record<string, string | number | null>;
 const money = { type: "money" as const };
@@ -1411,6 +1412,6 @@ export async function GET(request: Request) {
 
     return Response.json({ report: { key, period, companyId, supplierId: supplierReport ? supplierId : undefined, canViewAccounts: hasPermission(authorization, "accounting:manage"), budget, accountLinkIssues: [...linkedAccounts.issues, ...budgetIssues, ...((accountantReportKeys.has(key) || listReportKeys.has(key)) ? accountantAccountIssues(linkedAccounts.rows, columns) : [])], vatCodes: vatReportKeys.has(key) ? configuredVatCodes.map(({ code, name, rate }) => ({ code, name, rate })) : undefined, title, generatedAt: new Date().toISOString(), currency: reportCurrency, columns, rows: linkedAccounts.rows, chart, summary, apLedger, inventoryLedger, inventoryAging, inventoryScope: inventoryLedger ? (scoped ? "inventory" : "company") : undefined, warehouseOptions, warehouse: reportWarehouse } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Could not generate report." }, { status: 500 });
+    return Response.json({ error: publicErrorMessage(error, "Could not generate report.") }, { status: 500 });
   }
 }

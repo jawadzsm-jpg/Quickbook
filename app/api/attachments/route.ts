@@ -6,6 +6,7 @@ import { sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { hasPermission, isAdministrator, requireCompanyAccess } from "@/lib/auth";
 import { MAX_FILES, parseAttachment } from "@/lib/attachments";
+import { readJsonBody, RequestError } from "@/lib/api";
 
 type AttachmentInput = { fileName?: string; mimeType?: string; fileData?: string; fileSize?: number };
 
@@ -28,11 +29,14 @@ export async function GET(request: Request) {
   const entityType = String(url.searchParams.get("entityType") ?? "");
   const authorization = await requireCompanyAccess(request, companyId, "workspace:read");
   if (authorization instanceof Response) return authorization;
-  if (authorization.role === "sales") {
-    if (entityType !== "transaction") return Response.json({ error: "Sales document attachments only." }, { status: 403 });
+  if (authorization.role === "sales" && entityType !== "transaction") return Response.json({ error: "Sales document attachments only." }, { status: 403 });
+  // A document's files follow the same visibility as the document itself, for every role.
+  if (entityType === "transaction") {
     const [visible] = await getDb().select({ id: transactions.id }).from(transactions).where(and(eq(transactions.id, entityId), eq(transactions.companyId, companyId), documentVisibility(authorization)));
-    if (!visible) return Response.json({ error: "Document unavailable. Ask your accountant for saved proformas." }, { status: 403 });
+    if (!visible) return Response.json({ error: authorization.role === "sales" ? "Document unavailable. Ask your accountant for saved proformas." : "You cannot open this document." }, { status: 403 });
   }
+  // Employee files (ID and passport copies, contracts) are HR records: administrators only, like the HR fields.
+  if (entityType === "employee" && !isAdministrator(authorization)) return Response.json({ error: "Company administrator access required." }, { status: 403 });
   if (entityType === "transaction" && authorization.role === "inventory") {
     const result = await getDb().execute(sql`SELECT type, created_at AS "createdAt" FROM transactions WHERE id = ${entityId} AND company_id = ${companyId}`);
     const document = result.rows[0];
@@ -69,17 +73,23 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const payload = await request.json() as Record<string, unknown>;
+  // Bounded read: at most 10 files of 3 MB (base64) plus field names.
+  let payload: Record<string, unknown>;
+  try { payload = await readJsonBody(request, 45_000_000) as Record<string, unknown>; }
+  catch (error) { return Response.json({ error: error instanceof RequestError ? error.message : "Invalid request." }, { status: error instanceof RequestError ? error.status : 400 }); }
   const companyId = Number(payload.companyId);
   const entityId = Number(payload.entityId);
   const entityType = String(payload.entityType ?? "");
   const authorization = await requireCompanyAccess(request, companyId, "workspace:read", true);
   if (authorization instanceof Response) return authorization;
-  if (authorization.role === "sales") {
-    if (entityType !== "transaction") return Response.json({ error: "Sales document attachments only." }, { status: 403 });
+  if (authorization.role === "sales" && entityType !== "transaction") return Response.json({ error: "Sales document attachments only." }, { status: 403 });
+  // A document's files follow the same visibility as the document itself, for every role.
+  if (entityType === "transaction") {
     const [visible] = await getDb().select({ id: transactions.id }).from(transactions).where(and(eq(transactions.id, entityId), eq(transactions.companyId, companyId), documentVisibility(authorization)));
-    if (!visible) return Response.json({ error: "Document unavailable. Ask your accountant for saved proformas." }, { status: 403 });
+    if (!visible) return Response.json({ error: authorization.role === "sales" ? "Document unavailable. Ask your accountant for saved proformas." : "You cannot open this document." }, { status: 403 });
   }
+  // Employee files (ID and passport copies, contracts) are HR records: administrators only, like the HR fields.
+  if (entityType === "employee" && !isAdministrator(authorization)) return Response.json({ error: "Company administrator access required." }, { status: 403 });
   if (entityType === "transaction" && authorization.role === "inventory") {
     const result = await getDb().execute(sql`SELECT type, created_at AS "createdAt" FROM transactions WHERE id = ${entityId} AND company_id = ${companyId}`);
     const document = result.rows[0];
@@ -143,6 +153,7 @@ export async function DELETE(request: Request) {
   const canChangeTransaction = canAttachToTransaction(authorization, transactionType);
   const canChangeReport = String(existing.rows[0].entity_type) === "report" && hasPermission(authorization, "reports:read");
   const canChangeRcm = String(existing.rows[0].entity_type) === "rcm_declaration" && hasPermission(authorization, "purchases:write");
+  if (String(existing.rows[0].entity_type) === "employee" && !isAdministrator(authorization)) return Response.json({ error: "Company administrator access required." }, { status: 403 });
   if (!canChangeTransaction && !canChangeReport && !canChangeRcm && !isAdministrator(authorization)) return Response.json({ error: "You cannot change attachments on this record." }, { status: 403 });
   await getDb().execute(sql`DELETE FROM record_attachments WHERE id = ${id} AND company_id = ${companyId}`);
   return Response.json({ success: true });

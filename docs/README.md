@@ -16,6 +16,7 @@ These files are the maintained reference for EasyBook Online Accounting ERP. Rea
 | [`CODEBASE-MAP.md`](CODEBASE-MAP.md) | Directory ownership, common change paths, and documentation maintenance |
 | [`FILE-INDEX.md`](FILE-INDEX.md) | One line per source file in `app/`, `lib/`, `db/`, `scripts/` and `hooks/` |
 | [`BACKUPS.md`](BACKUPS.md) | Company backup schedules, archives, verification and recovery |
+| [`SECURITY-AUDIT.md`](SECURITY-AUDIT.md) | Security checklist verdicts (October 2026), fixes made, and open owner decisions |
 
 ## Historical review documents
 

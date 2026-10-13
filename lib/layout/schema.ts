@@ -19,7 +19,8 @@ const id = z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/);
 const shortText = z.string().max(200);
 const longText = z.string().max(15000);
 // Images are stored inline as data URLs; keep each under ~1 MB so a whole layout stays well within request limits.
-const imageData = z.string().max(1_400_000).refine((value) => value === "" || /^data:image\/(png|jpeg|webp|gif|svg\+xml);base64,/.test(value), "Use a PNG, JPEG, WebP, GIF or SVG image.");
+// Rendered only through <img> (never inline), so an SVG cannot run scripts; the value must be one complete data URL.
+const imageData = z.string().max(1_400_000).refine((value) => value === "" || /^data:image\/(png|jpeg|webp|gif|svg\+xml);base64,[A-Za-z0-9+/]+={0,2}$/.test(value), "Use a PNG, JPEG, WebP, GIF or SVG image.");
 const colour = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 const mm = (min: number, max: number) => z.number().finite().min(min).max(max);
 

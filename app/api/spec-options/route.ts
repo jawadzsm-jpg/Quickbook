@@ -5,6 +5,7 @@ import { savedCategoryColors } from "@/lib/category-colors-sql";
 import { specificationFields, specificationPresets } from "@/lib/specification-presets";
 import { requireApiUser } from "@/lib/auth";
 import { normalizeComparableText, uppercaseText } from "@/lib/text-normalization";
+import { publicErrorMessage } from "@/lib/errors";
 
 type OptionPayload = { type?: unknown; label?: unknown; value?: unknown; oldValue?: unknown; newValue?: unknown };
 const LABEL_SCOPE = "__specification_detail_names__";
@@ -70,7 +71,7 @@ export async function GET(request: Request) {
     }
     return Response.json({ options, disabled, labels, disabledLabels, categories, disabledCategories, categoryColors: await savedCategoryColors() });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Could not load specification choices." }, { status: 500 });
+    return Response.json({ error: publicErrorMessage(error, "Could not load specification choices.") }, { status: 500 });
   }
 }
 
@@ -94,7 +95,7 @@ export async function POST(request: Request) {
     await setOption(label, value, true);
     return Response.json({ ok: true }, { status: 201 });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Could not add the choice." }, { status: 500 });
+    return Response.json({ error: publicErrorMessage(error, "Could not add the choice.") }, { status: 500 });
   }
 }
 
@@ -136,7 +137,7 @@ export async function PATCH(request: Request) {
     }
     return Response.json({ ok: true });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Could not rename the choice." }, { status: 500 });
+    return Response.json({ error: publicErrorMessage(error, "Could not rename the choice.") }, { status: 500 });
   }
 }
 
@@ -153,6 +154,6 @@ export async function DELETE(request: Request) {
     await setOption(label, storedValue, false);
     return Response.json({ ok: true });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Could not remove the choice." }, { status: 500 });
+    return Response.json({ error: publicErrorMessage(error, "Could not remove the choice.") }, { status: 500 });
   }
 }

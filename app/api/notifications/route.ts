@@ -3,8 +3,9 @@ import { getDb } from "@/db";
 import { appUsers, companies, notifications, transactions } from "@/db/schema";
 import { requireApiUser } from "@/lib/auth";
 import { sendDueChequeReminders } from "@/lib/notifications";
+import { publicErrorMessage } from "@/lib/errors";
 
-const message = (error: unknown) => error instanceof Error ? error.message : "Could not load notifications.";
+const message = (error: unknown) => publicErrorMessage(error, "Could not load notifications.");
 
 /** The signed-in user's latest notifications (companies they can still open), unread count and email preference. */
 export async function GET(request: Request) {

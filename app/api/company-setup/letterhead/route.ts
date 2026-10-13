@@ -4,6 +4,7 @@ import { getDb, withWriteTransaction } from "@/db";
 import { auditLog, companies } from "@/db/schema";
 import { canAccessCompany, isAdministrator, requireApiUser } from "@/lib/auth";
 import { validateLetterheadSettings } from "@/lib/letterhead";
+import { publicErrorMessage } from "@/lib/errors";
 
 export async function PATCH(request: Request) {
   const user = await requireApiUser(request, true, true);
@@ -31,7 +32,7 @@ export async function PATCH(request: Request) {
       }
       value = JSON.stringify(settings);
     }
-    catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Check the letterhead." }, { status: 400 }); }
+    catch (error) { return Response.json({ error: publicErrorMessage(error, "Check the letterhead.") }, { status: 400 }); }
     return await withWriteTransaction(async () => {
       const db = getDb();
       const [record] = await db.update(companies).set({ letterheadDesign: value }).where(eq(companies.id, companyId)).returning();

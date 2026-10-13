@@ -7,9 +7,10 @@ import { savedCategoryColors } from "@/lib/category-colors-sql";
 import { canManageOffers } from "@/lib/item-offers";
 import { currentOfferCondition, offerSoldQuantity } from "@/lib/item-offers-sql";
 import { hasPermission, isAdministrator, requireApiUser } from "@/lib/auth";
+import { publicErrorMessage } from "@/lib/errors";
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Could not load the inventory overview.";
+  return publicErrorMessage(error, "Could not load the inventory overview.");
 }
 
 export async function GET(request: Request) {

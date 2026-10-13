@@ -2738,13 +2738,25 @@ function CompanySetupCenter({ setup, onSaved, canClearCompany, canSelectLoginBra
     reader.onerror = () => toast.error("Could not read the selected logo.");
     reader.readAsDataURL(file);
   };
+  // Any image format is accepted and saved as a PNG (transparency kept), the only stored stamp formats being PNG/JPEG/WebP.
   const uploadStamp = (file?: File) => {
     if (!file) return;
     if (!file.type.startsWith("image/") || file.size > 500_000) return toast.error("Upload an image stamp smaller than 500 KB.");
-    const reader = new FileReader();
-    reader.onload = () => update("stampData", String(reader.result ?? ""));
-    reader.onerror = () => toast.error("Could not read the selected stamp.");
-    reader.readAsDataURL(file);
+    const url = URL.createObjectURL(file);
+    const image = new window.Image();
+    image.onload = () => {
+      const scale = Math.min(1, 1200 / Math.max(image.naturalWidth || 1, image.naturalHeight || 1));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round((image.naturalWidth || 300) * scale));
+      canvas.height = Math.max(1, Math.round((image.naturalHeight || 200) * scale));
+      canvas.getContext("2d")?.drawImage(image, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      const png = canvas.toDataURL("image/png");
+      if (png.length > 700_000) return toast.error("The stamp is too detailed. Use a smaller image (under 500 KB as PNG).");
+      update("stampData", png);
+    };
+    image.onerror = () => { URL.revokeObjectURL(url); toast.error("Could not read the selected stamp."); };
+    image.src = url;
   };
   const uploadLoginBackground = (file?: File) => {
     if (!file) return;

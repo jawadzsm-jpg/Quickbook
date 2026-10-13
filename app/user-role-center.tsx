@@ -17,7 +17,7 @@ type Role = "all_admin" | "admin" | "accountant" | "sales" | "purchasing" | "inv
 type Company = { id: number; name: string };
 type ManagedUser = {
   id: number; fullName: string; email: string; phone: string; whatsapp: string; avatarData: string; role: Role; companyIds: number[];
-  active: boolean; mustChangePassword: boolean; idleTimeoutMinutes: number; lastLoginAt: string | null; lastLoginIp: string; lastLoginUserAgent: string; isCurrent: boolean; manageable: boolean;
+  active: boolean; mustChangePassword: boolean; idleTimeoutMinutes: number; mfaEnabled?: boolean; lastLoginAt: string | null; lastLoginIp: string; lastLoginUserAgent: string; isCurrent: boolean; manageable: boolean;
 };
 type Draft = { role: Role; companyIds: number[] };
 export type UserSummary = { total: number; active: number; inactive: number; pendingPassword: number };
@@ -283,7 +283,7 @@ export function UserRoleCenter({ onSummary }: { onSummary?: (summary: UserSummar
         <div className="flex min-w-0 gap-3">
           <UserAvatar user={user} />
           <div className="min-w-0 space-y-1">
-            <div className="flex flex-wrap items-center gap-1.5"><p className="truncate font-semibold">{user.fullName || user.email}</p>{user.isCurrent && <Badge variant="outline">You</Badge>}<Badge variant="secondary" className={user.active ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : ""}>{user.active ? "Active" : "Inactive"}</Badge>{user.active && user.mustChangePassword && <Badge variant="secondary" className="bg-amber-500/15 text-amber-800 dark:text-amber-300">Password change required</Badge>}{draft && <Badge variant="secondary">Unsaved</Badge>}</div>
+            <div className="flex flex-wrap items-center gap-1.5"><p className="truncate font-semibold">{user.fullName || user.email}</p>{user.isCurrent && <Badge variant="outline">You</Badge>}<Badge variant="secondary" className={user.active ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : ""}>{user.active ? "Active" : "Inactive"}</Badge>{user.active && user.mustChangePassword && <Badge variant="secondary" className="bg-amber-500/15 text-amber-800 dark:text-amber-300">Password change required</Badge>}{user.mfaEnabled && <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">Two-step on</Badge>}{draft && <Badge variant="secondary">Unsaved</Badge>}</div>
             <p className="truncate text-sm text-muted-foreground">{user.email}</p>
             {(user.phone || user.whatsapp) && <p className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">{user.phone && <span>{user.phone}</span>}{user.whatsapp && <span>WhatsApp: {user.whatsapp}</span>}</p>}
             <div className="flex flex-wrap gap-x-3 gap-y-1 pt-1 text-xs text-muted-foreground"><span title="Last sign-in (UAE time)">{uaeTime(user.lastLoginAt)}</span>{user.lastLoginIp && <span className="flex items-center gap-1"><MapPin className="size-3" />{user.lastLoginIp}</span>}{user.lastLoginUserAgent && <span className="flex items-center gap-1"><Smartphone className="size-3" />{deviceName(user.lastLoginUserAgent)}</span>}</div>
@@ -297,6 +297,7 @@ export function UserRoleCenter({ onSummary }: { onSummary?: (summary: UserSummar
           {draft && <><Button type="button" size="sm" disabled={busy} onClick={() => void saveAccess(user)}><Save className="size-4" />{busy ? "Saving…" : "Save access"}</Button><Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => discardDraft(user.id)}><RotateCcw className="size-4" />Discard</Button></>}
           <Button type="button" size="sm" variant="outline" disabled={busy || locked} onClick={() => { setProfile({ fullName: user.fullName, phone: user.phone, whatsapp: user.whatsapp, avatarData: user.avatarData }); setProfileUser(user); }}><Pencil className="size-4" />Edit profile</Button>
           <Button type="button" size="sm" variant="outline" disabled={accessLocked} onClick={() => { setResetUser(user); setResetPassword(generatePassword()); setEmailReset(true); }}><KeyRound className="size-4" />Reset password</Button>
+          {user.mfaEnabled && <Button type="button" size="sm" variant="outline" disabled={busy || locked} onClick={() => { if (window.confirm(`Reset two-step sign-in for ${user.fullName || user.email}? Use this when they lost their phone; they sign in with their password and can set it up again.`)) void patchUser(user.id, { resetMfa: true }, "Two-step sign-in reset"); }}><ShieldCheck className="size-4" />Reset two-step</Button>}
           <Button type="button" size="sm" variant="outline" disabled={accessLocked} onClick={() => void toggleActive(user)}>{user.active ? <UserX className="size-4" /> : <UserCheck className="size-4" />}{user.active ? "Deactivate" : "Activate"}</Button>
           <Button type="button" size="sm" variant="outline" className="text-destructive" title={user.isCurrent ? "You cannot delete your own account" : "Delete user"} disabled={accessLocked} onClick={() => void deleteUser(user)}><Trash2 className="size-4" />Delete</Button>
         </div>

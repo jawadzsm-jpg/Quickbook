@@ -4,6 +4,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
 import { auditLog, items } from "@/db/schema";
 import { requireCompanyAccess } from "@/lib/auth";
+import { publicErrorMessage } from "@/lib/errors";
 
 const text = (value: unknown, max: number) => String(value ?? "").trim().slice(0, max);
 const number = (value: unknown) => {
@@ -12,7 +13,7 @@ const number = (value: unknown) => {
 };
 
 function errorMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : "Could not update item logistics.";
+  const message = publicErrorMessage(error, "Could not update item logistics.");
   return message.includes("does not exist") ? "The item-logistics database is being updated. Please refresh in a moment." : message;
 }
 

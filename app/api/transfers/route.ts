@@ -7,11 +7,12 @@ import { auditLog, companies, contacts, inventoryLocations, items, stockTransfer
 import { canAccessCompany, isAdministrator, requireApiUser } from "@/lib/auth";
 import { readJsonBody } from "@/lib/api";
 import { heldByOthers, heldStockMessage } from "@/lib/stock-holds";
+import { publicErrorMessage } from "@/lib/errors";
 
 type TransferLine = { itemId?: unknown; sourceLocationId?: unknown; destinationLocationId?: unknown; quantity?: unknown };
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Could not transfer inventory.";
+  return publicErrorMessage(error, "Could not transfer inventory.");
 }
 
 export async function GET(request: Request) {

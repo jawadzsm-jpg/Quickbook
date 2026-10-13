@@ -5,6 +5,7 @@ import { getDb, withWriteTransaction } from "@/db";
 import { accounts, auditLog, companies, inventoryLocations, journalEntries, journalLines } from "@/db/schema";
 import { canAccessCompany, isAdministrator, requireApiUser } from "@/lib/auth";
 import { guardFiledPeriod } from "@/lib/period-lock";
+import { publicErrorMessage } from "@/lib/errors";
 
 type InputLine = { accountId?: number | string; debit?: number | string; credit?: number | string };
 const round = (value: number) => Math.round(value * 100) / 100;
@@ -48,12 +49,12 @@ export async function GET(request: Request) {
         debit: round(entryLines.reduce((sum,line)=>sum+Number(line.debit),0)), credit: round(entryLines.reduce((sum,line)=>sum+Number(line.credit),0)),
         source: entry.transactionId ? "Transaction" : manualIds.has(entry.id) ? "Manual" : entry.description.startsWith("Stock revaluation:") ? "Stock revaluation" : "Automatic" };
     }) }, { headers: { "Cache-Control": "private, no-store" } });
-  } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Could not load journal entries." }, { status: 500 }); }
+  } catch (error) { return Response.json({ error: publicErrorMessage(error, "Could not load journal entries.") }, { status: 500 }); }
 }
 
 export async function POST(request: Request) {
   try { return await withWriteTransaction(() => saveJournal(request)); }
-  catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Could not post journal." }, { status: 500 }); }
+  catch (error) { return Response.json({ error: publicErrorMessage(error, "Could not post journal.") }, { status: 500 }); }
 }
 
 async function saveJournal(request: Request, replacing?: typeof journalEntries.$inferSelect) {
@@ -109,7 +110,7 @@ async function saveJournal(request: Request, replacing?: typeof journalEntries.$
     await db.insert(journalLines).values(converted.map((line) => ({ journalEntryId: entry.id, accountName: accountNames.get(line.accountId)!, accountId: line.accountId, debit: line.debit, credit: line.credit, originalDebit: line.originalDebit, originalCredit: line.originalCredit })));
     await db.insert(auditLog).values({ companyId, action: replacing ? "updated" : "created", entityType: "journal_entry", entityId: entry.id, details: JSON.stringify({ actor: { id: user.id, name: user.fullName, email: user.email }, reference, currency, exchangeRate, lines: prepared, total: totalDebit, homeTotal: postedDebit / 100 }) });
     return Response.json({ entry: { ...entry, debit: postedDebit / 100, credit: postedCredit / 100, source: "Manual" } }, { status: replacing ? 200 : 201 });
-  } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Could not post journal entry." }, { status: 500 }); }
+  } catch (error) { return Response.json({ error: publicErrorMessage(error, "Could not post journal entry.") }, { status: 500 }); }
 }
 
 export async function PATCH(request: Request) { return changeJournal(request, false); }
@@ -143,5 +144,5 @@ async function changeJournal(request: Request, remove: boolean) {
       await db.insert(auditLog).values({ companyId, entityType: "journal_entry", entityId: id, action: remove ? "deleted" : "previous_version", details: JSON.stringify({ actor: { id: user.id, name: user.fullName, email: user.email }, entry, lines: oldLines }) });
       return Response.json({ success: true });
     });
-  } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Could not change journal." }, { status: 500 }); }
+  } catch (error) { return Response.json({ error: publicErrorMessage(error, "Could not change journal.") }, { status: 500 }); }
 }

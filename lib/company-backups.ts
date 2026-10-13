@@ -1,3 +1,5 @@
+import "server-only";
+
 import { randomUUID, createHash } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import { put, get, del } from '@vercel/blob';

@@ -4,6 +4,7 @@ import { getDb, withWriteTransaction } from "@/db";
 import { appUsers, auditLog, contacts, items, packingListLines, packingLists, transactionLines, transactions } from "@/db/schema";
 import { hasPermission, requireCompanyAccess } from "@/lib/auth";
 import { cleanDeliveryAddress } from "@/lib/delivery-address";
+import { publicErrorMessage } from "@/lib/errors";
 
 const clean = (value: unknown, max = 240) => String(value ?? "").trim().slice(0, max);
 const finite = (value: unknown, fallback = 0) => { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : fallback; };
@@ -23,7 +24,7 @@ function cartonKeys(value: string) {
 }
 
 function errorMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : "Could not save packing list.";
+  const message = publicErrorMessage(error, "Could not save packing list.");
   return message.includes("does not exist") ? "The packing-list database is being updated. Please refresh in a moment." : message;
 }
 

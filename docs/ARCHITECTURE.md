@@ -120,7 +120,10 @@ Non-posting documents such as quotations, estimates, proforma invoices, sales or
 
 ### Sessions
 
-- Passwords use scrypt with a random salt.
+- Passwords use asynchronous scrypt (N=16384, r=8, p=1, random 16-byte salt, 64-byte key, timing-safe compare) with a 128-character limit; there is one implementation (`lib/password.ts`, re-exported by `lib/auth.ts`).
+- Sign-in (`/api/auth/session` POST) is rate limited (300/min overall, 30 per email and 60 per IP per 15 minutes; `lib/rate-limit.ts`), counts failures in one atomic UPDATE (parallel guesses cannot share a strike), answers unknown emails, wrong passwords and locked accounts identically and in the same time (a dummy hash is checked for unknown emails), and refuses accounts without a password. Migration 0124 deactivated such accounts (the old Admin-PIN sign-in path is removed).
+- Two-step sign-in (optional per user): authenticator-app codes (TOTP, RFC 6238, ±1 step, a used step cannot be reused) or 10 one-time backup codes (SHA-256 digests). Keys are AES-256-GCM encrypted (`lib/secret-box.ts`). `lib/totp.ts`, `lib/mfa.ts`, `/api/auth/mfa`; administrators can reset it for a user in Users & access.
+- Changing the password (`/api/auth/session` PATCH) allows 5 current-password attempts per 15 minutes.
 - Session tokens contain 32 random bytes. Only a SHA-256 digest is stored in `auth_sessions`.
 - The cookie is `HttpOnly`, `Secure`, `SameSite=Strict`, scoped to `/`, and expires after 12 hours.
 - Automatic sign-out when idle: `app_users.idle_timeout_minutes` (default 15, 0 = never; choices in `lib/idle-timeout.ts`). `app/idle-sign-out.tsx` treats keyboard, pointer, touch, wheel and scroll events as activity, shares the last activity time between tabs through `localStorage`, shows a countdown for the final minute and signs out at the limit. At most once a minute it posts `/api/auth/activity`, which sets `auth_sessions.last_active_at` (separate from `last_seen_at`, which the online-users heartbeat refreshes). `findSessionUser` in `lib/auth.ts` deletes a session whose `last_active_at` is older than the limit plus a 2-minute grace, so sleeping or closed browsers cannot keep a session alive.
@@ -158,9 +161,15 @@ Employee/HR reports require Administrator access. SMTP settings (`/api/email-set
 ### Request and browser controls
 
 - Mutating API calls require a matching request origin.
-- Data queries validate that the requested company and inventory location belong together.
-- Security headers deny framing, disable MIME sniffing, restrict referrers and browser permissions, and constrain CSP frame ancestors, base URI, and form actions.
-- Stored SMTP passwords are encrypted; `SMTP_ENCRYPTION_KEY` is the preferred secret.
+- Data queries validate that the requested company and inventory location belong together (including new items and any document that names an inventory).
+- Security headers: HSTS (2 years, preload), X-Frame-Options DENY, nosniff, Referrer-Policy same-origin, Permissions-Policy, Cross-Origin-Opener-Policy same-origin-allow-popups, X-DNS-Prefetch-Control off, CSP `frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'`; no X-Powered-By; no browser source maps. A nonce-based `script-src` is not set yet (Next.js inline scripts need per-request nonces).
+- Secrets at rest (SMTP password / turboSMTP secret, authenticator keys) are AES-256-GCM encrypted with `SMTP_ENCRYPTION_KEY` ("v2"); without it the key is derived from `DATABASE_URL` ("v1"), which is still readable after the key is set.
+- Errors: database/driver errors (SQL text, parameters, schema names) never reach the browser; `publicErrorMessage` (`lib/errors.ts`) returns the route's fallback and logs only the SQLSTATE code.
+- Admin PIN (negative-stock and filed-period overrides): 5 wrong PINs per user per company and 20 per company in 15 minutes, then every PIN waits (`lib/pin-attempts.ts`).
+- Email sending limits: 10 test emails and 30 login emails per administrator per hour, 100 document emails per user per hour, 10 reset requests per IP per hour (plus 3 links per user per hour). Reset emails are sent after the response so timing does not reveal accounts; emailed links use `NEXT_PUBLIC_APP_URL` (or Vercel's production domain), never the request Host header (`lib/app-url.ts`).
+- The SMTP host must be a public address on port 25, 465, 587 or 2525 (`lib/network-guard.ts`), so the server cannot be used to probe the private network.
+- CSV exports neutralise spreadsheet formulas (`csvCell`, `lib/export.ts`).
+- Tenant isolation is enforced in the application layer (every query filters by an authorized company). PostgreSQL row-level security is not enabled; see `docs/SECURITY-AUDIT.md`.
 - Attachments validate entity type, company access, edit permission, file metadata, and configured size constraints.
 
 ## Performance rules
