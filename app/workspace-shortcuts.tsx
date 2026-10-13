@@ -27,7 +27,7 @@ export function WorkspaceShortcuts({ groups, currentView, onNavigate }: { groups
   })})).filter(group=>group.items.length);
   return <>
     <Button type="button" variant="outline" onClick={()=>{setQuery("");setOpen(true);}} title="Find a workspace · Ctrl/⌘ K"><Search className="size-4"/>Shortcuts<kbd className="hidden rounded border px-1 text-[10px] text-muted-foreground lg:inline">⌘ / Ctrl K</kbd></Button>
-    <Dialog open={open} onOpenChange={setOpen}><DialogContent showWindowControls={false} className="sm:max-w-2xl">
+    <Dialog open={open} onOpenChange={setOpen}><DialogContent showWindowControls={false} data-no-save-prompt className="sm:max-w-2xl">
       <DialogHeader><DialogTitle>Workspace shortcuts</DialogTitle><DialogDescription>Find a page available to your role. Your selected company stays active.</DialogDescription></DialogHeader>
       <Input autoFocus aria-label="Search workspace shortcuts" placeholder="Search sales, inventory, reports…" value={query} onChange={e=>setQuery(e.target.value)}/>
       <div className="max-h-[55dvh] space-y-5 overflow-y-auto" aria-live="polite">

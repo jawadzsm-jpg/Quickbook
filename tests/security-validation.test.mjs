@@ -875,6 +875,9 @@ test("Escape and close controls protect editable dialogs with save, discard, and
   assert.match(closer, /document\.addEventListener\("keydown", onKeyDown, true\)/);
   assert.match(closer, /document\.addEventListener\("click", onClick, true\)/);
   assert.match(closer, /Save before closing\?/);
+  // Windows with nothing to save (Workspace shortcuts: "Receive Payment" is a link) close without asking.
+  assert.match(closer, /container\.closest\("\[data-no-save-prompt\]"\)/);
+  assert.match(readFileSync(new URL("../app/workspace-shortcuts.tsx", import.meta.url), "utf8"), /<DialogContent [^>]*data-no-save-prompt/);
   assert.match(closer, /Keep editing/);
   assert.match(closer, /Discard &amp; close/);
   assert.match(closer, /Save changes/);
