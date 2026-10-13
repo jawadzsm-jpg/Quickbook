@@ -370,7 +370,8 @@ test("VAT codes restore UAE defaults and support edit, safe delete, linked docum
   assert.match(center, /Delete VAT code/);
   assert.match(center, /linked areas/);
   assert.match(center, /entityType: "vat_code"/);
-  assert.match(center, /A4 portrait/);
+  assert.match(center, /A4 \{orientation\}/);
+  assert.match(center, /<PrintOrientationSelect value=\{orientation\}/);
   assert.match(center, /<LetterheadStamp/);
   assert.match(center, /reportPdf\(report/);
   assert.match(api, /export async function DELETE/);
@@ -628,7 +629,7 @@ test("Customization Details has a dedicated role, secure writes, centered summar
   assert.match(api, /skuWrite\("item-customization", handlePatch\)/);
   assert.match(page, />Summary</);
   assert.equal((page.match(/<DropdownMenu>/g) || []).length, 1);
-  assert.match(page, /A4 portrait PDF/);
+  assert.match(page, /A4 \{orientation\} PDF/);
   assert.match(page, /onOpenInventory\(record\.sku\)/);
   assert.match(page, /Drag to move product details/);
   assert.match(page, /dark:bg-amber-950/);
@@ -744,7 +745,8 @@ test("customer payments use non-VAT payment details and a linked A4 receipt", ()
   assert.match(app, /receivePayment && <div className="space-y-2"><Label>Payment method \*<\/Label>/);
   assert.match(app, /receivePayment && <Field label="Reference No\." name="referenceNo"/);
   assert.match(app, /!receivePayment && <><div className="space-y-2"><Label htmlFor="cash-vat-code">VAT code<\/Label>/);
-  assert.match(receipt, /Customer Payment Receipt · A4 portrait/);
+  assert.match(receipt, /Customer Payment Receipt · A4 \{orientation\}/);
+  assert.match(receipt, /@page\{size:A4 \$\{orientation\}/);
   assert.match(receipt, /createA4LetterheadPdfBlob/);
   assert.match(receipt, /LetterheadStamp/);
   assert.match(receipt, /documentLabel="Customer Payment"/);
@@ -790,7 +792,7 @@ test("application windows are wide and A4 output offers portrait or landscape wi
   assert.match(selector, /<SelectItem value="landscape">Landscape<\/SelectItem>/);
   assert.match(app, /useState<PrintOrientation>\("portrait"\)/);
   assert.match(app, /report-print-\$\{printOrientation\}/);
-  assert.match(documents, /useState<PrintOrientation>\("portrait"\)/);
+  assert.match(documents, /orientationChoice\[activeMode\] \?\? \(activeMode === "packing-list" \? "landscape" : "portrait"\)/);
   assert.match(packing, /useState<PrintOrientation>\("landscape"\)/);
   assert.match(packing, /@page\{size:A4 \$\{packingOrientation\}/);
   assert.match(css, /@page \{ size: A4 portrait; margin: 10mm; \}/);
@@ -1197,7 +1199,7 @@ test("Inventory Overview prints an A4 stock list that follows the Warehouse filt
   assert.match(ui, /const list = selectedRecords\.length \? shareRecords : filtered;/);
   assert.match(ui, /\.\.\.\(warehouseFilter \? \["Warehouse"\] : \[\]\), \.\.\.\(showQuantity \? \["Qty"\] : \[\]\)/);
   assert.match(ui, /warehouseLabel \|\| "All warehouses"/);
-  assert.match(ui, /@page\{size:A4;margin:12mm\}/);
+  assert.match(ui, /@page\{size:A4 \$\{printOrientation\};margin:12mm\}/);
   assert.match(ui, /aria-label="Print stock list"/);
 });
 

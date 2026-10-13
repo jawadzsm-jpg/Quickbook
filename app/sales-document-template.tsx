@@ -117,10 +117,13 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
   const documentRecord = useMemo(() => ({ ...record, bankAccountKey: bankKey }), [record, bankKey]);
   const [packingOpen, setPackingOpen] = useState(false);
   const [packingView, setPackingView] = useState<"packing" | "hs-summary">("packing");
-  const [printOrientation, setPrintOrientation] = useState<PrintOrientation>("portrait");
+  // Orientation per document layout: Packing List starts landscape so its wide table fits the page; the rest portrait.
+  const [orientationChoice, setOrientationChoice] = useState<Partial<Record<string, PrintOrientation>>>({});
   const connectedPackingList = String(record.type) === "invoice";
   const activeMode = selection.source === mode && outputModes.includes(selection.output) ? selection.output : mode;
   const signedInvoiceCopies = activeMode === "tax-invoice" || activeMode === "commercial-invoice";
+  const printOrientation: PrintOrientation = orientationChoice[activeMode] ?? (activeMode === "packing-list" ? "landscape" : "portrait");
+  const setPrintOrientation = (value: PrintOrientation) => setOrientationChoice((current) => ({ ...current, [activeMode]: value }));
   const letterhead = letterheadForDocument(setup.letterheadDesign, activeMode);
   // Only positions saved as page coordinates count; older strip positions fall back to the defaults.
   const savedStamps = savedPositions[activeMode] ?? {};

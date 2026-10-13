@@ -408,7 +408,7 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
     const popup = window.open("", "_blank");
     if (!popup) return toast.error("Allow pop-ups to print the packing list.");
     popup.opener = null;
-    popup.document.write(`<!doctype html><html><head><title>${escapeHtml(list.number)}</title><style>${document.styles}</style><style>body{margin:0;padding:8mm;background:#fff}.print-toolbar{display:flex;justify-content:flex-end;gap:8px;width:${packingOrientation === "landscape" ? 281 : 194}mm;margin:0 auto 8px}.print-toolbar button{padding:7px 14px}</style></head><body><div class="print-toolbar"><button onclick="window.print()">Print</button><button onclick="window.close()">Close</button></div>${document.html}</body></html>`);
+    popup.document.write(`<!doctype html><html><head><title>${escapeHtml(list.number)}</title><style>${document.styles}</style><style>body{margin:0;padding:8mm;background:#fff}.print-toolbar{display:flex;justify-content:flex-end;gap:8px;width:${packingOrientation === "landscape" ? 281 : 194}mm;margin:0 auto 8px}.print-toolbar button{padding:7px 14px}@media print{body{padding:0}}</style></head><body><div class="print-toolbar"><button onclick="window.print()">Print</button><button onclick="window.close()">Close</button></div>${document.html}</body></html>`);
     popup.document.close();
   }
 

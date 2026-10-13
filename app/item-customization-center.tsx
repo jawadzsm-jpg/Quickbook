@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { PrintOrientationSelect, type PrintOrientation } from "@/components/print-orientation-select";
 
 type CustomizationRecord = {
   id: number; itemNumber: string | null; sku: string; name: string; category: string; description: string; specifications: string;
@@ -47,6 +48,7 @@ export function ItemCustomizationCenter({ companyId, companyName, locationId, lo
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState<"csv" | "xlsx" | "pdf" | null>(null);
+  const [orientation, setOrientation] = useState<PrintOrientation>("portrait");
   const [search, setSearch] = useState("");
   const [pageSize, setPageSize] = useState("25");
   const [page, setPage] = useState(1);
@@ -120,7 +122,7 @@ export function ItemCustomizationCenter({ companyId, companyName, locationId, lo
     try {
       if (kind === "csv") download(reportCsv(exportReport, companyName, locationName), "text/csv;charset=utf-8", reportFilename(exportReport, kind));
       else if (kind === "xlsx") download(await reportWorkbook(exportReport, companyName, locationName, exportRows, "portrait") as BlobPart, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", reportFilename(exportReport, kind));
-      else download(await documentOutput.reportPdf(exportReport, companyName, locationName, exportRows, undefined, "portrait") as BlobPart, "application/pdf", reportFilename(exportReport, kind));
+      else download(await documentOutput.reportPdf(exportReport, companyName, locationName, exportRows, undefined, orientation) as BlobPart, "application/pdf", reportFilename(exportReport, kind));
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not export customization details."); }
     finally { setExporting(null); }
   }
@@ -129,7 +131,7 @@ export function ItemCustomizationCenter({ companyId, companyName, locationId, lo
 
   return <div className="min-w-0 space-y-5"><SkuLockNotice message={skuLock.message} />
     <section className="overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm">
-      <div className="flex flex-col gap-4 border-b bg-muted/30 p-4 sm:p-5 xl:flex-row xl:items-center xl:justify-between"><div className="flex items-center gap-3"><div className="grid size-11 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground"><PackageOpen className="size-5" /></div><div><h2 className="font-bold">Product Customization Details</h2><p className="text-sm text-muted-foreground">{companyName} · {locationName} · role-controlled product specifications</p></div></div><div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{records.length} products</Badge>{dirtyIds.size ? <Badge variant="secondary">{dirtyIds.size} unsaved</Badge> : null}<Button type="button" variant="outline" disabled={loading || saving} onClick={() => void load()}><RefreshCw className="size-4" />Reset</Button><DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant="outline" disabled={Boolean(exporting) || !exportRows.length}><Download className="size-4" />{exporting ? "Preparing…" : "Export"}<ChevronDown className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => void exportFile("pdf")}>A4 portrait PDF</DropdownMenuItem><DropdownMenuItem onSelect={() => void exportFile("xlsx")}>Excel workbook</DropdownMenuItem><DropdownMenuItem onSelect={() => void exportFile("csv")}>CSV file</DropdownMenuItem></DropdownMenuContent></DropdownMenu>{canEdit ? <Button type="button" disabled={!dirtyIds.size || saving || !skuLock.ready} onClick={() => void save()}><Save className="size-4" />{saving ? "Saving…" : "Save Changes"}</Button> : null}</div></div>
+      <div className="flex flex-col gap-4 border-b bg-muted/30 p-4 sm:p-5 xl:flex-row xl:items-center xl:justify-between"><div className="flex items-center gap-3"><div className="grid size-11 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground"><PackageOpen className="size-5" /></div><div><h2 className="font-bold">Product Customization Details</h2><p className="text-sm text-muted-foreground">{companyName} · {locationName} · role-controlled product specifications</p></div></div><div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{records.length} products</Badge>{dirtyIds.size ? <Badge variant="secondary">{dirtyIds.size} unsaved</Badge> : null}<Button type="button" variant="outline" disabled={loading || saving} onClick={() => void load()}><RefreshCw className="size-4" />Reset</Button><PrintOrientationSelect value={orientation} onValueChange={setOrientation} /><DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant="outline" disabled={Boolean(exporting) || !exportRows.length}><Download className="size-4" />{exporting ? "Preparing…" : "Export"}<ChevronDown className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => void exportFile("pdf")}>A4 {orientation} PDF</DropdownMenuItem><DropdownMenuItem onSelect={() => void exportFile("xlsx")}>Excel workbook</DropdownMenuItem><DropdownMenuItem onSelect={() => void exportFile("csv")}>CSV file</DropdownMenuItem></DropdownMenuContent></DropdownMenu>{canEdit ? <Button type="button" disabled={!dirtyIds.size || saving || !skuLock.ready} onClick={() => void save()}><Save className="size-4" />{saving ? "Saving…" : "Save Changes"}</Button> : null}</div></div>
 
       <div className="mx-auto w-full max-w-6xl border-b p-4 text-center sm:p-5"><p className="text-xs font-bold uppercase tracking-[.16em] text-primary">Customization overview</p><h3 className="mt-1 text-lg font-bold">Summary</h3><div className="mt-4 grid grid-cols-[repeat(2,minmax(0,1fr))] gap-2 sm:gap-3 xl:grid-cols-[repeat(5,minmax(0,1fr))] [&>*:last-child]:col-span-2 xl:[&>*:last-child]:col-span-1">{[["Total products", records.length], ["Customized", completed], ["Serial assigned", serialised], ["UPC assigned", upcAssigned], ["Needs user details", needsDetails]].map(([label, value]) => <div key={label} className="rounded-lg border bg-background p-3"><span className="block text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{label}</span><strong className="mt-1 block text-lg tabular-nums">{value}</strong></div>)}</div></div>
 
