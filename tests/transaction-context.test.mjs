@@ -4631,3 +4631,43 @@ test("upcoming PDC reminders: shown in the bell before they are due, to All-Admi
   assert.deepEqual(await upcomingFor({ id: writer, role: "purchasing", companyIds: [companyId] }), [], "only All-Admin, Admin and Accountant see upcoming reminders");
   assert.deepEqual(await upcomingFor({ id: 502, role: "admin", companyIds: [otherCompany] }), [], "not another company's cheques");
 });
+
+test("announcements: admins post to all users or chosen users; recipients see a banner until Got it and a bell notice", async () => {
+  const route = await vite.ssrLoadModule("/app/api/announcements/route.ts");
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Announce Co') RETURNING id")).rows[0].id;
+  const otherCompany = (await database.query("INSERT INTO companies (name) VALUES ('Announce Other Co') RETURNING id")).rows[0].id;
+  const user = async (email, role, company = companyId) => {
+    const id = (await database.query("INSERT INTO app_users (email, password_hash, role) VALUES ($1, 'x', $2) RETURNING id", [email, role])).rows[0].id;
+    await database.query("INSERT INTO app_user_companies (user_id, company_id) VALUES ($1, $2)", [id, company]);
+    return { id, email, role, companyIds: [company], mustChangePassword: false };
+  };
+  const admin = await user("ann-admin@example.test", "admin"), sales = await user("ann-sales@example.test", "sales"), viewer = await user("ann-viewer@example.test", "viewer");
+  const outsider = await user("ann-out@example.test", "admin", otherCompany);
+  const as = async (who, work) => { globalThis.__transferTestUser = who; try { return await work(); } finally { delete globalThis.__transferTestUser; } };
+  const json = (method, body) => new Request("https://app.test/api/announcements", { method, headers: { origin: "https://app.test", "content-type": "application/json" }, body: JSON.stringify(body) });
+  const active = (who) => as(who, async () => (await (await route.GET(new Request(`https://app.test/api/announcements?companyId=${companyId}`))).json()).active.map((row) => row.title));
+
+  assert.equal((await as(sales, () => route.POST(json("POST", { companyId, title: "Nope" })))).status, 403, "only administrators post");
+  assert.equal((await as(outsider, () => route.POST(json("POST", { companyId, title: "Other" })))).status, 403, "not for another company");
+  const all = await as(admin, () => route.POST(json("POST", { companyId, title: "Office closed Sunday", body: "Public holiday." })));
+  assert.equal(all.status, 201, await all.clone().text());
+  const allId = (await all.json()).announcement.id;
+  const chosen = await as(admin, () => route.POST(json("POST", { companyId, title: "Sales meeting", audience: "users", userIds: [sales.id, outsider.id] })));
+  assert.equal((await chosen.json()).recipients, 1, "users outside the company are ignored");
+
+  assert.deepEqual(await active(sales), ["Sales meeting", "Office closed Sunday"]);
+  assert.deepEqual(await active(viewer), ["Office closed Sunday"], "chosen-user announcements go only to those users");
+  const notices = await database.query("SELECT user_id, title FROM notifications WHERE announcement_id = $1 ORDER BY user_id", [allId]);
+  assert.ok(notices.rows.some((row) => row.user_id === viewer.id) && !notices.rows.some((row) => row.user_id === admin.id), "bell notice for recipients, not the author");
+
+  assert.equal((await as(viewer, () => route.PATCH(json("PATCH", { companyId, id: allId, action: "dismiss" })))).status, 200);
+  assert.deepEqual(await active(viewer), [], "Got it hides the banner");
+  assert.ok((await database.query("SELECT read_at FROM notifications WHERE announcement_id = $1 AND user_id = $2", [allId, viewer.id])).rows[0].read_at, "and marks the bell notice read");
+  assert.equal((await as(viewer, () => route.PATCH(json("PATCH", { companyId, id: allId, action: "remove" })))).status, 403);
+
+  assert.equal((await as(admin, () => route.PATCH(json("PATCH", { companyId, id: allId, action: "update", title: "Office closed Sunday and Monday", body: "Holiday." })))).status, 200);
+  assert.equal((await database.query("SELECT title FROM notifications WHERE announcement_id = $1 LIMIT 1", [allId])).rows[0].title, "Announcement: Office closed Sunday and Monday");
+  assert.equal((await as(admin, () => route.PATCH(json("PATCH", { companyId, id: allId, action: "remove" })))).status, 200);
+  assert.deepEqual(await active(sales), ["Sales meeting"], "removed announcements disappear");
+  assert.equal(Number((await database.query("SELECT count(*) FROM notifications WHERE announcement_id = $1", [allId])).rows[0].count), 0, "with their bell notices");
+});
