@@ -1315,6 +1315,9 @@ test("share bar: brand icons, No VAT / Inc VAT / 0% VAT, one Excel menu, kept on
   assert.match(ui, /const vatLabels: Record<VatMode, string> = \{ exclude: " \(VAT excluded\)", include: " \(VAT included\)", zero: " \(0% VAT\)" \}/);
   assert.match(ui, /mode === "include" \? 1\.05 : 1/);
   assert.match(ui, /\["exclude", "No VAT", [^\]]*\], \["include", "Inc VAT", [^\]]*\], \["zero", "0% VAT", [^\]]*\]/);
+  // The VAT format is a dropdown (No VAT by default).
+  assert.match(ui, /<select aria-label="Shared price VAT format".*value=\{vatMode\} onChange=\{\(event\) => setVatMode/);
+  assert.match(ui, /useState<VatMode>\("exclude"\)/);
   assert.match(ui, /<WhatsAppIcon \/>/);
   assert.match(ui, /<TelegramIcon \/>/);
   assert.match(ui, /Hide qty<\/label>/);
