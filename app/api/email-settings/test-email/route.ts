@@ -8,8 +8,8 @@ export async function POST(request: Request) {
   if (user instanceof Response) return user;
   if (user.role !== "all_admin") return Response.json({ error: "Only an All-Admin can manage the email server." }, { status: 403 });
   try {
-    await sendTestEmail(user.email);
-    return Response.json({ ok: true, to: user.email });
+    const { messageIds } = await sendTestEmail(user.email);
+    return Response.json({ ok: true, to: user.email, messageIds });
   } catch (error) {
     return Response.json({ error: friendlyEmailError(error, "The test email could not be sent.") }, { status: 400 });
   }

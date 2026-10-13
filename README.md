@@ -175,6 +175,7 @@ Permissions are named (`workspace:read`, `inventory:read`, `inventory:manage`, `
 | `/api/admin-settings` | GET, POST, PATCH | Company Administrator | Negative-stock override PIN, overrides, share-emoji switch |
 | `/api/email-settings` | GET, PATCH, POST | All-Admin | Email server (SMTP or turboSMTP API) settings and connection test |
 | `/api/email-settings/test-email` | POST | All-Admin | Send a real test email to yourself |
+| `/api/email-settings/delivery` | POST | All-Admin | turboSMTP delivery status of a test email |
 | `/api/api-keys` | GET, POST, PATCH | Company Administrator | Integration API keys: list, create (shown once), revoke |
 | `/api/user-preferences` | PATCH | Signed-in user | Appearance, accent colour, share emoji styles |
 | `/api/online-users` | POST | Signed-in user | Presence heartbeat and online user list |

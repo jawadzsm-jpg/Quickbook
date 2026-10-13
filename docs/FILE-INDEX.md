@@ -34,7 +34,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/customer-sales-owner.tsx` — Assign a customer to a sales user; `/api/sales-work`.
 - `app/data-export-toolbar.tsx` — Global toolbar exporting visible report/transaction tables to Excel, CSV or PDF.
 - `app/delivery-note-template.tsx` — Delivery note print template with customer address and bilingual Customer TRN line.
-- `app/document-email-dialog.tsx` — Email a document with its PDF: template choice, unlimited To/Cc address chips with suggestions, message, Templates tab (own and shared templates with placeholders) and send History; `/api/document-emails`, `/api/email-templates`.
+- `app/document-email-dialog.tsx` — Email a document with its PDF (History shows turboSMTP delivery status with Check delivery): template choice, unlimited To/Cc address chips with suggestions, message, Templates tab (own and shared templates with placeholders) and send History; `/api/document-emails`, `/api/email-templates`.
 - `app/document-extra-fields.tsx` — Document comments and serial number fields.
 - `app/edition-settings.tsx` — Admin Controls → EasyBook edition: choose the edition (All-Admin), usage, what blocks a downgrade; `/api/edition`.
 - `app/einvoicing-center.tsx` — UAE e-invoicing (Peppol/PINT-AE) readiness: company setup, customer/invoice readiness badges; `/api/company-setup`.
@@ -194,6 +194,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/document-print.ts` — Paper size and `@page` CSS from a document design.
 - `lib/document-vat.ts` — One VAT code per sales/purchase document (return lines excluded).
 - `lib/einvoice-readiness.ts` — UAE e-invoicing readiness: TRN format, company/customer (address, city)/invoice issue lists.
+- `lib/email-delivery.ts` — turboSMTP delivery statuses: labels, tone, worst-first summary, final statuses.
 - `lib/email-errors.ts` — Plain-language advice for SMTP failures (TLS/port mismatch, oversize message, sending limit, login rejected, unreachable, unverified sender).
 - `lib/email-templates.ts` — Email template placeholders, document types, standard wording, address-list parsing and per-message batching; who may email documents.
 - `lib/email-validation.ts` — Email format check.
@@ -271,7 +272,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/stock-holds.ts` — Stock hold durations (max 7 days), active-hold SQL, held-by-others checks. **DB**
 - `lib/stock-pricing.ts` — Stock pricing rows from stock per location and purchase prices.
 - `lib/text-normalization.ts` — Comparable-text normalisation and upper-casing.
-- `lib/turbosmtp-api.ts` — **server** turboSMTP HTTPS API sender (POST /mail/send with consumer key headers; key check) behind the same sendMail/verify/close interface as SMTP.
+- `lib/turbosmtp-api.ts` — **server** turboSMTP HTTPS API sender (POST /mail/send with consumer key headers; key check; delivery status from GET /analytics/{id}) behind the same sendMail/verify/close interface as SMTP.
 - `lib/uae-cheque-layouts.ts` — UAE bank cheque print layouts and alignment bounds.
 - `lib/user-management.ts` — **server** Role names, user company IDs, who may manage whom, `requireUserManager`. **DB**
 - `lib/utils.ts` — `cn` class-name merge helper.

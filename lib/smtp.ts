@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { emailSettings } from "@/db/schema";
 import { turboSmtpClient, type MailMessage } from "./turbosmtp-api";
+import type { DeliveryCheck } from "./email-delivery";
 
 const settingId = 1;
 
@@ -55,7 +56,23 @@ export async function saveEmailSettings(input: {
 }
 
 /** What every email in the app needs from a sender: an SMTP transport or the turboSMTP API client. */
-type MailClient = { sendMail(message: MailMessage): Promise<unknown>; verify(): Promise<unknown>; close(): void };
+type MailClient = { sendMail(message: MailMessage): Promise<unknown>; verify(): Promise<unknown>; close(): void; deliveryStatus?(id: string): Promise<DeliveryCheck> };
+
+/**
+ * Delivery status from turboSMTP for messages sent through its API (at most 20 IDs). Throws when the email server is
+ * not the turboSMTP API, because SMTP sends cannot be looked up.
+ */
+export async function checkDeliveries(ids: string[]) {
+  const { client } = await openMailer();
+  if (!client.deliveryStatus) throw new Error("Delivery status is available only when Admin Controls → Email server uses the turboSMTP API.");
+  return Promise.all(ids.slice(0, 20).map((id) => client.deliveryStatus!(id)));
+}
+
+/** turboSMTP API message IDs from one send (SMTP sends return none: their delivery cannot be looked up). */
+const providerIds = (result: unknown) => {
+  const ids = result && typeof result === "object" ? (result as { messageIds?: unknown }).messageIds : undefined;
+  return Array.isArray(ids) ? ids.map(String) : [];
+};
 
 const settingsComplete = (settings: Awaited<ReturnType<typeof getEmailSettings>>) =>
   Boolean(settings && (settings.provider === "turbosmtp_api" || settings.host) && settings.username && settings.passwordEncrypted && settings.fromEmail);
@@ -123,13 +140,14 @@ const sentThrough = (settings: { provider: string; apiRegion: string; host: stri
 /** A real message through the saved settings, so sending limits and sender rules show up (a login check alone does not). */
 export async function sendTestEmail(to: string) {
   const { client, settings } = await transporter();
-  await client.sendMail({
+  const result = await client.sendMail({
     from: { name: settings.fromName, address: settings.fromEmail },
     to,
     subject: "ComNet Accounting test email",
     text: `This is a test email from ComNet Accounting.\n\nIf you received it, the email server can send login, password-reset, invitation, notification and document emails.\nSent through: ${sentThrough(settings)}\nSender: ${settings.fromName} <${settings.fromEmail}>`,
     html: `<div style="font-family:Arial,sans-serif;max-width:560px;color:#0f172a"><h2>Test email</h2><p>This is a test email from ComNet Accounting.</p><p>If you received it, the email server can send login, password-reset, invitation, notification and document emails.</p><p style="color:#475569;font-size:13px">Sent through: ${escapeHtml(sentThrough(settings))}<br>Sender: ${escapeHtml(settings.fromName)} &lt;${escapeHtml(settings.fromEmail)}&gt;</p></div>`,
   });
+  return { messageIds: providerIds(result) };
 }
 
 /** One in-app notification as an email: a short title, the detail line and a link back to the app. */
@@ -149,7 +167,8 @@ const messageHtml = (text: string) => `<div style="font-family:Arial,sans-serif;
 /**
  * A document emailed to a customer or supplier: the person's message (plain text, kept as written) with the PDF
  * attached. Replies go to the person who sent it. More than RECIPIENTS_PER_MESSAGE addresses are sent as further
- * copies of the same email; Cc goes on the first copy only. Returns how many messages the server accepted.
+ * copies of the same email; Cc goes on the first copy only. Returns how many messages the server accepted and the
+ * turboSMTP message IDs (none for SMTP), used to look up delivery later.
  */
 export async function sendDocumentEmail(input: {
   to: string[][]; cc: string[]; replyTo?: { name: string; address: string }; subject: string; body: string;
@@ -157,9 +176,10 @@ export async function sendDocumentEmail(input: {
 }) {
   const { client, settings } = await transporter();
   let sent = 0;
+  const messageIds: string[] = [];
   try {
     for (const [index, to] of input.to.entries()) {
-      await client.sendMail({
+      const result = await client.sendMail({
         from: { name: settings.fromName, address: settings.fromEmail },
         to,
         ...(index === 0 && input.cc.length ? { cc: input.cc } : {}),
@@ -170,8 +190,9 @@ export async function sendDocumentEmail(input: {
         ...(input.attachment ? { attachments: [{ filename: input.attachment.filename, content: input.attachment.content, contentType: "application/pdf" }] } : {}),
       });
       sent += 1;
+      messageIds.push(...providerIds(result));
     }
-    return sent;
+    return { sent, messageIds };
   } catch (error) {
     // Earlier copies may already be on their way; the caller reports how many went out.
     throw Object.assign(error instanceof Error ? error : new Error(String(error)), { sentMessages: sent });

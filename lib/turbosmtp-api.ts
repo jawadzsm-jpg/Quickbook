@@ -7,6 +7,12 @@ import "server-only";
 
 export const turboSmtpSendHosts = { global: "https://api.turbo-smtp.com/api/v2", eu: "https://api.eu.turbo-smtp.com/api/v2" } as const;
 const managementHost = "https://pro.api.serversmtp.com/api/v2";
+
+/** turboSMTP answers a send with `mid` (one ID, or a list in older responses); keep every ID as text. */
+export const messageIdsOf = (data: unknown): string[] => {
+  const mid = (data && typeof data === "object" ? (data as { mid?: unknown }).mid : undefined);
+  return (Array.isArray(mid) ? mid : mid === undefined || mid === null || mid === "" ? [] : [mid]).map(String).filter(Boolean);
+};
 const timeoutMs = 20_000;
 
 type Address = string | { name?: string; address: string };
@@ -70,14 +76,23 @@ export function turboSmtpClient(options: { consumerKey: string; consumerSecret: 
     async sendMail(message: MailMessage) {
       const response = await request(`${turboSmtpSendHosts[options.region]}/mail/send`, { method: "POST", headers, body: JSON.stringify(turboSmtpPayload(message)) });
       if (!response.ok) throw await apiError(response);
-      const data = await response.json().catch(() => ({})) as { mid?: unknown };
-      return { messageId: String(data.mid ?? "") };
+      const messageIds = messageIdsOf(await response.json().catch(() => ({})));
+      return { messageId: messageIds[0] ?? "", messageIds };
     },
     /** Checks the consumer key and secret with a read-only request (the account's alert settings). */
     async verify() {
       const response = await request(`${managementHost}/tools/alerts`, { method: "GET", headers });
       if (response.status === 401 || response.status === 403 || response.status >= 500) throw await apiError(response);
       return true;
+    },
+    /** Delivery status of one sent message (GET /analytics/{id}); UNKNOWN while turboSMTP has no report for it yet. */
+    async deliveryStatus(id: string) {
+      const response = await request(`${managementHost}/analytics/${encodeURIComponent(id)}`, { method: "GET", headers });
+      if (response.status === 404 || response.status === 400) return { id, status: "UNKNOWN", recipient: "", error: "", sendTime: "" };
+      if (!response.ok) throw await apiError(response);
+      const data = await response.json().catch(() => ({})) as Record<string, unknown>;
+      const item = (data.data && typeof data.data === "object" ? data.data : data) as Record<string, unknown>;
+      return { id, status: String(item.status ?? "UNKNOWN").toUpperCase(), recipient: String(item.recipient ?? ""), error: String(item.error ?? "").slice(0, 500), sendTime: String(item.send_time ?? "") };
     },
     close() { /* HTTPS requests: nothing to close */ },
   };

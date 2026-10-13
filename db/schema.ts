@@ -631,6 +631,11 @@ export const documentEmails = pgTable("document_emails", {
   attachmentName: text("attachment_name").notNull().default(""),
   status: text("status").notNull().default("sent"),
   error: text("error").notNull().default(""),
+  // turboSMTP API sends (migration 0122): message IDs, and the last delivery status looked up (lib/email-delivery.ts).
+  providerMessageIds: text("provider_message_ids").notNull().default("[]"),
+  deliveryStatus: text("delivery_status").notNull().default(""),
+  deliveryDetail: text("delivery_detail").notNull().default("[]"),
+  deliveryCheckedAt: timestamp("delivery_checked_at", { withTimezone: true, mode: "string" }),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 }, (table) => [index("idx_document_emails_transaction").on(table.transactionId, table.createdAt), index("idx_document_emails_party").on(table.companyId, table.party, table.createdAt)]);
 

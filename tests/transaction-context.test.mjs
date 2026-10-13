@@ -4464,7 +4464,7 @@ test("turboSMTP API: settings choose the API, and documents are sent as JSON wit
   globalThis.fetch = async (url, init) => { calls.push({ url: String(url), init }); return Response.json({ message: "OK", mid: "m-1" }); };
   try {
     const sent = await smtp.sendDocumentEmail({ to: [["a@x.test", "b@x.test"]], cc: ["c@x.test"], replyTo: { name: "Jo", address: "jo@comnet.test" }, subject: "Invoice INV-1", body: "Hello\n\nThanks", attachment: { filename: "INV-1.pdf", content: Buffer.from("%PDF-1") } });
-    assert.equal(sent, 1);
+    assert.deepEqual(sent, { sent: 1, messageIds: ["m-1"] });
     assert.equal(calls[0].url, "https://api.eu.turbo-smtp.com/api/v2/mail/send");
     assert.equal(calls[0].init.headers.consumerKey, "ck-123"); assert.equal(calls[0].init.headers.consumerSecret, "cs-secret");
     assert.equal(calls[0].init.headers.Authorization, undefined, "/mail/send rejects an Authorization header");
@@ -4479,5 +4479,48 @@ test("turboSMTP API: settings choose the API, and documents are sent as JSON wit
     const failure = await smtp.sendTestEmail("admin@x.test").catch((error) => error);
     assert.equal(failure.responseCode, 401);
     assert.match(friendlyEmailError(failure), /turboSMTP rejected the consumer key or secret/);
+  } finally { globalThis.fetch = realFetch; await database.query("DELETE FROM email_settings"); }
+});
+
+test("email delivery status: turboSMTP message IDs are kept, Check delivery saves the status and shows bounces", async () => {
+  const settingsRoute = await vite.ssrLoadModule("/app/api/email-settings/route.ts");
+  const emailsRoute = await vite.ssrLoadModule("/app/api/document-emails/route.ts");
+  const testDelivery = await vite.ssrLoadModule("/app/api/email-settings/delivery/route.ts");
+  const json = (url, method, body) => new Request(`https://app.test${url}`, { method, headers: { origin: "https://app.test", "content-type": "application/json" }, body: JSON.stringify(body) });
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Delivery Co') RETURNING id")).rows[0].id;
+  const transactionId = (await database.query("INSERT INTO transactions (company_id, type, number, party, total, subtotal, transaction_date, status) VALUES ($1, 'invoice', 'DLV-1', 'Buyer', 100, 100, '2026-10-13', 'open') RETURNING id", [companyId])).rows[0].id;
+  await database.query("DELETE FROM email_settings");
+  assert.equal((await settingsRoute.PATCH(json("/api/email-settings", "PATCH", { provider: "turbosmtp_api", apiRegion: "global", username: "ck", password: "cs", fromName: "Sales", fromEmail: "sales@comnet.test" }))).status, 200);
+
+  const realFetch = globalThis.fetch, urls = [];
+  let analytics = { status: "FAIL", recipient: "buyer@x.test", error: "550 5.1.1 mailbox does not exist", send_time: "2026-10-13 10:00:00" };
+  globalThis.fetch = async (url) => {
+    urls.push(String(url));
+    if (String(url).endsWith("/mail/send")) return Response.json({ message: "OK", mid: 98765 });
+    return Response.json(analytics);
+  };
+  try {
+    const form = new FormData();
+    for (const [key, value] of Object.entries({ companyId, transactionId, to: "buyer@x.test", cc: "", subject: "Invoice DLV-1", body: "Please find attached." })) form.set(key, String(value));
+    const sent = await emailsRoute.POST(new Request("https://app.test/api/document-emails", { method: "POST", headers: { origin: "https://app.test" }, body: form }));
+    assert.equal(sent.status, 200, await sent.clone().text());
+    const { id } = await sent.json();
+    assert.equal((await database.query("SELECT provider_message_ids FROM document_emails WHERE id = $1", [id])).rows[0].provider_message_ids, '["98765"]');
+
+    const history = async () => (await (await emailsRoute.GET(new Request(`https://app.test/api/document-emails?companyId=${companyId}&transactionId=${transactionId}`))).json()).history[0].delivery;
+    assert.deepEqual([(await history()).canCheck, (await history()).status], [true, ""], "not checked yet");
+    const checked = await emailsRoute.PATCH(json("/api/document-emails", "PATCH", { companyId, id }));
+    assert.equal(checked.status, 200, await checked.clone().text());
+    assert.equal(urls.at(-1), "https://pro.api.serversmtp.com/api/v2/analytics/98765");
+    const delivery = (await checked.json()).delivery;
+    assert.equal(delivery.status, "FAIL"); assert.equal(delivery.tone, "bad"); assert.match(delivery.label, /Bounced/);
+    assert.equal(delivery.checks[0].error, "550 5.1.1 mailbox does not exist");
+    assert.equal((await history()).status, "FAIL", "the status is saved for the history");
+    assert.equal((await emailsRoute.PATCH(json("/api/document-emails", "PATCH", { companyId: companyId + 1000, id }))).status, 404, "it is not found under another company");
+
+    analytics = { status: "SUCCESS", recipient: "admin@x.test" };
+    const test = await testDelivery.POST(json("/api/email-settings/delivery", "POST", { ids: ["111"] }));
+    assert.equal((await test.json()).delivery.label, "Delivered");
+    assert.equal((await testDelivery.POST(json("/api/email-settings/delivery", "POST", { ids: ["../x"] }))).status, 400);
   } finally { globalThis.fetch = realFetch; await database.query("DELETE FROM email_settings"); }
 });
