@@ -5,9 +5,9 @@ import { requireApiUser } from "@/lib/auth";
 import { categoryColorKey, isCategoryColor } from "@/lib/category-colors";
 import { savedCategoryColors } from "@/lib/category-colors-sql";
 
-/** Choose a category's colour, or send color "auto" to go back to the automatic colour. Users who manage inventory. */
+/** Choose a category's colour, or send color "auto" to go back to the automatic colour. Every signed-in user. */
 export async function PUT(request: Request) {
-  const user = await requireApiUser(request, "inventory:manage", true);
+  const user = await requireApiUser(request, false, true);
   if (user instanceof Response) return user;
   let payload: Record<string, unknown>;
   try { payload = await request.json() as Record<string, unknown>; } catch { return Response.json({ error: "Invalid request." }, { status: 400 }); }

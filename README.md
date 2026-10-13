@@ -199,7 +199,7 @@ Permissions are named (`workspace:read`, `inventory:read`, `inventory:manage`, `
 | `/api/exchange-rates` | GET, POST, PATCH | `workspace:read`; Administrator for writes | Currency rates |
 | `/api/payment-terms` | GET, POST, PATCH, DELETE | `sales:write` | Payment terms |
 | `/api/spec-options` | GET, POST, PATCH, DELETE | `inventory:read`; `inventory:manage` for writes | Categories, specification names and values (+ category colours) |
-| `/api/category-colors` | PUT | `inventory:manage` | Category colour for Inventory Overview, item list and Excel |
+| `/api/category-colors` | PUT | Every signed-in user (sales included) | Category colour for Inventory Overview, item list and Excel |
 
 **Records and accounting**
 

@@ -1166,7 +1166,7 @@ test("category colours: fixed light/dark palette, automatic colour per name, sav
   const route = readFileSync(new URL("../app/api/category-colors/route.ts", import.meta.url), "utf8");
   const specs = readFileSync(new URL("../app/api/spec-options/route.ts", import.meta.url), "utf8");
   const overview = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
-  assert.match(route, /requireApiUser\(request, "inventory:manage", true\)/);
+  assert.match(route, /requireApiUser\(request, false, true\)/);
   assert.match(route, /payload\.color === "auto"[\s\S]*isCategoryColor\(payload\.color\)/);
   assert.match(specs, /A renamed category keeps its colour/);
   assert.match(overview, /categoryColor\(category, categoryColors\)\.row/);
