@@ -10,7 +10,7 @@ import { publicErrorMessage } from "@/lib/errors";
 import { consumeRateLimit } from "@/lib/rate-limit";
 
 // Documents that can be emailed with their PDF: the sales and purchase documents the A4 template prints.
-const emailableTypes = new Set([...emailDocumentTypeValues.filter((type) => type !== "any"), "pending invoice"]);
+const emailableTypes = new Set([...emailDocumentTypeValues.filter((type) => type !== "any" && type !== "stock list"), "pending invoice"]);
 const denied = () => Response.json({ error: "Only accountants and administrators can email documents." }, { status: 403 });
 const isVoid = (row: { status: string; voidedAt: string | null }) => Boolean(row.voidedAt) || ["void", "voided", "cancelled", "canceled"].includes(row.status.toLowerCase());
 const list = (value: string) => { try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed.map(String) : []; } catch { return []; } };

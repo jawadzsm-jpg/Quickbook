@@ -153,6 +153,8 @@ const messageHtml = (text: string) => `<div style="font-family:Arial,sans-serif;
 export async function sendDocumentEmail(input: {
   to: string[][]; cc: string[]; replyTo?: { name: string; address: string }; subject: string; body: string;
   attachment?: { filename: string; content: Buffer };
+  /** Bcc each batch (To is the sender), so recipients do not see each other — list emails. */
+  hidden?: boolean;
 }) {
   const { client, settings } = await transporter();
   let sent = 0;
@@ -161,7 +163,7 @@ export async function sendDocumentEmail(input: {
     for (const [index, to] of input.to.entries()) {
       const result = await client.sendMail({
         from: { name: settings.fromName, address: settings.fromEmail },
-        to,
+        ...(input.hidden ? { to: { name: settings.fromName, address: settings.fromEmail }, bcc: to } : { to }),
         ...(index === 0 && input.cc.length ? { cc: input.cc } : {}),
         ...(input.replyTo ? { replyTo: input.replyTo } : {}),
         subject: input.subject,
