@@ -2,7 +2,7 @@
 
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import { Camera, Copy, KeyRound, MailWarning, MapPin, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Send, ShieldCheck, Smartphone, Trash2, UserCheck, UserX } from "lucide-react";
+import { Camera, Clock, Copy, KeyRound, MailWarning, MapPin, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Send, ShieldCheck, Smartphone, Trash2, UserCheck, UserX } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,12 +11,13 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DEFAULT_IDLE_TIMEOUT_MINUTES, idleTimeoutChoices, idleTimeoutLabel } from "@/lib/idle-timeout";
 
 type Role = "all_admin" | "admin" | "accountant" | "sales" | "purchasing" | "inventory" | "customization" | "viewer";
 type Company = { id: number; name: string };
 type ManagedUser = {
   id: number; fullName: string; email: string; phone: string; whatsapp: string; avatarData: string; role: Role; companyIds: number[];
-  active: boolean; mustChangePassword: boolean; lastLoginAt: string | null; lastLoginIp: string; lastLoginUserAgent: string; isCurrent: boolean; manageable: boolean;
+  active: boolean; mustChangePassword: boolean; idleTimeoutMinutes: number; lastLoginAt: string | null; lastLoginIp: string; lastLoginUserAgent: string; isCurrent: boolean; manageable: boolean;
 };
 type Draft = { role: Role; companyIds: number[] };
 export type UserSummary = { total: number; active: number; inactive: number; pendingPassword: number };
@@ -61,6 +62,11 @@ function readPhoto(event: ChangeEvent<HTMLInputElement>, onLoad: (data: string) 
   reader.readAsDataURL(file);
 }
 
+// Automatic sign-out after inactivity; saving it keeps the user signed in and applies from their next activity.
+function IdleTimeoutSelect({ id, value, disabled, onChange }: { id?: string; value: number; disabled?: boolean; onChange: (minutes: number) => void }) {
+  return <Select value={String(value)} disabled={disabled} onValueChange={(next) => onChange(Number(next))}><SelectTrigger id={id} className="w-full"><Clock className="size-4 text-muted-foreground" /><SelectValue /></SelectTrigger><SelectContent>{idleTimeoutChoices.map((minutes) => <SelectItem key={minutes} value={String(minutes)}>{minutes ? `After ${idleTimeoutLabel(minutes)}` : "Never"}</SelectItem>)}</SelectContent></Select>;
+}
+
 function CompanyPicker({ companies, value, disabled, onChange }: { companies: Company[]; value: number[]; disabled?: boolean; onChange: (ids: number[]) => void }) {
   if (!companies.length) return <p className="text-sm text-muted-foreground">No active companies available. Add a company in Companies first.</p>;
   return <div className="space-y-2">
@@ -84,7 +90,7 @@ export function UserRoleCenter({ onSummary }: { onSummary?: (summary: UserSummar
   const [profileUser, setProfileUser] = useState<ManagedUser | null>(null);
   const [createdCredentials, setCreatedCredentials] = useState<{ userId: number; email: string; password: string; title: string; emailWarning?: string } | null>(null);
   const [resending, setResending] = useState(false);
-  const [newUser, setNewUser] = useState({ fullName: "", email: "", phone: "", whatsapp: "", avatarData: "", role: "viewer" as Role, companyIds: [] as number[], password: "", sendEmail: true });
+  const [newUser, setNewUser] = useState({ fullName: "", email: "", phone: "", whatsapp: "", avatarData: "", role: "viewer" as Role, companyIds: [] as number[], idleTimeoutMinutes: DEFAULT_IDLE_TIMEOUT_MINUTES, password: "", sendEmail: true });
   const [resetPassword, setResetPassword] = useState("");
   const [emailReset, setEmailReset] = useState(true);
   const [profile, setProfile] = useState({ fullName: "", phone: "", whatsapp: "", avatarData: "" });
@@ -243,7 +249,7 @@ export function UserRoleCenter({ onSummary }: { onSummary?: (summary: UserSummar
   }
 
   function openCreate() {
-    setNewUser({ fullName: "", email: "", phone: "", whatsapp: "", avatarData: "", role: "viewer", companyIds: companies.length === 1 ? [companies[0].id] : [], password: generatePassword(), sendEmail: true });
+    setNewUser({ fullName: "", email: "", phone: "", whatsapp: "", avatarData: "", role: "viewer", companyIds: companies.length === 1 ? [companies[0].id] : [], idleTimeoutMinutes: DEFAULT_IDLE_TIMEOUT_MINUTES, password: generatePassword(), sendEmail: true });
     setCreateOpen(true);
   }
 
@@ -251,7 +257,7 @@ export function UserRoleCenter({ onSummary }: { onSummary?: (summary: UserSummar
 
   return <section className="min-w-0 rounded-2xl border bg-card text-card-foreground shadow-sm" aria-label="Users and access">
     <header className="flex flex-wrap items-start justify-between gap-4 border-b p-4 sm:p-5">
-      <div className="min-w-0 flex-1 basis-80"><h2 className="text-lg font-semibold">Users & access</h2><p className="mt-1 text-sm text-muted-foreground">Add staff, choose their role and companies, and manage sign-in. Role and company changes sign the user out so the new access applies immediately.{currentRole && !canManageAllAdmin ? " As a company Administrator you can add and manage non-administrator users of your companies; an All-Admin manages Administrators." : ""}</p></div>
+      <div className="min-w-0 flex-1 basis-80"><h2 className="text-lg font-semibold">Users & access</h2><p className="mt-1 text-sm text-muted-foreground">Add staff, choose their role and companies, and manage sign-in. Role and company changes sign the user out so the new access applies immediately. Auto sign-out ends a session after the chosen time without activity (15 minutes by default).{currentRole && !canManageAllAdmin ? " As a company Administrator you can add and manage non-administrator users of your companies; an All-Admin manages Administrators." : ""}</p></div>
       <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={loading} onClick={() => { if (dirtyCount && !window.confirm("Discard unsaved access changes and reload?")) return; void loadUsers(); }}><RefreshCw className="size-4" />Refresh</Button><Button type="button" onClick={openCreate}><Plus className="size-4" />Add user</Button></div>
     </header>
 
@@ -284,7 +290,7 @@ export function UserRoleCenter({ onSummary }: { onSummary?: (summary: UserSummar
           </div>
         </div>
         <div className="grid min-w-0 gap-3 sm:grid-cols-[200px_1fr]">
-          <div><Label className="mb-1.5 text-xs text-muted-foreground">Role</Label><Select value={role} disabled={accessLocked} onValueChange={(next) => editDraft(user, { role: next as Role })}><SelectTrigger aria-label={`Role for ${user.fullName || user.email}`} className="w-full"><SelectValue /></SelectTrigger><SelectContent>{roleOptions(role).map((entry) => <SelectItem key={entry.value} value={entry.value}>{entry.label}</SelectItem>)}</SelectContent></Select>{user.isCurrent && <p className="mt-1 text-xs text-muted-foreground">You cannot change your own access.</p>}</div>
+          <div><Label className="mb-1.5 text-xs text-muted-foreground">Role</Label><Select value={role} disabled={accessLocked} onValueChange={(next) => editDraft(user, { role: next as Role })}><SelectTrigger aria-label={`Role for ${user.fullName || user.email}`} className="w-full"><SelectValue /></SelectTrigger><SelectContent>{roleOptions(role).map((entry) => <SelectItem key={entry.value} value={entry.value}>{entry.label}</SelectItem>)}</SelectContent></Select>{user.isCurrent && <p className="mt-1 text-xs text-muted-foreground">You cannot change your own access.</p>}<Label htmlFor={`idle-timeout-${user.id}`} className="mb-1.5 mt-3 text-xs text-muted-foreground">Auto sign-out when idle</Label><IdleTimeoutSelect id={`idle-timeout-${user.id}`} value={user.idleTimeoutMinutes} disabled={busy || locked} onChange={(minutes) => void patchUser(user.id, { idleTimeoutMinutes: minutes }, `${user.fullName || user.email}: auto sign-out ${minutes ? `after ${idleTimeoutLabel(minutes)}` : "turned off"}`)} /></div>
           <div className="min-w-0"><Label className="mb-1.5 text-xs text-muted-foreground">Companies</Label>{role === "all_admin" ? <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-800 dark:text-emerald-300">All companies · full access</p> : <CompanyPicker companies={companies} value={companyIds} disabled={accessLocked} onChange={(ids) => editDraft(user, { companyIds: ids })} />}</div>
         </div>
         <div className="flex flex-wrap content-start gap-2 xl:w-44 xl:flex-col">
@@ -298,7 +304,7 @@ export function UserRoleCenter({ onSummary }: { onSummary?: (summary: UserSummar
     })}</div>
 
     <Dialog open={createOpen} onOpenChange={setCreateOpen}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Add user</DialogTitle><DialogDescription>Create the profile, choose access and set a secure temporary login. The user must choose a new password at first sign-in.</DialogDescription></DialogHeader><form onSubmit={createUser} className="space-y-5">
-      <div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2"><Label htmlFor="new-user-name">Full name</Label><Input id="new-user-name" value={newUser.fullName} onChange={(event) => setNewUser({ ...newUser, fullName: event.target.value })} required maxLength={120} /></div><div className="space-y-2"><Label htmlFor="new-user-email">Email</Label><Input id="new-user-email" type="email" value={newUser.email} onChange={(event) => setNewUser({ ...newUser, email: event.target.value })} required /></div><div className="space-y-2"><Label htmlFor="new-user-phone">Phone</Label><Input id="new-user-phone" type="tel" value={newUser.phone} onChange={(event) => setNewUser({ ...newUser, phone: event.target.value })} placeholder="+971…" maxLength={32} /></div><div className="space-y-2"><Label htmlFor="new-user-whatsapp">WhatsApp</Label><Input id="new-user-whatsapp" type="tel" value={newUser.whatsapp} onChange={(event) => setNewUser({ ...newUser, whatsapp: event.target.value })} placeholder="+971…" maxLength={32} /></div><div className="space-y-2 sm:col-span-2"><Label>Role</Label><Select value={newUser.role} onValueChange={(value) => setNewUser({ ...newUser, role: value as Role })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{roleOptions(newUser.role).map((entry) => <SelectItem key={entry.value} value={entry.value}>{entry.label}</SelectItem>)}</SelectContent></Select><p className="text-xs text-muted-foreground">{roleLabel(newUser.role)} · {roles.find((entry) => entry.value === newUser.role)?.description}</p></div></div>
+      <div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2"><Label htmlFor="new-user-name">Full name</Label><Input id="new-user-name" value={newUser.fullName} onChange={(event) => setNewUser({ ...newUser, fullName: event.target.value })} required maxLength={120} /></div><div className="space-y-2"><Label htmlFor="new-user-email">Email</Label><Input id="new-user-email" type="email" value={newUser.email} onChange={(event) => setNewUser({ ...newUser, email: event.target.value })} required /></div><div className="space-y-2"><Label htmlFor="new-user-phone">Phone</Label><Input id="new-user-phone" type="tel" value={newUser.phone} onChange={(event) => setNewUser({ ...newUser, phone: event.target.value })} placeholder="+971…" maxLength={32} /></div><div className="space-y-2"><Label htmlFor="new-user-whatsapp">WhatsApp</Label><Input id="new-user-whatsapp" type="tel" value={newUser.whatsapp} onChange={(event) => setNewUser({ ...newUser, whatsapp: event.target.value })} placeholder="+971…" maxLength={32} /></div><div className="space-y-2 sm:col-span-2"><Label>Role</Label><Select value={newUser.role} onValueChange={(value) => setNewUser({ ...newUser, role: value as Role })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{roleOptions(newUser.role).map((entry) => <SelectItem key={entry.value} value={entry.value}>{entry.label}</SelectItem>)}</SelectContent></Select><p className="text-xs text-muted-foreground">{roleLabel(newUser.role)} · {roles.find((entry) => entry.value === newUser.role)?.description}</p></div><div className="space-y-2 sm:col-span-2"><Label htmlFor="new-user-idle-timeout">Auto sign-out when idle</Label><IdleTimeoutSelect id="new-user-idle-timeout" value={newUser.idleTimeoutMinutes} disabled={creating} onChange={(minutes) => setNewUser({ ...newUser, idleTimeoutMinutes: minutes })} /><p className="text-xs text-muted-foreground">Signs the user out after this long without using the keyboard, mouse or screen. You can change it later.</p></div></div>
       <fieldset className="space-y-2"><legend className="mb-2 text-sm font-medium">Companies{newUser.role !== "all_admin" ? " *" : ""}</legend>{newUser.role === "all_admin" ? <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-800 dark:text-emerald-300">All-Admin has full access to every company.</p> : <CompanyPicker companies={companies} value={newUser.companyIds} disabled={creating} onChange={(ids) => setNewUser({ ...newUser, companyIds: ids })} />}</fieldset>
       <div className="rounded-xl border bg-muted/30 p-4"><div className="flex flex-wrap items-center gap-4">{newUser.avatarData ? <Image src={newUser.avatarData} alt="Selected profile preview" width={80} height={80} unoptimized className="size-20 rounded-full border object-cover" /> : <div className="grid size-20 place-items-center rounded-full border-2 border-dashed bg-background text-muted-foreground"><Camera className="size-6" /></div>}<div className="space-y-2"><Label htmlFor="user-photo">User picture</Label><Input id="user-photo" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => readPhoto(event, (avatarData) => setNewUser((current) => ({ ...current, avatarData })))} className="max-w-sm bg-background" /><p className="text-xs text-muted-foreground">Optional · PNG, JPEG or WebP · maximum 800 KB</p></div></div></div>
       <div className="space-y-2"><div className="flex items-center justify-between"><Label htmlFor="new-user-password">Temporary password</Label><Button type="button" variant="ghost" size="sm" onClick={() => setNewUser({ ...newUser, password: generatePassword() })}>Generate</Button></div><Input id="new-user-password" value={newUser.password} onChange={(event) => setNewUser({ ...newUser, password: event.target.value })} minLength={12} maxLength={128} required /><p className="text-xs text-muted-foreground">At least 12 characters. You can copy it after the user is created.</p></div>

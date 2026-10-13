@@ -123,6 +123,7 @@ Non-posting documents such as quotations, estimates, proforma invoices, sales or
 - Passwords use scrypt with a random salt.
 - Session tokens contain 32 random bytes. Only a SHA-256 digest is stored in `auth_sessions`.
 - The cookie is `HttpOnly`, `Secure`, `SameSite=Strict`, scoped to `/`, and expires after 12 hours.
+- Automatic sign-out when idle: `app_users.idle_timeout_minutes` (default 15, 0 = never; choices in `lib/idle-timeout.ts`). `app/idle-sign-out.tsx` treats keyboard, pointer, touch, wheel and scroll events as activity, shares the last activity time between tabs through `localStorage`, shows a countdown for the final minute and signs out at the limit. At most once a minute it posts `/api/auth/activity`, which sets `auth_sessions.last_active_at` (separate from `last_seen_at`, which the online-users heartbeat refreshes). `findSessionUser` in `lib/auth.ts` deletes a session whose `last_active_at` is older than the limit plus a 2-minute grace, so sleeping or closed browsers cannot keep a session alive.
 - Five consecutive failed attempts lock the user for 15 minutes.
 - Changing a password revokes every active session for that user.
 - Temporary-password users cannot call protected APIs until they change the password.

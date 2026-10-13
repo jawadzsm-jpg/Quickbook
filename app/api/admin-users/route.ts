@@ -6,6 +6,7 @@ import { appRoles, hashPassword, type AppRole, type SessionUser } from "@/lib/au
 import { canManage, companyIdsForUser, isCompanyAdmin, outOfScope, requireUserManager, roleNames } from "@/lib/user-management";
 import { sendUserInvitation } from "@/lib/smtp";
 import { friendlyEmailError } from "@/lib/email-errors";
+import { DEFAULT_IDLE_TIMEOUT_MINUTES, isValidIdleTimeout } from "@/lib/idle-timeout";
 
 const validRole = (value: string): value is AppRole => appRoles.includes(value as AppRole);
 const validAvatar = (value: string) => !value || (/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(value) && value.length <= 1_100_000);
@@ -21,7 +22,7 @@ async function publicUser(user: typeof appUsers.$inferSelect, manager: SessionUs
   const companyIds = userRole === "all_admin" ? [] : await companyIdsForUser(user.id);
   return {
     id: user.id, fullName: user.fullName, email: user.email, phone: user.phone, whatsapp: user.whatsapp, avatarData: user.avatarData,
-    themeColor: user.themeColor, appearanceMode: user.appearanceMode, role: userRole, active: user.active, mustChangePassword: user.mustChangePassword, createdAt: user.createdAt,
+    themeColor: user.themeColor, appearanceMode: user.appearanceMode, role: userRole, active: user.active, mustChangePassword: user.mustChangePassword, idleTimeoutMinutes: user.idleTimeoutMinutes, createdAt: user.createdAt,
     lastLoginAt: user.lastLoginAt, lastLoginIp: user.lastLoginIp, lastLoginUserAgent: user.lastLoginUserAgent, isCurrent: user.id === manager.id,
     companyIds, manageable: canManage(manager, userRole, companyIds),
   };
@@ -70,6 +71,8 @@ export async function POST(request: Request) {
   const whatsapp = String(payload.whatsapp ?? "").trim();
   const avatarData = String(payload.avatarData ?? "");
   const companyIds = parseCompanyIds(payload.companyIds);
+  const idleTimeoutMinutes = payload.idleTimeoutMinutes === undefined ? DEFAULT_IDLE_TIMEOUT_MINUTES : payload.idleTimeoutMinutes;
+  if (!isValidIdleTimeout(idleTimeoutMinutes)) return Response.json({ error: "Choose a valid automatic sign-out time." }, { status: 400 });
   if (!fullName || !isValidEmail(email) || !validRole(role)) return Response.json({ error: "Enter a name, valid email and role." }, { status: 400 });
   if (!canManage(administrator, role, companyIds)) return outOfScope();
   if (role !== "all_admin" && !(await validateCompanyIds(companyIds))) return Response.json({ error: "Assign at least one valid company to this user." }, { status: 400 });
@@ -82,7 +85,7 @@ export async function POST(request: Request) {
   try {
     // User and company access are saved together, so a failed assignment never leaves a half-created user behind.
     const response = await withWriteTransaction(async () => {
-      [created] = await getDb().insert(appUsers).values({ fullName, email, phone, whatsapp, avatarData, role: role as never, passwordHash: hashPassword(password), mustChangePassword: true }).returning();
+      [created] = await getDb().insert(appUsers).values({ fullName, email, phone, whatsapp, avatarData, idleTimeoutMinutes, role: role as never, passwordHash: hashPassword(password), mustChangePassword: true }).returning();
       if (role !== "all_admin") await replaceCompanies(created.id, companyIds);
       return Response.json({ ok: true });
     });
@@ -155,7 +158,11 @@ export async function PATCH(request: Request) {
     if (payload.whatsapp !== undefined) updates.whatsapp = String(payload.whatsapp).trim();
   }
   if (payload.avatarData !== undefined) { const avatarData = String(payload.avatarData); if (!validAvatar(avatarData)) return Response.json({ error: "Use a PNG, JPEG or WebP picture smaller than 800 KB." }, { status: 400 }); updates.avatarData = avatarData; }
-  // Access and password changes sign the user out; profile-only edits (name, phone, picture) keep their sessions.
+  if (payload.idleTimeoutMinutes !== undefined) {
+    if (!isValidIdleTimeout(payload.idleTimeoutMinutes)) return Response.json({ error: "Choose a valid automatic sign-out time." }, { status: 400 });
+    updates.idleTimeoutMinutes = payload.idleTimeoutMinutes;
+  }
+  // Access and password changes sign the user out; profile-only edits (name, phone, picture, automatic sign-out time) keep their sessions.
   const revokeSessions = updates.role !== undefined || companyIds !== null || updates.active !== undefined || updates.passwordHash !== undefined;
   let updated!: typeof appUsers.$inferSelect;
   const saved = await withWriteTransaction(async () => {
