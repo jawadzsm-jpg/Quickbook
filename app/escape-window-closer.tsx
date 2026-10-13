@@ -74,10 +74,15 @@ function findTextCloseButton(container: HTMLElement) {
   });
 }
 
+/**
+ * The window's save button, which makes closing ask "Save before closing?". Windows (or parts of them) marked
+ * data-no-save-prompt hold nothing to save, e.g. Workspace shortcuts, whose "Receive Payment" is a link, not a save.
+ */
 function findSaveButton(container: HTMLElement) {
+  if (container.closest("[data-no-save-prompt]")) return undefined;
   const buttons = Array.from(
     container.querySelectorAll<HTMLButtonElement>('button:not([disabled])')
-  );
+  ).filter((button) => !button.closest("[data-no-save-prompt]"));
 
   return buttons.find((button) =>
     /^(save|create|add|update|post|transfer|receive)\b/i.test(

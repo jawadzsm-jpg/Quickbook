@@ -43,7 +43,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/employee-hr-fields.tsx` — Employee salary, loan and vacation fields and read-only view.
 - `app/employee-loan-linker.tsx` — Link an existing loan/advance payment to an employee; `/api/employee-loan-links`.
 - `app/enterprise-app.tsx` — Main client shell (~3,500 lines): navigation, centers, record forms, item list, reports, company setup, preferences; `/api/records`, `/api/reports` and others.
-- `app/escape-window-closer.tsx` — Escape closes the top dialog, asking Save/Keep editing when there are unsaved changes.
+- `app/escape-window-closer.tsx` — Escape or the close button closes the top dialog, asking Save/Keep editing/Discard when it has a save-like button; windows marked `data-no-save-prompt` (Workspace shortcuts) close without asking.
 - `app/financial-report-library.tsx` — Financial report card library.
 - `app/financial-report.tsx` — Financial report renderer with summaries, FX rates, account-history and document links.
 - `app/globals.css` — Global Tailwind v4 styles, dark mode, theme colour variables and app-wide styles.
