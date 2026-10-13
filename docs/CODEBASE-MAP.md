@@ -26,7 +26,7 @@ Use this file to locate implementation ownership without rescanning the whole re
 
 | Area | Primary UI files | Primary API |
 | --- | --- | --- |
-| Login/password | `login-screen.tsx`, `password-change-screen.tsx`, `password-reset-forms.tsx` (forgot password) | `auth/session`, `auth/password-reset`, `login-branding` |
+| Login/password | `login-screen.tsx`, `password-change-screen.tsx`, `password-reset-forms.tsx` (forgot password), `idle-sign-out.tsx` (automatic sign-out when idle) | `auth/session`, `auth/activity`, `auth/password-reset`, `login-branding` |
 | Main records and transactions | `enterprise-app.tsx` | `records` |
 | Company home/report cards | `enterprise-app.tsx`, `live-profit-loss-summary.tsx` | `reports`, `records` |
 | Customer reporting | `customer-open-balance.tsx`, `active-customers-report.tsx`, `statement-layout.tsx` | `reports`, `records` |
@@ -60,7 +60,7 @@ Use this file to locate implementation ownership without rescanning the whole re
 
 | Concern | Files |
 | --- | --- |
-| Sessions and authorization | `lib/auth.ts`, `lib/password.ts`, `lib/admin-pin.ts` |
+| Sessions and authorization | `lib/auth.ts`, `lib/password.ts`, `lib/admin-pin.ts`, `lib/idle-timeout.ts` |
 | Integration API (websites) | `app/api/v1/*`, `lib/public-api.ts`, `lib/public-api-query.ts`, `lib/api-keys.ts`, `lib/openapi.ts`; keys UI `app/api-integrations.tsx` + `app/api/api-keys` |
 | API body/errors/validation | `lib/api.ts`, `lib/errors.ts`, `lib/validation.ts`, `lib/email-validation.ts` |
 | Inventory write locking | `lib/sku-locks.ts` and `app/use-sku-lock.tsx` |

@@ -7,6 +7,7 @@ import { and, eq, gt, sql } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { getDb } from "@/db";
 import { appUsers, authSessions } from "@/db/schema";
+import { IDLE_SERVER_GRACE_MS } from "./idle-timeout";
 
 const SESSION_COOKIE = "comnet_session";
 const SESSION_HOURS = 12;
@@ -14,7 +15,7 @@ const SESSION_HOURS = 12;
 export const appRoles = ["all_admin", "admin", "accountant", "sales", "purchasing", "inventory", "customization", "viewer"] as const;
 export type AppRole = typeof appRoles[number];
 export type Permission = "workspace:read" | "inventory:read" | "inventory:manage" | "inventory:transfer" | "customization:manage" | "reports:read" | "sales:write" | "purchases:write" | "banking:write" | "accounting:manage" | "customers:manage" | "vendors:manage";
-export type SessionUser = { id: number; fullName: string; email: string; avatarData: string; themeColor: string; appearanceMode: "light" | "dark"; role: AppRole; mustChangePassword: boolean; companyIds: number[] };
+export type SessionUser = { id: number; fullName: string; email: string; avatarData: string; themeColor: string; appearanceMode: "light" | "dark"; role: AppRole; mustChangePassword: boolean; idleTimeoutMinutes: number; companyIds: number[] };
 
 const fullPermissions: Permission[] = ["workspace:read", "inventory:read", "inventory:manage", "inventory:transfer", "customization:manage", "reports:read", "sales:write", "purchases:write", "banking:write", "accounting:manage", "customers:manage", "vendors:manage"];
 const rolePermissions: Record<AppRole, Permission[]> = {
@@ -83,7 +84,8 @@ export function sessionCookie(token: string, maxAge = SESSION_HOURS * 60 * 60) {
 export async function createSession(userId: number, ipAddress = "") {
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + SESSION_HOURS * 60 * 60 * 1000).toISOString();
-  await getDb().insert(authSessions).values({ userId, tokenHash: tokenDigest(token), ipAddress: ipAddress.slice(0, 64), lastSeenAt: new Date().toISOString(), expiresAt });
+  const now = new Date().toISOString();
+  await getDb().insert(authSessions).values({ userId, tokenHash: tokenDigest(token), ipAddress: ipAddress.slice(0, 64), lastSeenAt: now, lastActiveAt: now, expiresAt });
   return token;
 }
 
@@ -92,6 +94,14 @@ export async function touchRequestSession(request: Request) {
   if (!token) return false;
   await getDb().update(authSessions).set({ ipAddress: requestIpAddress(request), lastSeenAt: new Date().toISOString() }).where(eq(authSessions.tokenHash, tokenDigest(token)));
   return true;
+}
+
+/** Records real user activity (keyboard, mouse, touch) for the automatic sign-out after inactivity. */
+export async function markRequestSessionActive(request: Request) {
+  const token = requestSessionToken(request);
+  if (!token) return;
+  const now = new Date().toISOString();
+  await getDb().update(authSessions).set({ lastActiveAt: now, lastSeenAt: now }).where(eq(authSessions.tokenHash, tokenDigest(token)));
 }
 
 async function assignedCompanyIds(userId: number) {
@@ -103,14 +113,21 @@ async function findSessionUser(token: string | undefined): Promise<SessionUser |
   if (!token) return null;
   const [row] = await getDb().select({
     id: appUsers.id, fullName: appUsers.fullName, email: appUsers.email, avatarData: appUsers.avatarData, themeColor: appUsers.themeColor, appearanceMode: appUsers.appearanceMode, role: appUsers.role, mustChangePassword: appUsers.mustChangePassword,
+    idleTimeoutMinutes: appUsers.idleTimeoutMinutes, lastActiveAt: authSessions.lastActiveAt,
   }).from(authSessions)
     .innerJoin(appUsers, eq(authSessions.userId, appUsers.id))
     .where(and(eq(authSessions.tokenHash, tokenDigest(token)), gt(authSessions.expiresAt, new Date().toISOString()), eq(appUsers.active, true)))
     .limit(1);
   if (!row) return null;
-  const role = row.role as AppRole;
-  const companyIds = role === "all_admin" ? [] : await assignedCompanyIds(row.id);
-  return { ...row, role, companyIds };
+  // Automatic sign-out: a session unused for longer than the user's idle limit ends, even if the browser was asleep.
+  const { lastActiveAt, ...user } = row;
+  if (user.idleTimeoutMinutes > 0 && Date.now() - new Date(lastActiveAt).getTime() > user.idleTimeoutMinutes * 60_000 + IDLE_SERVER_GRACE_MS) {
+    await getDb().delete(authSessions).where(eq(authSessions.tokenHash, tokenDigest(token)));
+    return null;
+  }
+  const role = user.role as AppRole;
+  const companyIds = role === "all_admin" ? [] : await assignedCompanyIds(user.id);
+  return { ...user, role, companyIds };
 }
 
 export async function getSessionUser() {

@@ -4372,3 +4372,40 @@ test("company clearing: separate customer, vendor and employee options, operatio
   assert.deepEqual(toggleClearSection(['transactions', 'stock', 'cargo'], 'transactions', false), ['cargo']);
   assert.deepEqual(toggleClearSection(['email'], 'customers', true), ['customers', 'email']);
 });
+
+test("automatic sign-out: per-user idle limit from Users & access, enforced by the server session check", async () => {
+  const routes = await vite.ssrLoadModule("/app/api/admin-users/route.ts");
+  // The real session module (the bare path is replaced by the test authorization stub above).
+  const auth = await vite.ssrLoadModule("/lib/auth.ts?idle");
+  const request = (method, body) => new Request("https://app.test/api/admin-users", { method, headers: { origin: "https://app.test", "content-type": "application/json" }, body: JSON.stringify(body) });
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Idle Co') RETURNING id")).rows[0].id;
+  const base = { fullName: "Idle User", role: "viewer", companyIds: [companyId], password: "temporary password 123" };
+
+  assert.equal((await routes.POST(request("POST", { ...base, email: "idle-bad@example.test", idleTimeoutMinutes: 7 }))).status, 400);
+  const created = await routes.POST(request("POST", { ...base, email: "idle@example.test" }));
+  assert.equal(created.status, 201, await created.clone().text());
+  const user = (await created.json()).user;
+  assert.equal(user.idleTimeoutMinutes, 15, "15 minutes by default");
+  assert.equal((await routes.PATCH(request("PATCH", { id: user.id, idleTimeoutMinutes: "30" }))).status, 400);
+  const changed = await routes.PATCH(request("PATCH", { id: user.id, idleTimeoutMinutes: 30 }));
+  assert.equal((await changed.json()).user.idleTimeoutMinutes, 30);
+  await database.query("UPDATE app_users SET must_change_password = false WHERE id = $1", [user.id]);
+
+  const token = await auth.createSession(user.id, "127.0.0.1");
+  const sessionRequest = () => new Request("https://app.test/api/auth/activity", { method: "POST", headers: { origin: "https://app.test", cookie: `comnet_session=${token}` } });
+  const idleFor = (minutes) => database.query("UPDATE auth_sessions SET last_active_at = now() - make_interval(mins => $1), last_seen_at = now() WHERE user_id = $2", [minutes, user.id]);
+  assert.equal((await auth.getRequestUser(sessionRequest()))?.idleTimeoutMinutes, 30);
+  await idleFor(31); // within the 2-minute server grace
+  assert.ok(await auth.getRequestUser(sessionRequest()));
+  await auth.markRequestSessionActive(sessionRequest());
+  await idleFor(29);
+  assert.ok(await auth.getRequestUser(sessionRequest()), "background heartbeats do not matter, real activity does");
+  await idleFor(33);
+  assert.equal(await auth.getRequestUser(sessionRequest()), null, "idle past the limit");
+  assert.equal((await database.query("SELECT count(*)::int AS n FROM auth_sessions WHERE user_id = $1", [user.id])).rows[0].n, 0, "the idle session is removed");
+
+  await routes.PATCH(request("PATCH", { id: user.id, idleTimeoutMinutes: 0 }));
+  const neverToken = await auth.createSession(user.id);
+  await database.query("UPDATE auth_sessions SET last_active_at = now() - interval '6 hours' WHERE user_id = $1", [user.id]);
+  assert.ok(await auth.getRequestUser(new Request("https://app.test/", { headers: { cookie: `comnet_session=${neverToken}` } })), "Never keeps the session until it expires");
+});

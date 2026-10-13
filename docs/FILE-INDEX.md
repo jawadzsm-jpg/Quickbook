@@ -44,6 +44,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/financial-report-library.tsx` — Financial report card library.
 - `app/financial-report.tsx` — Financial report renderer with summaries, FX rates, account-history and document links.
 - `app/globals.css` — Global Tailwind v4 styles, dark mode, theme colour variables and app-wide styles.
+- `app/idle-sign-out.tsx` — Automatic sign-out when idle: activity tracking shared across tabs, final-minute countdown, sign-out; `/api/auth/activity`, `/api/auth/session`.
 - `app/income-tax-center.tsx` — Corporate income tax working papers (calculation, adjustments, file, reopen with PIN); `/api/income-tax`.
 - `app/insights-activity.tsx` — Transactions entered on a given day (entry vs document date, who entered); `/api/records`.
 - `app/inventory-check-reports.tsx` — Stock-count reports: create, edit, list; `/api/inventory-check-reports`.
@@ -119,7 +120,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/unpaid-bills.tsx` — Picker of a vendor's unpaid bills for a bill payment.
 - `app/unpaid-invoices.tsx` — Picker of a customer's unpaid invoices for a received payment.
 - `app/use-sku-lock.tsx` — SKU reservation lease hook and notice for editors; `/api/sku-locks`.
-- `app/user-role-center.tsx` — Users & access: users, roles, companies, status, password reset, login details, Send email again; `/api/admin-users`.
+- `app/user-role-center.tsx` — Users & access: users, roles, companies, status, auto sign-out time, password reset, login details, Send email again; `/api/admin-users`.
 - `app/vat-code-center.tsx` — Company VAT codes with usage counts and attachments; `/api/vat-codes`.
 - `app/vat-management-center.tsx` — VAT return periods: track, file, open VAT reports; `/api/vat-management`.
 - `app/vat-report-filters.tsx` — Column and VAT-code filters for VAT reports.
@@ -163,7 +164,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/api-keys.ts` — Integration API tokens (`ebk_live_…`): generation, low-cost scrypt digest, reading Bearer/X-API-Key headers.
 - `lib/api.ts` — `apiRoute` wrapper (errors, idempotency, writes) and `readJsonBody` size/type limits. **DB**
 - `lib/attachments.ts` — Attachment validation (3 MB per file, at most 10 files).
-- `lib/auth.ts` — **server** Sessions, cookies, password hashing, role permissions, `requireApiUser`, `requireCompanyAccess`, request IP. **DB**
+- `lib/auth.ts` — **server** Sessions (with the idle sign-out check), cookies, password hashing, role permissions, `requireApiUser`, `requireCompanyAccess`, request IP. **DB**
 - `lib/backup-oidc.ts` — Authorizes the scheduled backup worker from OIDC JWT claims.
 - `lib/backup-schedule.ts` — Backup schedule parsing (once/daily/weekly/monthly, retention) and next run in Asia/Dubai.
 - `lib/backup-snapshot.ts` — Tables included in company backups, per-table company scope, snapshot export.
@@ -203,6 +204,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/financial-presentation.ts` — Financial report account links and summary cards.
 - `lib/financial-reports.ts` — Financial report data (income/expense by party and others). **DB**
 - `lib/idempotency.ts` — Replays results of repeated `Idempotency-Key` requests inside the write transaction. **DB**
+- `lib/idle-timeout.ts` — Automatic sign-out choices (default 15 minutes, 0 = never), validation, labels, server grace.
 - `lib/income-tax-data.ts` — Loads accounts and postings for the corporate tax estimate. **DB**
 - `lib/income-tax.ts` — UAE corporate tax estimate (0%/9% with threshold): config, validation, calculation.
 - `lib/inventory-invoice-edit.ts` — Inventory users' limited invoice edits (line details, appended lines, comments). **DB**

@@ -89,6 +89,8 @@ export const appUsers = pgTable("app_users", {
   shareEmojiTelegram: text("share_emoji_telegram").notNull().default("classic"),
   // Email copies of in-app notifications (migration 0113); the in-app list is always kept.
   notificationEmails: boolean("notification_emails").notNull().default(true),
+  // Minutes without keyboard/mouse/touch activity before the user is signed out; 0 = never (migration 0119).
+  idleTimeoutMinutes: integer("idle_timeout_minutes").notNull().default(15),
   passwordHash: text("password_hash").notNull(),
   role: text("role", { enum: ["admin", "accountant", "sales", "purchasing", "inventory", "customization", "viewer"] }).notNull().default("viewer"),
   active: boolean("active").notNull().default(true),
@@ -120,6 +122,8 @@ export const authSessions = pgTable("auth_sessions", {
   tokenHash: text("token_hash").notNull(),
   ipAddress: text("ip_address").notNull().default(""),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  // Last real user activity (keyboard, mouse, touch); last_seen_at is also refreshed by background heartbeats.
+  lastActiveAt: timestamp("last_active_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
   expiresAt: timestamp("expires_at", { withTimezone: true, mode: "string" }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 }, (table) => [uniqueIndex("idx_auth_sessions_token_hash").on(table.tokenHash), index("idx_auth_sessions_user").on(table.userId), index("idx_auth_sessions_last_seen").on(table.lastSeenAt)]);
