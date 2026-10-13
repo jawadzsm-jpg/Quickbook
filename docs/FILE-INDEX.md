@@ -13,7 +13,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/accountant-report-library.tsx` — Accountant (accounting review) report card library and its filters.
 - `app/active-customers-report.tsx` — Searchable active-customers report with links to customers, accounts and documents.
 - `app/admin-backup-center.tsx` — Backup & recovery: history, download, integrity check, retention and schedule; `/api/admin-backups`.
-- `app/admin-controls.tsx` — Admin Controls shell with tabs Users & access, Security (override PIN, own password, share emoji switch), Email server, Backups, API & Integrations; `/api/admin-settings`.
+- `app/admin-controls.tsx` — Admin Controls shell with tabs Users & access, Security (override PIN, own password, share emoji switch), Email server, Backups, API & Integrations, EasyBook edition; `/api/admin-settings`.
 - `app/api-integrations.tsx` — API & Integrations: create/revoke API keys (shown once), last use, API address, OpenAPI link, curl/PHP/JS examples; `/api/api-keys`.
 - `app/attachment-capture.tsx` — Global attachments picker in dialogs; uploads pending files to `/api/attachments` after a record is saved.
 - `app/bank-accounts-editor.tsx` — Bank stamp picker, bank remark field and multi-currency bank accounts editor.
@@ -36,6 +36,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/delivery-note-template.tsx` — Delivery note print template with customer address and bilingual Customer TRN line.
 - `app/document-email-dialog.tsx` — Email a document with its PDF: template choice, unlimited To/Cc address chips with suggestions, message, Templates tab (own and shared templates with placeholders) and send History; `/api/document-emails`, `/api/email-templates`.
 - `app/document-extra-fields.tsx` — Document comments and serial number fields.
+- `app/edition-settings.tsx` — Admin Controls → EasyBook edition: choose the edition (All-Admin), usage, what blocks a downgrade; `/api/edition`.
 - `app/einvoicing-center.tsx` — UAE e-invoicing (Peppol/PINT-AE) readiness: company setup, customer/invoice readiness badges; `/api/company-setup`.
 - `app/employee-hr-fields.tsx` — Employee salary, loan and vacation fields and read-only view.
 - `app/employee-loan-linker.tsx` — Link an existing loan/advance payment to an employee; `/api/employee-loan-links`.
@@ -204,6 +205,8 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/financial-presentation.ts` — Financial report account links and summary cards.
 - `lib/financial-reports.ts` — Financial report data (income/expense by party and others). **DB**
 - `lib/idempotency.ts` — Replays results of repeated `Idempotency-Key` requests inside the write transaction. **DB**
+- `lib/edition.ts` — EasyBook editions, their company/inventory/warehouse limits, downgrade blockers, limit message.
+- `lib/edition-server.ts` — **server** Current edition, usage counts, and the 409 limit response used by `/api/workspaces` and `/api/warehouses`. **DB**
 - `lib/idle-timeout.ts` — Automatic sign-out choices (default 15 minutes, 0 = never), validation, labels, server grace.
 - `lib/income-tax-data.ts` — Loads accounts and postings for the corporate tax estimate. **DB**
 - `lib/income-tax.ts` — UAE corporate tax estimate (0%/9% with threshold): config, validation, calculation.

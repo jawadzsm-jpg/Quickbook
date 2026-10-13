@@ -104,6 +104,14 @@ export const appUsers = pgTable("app_users", {
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 }, (table) => [uniqueIndex("idx_app_users_email").on(table.email)]);
 
+// EasyBook edition: one row (id = 1) limiting companies, inventories and warehouses (migration 0120; lib/edition.ts).
+export const appSettings = pgTable("app_settings", {
+  id: integer("id").primaryKey().default(1),
+  edition: text("edition", { enum: ["multi_company", "single_company", "single_inventory", "single_warehouse"] }).notNull().default("multi_company"),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  updatedBy: text("updated_by").notNull().default(""),
+});
+
 export const emailSettings = pgTable("email_settings", {
   id: integer("id").primaryKey(),
   host: text("host").notNull().default("smtp.gmail.com"),

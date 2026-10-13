@@ -3,6 +3,7 @@ import EnterpriseApp from "./enterprise-app";
 import { LoginScreen } from "./login-screen";
 import { PasswordChangeScreen } from "./password-change-screen";
 import { getSessionUser } from "@/lib/auth";
+import { currentEdition } from "@/lib/edition-server";
 import { publicLoginBranding, publicLoginCompanies } from "@/lib/public-login-branding";
 
 export const dynamic = "force-dynamic";
@@ -19,5 +20,5 @@ export default async function Home() {
   }
   if (user.mustChangePassword) return <PasswordChangeScreen email={user.email} />;
   const appUser = { ...user, isAllAdmin: user.role === "all_admin", role: user.role === "all_admin" ? ("admin" as const) : user.role };
-  return <RecordPermissionsProvider role={user.role}><EnterpriseApp currentUser={appUser} /></RecordPermissionsProvider>;
+  return <RecordPermissionsProvider role={user.role}><EnterpriseApp currentUser={appUser} edition={await currentEdition()} /></RecordPermissionsProvider>;
 }

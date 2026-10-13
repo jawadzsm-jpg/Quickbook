@@ -3,6 +3,7 @@ import { getDb, withWriteTransaction } from "../../../db";
 import { auditLog, inventoryLocations, warehouses } from "../../../db/schema";
 import { canAccessCompany, requireApiUser } from "@/lib/auth";
 import { normalizeComparableText } from "@/lib/text-normalization";
+import { editionLimitResponse } from "@/lib/edition-server";
 import { explicitWarehouseQuantity, switchDefaultWarehouse, warehouseCodePattern, warehouseInUse, warehouseSummaries } from "@/lib/warehouses";
 
 const message = (error: unknown) => error instanceof Error ? error.message : "Could not update warehouses.";
@@ -38,6 +39,10 @@ async function duplicateError(locationId: number, name: string, code: string, ig
   return null;
 }
 
+async function activeWarehouseCount(locationId: number) {
+  return (await getDb().select({ id: warehouses.id }).from(warehouses).where(and(eq(warehouses.locationId, locationId), eq(warehouses.active, true)))).length;
+}
+
 export async function POST(request: Request) {
   const authorization = await requireApiUser(request, true, true);
   if (authorization instanceof Response) return authorization;
@@ -54,6 +59,8 @@ export async function POST(request: Request) {
       if (!location) return Response.json({ error: "Inventory not found." }, { status: 404 });
       const duplicate = await duplicateError(locationId, fields.name, fields.code);
       if (duplicate) return Response.json({ error: duplicate }, { status: 409 });
+      const warehouseLimit = await editionLimitResponse("warehouse", await activeWarehouseCount(locationId));
+      if (warehouseLimit) return warehouseLimit;
       const [warehouse] = await db.insert(warehouses).values({ companyId, locationId, name: fields.name, code: fields.code }).returning();
       await db.insert(auditLog).values({ companyId, action: "created", entityType: "warehouse", entityId: warehouse.id, details: JSON.stringify({ actorId: authorization.id, locationId, name: fields.name, code: fields.code }) });
       return Response.json({ warehouse }, { status: 201 });
@@ -84,6 +91,8 @@ export async function PATCH(request: Request) {
         await db.update(warehouses).set({ name: fields.name, code: fields.code }).where(eq(warehouses.id, id));
         after = fields;
       } else if (action === "activate") {
+        const warehouseLimit = existing.active ? null : await editionLimitResponse("warehouse", await activeWarehouseCount(existing.locationId));
+        if (warehouseLimit) return warehouseLimit;
         await db.update(warehouses).set({ active: true }).where(eq(warehouses.id, id));
         after = { active: true };
       } else if (action === "deactivate") {

@@ -6,6 +6,7 @@ import { canAccessCompany, isAdministrator, requireApiUser } from "@/lib/auth";
 import { normalizeComparableText } from "@/lib/text-normalization";
 import { standardAccounts } from "@/lib/standard-accounts";
 import { standardVatCodes } from "@/lib/standard-vat-codes";
+import { editionLimitResponse } from "@/lib/edition-server";
 const message = (error: unknown) => error instanceof Error ? error.message : "Could not update companies and inventory locations.";
 
 export async function GET(request: Request) {
@@ -49,6 +50,8 @@ export async function POST(request: Request) {
       if (!name || !/^[A-Z]{3}$/.test(baseCurrency)) return Response.json({ error: "Company name and a valid currency code are required." }, { status: 400 });
       const companyNames = await db.select({ name: companies.name }).from(companies);
       if (companyNames.some((company) => normalizeComparableText(company.name) === normalizeComparableText(name))) return Response.json({ error: "A company with this name already exists." }, { status: 409 });
+      const companyLimit = await editionLimitResponse("company", (await db.select({ id: companies.id }).from(companies).where(eq(companies.active, true))).length);
+      if (companyLimit) return companyLimit;
       const sourceCompanyId = Number(payload.sourceCompanyId);
       const sourceAccounts = Number.isSafeInteger(sourceCompanyId) && sourceCompanyId > 0
         ? await db.select({ code: accounts.code, name: accounts.name, type: accounts.type, systemRole: accounts.systemRole, currency: accounts.currency, sourceBaseCurrency: companies.baseCurrency, active: accounts.active })
@@ -80,7 +83,9 @@ export async function POST(request: Request) {
     const companyId = Number(payload.companyId); const name = String(payload.name ?? "").trim(); const code = String(payload.code ?? "").trim().toUpperCase();
     if (!Number.isInteger(companyId) || !name || !code) return Response.json({ error: "Company, location name and code are required." }, { status: 400 });
     if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
-    const locations = await db.select({ name: inventoryLocations.name, code: inventoryLocations.code }).from(inventoryLocations).where(eq(inventoryLocations.companyId, companyId));
+    const locations = await db.select({ name: inventoryLocations.name, code: inventoryLocations.code, active: inventoryLocations.active }).from(inventoryLocations).where(eq(inventoryLocations.companyId, companyId));
+    const inventoryLimit = await editionLimitResponse("inventory", locations.filter((location) => location.active).length);
+    if (inventoryLimit) return inventoryLimit;
     if (locations.some((location) => normalizeComparableText(location.name) === normalizeComparableText(name))) return Response.json({ error: "An inventory with this name already exists." }, { status: 409 });
     if (locations.some((location) => normalizeComparableText(location.code) === normalizeComparableText(code))) return Response.json({ error: "An inventory with this code already exists." }, { status: 409 });
     const [location] = await db.insert(inventoryLocations).values({ companyId, name, code, invoicePrefix: code }).returning();
