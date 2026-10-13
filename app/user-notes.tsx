@@ -13,7 +13,7 @@ type Note = { id: number; body: string; done: boolean; createdAt: string; update
 const parseTime = (value: string) => new Date(String(value).replace(" ", "T").replace(/([+-]\d{2})$/, "$1:00"));
 const when = (value: string) => { const date = parseTime(value); return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("en-GB", { timeZone: "Asia/Dubai", day: "2-digit", month: "short", hour: "numeric", minute: "2-digit", hour12: true }); };
 
-/** My notes on Company Home: the signed-in user's private notes for the selected company. */
+/** My notes page (sidebar → Overview): the signed-in user's private notes for the selected company. */
 export function UserNotes({ companyId }: { companyId: number }) {
   const [notes, setNotes] = useState<Note[] | null>(null);
   const [draft, setDraft] = useState("");

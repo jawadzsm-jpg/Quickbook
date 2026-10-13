@@ -24,7 +24,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/cargo-list.tsx` — Shared cargo/freight agent directory: add, edit, delete, search; `/api/cargos`.
 - `app/category-color-picker.tsx` — Palette picker for an item category's colour (or Auto); `/api/category-colors`.
 - `app/change-password-dialog.tsx` — Account security window for every signed-in user (sidebar key button): Password tab (`/api/auth/session` PATCH) and Two-step sign-in tab.
-- `app/company-announcements.tsx` — Company Home announcements: banners with Got it; admins post to all or chosen users, edit, end, remove; `/api/announcements`.
+- `app/company-announcements.tsx` — Announcements page (sidebar → Overview): cards with Got it; admins post to all or chosen users, edit, end, remove; `/api/announcements`.
 - `app/company-clear-button.tsx` — Company Setup → Clear: grouped options with record counts, Select all, a summary of what will be cleared, typed company name and admin password; `/api/company-setup/clear`.
 - `app/company-document-output.tsx` — Context/hook for printing to A4 and exporting PDFs with the company's saved document design.
 - `app/contact-organization-fields.tsx` — Contact status (active/inactive) and "Sub-account of" parent fields.
@@ -124,7 +124,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/unpaid-bills.tsx` — Picker of a vendor's unpaid bills for a bill payment.
 - `app/unpaid-invoices.tsx` — Picker of a customer's unpaid invoices for a received payment.
 - `app/use-sku-lock.tsx` — SKU reservation lease hook and notice for editors; `/api/sku-locks`.
-- `app/user-notes.tsx` — Company Home "My notes": the user's private notes for the company (add, done, edit, delete); `/api/user-notes`.
+- `app/user-notes.tsx` — My notes page (sidebar → Overview): the user's private notes for the company (add, done, edit, delete); `/api/user-notes`.
 - `app/user-role-center.tsx` — Users & access: users, roles, companies, status, auto sign-out time, password reset, login details, Send email again; `/api/admin-users`.
 - `app/vat-code-center.tsx` — Company VAT codes with usage counts and attachments; `/api/vat-codes`.
 - `app/vat-management-center.tsx` — VAT return periods: track, file, open VAT reports; `/api/vat-management`.

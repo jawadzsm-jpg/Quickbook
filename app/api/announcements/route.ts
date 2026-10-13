@@ -6,7 +6,7 @@ import { publicErrorMessage } from "@/lib/errors";
 import { queueNotificationEmails } from "@/lib/notifications";
 
 // Announcements: administrators of a company (All-Admins for any company) post a message to all of its users or to
-// chosen users. Recipients see it on Company Home until they press "Got it", and as a notice in the bell.
+// chosen users. Recipients see it on the Announcements page until they press "Got it", and as a notice in the bell.
 
 const TITLE_MAX = 120;
 const BODY_MAX = 2000;

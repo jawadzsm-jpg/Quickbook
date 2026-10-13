@@ -34,10 +34,10 @@ async function send(method: "POST" | "PATCH", body: Record<string, unknown>) {
 }
 
 /**
- * Company Home announcements: banners for the signed-in user (until "Got it"), and for administrators a window to post
+ * Announcements page (sidebar → Overview): banners for the signed-in user (until "Got it"), and for administrators a window to post
  * an announcement to all users of the company or chosen users, edit it, end it or remove it.
  */
-export function CompanyAnnouncements({ companyId, canManage }: { companyId: number; canManage: boolean }) {
+export function CompanyAnnouncements({ companyId, canManage, standalone = false }: { companyId: number; canManage: boolean; standalone?: boolean }) {
   const [active, setActive] = useState<Active[]>([]);
   const [managed, setManaged] = useState<Managed[]>([]);
   const [users, setUsers] = useState<CompanyUser[]>([]);
@@ -78,15 +78,16 @@ export function CompanyAnnouncements({ companyId, canManage }: { companyId: numb
     finally { setBusy(false); }
   };
   const remove = async (item: Managed) => {
-    if (!window.confirm(`Remove "${item.title}"? It disappears from Company Home and the bell for everyone.`)) return;
+    if (!window.confirm(`Remove "${item.title}"? It disappears from the Announcements page and the bell for everyone.`)) return;
     setBusy(true);
     try { await send("PATCH", { companyId, id: item.id, action: "remove" }); toast.success("Announcement removed"); await load(true); }
     catch (error) { toast.error(error instanceof Error ? error.message : "Could not remove the announcement."); }
     finally { setBusy(false); }
   };
 
-  if (!active.length && !canManage) return null;
+  if (!active.length && !canManage && !standalone) return null;
   return <section aria-label="Announcements" className="space-y-2">
+    {standalone && !active.length ? <p className="rounded-2xl border border-dashed bg-card p-8 text-center text-sm text-muted-foreground">No announcements right now. New ones also appear in the notifications bell.</p> : null}
     {active.map((item) => <article key={item.id} className="flex gap-3 rounded-2xl border border-sky-300/60 bg-sky-50 p-4 text-sky-950 shadow-sm dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-50">
       <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-sky-500/15 text-sky-700 dark:text-sky-300"><Megaphone className="size-4" /></div>
       <div className="min-w-0 flex-1">
@@ -103,7 +104,7 @@ export function CompanyAnnouncements({ companyId, canManage }: { companyId: numb
 
     <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (!next) setDraft(null); }}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader><DialogTitle>Announcements</DialogTitle><DialogDescription>Shown on Company Home until each person presses Got it, and in the notifications bell.</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>Announcements</DialogTitle><DialogDescription>Shown on the Announcements page until each person presses Got it, and in the notifications bell.</DialogDescription></DialogHeader>
         {draft ? <form onSubmit={save} className="space-y-4">
           <div className="space-y-2"><Label htmlFor="announcement-title">Title</Label><Input id="announcement-title" value={draft.title} maxLength={120} required onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="Office closed on Sunday" /></div>
           <div className="space-y-2"><Label htmlFor="announcement-body">Message</Label><Textarea id="announcement-body" value={draft.body} maxLength={2000} rows={4} onChange={(event) => setDraft({ ...draft, body: event.target.value })} placeholder="Write the details everyone needs to know." /></div>
