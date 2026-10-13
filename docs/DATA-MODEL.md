@@ -46,6 +46,7 @@ erDiagram
 | `document_emails` | Every document emailed to a customer or supplier (migration 0117) | `company_id`, `transaction_id` (set null on delete), `sent_by_user_id`, `sent_by_name`, `party`, `recipients` / `cc` (JSON arrays), `subject`, `attachment_name`, `status` (`sent`, `failed`), `error`, `provider_message_ids` (JSON array of turboSMTP API message IDs; migration 0122), `delivery_status` (last turboSMTP status: `NEW`, `DEFER`, `SUCCESS`, `OPEN`, `CLICK`, `REPORT`, `FAIL`, `SYSFAIL`, `UNSUB`, `UNKNOWN`), `delivery_detail` (JSON per-message checks with recipient and error), `delivery_checked_at`, `created_at` |
 | `cheque_templates` | Unused: held company cheque templates for bank-cheque printing (migration 0114), which was removed. Rows saved before the removal are kept and still included in company backups; the table can be dropped by a later migration | `company_id`, `layout_key` (unique per company), `config` (JSON, `lib/cheque-template.ts`), `background_data`, `updated_by_name`, `updated_at` |
 | `app_user_companies` *(migration only)* | Which companies a non-All-Admin user may access | `user_id`, `company_id` |
+| `user_notes` | Private Company Home notes (migration 0126) | `user_id`, `company_id`, `body`, `done`, `created_at`, `updated_at` |
 | `announcements` | Company Home announcements (migration 0125) | `company_id`, `title`, `body`, `audience` (`all`, `users`), `created_by_user_id` / `created_by_name`, `ends_at`, `removed_at`; recipients for `users` in `announcement_recipients (announcement_id, user_id)`; "Got it" in `announcement_dismissals (announcement_id, user_id, dismissed_at)`; bell notices link through `notifications.announcement_id` (cascade) |
 | `app_settings` | Installation settings, one row (`id` = 1, migration 0120) | `edition` (`multi_company` default, `single_company`, `single_inventory`, `single_warehouse`; rules in `lib/edition.ts`), `updated_at`, `updated_by` |
 | `auth_sessions` | Sign-in sessions (12 h) | `token_hash` (SHA-256), `expires_at`, `last_seen_at` (any request, including heartbeats), `last_active_at` (migration 0119; last keyboard/mouse/touch activity, used for automatic sign-out), `ip_address` |
@@ -127,7 +128,7 @@ erDiagram
 | `company_backups` | Backup runs: status, Blob path, SHA-256, size, rows, verification, expiry |
 | `backup_worker_status` | Last scheduler heartbeat |
 
-Excluded from company backups: `notifications` (per-user), `announcements`, `announcement_recipients`, `announcement_dismissals` (per-user messages), `app_settings` (EasyBook edition), `app_users`, `app_user_companies`, `auth_sessions`, `password_reset_tokens`, `api_keys`, `email_settings`, `auth_rate_limits`, `idempotency_requests`, `sku_work_locks`, `backup_schedules`, `company_backups`, `backup_worker_status`. See [Company backups](BACKUPS.md).
+Excluded from company backups: `notifications` (per-user), `announcements`, `announcement_recipients`, `announcement_dismissals` (per-user messages), `user_notes` (private notes), `app_settings` (EasyBook edition), `app_users`, `app_user_companies`, `auth_sessions`, `password_reset_tokens`, `api_keys`, `email_settings`, `auth_rate_limits`, `idempotency_requests`, `sku_work_locks`, `backup_schedules`, `company_backups`, `backup_worker_status`. See [Company backups](BACKUPS.md).
 
 ## Database objects beyond tables
 

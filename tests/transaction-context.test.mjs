@@ -4671,3 +4671,29 @@ test("announcements: admins post to all users or chosen users; recipients see a 
   assert.deepEqual(await active(sales), ["Sales meeting"], "removed announcements disappear");
   assert.equal(Number((await database.query("SELECT count(*) FROM notifications WHERE announcement_id = $1", [allId])).rows[0].count), 0, "with their bell notices");
 });
+
+test("personal notes: private to each user, kept per company, edit, done and delete", async () => {
+  const route = await vite.ssrLoadModule("/app/api/user-notes/route.ts");
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Notes Co') RETURNING id")).rows[0].id;
+  const otherCompany = (await database.query("INSERT INTO companies (name) VALUES ('Notes Other Co') RETURNING id")).rows[0].id;
+  const make = async (email, role) => (await database.query("INSERT INTO app_users (email, password_hash, role) VALUES ($1, 'x', $2) RETURNING id", [email, role])).rows[0].id;
+  const alice = { id: await make("notes-a@example.test", "sales"), email: "notes-a@example.test", role: "sales", companyIds: [companyId, otherCompany], mustChangePassword: false };
+  const bob = { id: await make("notes-b@example.test", "viewer"), email: "notes-b@example.test", role: "viewer", companyIds: [companyId], mustChangePassword: false };
+  const as = async (who, work) => { globalThis.__transferTestUser = who; try { return await work(); } finally { delete globalThis.__transferTestUser; } };
+  const json = (method, body) => new Request("https://app.test/api/user-notes", { method, headers: { origin: "https://app.test", "content-type": "application/json" }, body: JSON.stringify(body) });
+  const notes = async (who, company = companyId) => as(who, async () => (await (await route.GET(new Request(`https://app.test/api/user-notes?companyId=${company}`))).json()).notes);
+
+  assert.equal((await as(alice, () => route.POST(json("POST", { companyId, body: "Call Digitech about CHQ-0021" })))).status, 201);
+  assert.equal((await as(alice, () => route.POST(json("POST", { companyId, body: "  " })))).status, 400);
+  await as(alice, () => route.POST(json("POST", { companyId: otherCompany, body: "Other company note" })));
+  const [note] = await notes(alice);
+  assert.deepEqual((await notes(alice)).map((row) => row.body), ["Call Digitech about CHQ-0021"], "kept per company");
+  assert.deepEqual(await notes(bob), [], "private to each user");
+  assert.equal((await as(bob, () => route.PATCH(json("PATCH", { companyId, id: note.id, action: "delete" })))).status, 404, "others cannot change it");
+
+  await as(alice, () => route.PATCH(json("PATCH", { companyId, id: note.id, action: "update", body: "Call Digitech today", done: true })));
+  assert.deepEqual((await notes(alice)).map((row) => [row.body, row.done]), [["Call Digitech today", true]]);
+  await as(alice, () => route.PATCH(json("PATCH", { companyId, id: note.id, action: "delete" })));
+  assert.deepEqual(await notes(alice), []);
+  assert.equal((await as(bob, () => route.GET(new Request(`https://app.test/api/user-notes?companyId=${otherCompany}`)))).status, 403, "only companies the user belongs to");
+});

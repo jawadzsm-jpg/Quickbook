@@ -124,6 +124,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/unpaid-bills.tsx` — Picker of a vendor's unpaid bills for a bill payment.
 - `app/unpaid-invoices.tsx` — Picker of a customer's unpaid invoices for a received payment.
 - `app/use-sku-lock.tsx` — SKU reservation lease hook and notice for editors; `/api/sku-locks`.
+- `app/user-notes.tsx` — Company Home "My notes": the user's private notes for the company (add, done, edit, delete); `/api/user-notes`.
 - `app/user-role-center.tsx` — Users & access: users, roles, companies, status, auto sign-out time, password reset, login details, Send email again; `/api/admin-users`.
 - `app/vat-code-center.tsx` — Company VAT codes with usage counts and attachments; `/api/vat-codes`.
 - `app/vat-management-center.tsx` — VAT return periods: track, file, open VAT reports; `/api/vat-management`.

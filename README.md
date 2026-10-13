@@ -170,6 +170,7 @@ Permissions are named (`workspace:read`, `inventory:read`, `inventory:manage`, `
 | `/api/auth/password-reset` | POST, PATCH | Public, same-origin | Forgot password: email a one-use link; set a new password from it |
 | `/api/auth/activity` | POST | Signed-in user | Record activity for automatic sign-out when idle |
 | `/api/announcements` | GET, POST, PATCH | Company users; writes Administrator | Company Home announcements to all or chosen users |
+| `/api/user-notes` | GET, POST, PATCH | Company users, own notes | Private notes on Company Home |
 | `/api/auth/mfa` | GET, POST | Signed-in user | Two-step sign-in: set up with an authenticator app, backup codes, turn off |
 | `/api/edition` | GET, PUT | Administrator; PUT All-Admin | EasyBook edition: limits on companies, inventories and warehouses |
 | `/api/admin-users` | GET, POST, PATCH, DELETE | All-Admin, or company Administrator within scope | Users, roles, companies, status, temporary passwords, profiles |
