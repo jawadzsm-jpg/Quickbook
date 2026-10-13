@@ -4,13 +4,23 @@ import { contacts, documentEmails, transactions } from "@/db/schema";
 import { requireCompanyAccess } from "@/lib/auth";
 import { friendlyEmailError } from "@/lib/email-errors";
 import { canEmailDocuments, EMAIL_BODY_MAX, EMAIL_SUBJECT_MAX, MAX_ATTACHMENT_BYTES, MAX_RECIPIENTS, RECIPIENTS_PER_MESSAGE, emailDocumentTypeValues, parseEmailList, recipientBatches, SUPPLIER_DOCUMENT_TYPES } from "@/lib/email-templates";
-import { emailDeliveryConfigured, sendDocumentEmail } from "@/lib/smtp";
+import { checkDeliveries, emailDeliveryConfigured, sendDocumentEmail } from "@/lib/smtp";
+import { deliveryLabel, summarizeDelivery, type DeliveryCheck } from "@/lib/email-delivery";
 
 // Documents that can be emailed with their PDF: the sales and purchase documents the A4 template prints.
 const emailableTypes = new Set([...emailDocumentTypeValues.filter((type) => type !== "any"), "pending invoice"]);
 const denied = () => Response.json({ error: "Only accountants and administrators can email documents." }, { status: 403 });
 const isVoid = (row: { status: string; voidedAt: string | null }) => Boolean(row.voidedAt) || ["void", "voided", "cancelled", "canceled"].includes(row.status.toLowerCase());
 const list = (value: string) => { try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed.map(String) : []; } catch { return []; } };
+
+const checksOf = (value: string): DeliveryCheck[] => { try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed : []; } catch { return []; } };
+
+/** What the history shows about delivery: whether turboSMTP can be asked, and the last answer. */
+function deliveryOf(row: typeof documentEmails.$inferSelect) {
+  const canCheck = row.status === "sent" && list(row.providerMessageIds).length > 0;
+  if (!canCheck) return { canCheck, status: "", label: "", tone: "unknown", checks: [], checkedAt: null };
+  return { canCheck, status: row.deliveryStatus, ...(row.deliveryStatus ? deliveryLabel(row.deliveryStatus) : { label: "", tone: "unknown" }), checks: checksOf(row.deliveryDetail), checkedAt: row.deliveryCheckedAt };
+}
 
 async function access(request: Request, companyId: number, mutating = false) {
   const user = await requireCompanyAccess(request, companyId, false, mutating);
@@ -57,7 +67,7 @@ export async function GET(request: Request) {
     ]);
     return Response.json({
       configured, suggestions, sender: { name: user.fullName || user.email, email: user.email },
-      history: history.map((row) => ({ id: row.id, createdAt: row.createdAt, sentByName: row.sentByName, recipients: list(row.recipients), cc: list(row.cc), subject: row.subject, attachmentName: row.attachmentName, status: row.status, error: row.error })),
+      history: history.map((row) => ({ id: row.id, createdAt: row.createdAt, sentByName: row.sentByName, recipients: list(row.recipients), cc: list(row.cc), subject: row.subject, attachmentName: row.attachmentName, status: row.status, error: row.error, delivery: deliveryOf(row) })),
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Could not load the email history." }, { status: 500 }); }
 }
@@ -102,8 +112,8 @@ export async function POST(request: Request) {
 
   const record = { companyId, transactionId: document.id, sentByUserId: user.id, sentByName: user.fullName || user.email, party: document.party, recipients: JSON.stringify(to.valid), cc: JSON.stringify(ccOnly), subject, attachmentName: attachment?.filename ?? "" };
   try {
-    const messages = await sendDocumentEmail({ to: recipientBatches(to.valid), cc: ccOnly, replyTo: user.email ? { name: user.fullName || user.email, address: user.email } : undefined, subject, body, attachment });
-    const [saved] = await getDb().insert(documentEmails).values({ ...record, status: "sent" }).returning();
+    const { sent: messages, messageIds } = await sendDocumentEmail({ to: recipientBatches(to.valid), cc: ccOnly, replyTo: user.email ? { name: user.fullName || user.email, address: user.email } : undefined, subject, body, attachment });
+    const [saved] = await getDb().insert(documentEmails).values({ ...record, status: "sent", providerMessageIds: JSON.stringify(messageIds) }).returning();
     return Response.json({ ok: true, id: saved.id, messages, recipients: to.valid.length + ccOnly.length });
   } catch (error) {
     const sentMessages = Number((error as { sentMessages?: number }).sentMessages ?? 0);
@@ -114,4 +124,23 @@ export async function POST(request: Request) {
     try { await getDb().insert(documentEmails).values({ ...record, status: "failed", error: detail.slice(0, 1000) }); } catch { /* The person still sees the reason. */ }
     return Response.json({ error: detail }, { status: 502 });
   }
+}
+
+/** Check delivery: ask turboSMTP for the latest status of one sent email ({ companyId, id }) and save it. */
+export async function PATCH(request: Request) {
+  let payload: Record<string, unknown>;
+  try { payload = await request.json() as Record<string, unknown>; } catch { return Response.json({ error: "Invalid request." }, { status: 400 }); }
+  const companyId = Number(payload.companyId), id = Number(payload.id);
+  const user = await access(request, companyId, true);
+  if (user instanceof Response) return user;
+  if (!Number.isSafeInteger(id) || id <= 0) return Response.json({ error: "Select a sent email." }, { status: 400 });
+  const [row] = await getDb().select().from(documentEmails).where(and(eq(documentEmails.id, id), eq(documentEmails.companyId, companyId))).limit(1);
+  if (!row) return Response.json({ error: "Email not found." }, { status: 404 });
+  const ids = list(row.providerMessageIds);
+  if (row.status !== "sent" || !ids.length) return Response.json({ error: "Delivery status is available only for emails sent through the turboSMTP API." }, { status: 409 });
+  try {
+    const summary = summarizeDelivery(await checkDeliveries(ids));
+    const [saved] = await getDb().update(documentEmails).set({ deliveryStatus: summary.status, deliveryDetail: JSON.stringify(summary.checks), deliveryCheckedAt: summary.checkedAt }).where(eq(documentEmails.id, row.id)).returning();
+    return Response.json({ delivery: deliveryOf(saved) });
+  } catch (error) { return Response.json({ error: friendlyEmailError(error, "Could not get the delivery status from turboSMTP.") }, { status: 502 }); }
 }

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { CheckCircle2, FileText, History, Mail, Pencil, Plus, Send, Trash2, TriangleAlert, X } from "lucide-react";
+import { CheckCircle2, FileText, History, Mail, Pencil, Plus, RefreshCw, Send, Trash2, TriangleAlert, X } from "lucide-react";
+import { finalDelivery, type DeliveryCheck, type DeliveryTone } from "@/lib/email-delivery";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,7 +16,32 @@ import { EMAIL_DOCUMENT_TYPES, EMAIL_PLACEHOLDERS, MAX_ATTACHMENT_BYTES, default
 
 export type EmailDocument = { id: number; type: string; number: string; party: string; total: number; currency: string; transactionDate: string; dueDate: string };
 type Template = { id: number; name: string; documentType: string; subject: string; body: string; shared: boolean; mine: boolean; editable: boolean; ownerName: string | null };
-type SentEmail = { id: number; createdAt: string; sentByName: string; recipients: string[]; cc: string[]; subject: string; attachmentName: string; status: string; error: string };
+type Delivery = { canCheck: boolean; status: string; label: string; tone: DeliveryTone; checks: DeliveryCheck[]; checkedAt: string | null };
+type SentEmail = { id: number; createdAt: string; sentByName: string; recipients: string[]; cc: string[]; subject: string; attachmentName: string; status: string; error: string; delivery?: Delivery };
+
+const toneClass: Record<DeliveryTone, string> = { good: "text-emerald-700 dark:text-emerald-300", waiting: "text-amber-700 dark:text-amber-300", bad: "text-rose-600 dark:text-rose-400", unknown: "text-muted-foreground" };
+
+/** turboSMTP delivery status of one sent email, with Check delivery (emails sent through the turboSMTP API only). */
+function DeliveryLine({ companyId, item, onChecked }: { companyId: number; item: SentEmail; onChecked: (delivery: Delivery) => void }) {
+  const [checking, setChecking] = useState(false);
+  const delivery = item.delivery;
+  if (!delivery?.canCheck) return null;
+  const check = async () => {
+    setChecking(true);
+    try {
+      const response = await fetch("/api/document-emails", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, id: item.id }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Could not get the delivery status.");
+      onChecked(data.delivery);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not get the delivery status.", { duration: 10_000 }); }
+    finally { setChecking(false); }
+  };
+  const problems = delivery.checks.filter((entry) => entry.error);
+  return <div className="space-y-1 text-xs">
+    <p className="flex flex-wrap items-center gap-2"><span className="text-muted-foreground">Delivery:</span><span className={`font-medium ${toneClass[delivery.tone]}`}>{delivery.label || "Not checked yet"}</span>{delivery.checkedAt ? <span className="text-muted-foreground">checked {sentAt(delivery.checkedAt)}</span> : null}{!finalDelivery(delivery.status) || !delivery.checkedAt ? <Button type="button" size="sm" variant="outline" className="h-6 px-2 text-xs" disabled={checking} onClick={() => void check()}><RefreshCw className={`size-3 ${checking ? "animate-spin" : ""}`} />{checking ? "Checking…" : "Check delivery"}</Button> : null}</p>
+    {problems.map((entry) => <p key={entry.id} className="break-words text-rose-600 dark:text-rose-400">{entry.recipient ? `${entry.recipient}: ` : ""}{entry.error}</p>)}
+  </div>;
+}
 type Loaded = { configured: boolean; suggestions: { contact: string[]; previous: string[] }; sender: { name: string; email: string }; history: SentEmail[] };
 
 const BUILT_IN = "built-in";
@@ -228,6 +254,7 @@ export function DocumentEmailDialog({ open, onOpenChange, companyId, companyName
         <p className="break-words text-xs"><span className="text-muted-foreground">To:</span> {item.recipients.join(", ")}{item.cc.length ? <><span className="text-muted-foreground"> · Cc:</span> {item.cc.join(", ")}</> : null}</p>
         <p className="truncate text-xs text-muted-foreground">{item.subject}{item.attachmentName ? ` · ${item.attachmentName}` : " · no attachment"}</p>
         {item.error ? <p className="text-xs text-rose-600">{item.error}</p> : null}
+        <DeliveryLine companyId={companyId} item={item} onChecked={(delivery) => setLoaded((current) => current ? { ...current, history: current.history.map((entry) => entry.id === item.id ? { ...entry, delivery } : entry) } : current)} />
       </li>)}</ul> : <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">This document has not been emailed yet.</div>) : null}
 
       {tab === "compose" ? <DialogFooter className="gap-2"><Button type="button" variant="outline" disabled={sending} onClick={() => onOpenChange(false)}>Cancel</Button><Button type="button" disabled={sending || !loaded || !loaded.configured || !to.length} onClick={() => void send()}><Send className="size-4" />{sending ? (attach ? "Preparing PDF and sending…" : "Sending…") : `Send${to.length + cc.length > 1 ? ` to ${to.length + cc.length}` : ""}`}</Button></DialogFooter> : null}

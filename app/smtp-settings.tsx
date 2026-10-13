@@ -1,7 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { Eye, EyeOff, Mail, Send, Server } from "lucide-react";
+import { Eye, EyeOff, Mail, RefreshCw, Send, Server } from "lucide-react";
+import { finalDelivery, type DeliverySummary } from "@/lib/email-delivery";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,22 @@ export function SmtpSettings({ onStatus }: { onStatus?: (configured: boolean) =>
   // The saved method and its login: the consumer key / SMTP username and the secret belong to one method only.
   const [saved, setSaved] = useState<{ provider: Provider; username: string; passwordConfigured: boolean }>({ provider: "smtp", username: "", passwordConfigured: false });
   const api = form.provider === "turbosmtp_api";
+  // The last test email sent through the turboSMTP API and its delivery status from turboSMTP.
+  const [testIds, setTestIds] = useState<string[]>([]);
+  const [testDelivery, setTestDelivery] = useState<DeliverySummary | null>(null);
+  const [checkingDelivery, setCheckingDelivery] = useState(false);
+
+  async function checkTestDelivery(ids = testIds) {
+    if (!ids.length) return;
+    setCheckingDelivery(true);
+    try {
+      const response = await fetch("/api/email-settings/delivery", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not get the delivery status.");
+      setTestDelivery(data.delivery);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not get the delivery status.", { duration: 10_000 }); }
+    finally { setCheckingDelivery(false); }
+  }
 
   useEffect(() => {
     let active = true;
@@ -78,6 +95,10 @@ export function SmtpSettings({ onStatus }: { onStatus?: (configured: boolean) =>
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "The test email could not be sent");
       toast.success(`Test email sent to ${data.to} — check that inbox (and spam)`);
+      const ids = Array.isArray(data.messageIds) ? data.messageIds.map(String) : [];
+      setTestIds(ids); setTestDelivery(null);
+      // turboSMTP needs a few seconds to report on a new message.
+      if (ids.length) window.setTimeout(() => void checkTestDelivery(ids), 8000);
     } catch (error) { toast.error(error instanceof Error ? error.message : "The test email could not be sent", { duration: 15_000 }); }
     finally { setSendingTest(false); }
   }
@@ -109,6 +130,7 @@ export function SmtpSettings({ onStatus }: { onStatus?: (configured: boolean) =>
         <div className="space-y-2 xl:col-span-2"><Label htmlFor="smtp-from-name">Sender name</Label><Input id="smtp-from-name" value={form.fromName} onChange={(event) => update({ fromName: event.target.value })} required /></div>
         <div className="space-y-2 xl:col-span-2"><Label htmlFor="smtp-from-email">Sender email</Label><Input id="smtp-from-email" type="email" value={form.fromEmail} onChange={(event) => update({ fromEmail: event.target.value })} required /></div>
       </fieldset>
+      {testIds.length > 0 && <div role="status" className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm"><span className="text-muted-foreground">Test email delivery:</span><span className={`font-medium ${testDelivery?.tone === "good" ? "text-emerald-700 dark:text-emerald-300" : testDelivery?.tone === "bad" ? "text-rose-600 dark:text-rose-400" : testDelivery?.tone === "waiting" ? "text-amber-700 dark:text-amber-300" : "text-muted-foreground"}`}>{checkingDelivery && !testDelivery ? "Asking turboSMTP…" : testDelivery?.label ?? "Waiting for turboSMTP's report…"}</span>{testDelivery?.checks.filter((entry) => entry.error).map((entry) => <span key={entry.id} className="basis-full break-words text-xs text-rose-600 dark:text-rose-400">{entry.error}</span>)}{!testDelivery || !finalDelivery(testDelivery.status) ? <Button type="button" size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={checkingDelivery} onClick={() => void checkTestDelivery()}><RefreshCw className={`size-3 ${checkingDelivery ? "animate-spin" : ""}`} />Check delivery</Button> : null}</div>}
       <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-muted-foreground">{dirty ? "Unsaved changes — save before testing." : `Test connection checks the saved login; Send test email sends a real email${testRecipient ? ` to ${testRecipient}` : " to you"}.`}</p><div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={loading || testing || dirty || !form.passwordConfigured} onClick={() => void testConnection()}><Mail className="size-4" />{testing ? "Testing…" : "Test connection"}</Button><Button type="button" variant="outline" disabled={loading || sendingTest || dirty || !form.passwordConfigured} onClick={() => void sendTest()}><Send className="size-4" />{sendingTest ? "Sending…" : "Send test email"}</Button><Button type="submit" disabled={loading || saving}><Send className="size-4" />{saving ? "Saving…" : "Save email settings"}</Button></div></div>
       {api ? <p className="text-xs leading-5 text-muted-foreground">In the turboSMTP dashboard create an API consumer key (Settings → API Keys) and copy the consumer key and its secret here — the secret is shown only once. The sender email must be a verified sender in turboSMTP. Choose EU only if your turboSMTP account sends from the EU infrastructure. The saved secret is encrypted and never shown again.</p> : <p className="text-xs leading-5 text-muted-foreground">For Gmail, enable two-step verification and use a Google app password—not your normal Gmail password. For turboSMTP, use host pro.turbo-smtp.com with port 465 (TLS), or 587 or 2525 (STARTTLS); the username is your turboSMTP account email or API consumer key, the password its password or consumer secret, and the sender email must be a verified sender in turboSMTP. The saved secret is encrypted and never shown again.</p>}
     </form>
