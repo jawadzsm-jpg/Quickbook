@@ -516,9 +516,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem, onCreateDocument
         ? `***${inventoryItemLine(record.name, record.sku, description, record.itemNumber, false)}***`
         : inventorySocialShareText(record.name, record.sku, description, channel, record.itemNumber, emoji);
       const lines = [title];
-      // Screen Details entered in Product Customization Details (the spec fallback is already in the description).
-      const screen = record.customizationScreen?.trim();
-      if (screen) lines.push(marked(emoji.screen, `Screen: ${screen}`));
+      // Product Customization Details (Screen Details and the rest) stay out of shared copies.
       const details: string[] = [];
       if (showQuantity) {
         const quantity = plainMoney(Number(record.quantity));
