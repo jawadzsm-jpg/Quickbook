@@ -76,7 +76,7 @@ Use this file to locate implementation ownership without rescanning the whole re
 | Report period/export | `lib/report-period.ts`, `lib/report-export.ts`, `lib/record-list-export.ts`, `lib/export.ts` |
 | Documents and printing | `lib/document-design.ts`, `lib/document-output.ts`, `lib/document-print.ts`, `lib/letterhead.ts`, `lib/uae-cheque-layouts.ts` |
 | Attachments | `lib/attachments.ts`, `lib/record-attachments.ts` |
-| SMTP | `lib/smtp.ts` |
+| SMTP / turboSMTP API | `lib/smtp.ts`, `lib/turbosmtp-api.ts`, `lib/email-errors.ts` |
 
 ## Common change paths
 

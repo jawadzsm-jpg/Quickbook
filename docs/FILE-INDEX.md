@@ -108,7 +108,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/serial-number-search.tsx` — Serial number lookup listing matching documents; `/api/serial-search`.
 - `app/shared-item-catalogue.tsx` — Browse items shared across companies and copy them in; `/api/shared-items`.
 - `app/shared-out-of-stock.tsx` — Out-of-stock items that can be pulled from the shared catalogue; `/api/out-of-stock`.
-- `app/smtp-settings.tsx` — Email server (SMTP) settings with presets, Test connection and Send test email; `/api/email-settings`.
+- `app/smtp-settings.tsx` — Email server settings: SMTP server (with presets) or turboSMTP API (consumer key/secret, region), Test connection and Send test email; `/api/email-settings`.
 - `app/staff-salary-sheets.tsx` — Staff salary sheets dialog: create, list, print; `/api/staff-salary-sheets`.
 - `app/statement-bank-box.tsx` — Movable bank-details box with remark for printed statements.
 - `app/statement-layout.tsx` — Statement filters and heading (company header, Statement for address/TRN, stamp).
@@ -260,7 +260,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/share-emoji.ts` — WhatsApp/Telegram emoji style presets.
 - `lib/share-format.ts` — Share editor formatting (WhatsApp and Telegram markers, links) and `telegramHtml` for formatted Telegram paste.
 - `lib/sku-locks.ts` — SKU edit reservations and the `skuWrite` route wrapper. **DB**
-- `lib/smtp.ts` — **server** Encrypted SMTP settings, connection check, invitation, password-reset, notification, test and document emails (PDF attached, Reply-To the sender, sent in batches). **DB**
+- `lib/smtp.ts` — **server** Encrypted email server settings (SMTP or turboSMTP API), connection check, invitation, password-reset, notification, test and document emails (PDF attached, Reply-To the sender, sent in batches). **DB**
 - `lib/specification-presets.ts` — Item specification fields and preset values.
 - `lib/staff-salary-pdf.ts` — Staff salary sheet PDF.
 - `lib/staff-salary-sheet.ts` — Staff salary sheet types, totals, validation and file name.
@@ -271,6 +271,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/stock-holds.ts` — Stock hold durations (max 7 days), active-hold SQL, held-by-others checks. **DB**
 - `lib/stock-pricing.ts` — Stock pricing rows from stock per location and purchase prices.
 - `lib/text-normalization.ts` — Comparable-text normalisation and upper-casing.
+- `lib/turbosmtp-api.ts` — **server** turboSMTP HTTPS API sender (POST /mail/send with consumer key headers; key check) behind the same sendMail/verify/close interface as SMTP.
 - `lib/uae-cheque-layouts.ts` — UAE bank cheque print layouts and alignment bounds.
 - `lib/user-management.ts` — **server** Role names, user company IDs, who may manage whom, `requireUserManager`. **DB**
 - `lib/utils.ts` — `cn` class-name merge helper.

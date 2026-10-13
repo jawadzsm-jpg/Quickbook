@@ -51,7 +51,7 @@ erDiagram
 | `password_reset_tokens` | Forgot-password links (30 min, one use) | `token_hash`, `expires_at`, `used_at` |
 | `auth_rate_limits` *(migration only)* | Shared rate-limit buckets (login, API keys) | `bucket`, `attempts`, `reset_at` |
 | `api_keys` | Integration API keys, one company, read-only | `key_prefix`, `key_hash`, `scopes`, `last_used_at`, `revoked_at` |
-| `email_settings` | The single SMTP server for all companies | host, port, `secure`, username, `password_encrypted`, sender name/email |
+| `email_settings` | The single email server for all companies | `provider` (`smtp` default, or `turbosmtp_api`; migration 0121), `api_region` (`global`, `eu`), host, port, `secure`, username (SMTP username or turboSMTP consumer key), `password_encrypted` (SMTP password or consumer secret), sender name/email |
 | `company_settings` | Per-company admin settings | `negative_stock_pin_hash`, `share_emojis` |
 | `idempotency_requests` *(migration only)* | Replay protection for retried document saves | `user_id`, `request_key`, `request_hash`, `company_id`, stored `response_body`/`response_status` |
 | `audit_log` | Change history | `action`, `entity_type`, `entity_id`, `details` |

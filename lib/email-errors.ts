@@ -16,6 +16,9 @@ export function friendlyEmailError(error: unknown, fallback = "The email could n
       ? "Your email provider's sending limit is reached. Copy the login details and send them yourself, or send the email again later."
       : "Your email provider's sending limit is reached (for turboSMTP, check your plan's quota in the turboSMTP dashboard). Send the email again after the limit resets, or raise the limit with your provider.");
   }
+  if (/^turboSMTP API/.test(raw) && (kind === "EAUTH" || code === 401 || code === 403)) {
+    return withCause("turboSMTP rejected the consumer key or secret. Check Admin Controls → Email server, or create a new API key in the turboSMTP dashboard.");
+  }
   if (kind === "EAUTH" || code === 535 || code === 534 || /authentication|invalid login|username and password/i.test(raw)) {
     return withCause("The email server rejected the SMTP username or password. Check Admin Controls → Email server.");
   }

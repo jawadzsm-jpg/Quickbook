@@ -173,7 +173,7 @@ Permissions are named (`workspace:read`, `inventory:read`, `inventory:manage`, `
 | `/api/admin-users` | GET, POST, PATCH, DELETE | All-Admin, or company Administrator within scope | Users, roles, companies, status, temporary passwords, profiles |
 | `/api/admin-users/resend-invitation` | POST | As above | Send the login email again with the unchanged temporary password |
 | `/api/admin-settings` | GET, POST, PATCH | Company Administrator | Negative-stock override PIN, overrides, share-emoji switch |
-| `/api/email-settings` | GET, PATCH, POST | All-Admin | SMTP settings and connection test |
+| `/api/email-settings` | GET, PATCH, POST | All-Admin | Email server (SMTP or turboSMTP API) settings and connection test |
 | `/api/email-settings/test-email` | POST | All-Admin | Send a real test email to yourself |
 | `/api/api-keys` | GET, POST, PATCH | Company Administrator | Integration API keys: list, create (shown once), revoke |
 | `/api/user-preferences` | PATCH | Signed-in user | Appearance, accent colour, share emoji styles |

@@ -5,6 +5,7 @@ import nodemailer from "nodemailer";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { emailSettings } from "@/db/schema";
+import { turboSmtpClient, type MailMessage } from "./turbosmtp-api";
 
 const settingId = 1;
 
@@ -36,23 +37,36 @@ export async function getEmailSettings() {
   return settings ?? null;
 }
 
+export type EmailProvider = "smtp" | "turbosmtp_api";
+export type ApiRegion = "global" | "eu";
+
 export async function saveEmailSettings(input: {
+  provider?: EmailProvider; apiRegion?: ApiRegion;
   host: string; port: number; secure: boolean; username: string; password?: string; fromName: string; fromEmail: string;
 }) {
   const current = await getEmailSettings();
   const passwordEncrypted = input.password ? encryptSmtpPassword(input.password) : current?.passwordEncrypted ?? "";
   const values = {
-    id: settingId, host: input.host, port: input.port, secure: input.secure, username: input.username,
+    id: settingId, provider: input.provider ?? "smtp", apiRegion: input.apiRegion ?? "global", host: input.host, port: input.port, secure: input.secure, username: input.username,
     fromName: input.fromName, fromEmail: input.fromEmail, passwordEncrypted, updatedAt: new Date().toISOString(),
   };
   const [saved] = await getDb().insert(emailSettings).values(values).onConflictDoUpdate({ target: emailSettings.id, set: values }).returning();
   return saved;
 }
 
+/** What every email in the app needs from a sender: an SMTP transport or the turboSMTP API client. */
+type MailClient = { sendMail(message: MailMessage): Promise<unknown>; verify(): Promise<unknown>; close(): void };
+
+const settingsComplete = (settings: Awaited<ReturnType<typeof getEmailSettings>>) =>
+  Boolean(settings && (settings.provider === "turbosmtp_api" || settings.host) && settings.username && settings.passwordEncrypted && settings.fromEmail);
+
 /** Opens one connection with the saved settings; reuse it for a batch of emails. */
-export async function openMailer() {
+export async function openMailer(): Promise<{ settings: NonNullable<Awaited<ReturnType<typeof getEmailSettings>>>; client: MailClient }> {
   const settings = await getEmailSettings();
-  if (!settings?.host || !settings.username || !settings.passwordEncrypted || !settings.fromEmail) throw new Error("Complete the SMTP settings first.");
+  if (!settings || !settingsComplete(settings)) throw new Error("Complete the email server settings first.");
+  if (settings.provider === "turbosmtp_api") {
+    return { settings, client: turboSmtpClient({ consumerKey: settings.username, consumerSecret: decryptSmtpPassword(settings.passwordEncrypted), region: settings.apiRegion === "eu" ? "eu" : "global" }) };
+  }
   return {
     settings,
     client: nodemailer.createTransport({
@@ -89,8 +103,7 @@ export async function sendUserInvitation(input: { to: string; name: string; temp
 }
 
 export async function emailDeliveryConfigured() {
-  const settings = await getEmailSettings();
-  return Boolean(settings?.host && settings.username && settings.passwordEncrypted && settings.fromEmail);
+  return settingsComplete(await getEmailSettings());
 }
 
 export async function sendPasswordReset(input: { to: string; name: string; resetUrl: string; expiresInMinutes: number }) {
@@ -104,6 +117,9 @@ export async function sendPasswordReset(input: { to: string; name: string; reset
   });
 }
 
+const sentThrough = (settings: { provider: string; apiRegion: string; host: string; port: number }) =>
+  settings.provider === "turbosmtp_api" ? `turboSMTP API (${settings.apiRegion === "eu" ? "EU" : "global"})` : `${settings.host}:${settings.port}`;
+
 /** A real message through the saved settings, so sending limits and sender rules show up (a login check alone does not). */
 export async function sendTestEmail(to: string) {
   const { client, settings } = await transporter();
@@ -111,8 +127,8 @@ export async function sendTestEmail(to: string) {
     from: { name: settings.fromName, address: settings.fromEmail },
     to,
     subject: "ComNet Accounting test email",
-    text: `This is a test email from ComNet Accounting.\n\nIf you received it, the email server can send login, password-reset, invitation, notification and document emails.\nServer: ${settings.host}:${settings.port}\nSender: ${settings.fromName} <${settings.fromEmail}>`,
-    html: `<div style="font-family:Arial,sans-serif;max-width:560px;color:#0f172a"><h2>Test email</h2><p>This is a test email from ComNet Accounting.</p><p>If you received it, the email server can send login, password-reset, invitation, notification and document emails.</p><p style="color:#475569;font-size:13px">Server: ${escapeHtml(settings.host)}:${settings.port}<br>Sender: ${escapeHtml(settings.fromName)} &lt;${escapeHtml(settings.fromEmail)}&gt;</p></div>`,
+    text: `This is a test email from ComNet Accounting.\n\nIf you received it, the email server can send login, password-reset, invitation, notification and document emails.\nSent through: ${sentThrough(settings)}\nSender: ${settings.fromName} <${settings.fromEmail}>`,
+    html: `<div style="font-family:Arial,sans-serif;max-width:560px;color:#0f172a"><h2>Test email</h2><p>This is a test email from ComNet Accounting.</p><p>If you received it, the email server can send login, password-reset, invitation, notification and document emails.</p><p style="color:#475569;font-size:13px">Sent through: ${escapeHtml(sentThrough(settings))}<br>Sender: ${escapeHtml(settings.fromName)} &lt;${escapeHtml(settings.fromEmail)}&gt;</p></div>`,
   });
 }
 
