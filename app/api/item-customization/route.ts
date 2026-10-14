@@ -22,14 +22,6 @@ function specificationValue(records: Specification[], labels: string[]) {
   return clean(match?.value, 200);
 }
 
-function mergeSpecification(records: Specification[], label: string, value: string) {
-  const index = records.findIndex((entry) => String(entry.label ?? "").trim().toLowerCase() === label.toLowerCase());
-  const next = records.map((entry) => ({ label: clean(entry.label, 80), value: clean(entry.value, 300) }));
-  if (index >= 0) next[index] = { label, value };
-  else if (value) next.push({ label, value });
-  return next;
-}
-
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const companyId = Number(url.searchParams.get("companyId"));
@@ -69,9 +61,9 @@ async function handlePatch(request: Request) {
   const ids = [...new Set(changes.map((entry) => Number(entry.id)).filter((id) => Number.isSafeInteger(id) && id > 0))];
   if (ids.length !== changes.length) return Response.json({ error: "One or more product rows are invalid." }, { status: 400 });
   const db = getDb();
-  const current = await db.select({ id: items.id, specifications: items.specifications }).from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId), inArray(items.id, ids)));
+  const current = await db.select({ id: items.id }).from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId), inArray(items.id, ids)));
   if (current.length !== ids.length) return Response.json({ error: "One or more products do not belong to this company inventory." }, { status: 403 });
-  const byId = new Map(current.map((entry) => [entry.id, entry]));
+  // Customization is kept in its own fields only; the item's specifications (and so its product line) are not changed.
   const prepared = changes.map((entry) => {
     const id = Number(entry.id);
     const customizationRam = upper(entry.customizationRam, 120);
@@ -81,11 +73,7 @@ async function handlePatch(request: Request) {
     const itemSerialNumber = upper(entry.itemSerialNumber, 240);
     const upcNumber = upper(entry.upcNumber, 80);
     const customizationDetails = clean(entry.customizationDetails, 2000);
-    let specs = specifications(byId.get(id)?.specifications ?? "[]");
-    specs = mergeSpecification(specs, "RAM", customizationRam);
-    specs = mergeSpecification(specs, "Storage", customizationStorage);
-    specs = mergeSpecification(specs, "Part Number", partNumber);
-    return { id, customizationRam, customizationStorage, customizationScreen, partNumber, itemSerialNumber, upcNumber, customizationDetails, specifications: JSON.stringify(specs) };
+    return { id, customizationRam, customizationStorage, customizationScreen, partNumber, itemSerialNumber, upcNumber, customizationDetails };
   });
   await Promise.all(prepared.map(({ id, ...values }) => db.update(items).set(values).where(and(eq(items.id, id), eq(items.companyId, companyId), eq(items.locationId, locationId)))));
   await db.insert(auditLog).values({ companyId, action: "updated", entityType: "item_customization", entityId: prepared[0].id, details: `${prepared.length} product customization row(s) updated by ${user.email}` });

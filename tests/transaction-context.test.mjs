@@ -894,7 +894,7 @@ test('stock selection capability is limited to admin and all-admin', async () =>
   } finally { delete globalThis.__transferTestUser; }
 });
 
-test('product customization details fall back to item specifications and save linked fields', async () => {
+test('product customization details fall back to item specifications and save without changing them', async () => {
   const company = (await database.query("INSERT INTO companies (name) VALUES ('Customization company') RETURNING id")).rows[0].id;
   const location = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'CUSTOM', 'Customization store', 'CUS') RETURNING id", [company])).rows[0].id;
   const item = (await database.query(
@@ -910,9 +910,8 @@ test('product customization details fall back to item specifications and save li
   assert.equal(save.status, 200, await save.clone().text());
   const stored = (await database.query('SELECT customization_ram, customization_storage, customization_screen, part_number, item_serial_number, upc_number, customization_details, specifications FROM items WHERE id=$1', [item])).rows[0];
   assert.deepEqual(Object.fromEntries(Object.entries(stored).filter(([key]) => key !== 'specifications')), { customization_ram: '16GB DDR5', customization_storage: '1TB SSD', customization_screen: '15.6 FHD IPS', part_number: 'PN-NEW', item_serial_number: 'SN-001', upc_number: '123456789012', customization_details: 'User can upgrade the second RAM slot.' });
-  const specs = JSON.parse(stored.specifications);
-  assert.equal(specs.find(entry => entry.label === 'RAM').value, '16GB DDR5');
-  assert.equal(specs.find(entry => entry.label === 'Part Number').value, 'PN-NEW');
+  // Customization is not written into the item's specifications (they would show in its product line).
+  assert.deepEqual(JSON.parse(stored.specifications), [{ label: 'RAM', value: '8GB' }, { label: 'Storage', value: '512GB SSD' }, { label: 'Part Number', value: 'PN-OLD' }]);
 });
 
 test('inventory overview activity links incoming, 12-hour bill arrivals, price changes, and sold sales reps', async () => {
