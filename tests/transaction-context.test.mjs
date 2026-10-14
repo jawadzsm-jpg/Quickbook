@@ -3882,6 +3882,37 @@ test("stock transfers report lists only item transfers, filtered by period and w
   assert.deepEqual(receiving.rows.map((row) => [row.reference, row.to]), [["TRF-1", "MVB · Main warehouse"]], "the receiving inventory also lists the transfer");
 });
 
+test("warehouse movements report lists moves between warehouses per warehouse, without sales or purchases", async () => {
+  const company = (await database.query("INSERT INTO companies (name) VALUES ('Movement report') RETURNING id")).rows[0].id;
+  const location = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'WMR', 'WMR', 'WMR') RETURNING id", [company])).rows[0].id;
+  const branch = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'WMB', 'WMB', 'WMB') RETURNING id", [company])).rows[0].id;
+  const laptop = (await database.query("INSERT INTO items (company_id, location_id, sku, name, quantity, cost, item_type) VALUES ($1, $2, 'WMR-1', 'Laptop', 7, 40, 'stock-part') RETURNING id", [company, location])).rows[0].id;
+  await database.query("INSERT INTO items (company_id, location_id, sku, name, quantity, cost, item_type) VALUES ($1, $2, 'WMR-1', 'Laptop', 1, 40, 'stock-part')", [company, branch]);
+  const mainId = (await database.query("SELECT id FROM warehouses WHERE location_id = $1 AND is_default", [location])).rows[0].id;
+  const store = (await database.query("INSERT INTO warehouses (company_id, location_id, code, name) VALUES ($1, $2, 'STORE', 'Store') RETURNING id", [company, location])).rows[0].id;
+  const sale = (await database.query("INSERT INTO transactions (company_id, location_id, type, number, party, total, subtotal, transaction_date, status, warehouse_id) VALUES ($1, $2, 'invoice', 'WMR-INV', 'Customer', 200, 200, '2026-10-05', 'open', $3) RETURNING id", [company, location, store])).rows[0].id;
+  await database.query("INSERT INTO inventory_movements (item_id, transaction_id, movement_date, movement_type, quantity, unit_cost, reference, warehouse_id) VALUES ($1, $2, '2026-10-05', 'invoice', -2, 40, 'WMR-INV', $3)", [laptop, sale, store]);
+  await database.query("INSERT INTO warehouse_transfers (company_id, location_id, item_id, from_warehouse_id, to_warehouse_id, quantity, reference, transfer_date) VALUES ($1, $2, $3, $4, $5, 4, 'WMT-1', '2026-10-03')", [company, location, laptop, mainId, store]);
+  await database.query("INSERT INTO stock_transfers (reference, source_company_id, source_location_id, destination_company_id, destination_location_id, sku, item_name, quantity, transfer_date) VALUES ('WMTRF-1', $1, $2, $1, $3, 'WMR-1', 'Laptop', 1, '2026-10-06')", [company, location, branch]);
+  const { GET } = await vite.ssrLoadModule("/app/api/reports/route.ts");
+  const open = async (query) => (await (await GET(new Request(`https://app.test/api/reports?type=warehouse-movements&companyId=${company}&currency=AED${query}`))).json()).report;
+  const view = (report) => report.rows.map((row) => [row.date, row.status, row.reference, row.warehouse, row.party, row.quantityIn, row.quantityOut, row.value]);
+
+  const all = await open(`&locationId=${location}`);
+  assert.deepEqual(view(all), [
+    ["2026-10-03", "Warehouse move", "WMT-1", "WMR · Main warehouse", "To WMR · Store", 0, 4, -160],
+    ["2026-10-03", "Warehouse move", "WMT-1", "WMR · Store", "From WMR · Main warehouse", 4, 0, 160],
+    ["2026-10-06", "Inventory transfer", "WMTRF-1", "WMR · Main warehouse", "To WMB · Main warehouse", 0, 1, -40],
+  ], "the sale is not listed");
+
+  const inStore = await open(`&locationId=${location}&warehouseId=${store}`);
+  assert.deepEqual(inStore.rows.map((row) => [row.reference, row.quantityIn, row.quantityOut]), [["WMT-1", 4, 0]], "only Store's ins and outs");
+  const period = await open(`&locationId=${location}&periodStart=2026-10-04&periodEnd=2026-10-06`);
+  assert.deepEqual(period.rows.map((row) => row.reference), ["WMTRF-1"], "rows follow the selected period");
+  const receiving = await open(`&locationId=${branch}`);
+  assert.deepEqual(view(receiving), [["2026-10-06", "Inventory transfer", "WMTRF-1", "WMB · Main warehouse", "From WMR · Main warehouse", 1, 0, 40]], "the receiving inventory lists the transfer in");
+});
+
 
 test("a sales document can print a chosen company bank account", async () => {
   const usd = { id: "usd1", currency: "USD", bankName: "Mashreq", accountName: "Co", accountNumber: "0191", iban: "", swift: "" };

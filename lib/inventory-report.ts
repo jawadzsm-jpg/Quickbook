@@ -8,6 +8,7 @@ export const inventoryReportKeys = new Set([
   "physical-inventory",
   "pending-builds",
   "stock-transfers",
+  "warehouse-movements",
 ]);
 
 export type InventorySummaryCard = {
@@ -20,8 +21,8 @@ export type InventorySummaryCard = {
 export type InventoryReportRow = Record<string, string | number | null>;
 export type InventoryReportColumn = { key: string; label: string; type?: "money" };
 export type InventoryReportFilters = { query: string; account: string; status: string; sort: string };
-const quantityKeys = new Set(["quantity", "onHand", "onHold", "available", "reorder", "required", "buildLevel", "shortageQuantity", "items", "lowStock", "outOfStock", "ageDays", "count", "difference"]);
-const additiveKeys = new Set(["quantity", "onHand", "onHold", "available", "required", "shortageQuantity", "items", "lowStock", "outOfStock", "value", "shortageValue"]);
+const quantityKeys = new Set(["quantity", "onHand", "onHold", "available", "reorder", "required", "buildLevel", "shortageQuantity", "items", "lowStock", "outOfStock", "ageDays", "count", "difference", "quantityIn", "quantityOut"]);
+const additiveKeys = new Set(["quantity", "onHand", "onHold", "available", "required", "shortageQuantity", "items", "lowStock", "outOfStock", "value", "shortageValue", "quantityIn", "quantityOut"]);
 
 export function inventoryColumnKind(column: InventoryReportColumn): "text" | "quantity" | "price" | "amount" {
   if (column.type === "money") return ["cost", "unitCost"].includes(column.key) ? "price" : "amount";
@@ -68,7 +69,7 @@ export const inventoryReportGroups = [
   { title: "Stock valuation", description: "Understand your inventory investment and linked asset accounts.", keys: ["inventory-valuation", "inventory-valuation-detail"] },
   { title: "Availability & purchasing", description: "Find available stock, supplier exposure and replenishment needs.", keys: ["inventory-status", "inventory-status-supplier", "pending-builds"] },
   { title: "Stock health & verification", description: "Identify aging stock, shortages and items to count.", keys: ["inventory-stock-aging", "negative-item-list", "physical-inventory"] },
-  { title: "Stock activity", description: "Trace items moved between warehouses and inventories.", keys: ["stock-transfers"] },
+  { title: "Stock activity", description: "Trace stock moved between warehouses and inventories.", keys: ["warehouse-movements", "stock-transfers"] },
 ];
 
 type InventoryReportLike = {
@@ -122,6 +123,10 @@ export function inventorySummary(report: InventoryReportLike): { cards: Inventor
   }
   if (key === "stock-transfers") {
     return { cards: [number("Transfers", rows.length), number("Quantity moved", sum(rows, "quantity"), "accent"), money("Value moved", sum(rows, "value")), number("Warehouse moves", rows.filter((row) => String(row.status) === "Warehouse move").length), number("Inventory transfers", rows.filter((row) => String(row.status) === "Inventory transfer").length)], note: "Moves between warehouses of one inventory and transfers between inventories in the period. Transfers between inventories take from and add to each inventory's default warehouse. Value uses the current weighted average cost. Select an item to open Inventory." };
+  }
+  if (key === "warehouse-movements") {
+    const quantityIn = sum(rows, "quantityIn"), quantityOut = sum(rows, "quantityOut");
+    return { cards: [number("Movements", rows.length), number("Quantity in", quantityIn, "positive"), number("Quantity out", quantityOut, "negative"), number("Net change", quantityIn - quantityOut, "accent"), money("Net value", sum(rows, "value"))], note: "Stock moved between warehouses in the period, warehouse by warehouse: each move between warehouses is an Out row and an In row, and transfers between inventories go out of and into the default warehouses. Sales and purchases are not included. Choose a warehouse to see only its ins and outs. Value uses the current weighted average cost. Select an item to open Inventory." };
   }
   if (key === "customization-details") {
     return { cards: [number("Products", rows.length), number("Customized", sum(rows, "hasCustomization"), "positive"), number("Serial assigned", sum(rows, "hasSerial")), number("UPC assigned", sum(rows, "hasUpc")), number("Needs user details", sum(rows, "needsDetails"), "negative")], note: "Product customization data is maintained by authorized Product Customization, Inventory Manager and Administrator users." };
