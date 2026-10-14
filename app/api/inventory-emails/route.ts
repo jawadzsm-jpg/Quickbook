@@ -24,6 +24,13 @@ export async function POST(request: Request) {
   const type = payload.type;
   if (!isEmailListType(type)) return json({ error: "Choose the Sales or Purchase list." }, 400);
   if (!canUseEmailList(user.role, type)) return json({ error: `Your role cannot use the ${emailListLabel(type)}.` }, 403);
+  // Item lines to colour in the email (name, condition, details); only lines still written exactly so are coloured.
+  const itemLines = (Array.isArray(payload.itemLines) ? payload.itemLines : []).slice(0, 2000).flatMap((line) => {
+    if (!line || typeof line !== "object") return [];
+    const { identity, condition, details } = line as Record<string, unknown>;
+    const part = (value: unknown) => String(value ?? "").slice(0, 2000);
+    return part(identity) ? [{ identity: part(identity), condition: part(condition), details: part(details) }] : [];
+  });
   const ids = [...new Set((Array.isArray(payload.contactIds) ? payload.contactIds : []).map(Number))].filter((id) => Number.isSafeInteger(id) && id > 0);
   if (!ids.length) return json({ error: "Select at least one email address." }, 400);
   if (ids.length > INVENTORY_EMAIL_MAX_RECIPIENTS) return json({ error: `One email can go to at most ${INVENTORY_EMAIL_MAX_RECIPIENTS} addresses.` }, 400);
@@ -46,7 +53,7 @@ export async function POST(request: Request) {
 
   try {
     const signature = await emailSignatureFor(companyId, user.id, request);
-    const { sent } = await sendDocumentEmail({ to: recipientBatches(recipients), cc: [], hidden: true, replyTo: user.email ? { name: user.fullName || user.email, address: user.email } : undefined, subject, body, signature });
+    const { sent } = await sendDocumentEmail({ to: recipientBatches(recipients), cc: [], hidden: true, replyTo: user.email ? { name: user.fullName || user.email, address: user.email } : undefined, subject, body, signature, itemLines });
     await db.insert(auditLog).values({ companyId, action: "sent", entityType: "inventory_email", entityId: 0, details: `Stock email "${subject.slice(0, 120)}" sent to ${recipients.length} address(es) of the ${emailListLabel(type)} by ${user.email}` });
     return json({ ok: true, recipients: recipients.length, messages: sent });
   } catch (error) {

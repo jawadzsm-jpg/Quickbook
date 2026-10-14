@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import { StockHoldDialog, StockHoldsPanel, heldTotals, type StockHold } from "./stock-holds";
 import { defaultShareEmoji, shareEmojiStyle, shareEmojiStyles } from "@/lib/share-emoji";
 import { applyInlineFormat, applyLineFormat, applyLink, inlineFormatsFor, telegramHtml, type FormatResult, type InlineFormat, type LineFormat } from "@/lib/share-format";
-import { inventoryItemCondition, inventoryItemLine, partNumberInLine, inventorySocialShareText, itemSpecificationDescription } from "@/lib/item-description";
+import { inventoryItemCondition, inventoryItemLine, inventoryLineParts, partNumberInLine, inventorySocialShareText, itemSpecificationDescription } from "@/lib/item-description";
 import { matchesSearch } from "@/lib/search";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { TelegramIcon, WhatsAppIcon } from "./brand-icons";
@@ -854,7 +854,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem, onCreateDocument
       <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-muted/20 px-4 py-2.5 text-xs text-muted-foreground"><span>Showing {filtered.length} products</span><span>{totals.healthy} healthy · {totals.low} low stock</span></div>
     </section>
 
-    {emailFrom && emailOpen ? <InventoryEmailDialog open={emailOpen} onOpenChange={setEmailOpen} companyId={emailFrom.companyId} companyName={emailFrom.companyName} role={emailFrom.role} sender={{ name: emailFrom.name, email: emailFrom.email }} itemsText={shareText("email").replace(/\*\*\*/g, "")} itemCount={shareRecords.length} /> : null}
+    {emailFrom && emailOpen ? <InventoryEmailDialog open={emailOpen} onOpenChange={setEmailOpen} companyId={emailFrom.companyId} companyName={emailFrom.companyName} role={emailFrom.role} sender={{ name: emailFrom.name, email: emailFrom.email }} itemsText={shareText("email").replace(/\*\*\*/g, "")} itemCount={shareRecords.length} itemLines={shareRecords.map((record) => inventoryLineParts(record.name, record.sku, shareSpecificationText(record), record.itemNumber))} /> : null}
     <StockHoldDialog key={holdTarget?.id ?? "none"} target={holdTarget} holds={holds} onClose={() => setHoldTarget(null)} onSaved={() => { setHoldTarget(null); void load(); }} />
     <Dialog open={Boolean(editor)} onOpenChange={(open) => { if (!open) setEditor(null); }}><DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
       <DialogHeader><DialogTitle>Edit before copying</DialogTitle><DialogDescription>Change any words for this message only, then copy. Your emoji style and selected items fill it in; edits are not saved.</DialogDescription></DialogHeader>

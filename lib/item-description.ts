@@ -21,7 +21,8 @@ export function inventoryItemTitle(name: unknown) {
 
 const inventoryConditions = new Set(["BRAND NEW", "OPEN BOX", "REFURBISHED", "RENEWED", "USED"]);
 
-function inventoryLineParts(name: unknown, sku: unknown, description: unknown, itemNumber?: unknown) {
+/** An item line's parts: identity (name and SKU), condition (BRAND NEW…) and the remaining details. */
+export function inventoryLineParts(name: unknown, sku: unknown, description: unknown, itemNumber?: unknown) {
   const title = inventoryItemTitle(name);
   const code = capitalText(sku);
   const identity = code && !comparableText(title).endsWith(comparableText(code)) ? `${title} ${code}` : title;

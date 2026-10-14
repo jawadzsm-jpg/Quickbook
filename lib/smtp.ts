@@ -152,7 +152,31 @@ export async function sendNotificationEmail(input: { to: string; name: string; t
   });
 }
 
-const messageHtml = (text: string) => `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.55;color:#0f172a;max-width:640px">${text.split(/\n{2,}/).map((paragraph) => `<p style="margin:0 0 12px">${escapeHtml(paragraph).replace(/\n/g, "<br>")}</p>`).join("")}</div>`;
+export type ItemLine = { identity: string; condition: string; details: string };
+
+/**
+ * One line of a stock email in colour, text unchanged: an item line's name blue, bold and underlined, its condition red
+ * and its details bold; "Price: …" red; the dashed separator grey. Other lines stay plain.
+ */
+function stockLineHtml(line: string, itemLines: Map<string, ItemLine>) {
+  const item = itemLines.get(line.trim());
+  if (item) {
+    const parts = [`<strong style="color:#1d4ed8;text-decoration:underline">${escapeHtml(item.identity)}</strong>`];
+    if (item.condition) parts.push(`<span style="color:#dc2626">${escapeHtml(item.condition)}</span>`);
+    if (item.details) parts.push(`<strong style="color:#1f2937">${escapeHtml(item.details)}</strong>`);
+    return parts.join(" | ");
+  }
+  if (/^-{5,}$/.test(line.trim())) return `<span style="color:#94a3b8">${escapeHtml(line)}</span>`;
+  const price = /^(.*?)(Price: .+)$/.exec(line);
+  if (price) return `${escapeHtml(price[1])}<span style="color:#dc2626">${escapeHtml(price[2])}</span>`;
+  return escapeHtml(line);
+}
+
+const messageHtml = (text: string, itemLines: ItemLine[] = []) => {
+  const lines = new Map(itemLines.map((item) => [[item.identity, item.condition, item.details].filter(Boolean).join(" | "), item]));
+  const line = (value: string) => itemLines.length ? stockLineHtml(value, lines) : escapeHtml(value);
+  return `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.55;color:#0f172a;max-width:640px">${text.split(/\n{2,}/).map((paragraph) => `<p style="margin:0 0 12px">${paragraph.split("\n").map(line).join("<br>")}</p>`).join("")}</div>`;
+};
 
 /**
  * A document emailed to a customer or supplier: the person's message (plain text, kept as written) with the PDF
@@ -167,9 +191,11 @@ export async function sendDocumentEmail(input: {
   hidden?: boolean;
   /** The sender's email signature (lib/email-signature-server.ts), added under the message. */
   signature?: Signature;
+  /** Stock emails: item lines to colour (lib/smtp.ts stockLineHtml). */
+  itemLines?: ItemLine[];
 }) {
   const { client, settings } = await transporter();
-  const { html, fallbackHtml, inline } = withSignature(messageHtml(input.body), input.signature);
+  const { html, fallbackHtml, inline } = withSignature(messageHtml(input.body, input.itemLines), input.signature);
   const attachments = [...(input.attachment ? [{ filename: input.attachment.filename, content: input.attachment.content, contentType: "application/pdf" }] : []), ...inline];
   let sent = 0;
   const messageIds: string[] = [];

@@ -36,9 +36,11 @@ const errorText = (error: unknown) => error instanceof Error ? error.message : "
  * Each user keeps their own lists (administrators see everyone's), filled by hand or from a CSV file; recipients are
  * hidden from each other.
  */
-export function InventoryEmailDialog({ open, onOpenChange, companyId, companyName, role, sender, itemsText, itemCount }: {
+export function InventoryEmailDialog({ open, onOpenChange, companyId, companyName, role, sender, itemsText, itemCount, itemLines = [] }: {
   open: boolean; onOpenChange: (open: boolean) => void; companyId: number; companyName: string; role: string;
   sender: { name: string; email: string }; itemsText: string; itemCount: number;
+  /** Each item line's parts, so the sent email colours them (name, condition, details) without changing the text. */
+  itemLines?: Array<{ identity: string; condition: string; details: string }>;
 }) {
   const lists = useMemo(() => emailListsFor(role), [role]);
   const [type, setType] = useState<EmailListType>(lists[0] ?? "sales");
@@ -150,7 +152,7 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
     if (!ids.length) return toast.error("Select at least one email address.");
     if (ids.length > INVENTORY_EMAIL_MAX_RECIPIENTS) return toast.error(`Select at most ${INVENTORY_EMAIL_MAX_RECIPIENTS} addresses for one email.`);
     void run(async () => {
-      const data = await call("/api/inventory-emails", "POST", { companyId, type, contactIds: ids, subject, body });
+      const data = await call("/api/inventory-emails", "POST", { companyId, type, contactIds: ids, subject, body, itemLines });
       toast.success(`Email sent to ${data.recipients} ${data.recipients === 1 ? "address" : "addresses"}`);
       onOpenChange(false);
     });
