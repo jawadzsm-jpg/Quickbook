@@ -81,25 +81,20 @@ export function parseEmailListCsv(text: string) {
 /** The standard wording when no item is selected: the person writes their own message (news, website items…). */
 export const defaultListEmail = {
   subject: "News from {company}",
-  body: "Dear {name} – {contactCompany},\n\n\n\nFor orders or questions, reply to this email.\n\nBest regards,\n{sender}\n{company}",
+  body: "Dear {name},\n\n\n\nFor orders or questions, reply to this email.\n\nBest regards,\n{sender}\n{company}",
 };
 export const defaultStockEmail = {
   subject: "Available stock from {company}",
-  body: "Dear {name} – {contactCompany},\n\nPlease find our available stock below:\n\n{items}\n\nFor orders or questions, reply to this email.\n\nBest regards,\n{sender}\n{company}",
+  body: "Dear {name},\n\nPlease find our available stock below:\n\n{items}\n\nFor orders or questions, reply to this email.\n\nBest regards,\n{sender}\n{company}",
 };
 
 /** Placeholders filled for each recipient of a stock email: the contact's name and company from the list. */
 export const personalPlaceholders = /\{(?:name|contactCompany)\}/;
 
 /**
- * A stock email's text for one recipient: {name} is the contact's name (else their company, else "Sir/Madam") and
- * {contactCompany} their company. "{name} – {contactCompany}" becomes just one of them when the other is missing.
+ * A stock email's text for one recipient: {name} is the contact's name, or "Sir/Madam" without one (the company is not
+ * used in its place), and {contactCompany} their company, for templates that want it.
  */
 export function personalizeEmail(text: string, contact: { name: string; company: string }) {
-  const name = contact.name.trim(), company = contact.company.trim();
-  const greeting = name || company || "Sir/Madam";
-  return text
-    .replace(/\{name\}\s*[–-]\s*\{contactCompany\}/g, name && company && name.toLowerCase() !== company.toLowerCase() ? `${name} – ${company}` : greeting)
-    .replace(/\{name\}/g, greeting)
-    .replace(/\{contactCompany\}/g, company);
+  return text.replace(/\{name\}/g, contact.name.trim() || "Sir/Madam").replace(/\{contactCompany\}/g, contact.company.trim());
 }

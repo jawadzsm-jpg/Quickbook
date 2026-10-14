@@ -4790,8 +4790,8 @@ test("inventory overview emails: private Sales and Purchase lists (administrator
   assert.deepEqual(parseEmailListCsv("Contact Name,Company,Email\nAhmed,Alpha Trading,ahmed@alpha.test").contacts, [{ name: "Ahmed", company: "Alpha Trading", email: "ahmed@alpha.test" }], "name and company columns");
   assert.deepEqual(parseEmailListCsv("a@x.test;Alpha\nBeta;b@x.test").contacts, [{ name: "Alpha", company: "", email: "a@x.test" }, { name: "Beta", company: "", email: "b@x.test" }], "no header: the address cell is found in each row");
   const { personalizeEmail } = await vite.ssrLoadModule("/lib/email-lists.ts");
-  const greet = (name, company) => personalizeEmail("Dear {name} – {contactCompany},", { name, company });
-  assert.deepEqual([greet("Ahmed", "Alpha Trading"), greet("", "Alpha Trading"), greet("Ahmed", ""), greet("", "")], ["Dear Ahmed – Alpha Trading,", "Dear Alpha Trading,", "Dear Ahmed,", "Dear Sir/Madam,"]);
+  const greet = (name, company) => personalizeEmail("Dear {name},", { name, company });
+  assert.deepEqual([greet("Ahmed", "Alpha Trading"), greet("", "Alpha Trading"), greet("", "")], ["Dear Ahmed,", "Dear Sir/Madam,", "Dear Sir/Madam,"], "the greeting never shows the company");
   assert.deepEqual([canUseEmailList("sales", "sales"), canUseEmailList("sales", "purchase"), canUseEmailList("viewer", "sales"), canUseEmailList("purchasing", "purchase")], [true, false, false, true]);
 
   const companyId = (await database.query("INSERT INTO companies (name) VALUES ('List Co') RETURNING id")).rows[0].id;
@@ -4841,11 +4841,11 @@ test("inventory overview emails: private Sales and Purchase lists (administrator
   const omar = (await (await as("sales", () => call(lists, "GET", null, `?companyId=${companyId}&type=sales`))).json()).contacts.find((row) => row.email === "omar@gulf.test");
   assert.equal(omar.company, "Gulf Traders");
   globalThis.__sentMail = [];
-  const personal = await as("sales", () => call(mail, "POST", { ...message, contactIds: [omar.id, salesList[0].id], subject: "Stock for {contactCompany}", body: "Dear {name} – {contactCompany},\n\nDELL XPS | Qty: 2" }));
+  const personal = await as("sales", () => call(mail, "POST", { ...message, contactIds: [omar.id, salesList[0].id], subject: "Stock for {name}", body: "Dear {name},\n\nDELL XPS | Qty: 2" }));
   assert.equal(personal.status, 200, await personal.clone().text());
   assert.deepEqual(globalThis.__sentMail.map((mail) => [mail.to, mail.bcc, mail.subject, mail.text.split("\n")[0]]), [
-    [["omar@gulf.test"], undefined, "Stock for Gulf Traders", "Dear Omar – Gulf Traders,"],
-    [["ops@delta.test"], undefined, "Stock for ", "Dear Delta,"],
+    [["omar@gulf.test"], undefined, "Stock for Omar", "Dear Omar,"],
+    [["ops@delta.test"], undefined, "Stock for Delta", "Dear Delta,"],
   ], "one copy per address, addressed to it alone");
 
   // Editing an address changes its name, company and email; another user's address or a repeat is refused.
