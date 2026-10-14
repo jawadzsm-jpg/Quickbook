@@ -1495,7 +1495,7 @@ export default function EnterpriseApp({ currentUser, edition = DEFAULT_EDITION }
         <SidebarContent className="px-2 py-3">
           {visibleNavGroups.map((group) => { const current = group.items.some((item) => item.id === view); const groupOpen = current ? !(navClosedAt?.label === group.label && navClosedAt.view === view) : navOpen[group.label] ?? false; return (
             <SidebarGroup key={group.label}>
-              <SidebarGroupLabel asChild className="text-[10px] font-bold tracking-[.18em] text-slate-500"><button type="button" aria-expanded={groupOpen} onClick={() => { if (current) setNavClosedAt(groupOpen ? { label: group.label, view } : null); setNavGroupOpen(group.label, !groupOpen); }} className="w-full justify-between hover:bg-white/5 hover:text-slate-300">{group.label}<ChevronDown className={`transition-transform ${groupOpen ? "" : "-rotate-90"}`} /></button></SidebarGroupLabel>
+              <SidebarGroupLabel asChild className="h-9 text-[13px] font-extrabold tracking-[.14em] text-slate-300"><button type="button" aria-expanded={groupOpen} onClick={() => { if (current) setNavClosedAt(groupOpen ? { label: group.label, view } : null); setNavGroupOpen(group.label, !groupOpen); }} className="w-full justify-between hover:bg-white/5 hover:text-white">{group.label}<ChevronDown className={`stroke-[2.5] transition-transform ${groupOpen ? "" : "-rotate-90"}`} /></button></SidebarGroupLabel>
               {/* A closed section still shows its icons when the sidebar is collapsed to icons. */}
               <SidebarGroupContent className={groupOpen ? undefined : "hidden group-data-[collapsible=icon]:block"}><SidebarMenu>
                 {group.items.map((item) => <SidebarMenuItem key={item.id}>
