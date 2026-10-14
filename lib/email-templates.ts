@@ -65,6 +65,24 @@ export function defaultEmailTemplate(documentType: string, signatureOn = false) 
   return { subject: "{type} {number} from {company}", body: signatureOn ? withoutSignOff(body) : body };
 }
 
+/**
+ * The wording for emailing a report (Report Center): the report's title and period, then the closing unless the
+ * sender's signature already gives it.
+ */
+export function defaultReportEmail(input: { title: string; period?: string; company: string; sender: string; signatureOn?: boolean }) {
+  const period = input.period?.trim();
+  const named = period ? `${input.title} (${period})` : input.title;
+  const closing = input.signatureOn ? "" : `\n\nKind regards,\n${input.sender}\n${input.company}`;
+  return {
+    subject: `${named} from ${input.company}`.slice(0, EMAIL_SUBJECT_MAX),
+    body: `Dear Sir or Madam,\n\nPlease find attached the ${named}.\n\nIf you have any questions, just reply to this email.${closing}`,
+  };
+}
+
+/** The `party` recorded for a report email (document_emails rows without a document), so each report keeps its history. */
+export const REPORT_EMAIL_PREFIX = "Report · ";
+export const reportEmailParty = (title: string) => `${REPORT_EMAIL_PREFIX}${title.replace(/\s+/g, " ").trim()}`.slice(0, 200);
+
 /** Replaces {placeholders} with the document's values; unknown placeholders are left as written. */
 export function fillEmailTemplate(text: string, values: Partial<EmailValues>) {
   return text.replace(/\{(\w+)\}/g, (match, key: string) => key in values ? String(values[key as EmailPlaceholder] ?? "") : match);
