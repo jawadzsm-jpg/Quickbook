@@ -15,9 +15,9 @@ export async function savedSignature(companyId: number, userId: number) {
 }
 
 /**
- * The signature to add under an email the person sends, as text and HTML with public image links; undefined when they
- * have none or turned it off. The images load from /api/email-signatures/image, so mail programs that block data URLs
- * still show them.
+ * The signature to add under an email the person sends; undefined when they have none or turned it off. `html` shows
+ * the logo and banner from `images`, sent inside the email (cid: links), so mail programs that block pictures from the
+ * web still show them. `linkedHtml` loads them from /api/email-signatures/image instead, for a sender that cannot embed.
  */
 export async function emailSignatureFor(companyId: number, userId: number, request?: Request) {
   return signatureForEmail(await savedSignature(companyId, userId), request);
@@ -42,6 +42,15 @@ function signatureForEmail(row: Awaited<ReturnType<typeof savedSignature>>, requ
   try { base = appBaseUrl(request); } catch { /* No public address: the email goes without the images. */ }
   // The update time keeps mail programs from showing an image the person has since replaced.
   const link = (kind: string) => `${base}/api/email-signatures/image?t=${row.signature.imageToken}&k=${kind}&v=${encodeURIComponent(row.signature.updatedAt)}`;
-  const images = base ? { logo: row.companyLogo ? link("logo") : undefined, banner: signature.bannerData ? link("banner") : undefined } : {};
-  return { text: signatureText(signature), html: signatureHtml(signature, images) };
+  const linked = base ? { logo: row.companyLogo ? link("logo") : undefined, banner: signature.bannerData ? link("banner") : undefined } : {};
+  const logo = embedded("logo", row.companyLogo), banner = embedded("banner", signature.bannerData);
+  const html = signatureHtml(signature, { logo: logo ? `cid:${logo.cid}` : undefined, banner: banner ? `cid:${banner.cid}` : undefined });
+  return { text: signatureText(signature), html, linkedHtml: signatureHtml(signature, linked), images: [logo, banner].filter((image) => image !== null) };
+}
+
+/** A data-URL image as an inline attachment the HTML refers to as cid:<kind>@signature. */
+function embedded(kind: "logo" | "banner", data: string) {
+  const match = /^data:(image\/(png|jpeg|gif|webp));base64,(.+)$/.exec(data);
+  if (!match) return null;
+  return { filename: `signature-${kind}.${match[2] === "jpeg" ? "jpg" : match[2]}`, contentType: match[1], content: Buffer.from(match[3], "base64"), cid: `${kind}@signature` };
 }

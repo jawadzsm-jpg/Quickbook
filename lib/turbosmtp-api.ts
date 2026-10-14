@@ -1,5 +1,7 @@
 import "server-only";
 
+import MailComposer from "nodemailer/lib/mail-composer";
+
 // turboSMTP HTTPS API (v2) behind the same small interface as a nodemailer transport (sendMail / verify / close), so
 // every email in the app can go through it. Authentication: consumerKey + consumerSecret headers (the only credential
 // /mail/send accepts). Request format from turboSMTP's API reference and official SDK: comma-separated recipients,
@@ -19,7 +21,10 @@ type Address = string | { name?: string; address: string };
 export type MailMessage = {
   from: Address; to: Address | Address[]; cc?: Address | Address[]; bcc?: Address | Address[]; replyTo?: Address;
   subject: string; text?: string; html?: string;
-  attachments?: Array<{ filename: string; content: Buffer | string; contentType?: string }>;
+  /** `cid`: an image shown inside the HTML (<img src="cid:…">) rather than listed as an attachment. */
+  attachments?: Array<{ filename: string; content: Buffer | string; contentType?: string; cid?: string }>;
+  /** The HTML to send when inline images cannot be embedded (images linked from the web instead of cid:). */
+  fallbackHtml?: string;
 };
 
 const formatAddress = (value: Address) => {
@@ -49,6 +54,26 @@ export function turboSmtpPayload(message: MailMessage) {
   };
 }
 
+/**
+ * The JSON body for a message with inline images: the API's attachments cannot be shown inside the HTML, so the whole
+ * message goes as `mime_raw` (built like an SMTP send, with the images as multipart/related parts). The address fields
+ * stay alongside for the envelope; Bcc is not written into the message.
+ */
+export async function turboSmtpRawPayload(message: MailMessage) {
+  const mail = { ...message };
+  delete mail.fallbackHtml;
+  const raw = await new MailComposer(mail).compile().build();
+  const cc = addressList(message.cc), bcc = addressList(message.bcc);
+  return {
+    from: formatAddress(message.from),
+    to: addressList(message.to),
+    subject: message.subject,
+    ...(cc ? { cc } : {}),
+    ...(bcc ? { bcc } : {}),
+    mime_raw: raw.toString("utf8"),
+  };
+}
+
 /** turboSMTP answers errors as JSON ({ message, ... }); keep its text and the HTTP status for friendlyEmailError. */
 async function apiError(response: Response) {
   let detail = "";
@@ -74,7 +99,15 @@ export function turboSmtpClient(options: { consumerKey: string; consumerSecret: 
   const headers = { Accept: "application/json", "Content-Type": "application/json", consumerKey: options.consumerKey, consumerSecret: options.consumerSecret };
   return {
     async sendMail(message: MailMessage) {
-      const response = await request(`${turboSmtpSendHosts[options.region]}/mail/send`, { method: "POST", headers, body: JSON.stringify(turboSmtpPayload(message)) });
+      const send = async (body: unknown) => request(`${turboSmtpSendHosts[options.region]}/mail/send`, { method: "POST", headers, body: JSON.stringify(body) });
+      let response: Response;
+      if (message.attachments?.some((file) => file.cid)) {
+        response = await send(await turboSmtpRawPayload(message));
+        // If the raw message is refused (not a login problem), send it the usual way with the images linked instead.
+        if (!response.ok && response.status !== 401 && response.status !== 403 && response.status !== 429 && response.status < 500) {
+          response = await send(turboSmtpPayload({ ...message, html: message.fallbackHtml ?? message.html, attachments: message.attachments.filter((file) => !file.cid) }));
+        }
+      } else response = await send(turboSmtpPayload(message));
       if (!response.ok) throw await apiError(response);
       const messageIds = messageIdsOf(await response.json().catch(() => ({})));
       return { messageId: messageIds[0] ?? "", messageIds };

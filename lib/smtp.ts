@@ -86,6 +86,13 @@ export async function verifySmtpConnection() {
   await client.verify();
 }
 
+/** The sender's email signature (lib/email-signature-server.ts): its HTML shows the images sent inside the email. */
+type Signature = { text: string; html: string; linkedHtml: string; images: Array<{ filename: string; contentType: string; content: Buffer; cid: string }> };
+/** The message's HTML with the signature under it, the HTML for a sender that cannot embed images, and the images. */
+const withSignature = (html: string, signature?: Signature) => signature
+  ? { html: `${html}${signature.html}`, fallbackHtml: `${html}${signature.linkedHtml}`, inline: signature.images }
+  : { html, fallbackHtml: undefined, inline: [] };
+
 const escapeHtml = (value: string) => value.replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character] ?? character);
 
 export async function sendUserInvitation(input: { to: string; name: string; temporaryPassword: string; roleLabel: string; loginUrl: string }) {
@@ -118,14 +125,17 @@ const sentThrough = (settings: { provider: string; apiRegion: string; host: stri
   settings.provider === "turbosmtp_api" ? `turboSMTP API (${settings.apiRegion === "eu" ? "EU" : "global"})` : `${settings.host}:${settings.port}`;
 
 /** A real message through the saved settings, so sending limits and sender rules show up (a login check alone does not). */
-export async function sendTestEmail(to: string, signature?: { text: string; html: string }) {
+export async function sendTestEmail(to: string, signature?: Signature) {
   const { client, settings } = await transporter();
   const result = await client.sendMail({
     from: { name: settings.fromName, address: settings.fromEmail },
     to,
     subject: "ComNet Accounting test email",
     text: `This is a test email from ComNet Accounting.\n\nIf you received it, the email server can send login, password-reset, invitation, notification and document emails.\nSent through: ${sentThrough(settings)}\nSender: ${settings.fromName} <${settings.fromEmail}>${signature ? `\n\n${signature.text}` : ""}`,
-    html: `<div style="font-family:Arial,sans-serif;max-width:560px;color:#0f172a"><h2>Test email</h2><p>This is a test email from ComNet Accounting.</p><p>If you received it, the email server can send login, password-reset, invitation, notification and document emails.</p><p style="color:#475569;font-size:13px">Sent through: ${escapeHtml(sentThrough(settings))}<br>Sender: ${escapeHtml(settings.fromName)} &lt;${escapeHtml(settings.fromEmail)}&gt;</p>${signature ? `<p style="color:#475569;font-size:13px">Your email signature, as customers see it under document and stock emails:</p>${signature.html}` : ""}</div>`,
+    ...(() => {
+      const { html, fallbackHtml, inline } = withSignature(`<div style="font-family:Arial,sans-serif;max-width:560px;color:#0f172a"><h2>Test email</h2><p>This is a test email from ComNet Accounting.</p><p>If you received it, the email server can send login, password-reset, invitation, notification and document emails.</p><p style="color:#475569;font-size:13px">Sent through: ${escapeHtml(sentThrough(settings))}<br>Sender: ${escapeHtml(settings.fromName)} &lt;${escapeHtml(settings.fromEmail)}&gt;</p>${signature ? `<p style="color:#475569;font-size:13px">Your email signature, as customers see it under document and stock emails:</p>` : ""}</div>`, signature);
+      return { html, ...(fallbackHtml ? { fallbackHtml } : {}), ...(inline.length ? { attachments: inline } : {}) };
+    })(),
   });
   return { messageIds: providerIds(result) };
 }
@@ -156,9 +166,11 @@ export async function sendDocumentEmail(input: {
   /** Bcc each batch (To is the sender), so recipients do not see each other — list emails. */
   hidden?: boolean;
   /** The sender's email signature (lib/email-signature-server.ts), added under the message. */
-  signature?: { text: string; html: string };
+  signature?: Signature;
 }) {
   const { client, settings } = await transporter();
+  const { html, fallbackHtml, inline } = withSignature(messageHtml(input.body), input.signature);
+  const attachments = [...(input.attachment ? [{ filename: input.attachment.filename, content: input.attachment.content, contentType: "application/pdf" }] : []), ...inline];
   let sent = 0;
   const messageIds: string[] = [];
   try {
@@ -170,8 +182,9 @@ export async function sendDocumentEmail(input: {
         ...(input.replyTo ? { replyTo: input.replyTo } : {}),
         subject: input.subject,
         text: input.signature ? `${input.body}\n\n${input.signature.text}` : input.body,
-        html: input.signature ? `${messageHtml(input.body)}${input.signature.html}` : messageHtml(input.body),
-        ...(input.attachment ? { attachments: [{ filename: input.attachment.filename, content: input.attachment.content, contentType: "application/pdf" }] } : {}),
+        html,
+        ...(fallbackHtml ? { fallbackHtml } : {}),
+        ...(attachments.length ? { attachments } : {}),
       });
       sent += 1;
       messageIds.push(...providerIds(result));

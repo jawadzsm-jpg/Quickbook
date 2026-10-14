@@ -205,7 +205,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/email-errors.ts` — Plain-language advice for SMTP failures (TLS/port mismatch, oversize message, sending limit, login rejected, unreachable, unverified sender).
 - `lib/email-templates.ts` — Email template placeholders, document types, standard wording, address-list parsing and per-message batching; who may email documents.
 - `lib/email-signature.ts` — Email signature fields and limits, request check (`readSignature`), plain-text and email-HTML rendering (`signatureText`, `signatureHtml`).
-- `lib/email-signature-server.ts` — **server** The sender's saved signature and the version added to an email, with public image links (`emailSignatureFor`). **DB**
+- `lib/email-signature-server.ts` — **server** The sender's saved signature and the version added to an email: logo and banner sent inside the email (cid: images), plus a linked-image version (`emailSignatureFor`). **DB**
 - `lib/email-lists.ts` — Email list types and limits, who may use each list (`canUseEmailList`), CSV parsing (`parseEmailListCsv`), the standard stock email.
 - `lib/email-validation.ts` — Email format check.
 - `lib/employee-hr-save.ts` — Validates employee HR/payroll fields and accounts before saving. **DB**
@@ -287,7 +287,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/stock-pricing.ts` — Stock pricing rows from stock per location and purchase prices.
 - `lib/text-normalization.ts` — Comparable-text normalisation and upper-casing.
 - `lib/totp.ts` — **server** Authenticator codes (RFC 6238), base32, otpauth URI, one-time backup codes.
-- `lib/turbosmtp-api.ts` — **server** turboSMTP HTTPS API sender (POST /mail/send with consumer key headers; key check; delivery status from GET /analytics/{id}) behind the same sendMail/verify/close interface as SMTP.
+- `lib/turbosmtp-api.ts` — **server** turboSMTP HTTPS API sender (POST /mail/send with consumer key headers; messages with inline images go as `mime_raw`, falling back to linked images if refused; key check; delivery status from GET /analytics/{id}) behind the same sendMail/verify/close interface as SMTP.
 - `lib/uae-cheque-layouts.ts` — UAE bank cheque print layouts and alignment bounds.
 - `lib/user-management.ts` — **server** Role names, user company IDs, who may manage whom, `requireUserManager`. **DB**
 - `lib/utils.ts` — `cn` class-name merge helper.
