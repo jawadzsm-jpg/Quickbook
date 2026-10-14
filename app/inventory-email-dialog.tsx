@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Mail, PenLine, Plus, Save, Send, Trash2, Upload } from "lucide-react";
+import { Mail, PenLine, Pencil, Plus, Save, Send, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -49,6 +49,7 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [search, setSearch] = useState("");
   const [newAddress, setNewAddress] = useState({ name: "", company: "", email: "" });
+  const [editing, setEditing] = useState<{ id: number; name: string; company: string; email: string } | null>(null);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [templateId, setTemplateId] = useState("default");
   const templateIdRef = useRef(templateId);
@@ -105,7 +106,7 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
   const allShownSelected = shown.length > 0 && shown.every((contact) => selected.has(contact.id));
   const toggleShown = () => setSelected((current) => { const next = new Set(current); for (const contact of shown) { if (allShownSelected) next.delete(contact.id); else next.add(contact.id); } return next; });
   const toggle = (id: number) => setSelected((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-  const chooseList = (list: EmailListType) => { if (list === type) return; setType(list); setSelected(new Set()); setSearch(""); };
+  const chooseList = (list: EmailListType) => { if (list === type) return; setType(list); setSelected(new Set()); setSearch(""); setEditing(null); };
 
   const run = async (work: () => Promise<void>) => { setBusy(true); try { await work(); } catch (error) { toast.error(errorText(error)); } finally { setBusy(false); } };
   const addContacts = (rows: { name: string; company: string; email: string }[], skipped = 0) => run(async () => {
@@ -128,6 +129,17 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
     const { contacts: rows, skipped } = parseEmailListCsv(await file.text());
     if (!rows.length) return toast.error("No email addresses found. Use a column named Email, or put one address per row.");
     await addContacts(rows, skipped);
+  };
+  const saveEdit = (event: FormEvent) => {
+    event.preventDefault();
+    if (!editing) return;
+    const email = editing.email.trim().toLowerCase();
+    if (!isValidEmail(email)) return toast.error("Enter a valid email address.");
+    void run(async () => {
+      const data = await call("/api/email-lists", "PATCH", { companyId, type, action: "update", id: editing.id, name: editing.name.trim(), company: editing.company.trim(), email });
+      setContacts(data.contacts ?? []); setEditing(null);
+      toast.success("Address updated");
+    });
   };
   const removeSelected = () => {
     const ids = [...selected];
@@ -174,7 +186,12 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
             <label className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2 text-xs font-medium"><Checkbox checked={allShownSelected} disabled={!shown.length} onCheckedChange={toggleShown} />Select {search ? "shown" : "all"} · {selected.size} of {contacts?.length ?? 0} selected</label>
             <ul className="max-h-72 divide-y overflow-y-auto">
               {contacts === null ? <li className="p-4 text-sm text-muted-foreground">Loading…</li> : !shown.length ? <li className="p-4 text-sm text-muted-foreground">{contacts.length ? "No address matches the search." : `Your ${emailListLabel(type)} is empty. Add an address below or import a CSV file.`}</li>
-                : shown.map((contact) => <li key={contact.id}><label className="flex min-w-0 cursor-pointer items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50"><Checkbox checked={selected.has(contact.id)} onCheckedChange={() => toggle(contact.id)} /><span className="min-w-0 flex-1"><span className="block truncate font-medium">{[contact.name, contact.company].filter(Boolean).join(" – ") || contact.email}</span>{contact.name || contact.company ? <span className="block truncate text-xs text-muted-foreground">{contact.email}</span> : null}{seesAll && contact.ownerName ? <span className="block truncate text-[11px] text-muted-foreground">Added by {contact.ownerName}</span> : null}</span></label></li>)}
+                : shown.map((contact) => editing?.id === contact.id ? <li key={contact.id}><form onSubmit={saveEdit} className="grid grid-cols-2 gap-2 bg-muted/40 px-3 py-2">
+                  <Input aria-label="Name" placeholder="Name" value={editing.name} maxLength={160} autoFocus onChange={(event) => setEditing({ ...editing, name: event.target.value })} className="h-8" />
+                  <Input aria-label="Company" placeholder="Company" value={editing.company} maxLength={160} onChange={(event) => setEditing({ ...editing, company: event.target.value })} className="h-8" />
+                  <Input aria-label="Email address" type="email" value={editing.email} onChange={(event) => setEditing({ ...editing, email: event.target.value })} className="col-span-2 h-8" />
+                  <div className="col-span-2 flex justify-end gap-2"><Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setEditing(null)}><X className="size-4" />Cancel</Button><Button type="submit" size="sm" disabled={busy}><Save className="size-4" />Save</Button></div>
+                </form></li> : <li key={contact.id} className="flex items-center hover:bg-muted/50"><label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-3 py-2 text-sm"><Checkbox checked={selected.has(contact.id)} onCheckedChange={() => toggle(contact.id)} /><span className="min-w-0 flex-1"><span className="block truncate font-medium">{[contact.name, contact.company].filter(Boolean).join(" – ") || contact.email}</span>{contact.name || contact.company ? <span className="block truncate text-xs text-muted-foreground">{contact.email}</span> : null}{seesAll && contact.ownerName ? <span className="block truncate text-[11px] text-muted-foreground">Added by {contact.ownerName}</span> : null}</span></label><Button type="button" size="icon" variant="ghost" className="mr-1 size-8 shrink-0" disabled={busy} aria-label={`Edit ${contact.email}`} title="Edit name, company or email" onClick={() => setEditing({ id: contact.id, name: contact.name, company: contact.company ?? "", email: contact.email })}><Pencil className="size-4" /></Button></li>)}
             </ul>
           </div>
           <form onSubmit={addOne} className="grid grid-cols-2 gap-2">

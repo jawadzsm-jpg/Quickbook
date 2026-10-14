@@ -4848,7 +4848,14 @@ test("inventory overview emails: private Sales and Purchase lists (administrator
     [["ops@delta.test"], undefined, "Stock for ", "Dear Delta,"],
   ], "one copy per address, addressed to it alone");
 
+  // Editing an address changes its name, company and email; another user's address or a repeat is refused.
+  const editedList = await as("sales", async () => (await call(lists, "PATCH", { type: "sales", action: "update", id: omar.id, name: "Omar K", company: "Gulf Traders LLC", email: "Omar.K@gulf.test" })).json());
+  assert.deepEqual(editedList.contacts.filter((row) => row.id === omar.id).map((row) => [row.name, row.company, row.email]), [["Omar K", "Gulf Traders LLC", "omar.k@gulf.test"]]);
+  assert.equal((await as("sales", () => call(lists, "PATCH", { type: "sales", action: "update", id: omar.id, name: "", company: "", email: "ops@delta.test" }))).status, 409, "the address is already listed");
+  assert.equal((await as("sales", () => call(lists, "PATCH", { type: "sales", action: "update", id: omar.id, email: "nope" }))).status, 400);
+  assert.equal((await as("sales", () => call(lists, "PATCH", { type: "sales", action: "update", id: ranaList[0].id, email: "x@gulf.test" }))).status, 404, "a user cannot edit another user's address");
+
   const removed = await as("sales", async () => (await call(lists, "PATCH", { type: "sales", action: "remove", ids: [salesList[0].id, purchaseList[0].id] })).json());
-  assert.deepEqual([removed.removed, removed.contacts.map((row) => row.email)], [1, ["buyer@gulf.test", "omar@gulf.test"]], "removing only touches the chosen list");
+  assert.deepEqual([removed.removed, removed.contacts.map((row) => row.email)], [1, ["buyer@gulf.test", "omar.k@gulf.test"]], "removing only touches the chosen list");
   delete globalThis.__sentMail;
 });

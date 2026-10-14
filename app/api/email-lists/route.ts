@@ -4,7 +4,7 @@ import { appUsers, auditLog, emailListContacts } from "@/db/schema";
 import { isAdministrator, requireCompanyAccess, type SessionUser } from "@/lib/auth";
 import { canUseEmailList, EMAIL_LIST_IMPORT_MAX, EMAIL_LIST_MAX, EMAIL_LIST_NAME_MAX, emailListLabel, isEmailListType, type EmailListType } from "@/lib/email-lists";
 import { isValidEmail } from "@/lib/email-validation";
-import { publicErrorMessage } from "@/lib/errors";
+import { databaseErrorCode, publicErrorMessage } from "@/lib/errors";
 
 // The Sales list (customers) and Purchase list (suppliers) for Inventory Overview emails. Each user's addresses are
 // private to them; Admins and All-Admins see and manage everyone's in the company. Sales users use the Sales list only
@@ -71,7 +71,29 @@ export async function POST(request: Request) {
   } catch (error) { return failed(error); }
 }
 
+/** Edit one address: its name, company and email. Only the user's own (administrators: anyone's in the company). */
+async function updateContact(user: SessionUser, companyId: number, type: EmailListType, payload: Record<string, unknown>) {
+  const id = Number(payload.id);
+  const email = String(payload.email ?? "").trim().toLowerCase();
+  if (!Number.isSafeInteger(id) || id <= 0) return json({ error: "Choose the address to edit." }, 400);
+  if (!isValidEmail(email)) return json({ error: "Enter a valid email address." }, 400);
+  const clean = (value: unknown) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, EMAIL_LIST_NAME_MAX);
+  try {
+    const db = getDb();
+    const [saved] = await db.update(emailListContacts).set({ name: clean(payload.name), company: clean(payload.company), email })
+      .where(and(eq(emailListContacts.id, id), eq(emailListContacts.companyId, companyId), eq(emailListContacts.listType, type), ownedBy(user))).returning();
+    if (!saved) return json({ error: "This address is no longer in the list." }, 404);
+    await db.insert(auditLog).values({ companyId, action: "updated", entityType: "email_list", entityId: saved.id, details: `${saved.email} edited in the ${emailListLabel(type)} by ${user.email}` });
+    return json({ contacts: await listOf(user, companyId, type) });
+  } catch (error) {
+    // The same address can be listed once per user and list.
+    if (databaseErrorCode(error) === "23505") return json({ error: `${email} is already in this list.` }, 409);
+    return failed(error);
+  }
+}
+
 /**
+ * PATCH { companyId, type, action: "update", id, name, company, email } edits one address (above).
  * PATCH { companyId, type, action: "remove", ids } — remove contacts. Removing goes through PATCH because HTTP DELETE
  * is reserved for administrators across the app.
  */
@@ -81,6 +103,7 @@ export async function PATCH(request: Request) {
   const companyId = Number(payload.companyId);
   const allowed = await access(request, companyId, payload.type, true);
   if (allowed instanceof Response) return allowed;
+  if (payload.action === "update") return updateContact(allowed.user, companyId, allowed.type, payload);
   const ids = [...new Set((Array.isArray(payload.ids) ? payload.ids : []).map(Number))].filter((id) => Number.isSafeInteger(id) && id > 0);
   if (payload.action !== "remove" || !ids.length || ids.length > EMAIL_LIST_MAX) return json({ error: "Choose the addresses to remove." }, 400);
   try {
