@@ -45,7 +45,7 @@ function signatureForEmail(row: Awaited<ReturnType<typeof savedSignature>>, requ
   const linked = base ? { logo: row.companyLogo ? link("logo") : undefined, banner: signature.bannerData ? link("banner") : undefined } : {};
   const logo = embedded("logo", row.companyLogo), banner = embedded("banner", signature.bannerData);
   const html = signatureHtml(signature, { logo: logo ? `cid:${logo.cid}` : undefined, banner: banner ? `cid:${banner.cid}` : undefined });
-  return { text: signatureText(signature), html, linkedHtml: signatureHtml(signature, linked), images: [logo, banner].filter((image) => image !== null) };
+  return { text: signatureText(signature), html, linkedHtml: signatureHtml(signature, linked), images: [logo, banner].filter((image) => image !== null), logoUrl: linked.logo ?? "" };
 }
 
 /** A data-URL image as an inline attachment the HTML refers to as cid:<kind>@signature. */

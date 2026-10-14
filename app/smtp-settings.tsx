@@ -95,6 +95,10 @@ export function SmtpSettings({ onStatus }: { onStatus?: (configured: boolean) =>
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "The test email could not be sent");
       toast.success(`Test email sent to ${data.to}${data.signatureCompany ? ` with your ${data.signatureCompany} signature` : " (you have no email signature turned on)"} — check that inbox (and spam)`);
+      // Why a signature logo may be missing: none set, embedded, or linked because turboSMTP refused the embedded version.
+      if (data.signatureImages === "no-logo") toast.warning("The signature has no logo: the company has no logo in Company setup.", { duration: 15_000 });
+      else if (data.signatureImages === "inline") toast.info("The signature logo was sent inside the email.", { duration: 15_000 });
+      else if (data.signatureImages === "linked") toast.warning(`turboSMTP refused the email with the logo inside, so it was sent with the logo linked from the web.${data.inlineRefusal ? ` turboSMTP said: ${data.inlineRefusal}` : ""}`, { duration: 30_000 });
       const ids = Array.isArray(data.messageIds) ? data.messageIds.map(String) : [];
       setTestIds(ids); setTestDelivery(null);
       // turboSMTP needs a few seconds to report on a new message.

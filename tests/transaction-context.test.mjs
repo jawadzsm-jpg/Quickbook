@@ -4559,6 +4559,10 @@ test("turboSMTP API: settings choose the API, and documents are sent as JSON wit
     // When turboSMTP refuses the raw message, the email still goes, with the images linked.
     calls.length = 0;
     globalThis.fetch = async (url, init) => { calls.push({ url: String(url), init }); return calls.length === 1 ? Response.json({ message: "mime_raw not supported" }, { status: 400 }) : Response.json({ message: "OK", mid: "m-3" }); };
+    const tested = await smtp.sendTestEmail("admin@x.test", { ...signature, logoUrl: "https://app.test/logo" });
+    assert.deepEqual([tested.signatureImages, tested.inlineRefusal], ["linked", "turboSMTP API 400: mime_raw not supported"], "Send test email says the logo was linked, and why");
+    assert.match(JSON.parse(calls[1].init.body).html_content, /open the logo directly/);
+    calls.length = 0;
     await smtp.sendDocumentEmail({ to: [["a@x.test"]], cc: [], subject: "Stock", body: "Hello", signature });
     const fallback = JSON.parse(calls[1].init.body);
     assert.equal(fallback.mime_raw, undefined); assert.match(fallback.html_content, /email-signatures\/image/); assert.equal(fallback.attachments, undefined);

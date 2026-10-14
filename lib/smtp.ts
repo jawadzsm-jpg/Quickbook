@@ -87,7 +87,7 @@ export async function verifySmtpConnection() {
 }
 
 /** The sender's email signature (lib/email-signature-server.ts): its HTML shows the images sent inside the email. */
-type Signature = { text: string; html: string; linkedHtml: string; images: Array<{ filename: string; contentType: string; content: Buffer; cid: string }> };
+type Signature = { text: string; html: string; linkedHtml: string; images: Array<{ filename: string; contentType: string; content: Buffer; cid: string }>; logoUrl?: string };
 /** The message's HTML with the signature under it, the HTML for a sender that cannot embed images, and the images. */
 const withSignature = (html: string, signature?: Signature) => signature
   ? { html: `${html}${signature.html}`, fallbackHtml: `${html}${signature.linkedHtml}`, inline: signature.images }
@@ -133,11 +133,14 @@ export async function sendTestEmail(to: string, signature?: Signature) {
     subject: "ComNet Accounting test email",
     text: `This is a test email from ComNet Accounting.\n\nIf you received it, the email server can send login, password-reset, invitation, notification and document emails.\nSent through: ${sentThrough(settings)}\nSender: ${settings.fromName} <${settings.fromEmail}>${signature ? `\n\n${signature.text}` : ""}`,
     ...(() => {
-      const { html, fallbackHtml, inline } = withSignature(`<div style="font-family:Arial,sans-serif;max-width:560px;color:#0f172a"><h2>Test email</h2><p>This is a test email from ComNet Accounting.</p><p>If you received it, the email server can send login, password-reset, invitation, notification and document emails.</p><p style="color:#475569;font-size:13px">Sent through: ${escapeHtml(sentThrough(settings))}<br>Sender: ${escapeHtml(settings.fromName)} &lt;${escapeHtml(settings.fromEmail)}&gt;</p>${signature ? `<p style="color:#475569;font-size:13px">Your email signature, as customers see it under document and stock emails:</p>` : ""}</div>`, signature);
+      const { html, fallbackHtml, inline } = withSignature(`<div style="font-family:Arial,sans-serif;max-width:560px;color:#0f172a"><h2>Test email</h2><p>This is a test email from ComNet Accounting.</p><p>If you received it, the email server can send login, password-reset, invitation, notification and document emails.</p><p style="color:#475569;font-size:13px">Sent through: ${escapeHtml(sentThrough(settings))}<br>Sender: ${escapeHtml(settings.fromName)} &lt;${escapeHtml(settings.fromEmail)}&gt;</p>${signature ? `<p style="color:#475569;font-size:13px">Your email signature, as customers see it under document and stock emails:</p>` : ""}${signature?.logoUrl ? `<p style="color:#475569;font-size:12px">Logo check: if the logo does not show below, <a href="${escapeHtml(signature.logoUrl)}">open the logo directly</a>.</p>` : ""}</div>`, signature);
       return { html, ...(fallbackHtml ? { fallbackHtml } : {}), ...(inline.length ? { attachments: inline } : {}) };
     })(),
   });
-  return { messageIds: providerIds(result) };
+  // How the signature's images went, so the person can tell why a logo is missing.
+  const sent = (result ?? {}) as { inlineImages?: "inline" | "linked"; inlineRefusal?: string };
+  const signatureImages = !signature ? "none" : !signature.images.some((image) => image.cid === "logo@signature") ? "no-logo" : sent.inlineImages ?? "inline";
+  return { messageIds: providerIds(result), signatureImages, inlineRefusal: sent.inlineRefusal ?? "" };
 }
 
 /** One in-app notification as an email: a short title, the detail line and a link back to the app. */
