@@ -101,16 +101,21 @@ export function turboSmtpClient(options: { consumerKey: string; consumerSecret: 
     async sendMail(message: MailMessage) {
       const send = async (body: unknown) => request(`${turboSmtpSendHosts[options.region]}/mail/send`, { method: "POST", headers, body: JSON.stringify(body) });
       let response: Response;
+      // How inline images went: inside the email, or linked because turboSMTP refused the raw message (and why).
+      let inlineImages: "inline" | "linked" | undefined, inlineRefusal = "";
       if (message.attachments?.some((file) => file.cid)) {
         response = await send(await turboSmtpRawPayload(message));
+        inlineImages = "inline";
         // If the raw message is refused (not a login problem), send it the usual way with the images linked instead.
         if (!response.ok && response.status !== 401 && response.status !== 403 && response.status !== 429 && response.status < 500) {
+          inlineRefusal = (await apiError(response)).message;
+          inlineImages = "linked";
           response = await send(turboSmtpPayload({ ...message, html: message.fallbackHtml ?? message.html, attachments: message.attachments.filter((file) => !file.cid) }));
         }
       } else response = await send(turboSmtpPayload(message));
       if (!response.ok) throw await apiError(response);
       const messageIds = messageIdsOf(await response.json().catch(() => ({})));
-      return { messageId: messageIds[0] ?? "", messageIds };
+      return { messageId: messageIds[0] ?? "", messageIds, inlineImages, inlineRefusal };
     },
     /** Checks the consumer key and secret with a read-only request (the account's alert settings). */
     async verify() {
