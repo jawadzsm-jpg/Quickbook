@@ -118,14 +118,14 @@ const sentThrough = (settings: { provider: string; apiRegion: string; host: stri
   settings.provider === "turbosmtp_api" ? `turboSMTP API (${settings.apiRegion === "eu" ? "EU" : "global"})` : `${settings.host}:${settings.port}`;
 
 /** A real message through the saved settings, so sending limits and sender rules show up (a login check alone does not). */
-export async function sendTestEmail(to: string) {
+export async function sendTestEmail(to: string, signature?: { text: string; html: string }) {
   const { client, settings } = await transporter();
   const result = await client.sendMail({
     from: { name: settings.fromName, address: settings.fromEmail },
     to,
     subject: "ComNet Accounting test email",
-    text: `This is a test email from ComNet Accounting.\n\nIf you received it, the email server can send login, password-reset, invitation, notification and document emails.\nSent through: ${sentThrough(settings)}\nSender: ${settings.fromName} <${settings.fromEmail}>`,
-    html: `<div style="font-family:Arial,sans-serif;max-width:560px;color:#0f172a"><h2>Test email</h2><p>This is a test email from ComNet Accounting.</p><p>If you received it, the email server can send login, password-reset, invitation, notification and document emails.</p><p style="color:#475569;font-size:13px">Sent through: ${escapeHtml(sentThrough(settings))}<br>Sender: ${escapeHtml(settings.fromName)} &lt;${escapeHtml(settings.fromEmail)}&gt;</p></div>`,
+    text: `This is a test email from ComNet Accounting.\n\nIf you received it, the email server can send login, password-reset, invitation, notification and document emails.\nSent through: ${sentThrough(settings)}\nSender: ${settings.fromName} <${settings.fromEmail}>${signature ? `\n\n${signature.text}` : ""}`,
+    html: `<div style="font-family:Arial,sans-serif;max-width:560px;color:#0f172a"><h2>Test email</h2><p>This is a test email from ComNet Accounting.</p><p>If you received it, the email server can send login, password-reset, invitation, notification and document emails.</p><p style="color:#475569;font-size:13px">Sent through: ${escapeHtml(sentThrough(settings))}<br>Sender: ${escapeHtml(settings.fromName)} &lt;${escapeHtml(settings.fromEmail)}&gt;</p>${signature ? `<p style="color:#475569;font-size:13px">Your email signature, as customers see it under document and stock emails:</p>${signature.html}` : ""}</div>`,
   });
   return { messageIds: providerIds(result) };
 }
