@@ -138,9 +138,9 @@ export async function sendTestEmail(to: string, signature?: Signature) {
     })(),
   });
   // How the signature's images went, so the person can tell why a logo is missing.
-  const sent = (result ?? {}) as { inlineImages?: "inline" | "linked"; inlineRefusal?: string };
+  const sent = (result ?? {}) as { inlineImages?: "inline" | "linked" };
   const signatureImages = !signature ? "none" : !signature.images.some((image) => image.cid === "logo@signature") ? "no-logo" : sent.inlineImages ?? "inline";
-  return { messageIds: providerIds(result), signatureImages, inlineRefusal: sent.inlineRefusal ?? "" };
+  return { messageIds: providerIds(result), signatureImages };
 }
 
 /** One in-app notification as an email: a short title, the detail line and a link back to the app. */

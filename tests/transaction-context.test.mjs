@@ -4547,25 +4547,21 @@ test("turboSMTP API: settings choose the API, and documents are sent as JSON wit
     assert.match(colored.html_content, /<span style="color:#94a3b8">-------------------<\/span><br>Other line/);
     assert.equal(colored.content, "Dear Sir,\n\nDELL XPS 13 - ABC1 | BRAND NEW | 16GB | 512GB SSD\nQuantity: 2 | Price: AED 7,700 + VAT\n-------------------\nOther line", "the text is unchanged");
 
-    // A signature's logo goes inside the email: the whole message is sent as mime_raw with the image as a cid: part.
+    // The turboSMTP API cannot put images inside the email (a raw MIME message arrived blank): the signature's logo is
+    // linked from the web, the email keeps its HTML and the PDF, and Send test email says so.
     const signature = { text: "Thanks\nJo", html: '<img src="cid:logo@signature">', linkedHtml: '<img src="https://app.test/api/email-signatures/image?t=x&k=logo">', images: [{ filename: "signature-logo.png", contentType: "image/png", content: Buffer.from("png-bytes"), cid: "logo@signature" }] };
     calls.length = 0;
     globalThis.fetch = async (url, init) => { calls.push({ url: String(url), init }); return Response.json({ message: "OK", mid: "m-2" }); };
     await smtp.sendDocumentEmail({ to: [["a@x.test"]], cc: [], hidden: true, subject: "Stock", body: "Hello", attachment: { filename: "INV-1.pdf", content: Buffer.from("%PDF-1") }, signature });
-    const raw = JSON.parse(calls[0].init.body);
-    assert.equal(raw.bcc, "a@x.test"); assert.equal(raw.html_content, undefined); assert.equal(raw.attachments, undefined);
-    assert.match(raw.mime_raw, /multipart\/related/); assert.match(raw.mime_raw, /Content-ID: <logo@signature>/); assert.match(raw.mime_raw, /cid:logo@signature/);
-    assert.match(raw.mime_raw, /INV-1\.pdf/, "the PDF stays attached"); assert.doesNotMatch(raw.mime_raw, /^Bcc:/m, "hidden recipients stay hidden");
-    // When turboSMTP refuses the raw message, the email still goes, with the images linked.
+    assert.equal(calls.length, 1);
+    const linked = JSON.parse(calls[0].init.body);
+    assert.equal(linked.mime_raw, undefined); assert.equal(linked.bcc, "a@x.test");
+    assert.match(linked.html_content, /Hello/); assert.match(linked.html_content, /email-signatures\/image/); assert.doesNotMatch(linked.html_content, /cid:/);
+    assert.deepEqual(linked.attachments.map((file) => file.name), ["INV-1.pdf"], "only the PDF is attached");
     calls.length = 0;
-    globalThis.fetch = async (url, init) => { calls.push({ url: String(url), init }); return calls.length === 1 ? Response.json({ message: "mime_raw not supported" }, { status: 400 }) : Response.json({ message: "OK", mid: "m-3" }); };
     const tested = await smtp.sendTestEmail("admin@x.test", { ...signature, logoUrl: "https://app.test/logo" });
-    assert.deepEqual([tested.signatureImages, tested.inlineRefusal], ["linked", "turboSMTP API 400: mime_raw not supported"], "Send test email says the logo was linked, and why");
-    assert.match(JSON.parse(calls[1].init.body).html_content, /open the logo directly/);
-    calls.length = 0;
-    await smtp.sendDocumentEmail({ to: [["a@x.test"]], cc: [], subject: "Stock", body: "Hello", signature });
-    const fallback = JSON.parse(calls[1].init.body);
-    assert.equal(fallback.mime_raw, undefined); assert.match(fallback.html_content, /email-signatures\/image/); assert.equal(fallback.attachments, undefined);
+    assert.equal(tested.signatureImages, "linked");
+    assert.match(JSON.parse(calls[0].init.body).html_content, /open the logo directly/);
 
     globalThis.fetch = async () => Response.json({ message: "invalid consumer key" }, { status: 401 });
     const failure = await smtp.sendTestEmail("admin@x.test").catch((error) => error);

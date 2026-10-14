@@ -1,7 +1,5 @@
 import "server-only";
 
-import MailComposer from "nodemailer/lib/mail-composer";
-
 // turboSMTP HTTPS API (v2) behind the same small interface as a nodemailer transport (sendMail / verify / close), so
 // every email in the app can go through it. Authentication: consumerKey + consumerSecret headers (the only credential
 // /mail/send accepts). Request format from turboSMTP's API reference and official SDK: comma-separated recipients,
@@ -21,7 +19,7 @@ type Address = string | { name?: string; address: string };
 export type MailMessage = {
   from: Address; to: Address | Address[]; cc?: Address | Address[]; bcc?: Address | Address[]; replyTo?: Address;
   subject: string; text?: string; html?: string;
-  /** `cid`: an image shown inside the HTML (<img src="cid:…">) rather than listed as an attachment. */
+  /** `cid`: an image shown inside the HTML (<img src="cid:…">) rather than listed as an attachment (SMTP only). */
   attachments?: Array<{ filename: string; content: Buffer | string; contentType?: string; cid?: string }>;
   /** The HTML to send when inline images cannot be embedded (images linked from the web instead of cid:). */
   fallbackHtml?: string;
@@ -54,26 +52,6 @@ export function turboSmtpPayload(message: MailMessage) {
   };
 }
 
-/**
- * The JSON body for a message with inline images: the API's attachments cannot be shown inside the HTML, so the whole
- * message goes as `mime_raw` (built like an SMTP send, with the images as multipart/related parts). The address fields
- * stay alongside for the envelope; Bcc is not written into the message.
- */
-export async function turboSmtpRawPayload(message: MailMessage) {
-  const mail = { ...message };
-  delete mail.fallbackHtml;
-  const raw = await new MailComposer(mail).compile().build();
-  const cc = addressList(message.cc), bcc = addressList(message.bcc);
-  return {
-    from: formatAddress(message.from),
-    to: addressList(message.to),
-    subject: message.subject,
-    ...(cc ? { cc } : {}),
-    ...(bcc ? { bcc } : {}),
-    mime_raw: raw.toString("utf8"),
-  };
-}
-
 /** turboSMTP answers errors as JSON ({ message, ... }); keep its text and the HTTP status for friendlyEmailError. */
 async function apiError(response: Response) {
   let detail = "";
@@ -100,22 +78,13 @@ export function turboSmtpClient(options: { consumerKey: string; consumerSecret: 
   return {
     async sendMail(message: MailMessage) {
       const send = async (body: unknown) => request(`${turboSmtpSendHosts[options.region]}/mail/send`, { method: "POST", headers, body: JSON.stringify(body) });
-      let response: Response;
-      // How inline images went: inside the email, or linked because turboSMTP refused the raw message (and why).
-      let inlineImages: "inline" | "linked" | undefined, inlineRefusal = "";
-      if (message.attachments?.some((file) => file.cid)) {
-        response = await send(await turboSmtpRawPayload(message));
-        inlineImages = "inline";
-        // If the raw message is refused (not a login problem), send it the usual way with the images linked instead.
-        if (!response.ok && response.status !== 401 && response.status !== 403 && response.status !== 429 && response.status < 500) {
-          inlineRefusal = (await apiError(response)).message;
-          inlineImages = "linked";
-          response = await send(turboSmtpPayload({ ...message, html: message.fallbackHtml ?? message.html, attachments: message.attachments.filter((file) => !file.cid) }));
-        }
-      } else response = await send(turboSmtpPayload(message));
+      // The API cannot place images inside the HTML (its attachments are separate files, and a raw MIME message arrived
+      // blank), so inline images go linked from the web instead (fallbackHtml).
+      const inline = Boolean(message.attachments?.some((file) => file.cid));
+      const response = await send(turboSmtpPayload(inline ? { ...message, html: message.fallbackHtml ?? message.html, attachments: message.attachments!.filter((file) => !file.cid) } : message));
       if (!response.ok) throw await apiError(response);
       const messageIds = messageIdsOf(await response.json().catch(() => ({})));
-      return { messageId: messageIds[0] ?? "", messageIds, inlineImages, inlineRefusal };
+      return { messageId: messageIds[0] ?? "", messageIds, ...(inline ? { inlineImages: "linked" as const } : {}) };
     },
     /** Checks the consumer key and secret with a read-only request (the account's alert settings). */
     async verify() {
