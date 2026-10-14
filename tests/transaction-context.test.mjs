@@ -914,6 +914,33 @@ test('product customization details fall back to item specifications and save wi
   assert.deepEqual(JSON.parse(stored.specifications), [{ label: 'RAM', value: '8GB' }, { label: 'Storage', value: '512GB SSD' }, { label: 'Part Number', value: 'PN-OLD' }]);
 });
 
+test('migration 0133 removes only the trailing specifications Product Customization appended, and logs them', async () => {
+  const company = (await database.query("INSERT INTO companies (name) VALUES ('Spec cleanup') RETURNING id")).rows[0].id;
+  const location = (await database.query("INSERT INTO inventory_locations (company_id, code, name, invoice_prefix) VALUES ($1, 'SPC', 'SPC', 'SPC') RETURNING id", [company])).rows[0].id;
+  const add = async (sku, specs, ram, storage, partNumber) => (await database.query(
+    "INSERT INTO items (company_id, location_id, sku, name, specifications, customization_ram, customization_storage, part_number) VALUES ($1, $2, $3, $3, $4, $5, $6, $7) RETURNING id",
+    [company, location, sku, typeof specs === 'string' ? specs : JSON.stringify(specs), ram, storage, partNumber])).rows[0].id;
+  const middle = await add('SPC-1', [{ label: 'Brand', value: 'ASUS' }, { label: 'RAM', value: 'RAM ONBORAD' }, { label: 'SSD', value: '512GB SSD' }, { label: 'Warranty', value: 'MANUFACTURE WARRANTY ONLY' }, { label: 'Storage', value: 'NVME 2280 X2' }], 'RAM ONBORAD', 'NVME 2280 X2', '');
+  const appended = await add('SPC-2', [{ label: 'Brand', value: 'DELL' }, { label: 'RAM', value: '16GB' }, { label: 'Storage', value: '1TB SSD' }], '16GB', '1TB SSD', '');
+  const onlyPart = await add('SPC-3', [{ label: 'Brand', value: 'HP' }, { label: 'Part Number', value: 'PN-1' }], '', '', 'PN-1');
+  const repeatedPart = await add('SPC-4', [{ label: 'Part Number', value: 'PN-2' }, { label: 'Color', value: 'BLUE' }, { label: 'Part Number', value: 'PN-2' }], '', '', 'PN-2');
+  const typedStorage = await add('SPC-5', [{ label: 'Storage', value: '256GB' }, { label: 'Color', value: 'RED' }], '', '256GB', '');
+  const broken = await add('SPC-6', 'not json', '8GB', '', '');
+  const { readFileSync } = await import('node:fs');
+  await database.exec(readFileSync(new URL('../drizzle/0133_remove_customization_specs.sql', import.meta.url), 'utf8'));
+  const specs = async (id) => (await database.query('SELECT specifications FROM items WHERE id = $1', [id])).rows[0].specifications;
+  const labels = async (id) => JSON.parse(await specs(id)).map((entry) => `${entry.label}: ${entry.value}`);
+  assert.deepEqual(await labels(middle), ['Brand: ASUS', 'RAM: RAM ONBORAD', 'SSD: 512GB SSD', 'Warranty: MANUFACTURE WARRANTY ONLY'], 'the appended Storage goes; RAM typed in the middle stays');
+  assert.deepEqual(await labels(appended), ['Brand: DELL']);
+  assert.deepEqual(await labels(onlyPart), ['Brand: HP', 'Part Number: PN-1'], 'a part number written only once is kept');
+  assert.deepEqual(await labels(repeatedPart), ['Part Number: PN-2', 'Color: BLUE'], 'a repeated part number at the end is removed');
+  assert.deepEqual(await labels(typedStorage), ['Storage: 256GB', 'Color: RED'], 'not at the end: kept');
+  assert.equal(await specs(broken), 'not json', 'unreadable specifications are left alone');
+  const logged = (await database.query("SELECT entity_id, details FROM audit_log WHERE company_id = $1 AND entity_type = 'item' ORDER BY entity_id", [company])).rows;
+  assert.deepEqual(logged.map((row) => row.entity_id), [middle, appended, repeatedPart]);
+  assert.match(logged[0].details, /Storage: NVME 2280 X2\. Previous specifications: \[/);
+});
+
 test('inventory overview activity links incoming, 12-hour bill arrivals, price changes, and sold sales reps', async () => {
   const company = (await database.query("INSERT INTO companies (name,base_currency) VALUES ('Inventory activity company','AED') RETURNING id")).rows[0].id;
   const location = (await database.query("INSERT INTO inventory_locations (company_id,code,name,invoice_prefix) VALUES ($1,'ACT','Activity store','ACT') RETURNING id", [company])).rows[0].id;
