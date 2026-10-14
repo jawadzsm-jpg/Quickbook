@@ -48,7 +48,7 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
   const [seesAll, setSeesAll] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [search, setSearch] = useState("");
-  const [newAddress, setNewAddress] = useState({ name: "", email: "" });
+  const [newAddress, setNewAddress] = useState({ name: "", company: "", email: "" });
   const [templates, setTemplates] = useState<Template[]>([]);
   const [templateId, setTemplateId] = useState("default");
   const templateIdRef = useRef(templateId);
@@ -100,7 +100,7 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
 
   const shown = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return (contacts ?? []).filter((contact) => !term || contact.email.includes(term) || contact.name.toLowerCase().includes(term));
+    return (contacts ?? []).filter((contact) => !term || contact.email.includes(term) || contact.name.toLowerCase().includes(term) || (contact.company ?? "").toLowerCase().includes(term));
   }, [contacts, search]);
   const allShownSelected = shown.length > 0 && shown.every((contact) => selected.has(contact.id));
   const toggleShown = () => setSelected((current) => { const next = new Set(current); for (const contact of shown) { if (allShownSelected) next.delete(contact.id); else next.add(contact.id); } return next; });
@@ -108,7 +108,7 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
   const chooseList = (list: EmailListType) => { if (list === type) return; setType(list); setSelected(new Set()); setSearch(""); };
 
   const run = async (work: () => Promise<void>) => { setBusy(true); try { await work(); } catch (error) { toast.error(errorText(error)); } finally { setBusy(false); } };
-  const addContacts = (rows: { name: string; email: string }[], skipped = 0) => run(async () => {
+  const addContacts = (rows: { name: string; company: string; email: string }[], skipped = 0) => run(async () => {
     const data = await call("/api/email-lists", "POST", { companyId, type, contacts: rows });
     setContacts(data.contacts ?? []);
     const extra = [data.alreadyListed ? `${data.alreadyListed} already listed` : "", skipped + Number(data.invalid ?? 0) ? `${skipped + Number(data.invalid ?? 0)} rows without a valid address skipped` : ""].filter(Boolean).join(", ");
@@ -118,7 +118,7 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
     event.preventDefault();
     const email = newAddress.email.trim().toLowerCase();
     if (!isValidEmail(email)) return toast.error("Enter a valid email address.");
-    void addContacts([{ name: newAddress.name.trim(), email }]).then(() => setNewAddress({ name: "", email: "" }));
+    void addContacts([{ name: newAddress.name.trim(), company: newAddress.company.trim(), email }]).then(() => setNewAddress({ name: "", company: "", email: "" }));
   };
   const importCsv = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -174,11 +174,12 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
             <label className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2 text-xs font-medium"><Checkbox checked={allShownSelected} disabled={!shown.length} onCheckedChange={toggleShown} />Select {search ? "shown" : "all"} · {selected.size} of {contacts?.length ?? 0} selected</label>
             <ul className="max-h-72 divide-y overflow-y-auto">
               {contacts === null ? <li className="p-4 text-sm text-muted-foreground">Loading…</li> : !shown.length ? <li className="p-4 text-sm text-muted-foreground">{contacts.length ? "No address matches the search." : `Your ${emailListLabel(type)} is empty. Add an address below or import a CSV file.`}</li>
-                : shown.map((contact) => <li key={contact.id}><label className="flex min-w-0 cursor-pointer items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50"><Checkbox checked={selected.has(contact.id)} onCheckedChange={() => toggle(contact.id)} /><span className="min-w-0 flex-1"><span className="block truncate font-medium">{contact.name || contact.email}</span>{contact.name ? <span className="block truncate text-xs text-muted-foreground">{contact.email}</span> : null}{seesAll && contact.ownerName ? <span className="block truncate text-[11px] text-muted-foreground">Added by {contact.ownerName}</span> : null}</span></label></li>)}
+                : shown.map((contact) => <li key={contact.id}><label className="flex min-w-0 cursor-pointer items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50"><Checkbox checked={selected.has(contact.id)} onCheckedChange={() => toggle(contact.id)} /><span className="min-w-0 flex-1"><span className="block truncate font-medium">{[contact.name, contact.company].filter(Boolean).join(" – ") || contact.email}</span>{contact.name || contact.company ? <span className="block truncate text-xs text-muted-foreground">{contact.email}</span> : null}{seesAll && contact.ownerName ? <span className="block truncate text-[11px] text-muted-foreground">Added by {contact.ownerName}</span> : null}</span></label></li>)}
             </ul>
           </div>
-          <form onSubmit={addOne} className="grid gap-2 sm:grid-cols-[1fr_1.2fr_auto]">
+          <form onSubmit={addOne} className="grid grid-cols-2 gap-2">
             <Input aria-label="Name" placeholder="Name (optional)" value={newAddress.name} maxLength={160} onChange={(event) => setNewAddress({ ...newAddress, name: event.target.value })} className="h-9" />
+            <Input aria-label="Company" placeholder="Company (optional)" value={newAddress.company} maxLength={160} onChange={(event) => setNewAddress({ ...newAddress, company: event.target.value })} className="h-9" />
             <Input aria-label="Email address" type="email" placeholder="name@company.com" value={newAddress.email} onChange={(event) => setNewAddress({ ...newAddress, email: event.target.value })} className="h-9" />
             <Button type="submit" size="sm" variant="outline" className="h-9" disabled={busy}><Plus className="size-4" />Add</Button>
           </form>
@@ -190,7 +191,7 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
             <Button type="button" size="sm" variant="outline" className="h-9" disabled={busy || !subject.trim() || !body.trim()} onClick={saveTemplate}><Save className="size-4" />Save as template</Button>
           </div>
           <div className="space-y-1.5"><Label htmlFor="stock-email-subject">Subject</Label><Input id="stock-email-subject" value={subject} maxLength={300} onChange={(event) => setSubject(event.target.value)} /></div>
-          <div className="space-y-1.5"><Label htmlFor="stock-email-body">Message</Label><Textarea id="stock-email-body" value={body} rows={14} onChange={(event) => setBody(event.target.value)} className="font-mono text-xs" /><p className="text-xs text-muted-foreground">Templates can use {"{items}"} (the selected stock), {"{company}"}, {"{sender}"} and {"{senderEmail}"}. Your signature is added under the message when it is turned on.</p><Button type="button" size="sm" variant="outline" onClick={() => setEditingSignature(true)}><PenLine className="size-4" />My signature</Button></div>
+          <div className="space-y-1.5"><Label htmlFor="stock-email-body">Message</Label><Textarea id="stock-email-body" value={body} rows={14} onChange={(event) => setBody(event.target.value)} className="font-mono text-xs" /><p className="text-xs text-muted-foreground">Templates can use {"{items}"} (the selected stock), {"{company}"}, {"{sender}"} and {"{senderEmail}"}. {"{name}"} and {"{contactCompany}"} are filled for each address with its name and company from the list (no name: the company, else Sir/Madam), and each address then gets its own copy. Your signature is added under the message when it is turned on.</p><Button type="button" size="sm" variant="outline" onClick={() => setEditingSignature(true)}><PenLine className="size-4" />My signature</Button></div>
         </section>
       </div>}
       {editingSignature ? null : <DialogFooter><Button type="button" variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>Cancel</Button><Button type="button" disabled={busy || !selected.size || !subject.trim() || !body.trim()} onClick={send}><Send className="size-4" />{busy ? "Working…" : `Send to ${selected.size} ${selected.size === 1 ? "address" : "addresses"}`}</Button></DialogFooter>}

@@ -23,7 +23,7 @@ async function access(request: Request, companyId: number, type: unknown, mutati
 /** The user's own addresses; administrators get everyone's in the company. */
 const ownedBy = (user: SessionUser): SQL | undefined => isAdministrator(user) ? undefined : eq(emailListContacts.createdByUserId, user.id);
 
-const listOf = (user: SessionUser, companyId: number, type: EmailListType) => getDb().select({ id: emailListContacts.id, name: emailListContacts.name, email: emailListContacts.email, ownerName: sql<string>`coalesce(nullif(${appUsers.fullName}, ''), ${appUsers.email}, '')` })
+const listOf = (user: SessionUser, companyId: number, type: EmailListType) => getDb().select({ id: emailListContacts.id, name: emailListContacts.name, company: emailListContacts.company, email: emailListContacts.email, ownerName: sql<string>`coalesce(nullif(${appUsers.fullName}, ''), ${appUsers.email}, '')` })
   .from(emailListContacts).leftJoin(appUsers, eq(appUsers.id, emailListContacts.createdByUserId))
   .where(and(eq(emailListContacts.companyId, companyId), eq(emailListContacts.listType, type), ownedBy(user)))
   .orderBy(asc(sql`lower(coalesce(nullif(${emailListContacts.name}, ''), ${emailListContacts.email}))`), asc(emailListContacts.id));
@@ -37,7 +37,7 @@ export async function GET(request: Request) {
   try { return json({ contacts: await listOf(allowed.user, companyId, allowed.type), seesAll: isAdministrator(allowed.user) }); } catch (error) { return failed(error); }
 }
 
-/** POST { companyId, type, contacts: [{ name, email }] } — add contacts (typed or imported from CSV); repeats are skipped. */
+/** POST { companyId, type, contacts: [{ name, company, email }] } — add contacts (typed or imported from CSV); repeats are skipped. */
 export async function POST(request: Request) {
   let payload: Record<string, unknown>;
   try { payload = await request.json() as Record<string, unknown>; } catch { return json({ error: "Invalid request." }, 400); }
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
   if (!raw.length) return json({ error: "Add at least one email address." }, 400);
   if (raw.length > EMAIL_LIST_IMPORT_MAX) return json({ error: `Import at most ${EMAIL_LIST_IMPORT_MAX.toLocaleString("en")} addresses at a time.` }, 400);
   const seen = new Set<string>();
-  const rows: { name: string; email: string }[] = [];
+  const rows: { name: string; company: string; email: string }[] = [];
   let invalid = 0;
   for (const entry of raw) {
     const item = entry && typeof entry === "object" ? entry as Record<string, unknown> : {};
@@ -56,7 +56,8 @@ export async function POST(request: Request) {
     if (!isValidEmail(email)) { invalid += 1; continue; }
     if (seen.has(email)) continue;
     seen.add(email);
-    rows.push({ name: String(item.name ?? "").replace(/\s+/g, " ").trim().slice(0, EMAIL_LIST_NAME_MAX), email });
+    const clean = (value: unknown) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, EMAIL_LIST_NAME_MAX);
+    rows.push({ name: clean(item.name), company: clean(item.company), email });
   }
   if (!rows.length) return json({ error: "No valid email addresses to add." }, 400);
   try {
