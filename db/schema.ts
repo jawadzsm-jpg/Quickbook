@@ -682,6 +682,30 @@ export const emailListContacts = pgTable("email_list_contacts", {
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 });
 
+// Email signatures (migration 0131): each user's own per company, added under document and stock-list emails
+// (lib/email-signature.ts). The logo is the company logo; it and the banner reach mail readers through `image_token`.
+export const emailSignatures = pgTable("email_signatures", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  userId: integer("user_id").notNull().references(() => appUsers.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").notNull().default(true),
+  closing: text("closing").notNull().default(""),
+  fullName: text("full_name").notNull().default(""),
+  jobTitle: text("job_title").notNull().default(""),
+  address: text("address").notNull().default(""),
+  landline: text("landline").notNull().default(""),
+  fax: text("fax").notNull().default(""),
+  mobile: text("mobile").notNull().default(""),
+  msn: text("msn").notNull().default(""),
+  skype: text("skype").notNull().default(""),
+  whatsapp: text("whatsapp").notNull().default(""),
+  email: text("email").notNull().default(""),
+  website: text("website").notNull().default(""),
+  bannerData: text("banner_data").notNull().default(""),
+  imageToken: text("image_token").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("uq_email_signatures_company_user").on(table.companyId, table.userId), uniqueIndex("uq_email_signatures_image_token").on(table.imageToken)]);
+
 // Documents emailed with their PDF (migration 0117). `recipients` and `cc` are JSON arrays; `status` sent or failed.
 export const documentEmails = pgTable("document_emails", {
   id: serial("id").primaryKey(),

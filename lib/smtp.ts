@@ -155,6 +155,8 @@ export async function sendDocumentEmail(input: {
   attachment?: { filename: string; content: Buffer };
   /** Bcc each batch (To is the sender), so recipients do not see each other — list emails. */
   hidden?: boolean;
+  /** The sender's email signature (lib/email-signature-server.ts), added under the message. */
+  signature?: { text: string; html: string };
 }) {
   const { client, settings } = await transporter();
   let sent = 0;
@@ -167,8 +169,8 @@ export async function sendDocumentEmail(input: {
         ...(index === 0 && input.cc.length ? { cc: input.cc } : {}),
         ...(input.replyTo ? { replyTo: input.replyTo } : {}),
         subject: input.subject,
-        text: input.body,
-        html: messageHtml(input.body),
+        text: input.signature ? `${input.body}\n\n${input.signature.text}` : input.body,
+        html: input.signature ? `${messageHtml(input.body)}${input.signature.html}` : messageHtml(input.body),
         ...(input.attachment ? { attachments: [{ filename: input.attachment.filename, content: input.attachment.content, contentType: "application/pdf" }] } : {}),
       });
       sent += 1;
