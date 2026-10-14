@@ -555,7 +555,8 @@ export function InventoryOverview({ onOpenDocument, onOpenItem, onCreateDocument
 
   // Hidden when every listed company has share emoji switched off by its administrator.
   const emojiAllowed = records.some((record) => !shareEmoji.offCompanyIds.includes(record.companyId));
-  const emojiPicker = (channel: "whatsapp" | "telegram") => emojiAllowed ? <select aria-label={`${channel === "whatsapp" ? "WhatsApp" : "Telegram"} emoji style`} title={`${channel === "whatsapp" ? "WhatsApp" : "Telegram"} emoji style (saved for you)`} className="h-8 w-[7.5rem] rounded-md border border-input bg-card px-1.5 text-xs text-foreground @max-[90rem]:w-11 @max-[90rem]:px-1" value={shareEmoji[channel]} onChange={(event) => void chooseEmoji(channel, event.target.value)}>{shareEmojiStyles.map((style) => <option key={style.id} value={style.id}>{style.label}</option>)}</select> : null;
+  // The emoji pickers shrink to their emoji below 110rem so the toolbar stays on one line on 15–32" screens.
+  const emojiPicker = (channel: "whatsapp" | "telegram") => emojiAllowed ? <select aria-label={`${channel === "whatsapp" ? "WhatsApp" : "Telegram"} emoji style`} title={`${channel === "whatsapp" ? "WhatsApp" : "Telegram"} emoji style (saved for you)`} className="h-8 w-[7.5rem] rounded-md border border-input bg-card px-1.5 text-xs text-foreground @max-[110rem]:w-11 @max-[110rem]:px-1" value={shareEmoji[channel]} onChange={(event) => void chooseEmoji(channel, event.target.value)}>{shareEmojiStyles.map((style) => <option key={style.id} value={style.id}>{style.label}</option>)}</select> : null;
   const channelName = (channel: ShareChannel) => channel === "whatsapp" ? "WhatsApp" : channel === "telegram" ? "Telegram" : "Email";
   const copyForChannel = async (channel: ShareChannel, edited?: string) => {
     if (!canSelectItems || loading) return;
