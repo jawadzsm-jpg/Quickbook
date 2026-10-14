@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bold, Code, Italic, List as ListIcon, ListOrdered, Quote, Strikethrough, Lock, Pencil, BadgeDollarSign, Boxes, CalendarClock, ChevronDown, Clock, Download, Eye, FileSpreadsheet, Mail, PackageCheck, PackageOpen, PackageX, PlaneLanding, Printer, RefreshCw, Rocket, Search, ShoppingCart, Trash2, UserRound, Warehouse, X, Tag, Underline, EyeOff, Link as LinkIcon } from "lucide-react";
+import { Bold, Code, Italic, List as ListIcon, ListOrdered, Quote, Strikethrough, Lock, Pencil, BadgeDollarSign, Boxes, CalendarClock, ChevronDown, Clock, Download, Eye, FileSpreadsheet, Mail, PackageCheck, PackageOpen, PackageX, PlaneLanding, Printer, RefreshCw, Rocket, Search, ShoppingCart, Trash2, TriangleAlert, UserRound, Warehouse, X, Tag, Underline, EyeOff, Link as LinkIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { FilePlus2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -677,9 +677,10 @@ export function InventoryOverview({ onOpenDocument, onOpenItem, onCreateDocument
   const countPill = "inline-flex h-5 min-w-6 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-bold tabular-nums";
   const toggleFilter = (next: StockFilter) => setFilter((current) => current === next ? "all" : next);
   const columnCount = 2 + Number(showQuantity) + Number(showPrice);
-  // Low stock and Out of stock are not offered as filter chips (removed on request); rows still show their status.
+  // Out of stock is not offered as a filter chip (removed on request); rows still show their status.
   const statusChips = [
     { id: "in" as const, label: "In stock", value: totals.inStock, Icon: PackageCheck, icon: "text-emerald-500", pill: "bg-emerald-400 text-slate-950", title: `Products in stock (${totals.healthy} healthy)` },
+    { id: "low" as const, label: "Low stock", value: totals.low, Icon: TriangleAlert, icon: "text-amber-500", pill: "bg-amber-400 text-slate-950", title: "At or below reorder point" },
     { id: "hold" as const, label: "On hold", value: statusCounts.hold, Icon: Lock, icon: "text-amber-500", pill: "bg-amber-300 text-slate-950", title: "Reserved for sales reps" },
   ];
   const activityTabs = [
