@@ -173,6 +173,8 @@ Permissions are named (`workspace:read`, `inventory:read`, `inventory:manage`, `
 | `/api/user-notes` | GET, POST, PATCH | Company users, own notes | Private notes on the My notes page |
 | `/api/email-lists` | GET, POST, PATCH | Company users except Viewers; Sales: Sales list only | Private Sales/Purchase email lists (admins see all), CSV import |
 | `/api/inventory-emails` | POST | As email lists | Email selected Inventory Overview stock to chosen list addresses (Bcc) |
+| `/api/email-signatures` | GET, PUT | Company users except Viewers | Each user's own email signature, added under document and stock emails |
+| `/api/email-signatures/image` | GET | Public (random image token) | Signature company logo / brands banner for mail programs |
 | `/api/auth/mfa` | GET, POST | Signed-in user | Two-step sign-in: set up with an authenticator app, backup codes, turn off |
 | `/api/edition` | GET, PUT | Administrator; PUT All-Admin | EasyBook edition: limits on companies, inventories and warehouses |
 | `/api/admin-users` | GET, POST, PATCH, DELETE | All-Admin, or company Administrator within scope | Users, roles, companies, status, temporary passwords, profiles |

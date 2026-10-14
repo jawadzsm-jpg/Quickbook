@@ -6,6 +6,7 @@ import { friendlyEmailError } from "@/lib/email-errors";
 import { canUseEmailList, emailListLabel, INVENTORY_EMAIL_MAX_RECIPIENTS, isEmailListType } from "@/lib/email-lists";
 import { EMAIL_BODY_MAX, EMAIL_SUBJECT_MAX, RECIPIENTS_PER_MESSAGE, recipientBatches } from "@/lib/email-templates";
 import { emailDeliveryConfigured, sendDocumentEmail } from "@/lib/smtp";
+import { emailSignatureFor } from "@/lib/email-signature-server";
 import { consumeRateLimit } from "@/lib/rate-limit";
 
 // Inventory Overview email: the selected stock written into a message and sent to chosen addresses of the company's
@@ -44,7 +45,8 @@ export async function POST(request: Request) {
   if (!await emailDeliveryConfigured().catch(() => false)) return json({ error: "Emails are not set up yet. An All-Admin can set the email server in Admin Controls → Email server." }, 409);
 
   try {
-    const { sent } = await sendDocumentEmail({ to: recipientBatches(recipients), cc: [], hidden: true, replyTo: user.email ? { name: user.fullName || user.email, address: user.email } : undefined, subject, body });
+    const signature = await emailSignatureFor(companyId, user.id, request);
+    const { sent } = await sendDocumentEmail({ to: recipientBatches(recipients), cc: [], hidden: true, replyTo: user.email ? { name: user.fullName || user.email, address: user.email } : undefined, subject, body, signature });
     await db.insert(auditLog).values({ companyId, action: "sent", entityType: "inventory_email", entityId: 0, details: `Stock email "${subject.slice(0, 120)}" sent to ${recipients.length} address(es) of the ${emailListLabel(type)} by ${user.email}` });
     return json({ ok: true, recipients: recipients.length, messages: sent });
   } catch (error) {

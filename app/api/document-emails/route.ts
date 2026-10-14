@@ -5,6 +5,7 @@ import { requireCompanyAccess } from "@/lib/auth";
 import { friendlyEmailError } from "@/lib/email-errors";
 import { canEmailDocuments, EMAIL_BODY_MAX, EMAIL_SUBJECT_MAX, MAX_ATTACHMENT_BYTES, MAX_RECIPIENTS, RECIPIENTS_PER_MESSAGE, emailDocumentTypeValues, parseEmailList, recipientBatches, SUPPLIER_DOCUMENT_TYPES } from "@/lib/email-templates";
 import { checkDeliveries, emailDeliveryConfigured, sendDocumentEmail } from "@/lib/smtp";
+import { emailSignatureFor } from "@/lib/email-signature-server";
 import { deliveryLabel, summarizeDelivery, type DeliveryCheck } from "@/lib/email-delivery";
 import { publicErrorMessage } from "@/lib/errors";
 import { consumeRateLimit } from "@/lib/rate-limit";
@@ -117,7 +118,8 @@ export async function POST(request: Request) {
 
   const record = { companyId, transactionId: document.id, sentByUserId: user.id, sentByName: user.fullName || user.email, party: document.party, recipients: JSON.stringify(to.valid), cc: JSON.stringify(ccOnly), subject, attachmentName: attachment?.filename ?? "" };
   try {
-    const { sent: messages, messageIds } = await sendDocumentEmail({ to: recipientBatches(to.valid), cc: ccOnly, replyTo: user.email ? { name: user.fullName || user.email, address: user.email } : undefined, subject, body, attachment });
+    const signature = await emailSignatureFor(companyId, user.id, request);
+    const { sent: messages, messageIds } = await sendDocumentEmail({ to: recipientBatches(to.valid), cc: ccOnly, replyTo: user.email ? { name: user.fullName || user.email, address: user.email } : undefined, subject, body, attachment, signature });
     const [saved] = await getDb().insert(documentEmails).values({ ...record, status: "sent", providerMessageIds: JSON.stringify(messageIds) }).returning();
     return Response.json({ ok: true, id: saved.id, messages, recipients: to.valid.length + ccOnly.length });
   } catch (error) {

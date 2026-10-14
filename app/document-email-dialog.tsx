@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { CheckCircle2, FileText, History, Mail, Pencil, Plus, RefreshCw, Send, Trash2, TriangleAlert, X } from "lucide-react";
+import { CheckCircle2, FileText, History, Mail, Pencil, PenLine, Plus, RefreshCw, Send, Trash2, TriangleAlert, X } from "lucide-react";
 import { finalDelivery, type DeliveryCheck, type DeliveryTone } from "@/lib/email-delivery";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { EmailSignatureEditor } from "./email-signature-editor";
 import { EMAIL_DOCUMENT_TYPES, EMAIL_PLACEHOLDERS, MAX_ATTACHMENT_BYTES, defaultEmailTemplate, emailDocumentTypeLabel, fillEmailTemplate, parseEmailList, templateFits, type EmailValues } from "@/lib/email-templates";
 
 export type EmailDocument = { id: number; type: string; number: string; party: string; total: number; currency: string; transactionDate: string; dueDate: string };
@@ -138,7 +139,7 @@ export function DocumentEmailDialog({ open, onOpenChange, companyId, companyName
   open: boolean; onOpenChange: (open: boolean) => void; companyId: number; companyName: string; document: EmailDocument; partyName: string;
   makePdf: () => Promise<{ blob: Blob; fileName: string } | null>;
 }) {
-  const [tab, setTab] = useState<"compose" | "templates" | "history">("compose");
+  const [tab, setTab] = useState<"compose" | "templates" | "signature" | "history">("compose");
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [templateId, setTemplateId] = useState(BUILT_IN);
@@ -227,7 +228,7 @@ export function DocumentEmailDialog({ open, onOpenChange, companyId, companyName
 
   const mine = fitting.filter((template) => template.mine), shared = fitting.filter((template) => !template.mine);
   const history = loaded?.history ?? [];
-  const tabs = [{ key: "compose", label: "Compose", icon: Mail }, { key: "templates", label: "Templates", icon: FileText }, { key: "history", label: history.length ? `History (${history.length})` : "History", icon: History }] as const;
+  const tabs = [{ key: "compose", label: "Compose", icon: Mail }, { key: "templates", label: "Templates", icon: FileText }, { key: "signature", label: "Signature", icon: PenLine }, { key: "history", label: history.length ? `History (${history.length})` : "History", icon: History }] as const;
   return <Dialog open={open} onOpenChange={(next) => { if (!sending) onOpenChange(next); }}>
     <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-3xl">
       <DialogHeader><DialogTitle className="flex items-center gap-2"><Mail className="size-5 text-sky-600" />Email {typeLabel(document.type)} {document.number}</DialogTitle><DialogDescription>To {partyName || document.party} · {document.currency} {values.amount}</DialogDescription></DialogHeader>
@@ -243,11 +244,13 @@ export function DocumentEmailDialog({ open, onOpenChange, companyId, companyName
         <AddressField id="email-to" label="To" addresses={to} onChange={setTo} placeholder="name@company.com — paste several at once" suggestions={[{ label: "Saved", addresses: loaded?.suggestions.contact ?? [] }, { label: "Used before", addresses: loaded?.suggestions.previous ?? [] }]} />
         {showCc ? <AddressField id="email-cc" label="Cc" addresses={cc} onChange={setCc} placeholder="Copy to…" /> : <button type="button" className="text-sm font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300" onClick={() => setShowCc(true)}>+ Add Cc</button>}
         <div className="space-y-1.5"><Label htmlFor="email-subject">Subject</Label><Input id="email-subject" value={subject} maxLength={300} onChange={(event) => setSubject(event.target.value)} /></div>
-        <div className="space-y-1.5"><Label htmlFor="email-body">Message</Label><Textarea id="email-body" rows={10} value={body} onChange={(event) => setBody(event.target.value)} /><p className="text-xs text-muted-foreground">Replies go to {loaded?.sender.email || "you"}.</p></div>
+        <div className="space-y-1.5"><Label htmlFor="email-body">Message</Label><Textarea id="email-body" rows={10} value={body} onChange={(event) => setBody(event.target.value)} /><p className="text-xs text-muted-foreground">Replies go to {loaded?.sender.email || "you"}. Your signature is added under the message when it is turned on — <button type="button" className="font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300" onClick={() => setTab("signature")}>edit signature</button>.</p></div>
         <label className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2.5 text-sm"><Checkbox checked={attach} onCheckedChange={(checked) => setAttach(checked === true)} /><FileText className="size-4 text-rose-600" /><span>Attach the PDF of this {typeLabel(document.type).toLowerCase()} <span className="text-muted-foreground">(as shown in the preview)</span></span></label>
       </div> : null}
 
       {tab === "templates" ? <TemplateEditor companyId={companyId} documentType={document.type} templates={templates} onSaved={() => void loadTemplates().catch((error) => toast.error(error.message))} onUse={(template) => { apply(String(template.id), templates, values); setTab("compose"); }} /> : null}
+
+      {tab === "signature" ? <EmailSignatureEditor companyId={companyId} /> : null}
 
       {tab === "history" ? (history.length ? <ul className="divide-y rounded-lg border">{history.map((item) => <li key={item.id} className="space-y-1 px-3 py-2.5 text-sm">
         <p className="flex flex-wrap items-center gap-2">{item.status === "sent" ? <CheckCircle2 className="size-4 text-emerald-600" /> : <TriangleAlert className="size-4 text-rose-600" />}<span className="font-medium">{item.status === "sent" ? "Sent" : "Failed"}</span><span className="text-muted-foreground">{sentAt(item.createdAt)} · {item.sentByName}</span></p>

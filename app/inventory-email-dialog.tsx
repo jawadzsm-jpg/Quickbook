@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Mail, Plus, Save, Send, Trash2, Upload } from "lucide-react";
+import { Mail, PenLine, Plus, Save, Send, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { EmailSignatureEditor } from "./email-signature-editor";
 import { defaultStockEmail, emailListLabel, emailListsFor, INVENTORY_EMAIL_MAX_RECIPIENTS, parseEmailListCsv, type EmailListContact, type EmailListType } from "@/lib/email-lists";
 import { EMAIL_TEMPLATE_NAME_MAX, fillEmailTemplate, STOCK_EMAIL_TYPE } from "@/lib/email-templates";
 import { isValidEmail } from "@/lib/email-validation";
@@ -45,6 +46,7 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
+  const [editingSignature, setEditingSignature] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // A template's text with {company}, {sender}, {senderEmail} and {items} filled; the stock is added when {items} is missing.
@@ -63,7 +65,7 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
 
   // Opening starts from the default wording with the current selection; the list and templates load as they arrive.
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (!open) return; setTemplateId("default"); fill(defaultStockEmail); setSelected(new Set()); setSearch(""); }, [open, fill]);
+  useEffect(() => { if (!open) return; setEditingSignature(false); setTemplateId("default"); fill(defaultStockEmail); setSelected(new Set()); setSearch(""); }, [open, fill]);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (open && lists.includes(type)) void loadList(type); }, [open, type, lists, loadList]);
   useEffect(() => {
@@ -134,7 +136,7 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
   return <Dialog open={open} onOpenChange={(next) => { if (!busy) onOpenChange(next); }}>
     <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-5xl">
       <DialogHeader><DialogTitle className="flex items-center gap-2"><Mail className="size-5" />Email stock list</DialogTitle><DialogDescription>{itemCount} {itemCount === 1 ? "item" : "items"} from Inventory Overview. Each address receives its own copy; recipients do not see each other, and replies come to {sender.email || "you"}.</DialogDescription></DialogHeader>
-      {!lists.length ? <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">Your role cannot send stock emails.</p> : <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+      {editingSignature ? <><EmailSignatureEditor companyId={companyId} /><div><Button type="button" variant="outline" onClick={() => setEditingSignature(false)}>Back to the email</Button></div></> : !lists.length ? <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">Your role cannot send stock emails.</p> : <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
         <section className="min-w-0 space-y-3" aria-label="Email list">
           <div className="flex flex-wrap gap-2" role="group" aria-label="Email list">{lists.map((list) => <Button key={list} type="button" size="sm" variant={type === list ? "default" : "outline"} aria-pressed={type === list} onClick={() => chooseList(list)}>{emailListLabel(list)}</Button>)}</div>
           <p className="text-xs text-muted-foreground">{seesAll ? "Administrator view: every user's addresses in this company." : "Only you see your addresses. Administrators can see every user's list."}</p>
@@ -163,10 +165,10 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
             <Button type="button" size="sm" variant="outline" className="h-9" disabled={busy || !subject.trim() || !body.trim()} onClick={saveTemplate}><Save className="size-4" />Save as template</Button>
           </div>
           <div className="space-y-1.5"><Label htmlFor="stock-email-subject">Subject</Label><Input id="stock-email-subject" value={subject} maxLength={300} onChange={(event) => setSubject(event.target.value)} /></div>
-          <div className="space-y-1.5"><Label htmlFor="stock-email-body">Message</Label><Textarea id="stock-email-body" value={body} rows={14} onChange={(event) => setBody(event.target.value)} className="font-mono text-xs" /><p className="text-xs text-muted-foreground">Templates can use {"{items}"} (the selected stock), {"{company}"}, {"{sender}"} and {"{senderEmail}"}.</p></div>
+          <div className="space-y-1.5"><Label htmlFor="stock-email-body">Message</Label><Textarea id="stock-email-body" value={body} rows={14} onChange={(event) => setBody(event.target.value)} className="font-mono text-xs" /><p className="text-xs text-muted-foreground">Templates can use {"{items}"} (the selected stock), {"{company}"}, {"{sender}"} and {"{senderEmail}"}. Your signature is added under the message when it is turned on.</p><Button type="button" size="sm" variant="outline" onClick={() => setEditingSignature(true)}><PenLine className="size-4" />My signature</Button></div>
         </section>
       </div>}
-      <DialogFooter><Button type="button" variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>Cancel</Button><Button type="button" disabled={busy || !itemCount || !selected.size || !subject.trim() || !body.trim()} onClick={send}><Send className="size-4" />{busy ? "Working…" : `Send to ${selected.size} ${selected.size === 1 ? "address" : "addresses"}`}</Button></DialogFooter>
+      {editingSignature ? null : <DialogFooter><Button type="button" variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>Cancel</Button><Button type="button" disabled={busy || !itemCount || !selected.size || !subject.trim() || !body.trim()} onClick={send}><Send className="size-4" />{busy ? "Working…" : `Send to ${selected.size} ${selected.size === 1 ? "address" : "addresses"}`}</Button></DialogFooter>}
     </DialogContent>
   </Dialog>;
 }
