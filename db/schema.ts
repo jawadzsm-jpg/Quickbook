@@ -679,8 +679,21 @@ export const emailListContacts = pgTable("email_list_contacts", {
   name: text("name").notNull().default(""),
   // The contact's company (migration 0132), used with the name to greet each recipient.
   company: text("company").notNull().default(""),
+  // A category such as a country or region (migration 0134), to filter and email part of a list.
+  category: text("category").notNull().default(""),
   email: text("email").notNull(),
   createdByUserId: integer("created_by_user_id").references(() => appUsers.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+});
+
+// Email list categories (migration 0135): each owner's saved categories of a list, added, renamed and deleted in the
+// Send dialog. Unique per company, list and owner on lower(name); addresses carry the name in `category`.
+export const emailListCategories = pgTable("email_list_categories", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  listType: text("list_type").notNull(),
+  ownerUserId: integer("owner_user_id").references(() => appUsers.id, { onDelete: "set null" }),
+  name: text("name").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 });
 
