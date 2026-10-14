@@ -197,7 +197,7 @@ type CartEntry = { key: number; sku: string; name: string; quantity: number; inv
 const cartStorageKey = "comnet-overview-cart";
 const cartDocuments: Array<[OverviewCartDocument, string]> = [["invoice", "Invoice"], ["sales order", "Sales Order"], ["proforma invoice", "Proforma Invoice"], ["estimate", "Estimate"]];
 
-export function InventoryOverview({ onOpenDocument, onOpenItem, onCreateDocument, emailFrom }: { emailFrom?: { companyId: number; companyName: string; role: string; name: string; email: string }; onOpenDocument?: (id: number) => void; onOpenItem?: (id: number) => void; onCreateDocument?: (request: { type: OverviewCartDocument; companyId: number; locationId: number; lines: Array<{ itemId: number; quantity: number; sku: string; name: string }> }) => void } = {}) {
+export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCreateDocument, emailFrom }: { companyId?: number; emailFrom?: { companyId: number; companyName: string; role: string; name: string; email: string }; onOpenDocument?: (id: number) => void; onOpenItem?: (id: number) => void; onCreateDocument?: (request: { type: OverviewCartDocument; companyId: number; locationId: number; lines: Array<{ itemId: number; quantity: number; sku: string; name: string }> }) => void } = {}) {
   const [records, setRecords] = useState<OverviewItem[]>([]);
   const [emailOpen, setEmailOpen] = useState(false);
   const [activity, setActivity] = useState<InventoryActivity>(emptyActivity);
@@ -265,11 +265,13 @@ export function InventoryOverview({ onOpenDocument, onOpenItem, onCreateDocument
   const [holdTarget, setHoldTarget] = useState<ConsolidatedItem | null>(null);
 
   const load = useCallback(async () => {
+    if (!companyId) return; // wait for the selected company
     setLoading(true);
     setCanSelectItems(false);
     setSelectedIds(new Set());
     try {
-      const response = await fetch("/api/inventory-overview", { cache: "no-store" });
+      // Only the selected company's stock and activity (a new company starts empty).
+      const response = await fetch(`/api/inventory-overview?companyId=${companyId}`, { cache: "no-store" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not load inventory overview");
       setRecords(data.records as OverviewItem[]);
@@ -289,7 +291,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem, onCreateDocument
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [companyId]);
 
   // Initial load synchronizes the overview with all persisted inventories.
   // eslint-disable-next-line react-hooks/set-state-in-effect

@@ -6,7 +6,7 @@ import { activeHoldCondition } from "@/lib/stock-holds";
 import { savedCategoryColors } from "@/lib/category-colors-sql";
 import { canManageOffers } from "@/lib/item-offers";
 import { currentOfferCondition, offerSoldQuantity } from "@/lib/item-offers-sql";
-import { isAdministrator, requireApiUser } from "@/lib/auth";
+import { canAccessCompany, isAdministrator, requireApiUser } from "@/lib/auth";
 import { publicErrorMessage } from "@/lib/errors";
 
 function errorMessage(error: unknown) {
@@ -16,6 +16,16 @@ function errorMessage(error: unknown) {
 export async function GET(request: Request) {
   const authorization = await requireApiUser(request, "inventory:read");
   if (authorization instanceof Response) return authorization;
+  // ?companyId= limits the overview to that company (the app passes the selected company, so a new company starts
+  // empty); without it the overview covers every company the user can access.
+  const companyParam = new URL(request.url).searchParams.get("companyId");
+  const requestedCompanyId = Number(companyParam);
+  if (companyParam !== null && (!Number.isSafeInteger(requestedCompanyId) || requestedCompanyId <= 0 || !canAccessCompany(authorization, requestedCompanyId))) {
+    return Response.json({ error: "You do not have access to this company." }, { status: 403 });
+  }
+  // null = every company (All-Admin without a company choice).
+  const scopeIds: number[] | null = companyParam !== null ? [requestedCompanyId] : authorization.role === "all_admin" ? null : authorization.companyIds;
+  const scopeSql = (column: string) => scopeIds === null ? sql`` : scopeIds.length ? sql`AND ${sql.raw(column)} IN (${sql.join(scopeIds.map((id) => sql`${id}`), sql`, `)})` : sql`AND false`;
   try {
     const db = getDb();
     const recordsPromise = db.select({
@@ -47,15 +57,11 @@ export async function GET(request: Request) {
     }).from(items)
       .innerJoin(companies, eq(items.companyId, companies.id))
       .innerJoin(inventoryLocations, and(eq(items.locationId, inventoryLocations.id), eq(items.companyId, inventoryLocations.companyId)))
-      .where(and(eq(companies.active, true), eq(inventoryLocations.active, true), eq(items.status, "active"), authorization.role === "all_admin" ? undefined : inArray(items.companyId, authorization.companyIds)))
+      .where(and(eq(companies.active, true), eq(inventoryLocations.active, true), eq(items.status, "active"), scopeIds === null ? undefined : inArray(items.companyId, scopeIds.length ? scopeIds : [0])))
       .orderBy(asc(items.category), asc(items.name), asc(companies.name), asc(inventoryLocations.name))
       .limit(5000);
 
-    const companyScope = authorization.role === "all_admin"
-      ? sql``
-      : authorization.companyIds.length
-        ? sql`AND activity_company.id IN (${sql.join(authorization.companyIds.map((id) => sql`${id}`), sql`, `)})`
-        : sql`AND false`;
+    const companyScope = scopeSql("activity_company.id");
 
     // Latest stock receipt per item, in one grouped query (a per-item subquery made the overview slower with every
     // product). Items never received fall back to their creation date below.
@@ -63,7 +69,7 @@ export async function GET(request: Request) {
       SELECT movement.item_id AS "itemId", MAX(receipt.created_at) AS "receivedAt"
       FROM inventory_movements movement
       JOIN transactions receipt ON receipt.id = movement.transaction_id
-      ${authorization.role === "all_admin" ? sql`` : authorization.companyIds.length ? sql`AND receipt.company_id IN (${sql.join(authorization.companyIds.map((id) => sql`${id}`), sql`, `)})` : sql`AND false`}
+      ${scopeSql("receipt.company_id")}
       WHERE movement.quantity > 0
         AND movement.movement_type <> 'invoice void'
         AND lower(receipt.status) NOT IN ('cancelled', 'canceled', 'void', 'voided')
@@ -191,7 +197,7 @@ export async function GET(request: Request) {
       .innerJoin(items, eq(itemOffers.itemId, items.id))
       .innerJoin(companies, eq(itemOffers.companyId, companies.id))
       .innerJoin(inventoryLocations, and(eq(items.locationId, inventoryLocations.id), eq(items.companyId, inventoryLocations.companyId)))
-      .where(and(currentOfferCondition(), eq(items.status, "active"), eq(companies.active, true), authorization.role === "all_admin" ? undefined : inArray(itemOffers.companyId, authorization.companyIds.length ? authorization.companyIds : [0])))
+      .where(and(currentOfferCondition(), eq(items.status, "active"), eq(companies.active, true), scopeIds === null ? undefined : inArray(itemOffers.companyId, scopeIds.length ? scopeIds : [0])))
       .orderBy(asc(itemOffers.startsAt), asc(itemOffers.endsAt)).limit(200);
     // Share emoji: this user's WhatsApp/Telegram styles, and companies whose administrator switched emoji off.
     const companyIds = [...new Set(records.map((record) => record.companyId))];
