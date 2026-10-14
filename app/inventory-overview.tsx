@@ -136,7 +136,7 @@ function specificationText(record: OverviewItem) {
 /**
  * The specifications for the item line and for WhatsApp, Telegram, Email copies and the Excel export: Product
  * Customization Details (RAM, Storage, Screen Details, Part Number, Serial, UPC No.) are left out; they show only in
- * Details. Saving them also writes RAM, Storage and Part Number into the specifications, so any specification equal to
+ * Details. Saving them used to write RAM, Storage and Part Number into the specifications, so any specification equal to
  * a customization value is dropped too. The on-screen line keeps the Part Number (it copies on hover).
  */
 function shareSpecificationText(record: OverviewItem, keepPartNumber = false) {
