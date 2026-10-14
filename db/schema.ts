@@ -686,6 +686,17 @@ export const emailListContacts = pgTable("email_list_contacts", {
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 });
 
+// Email list categories (migration 0135): each owner's saved categories of a list, added, renamed and deleted in the
+// Send dialog. Unique per company, list and owner on lower(name); addresses carry the name in `category`.
+export const emailListCategories = pgTable("email_list_categories", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  listType: text("list_type").notNull(),
+  ownerUserId: integer("owner_user_id").references(() => appUsers.id, { onDelete: "set null" }),
+  name: text("name").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+});
+
 // Email signatures (migration 0131): each user's own per company, added under document and stock-list emails
 // (lib/email-signature.ts). The logo is the company logo; it and the banner reach mail readers through `image_token`.
 export const emailSignatures = pgTable("email_signatures", {

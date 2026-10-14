@@ -1,14 +1,15 @@
 import { and, asc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { getDb } from "@/db";
-import { appUsers, auditLog, emailListContacts } from "@/db/schema";
+import { appUsers, auditLog, emailListCategories, emailListContacts } from "@/db/schema";
 import { isAdministrator, requireCompanyAccess, type SessionUser } from "@/lib/auth";
-import { canUseEmailList, cleanEmailListCategory, EMAIL_LIST_IMPORT_MAX, EMAIL_LIST_MAX, EMAIL_LIST_NAME_MAX, emailListLabel, isEmailListType, type EmailListOwner, type EmailListType } from "@/lib/email-lists";
+import { canUseEmailList, cleanEmailListCategory, emailListCategories as emailListCategoryNames, EMAIL_LIST_IMPORT_MAX, EMAIL_LIST_MAX, EMAIL_LIST_NAME_MAX, emailListLabel, isEmailListType, type EmailListOwner, type EmailListType } from "@/lib/email-lists";
 import { isValidEmail } from "@/lib/email-validation";
 import { databaseErrorCode, publicErrorMessage } from "@/lib/errors";
 
 // The Sales list (customers) and Purchase list (suppliers) for Inventory Overview emails. Each user's addresses are
 // private to them; Admins and All-Admins see and manage everyone's in the company, one user's list at a time or all
-// together, and can add to any user's list. Each address may have a category (a country, region…) to filter by.
+// together, and can add to any user's list. Each address may have a category (a country, region…) to filter by; each
+// owner's categories are also saved (email_list_categories) so they can be added, renamed and deleted.
 // Sales users use the Sales list only and Viewers neither (lib/email-lists.ts canUseEmailList).
 
 const json = (data: unknown, status = 200) => Response.json(data, { status, headers: { "Cache-Control": "no-store" } });
@@ -57,10 +58,24 @@ async function ownersOf(companyId: number, type: EmailListType): Promise<(EmailL
   });
 }
 
-/** The list as the client shows it, with the other users whose list an administrator can open. */
+/** The saved categories of the list shown (one owner's, or everyone's for an administrator's "all"), sorted. */
+async function categoriesOf(user: SessionUser, companyId: number, type: EmailListType, view?: unknown) {
+  const owner = viewOf(user, view);
+  const rows = await getDb().select({ name: emailListCategories.name }).from(emailListCategories)
+    .where(and(eq(emailListCategories.companyId, companyId), eq(emailListCategories.listType, type), owner === undefined ? undefined : eq(emailListCategories.ownerUserId, owner)));
+  return emailListCategoryNames(rows.map((row) => ({ category: row.name })));
+}
+
+/** Saves the categories that addresses now use, for their owners (already saved ones are kept). */
+async function saveCategories(companyId: number, type: EmailListType, rows: { ownerId: number | null; category: string }[]) {
+  const values = [...new Map(rows.filter((row) => row.category).map((row) => [`${row.ownerId ?? 0}:${row.category.toLowerCase()}`, { companyId, listType: type, ownerUserId: row.ownerId, name: row.category }])).values()];
+  if (values.length) await getDb().insert(emailListCategories).values(values).onConflictDoNothing();
+}
+
+/** The list as the client shows it, with its saved categories and the other users whose list an administrator can open. */
 async function listResponse(user: SessionUser, companyId: number, type: EmailListType, view: unknown) {
   const admin = isAdministrator(user);
-  return { contacts: await listOf(user, companyId, type, view), seesAll: admin, ...(admin ? { owners: (await ownersOf(companyId, type)).filter((owner) => owner.id !== user.id) } : {}) };
+  return { contacts: await listOf(user, companyId, type, view), categories: await categoriesOf(user, companyId, type, view), seesAll: admin, ...(admin ? { owners: (await ownersOf(companyId, type)).filter((owner) => owner.id !== user.id) } : {}) };
 }
 
 /**
@@ -113,6 +128,7 @@ export async function POST(request: Request) {
     if (Number(count) + rows.length > EMAIL_LIST_MAX) return json({ error: `A list can hold at most ${EMAIL_LIST_MAX.toLocaleString("en")} addresses. Remove some first.` }, 400);
     const added = await db.insert(emailListContacts).values(rows.map((row) => ({ companyId, listType: allowed.type, ...row, createdByUserId: ownerId })))
       .onConflictDoNothing().returning();
+    await saveCategories(companyId, allowed.type, added.map((row) => ({ ownerId: row.createdByUserId, category: row.category })));
     if (added.length) await db.insert(auditLog).values({ companyId, action: "created", entityType: "email_list", entityId: added[0].id, details: `${added.length} address(es) added to the ${emailListLabel(allowed.type)}${owner ? ` of ${owner.name}` : ""} by ${allowed.user.email}` });
     return json({ added: added.length, alreadyListed: rows.length - added.length, invalid, ...await listResponse(allowed.user, companyId, allowed.type, payload.view) }, 201);
   } catch (error) { return failed(error); }
@@ -130,6 +146,7 @@ async function updateContact(user: SessionUser, companyId: number, type: EmailLi
     const [saved] = await db.update(emailListContacts).set({ name: clean(payload.name), company: clean(payload.company), category: cleanEmailListCategory(payload.category), email })
       .where(and(eq(emailListContacts.id, id), eq(emailListContacts.companyId, companyId), eq(emailListContacts.listType, type), ownedBy(user))).returning();
     if (!saved) return json({ error: "This address is no longer in the list." }, 404);
+    await saveCategories(companyId, type, [{ ownerId: saved.createdByUserId, category: saved.category }]);
     await db.insert(auditLog).values({ companyId, action: "updated", entityType: "email_list", entityId: saved.id, details: `${saved.email} edited in the ${emailListLabel(type)} by ${user.email}` });
     return json(await listResponse(user, companyId, type, payload.view));
   } catch (error) {
@@ -140,8 +157,44 @@ async function updateContact(user: SessionUser, companyId: number, type: EmailLi
 }
 
 /**
+ * Categories of the list shown (`view`: the user's own; administrators one user's, or with "all" every user's):
+ * addCategory { name } saves a new one (to the open user's list for an administrator); renameCategory { from, to }
+ * renames it and moves its addresses (merging into `to` when that exists); deleteCategory { name } deletes it and leaves
+ * its addresses without a category.
+ */
+async function manageCategory(user: SessionUser, companyId: number, type: EmailListType, payload: Record<string, unknown>) {
+  const owner = viewOf(user, payload.view);
+  const db = getDb();
+  const ofList = (table: typeof emailListCategories | typeof emailListContacts) => and(eq(table.companyId, companyId), eq(table.listType, type));
+  try {
+    if (payload.action === "addCategory") {
+      const name = cleanEmailListCategory(payload.name);
+      if (!name) return json({ error: "Enter a category name." }, 400);
+      const ownerId = owner ?? user.id;
+      if (ownerId !== user.id && !(await ownersOf(companyId, type)).some((entry) => entry.id === ownerId && entry.canAdd)) return json({ error: `That user cannot use the ${emailListLabel(type)} of this company.` }, 400);
+      const [saved] = await db.insert(emailListCategories).values({ companyId, listType: type, ownerUserId: ownerId, name }).onConflictDoNothing().returning();
+      if (!saved) return json({ error: `${name} is already a category.` }, 409);
+      await db.insert(auditLog).values({ companyId, action: "created", entityType: "email_list", entityId: saved.id, details: `Category "${name}" added to the ${emailListLabel(type)} by ${user.email}` });
+      return json(await listResponse(user, companyId, type, payload.view), 201);
+    }
+    const from = cleanEmailListCategory(payload.action === "renameCategory" ? payload.from : payload.name);
+    if (!from) return json({ error: "Choose a category." }, 400);
+    const to = payload.action === "renameCategory" ? cleanEmailListCategory(payload.to) : "";
+    if (payload.action === "renameCategory" && !to) return json({ error: "Enter the new category name." }, 400);
+    const sameName = (column: typeof emailListCategories.name | typeof emailListContacts.category) => sql`lower(${column}) = ${from.toLowerCase()}`;
+    const removed = await db.delete(emailListCategories).where(and(ofList(emailListCategories), sameName(emailListCategories.name), owner === undefined ? undefined : eq(emailListCategories.ownerUserId, owner))).returning();
+    const moved = await db.update(emailListContacts).set({ category: to }).where(and(ofList(emailListContacts), sameName(emailListContacts.category), owner === undefined ? undefined : eq(emailListContacts.createdByUserId, owner))).returning();
+    if (!removed.length && !moved.length) return json({ error: `${from} is no longer a category.` }, 404);
+    if (to) await saveCategories(companyId, type, [...removed.map((row) => ({ ownerId: row.ownerUserId, category: to })), ...moved.map((row) => ({ ownerId: row.createdByUserId, category: to }))]);
+    await db.insert(auditLog).values({ companyId, action: to ? "updated" : "deleted", entityType: "email_list", entityId: removed[0]?.id ?? moved[0].id, details: `Category "${from}" ${to ? `renamed to "${to}"` : "deleted"} in the ${emailListLabel(type)} (${moved.length} address(es)) by ${user.email}` });
+    return json({ changed: moved.length, ...await listResponse(user, companyId, type, payload.view) });
+  } catch (error) { return failed(error); }
+}
+
+/**
  * PATCH { companyId, type, action: "update", id, name, company, category, email } edits one address (above).
  * PATCH { companyId, type, action: "categorize", ids, category } sets the category of several addresses ("" clears it).
+ * PATCH { companyId, type, action: "addCategory" | "renameCategory" | "deleteCategory", … } manages categories (below).
  * PATCH { companyId, type, action: "remove", ids } — remove contacts. Removing goes through PATCH because HTTP DELETE
  * is reserved for administrators across the app. Each response lists `view` as GET does.
  */
@@ -152,6 +205,7 @@ export async function PATCH(request: Request) {
   const allowed = await access(request, companyId, payload.type, true);
   if (allowed instanceof Response) return allowed;
   if (payload.action === "update") return updateContact(allowed.user, companyId, allowed.type, payload);
+  if (payload.action === "addCategory" || payload.action === "renameCategory" || payload.action === "deleteCategory") return manageCategory(allowed.user, companyId, allowed.type, payload);
   const ids = [...new Set((Array.isArray(payload.ids) ? payload.ids : []).map(Number))].filter((id) => Number.isSafeInteger(id) && id > 0);
   if (payload.action === "categorize") {
     if (!ids.length || ids.length > EMAIL_LIST_MAX) return json({ error: "Choose the addresses to put in a category." }, 400);
@@ -159,6 +213,7 @@ export async function PATCH(request: Request) {
     try {
       const db = getDb();
       const changed = await db.update(emailListContacts).set({ category }).where(and(eq(emailListContacts.companyId, companyId), eq(emailListContacts.listType, allowed.type), inArray(emailListContacts.id, ids), ownedBy(allowed.user))).returning();
+      await saveCategories(companyId, allowed.type, changed.map((row) => ({ ownerId: row.createdByUserId, category: row.category })));
       if (changed.length) await db.insert(auditLog).values({ companyId, action: "updated", entityType: "email_list", entityId: changed[0].id, details: `${changed.length} address(es) of the ${emailListLabel(allowed.type)} ${category ? `put in category "${category}"` : "taken out of their category"} by ${allowed.user.email}` });
       return json({ changed: changed.length, ...await listResponse(allowed.user, companyId, allowed.type, payload.view) });
     } catch (error) { return failed(error); }

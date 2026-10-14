@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Mail, PenLine, Pencil, Plus, Save, Send, Tag, Trash2, Upload, X } from "lucide-react";
+import { Mail, PenLine, Pencil, Plus, Save, Send, Tag, Tags, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -55,6 +55,11 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
   const [view, setView] = useState("me");
   const [owners, setOwners] = useState<(EmailListOwner & { canAdd: boolean })[]>([]);
   const [category, setCategory] = useState(ALL_CATEGORIES);
+  // Saved categories (also those no address uses yet) and the Categories panel: a new name, or one being renamed.
+  const [savedCategories, setSavedCategories] = useState<string[]>([]);
+  const [managingCategories, setManagingCategories] = useState(false);
+  const [newCategory, setNewCategory] = useState("");
+  const [renaming, setRenaming] = useState<{ from: string; to: string } | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [search, setSearch] = useState("");
   const [newAddress, setNewAddress] = useState<Address>(noAddress);
@@ -81,8 +86,8 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
   }, [companyName, itemsText, sender.email, sender.name]);
 
   // Every list response carries the contacts (and, for administrators, the users whose list they can open).
-  const showList = useCallback((data: { contacts?: EmailListContact[]; seesAll?: boolean; owners?: (EmailListOwner & { canAdd: boolean })[] }) => {
-    setContacts(data.contacts ?? []); setSeesAll(data.seesAll === true); setOwners(data.owners ?? []);
+  const showList = useCallback((data: { contacts?: EmailListContact[]; categories?: string[]; seesAll?: boolean; owners?: (EmailListOwner & { canAdd: boolean })[] }) => {
+    setContacts(data.contacts ?? []); setSavedCategories(data.categories ?? []); setSeesAll(data.seesAll === true); setOwners(data.owners ?? []);
   }, []);
   const loadList = useCallback(async (list: EmailListType, listView: string) => {
     setContacts(null);
@@ -112,7 +117,7 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
     call(`/api/email-templates?companyId=${companyId}`, "GET").then((data) => setTemplates((data.templates ?? []).filter((template: Template) => template.documentType === STOCK_EMAIL_TYPE))).catch(() => setTemplates([]));
   }, [open, companyId]);
 
-  const categories = useMemo(() => emailListCategories(contacts ?? []), [contacts]);
+  const categories = useMemo(() => emailListCategories([...savedCategories.map((name) => ({ category: name })), ...(contacts ?? [])]), [contacts, savedCategories]);
   const categoryCount = useCallback((name: string) => (contacts ?? []).filter((contact) => name === NO_CATEGORY ? !contact.category : contact.category.toLowerCase() === name.toLowerCase()).length, [contacts]);
   const shown = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -124,10 +129,10 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
   const allShownSelected = shown.length > 0 && shown.every((contact) => selected.has(contact.id));
   const toggleShown = () => setSelected((current) => { const next = new Set(current); for (const contact of shown) { if (allShownSelected) next.delete(contact.id); else next.add(contact.id); } return next; });
   const toggle = (id: number) => setSelected((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-  const chooseList = (list: EmailListType) => { if (list === type) return; setType(list); setSelected(new Set()); setSearch(""); setCategory(ALL_CATEGORIES); setEditing(null); };
+  const chooseList = (list: EmailListType) => { if (list === type) return; setType(list); setSelected(new Set()); setSearch(""); setCategory(ALL_CATEGORIES); setEditing(null); setRenaming(null); };
   // A new category starts a new selection, so addresses hidden by the filter are never sent to by mistake.
   const chooseCategory = (next: string) => { if (next === category) return; setCategory(next); setSelected(new Set()); };
-  const chooseView = (next: string) => { if (next === view) return; setView(next); setSelected(new Set()); setCategory(ALL_CATEGORIES); setEditing(null); };
+  const chooseView = (next: string) => { if (next === view) return; setView(next); setSelected(new Set()); setCategory(ALL_CATEGORIES); setEditing(null); setRenaming(null); };
 
   const run = async (work: () => Promise<void>) => { setBusy(true); try { await work(); } catch (error) { toast.error(errorText(error)); } finally { setBusy(false); } };
   const addContacts = (rows: Address[], skipped = 0) => run(async () => {
@@ -178,6 +183,37 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
     const name = cleanEmailListCategory(answer);
     void run(async () => { const data = await call("/api/email-lists", "PATCH", { companyId, type, view, action: "categorize", ids, category: name }); showList(data); toast.success(name ? `${data.changed} put in ${name}` : `Category cleared for ${data.changed}`); });
   };
+  // Categories panel: add one before any address uses it, rename one (its addresses follow) or delete one (its
+  // addresses stay, without a category). With "All users" open, rename and delete apply to every user's list.
+  const addCategory = (event: FormEvent) => {
+    event.preventDefault();
+    const name = cleanEmailListCategory(newCategory);
+    if (!name) return toast.error("Enter a category name.");
+    void run(async () => { showList(await call("/api/email-lists", "PATCH", { companyId, type, view, action: "addCategory", name })); setNewCategory(""); toast.success(`Category ${name} added`); });
+  };
+  const renameCategory = (event: FormEvent) => {
+    event.preventDefault();
+    if (!renaming) return;
+    const to = cleanEmailListCategory(renaming.to);
+    if (!to) return toast.error("Enter the new category name.");
+    if (to === renaming.from) return setRenaming(null);
+    const { from } = renaming;
+    void run(async () => {
+      const data = await call("/api/email-lists", "PATCH", { companyId, type, view, action: "renameCategory", from, to });
+      showList(data); setRenaming(null);
+      if (category.toLowerCase() === from.toLowerCase()) setCategory(to);
+      toast.success(`${from} renamed to ${to}${data.changed ? ` (${data.changed} ${data.changed === 1 ? "address" : "addresses"})` : ""}`);
+    });
+  };
+  const deleteCategory = (name: string) => {
+    const count = categoryCount(name);
+    if (!window.confirm(`Delete the category ${name}?${count ? ` Its ${count} ${count === 1 ? "address stays" : "addresses stay"} in the list without a category.` : ""}${seesAll && view === "all" ? " This applies to every user's list." : ""}`)) return;
+    void run(async () => {
+      showList(await call("/api/email-lists", "PATCH", { companyId, type, view, action: "deleteCategory", name }));
+      if (category.toLowerCase() === name.toLowerCase()) { setCategory(ALL_CATEGORIES); setSelected(new Set()); }
+      toast.success(`Category ${name} deleted`);
+    });
+  };
   const chooseTemplate = (id: string) => { setTemplateId(id); const template = templates.find((entry) => String(entry.id) === id); fill(template ?? standardEmail(signatureOn, itemCount > 0)); };
   const saveTemplate = () => {
     const name = window.prompt("Template name", "")?.trim().slice(0, EMAIL_TEMPLATE_NAME_MAX);
@@ -225,8 +261,20 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
               <SelectItem value={NO_CATEGORY}>No category ({categoryCount(NO_CATEGORY)})</SelectItem>
             </SelectContent></Select>
             <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={(event) => void importCsv(event)} />
+            <Button type="button" size="sm" variant={managingCategories ? "default" : "outline"} className="h-9" aria-expanded={managingCategories} onClick={() => { setManagingCategories(!managingCategories); setRenaming(null); }}><Tags className="size-4" />Categories</Button>
             <Button type="button" size="sm" variant="outline" className="h-9" disabled={busy} onClick={() => fileRef.current?.click()} title="CSV with an Email column (and optionally Name, Company and Category or Country), or one address per row"><Upload className="size-4" />Import CSV</Button>
           </div>
+          {managingCategories ? <div className="space-y-2 rounded-lg border bg-muted/30 p-3" aria-label="Categories">
+            <form onSubmit={addCategory} className="flex gap-2"><Input aria-label="New category" placeholder="New category, e.g. a country" value={newCategory} maxLength={EMAIL_LIST_CATEGORY_MAX} onChange={(event) => setNewCategory(event.target.value)} className="h-8 min-w-0 flex-1" /><Button type="submit" size="sm" variant="outline" className="h-8" disabled={busy}><Plus className="size-4" />Add category</Button></form>
+            {categories.length ? <ul className="max-h-48 divide-y overflow-y-auto rounded-md border bg-background">{categories.map((name) => renaming?.from === name ? <li key={name}><form onSubmit={renameCategory} className="flex items-center gap-2 px-2 py-1.5">
+              <Input aria-label={`New name for ${name}`} value={renaming.to} maxLength={EMAIL_LIST_CATEGORY_MAX} autoFocus onChange={(event) => setRenaming({ ...renaming, to: event.target.value })} className="h-8 min-w-0 flex-1" />
+              <Button type="button" size="sm" variant="ghost" className="h-8" disabled={busy} onClick={() => setRenaming(null)}><X className="size-4" />Cancel</Button><Button type="submit" size="sm" className="h-8" disabled={busy}><Save className="size-4" />Save</Button>
+            </form></li> : <li key={name} className="flex items-center gap-1 px-3 py-1 text-sm"><span className="min-w-0 flex-1 truncate">{name} <span className="text-xs text-muted-foreground">({categoryCount(name)})</span></span>
+              <Button type="button" size="icon" variant="ghost" className="size-8" disabled={busy} aria-label={`Rename ${name}`} title="Rename" onClick={() => setRenaming({ from: name, to: name })}><Pencil className="size-4" /></Button>
+              <Button type="button" size="icon" variant="ghost" className="size-8 text-destructive" disabled={busy} aria-label={`Delete ${name}`} title="Delete (its addresses stay, without a category)" onClick={() => deleteCategory(name)}><Trash2 className="size-4" /></Button>
+            </li>)}</ul> : <p className="text-xs text-muted-foreground">No categories yet. Add one above, or give an address a category.</p>}
+            <p className="text-xs text-muted-foreground">Renaming moves its addresses to the new name; deleting keeps the addresses without a category.{seesAll && view === "all" ? " With All users open, renaming and deleting apply to every user's list; a new category goes to your own." : viewedOwner ? ` These are ${viewedOwner.name}'s categories.` : ""}</p>
+          </div> : null}
           <div className="rounded-lg border">
             <label className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2 text-xs font-medium"><Checkbox checked={allShownSelected} disabled={!shown.length} onCheckedChange={toggleShown} />Select {search || category !== ALL_CATEGORIES ? "shown" : "all"}{category === ALL_CATEGORIES ? "" : ` in ${category === NO_CATEGORY ? "No category" : category}`} · {selected.size} of {contacts?.length ?? 0} selected</label>
             <ul className="max-h-72 divide-y overflow-y-auto">

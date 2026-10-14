@@ -4902,6 +4902,19 @@ test("inventory overview emails: private Sales and Purchase lists (administrator
   const categorized = await as("sales", async () => (await call(lists, "PATCH", { type: "sales", action: "categorize", ids: salesList.map((row) => row.id), category: "  UAE " })).json());
   assert.deepEqual([categorized.changed, categorized.contacts.map((row) => row.category)], [2, ["UAE", "UAE"]]);
   assert.equal((await (await as("sales", () => call(lists, "PATCH", { type: "sales", action: "categorize", ids: [ranaList[0].id], category: "Oman" }))).json()).changed, 0, "not another user's address");
+  // Categories are saved per owner: added before any address uses them, renamed (addresses follow) and deleted.
+  assert.deepEqual(categorized.categories, ["UAE"], "a category used by an address is saved");
+  const withQatar = await as("sales", async () => (await call(lists, "PATCH", { type: "sales", action: "addCategory", name: "Qatar" })).json());
+  assert.deepEqual(withQatar.categories, ["Qatar", "UAE"]);
+  assert.equal((await as("sales", () => call(lists, "PATCH", { type: "sales", action: "addCategory", name: "qatar" }))).status, 409, "a category is listed once (any case)");
+  assert.deepEqual((await (await as("sales", () => call(lists, "GET", null, `?companyId=${companyId}&type=sales`), rana)).json()).categories, [], "Rana does not see Sam's categories");
+  const renamed = await as("sales", async () => (await call(lists, "PATCH", { type: "sales", action: "renameCategory", from: "uae", to: "United Arab Emirates" })).json());
+  assert.deepEqual([renamed.changed, renamed.categories, renamed.contacts.map((row) => row.category)], [2, ["Qatar", "United Arab Emirates"], ["United Arab Emirates", "United Arab Emirates"]]);
+  const merged = await as("sales", async () => (await call(lists, "PATCH", { type: "sales", action: "renameCategory", from: "Qatar", to: "united arab emirates" })).json());
+  assert.deepEqual(merged.categories, ["United Arab Emirates"], "renaming into an existing category merges them");
+  const deleted = await as("sales", async () => (await call(lists, "PATCH", { type: "sales", action: "deleteCategory", name: "United Arab Emirates" })).json());
+  assert.deepEqual([deleted.changed, deleted.categories, deleted.contacts.map((row) => row.category)], [2, [], ["", ""]], "deleting keeps the addresses without a category");
+  assert.equal((await as("sales", () => call(lists, "PATCH", { type: "sales", action: "deleteCategory", name: "Nowhere" }))).status, 404);
   // Administrators open one user's list, their own, or everyone's, and add to another user's list.
   const ranaView = await (await as("admin", () => call(lists, "GET", null, `?companyId=${companyId}&type=sales&view=${rana}`), seller)).json();
   assert.deepEqual(ranaView.contacts.map((row) => [row.email, row.ownerId]), [["buyer@gulf.test", rana]]);
