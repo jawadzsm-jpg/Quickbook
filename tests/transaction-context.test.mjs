@@ -4538,6 +4538,15 @@ test("turboSMTP API: settings choose the API, and documents are sent as JSON wit
     assert.deepEqual(body.custom_headers, { "Reply-To": '"Jo" <jo@comnet.test>' });
     assert.deepEqual(body.attachments, [{ name: "INV-1.pdf", type: "application/pdf", content: Buffer.from("%PDF-1").toString("base64") }]);
 
+    // Stock emails colour the item lines without changing their text.
+    calls.length = 0;
+    await smtp.sendDocumentEmail({ to: [["a@x.test"]], cc: [], subject: "Stock", body: "Dear Sir,\n\nDELL XPS 13 - ABC1 | BRAND NEW | 16GB | 512GB SSD\nQuantity: 2 | Price: AED 7,700 + VAT\n-------------------\nOther line", itemLines: [{ identity: "DELL XPS 13 - ABC1", condition: "BRAND NEW", details: "16GB | 512GB SSD" }] });
+    const colored = JSON.parse(calls[0].init.body);
+    assert.match(colored.html_content, /<strong style="color:#1d4ed8;text-decoration:underline">DELL XPS 13 - ABC1<\/strong> \| <span style="color:#dc2626">BRAND NEW<\/span> \| <strong style="color:#1f2937">16GB \| 512GB SSD<\/strong>/);
+    assert.match(colored.html_content, /Quantity: 2 \| <span style="color:#dc2626">Price: AED 7,700 \+ VAT<\/span>/);
+    assert.match(colored.html_content, /<span style="color:#94a3b8">-------------------<\/span><br>Other line/);
+    assert.equal(colored.content, "Dear Sir,\n\nDELL XPS 13 - ABC1 | BRAND NEW | 16GB | 512GB SSD\nQuantity: 2 | Price: AED 7,700 + VAT\n-------------------\nOther line", "the text is unchanged");
+
     // A signature's logo goes inside the email: the whole message is sent as mime_raw with the image as a cid: part.
     const signature = { text: "Thanks\nJo", html: '<img src="cid:logo@signature">', linkedHtml: '<img src="https://app.test/api/email-signatures/image?t=x&k=logo">', images: [{ filename: "signature-logo.png", contentType: "image/png", content: Buffer.from("png-bytes"), cid: "logo@signature" }] };
     calls.length = 0;
