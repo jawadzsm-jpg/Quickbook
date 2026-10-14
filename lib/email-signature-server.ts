@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { companies, emailSignatures } from "@/db/schema";
 import { appBaseUrl } from "./app-url";
@@ -20,7 +20,22 @@ export async function savedSignature(companyId: number, userId: number) {
  * still show them.
  */
 export async function emailSignatureFor(companyId: number, userId: number, request?: Request) {
-  const row = await savedSignature(companyId, userId);
+  return signatureForEmail(await savedSignature(companyId, userId), request);
+}
+
+/**
+ * For Send test email, which belongs to no company: the person's most recently saved signature that is turned on, and
+ * the company it belongs to; undefined when they have none.
+ */
+export async function latestEmailSignature(userId: number, request?: Request) {
+  const [row] = await getDb().select({ signature: emailSignatures, companyLogo: companies.logoData, companyName: companies.name }).from(emailSignatures)
+    .innerJoin(companies, eq(companies.id, emailSignatures.companyId))
+    .where(and(eq(emailSignatures.userId, userId), eq(emailSignatures.enabled, true))).orderBy(desc(emailSignatures.updatedAt)).limit(1);
+  const signature = signatureForEmail(row ?? null, request);
+  return signature && row ? { ...signature, companyName: row.companyName } : undefined;
+}
+
+function signatureForEmail(row: Awaited<ReturnType<typeof savedSignature>>, request?: Request) {
   if (!row?.signature.enabled) return undefined;
   const signature: EmailSignature = row.signature;
   let base = "";

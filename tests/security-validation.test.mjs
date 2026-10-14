@@ -1248,7 +1248,9 @@ test("Send test email sends a real message only to the signed-in All-Admin", () 
   assert.match(ui, /id="smtp-username" type="text"/, "turboSMTP API consumer keys are not email addresses");
   assert.match(route, /requireApiUser\(request, true, true\)/);
   assert.match(route, /user\.role !== "all_admin"/);
-  assert.match(route, /await sendTestEmail\(user\.email\)/);
+  // Recipient is always the signed-in user's own address; the second argument is their own signature.
+  assert.match(route, /await sendTestEmail\(user\.email, signature\)/);
+  assert.match(route, /latestEmailSignature\(user\.id, request\)/);
   assert.doesNotMatch(route, /request\.json\(\)/);
   assert.match(route, /friendlyEmailError\(error, "The test email could not be sent\."\)/);
   assert.match(ui, /fetch\("\/api\/email-settings\/test-email", \{ method: "POST" \}\)/);

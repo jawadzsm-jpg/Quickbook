@@ -94,7 +94,7 @@ export function SmtpSettings({ onStatus }: { onStatus?: (configured: boolean) =>
       const response = await fetch("/api/email-settings/test-email", { method: "POST" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "The test email could not be sent");
-      toast.success(`Test email sent to ${data.to} — check that inbox (and spam)`);
+      toast.success(`Test email sent to ${data.to}${data.signatureCompany ? ` with your ${data.signatureCompany} signature` : " (you have no email signature turned on)"} — check that inbox (and spam)`);
       const ids = Array.isArray(data.messageIds) ? data.messageIds.map(String) : [];
       setTestIds(ids); setTestDelivery(null);
       // turboSMTP needs a few seconds to report on a new message.
