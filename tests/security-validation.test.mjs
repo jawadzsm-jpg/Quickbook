@@ -554,7 +554,7 @@ test("all 10 Vendor reports have professional summaries, one export control, A4 
   assert.match(app, /isBudgetReport \|\| isSalesReport \|\| isCustomerReport \|\| isVendorReport \|\| isPurchaseReport \|\| isInventoryReport \|\| isBankingReport \|\| isAccountantReport \? <DropdownMenu>/);
   assert.match(app, /const stampReport = isVendorReport/);
   assert.match(app, /const vendorLink = isVendorReport[\s\S]*isPurchaseReport[\s\S]*purchases-by-vendor[\s\S]*onVendor/);
-  assert.match(app, /onVendor=\{\(supplier\) => \{ setReport\(null\); setSearch\(supplier\); setView\("vendors"\); \}\}/);
+  assert.match(app, /onVendor=\{\(supplier\) => \{ leaveReport\(\); setSearch\(supplier\); setView\("vendors"\); \}\}/);
   assert.match(api, /transactionId: row\.id, supplier: row\.party/);
   assert.match(vendor, /export const vendorReportKeys = new Set/);
   assert.match(sharedExport, /orientation: PrintOrientation = "portrait"/);
@@ -600,7 +600,7 @@ test("all 10 Inventory reports have professional summaries, one export control, 
   assert.match(app, /isBudgetReport \|\| isSalesReport \|\| isCustomerReport \|\| isVendorReport \|\| isPurchaseReport \|\| isInventoryReport \|\| isBankingReport \|\| isAccountantReport \? <DropdownMenu>/);
   assert.match(app, /stampReport = [^;]+isInventoryReport/);
   assert.match(app, /isInventoryReport && \["name", "sku", "itemNumber"\][\s\S]*onInventoryItem/);
-  assert.match(app, /onInventoryItem=\{\(query\) => \{ setReport\(null\); setSearch\(query\); setView\("inventory"\); \}\}/);
+  assert.match(app, /onInventoryItem=\{\(query\) => \{ leaveReport\(\); setSearch\(query\); setView\("inventory"\); \}\}/);
   assert.match(app, /reportAttachmentId\(report\.key\)/);
   assert.match(app, /entityType="report" documentLabel="Report"/);
   assert.match(app, /relative flex flex-col items-center gap-3 text-center/);

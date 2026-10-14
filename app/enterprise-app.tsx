@@ -140,7 +140,7 @@ import {
   Eye, ImageUp, LayoutDashboard, LogOut, PackageCheck, PackageSearch, PackageX, Palette, Paperclip, Pencil, Plus, Printer, ReceiptText, RefreshCw,
   Search, Settings, ShieldCheck, ShoppingCart, ClipboardList, Stamp, Sun, Moon, Table2, Trash2, Users, WalletCards, Percent, X,
   Truck,
-  ArrowDown, ArrowUp, FileCode2, LayoutTemplate, LogIn, Megaphone, NotebookPen, Mail } from "lucide-react";
+  ArrowDown, ArrowUp, FileCode2, LayoutTemplate, LogIn, Megaphone, NotebookPen, Mail, ArrowLeft } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -603,6 +603,8 @@ export default function EnterpriseApp({ currentUser, edition = DEFAULT_EDITION }
   const [reportLoading, setReportLoading] = useState(false);
   const [incomeTaxOpen, setIncomeTaxOpen] = useState(false);
   const [reportContext, setReportContext] = useState<ReportContext | null>(null);
+  // Reports left for another report (a drill-down) or another area: closing that report, or Back to report, returns here.
+  const [reportTrail, setReportTrail] = useState<Array<{ companyId: number; report: ReportData; context: ReportContext | null }>>([]);
   const [memorisedReports, setMemorisedReports] = useState<MemorisedReportRecord[]>([]);
   const [memoriseSaving, setMemoriseSaving] = useState(false);
   const [companies, setCompanies] = useState<CompanyWorkspace[]>([]);
@@ -1367,8 +1369,9 @@ export default function EnterpriseApp({ currentUser, edition = DEFAULT_EDITION }
     setDialogOpen(true);
   }
 
-  async function openReport(key: string, period?: { start: string; end: string }, saved?: { locationId: number | null; currency: string; customer?: string; statementDate?: string; memo?: string; supplierId?: number; warehouseId?: number }) {
-    if (key === "income-tax") { setIncomeTaxOpen(true); return; }
+  /** Opens a report; `keepTrail` keeps the reports to return to (drill-downs and re-running the open report). */
+  async function openReport(key: string, period?: { start: string; end: string }, saved?: { locationId: number | null; currency: string; customer?: string; statementDate?: string; memo?: string; supplierId?: number; warehouseId?: number }, keepTrail = false) {
+    if (key === "income-tax") { setIncomeTaxOpen(true); return false; }
     setReportLoading(true);
     try {
       const periodQuery = (period ? `&periodStart=${period.start}&periodEnd=${period.end}` : "") + `&customer=${encodeURIComponent(saved?.customer || "")}&statementDate=${encodeURIComponent(saved?.statementDate || "")}&memo=${encodeURIComponent(saved?.memo || "")}&supplierId=${saved?.supplierId || ""}&warehouseId=${saved?.warehouseId || ""}`;
@@ -1379,8 +1382,37 @@ export default function EnterpriseApp({ currentUser, edition = DEFAULT_EDITION }
       if (!response.ok) throw new Error(data.error || "Could not generate report");
       setReport(data.report);
       setReportContext({ key, locationId: reportLocationId, currency: reportCurrency, periodStart: period?.start ?? "", periodEnd: period?.end ?? "", supplierId: saved?.supplierId, warehouseId: data.report?.warehouse?.id });
-    } catch (error) { toast.error(error instanceof Error && error.name === "TimeoutError" ? "The report took too long to load. Please try again." : error instanceof Error ? error.message : "Could not generate report"); }
+      if (!keepTrail) setReportTrail([]);
+      return true;
+    } catch (error) { toast.error(error instanceof Error && error.name === "TimeoutError" ? "The report took too long to load. Please try again." : error instanceof Error ? error.message : "Could not generate report"); return false; }
     finally { setReportLoading(false); }
+  }
+  /** Opens another report from the open one; closing it returns to this one. */
+  async function drillReport(...args: Parameters<typeof openReport>) {
+    const current = report ? { companyId: activeCompanyId, report, context: reportContext } : null;
+    if (await openReport(args[0], args[1], args[2], true) && current) setReportTrail((trail) => [...trail, current]);
+  }
+  /** Leaves the open report for another area; Back to report brings it back as it was. */
+  function leaveReport() {
+    if (report) setReportTrail((trail) => [...trail, { companyId: activeCompanyId, report, context: reportContext }]);
+    setReport(null);
+  }
+  // A document opened from a report shows on top of it; if that leads to another area, the report steps aside too.
+  const reportView = useRef(view);
+  useEffect(() => {
+    if (reportView.current === view) return;
+    reportView.current = view;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the report follows a navigation that already happened
+    if (report) leaveReport();
+    // Only a change of area moves the report aside.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
+  /** Closes the open report, returning to the report it was opened from (if any). */
+  function returnToReport() {
+    const previous = reportTrail.at(-1);
+    setReportTrail((trail) => trail.slice(0, -1));
+    if (previous && previous.companyId === activeCompanyId) { setReport(previous.report); setReportContext(previous.context); }
+    else setReport(null);
   }
 
   async function saveMemorisedReport() {
@@ -1558,7 +1590,11 @@ export default function EnterpriseApp({ currentUser, edition = DEFAULT_EDITION }
       </Dialog>
       <DocumentDialog deliveryRole={currentUser.role} inventorySerials={currentUser.role === "inventory"} autoEditInvoiceId={autoEditInvoiceId} onAutoEditOpened={() => setAutoEditInvoiceId(null)} onOpenInvoice={openDetail} onReceiptSaved={() => { setDetail(null); void loadData(); }} onChequeNumberSaved={(number, revision) => { setDetail((current) => current ? { ...current, revision, record: { ...current.record, number } } : current); setRecords((current) => ({ ...current, transactions: current.transactions.map((transaction) => transaction.id === detail?.record.id ? { ...transaction, number } : transaction) })); }} key={detail ? String(detail.record.id) : "closed-document"} detail={detail} companyName={activeCompany?.name ?? "Company"} baseCurrency={baseCurrency} setup={companySetup} canConvert={currentUser.role === "sales" ? false : detail && ["purchase order", "bill", "vendor credit", "item receipt", "received item bill"].includes(String(detail.record.type)) ? roleWriteViews[currentUser.role].includes("purchases") : roleWriteViews[currentUser.role].includes("sales")} canEditCheque={currentUser.role === "admin"} onConvert={convertSourceDocument} onStampPositionsSaved={(stampPositions) => setCompanySetup((current) => ({ ...current, stampPositions }))} onClose={() => setDetail(null)} />
       {incomeTaxOpen && <IncomeTaxCenter key={activeCompanyId} companyId={activeCompanyId} companyName={activeCompany?.name ?? "Company"} stampData={companySetup.stampData} onClose={() => { setIncomeTaxOpen(false); void loadData(); }} onSource={id => { setIncomeTaxOpen(false); void openDetail(id); }} onAccounts={() => { setIncomeTaxOpen(false); void loadData(); setView("accounts"); }} />}
-      <ReportDialog onVatArea={(area) => { if (!roleViews[currentUser.role].includes(area)) return; setReport(null); setView(area); }} canManageVatCodes={roleViews[currentUser.role].includes("vat-codes")} canOpenVatManagement={roleViews[currentUser.role].includes("vat-management")} onPurchaseOrder={(supplier) => { setReport(null); setSearch(supplier); setView("purchases"); }} onVendor={(supplier) => { setReport(null); setSearch(supplier); setView("vendors"); }} onCustomerCenter={(customer) => { setReport(null); setSearch(customer); setView("customers"); }} onEmployee={(employee) => { setReport(null); setSearch(employee); setView("employees"); }} onInventoryItem={(query) => { setReport(null); setSearch(query); setView("inventory"); }} onProfitLossArea={(area, query, locationId) => { setReport(null); if (locationId && activeLocations.some((location) => location.id === locationId)) setActiveLocationId(locationId); setSearch(query || ""); setView(area); }} onOpenReport={(key) => { void openReport(key, reportContext?.periodStart || reportContext?.periodEnd ? { start: reportContext.periodStart, end: reportContext.periodEnd } : undefined, reportContext ? { locationId: reportContext.locationId, currency: reportContext.currency, supplierId: reportContext.supplierId, warehouseId: reportContext.warehouseId } : undefined); }} onWarehouse={(warehouseId) => { if (reportContext) void openReport(reportContext.key, reportContext.periodStart || reportContext.periodEnd ? { start: reportContext.periodStart, end: reportContext.periodEnd } : undefined, { locationId: reportContext.locationId, currency: reportContext.currency, supplierId: reportContext.supplierId, warehouseId: warehouseId ?? undefined }); }} onCustomerDocument={(customer, type) => { setReport(null); setSearch(customer); setSalesListTarget((current) => ({ type, customer, nonce: (current?.nonce ?? 0) + 1 })); setView("sales"); }} onCustomer={(name, currency, overdue) => { void openReport(overdue ? "customers-overdue-invoices" : "customer-open-balance", undefined, { locationId: reportContext?.locationId ?? activeLocationId, currency, customer: name }); }} onOpenSource={(id) => { setReport(null); void openDetail(id); }} setup={companySetup} loading={reportLoading} onStatementApply={(filters) => openReport(report?.key || "customer-statements", { start: filters.from, end: filters.to }, { locationId: reportContext?.locationId ?? activeLocationId, currency: filters.currency, customer: filters.customer, statementDate: filters.statementDate, memo: filters.memo, supplierId: reportContext?.supplierId })} onPricesSaved={async () => { await openReport("stock-pricing-profit", undefined, reportContext ? { locationId: reportContext.locationId, currency: reportContext.currency } : undefined); await loadData(); }} report={report} companyId={activeCompanyId} canEmail={canEmailDocuments(currentUser.role)} companyName={activeCompany?.name ?? "Company"} inventoryName={activeLocations.find((location) => location.id === (reportContext?.locationId ?? activeLocationId))?.name ?? "All inventories"} memorised={Boolean(reportContext && memorisedReports.some((savedReport) => savedReport.reportKey === reportContext.key))} saving={memoriseSaving} onMemorise={saveMemorisedReport} onClose={() => setReport(null)} />
+      <ReportDialog onVatArea={(area) => { if (!roleViews[currentUser.role].includes(area)) return; leaveReport(); setView(area); }} canManageVatCodes={roleViews[currentUser.role].includes("vat-codes")} canOpenVatManagement={roleViews[currentUser.role].includes("vat-management")} onPurchaseOrder={(supplier) => { leaveReport(); setSearch(supplier); setView("purchases"); }} onVendor={(supplier) => { leaveReport(); setSearch(supplier); setView("vendors"); }} onCustomerCenter={(customer) => { leaveReport(); setSearch(customer); setView("customers"); }} onEmployee={(employee) => { leaveReport(); setSearch(employee); setView("employees"); }} onInventoryItem={(query) => { leaveReport(); setSearch(query); setView("inventory"); }} onProfitLossArea={(area, query, locationId) => { leaveReport(); if (locationId && activeLocations.some((location) => location.id === locationId)) setActiveLocationId(locationId); setSearch(query || ""); setView(area); }} onOpenReport={(key) => { void drillReport(key, reportContext?.periodStart || reportContext?.periodEnd ? { start: reportContext.periodStart, end: reportContext.periodEnd } : undefined, reportContext ? { locationId: reportContext.locationId, currency: reportContext.currency, supplierId: reportContext.supplierId, warehouseId: reportContext.warehouseId } : undefined); }} onWarehouse={(warehouseId) => { if (reportContext) void openReport(reportContext.key, reportContext.periodStart || reportContext.periodEnd ? { start: reportContext.periodStart, end: reportContext.periodEnd } : undefined, { locationId: reportContext.locationId, currency: reportContext.currency, supplierId: reportContext.supplierId, warehouseId: warehouseId ?? undefined }, true); }} onCustomerDocument={(customer, type) => { leaveReport(); setSearch(customer); setSalesListTarget((current) => ({ type, customer, nonce: (current?.nonce ?? 0) + 1 })); setView("sales"); }} onCustomer={(name, currency, overdue) => { void drillReport(overdue ? "customers-overdue-invoices" : "customer-open-balance", undefined, { locationId: reportContext?.locationId ?? activeLocationId, currency, customer: name }); }} onOpenSource={(id) => { void openDetail(id); }} setup={companySetup} loading={reportLoading} onStatementApply={async (filters) => { await openReport(report?.key || "customer-statements", { start: filters.from, end: filters.to }, { locationId: reportContext?.locationId ?? activeLocationId, currency: filters.currency, customer: filters.customer, statementDate: filters.statementDate, memo: filters.memo, supplierId: reportContext?.supplierId }, true); }} onPricesSaved={async () => { await openReport("stock-pricing-profit", undefined, reportContext ? { locationId: reportContext.locationId, currency: reportContext.currency } : undefined, true); await loadData(); }} report={report} companyId={activeCompanyId} canEmail={canEmailDocuments(currentUser.role)} companyName={activeCompany?.name ?? "Company"} inventoryName={activeLocations.find((location) => location.id === (reportContext?.locationId ?? activeLocationId))?.name ?? "All inventories"} memorised={Boolean(reportContext && memorisedReports.some((savedReport) => savedReport.reportKey === reportContext.key))} saving={memoriseSaving} onMemorise={saveMemorisedReport} onClose={returnToReport} />
+      {!report && reportTrail.at(-1)?.companyId === activeCompanyId ? <div className="fixed bottom-4 left-1/2 z-40 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-1 rounded-full border bg-background/95 p-1 shadow-lg backdrop-blur print:hidden">
+        <Button type="button" size="sm" className="min-w-0 rounded-full" onClick={returnToReport}><ArrowLeft className="size-4" /><span className="truncate">Back to {reportTrail.at(-1)?.report.title}</span></Button>
+        <Button type="button" size="icon" variant="ghost" className="size-8 rounded-full" aria-label="Dismiss back to report" onClick={() => setReportTrail([])}><X className="size-4" /></Button>
+      </div> : null}
       <WorkspaceDialog open={workspaceOpen} companies={companies} activeCompanyId={activeCompanyId} onClose={() => setWorkspaceOpen(false)} onChanged={loadWorkspaces} />
       <IdleSignOut minutes={currentUser.idleTimeoutMinutes} />
       <Toaster richColors position="bottom-right" />
