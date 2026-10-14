@@ -238,6 +238,8 @@ type TransactionDetail = { revision?: string; record: DataRecord; lines: DataRec
 
 const invoiceNumberPreview = formatInvoiceNumber;
 
+const SIDEBAR_GROUPS_KEY = "comnet-sidebar-groups";
+
 const navGroups = [
   { label: "OVERVIEW", items: [
     { id: "dashboard", label: "Company Home", icon: LayoutDashboard },
@@ -589,6 +591,18 @@ const documentItemLineDescription = (item: DataRecord) => inventoryItemLine(item
 export default function EnterpriseApp({ currentUser, edition = DEFAULT_EDITION }: { currentUser: CurrentUser; edition?: Edition }) {
   // Roles without Company Home (Product Customization) start on their first permitted page.
   const [view, setView] = useState<View>(() => roleViews[currentUser.role].includes("dashboard") ? "dashboard" : roleViews[currentUser.role][0]);
+  // Sidebar sections open and close like dropdowns: the user's choice per section is kept in this browser, and the
+  // section of the page being shown opens (closing it lasts until another page is opened). Unset sections start closed.
+  const [navOpen, setNavOpen] = useState<Record<string, boolean>>({});
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { try { const saved = JSON.parse(window.localStorage.getItem(SIDEBAR_GROUPS_KEY) || "{}"); if (saved && typeof saved === "object") setNavOpen((current) => ({ ...saved, ...current })); } catch { /* optional */ } }, []);
+  const setNavGroupOpen = useCallback((label: string, open: boolean) => setNavOpen((current) => {
+    if (current[label] === open) return current;
+    const next = { ...current, [label]: open };
+    try { window.localStorage.setItem(SIDEBAR_GROUPS_KEY, JSON.stringify(next)); } catch { /* optional */ }
+    return next;
+  }), []);
+  const [navClosedAt, setNavClosedAt] = useState<{ label: string; view: View } | null>(null);
   const [records, setRecords] = useState<Record<Kind, DataRecord[]>>({ transactions: [], contacts: [], items: [], accounts: [] });
   const [loading, setLoading] = useState(true);
   const [documentInventory, setDocumentInventory] = useState<{ key: string; items: DataRecord[]; error?: string }>({ key: "", items: [] });
@@ -1479,10 +1493,11 @@ export default function EnterpriseApp({ currentUser, edition = DEFAULT_EDITION }
           <div className="mt-3 group-data-[collapsible=icon]:hidden"><Select value={String(activeCompanyId || "")} onValueChange={(value) => { const company = companies.find((entry) => entry.id === Number(value)); setActiveCompanyId(Number(value)); setActiveLocationId(company?.locations[0]?.id ?? 0); setSearch(""); }}><SelectTrigger aria-label="Active company" className="w-full border-white/10 bg-white/6 text-white shadow-none hover:bg-white/10"><SelectValue placeholder="Select company" /></SelectTrigger><SelectContent>{companies.map((company) => <SelectItem key={company.id} value={String(company.id)}>{company.name}</SelectItem>)}</SelectContent></Select></div>
         </SidebarHeader>
         <SidebarContent className="px-2 py-3">
-          {visibleNavGroups.map((group) => (
+          {visibleNavGroups.map((group) => { const current = group.items.some((item) => item.id === view); const groupOpen = current ? !(navClosedAt?.label === group.label && navClosedAt.view === view) : navOpen[group.label] ?? false; return (
             <SidebarGroup key={group.label}>
-              <SidebarGroupLabel className="text-[10px] font-bold tracking-[.18em] text-slate-500">{group.label}</SidebarGroupLabel>
-              <SidebarGroupContent><SidebarMenu>
+              <SidebarGroupLabel asChild className="text-[10px] font-bold tracking-[.18em] text-slate-500"><button type="button" aria-expanded={groupOpen} onClick={() => { if (current) setNavClosedAt(groupOpen ? { label: group.label, view } : null); setNavGroupOpen(group.label, !groupOpen); }} className="w-full justify-between hover:bg-white/5 hover:text-slate-300">{group.label}<ChevronDown className={`transition-transform ${groupOpen ? "" : "-rotate-90"}`} /></button></SidebarGroupLabel>
+              {/* A closed section still shows its icons when the sidebar is collapsed to icons. */}
+              <SidebarGroupContent className={groupOpen ? undefined : "hidden group-data-[collapsible=icon]:block"}><SidebarMenu>
                 {group.items.map((item) => <SidebarMenuItem key={item.id}>
                   <NavMenuButton tooltip={item.label} isActive={view === item.id} onClick={() => { setView(item.id as View); setSearch(""); }} className="brand-nav-item h-10 rounded-lg px-2.5 text-slate-300 hover:bg-white/8 hover:text-white">
                     <item.icon /><span>{item.label}</span>
@@ -1490,7 +1505,7 @@ export default function EnterpriseApp({ currentUser, edition = DEFAULT_EDITION }
                 </SidebarMenuItem>)}
               </SidebarMenu></SidebarGroupContent>
             </SidebarGroup>
-          ))}
+          ); })}
         </SidebarContent>
         <SidebarFooter className="border-t border-white/10 p-3">
           <div className="mt-1 flex items-center gap-3 rounded-xl border border-white/6 bg-white/5 p-2 group-data-[collapsible=icon]:hidden">
