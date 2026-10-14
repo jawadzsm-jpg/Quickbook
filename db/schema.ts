@@ -677,6 +677,8 @@ export const emailListContacts = pgTable("email_list_contacts", {
   companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   listType: text("list_type").notNull(),
   name: text("name").notNull().default(""),
+  // The contact's company (migration 0132), used with the name to greet each recipient.
+  company: text("company").notNull().default(""),
   email: text("email").notNull(),
   createdByUserId: integer("created_by_user_id").references(() => appUsers.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),

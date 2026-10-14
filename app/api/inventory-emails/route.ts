@@ -3,7 +3,7 @@ import { getDb } from "@/db";
 import { auditLog, emailListContacts } from "@/db/schema";
 import { isAdministrator, requireCompanyAccess } from "@/lib/auth";
 import { friendlyEmailError } from "@/lib/email-errors";
-import { canUseEmailList, emailListLabel, INVENTORY_EMAIL_MAX_RECIPIENTS, isEmailListType } from "@/lib/email-lists";
+import { canUseEmailList, emailListLabel, INVENTORY_EMAIL_MAX_RECIPIENTS, isEmailListType, personalizeEmail, personalPlaceholders } from "@/lib/email-lists";
 import { EMAIL_BODY_MAX, EMAIL_SUBJECT_MAX, RECIPIENTS_PER_MESSAGE, recipientBatches } from "@/lib/email-templates";
 import { emailDeliveryConfigured, sendDocumentEmail } from "@/lib/smtp";
 import { emailSignatureFor } from "@/lib/email-signature-server";
@@ -11,6 +11,9 @@ import { consumeRateLimit } from "@/lib/rate-limit";
 
 // Inventory Overview email: the selected stock written into a message and sent to chosen addresses of the company's
 // Sales or Purchase list. Recipients are Bcc'd in batches so they never see each other; replies go to the sender.
+
+// A personalised email goes to each address separately; up to 500 sends need more than the default time.
+export const maxDuration = 300;
 
 const json = (data: unknown, status = 200) => Response.json(data, { status, headers: { "Cache-Control": "no-store" } });
 
@@ -43,22 +46,26 @@ export async function POST(request: Request) {
   if (!budget.allowed) return json({ error: "Too many stock emails sent in the last hour. Try again later." }, 429);
 
   const db = getDb();
-  const rows = await db.select({ email: emailListContacts.email }).from(emailListContacts)
+  const rows = await db.select({ email: emailListContacts.email, name: emailListContacts.name, company: emailListContacts.company }).from(emailListContacts)
     .where(and(eq(emailListContacts.companyId, companyId), eq(emailListContacts.listType, type), inArray(emailListContacts.id, ids),
       // Each user sends only to their own addresses; administrators to anyone's in the company.
       isAdministrator(user) ? undefined : eq(emailListContacts.createdByUserId, user.id)));
-  const recipients = [...new Set(rows.map((row) => row.email.toLowerCase()))];
+  // One contact per address (the first one listed when several users added it).
+  const contacts = [...new Map(rows.map((row) => [row.email.toLowerCase(), row])).entries()].map(([email, row]) => ({ email, name: row.name, company: row.company }));
+  const recipients = contacts.map((contact) => contact.email);
   if (!recipients.length) return json({ error: "The selected addresses are no longer in the list." }, 404);
   if (!await emailDeliveryConfigured().catch(() => false)) return json({ error: "Emails are not set up yet. An All-Admin can set the email server in Admin Controls → Email server." }, 409);
 
+  // With {name} or {contactCompany}, each address gets its own copy greeting it by name; otherwise hidden batches.
+  const personal = personalPlaceholders.test(subject) || personalPlaceholders.test(body);
   try {
     const signature = await emailSignatureFor(companyId, user.id, request);
-    const { sent } = await sendDocumentEmail({ to: recipientBatches(recipients), cc: [], hidden: true, replyTo: user.email ? { name: user.fullName || user.email, address: user.email } : undefined, subject, body, signature, itemLines });
+    const { sent } = await sendDocumentEmail({ ...(personal ? { to: recipients.map((email) => [email]), personalize: (index: number) => ({ subject: personalizeEmail(subject, contacts[index]), body: personalizeEmail(body, contacts[index]) }) } : { to: recipientBatches(recipients), hidden: true }), cc: [], replyTo: user.email ? { name: user.fullName || user.email, address: user.email } : undefined, subject, body, signature, itemLines });
     await db.insert(auditLog).values({ companyId, action: "sent", entityType: "inventory_email", entityId: 0, details: `Stock email "${subject.slice(0, 120)}" sent to ${recipients.length} address(es) of the ${emailListLabel(type)} by ${user.email}` });
     return json({ ok: true, recipients: recipients.length, messages: sent });
   } catch (error) {
     const sentMessages = Number((error as { sentMessages?: number }).sentMessages ?? 0);
     const reason = friendlyEmailError(error);
-    return json({ error: sentMessages ? `Sent to the first ${sentMessages * RECIPIENTS_PER_MESSAGE} addresses, then: ${reason}` : reason }, 502);
+    return json({ error: sentMessages ? `Sent to the first ${sentMessages * (personal ? 1 : RECIPIENTS_PER_MESSAGE)} addresses, then: ${reason}` : reason }, 502);
   }
 }

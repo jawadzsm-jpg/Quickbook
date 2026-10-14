@@ -196,21 +196,27 @@ export async function sendDocumentEmail(input: {
   signature?: Signature;
   /** Stock emails: item lines to colour (lib/smtp.ts stockLineHtml). */
   itemLines?: ItemLine[];
+  /** A different subject and message for each batch (one recipient each): stock emails greeting each contact by name. */
+  personalize?: (batch: number) => { subject: string; body: string };
 }) {
   const { client, settings } = await transporter();
-  const { html, fallbackHtml, inline } = withSignature(messageHtml(input.body, input.itemLines), input.signature);
+  const compose = (subject: string, body: string) => ({ subject, body, ...withSignature(messageHtml(body, input.itemLines), input.signature) });
+  const shared = input.personalize ? undefined : compose(input.subject, input.body);
+  const { inline } = shared ?? compose(input.subject, input.body);
   const attachments = [...(input.attachment ? [{ filename: input.attachment.filename, content: input.attachment.content, contentType: "application/pdf" }] : []), ...inline];
   let sent = 0;
   const messageIds: string[] = [];
   try {
     for (const [index, to] of input.to.entries()) {
+      const personal = input.personalize?.(index);
+      const { subject, body, html, fallbackHtml } = shared ?? compose(personal?.subject ?? input.subject, personal?.body ?? input.body);
       const result = await client.sendMail({
         from: { name: settings.fromName, address: settings.fromEmail },
         ...(input.hidden ? { to: { name: settings.fromName, address: settings.fromEmail }, bcc: to } : { to }),
         ...(index === 0 && input.cc.length ? { cc: input.cc } : {}),
         ...(input.replyTo ? { replyTo: input.replyTo } : {}),
-        subject: input.subject,
-        text: input.signature ? `${input.body}\n\n${input.signature.text}` : input.body,
+        subject,
+        text: input.signature ? `${body}\n\n${input.signature.text}` : body,
         html,
         ...(fallbackHtml ? { fallbackHtml } : {}),
         ...(attachments.length ? { attachments } : {}),
