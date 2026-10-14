@@ -16,6 +16,8 @@ import { defaultShareEmoji, shareEmojiStyle, shareEmojiStyles } from "@/lib/shar
 import { applyInlineFormat, applyLineFormat, applyLink, inlineFormatsFor, telegramHtml, type FormatResult, type InlineFormat, type LineFormat } from "@/lib/share-format";
 import { inventoryItemCondition, inventoryItemLine, inventoryLineParts, partNumberInLine, inventorySocialShareText, itemSpecificationDescription } from "@/lib/item-description";
 import { matchesSearch } from "@/lib/search";
+import { inactiveCodeMatches } from "@/lib/inactive-item-match";
+import { InactiveItemNotice } from "./inactive-item-notice";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { TelegramIcon, WhatsAppIcon } from "./brand-icons";
 import { CopyOnHover } from "./copy-on-hover";
@@ -199,6 +201,9 @@ const cartDocuments: Array<[OverviewCartDocument, string]> = [["invoice", "Invoi
 
 export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCreateDocument, emailFrom }: { companyId?: number; emailFrom?: { companyId: number; companyName: string; role: string; name: string; email: string }; onOpenDocument?: (id: number) => void; onOpenItem?: (id: number) => void; onCreateDocument?: (request: { type: OverviewCartDocument; companyId: number; locationId: number; lines: Array<{ itemId: number; quantity: number; sku: string; name: string }> }) => void } = {}) {
   const [records, setRecords] = useState<OverviewItem[]>([]);
+  // Inactive items (codes only) and whether this user may reactivate them, for the "it is in Inactive items" notice.
+  const [inactiveItems, setInactiveItems] = useState<Array<Record<string, unknown> & { id: number }>>([]);
+  const [canReactivateItems, setCanReactivateItems] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
   const [activity, setActivity] = useState<InventoryActivity>(emptyActivity);
   const [activityView, setActivityView] = useState<ActivityView | "offers">("incoming");
@@ -275,6 +280,8 @@ export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCre
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not load inventory overview");
       setRecords(data.records as OverviewItem[]);
+      setInactiveItems(Array.isArray(data.inactive) ? data.inactive : []);
+      setCanReactivateItems(data.canReactivateItems === true);
       setLoadedAt(Date.now());
       setActivity({ ...emptyActivity, ...(data.activity as Partial<InventoryActivity> | undefined) });
       setCanSelectItems(data.canSelectItems === true);
@@ -490,6 +497,7 @@ export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCre
     if (kind === "item" && onOpenItem) return onOpenItem(entry.itemId);
     window.dispatchEvent(new CustomEvent("inventory-activity-open", { detail: { kind, id: kind === "document" ? entry.transactionId : entry.itemId, companyId: entry.companyId, locationId: entry.locationId, sku: entry.sku } }));
   };
+  const inactiveSearchMatches = useMemo(() => inactiveCodeMatches(inactiveItems, search), [inactiveItems, search]);
   const allVisibleSelected = filtered.length > 0 && filtered.every((record) => selectedIds.has(record.id));
   const someVisibleSelected = filtered.some((record) => selectedIds.has(record.id));
 
@@ -748,6 +756,10 @@ export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCre
           <Button variant="outline" size="icon" className="size-9" onClick={load} disabled={loading} aria-label="Refresh inventory overview"><RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} /></Button>
         </div>
       </div>
+
+      {inactiveSearchMatches.length > 0 && <InactiveItemNotice compact matches={inactiveSearchMatches} companyId={companyId}
+        onOpen={(item) => window.dispatchEvent(new CustomEvent("inventory-activity-open", { detail: { kind: "item", id: item.id, companyId: item.companyId, locationId: item.locationId, sku: item.sku, inactive: true } }))}
+        onReactivated={canReactivateItems ? () => void load() : undefined} />}
 
       {/* Filters: category, brand, condition and price range. */}
       <div className="border-b bg-muted/20 px-4 py-3" aria-label="Filters">
