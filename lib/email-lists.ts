@@ -14,11 +14,25 @@ export type EmailListOwner = { id: number; name: string };
 export const EMAIL_LIST_TYPES: readonly EmailListType[] = ["sales", "purchase"];
 export const emailListLabel = (type: EmailListType) => type === "sales" ? "Sales list" : "Purchase list";
 
-/** Addresses one list may hold, and how many one import may add. */
-export const EMAIL_LIST_MAX = 5000;
+/**
+ * Lists and emails have no overall size limit; large ones go to the server in batches (the email dialog sends them
+ * one after another): addresses added per request, addresses removed or categorised per request, and addresses one
+ * send request goes to (sent hidden, in batches of 50, or one copy each when personalised).
+ */
 export const EMAIL_LIST_IMPORT_MAX = 2000;
-/** Addresses one Inventory Overview email may go to (sent hidden, in batches). */
+export const EMAIL_LIST_IDS_MAX = 5000;
 export const INVENTORY_EMAIL_MAX_RECIPIENTS = 500;
+/** Largest CSV file the email dialog imports. */
+export const EMAIL_LIST_CSV_MAX_BYTES = 50 * 1024 * 1024;
+/** Send requests (of up to 500 addresses each) one user may make per hour: up to 100,000 addresses. */
+export const INVENTORY_EMAIL_REQUESTS_PER_HOUR = 200;
+
+/** Splits a list into consecutive batches of `size`. */
+export function inBatches<T>(items: readonly T[], size: number) {
+  const batches: T[][] = [];
+  for (let index = 0; index < items.length; index += size) batches.push(items.slice(index, index + size));
+  return batches;
+}
 export const EMAIL_LIST_NAME_MAX = 160;
 export const EMAIL_LIST_CATEGORY_MAX = 60;
 
