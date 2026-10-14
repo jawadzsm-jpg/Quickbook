@@ -679,6 +679,8 @@ export const emailListContacts = pgTable("email_list_contacts", {
   name: text("name").notNull().default(""),
   // The contact's company (migration 0132), used with the name to greet each recipient.
   company: text("company").notNull().default(""),
+  // A category such as a country or region (migration 0134), to filter and email part of a list.
+  category: text("category").notNull().default(""),
   email: text("email").notNull(),
   createdByUserId: integer("created_by_user_id").references(() => appUsers.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),

@@ -4,8 +4,13 @@
 import { isValidEmail } from "@/lib/email-validation";
 
 export type EmailListType = "sales" | "purchase";
-/** ownerName: who added it (shown to administrators, who see every user's addresses). */
-export type EmailListContact = { id: number; name: string; company: string; email: string; ownerName?: string };
+/**
+ * category: a country, region or any label the user gives, to filter and email part of a list ("" = none).
+ * ownerId / ownerName: whose list it is (shown to administrators, who see every user's addresses).
+ */
+export type EmailListContact = { id: number; name: string; company: string; category: string; email: string; ownerId?: number | null; ownerName?: string };
+/** A user whose list an administrator can open (and add to). */
+export type EmailListOwner = { id: number; name: string };
 export const EMAIL_LIST_TYPES: readonly EmailListType[] = ["sales", "purchase"];
 export const emailListLabel = (type: EmailListType) => type === "sales" ? "Sales list" : "Purchase list";
 
@@ -15,6 +20,17 @@ export const EMAIL_LIST_IMPORT_MAX = 2000;
 /** Addresses one Inventory Overview email may go to (sent hidden, in batches). */
 export const INVENTORY_EMAIL_MAX_RECIPIENTS = 500;
 export const EMAIL_LIST_NAME_MAX = 160;
+export const EMAIL_LIST_CATEGORY_MAX = 60;
+
+/** A category as stored: single spaces, trimmed, at most 60 characters ("" = no category). */
+export const cleanEmailListCategory = (value: unknown) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, EMAIL_LIST_CATEGORY_MAX);
+
+/** The categories used in a list, sorted (case-insensitive, the first spelling kept). */
+export function emailListCategories(contacts: readonly { category?: string }[]) {
+  const seen = new Map<string, string>();
+  for (const contact of contacts) { const category = contact.category?.trim(); if (category && !seen.has(category.toLowerCase())) seen.set(category.toLowerCase(), category); }
+  return [...seen.values()].sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
+}
 
 export const isEmailListType = (value: unknown): value is EmailListType => value === "sales" || value === "purchase";
 
@@ -47,20 +63,21 @@ function csvCells(line: string, separator: string) {
 
 /**
  * Contacts from a CSV file. With a header row the "Email" / "E-mail" column is the address, a "Name" / "Contact" column
- * the name and a "Company" column the company; without one, the first cell that is an email address is used and the
- * next other cells are the name and company. Addresses are lower-cased and de-duplicated; rows without a valid address
- * are counted as skipped.
+ * the name, a "Company" column the company and a "Category" / "Country" / "Region" / "Group" column the category;
+ * without one, the first cell that is an email address is used and the next other cells are the name, company and
+ * category. Addresses are lower-cased and de-duplicated; rows without a valid address are counted as skipped.
  */
 export function parseEmailListCsv(text: string) {
   const lines = text.replace(/^﻿/, "").split(/\r\n|\n|\r/).filter((line) => line.trim());
-  if (!lines.length) return { contacts: [] as { name: string; company: string; email: string }[], skipped: 0 };
+  if (!lines.length) return { contacts: [] as { name: string; company: string; category: string; email: string }[], skipped: 0 };
   const separator = (lines[0].match(/;/g)?.length ?? 0) > (lines[0].match(/,/g)?.length ?? 0) ? ";" : ",";
   const header = csvCells(lines[0], separator).map((cell) => cell.toLowerCase());
   const emailColumn = header.findIndex((cell) => /^e-?mail( address)?$|email/.test(cell) && !isValidEmail(cell));
   const companyColumn = emailColumn >= 0 ? header.findIndex((cell) => /company|business|organi[sz]ation|firm/.test(cell)) : -1;
-  const nameColumn = emailColumn >= 0 ? header.findIndex((cell, index) => index !== companyColumn && /name|contact|customer|supplier|vendor|person/.test(cell)) : -1;
+  const categoryColumn = emailColumn >= 0 ? header.findIndex((cell, index) => index !== companyColumn && /categor|country|region|group|tag|segment/.test(cell)) : -1;
+  const nameColumn = emailColumn >= 0 ? header.findIndex((cell, index) => index !== companyColumn && index !== categoryColumn && /name|contact|customer|supplier|vendor|person/.test(cell)) : -1;
   const rows = (emailColumn >= 0 ? lines.slice(1) : lines).map((line) => csvCells(line, separator));
-  const contacts: { name: string; company: string; email: string }[] = [];
+  const contacts: { name: string; company: string; category: string; email: string }[] = [];
   const seen = new Set<string>();
   let skipped = 0;
   for (const cells of rows) {
@@ -72,7 +89,8 @@ export function parseEmailListCsv(text: string) {
     const others = cells.filter((cell, index) => index !== at && cell.trim());
     const name = (emailColumn >= 0 ? nameColumn >= 0 ? cells[nameColumn] : "" : others[0]) ?? "";
     const company = (emailColumn >= 0 ? companyColumn >= 0 ? cells[companyColumn] : "" : others[1]) ?? "";
-    contacts.push({ name: name.trim().slice(0, EMAIL_LIST_NAME_MAX), company: company.trim().slice(0, EMAIL_LIST_NAME_MAX), email });
+    const category = (emailColumn >= 0 ? categoryColumn >= 0 ? cells[categoryColumn] : "" : others[2]) ?? "";
+    contacts.push({ name: name.trim().slice(0, EMAIL_LIST_NAME_MAX), company: company.trim().slice(0, EMAIL_LIST_NAME_MAX), category: cleanEmailListCategory(category), email });
   }
   return { contacts, skipped };
 }
