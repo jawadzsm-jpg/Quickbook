@@ -16,8 +16,8 @@ export async function POST(request: Request) {
   if (!sendBudget.allowed) return Response.json({ error: "Too many test emails. Try again in an hour." }, { status: 429, headers: { "Retry-After": String(sendBudget.retryAfter) } });
   try {
     const signature = await latestEmailSignature(user.id, request).catch(() => undefined);
-    const { messageIds, signatureImages, inlineRefusal } = await sendTestEmail(user.email, signature);
-    return Response.json({ ok: true, to: user.email, messageIds, signatureCompany: signature?.companyName ?? null, signatureImages, inlineRefusal });
+    const { messageIds, signatureImages } = await sendTestEmail(user.email, signature);
+    return Response.json({ ok: true, to: user.email, messageIds, signatureCompany: signature?.companyName ?? null, signatureImages });
   } catch (error) {
     return Response.json({ error: friendlyEmailError(error, "The test email could not be sent.") }, { status: 400 });
   }

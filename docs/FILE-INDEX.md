@@ -287,7 +287,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/stock-pricing.ts` — Stock pricing rows from stock per location and purchase prices.
 - `lib/text-normalization.ts` — Comparable-text normalisation and upper-casing.
 - `lib/totp.ts` — **server** Authenticator codes (RFC 6238), base32, otpauth URI, one-time backup codes.
-- `lib/turbosmtp-api.ts` — **server** turboSMTP HTTPS API sender (POST /mail/send with consumer key headers; messages with inline images go as `mime_raw`, falling back to linked images if refused; key check; delivery status from GET /analytics/{id}) behind the same sendMail/verify/close interface as SMTP.
+- `lib/turbosmtp-api.ts` — **server** turboSMTP HTTPS API sender (POST /mail/send with consumer key headers; inline images are sent linked from the web (the API cannot embed them); key check; delivery status from GET /analytics/{id}) behind the same sendMail/verify/close interface as SMTP.
 - `lib/uae-cheque-layouts.ts` — UAE bank cheque print layouts and alignment bounds.
 - `lib/user-management.ts` — **server** Role names, user company IDs, who may manage whom, `requireUserManager`. **DB**
 - `lib/utils.ts` — `cn` class-name merge helper.
