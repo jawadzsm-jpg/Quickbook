@@ -4328,6 +4328,50 @@ test("documents are emailed with their PDF to any number of addresses, replies g
   assert.deepEqual(statuses.map((row) => row.status), ["sent", "sent", "failed", "failed"]);
 });
 
+test("reports are emailed as their PDF, each report keeps its own history, and document histories stay separate", async () => {
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Report Mail Co') RETURNING id")).rows[0].id;
+  const userId = (await database.query("INSERT INTO app_users (full_name, email, password_hash, role) VALUES ('Rana Reports', 'rana@mail.test', 'test', 'accountant') RETURNING id")).rows[0].id;
+  const route = await vite.ssrLoadModule("/app/api/report-emails/route.ts");
+  const { saveEmailSettings } = await vite.ssrLoadModule("/lib/smtp.ts");
+  const { defaultReportEmail } = await vite.ssrLoadModule("/lib/email-templates.ts");
+  const as = async (role, run) => { globalThis.__transferTestUser = { id: userId, fullName: "Rana Reports", email: "rana@mail.test", role, companyIds: [companyId] }; try { return await run(); } finally { delete globalThis.__transferTestUser; } };
+  const details = async (title) => (await route.GET(new Request(`https://app.test/api/report-emails?companyId=${companyId}&title=${encodeURIComponent(title)}`))).json();
+  const pdf = new File([Buffer.from("%PDF-1.7\n% test report\n")], "Sales_by_Customer.pdf", { type: "application/pdf" });
+  const post = (fields, file = pdf) => {
+    const form = new FormData();
+    for (const [key, value] of Object.entries({ companyId, title: "Sales by Customer", subject: "Sales by Customer", body: "Please find attached.", ...fields })) form.set(key, String(value));
+    if (file) form.set("pdf", file);
+    return route.POST(new Request("https://app.test/api/report-emails", { method: "POST", body: form }));
+  };
+  const wording = defaultReportEmail({ title: "Sales by Customer", period: "Oct 2026", company: "Report Mail Co", sender: "Rana" });
+  assert.equal(wording.subject, "Sales by Customer (Oct 2026) from Report Mail Co");
+  assert.match(wording.body, /attached the Sales by Customer \(Oct 2026\)\.[\s\S]*Kind regards,\nRana\nReport Mail Co$/);
+  assert.match(defaultReportEmail({ title: "Trial Balance", company: "X", sender: "Rana", signatureOn: true }).body, /just reply to this email\.$/, "the signature gives the closing");
+
+  await saveEmailSettings({ host: "pro.turbo-smtp.com", port: 465, secure: true, username: "key", password: "secret", fromName: "Report Mail Co", fromEmail: "accounts@reportmail.test" });
+  globalThis.__sentMail = [];
+  const sent = await as("accountant", () => post({ to: "owner@reportmail.test, bank@lender.test", cc: "auditor@audit.test" }));
+  assert.equal(sent.status, 200, await sent.clone().text());
+  assert.equal((await sent.json()).recipients, 3);
+  assert.equal(globalThis.__sentMail[0].attachments[0].filename, "Sales_by_Customer.pdf");
+  assert.deepEqual(globalThis.__sentMail[0].replyTo, { name: "Rana Reports", address: "rana@mail.test" });
+  const first = await as("accountant", () => details("Sales by Customer"));
+  assert.equal(first.history.length, 1);
+  assert.ok(first.suggestions.previous.includes("bank@lender.test"));
+  const other = await as("accountant", () => details("Trial Balance"));
+  assert.equal(other.history.length, 0, "each report has its own history");
+  assert.ok(other.suggestions.previous.includes("owner@reportmail.test"), "addresses used for any report are offered");
+  assert.equal((await database.query("SELECT transaction_id FROM document_emails WHERE company_id = $1", [companyId])).rows[0].transaction_id, null);
+
+  assert.equal((await as("accountant", () => post({ to: "owner@reportmail.test" }, null))).status, 400, "the PDF is required");
+  assert.equal((await as("accountant", () => post({ to: "owner@reportmail.test" }, new File(["<html>"], "x.pdf")))).status, 400);
+  assert.equal((await as("accountant", () => post({ to: "owner@reportmail.test", title: " " }))).status, 400);
+  assert.equal((await as("accountant", () => post({ to: "not-an-email" }))).status, 400);
+  for (const role of ["sales", "viewer", "inventory", "purchasing"]) assert.equal((await as(role, () => post({ to: "owner@reportmail.test" }))).status, 403, role);
+  assert.equal((await as("all_admin", () => post({ to: "owner@reportmail.test" }))).status, 200);
+  delete globalThis.__sentMail;
+});
+
 test("notification emails retry failures up to 3 attempts and pick up interrupted sends", async () => {
   const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Retry Co') RETURNING id")).rows[0].id;
   const userId = (await database.query("INSERT INTO app_users (full_name, email, password_hash, role) VALUES ('Retry', 'retry@notice.test', 'test', 'accountant') RETURNING id")).rows[0].id;

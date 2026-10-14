@@ -96,6 +96,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/rcm-declaration-generator.tsx` — Create, list and print UAE reverse-charge (RCM) declarations; `/api/rcm-declarations`, `/api/attachments`.
 - `app/record-attachments.tsx` — Lists and uploads attachments for a record; `/api/attachments`.
 - `app/record-permissions.tsx` — Role context for record delete rights and the invoice-items editor context.
+- `app/report-email-dialog.tsx` — Report Center Email: the report's A4 PDF (as exported) to any number of To/Cc addresses, standard wording with the report title and period, Signature tab and per-report History with delivery checks; `/api/report-emails`.
 - `app/report-data-table.tsx` — List report table renderer.
 - `app/report-date-filter.tsx` — From/to date bar with Apply for reports.
 - `app/required-field-highlighter.tsx` — Outlines empty required fields in the active window after a failed save.

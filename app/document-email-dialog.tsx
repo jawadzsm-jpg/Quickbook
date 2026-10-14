@@ -18,12 +18,12 @@ import { EMAIL_DOCUMENT_TYPES, EMAIL_PLACEHOLDERS, MAX_ATTACHMENT_BYTES, default
 export type EmailDocument = { id: number; type: string; number: string; party: string; total: number; currency: string; transactionDate: string; dueDate: string };
 type Template = { id: number; name: string; documentType: string; subject: string; body: string; shared: boolean; mine: boolean; editable: boolean; ownerName: string | null };
 type Delivery = { canCheck: boolean; status: string; label: string; tone: DeliveryTone; checks: DeliveryCheck[]; checkedAt: string | null };
-type SentEmail = { id: number; createdAt: string; sentByName: string; recipients: string[]; cc: string[]; subject: string; attachmentName: string; status: string; error: string; delivery?: Delivery };
+export type SentEmail = { id: number; createdAt: string; sentByName: string; recipients: string[]; cc: string[]; subject: string; attachmentName: string; status: string; error: string; delivery?: Delivery };
 
 const toneClass: Record<DeliveryTone, string> = { good: "text-emerald-700 dark:text-emerald-300", waiting: "text-amber-700 dark:text-amber-300", bad: "text-rose-600 dark:text-rose-400", unknown: "text-muted-foreground" };
 
 /** turboSMTP delivery status of one sent email, with Check delivery (emails sent through the turboSMTP API only). */
-function DeliveryLine({ companyId, item, onChecked }: { companyId: number; item: SentEmail; onChecked: (delivery: Delivery) => void }) {
+export function DeliveryLine({ companyId, item, onChecked }: { companyId: number; item: SentEmail; onChecked: (delivery: Delivery) => void }) {
   const [checking, setChecking] = useState(false);
   const delivery = item.delivery;
   if (!delivery?.canCheck) return null;
@@ -50,14 +50,14 @@ const day = (value: string) => {
   const date = new Date(`${value}T00:00:00Z`);
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(date.getTime()) ? date.toLocaleDateString("en-GB", { timeZone: "UTC", day: "2-digit", month: "short", year: "numeric" }) : value;
 };
-const sentAt = (value: string) => new Date(value.replace(" ", "T")).toLocaleString("en-GB", { timeZone: "Asia/Dubai", day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
+export const sentAt = (value: string) => new Date(value.replace(" ", "T")).toLocaleString("en-GB", { timeZone: "Asia/Dubai", day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
 const lastTemplateKey = (companyId: number, type: string) => `comnet-email-template:${companyId}:${type}`;
 const readLastTemplate = (key: string) => { try { return window.localStorage.getItem(key) ?? ""; } catch { return ""; } };
 const writeLastTemplate = (key: string, value: string) => { try { window.localStorage.setItem(key, value); } catch { /* Only a convenience. */ } };
 const typeLabel = (type: string) => type === "pending invoice" ? "Invoice" : emailDocumentTypeLabel(type);
 
 /** Addresses as removable chips; type, paste or pick suggestions. Commas, spaces, semicolons and Enter add them. */
-function AddressField({ id, label, addresses, onChange, suggestions, placeholder }: { id: string; label: string; addresses: string[]; onChange: (next: string[]) => void; suggestions?: { label: string; addresses: string[] }[]; placeholder?: string }) {
+export function AddressField({ id, label, addresses, onChange, suggestions, placeholder }: { id: string; label: string; addresses: string[]; onChange: (next: string[]) => void; suggestions?: { label: string; addresses: string[] }[]; placeholder?: string }) {
   const [draft, setDraft] = useState("");
   const [problem, setProblem] = useState("");
   const commit = (text: string) => {
