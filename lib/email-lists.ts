@@ -74,6 +74,11 @@ export function parseEmailListCsv(text: string) {
 }
 
 /** The message when no template is chosen; {items} is replaced with the selected stock. */
+/** The standard wording when no item is selected: the person writes their own message (news, website items…). */
+export const defaultListEmail = {
+  subject: "News from {company}",
+  body: "Dear Sir/Madam,\n\n\n\nFor orders or questions, reply to this email.\n\nBest regards,\n{sender}\n{company}",
+};
 export const defaultStockEmail = {
   subject: "Available stock from {company}",
   body: "Dear Sir/Madam,\n\nPlease find our available stock below:\n\n{items}\n\nFor orders or questions, reply to this email.\n\nBest regards,\n{sender}\n{company}",
