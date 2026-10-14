@@ -30,6 +30,7 @@ Use this file to locate implementation ownership without rescanning the whole re
 | Main records and transactions | `enterprise-app.tsx` | `records` |
 | Company home/report cards | `enterprise-app.tsx`, `live-profit-loss-summary.tsx` | `reports`, `records` |
 | Announcements / My notes (sidebar → Overview) | `company-announcements.tsx`, `user-notes.tsx` | `announcements`, `user-notes` |
+| Email lists (sidebar → Overview; also Inventory Overview → Send) | `inventory-email-dialog.tsx` (`page`) | `email-lists`, `inventory-emails` |
 | Customer reporting | `customer-open-balance.tsx`, `active-customers-report.tsx`, `statement-layout.tsx` | `reports`, `records` |
 | Sales conversion | `open-sales-documents.tsx`, `sales-source-invoicing.tsx` | `records` |
 | Purchase receiving/returns | `open-purchase-orders.tsx`, `purchase-order-receiving.tsx`, `purchase-return-source.tsx` | `records` |
