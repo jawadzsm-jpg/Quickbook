@@ -134,12 +134,13 @@ function specificationText(record: OverviewItem) {
 }
 
 /**
- * The specifications for WhatsApp, Telegram, Email copies and the Excel export: Product Customization Details (RAM,
- * Storage, Screen Details, Part Number, Serial, UPC No.) are left out. Saving them also writes RAM, Storage and Part
- * Number into the specifications, so any specification equal to a customization value is dropped too.
+ * The specifications for the item line and for WhatsApp, Telegram, Email copies and the Excel export: Product
+ * Customization Details (RAM, Storage, Screen Details, Part Number, Serial, UPC No.) are left out; they show only in
+ * Details. Saving them also writes RAM, Storage and Part Number into the specifications, so any specification equal to
+ * a customization value is dropped too. The on-screen line keeps the Part Number (it copies on hover).
  */
-function shareSpecificationText(record: OverviewItem) {
-  const custom = new Set([record.customizationRam, record.customizationStorage, record.customizationScreen, record.partNumber, record.itemSerialNumber, record.upcNumber]
+function shareSpecificationText(record: OverviewItem, keepPartNumber = false) {
+  const custom = new Set([record.customizationRam, record.customizationStorage, record.customizationScreen, keepPartNumber ? "" : record.partNumber, record.itemSerialNumber, record.upcNumber]
     .map((value) => String(value ?? "").trim().toLocaleUpperCase("en")).filter(Boolean));
   if (!custom.size) return specificationText(record);
   return specificationText(record).split("|").map((part) => part.trim()).filter((part) => part && !custom.has(part.toLocaleUpperCase("en"))).join(" | ");
@@ -816,7 +817,7 @@ export function InventoryOverview({ onOpenDocument, onOpenItem, onCreateDocument
                 const out = Number(record.quantity) <= 0;
                 const low = Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint);
                 const held = heldOn(record);
-                const description = inventoryItemLine(record.name, record.sku, specificationText(record), record.itemNumber);
+                const description = inventoryItemLine(record.name, record.sku, shareSpecificationText(record, true), record.itemNumber);
                 const itemNumber = String(record.itemNumber ?? "").normalize("NFKC").trim().toLocaleUpperCase("en").replace(/^#/, "");
                 // The line is plain text (Details opens the product popup); the part number and #Item No. in it copy on hover or click.
                 const numberShown = Boolean(itemNumber) && description.endsWith(`#${itemNumber}`);
