@@ -3,7 +3,7 @@ import { getDb } from "@/db";
 import { auditLog, emailListContacts } from "@/db/schema";
 import { isAdministrator, requireCompanyAccess } from "@/lib/auth";
 import { friendlyEmailError } from "@/lib/email-errors";
-import { canUseEmailList, emailListLabel, INVENTORY_EMAIL_MAX_RECIPIENTS, isEmailListType, personalizeEmail, personalPlaceholders } from "@/lib/email-lists";
+import { canUseEmailList, emailListLabel, INVENTORY_EMAIL_MAX_RECIPIENTS, INVENTORY_EMAIL_REQUESTS_PER_HOUR, isEmailListType, personalizeEmail, personalPlaceholders } from "@/lib/email-lists";
 import { EMAIL_BODY_MAX, EMAIL_SUBJECT_MAX, RECIPIENTS_PER_MESSAGE, recipientBatches } from "@/lib/email-templates";
 import { emailDeliveryConfigured, sendDocumentEmail } from "@/lib/smtp";
 import { emailSignatureFor } from "@/lib/email-signature-server";
@@ -36,14 +36,15 @@ export async function POST(request: Request) {
   });
   const ids = [...new Set((Array.isArray(payload.contactIds) ? payload.contactIds : []).map(Number))].filter((id) => Number.isSafeInteger(id) && id > 0);
   if (!ids.length) return json({ error: "Select at least one email address." }, 400);
-  if (ids.length > INVENTORY_EMAIL_MAX_RECIPIENTS) return json({ error: `One email can go to at most ${INVENTORY_EMAIL_MAX_RECIPIENTS} addresses.` }, 400);
+  // Any number of addresses: the dialog sends a larger selection as consecutive requests of up to 500.
+  if (ids.length > INVENTORY_EMAIL_MAX_RECIPIENTS) return json({ error: `Send at most ${INVENTORY_EMAIL_MAX_RECIPIENTS} addresses per request.` }, 400);
   const subject = String(payload.subject ?? "").replace(/[\r\n]+/g, " ").trim();
   const body = String(payload.body ?? "").replace(/\r\n/g, "\n").trim();
   if (!subject || subject.length > EMAIL_SUBJECT_MAX) return json({ error: `Write a subject (up to ${EMAIL_SUBJECT_MAX} characters).` }, 400);
   if (!body || body.length > EMAIL_BODY_MAX) return json({ error: `Write the message (up to ${EMAIL_BODY_MAX.toLocaleString("en")} characters).` }, 400);
   // Protects the sender reputation and the email plan's quota from a misused account.
-  const budget = await consumeRateLimit(`inventory-email:${user.id}`, 20, 3600);
-  if (!budget.allowed) return json({ error: "Too many stock emails sent in the last hour. Try again later." }, 429);
+  const budget = await consumeRateLimit(`inventory-email:${user.id}`, INVENTORY_EMAIL_REQUESTS_PER_HOUR, 3600);
+  if (!budget.allowed) return json({ error: `Too many emails sent in the last hour (up to ${(INVENTORY_EMAIL_REQUESTS_PER_HOUR * INVENTORY_EMAIL_MAX_RECIPIENTS).toLocaleString("en")} addresses). Try again later.` }, 429);
 
   const db = getDb();
   const rows = await db.select({ email: emailListContacts.email, name: emailListContacts.name, company: emailListContacts.company }).from(emailListContacts)

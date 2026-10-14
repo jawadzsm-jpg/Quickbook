@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { EmailSignatureEditor } from "./email-signature-editor";
-import { cleanEmailListCategory, defaultListEmail, defaultStockEmail, EMAIL_LIST_CATEGORY_MAX, emailListCategories, emailListLabel, emailListsFor, INVENTORY_EMAIL_MAX_RECIPIENTS, parseEmailListCsv, type EmailListContact, type EmailListOwner, type EmailListType } from "@/lib/email-lists";
+import { cleanEmailListCategory, defaultListEmail, defaultStockEmail, EMAIL_LIST_CATEGORY_MAX, EMAIL_LIST_CSV_MAX_BYTES, EMAIL_LIST_IDS_MAX, EMAIL_LIST_IMPORT_MAX, emailListCategories, emailListLabel, emailListsFor, inBatches, INVENTORY_EMAIL_MAX_RECIPIENTS, parseEmailListCsv, type EmailListContact, type EmailListOwner, type EmailListType } from "@/lib/email-lists";
 import { EMAIL_TEMPLATE_NAME_MAX, fillEmailTemplate, STOCK_EMAIL_TYPE, withoutSignOff } from "@/lib/email-templates";
 import { isValidEmail } from "@/lib/email-validation";
 
@@ -34,6 +34,10 @@ const standardEmail = (signatureOn: boolean, withItems: boolean) => {
   return signatureOn ? { ...source, body: withoutSignOff(source.body) } : source;
 };
 const errorText = (error: unknown) => error instanceof Error ? error.message : "Something went wrong. Try again.";
+const count = (value: number) => value.toLocaleString("en");
+// Addresses drawn at once; a longer list shows this many and the search narrows it (selecting still covers all).
+const ROWS_SHOWN = 1000;
+const PROGRESS_TOAST = "email-list-progress";
 
 /**
  * Email the selected Inventory Overview stock to chosen addresses of the company's Sales or Purchase list.
@@ -147,11 +151,26 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
   const startAssign = (name: string) => { setAssignTo(name); setSelected(new Set()); setSearch(""); setEditing(null); setManagingCategories(false); setRenaming(null); };
 
   const run = async (work: () => Promise<void>) => { setBusy(true); try { await work(); } catch (error) { toast.error(errorText(error)); } finally { setBusy(false); } };
+  // Any number of addresses: sent in batches of 2,000, with progress; only the last batch returns the list.
   const addContacts = (rows: Address[], skipped = 0) => run(async () => {
-    const data = await call("/api/email-lists", "POST", { companyId, type, contacts: rows, view, ...(viewedOwner ? { ownerUserId: viewedOwner.id } : {}) });
-    showList(data);
-    const extra = [data.alreadyListed ? `${data.alreadyListed} already listed` : "", skipped + Number(data.invalid ?? 0) ? `${skipped + Number(data.invalid ?? 0)} rows without a valid address skipped` : ""].filter(Boolean).join(", ");
-    toast.success(`${data.added} added to the ${emailListLabel(type)}${viewedOwner ? ` of ${viewedOwner.name}` : ""}${extra ? ` (${extra})` : ""}`);
+    const batches = inBatches(rows, EMAIL_LIST_IMPORT_MAX);
+    const totals = { added: 0, alreadyListed: 0, invalid: 0 };
+    try {
+      for (const [index, batch] of batches.entries()) {
+        if (batches.length > 1) toast.loading(`Adding addresses… ${count(index * EMAIL_LIST_IMPORT_MAX)} of ${count(rows.length)}`, { id: PROGRESS_TOAST });
+        const last = index === batches.length - 1;
+        const data = await call("/api/email-lists", "POST", { companyId, type, contacts: batch, view, list: last, ...(viewedOwner ? { ownerUserId: viewedOwner.id } : {}) });
+        totals.added += Number(data.added ?? 0); totals.alreadyListed += Number(data.alreadyListed ?? 0); totals.invalid += Number(data.invalid ?? 0);
+        if (last) showList(data);
+      }
+    } catch (error) {
+      toast.dismiss(PROGRESS_TOAST);
+      if (totals.added) void loadList(type, view);
+      throw new Error(totals.added ? `${count(totals.added)} added, then: ${errorText(error)}` : errorText(error));
+    }
+    toast.dismiss(PROGRESS_TOAST);
+    const extra = [totals.alreadyListed ? `${count(totals.alreadyListed)} already listed` : "", skipped + totals.invalid ? `${count(skipped + totals.invalid)} rows without a valid address skipped` : ""].filter(Boolean).join(", ");
+    toast.success(`${count(totals.added)} added to the ${emailListLabel(type)}${viewedOwner ? ` of ${viewedOwner.name}` : ""}${extra ? ` (${extra})` : ""}`);
   });
   const addOne = (event: FormEvent) => {
     event.preventDefault();
@@ -164,7 +183,7 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) return toast.error("The CSV file is larger than 2 MB.");
+    if (file.size > EMAIL_LIST_CSV_MAX_BYTES) return toast.error(`The CSV file is larger than ${EMAIL_LIST_CSV_MAX_BYTES / 1024 / 1024} MB. Split it into smaller files.`);
     const { contacts: rows, skipped } = parseEmailListCsv(await file.text());
     if (!rows.length) return toast.error("No email addresses found. Use a column named Email, or put one address per row.");
     // Rows without a category take the one being filtered (e.g. a file of UAE customers imported while UAE is shown).
@@ -182,10 +201,27 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
       toast.success("Address updated");
     });
   };
+  // Removing or categorising any number of addresses: batches of 5,000; returns the total the server counted.
+  const patchInBatches = async (action: "remove" | "categorize", ids: number[], extra: Record<string, unknown>, counted: "removed" | "changed") => {
+    const batches = inBatches(ids, EMAIL_LIST_IDS_MAX);
+    let total = 0;
+    try {
+      for (const [index, batch] of batches.entries()) {
+        const last = index === batches.length - 1;
+        const data = await call("/api/email-lists", "PATCH", { companyId, type, view, action, ids: batch, list: last, ...extra });
+        total += Number(data[counted] ?? 0);
+        if (last) showList(data);
+      }
+    } catch (error) {
+      if (total) void loadList(type, view);
+      throw error;
+    }
+    return total;
+  };
   const removeSelected = () => {
     const ids = [...selected];
-    if (!ids.length || !window.confirm(`Remove ${ids.length} ${ids.length === 1 ? "address" : "addresses"} from the ${emailListLabel(type)}? ${seesAll ? " This removes them for the users who added them." : ""}`)) return;
-    void run(async () => { const data = await call("/api/email-lists", "PATCH", { companyId, type, view, action: "remove", ids }); showList(data); setSelected(new Set()); toast.success(`${data.removed} removed`); });
+    if (!ids.length || !window.confirm(`Remove ${count(ids.length)} ${ids.length === 1 ? "address" : "addresses"} from the ${emailListLabel(type)}? ${seesAll ? " This removes them for the users who added them." : ""}`)) return;
+    void run(async () => { const removed = await patchInBatches("remove", ids, {}, "removed"); setSelected(new Set()); toast.success(`${count(removed)} removed`); });
   };
   // Puts the selected addresses in a category ("" clears it); after adding to a category, that category is shown.
   const categorizeSelected = (name: string) => {
@@ -193,10 +229,10 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
     if (!ids.length) return;
     const adding = assignTo;
     void run(async () => {
-      const data = await call("/api/email-lists", "PATCH", { companyId, type, view, action: "categorize", ids, category: name });
-      showList(data); setSelected(new Set());
+      const changed = await patchInBatches("categorize", ids, { category: name }, "changed");
+      setSelected(new Set());
       if (adding !== null) { setAssignTo(null); setCategory(adding); setNewAddress((current) => ({ ...current, category: adding })); }
-      toast.success(name ? `${data.changed} put in ${name}` : `Category cleared for ${data.changed}`);
+      toast.success(name ? `${count(changed)} put in ${name}` : `Category cleared for ${count(changed)}`);
     });
   };
   // Categories panel: add one before any address uses it, rename one (its addresses follow) or delete one (its
@@ -243,13 +279,29 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
       toast.success("Template saved");
     });
   };
+  // Any number of addresses: each address once (the same email in several users' lists goes once), sent in requests
+  // of up to 500 one after another, with progress; a failure reports how many were already sent.
   const send = () => {
-    const ids = [...selected];
+    const byEmail = new Map<string, number>();
+    for (const contact of contacts ?? []) if (selected.has(contact.id) && !byEmail.has(contact.email.toLowerCase())) byEmail.set(contact.email.toLowerCase(), contact.id);
+    const ids = [...byEmail.values()];
     if (!ids.length) return toast.error("Select at least one email address.");
-    if (ids.length > INVENTORY_EMAIL_MAX_RECIPIENTS) return toast.error(`Select at most ${INVENTORY_EMAIL_MAX_RECIPIENTS} addresses for one email.`);
+    const batches = inBatches(ids, INVENTORY_EMAIL_MAX_RECIPIENTS);
+    if (batches.length > 1 && !window.confirm(`Send this email to ${count(ids.length)} addresses? It goes out in ${batches.length} parts; keep this window open until it finishes.`)) return;
     void run(async () => {
-      const data = await call("/api/inventory-emails", "POST", { companyId, type, contactIds: ids, subject, body, itemLines });
-      toast.success(`Email sent to ${data.recipients} ${data.recipients === 1 ? "address" : "addresses"}`);
+      let sent = 0;
+      try {
+        for (const batch of batches) {
+          if (batches.length > 1) toast.loading(`Sending… ${count(sent)} of ${count(ids.length)} addresses`, { id: PROGRESS_TOAST });
+          const data = await call("/api/inventory-emails", "POST", { companyId, type, contactIds: batch, subject, body, itemLines });
+          sent += Number(data.recipients ?? 0);
+        }
+      } catch (error) {
+        toast.dismiss(PROGRESS_TOAST);
+        throw new Error(sent ? `Sent to ${count(sent)} of ${count(ids.length)} addresses, then: ${errorText(error)}` : errorText(error));
+      }
+      toast.dismiss(PROGRESS_TOAST);
+      toast.success(`Email sent to ${count(sent)} ${sent === 1 ? "address" : "addresses"}`);
       if (page) setSelected(new Set()); else onOpenChange(false);
     });
   };
@@ -295,12 +347,12 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
             <Button type="button" size="sm" disabled={busy || !selected.size} onClick={() => categorizeSelected(assignTo)}><ListPlus className="size-4" />Add {selected.size || ""} to {assignTo}</Button>
           </div> : null}
           <div className="rounded-lg border">
-            <label className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2 text-xs font-medium"><Checkbox checked={allShownSelected} disabled={!shown.length} onCheckedChange={toggleShown} />Select {search || category !== ALL_CATEGORIES ? "shown" : "all"}{assignTo !== null ? ` not in ${assignTo}` : category === ALL_CATEGORIES ? "" : ` in ${category === NO_CATEGORY ? "No category" : category}`} · {selected.size} of {contacts?.length ?? 0} selected</label>
+            <label className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2 text-xs font-medium"><Checkbox checked={allShownSelected} disabled={!shown.length} onCheckedChange={toggleShown} />Select {search || category !== ALL_CATEGORIES ? "shown" : "all"}{assignTo !== null ? ` not in ${assignTo}` : category === ALL_CATEGORIES ? "" : ` in ${category === NO_CATEGORY ? "No category" : category}`} · {count(selected.size)} of {count(contacts?.length ?? 0)} selected</label>
             <ul className="max-h-72 divide-y overflow-y-auto">
               {contacts === null ? <li className="p-4 text-sm text-muted-foreground">Loading…</li> : !shown.length ? <li className="p-4 text-sm text-muted-foreground">{assignTo !== null ? (search ? "No address matches the search." : `Every address is already in ${assignTo}.`)
                 : contacts.length && !search && category !== ALL_CATEGORIES && category !== NO_CATEGORY ? <span className="flex flex-wrap items-center gap-2">No address in {category} yet. Add a new one below (it goes into {category}), or<Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => startAssign(category)}><ListPlus className="size-4" />Choose addresses to add</Button></span>
                 : contacts.length ? "No address matches the search or category." : `${viewedOwner ? `${viewedOwner.name}'s` : view === "all" && seesAll ? "The" : "Your"} ${emailListLabel(type)} is empty. Add an address below or import a CSV file.`}</li>
-                : shown.map((contact) => editing?.id === contact.id ? <li key={contact.id}><form onSubmit={saveEdit} className="grid grid-cols-2 gap-2 bg-muted/40 px-3 py-2">
+                : shown.slice(0, ROWS_SHOWN).map((contact) => editing?.id === contact.id ? <li key={contact.id}><form onSubmit={saveEdit} className="grid grid-cols-2 gap-2 bg-muted/40 px-3 py-2">
                   <Input aria-label="Name" placeholder="Name" value={editing.name} maxLength={160} autoFocus onChange={(event) => setEditing({ ...editing, name: event.target.value })} className="h-8" />
                   <Input aria-label="Company" placeholder="Company" value={editing.company} maxLength={160} onChange={(event) => setEditing({ ...editing, company: event.target.value })} className="h-8" />
                   <Input aria-label="Category" placeholder="Category (e.g. country)" list="email-list-categories" value={editing.category} maxLength={EMAIL_LIST_CATEGORY_MAX} onChange={(event) => setEditing({ ...editing, category: event.target.value })} className="h-8" />
@@ -308,6 +360,7 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
                   <div className="col-span-2 flex justify-end gap-2"><Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setEditing(null)}><X className="size-4" />Cancel</Button><Button type="submit" size="sm" disabled={busy}><Save className="size-4" />Save</Button></div>
                 </form></li> : <li key={contact.id} className="flex items-center hover:bg-muted/50"><label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-3 py-2 text-sm"><Checkbox checked={selected.has(contact.id)} onCheckedChange={() => toggle(contact.id)} /><span className="min-w-0 flex-1"><span className="block truncate font-medium">{[contact.name, contact.company].filter(Boolean).join(" – ") || contact.email}</span>{contact.name || contact.company ? <span className="block truncate text-xs text-muted-foreground">{contact.email}</span> : null}{seesAll && view === "all" && contact.ownerName ? <span className="block truncate text-[11px] text-muted-foreground">{contact.ownerName}&apos;s list</span> : null}</span>{contact.category ? <span className="max-w-32 shrink-0 truncate rounded-full border bg-muted px-2 py-0.5 text-[11px] text-muted-foreground" title={`Category: ${contact.category}`}>{contact.category}</span> : null}</label><Button type="button" size="icon" variant="ghost" className="mr-1 size-8 shrink-0" disabled={busy} aria-label={`Edit ${contact.email}`} title="Edit name, company, category or email" onClick={() => setEditing({ id: contact.id, name: contact.name, company: contact.company ?? "", category: contact.category ?? "", email: contact.email })}><Pencil className="size-4" /></Button></li>)}
             </ul>
+            {shown.length > ROWS_SHOWN ? <p className="border-t px-3 py-2 text-xs text-muted-foreground">Showing the first {count(ROWS_SHOWN)} of {count(shown.length)}. Search or choose a category to narrow the list; Select {search || category !== ALL_CATEGORIES || assignTo !== null ? "shown" : "all"} still selects all {count(shown.length)}.</p> : null}
           </div>
           <form onSubmit={addOne} className="grid gap-2">
             <Input aria-label="Name" placeholder="Name" value={newAddress.name} maxLength={160} onChange={(event) => setNewAddress({ ...newAddress, name: event.target.value })} className="h-9" />
@@ -337,14 +390,14 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
   if (page) return <section aria-label="Email lists" className="space-y-4 rounded-2xl border bg-card p-4 text-card-foreground shadow-sm">
     <p className="text-sm text-muted-foreground">Keep your Sales and Purchase email lists, sort them into categories and email news or offers to chosen addresses. To email stock, select items in Inventory Overview and press Send. Each address receives its own copy; recipients do not see each other, and replies come to {sender.email || "you"}.</p>
     {content}
-    {editingSignature ? null : <div className="flex justify-end"><Button type="button" disabled={busy || !selected.size || assignTo !== null || !subject.trim() || !body.trim()} onClick={send}><Send className="size-4" />{busy ? "Working…" : `Send to ${selected.size} ${selected.size === 1 ? "address" : "addresses"}`}</Button></div>}
+    {editingSignature ? null : <div className="flex justify-end"><Button type="button" disabled={busy || !selected.size || assignTo !== null || !subject.trim() || !body.trim()} onClick={send}><Send className="size-4" />{busy ? "Working…" : `Send to ${count(selected.size)} ${selected.size === 1 ? "address" : "addresses"}`}</Button></div>}
   </section>;
 
   return <Dialog open={open} onOpenChange={(next) => { if (!busy) onOpenChange(next); }}>
     <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-5xl">
       <DialogHeader><DialogTitle className="flex items-center gap-2"><Mail className="size-5" />{itemCount ? "Email stock list" : "Email"}</DialogTitle><DialogDescription>{itemCount ? `${itemCount} ${itemCount === 1 ? "item" : "items"} from Inventory Overview.` : "No item selected: write your own message, e.g. news or items from your website."} Each address receives its own copy; recipients do not see each other, and replies come to {sender.email || "you"}.</DialogDescription></DialogHeader>
       {content}
-      {editingSignature ? null : <DialogFooter><Button type="button" variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>Cancel</Button><Button type="button" disabled={busy || !selected.size || assignTo !== null || !subject.trim() || !body.trim()} onClick={send}><Send className="size-4" />{busy ? "Working…" : `Send to ${selected.size} ${selected.size === 1 ? "address" : "addresses"}`}</Button></DialogFooter>}
+      {editingSignature ? null : <DialogFooter><Button type="button" variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>Cancel</Button><Button type="button" disabled={busy || !selected.size || assignTo !== null || !subject.trim() || !body.trim()} onClick={send}><Send className="size-4" />{busy ? "Working…" : `Send to ${count(selected.size)} ${selected.size === 1 ? "address" : "addresses"}`}</Button></DialogFooter>}
     </DialogContent>
   </Dialog>;
 }

@@ -4861,6 +4861,8 @@ test("inventory overview emails: private Sales and Purchase lists (administrator
   assert.deepEqual(parseEmailListCsv("Name,Company name,Country,Email\nAhmed,Alpha,  United   Arab Emirates ,ahmed@alpha.test").contacts, [{ name: "Ahmed", company: "Alpha", category: "United Arab Emirates", email: "ahmed@alpha.test" }], "a Country (or Category) column is the category");
   assert.deepEqual(parseEmailListCsv("a@x.test;Alpha\nBeta;b@x.test;Beta LLC;Oman").contacts, [{ name: "Alpha", company: "", category: "", email: "a@x.test" }, { name: "Beta", company: "Beta LLC", category: "Oman", email: "b@x.test" }], "no header: the address cell is found in each row");
   const { emailListCategories } = await vite.ssrLoadModule("/lib/email-lists.ts");
+  const { inBatches } = await vite.ssrLoadModule("/lib/email-lists.ts");
+  assert.deepEqual(inBatches([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]], "large imports and sends go in batches");
   assert.deepEqual(emailListCategories([{ category: "UAE" }, { category: "" }, { category: "oman" }, { category: "uae" }]), ["oman", "UAE"]);
   const { personalizeEmail } = await vite.ssrLoadModule("/lib/email-lists.ts");
   const greet = (name, company) => personalizeEmail("Dear {name},", { name, company });
@@ -4884,6 +4886,9 @@ test("inventory overview emails: private Sales and Purchase lists (administrator
   assert.equal((await as("sales", () => call(lists, "GET", null, `?companyId=${companyId}&type=purchase`))).status, 403, "sales users do not use the Purchase list");
   assert.equal((await as("viewer", () => call(lists, "GET", null, `?companyId=${companyId}&type=sales`))).status, 403);
   assert.equal((await as("purchasing", () => call(lists, "POST", { type: "purchase", contacts: [{ name: "Parts", email: "sales@parts.test" }] }))).status, 201);
+  const quiet = await as("sales", async () => (await call(lists, "POST", { type: "sales", list: false, contacts: [{ email: "batch@one.test" }] })).json());
+  assert.deepEqual([quiet.added, quiet.contacts], [1, undefined], "a batch before the last gets no list back");
+  await as("sales", async () => call(lists, "PATCH", { type: "sales", action: "remove", ids: (await (await call(lists, "GET", null, `?companyId=${companyId}&type=sales`)).json()).contacts.filter((row) => row.email === "batch@one.test").map((row) => row.id) }));
   const salesList = (await (await as("sales", () => call(lists, "GET", null, `?companyId=${companyId}&type=sales`))).json()).contacts;
   assert.deepEqual(salesList.map((row) => row.email), ["ops@delta.test", "buyer@gulf.test"], "sorted by name, kept apart from the Purchase list");
   const purchaseList = (await (await as("admin", () => call(lists, "GET", null, `?companyId=${companyId}&type=purchase`))).json()).contacts;
