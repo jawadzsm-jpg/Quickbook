@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Mail, PenLine, Pencil, Plus, Save, Send, Tag, Tags, Trash2, Upload, X } from "lucide-react";
+import { Check, ListPlus, Mail, PenLine, Pencil, Plus, Save, Send, Tag, Tags, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -60,6 +60,8 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
   const [managingCategories, setManagingCategories] = useState(false);
   const [newCategory, setNewCategory] = useState("");
   const [renaming, setRenaming] = useState<{ from: string; to: string } | null>(null);
+  // Adding existing addresses to a category: the list shows the addresses not in it, to tick and add.
+  const [assignTo, setAssignTo] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [search, setSearch] = useState("");
   const [newAddress, setNewAddress] = useState<Address>(noAddress);
@@ -121,18 +123,25 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
   const categoryCount = useCallback((name: string) => (contacts ?? []).filter((contact) => name === NO_CATEGORY ? !contact.category : contact.category.toLowerCase() === name.toLowerCase()).length, [contacts]);
   const shown = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return (contacts ?? []).filter((contact) => (category === ALL_CATEGORIES || (category === NO_CATEGORY ? !contact.category : contact.category.toLowerCase() === category.toLowerCase()))
+    return (contacts ?? []).filter((contact) => (assignTo !== null ? contact.category.toLowerCase() !== assignTo.toLowerCase() : category === ALL_CATEGORIES || (category === NO_CATEGORY ? !contact.category : contact.category.toLowerCase() === category.toLowerCase()))
       && (!term || contact.email.includes(term) || contact.name.toLowerCase().includes(term) || (contact.company ?? "").toLowerCase().includes(term) || contact.category.toLowerCase().includes(term)));
-  }, [contacts, search, category]);
+  }, [contacts, search, category, assignTo]);
   // Where an added address goes: the user's own list, or the user an administrator has open.
   const viewedOwner = seesAll && view !== "me" && view !== "all" ? owners.find((owner) => String(owner.id) === view) : undefined;
   const allShownSelected = shown.length > 0 && shown.every((contact) => selected.has(contact.id));
   const toggleShown = () => setSelected((current) => { const next = new Set(current); for (const contact of shown) { if (allShownSelected) next.delete(contact.id); else next.add(contact.id); } return next; });
   const toggle = (id: number) => setSelected((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-  const chooseList = (list: EmailListType) => { if (list === type) return; setType(list); setSelected(new Set()); setSearch(""); setCategory(ALL_CATEGORIES); setEditing(null); setRenaming(null); };
-  // A new category starts a new selection, so addresses hidden by the filter are never sent to by mistake.
-  const chooseCategory = (next: string) => { if (next === category) return; setCategory(next); setSelected(new Set()); };
-  const chooseView = (next: string) => { if (next === view) return; setView(next); setSelected(new Set()); setCategory(ALL_CATEGORIES); setEditing(null); setRenaming(null); };
+  const chooseList = (list: EmailListType) => { if (list === type) return; setType(list); setSelected(new Set()); setSearch(""); setCategory(ALL_CATEGORIES); setEditing(null); setRenaming(null); setAssignTo(null); };
+  // A new category starts a new selection, so addresses hidden by the filter are never sent to by mistake. A new
+  // address typed while a category is shown goes into it.
+  const chooseCategory = (next: string) => {
+    if (next === category) return;
+    const named = (value: string) => value !== ALL_CATEGORIES && value !== NO_CATEGORY;
+    setNewAddress((current) => ({ ...current, category: named(next) ? next : named(category) && current.category === category ? "" : current.category }));
+    setCategory(next); setSelected(new Set()); setAssignTo(null);
+  };
+  const chooseView = (next: string) => { if (next === view) return; setView(next); setSelected(new Set()); setCategory(ALL_CATEGORIES); setEditing(null); setRenaming(null); setAssignTo(null); };
+  const startAssign = (name: string) => { setAssignTo(name); setSelected(new Set()); setSearch(""); setEditing(null); setManagingCategories(false); setRenaming(null); };
 
   const run = async (work: () => Promise<void>) => { setBusy(true); try { await work(); } catch (error) { toast.error(errorText(error)); } finally { setBusy(false); } };
   const addContacts = (rows: Address[], skipped = 0) => run(async () => {
@@ -175,13 +184,17 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
     if (!ids.length || !window.confirm(`Remove ${ids.length} ${ids.length === 1 ? "address" : "addresses"} from the ${emailListLabel(type)}? ${seesAll ? " This removes them for the users who added them." : ""}`)) return;
     void run(async () => { const data = await call("/api/email-lists", "PATCH", { companyId, type, view, action: "remove", ids }); showList(data); setSelected(new Set()); toast.success(`${data.removed} removed`); });
   };
-  const categorizeSelected = () => {
+  // Puts the selected addresses in a category ("" clears it); after adding to a category, that category is shown.
+  const categorizeSelected = (name: string) => {
     const ids = [...selected];
     if (!ids.length) return;
-    const answer = window.prompt(`Category for ${ids.length} ${ids.length === 1 ? "address" : "addresses"} (e.g. a country). Leave empty to clear it.`, category === ALL_CATEGORIES || category === NO_CATEGORY ? "" : category);
-    if (answer === null) return;
-    const name = cleanEmailListCategory(answer);
-    void run(async () => { const data = await call("/api/email-lists", "PATCH", { companyId, type, view, action: "categorize", ids, category: name }); showList(data); toast.success(name ? `${data.changed} put in ${name}` : `Category cleared for ${data.changed}`); });
+    const adding = assignTo;
+    void run(async () => {
+      const data = await call("/api/email-lists", "PATCH", { companyId, type, view, action: "categorize", ids, category: name });
+      showList(data); setSelected(new Set());
+      if (adding !== null) { setAssignTo(null); setCategory(adding); setNewAddress((current) => ({ ...current, category: adding })); }
+      toast.success(name ? `${data.changed} put in ${name}` : `Category cleared for ${data.changed}`);
+    });
   };
   // Categories panel: add one before any address uses it, rename one (its addresses follow) or delete one (its
   // addresses stay, without a category). With "All users" open, rename and delete apply to every user's list.
@@ -255,7 +268,7 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
           </div> : <p className="text-xs text-muted-foreground">Only you see your addresses. Administrators can see every user&apos;s list.</p>}
           <div className="flex flex-wrap gap-2">
             <Input aria-label="Search addresses" placeholder="Search name, email or category" value={search} onChange={(event) => setSearch(event.target.value)} className="h-9 min-w-0 flex-1" />
-            <Select value={category} onValueChange={chooseCategory}><SelectTrigger aria-label="Category" className="h-9 w-44"><SelectValue /></SelectTrigger><SelectContent>
+            <Select value={category} onValueChange={chooseCategory} disabled={assignTo !== null}><SelectTrigger aria-label="Category" className="h-9 w-44"><SelectValue /></SelectTrigger><SelectContent>
               <SelectItem value={ALL_CATEGORIES}>All categories</SelectItem>
               {categories.map((name) => <SelectItem key={name} value={name}>{name} ({categoryCount(name)})</SelectItem>)}
               <SelectItem value={NO_CATEGORY}>No category ({categoryCount(NO_CATEGORY)})</SelectItem>
@@ -268,17 +281,25 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
             <form onSubmit={addCategory} className="flex gap-2"><Input aria-label="New category" placeholder="New category, e.g. a country" value={newCategory} maxLength={EMAIL_LIST_CATEGORY_MAX} onChange={(event) => setNewCategory(event.target.value)} className="h-8 min-w-0 flex-1" /><Button type="submit" size="sm" variant="outline" className="h-8" disabled={busy}><Plus className="size-4" />Add category</Button></form>
             {categories.length ? <ul className="max-h-48 divide-y overflow-y-auto rounded-md border bg-background">{categories.map((name) => renaming?.from === name ? <li key={name}><form onSubmit={renameCategory} className="flex items-center gap-2 px-2 py-1.5">
               <Input aria-label={`New name for ${name}`} value={renaming.to} maxLength={EMAIL_LIST_CATEGORY_MAX} autoFocus onChange={(event) => setRenaming({ ...renaming, to: event.target.value })} className="h-8 min-w-0 flex-1" />
-              <Button type="button" size="sm" variant="ghost" className="h-8" disabled={busy} onClick={() => setRenaming(null)}><X className="size-4" />Cancel</Button><Button type="submit" size="sm" className="h-8" disabled={busy}><Save className="size-4" />Save</Button>
+              <Button type="button" size="icon" variant="ghost" className="size-8 shrink-0" disabled={busy} aria-label="Cancel renaming" title="Cancel" onClick={() => setRenaming(null)}><X className="size-4" /></Button><Button type="submit" size="icon" className="size-8 shrink-0" disabled={busy} aria-label={`Save the new name for ${name}`} title="Save"><Check className="size-4" /></Button>
             </form></li> : <li key={name} className="flex items-center gap-1 px-3 py-1 text-sm"><span className="min-w-0 flex-1 truncate">{name} <span className="text-xs text-muted-foreground">({categoryCount(name)})</span></span>
+              <Button type="button" size="icon" variant="ghost" className="size-8" disabled={busy || !contacts?.length} aria-label={`Add addresses to ${name}`} title="Add addresses from the list to this category" onClick={() => startAssign(name)}><ListPlus className="size-4" /></Button>
               <Button type="button" size="icon" variant="ghost" className="size-8" disabled={busy} aria-label={`Rename ${name}`} title="Rename" onClick={() => setRenaming({ from: name, to: name })}><Pencil className="size-4" /></Button>
               <Button type="button" size="icon" variant="ghost" className="size-8 text-destructive" disabled={busy} aria-label={`Delete ${name}`} title="Delete (its addresses stay, without a category)" onClick={() => deleteCategory(name)}><Trash2 className="size-4" /></Button>
             </li>)}</ul> : <p className="text-xs text-muted-foreground">No categories yet. Add one above, or give an address a category.</p>}
-            <p className="text-xs text-muted-foreground">Renaming moves its addresses to the new name; deleting keeps the addresses without a category.{seesAll && view === "all" ? " With All users open, renaming and deleting apply to every user's list; a new category goes to your own." : viewedOwner ? ` These are ${viewedOwner.name}'s categories.` : ""}</p>
+            <p className="text-xs text-muted-foreground">Use the list icon to add addresses to a category. Renaming moves its addresses to the new name; deleting keeps the addresses without a category.{seesAll && view === "all" ? " With All users open, renaming and deleting apply to every user's list; a new category goes to your own." : viewedOwner ? ` These are ${viewedOwner.name}'s categories.` : ""}</p>
+          </div> : null}
+          {assignTo !== null ? <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/40 bg-primary/5 p-3 text-sm" role="status">
+            <span className="min-w-0 flex-1">Adding to <strong>{assignTo}</strong>: tick the addresses below (those already in it are not shown), then press Add.</span>
+            <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => { setAssignTo(null); setSelected(new Set()); }}><X className="size-4" />Cancel</Button>
+            <Button type="button" size="sm" disabled={busy || !selected.size} onClick={() => categorizeSelected(assignTo)}><ListPlus className="size-4" />Add {selected.size || ""} to {assignTo}</Button>
           </div> : null}
           <div className="rounded-lg border">
-            <label className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2 text-xs font-medium"><Checkbox checked={allShownSelected} disabled={!shown.length} onCheckedChange={toggleShown} />Select {search || category !== ALL_CATEGORIES ? "shown" : "all"}{category === ALL_CATEGORIES ? "" : ` in ${category === NO_CATEGORY ? "No category" : category}`} · {selected.size} of {contacts?.length ?? 0} selected</label>
+            <label className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2 text-xs font-medium"><Checkbox checked={allShownSelected} disabled={!shown.length} onCheckedChange={toggleShown} />Select {search || category !== ALL_CATEGORIES ? "shown" : "all"}{assignTo !== null ? ` not in ${assignTo}` : category === ALL_CATEGORIES ? "" : ` in ${category === NO_CATEGORY ? "No category" : category}`} · {selected.size} of {contacts?.length ?? 0} selected</label>
             <ul className="max-h-72 divide-y overflow-y-auto">
-              {contacts === null ? <li className="p-4 text-sm text-muted-foreground">Loading…</li> : !shown.length ? <li className="p-4 text-sm text-muted-foreground">{contacts.length ? "No address matches the search or category." : `${viewedOwner ? `${viewedOwner.name}'s` : view === "all" && seesAll ? "The" : "Your"} ${emailListLabel(type)} is empty. Add an address below or import a CSV file.`}</li>
+              {contacts === null ? <li className="p-4 text-sm text-muted-foreground">Loading…</li> : !shown.length ? <li className="p-4 text-sm text-muted-foreground">{assignTo !== null ? (search ? "No address matches the search." : `Every address is already in ${assignTo}.`)
+                : contacts.length && !search && category !== ALL_CATEGORIES && category !== NO_CATEGORY ? <span className="flex flex-wrap items-center gap-2">No address in {category} yet. Add a new one below (it goes into {category}), or<Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => startAssign(category)}><ListPlus className="size-4" />Choose addresses to add</Button></span>
+                : contacts.length ? "No address matches the search or category." : `${viewedOwner ? `${viewedOwner.name}'s` : view === "all" && seesAll ? "The" : "Your"} ${emailListLabel(type)} is empty. Add an address below or import a CSV file.`}</li>
                 : shown.map((contact) => editing?.id === contact.id ? <li key={contact.id}><form onSubmit={saveEdit} className="grid grid-cols-2 gap-2 bg-muted/40 px-3 py-2">
                   <Input aria-label="Name" placeholder="Name" value={editing.name} maxLength={160} autoFocus onChange={(event) => setEditing({ ...editing, name: event.target.value })} className="h-8" />
                   <Input aria-label="Company" placeholder="Company" value={editing.company} maxLength={160} onChange={(event) => setEditing({ ...editing, company: event.target.value })} className="h-8" />
@@ -297,8 +318,11 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
             <Button type="submit" size="sm" variant="outline" className="h-9" disabled={busy}><Plus className="size-4" />{viewedOwner ? `Add to ${viewedOwner.name}'s list` : "Add"}</Button>
           </form>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" variant="outline" disabled={busy || !selected.size} onClick={categorizeSelected}><Tag className="size-4" />Set category</Button>
-            <Button type="button" size="sm" variant="ghost" className="text-destructive" disabled={busy || !selected.size} onClick={removeSelected}><Trash2 className="size-4" />Remove selected from list</Button>
+            {assignTo === null ? <Select value="" onValueChange={(name) => categorizeSelected(name === NO_CATEGORY ? "" : name)} disabled={busy || !selected.size}>
+              <SelectTrigger aria-label="Set category of the selected addresses" className="h-8 w-auto gap-2 text-sm"><Tag className="size-4" /><SelectValue placeholder={selected.size ? `Set category (${selected.size})` : "Set category"} /></SelectTrigger>
+              <SelectContent>{categories.map((name) => <SelectItem key={name} value={name}>{name}</SelectItem>)}<SelectItem value={NO_CATEGORY}>No category (clear)</SelectItem></SelectContent>
+            </Select> : null}
+            <Button type="button" size="sm" variant="ghost" className="text-destructive" disabled={busy || !selected.size || assignTo !== null} onClick={removeSelected}><Trash2 className="size-4" />Remove selected from list</Button>
           </div>
         </section>
         <section className="min-w-0 space-y-3" aria-label="Message">
@@ -310,7 +334,7 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
           <div className="space-y-1.5"><Label htmlFor="stock-email-body">Message</Label><Textarea id="stock-email-body" value={body} rows={14} onChange={(event) => setBody(event.target.value)} className="font-mono text-xs" /><p className="text-xs text-muted-foreground">Templates can use {"{items}"} (the selected stock), {"{company}"}, {"{sender}"} and {"{senderEmail}"}. {"{name}"} is filled for each address with its name from the list (Sir/Madam without one; {"{contactCompany}"} adds its company), and each address then gets its own copy. Your signature is added under the message when it is turned on.</p><Button type="button" size="sm" variant="outline" onClick={() => setEditingSignature(true)}><PenLine className="size-4" />My signature</Button></div>
         </section>
       </div>}
-      {editingSignature ? null : <DialogFooter><Button type="button" variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>Cancel</Button><Button type="button" disabled={busy || !selected.size || !subject.trim() || !body.trim()} onClick={send}><Send className="size-4" />{busy ? "Working…" : `Send to ${selected.size} ${selected.size === 1 ? "address" : "addresses"}`}</Button></DialogFooter>}
+      {editingSignature ? null : <DialogFooter><Button type="button" variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>Cancel</Button><Button type="button" disabled={busy || !selected.size || assignTo !== null || !subject.trim() || !body.trim()} onClick={send}><Send className="size-4" />{busy ? "Working…" : `Send to ${selected.size} ${selected.size === 1 ? "address" : "addresses"}`}</Button></DialogFooter>}
     </DialogContent>
   </Dialog>;
 }
