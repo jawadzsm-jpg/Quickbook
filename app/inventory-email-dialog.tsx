@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { EmailSignatureEditor } from "./email-signature-editor";
 import { defaultStockEmail, emailListLabel, emailListsFor, INVENTORY_EMAIL_MAX_RECIPIENTS, parseEmailListCsv, type EmailListContact, type EmailListType } from "@/lib/email-lists";
-import { EMAIL_TEMPLATE_NAME_MAX, fillEmailTemplate, STOCK_EMAIL_TYPE } from "@/lib/email-templates";
+import { EMAIL_TEMPLATE_NAME_MAX, fillEmailTemplate, STOCK_EMAIL_TYPE, withoutSignOff } from "@/lib/email-templates";
 import { isValidEmail } from "@/lib/email-validation";
 
 type Template = { id: number; name: string; documentType: string; subject: string; body: string; shared: boolean; editable: boolean };
@@ -23,6 +23,8 @@ async function call(url: string, method: "GET" | "POST" | "PATCH", body?: Record
   if (!response.ok) throw new Error(data.error || "Something went wrong. Try again.");
   return data;
 }
+// The standard stock email leaves out "Best regards, name, company" when the sender's signature already gives it.
+const standardEmail = (signatureOn: boolean) => signatureOn ? { ...defaultStockEmail, body: withoutSignOff(defaultStockEmail.body) } : defaultStockEmail;
 const errorText = (error: unknown) => error instanceof Error ? error.message : "Something went wrong. Try again.";
 
 /**
@@ -43,10 +45,13 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
   const [newAddress, setNewAddress] = useState({ name: "", email: "" });
   const [templates, setTemplates] = useState<Template[]>([]);
   const [templateId, setTemplateId] = useState("default");
+  const templateIdRef = useRef(templateId);
+  useEffect(() => { templateIdRef.current = templateId; }, [templateId]);
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [editingSignature, setEditingSignature] = useState(false);
+  const [signatureOn, setSignatureOn] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // A template's text with {company}, {sender}, {senderEmail} and {items} filled; the stock is added when {items} is missing.
@@ -65,7 +70,19 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
 
   // Opening starts from the default wording with the current selection; the list and templates load as they arrive.
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (!open) return; setEditingSignature(false); setTemplateId("default"); fill(defaultStockEmail); setSelected(new Set()); setSearch(""); }, [open, fill]);
+  useEffect(() => { if (!open) return; setEditingSignature(false); setTemplateId("default"); fill(standardEmail(false)); setSelected(new Set()); setSearch(""); }, [open, fill]);
+  // With the signature on, the standard wording is filled again without its closing once the setting arrives.
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    call(`/api/email-signatures?companyId=${companyId}`, "GET").then((data) => {
+      const on = data.saved === true && data.signature?.enabled === true;
+      if (!active) return;
+      setSignatureOn(on);
+      if (on && templateIdRef.current === "default") fill(standardEmail(true));
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [open, companyId, fill]);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (open && lists.includes(type)) void loadList(type); }, [open, type, lists, loadList]);
   useEffect(() => {
@@ -109,7 +126,7 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
     if (!ids.length || !window.confirm(`Remove ${ids.length} ${ids.length === 1 ? "address" : "addresses"} from the ${emailListLabel(type)}? ${seesAll ? " This removes them for the users who added them." : ""}`)) return;
     void run(async () => { const data = await call("/api/email-lists", "PATCH", { companyId, type, action: "remove", ids }); setContacts(data.contacts ?? []); setSelected(new Set()); toast.success(`${data.removed} removed`); });
   };
-  const chooseTemplate = (id: string) => { setTemplateId(id); const template = templates.find((entry) => String(entry.id) === id); fill(template ?? defaultStockEmail); };
+  const chooseTemplate = (id: string) => { setTemplateId(id); const template = templates.find((entry) => String(entry.id) === id); fill(template ?? standardEmail(signatureOn)); };
   const saveTemplate = () => {
     const name = window.prompt("Template name", "")?.trim().slice(0, EMAIL_TEMPLATE_NAME_MAX);
     if (!name) return;
@@ -136,7 +153,7 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
   return <Dialog open={open} onOpenChange={(next) => { if (!busy) onOpenChange(next); }}>
     <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-5xl">
       <DialogHeader><DialogTitle className="flex items-center gap-2"><Mail className="size-5" />Email stock list</DialogTitle><DialogDescription>{itemCount} {itemCount === 1 ? "item" : "items"} from Inventory Overview. Each address receives its own copy; recipients do not see each other, and replies come to {sender.email || "you"}.</DialogDescription></DialogHeader>
-      {editingSignature ? <><EmailSignatureEditor companyId={companyId} /><div><Button type="button" variant="outline" onClick={() => setEditingSignature(false)}>Back to the email</Button></div></> : !lists.length ? <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">Your role cannot send stock emails.</p> : <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+      {editingSignature ? <><EmailSignatureEditor companyId={companyId} onSaved={setSignatureOn} /><div><Button type="button" variant="outline" onClick={() => setEditingSignature(false)}>Back to the email</Button></div></> : !lists.length ? <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">Your role cannot send stock emails.</p> : <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
         <section className="min-w-0 space-y-3" aria-label="Email list">
           <div className="flex flex-wrap gap-2" role="group" aria-label="Email list">{lists.map((list) => <Button key={list} type="button" size="sm" variant={type === list ? "default" : "outline"} aria-pressed={type === list} onClick={() => chooseList(list)}>{emailListLabel(list)}</Button>)}</div>
           <p className="text-xs text-muted-foreground">{seesAll ? "Administrator view: every user's addresses in this company." : "Only you see your addresses. Administrators can see every user's list."}</p>

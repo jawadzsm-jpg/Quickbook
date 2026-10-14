@@ -49,15 +49,20 @@ export const MAX_RECIPIENTS = 500;
 /** The PDF must fit the hosting request limit (4.5 MB) together with the message. */
 export const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;
 
-/** The built-in wording, used until a person picks or writes a template. */
-export function defaultEmailTemplate(documentType: string) {
+/** The built-in wording's closing ("Kind regards," with name and company), left out when the sender's signature is on. */
+const SIGN_OFF = /\n\n(?:Kind|Best) regards,\n\{sender\}\n\{company\}$/;
+export const withoutSignOff = (body: string) => body.replace(SIGN_OFF, "");
+
+/**
+ * The built-in wording, used until a person picks or writes a template. With `signatureOn` it ends before the closing,
+ * because the sender's signature already gives it.
+ */
+export function defaultEmailTemplate(documentType: string, signatureOn = false) {
   const supplier = SUPPLIER_DOCUMENT_TYPES.includes(documentType);
-  return {
-    subject: "{type} {number} from {company}",
-    body: supplier
-      ? "Dear {name},\n\nPlease find attached our {type} {number} dated {date} for {currency} {amount}.\n\nKindly confirm receipt.\n\nKind regards,\n{sender}\n{company}"
-      : "Dear {name},\n\nPlease find attached {type} {number} dated {date} for {currency} {amount}.\n\nIf you have any questions, just reply to this email.\n\nKind regards,\n{sender}\n{company}",
-  };
+  const body = supplier
+    ? "Dear {name},\n\nPlease find attached our {type} {number} dated {date} for {currency} {amount}.\n\nKindly confirm receipt.\n\nKind regards,\n{sender}\n{company}"
+    : "Dear {name},\n\nPlease find attached {type} {number} dated {date} for {currency} {amount}.\n\nIf you have any questions, just reply to this email.\n\nKind regards,\n{sender}\n{company}";
+  return { subject: "{type} {number} from {company}", body: signatureOn ? withoutSignOff(body) : body };
 }
 
 /** Replaces {placeholders} with the document's values; unknown placeholders are left as written. */
