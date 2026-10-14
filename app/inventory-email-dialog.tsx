@@ -194,10 +194,10 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
                 </form></li> : <li key={contact.id} className="flex items-center hover:bg-muted/50"><label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-3 py-2 text-sm"><Checkbox checked={selected.has(contact.id)} onCheckedChange={() => toggle(contact.id)} /><span className="min-w-0 flex-1"><span className="block truncate font-medium">{[contact.name, contact.company].filter(Boolean).join(" – ") || contact.email}</span>{contact.name || contact.company ? <span className="block truncate text-xs text-muted-foreground">{contact.email}</span> : null}{seesAll && contact.ownerName ? <span className="block truncate text-[11px] text-muted-foreground">Added by {contact.ownerName}</span> : null}</span></label><Button type="button" size="icon" variant="ghost" className="mr-1 size-8 shrink-0" disabled={busy} aria-label={`Edit ${contact.email}`} title="Edit name, company or email" onClick={() => setEditing({ id: contact.id, name: contact.name, company: contact.company ?? "", email: contact.email })}><Pencil className="size-4" /></Button></li>)}
             </ul>
           </div>
-          <form onSubmit={addOne} className="grid grid-cols-2 gap-2">
-            <Input aria-label="Name" placeholder="Name (optional)" value={newAddress.name} maxLength={160} onChange={(event) => setNewAddress({ ...newAddress, name: event.target.value })} className="h-9" />
-            <Input aria-label="Company" placeholder="Company (optional)" value={newAddress.company} maxLength={160} onChange={(event) => setNewAddress({ ...newAddress, company: event.target.value })} className="h-9" />
-            <Input aria-label="Email address" type="email" placeholder="name@company.com" value={newAddress.email} onChange={(event) => setNewAddress({ ...newAddress, email: event.target.value })} className="h-9" />
+          <form onSubmit={addOne} className="grid gap-2">
+            <Input aria-label="Name" placeholder="Name" value={newAddress.name} maxLength={160} onChange={(event) => setNewAddress({ ...newAddress, name: event.target.value })} className="h-9" />
+            <Input aria-label="Company name" placeholder="Company name" value={newAddress.company} maxLength={160} onChange={(event) => setNewAddress({ ...newAddress, company: event.target.value })} className="h-9" />
+            <Input aria-label="Email address" type="email" placeholder="Email (name@company.com)" value={newAddress.email} onChange={(event) => setNewAddress({ ...newAddress, email: event.target.value })} className="h-9" />
             <Button type="submit" size="sm" variant="outline" className="h-9" disabled={busy}><Plus className="size-4" />Add</Button>
           </form>
           <Button type="button" size="sm" variant="ghost" className="text-destructive" disabled={busy || !selected.size} onClick={removeSelected}><Trash2 className="size-4" />Remove selected from list</Button>
