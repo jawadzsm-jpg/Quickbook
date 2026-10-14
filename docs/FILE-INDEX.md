@@ -61,10 +61,11 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/invoice-packing-list.tsx` — Invoice packing list (HS code, cartons, weights, CBM, origin, stamps); `/api/packing-lists`.
 - `app/invoice-serial-editor.tsx` — Append serial numbers to invoice/bill/receipt lines after the creation day; `/api/records`.
 - `app/invoice-stock-return.tsx` — Add an inventory-only stock return line to an invoice.
+- `app/inactive-item-notice.tsx` — "You have this item — it is in Inactive items" search hint with Open / Reactivate; `reactivateItem` (`/api/records` item-status).
 - `app/item-customization-center.tsx` — Product Customization Details (RAM, storage, screen, part/serial/UPC), layout, export; `/api/item-customization`.
 - `app/item-import.tsx` — Inventory Import from CSV/XLSX with template download; `/api/records`.
 - `app/item-logistics-center.tsx` — HS code, country of origin and dimensions per item; `/api/item-logistics`, `/api/item-logistics-options`.
-- `app/item-search-select.tsx` — Searchable product combobox and item search/label helpers.
+- `app/item-search-select.tsx` — Searchable product combobox and item search/label helpers; optional inactive-item hint with Reactivate.
 - `app/journal-entry-center.tsx` — Manual multi-currency journal entry form for a company/inventory; posts to `/api/journal-entries`.
 - `app/layout.tsx` — Root layout: metadata, global styles and app-wide helpers (Escape closer, highlighters, attachments, period-lock PIN).
 - `app/letterhead-center.tsx` — Company Setup letterhead editor and preview; saves via `/api/company-setup/letterhead`.
@@ -230,6 +231,8 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/invoice-series.ts` — Invoice number format (`C{COMPANY}-{PREFIX}-INV-{NUMBER}`), padding, validation, revision.
 - `lib/invoice-stock-lines.ts` — Splits invoice lines into customer lines and stock-return lines.
 - `lib/item-cost.ts` — Average purchase cost from bills/receipts and VAT-aware home cost for cost of sales. **DB**
+- `lib/inactive-item-match.ts` — `ITEM_IDLE_DAYS` (90), item part number (field or Part Number / MPN spec), and inactive-item matching by part number, SKU, item no. or UPC.
+- `lib/item-idle.ts` — **server** Makes items with no stock unused for 90 days inactive, with an audit entry per item; run by `/api/notifications/run`. **DB**
 - `lib/item-description.ts` — Item titles, condition, specification descriptions, invoice text and WhatsApp/Telegram product text.
 - `lib/item-import.ts` — Inventory Import: CSV/XLSX/Excel-XML rows to items (max 2,000) and the template.
 - `lib/item-logistics.ts` — HS code / country-of-origin choices and dimension text.

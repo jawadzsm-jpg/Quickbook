@@ -34,7 +34,7 @@ Use this file to locate implementation ownership without rescanning the whole re
 | Sales conversion | `open-sales-documents.tsx`, `sales-source-invoicing.tsx` | `records` |
 | Purchase receiving/returns | `open-purchase-orders.tsx`, `purchase-order-receiving.tsx`, `purchase-return-source.tsx` | `records` |
 | Payments | `unpaid-invoices.tsx`, `unpaid-bills.tsx`, `payment-terms-picker.tsx` | `records`, `payment-terms` |
-| Inventory overview/out of stock | `inventory-overview.tsx` (filters, activity tabs, share bar, Excel), `today-offers.tsx`, `stock-holds.tsx`, `category-color-picker.tsx`, `brand-icons.tsx`, `shared-out-of-stock.tsx`; rules in `lib/item-offers.ts`, `lib/category-colors.ts`, `lib/share-format.ts`, `lib/share-emoji.ts` | `inventory-overview`, `item-offers`, `stock-holds`, `category-colors`, `out-of-stock` |
+| Inventory overview/out of stock | `inventory-overview.tsx` (filters, activity tabs, share bar, Excel, inactive-item search hint via `inactive-item-notice.tsx`), `today-offers.tsx`, `stock-holds.tsx`, `category-color-picker.tsx`, `brand-icons.tsx`, `shared-out-of-stock.tsx`; rules in `lib/item-offers.ts`, `lib/category-colors.ts`, `lib/share-format.ts`, `lib/share-emoji.ts` | `inventory-overview`, `item-offers`, `stock-holds`, `category-colors`, `out-of-stock` |
 | Product Customization Details | `item-customization-center.tsx` | `item-customization` |
 | UAE e-invoicing readiness | `einvoicing-center.tsx`, `lib/einvoice-readiness.ts` | `company-setup` |
 | RCM declarations | `rcm-declaration-generator.tsx` | `rcm-declarations` |
@@ -202,3 +202,5 @@ Customer/vendor organization: `lib/contact-hierarchy.ts` validates parent and st
 Insights daily activity is owned by `app/insights-activity.tsx`, mounted in the Insights tab of `app/enterprise-app.tsx`; its paginated entry-date query is in `app/api/records/route.ts`, using `lib/document-access-sql.ts` for shared document visibility.
 
 Stock holds: `lib/stock-holds.ts` (active-hold rule, `heldByOthers`), `app/api/stock-holds/route.ts` (create/release, sales reps), `app/stock-holds.tsx` (hold dialog and Stock on hold panel used by `app/inventory-overview.tsx`). Enforcement is in `app/api/records/route.ts` (new documents and invoice edits), `lib/inventory-invoice-edit.ts` and `app/api/transfers/route.ts`. Table `stock_holds`, migration 0096.
+
+Idle items: `lib/item-idle.ts` makes items with no stock and no use for 90 days inactive (audited), called from `app/api/notifications/run/route.ts` by the five-minute scheduler. Inactive-item search hints: matching in `lib/inactive-item-match.ts`, UI and reactivation in `app/inactive-item-notice.tsx`, used by the item list (`RecordView` in `enterprise-app.tsx`), `inventory-overview.tsx` and `item-search-select.tsx` (document line pickers; `inventory-items-changed` window event reloads records).

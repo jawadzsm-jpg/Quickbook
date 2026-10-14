@@ -2500,3 +2500,55 @@ test('income tax working papers isolate companies, preserve revisions, link acco
   const {default:ExcelJS}=await import('exceljs');const book=new ExcelJS.Workbook();await book.xlsx.load(await reportWorkbook(result.report,c.name,'Company-wide'));assert.ok(book.getWorksheet('Report').getSheetValues().flat(Infinity).includes(15750));assert.equal(book.getWorksheet('Report').pageSetup.paperSize,9);
   for(const orientation of ['portrait','landscape']){const pdf=Buffer.from(await reportPdf(result.report,c.name,'Company-wide',result.report.rows,undefined,orientation)).toString('latin1');assert.ok(pdf.startsWith('%PDF-'));assert.match(pdf,/15,750\.00/);const box=pdf.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/);assert.ok(box);assert.ok(Math.abs(Number(box[1])-(orientation==='portrait'?595.28:841.89))<0.01);}
 });
+
+test("items unused for 90 days with no stock become inactive, with an audit entry, and inactive code searches find them", async () => {
+  const { inactivateIdleItems } = await vite.ssrLoadModule("/lib/item-idle.ts");
+  const { inactiveCodeMatches, itemPartNumber } = await vite.ssrLoadModule("/lib/inactive-item-match.ts");
+  const { eq, and, inArray } = await import("drizzle-orm");
+  const old = new Date(Date.now() - 200 * 86_400_000).toISOString();
+  const item = async (sku, values = {}) => (await db.insert(schema.items).values({ companyId, locationId, sku, name: `Idle test ${sku}`, createdAt: old, ...values }).returning())[0];
+  const document = async (type, status, createdAt, itemId) => {
+    const [row] = await db.insert(schema.transactions).values({ companyId, locationId, number: `IDLE-${type}-${itemId}`, type, party: "USD Customer", transactionDate: "2026-01-01", status, createdAt }).returning();
+    await db.insert(schema.transactionLines).values({ transactionId: row.id, itemId, description: "idle test", quantity: 1 });
+  };
+  const idle = await item("IDLE-A", { partNumber: "90NB1603-M002S0" });
+  const stocked = await item("IDLE-B", { quantity: 5 });
+  const recentDocument = await item("IDLE-C");
+  await document("invoice", "paid", new Date().toISOString(), recentDocument.id);
+  const oldDocument = await item("IDLE-D");
+  await document("invoice", "paid", old, oldDocument.id);
+  const openOrder = await item("IDLE-E");
+  await document("sales order", "open", old, openOrder.id);
+  const edited = await item("IDLE-F");
+  await db.insert(schema.auditLog).values({ companyId, action: "updated", entityType: "item", entityId: edited.id, details: "{}" });
+  const fresh = await item("IDLE-G", { createdAt: new Date().toISOString() });
+  const ids = [idle, stocked, recentDocument, oldDocument, openOrder, edited, fresh].map((row) => row.id);
+
+  const first = await inactivateIdleItems();
+  const statusOf = async () => Object.fromEntries((await db.select({ sku: schema.items.sku, status: schema.items.status }).from(schema.items).where(inArray(schema.items.id, ids))).map((row) => [row.sku, row.status]));
+  assert.deepEqual(await statusOf(), { "IDLE-A": "inactive", "IDLE-B": "active", "IDLE-C": "active", "IDLE-D": "inactive", "IDLE-E": "active", "IDLE-F": "active", "IDLE-G": "active" });
+  assert.deepEqual(first.items.map((row) => row.sku).filter((sku) => sku.startsWith("IDLE-")).sort(), ["IDLE-A", "IDLE-D"]);
+  const audit = await db.select().from(schema.auditLog).where(and(eq(schema.auditLog.action, "auto-inactivated"), inArray(schema.auditLog.entityId, [idle.id, oldDocument.id])));
+  assert.equal(audit.length, 2);
+  assert.equal(JSON.parse(audit[0].details).idleDays, 90);
+  assert.equal((await inactivateIdleItems()).items.filter((row) => row.sku.startsWith("IDLE-")).length, 0);
+
+  // Reactivating logs an item-status entry, which gives the item a fresh 90 days.
+  await db.update(schema.items).set({ status: "active" }).where(eq(schema.items.id, idle.id));
+  await db.insert(schema.auditLog).values({ companyId, action: "updated", entityType: "item", entityId: idle.id, details: JSON.stringify({ mode: "item-status", before: "inactive", after: "active" }) });
+  await inactivateIdleItems();
+  assert.equal((await statusOf())["IDLE-A"], "active");
+
+  const inactive = [
+    { id: 1, status: "inactive", sku: "LAP-77", itemNumber: "13001", partNumber: "", specifications: JSON.stringify([{ label: "MPN", value: "90nb1603-m002s0" }]) },
+    { id: 2, status: "inactive", sku: "X1", itemNumber: "13002", description: "ASUS | 16GB | 5WS0A23781" },
+    { id: 3, status: "active", sku: "ACTIVE-90NB1603" },
+  ];
+  assert.equal(itemPartNumber(inactive[0]), "90NB1603-M002S0");
+  assert.deepEqual(inactiveCodeMatches(inactive, "90nb1603 m002s0").map((row) => row.id), [1]);
+  assert.deepEqual(inactiveCodeMatches(inactive, "90NB1603").map((row) => row.id), [1]);
+  assert.deepEqual(inactiveCodeMatches(inactive, "asus 5ws0a23781").map((row) => row.id), [2]);
+  assert.deepEqual(inactiveCodeMatches(inactive, "13002").map((row) => row.id), [2]);
+  assert.deepEqual(inactiveCodeMatches(inactive, "lap").map((row) => row.id), []);
+  assert.deepEqual(inactiveCodeMatches(inactive, "ab").map((row) => row.id), []);
+});

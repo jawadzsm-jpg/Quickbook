@@ -6,7 +6,8 @@ import { activeHoldCondition } from "@/lib/stock-holds";
 import { savedCategoryColors } from "@/lib/category-colors-sql";
 import { canManageOffers } from "@/lib/item-offers";
 import { currentOfferCondition, offerSoldQuantity } from "@/lib/item-offers-sql";
-import { canAccessCompany, isAdministrator, requireApiUser } from "@/lib/auth";
+import { canAccessCompany, hasPermission, isAdministrator, requireApiUser } from "@/lib/auth";
+import { itemPartNumber } from "@/lib/inactive-item-match";
 import { publicErrorMessage } from "@/lib/errors";
 
 function errorMessage(error: unknown) {
@@ -199,6 +200,19 @@ export async function GET(request: Request) {
       .innerJoin(inventoryLocations, and(eq(items.locationId, inventoryLocations.id), eq(items.companyId, inventoryLocations.companyId)))
       .where(and(currentOfferCondition(), eq(items.status, "active"), eq(companies.active, true), scopeIds === null ? undefined : inArray(itemOffers.companyId, scopeIds.length ? scopeIds : [0])))
       .orderBy(asc(itemOffers.startsAt), asc(itemOffers.endsAt)).limit(200);
+    // Inactive items (identity codes only) so a part number / SKU search can say "You have this item — it is in
+    // Inactive items" instead of finding nothing; reactivating needs inventory:manage.
+    const inactiveRows = await db.select({
+      id: items.id, companyId: items.companyId, itemNumber: items.itemNumber, sku: items.sku, name: items.name, description: items.description,
+      partNumber: items.partNumber, specifications: items.specifications, upcNumber: items.upcNumber, status: items.status,
+      locationId: items.locationId, locationName: inventoryLocations.name,
+    }).from(items)
+      .innerJoin(companies, eq(items.companyId, companies.id))
+      .innerJoin(inventoryLocations, and(eq(items.locationId, inventoryLocations.id), eq(items.companyId, inventoryLocations.companyId)))
+      .where(and(eq(companies.active, true), eq(inventoryLocations.active, true), eq(items.status, "inactive"), scopeIds === null ? undefined : inArray(items.companyId, scopeIds.length ? scopeIds : [0])))
+      .orderBy(asc(items.name)).limit(5000);
+    const inactive = inactiveRows.map(({ specifications, ...row }) => ({ ...row, partNumber: itemPartNumber({ partNumber: row.partNumber, specifications }) }));
+    const canReactivateItems = hasPermission(authorization, "inventory:manage");
     // Share emoji: this user's WhatsApp/Telegram styles, and companies whose administrator switched emoji off.
     const companyIds = [...new Set(records.map((record) => record.companyId))];
     const [[preferences], emojiOff] = await Promise.all([
@@ -225,7 +239,7 @@ export async function GET(request: Request) {
       // names, purchase documents or purchase prices.
       const sellingPrice = (itemId: unknown) => records.find(item => item.id === Number(itemId))?.salesPrice ?? null;
       const safe = (row: Record<string, unknown>) => ({ id: row.id, itemId: row.itemId, itemName: row.itemName, sku: row.sku, itemNumber: row.itemNumber, companyId: row.companyId, companyName: row.companyName, locationId: row.locationId, locationName: row.locationName, currency: row.currency, quantity: row.quantity, date: row.date });
-      return Response.json({ records, holds, shareEmoji, categoryColors, canManageCategories: true, canManageHolds: false, canManageOffers: false, offers: offers.map((offer) => ({ ...offer, createdByName: "" })), canSelectItems: true, canBulkSelect: false, salesOnly: true, activity: {
+      return Response.json({ records, inactive, canReactivateItems, holds, shareEmoji, categoryColors, canManageCategories: true, canManageHolds: false, canManageOffers: false, offers: offers.map((offer) => ({ ...offer, createdByName: "" })), canSelectItems: true, canBulkSelect: false, salesOnly: true, activity: {
         incoming: incomingResult.rows.map(row => ({ ...safe(row), date: undefined, price: sellingPrice(row.itemId) })),
         launched: launchedResult.rows.map(row => ({ ...safe(row), price: sellingPrice(row.itemId) })),
         priceChanges: priceChanges.map((row: Record<string, unknown>) => ({ ...safe(row), price: sellingPrice(row.itemId), previousPrice: row.previousPrice, currentPrice: row.currentPrice })),
@@ -234,6 +248,8 @@ export async function GET(request: Request) {
     }
     return Response.json({
       records,
+      inactive,
+      canReactivateItems,
       holds,
       shareEmoji,
       canManageHolds,
