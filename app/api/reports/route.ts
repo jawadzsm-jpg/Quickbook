@@ -1269,6 +1269,54 @@ export async function GET(request: Request) {
         return { date: entry.date, reference: entry.reference, status: entry.status, itemId: entry.item.id, ...inventoryAccountLinkFor(entry.item), itemNumber: entry.item.itemNumber || "—", sku: entry.item.sku, name: entry.item.name, from: entry.from, to: entry.to, quantity: entry.quantity, unitCost, value: Math.round(entry.quantity * unitCost * 100) / 100 };
       });
       columns = [{ key: "date", label: "Date" }, { key: "reference", label: "Reference" }, { key: "status", label: "Type" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "from", label: "From" }, { key: "to", label: "To" }, { key: "quantity", label: "Quantity" }, { key: "unitCost", label: "Unit Cost", ...money }, { key: "value", label: "Value", ...money }, { key: "account", label: "Inventory Asset Account" }];
+    } else if (key === "warehouse-movements") {
+      title = "Warehouse Movements";
+      // Stock moved between warehouses in the period, warehouse by warehouse: moves between warehouses of one inventory
+      // and transfers between inventories (default warehouses). One row per warehouse side, so each move shows as an Out
+      // and an In. Sales, purchases and other documents are not included.
+      const stockItems = allItems.filter((item) => item.itemType === "stock-part");
+      const stockById = new Map(stockItems.map((item) => [item.id, item]));
+      const stockIds = [...stockById.keys()];
+      const locationIds = [...new Set(allItems.map((item) => Number(item.locationId)))];
+      const inPeriod = (date: string) => (!period.from || date >= period.from) && (!period.to || date <= period.to);
+      const idList = (ids: number[]) => sql.join(ids.map((id) => sql`${id}`), sql`, `);
+      const [moveRows, transferRows] = stockIds.length ? await Promise.all([
+        db.execute(sql`SELECT id, item_id, from_warehouse_id, to_warehouse_id, quantity, reference, transfer_date FROM warehouse_transfers WHERE company_id = ${companyId} AND item_id IN (${idList(stockIds)})`),
+        db.execute(sql`SELECT id, reference, sku, quantity, transfer_date, source_company_id, source_location_id, destination_company_id, destination_location_id FROM stock_transfers WHERE (source_company_id = ${companyId} AND source_location_id IN (${idList(locationIds)})) OR (destination_company_id = ${companyId} AND destination_location_id IN (${idList(locationIds)}))`),
+      ]) : [{ rows: [] }, { rows: [] }];
+      const involvedLocations = [...new Set(transferRows.rows.flatMap((row) => [Number(row.source_location_id), Number(row.destination_location_id)]).concat(locationIds))];
+      const placeRows = involvedLocations.length ? (await db.execute(sql`SELECT l.id AS location_id, l.name AS location_name, w.id AS warehouse_id, w.name AS warehouse_name, w.is_default FROM inventory_locations l LEFT JOIN warehouses w ON w.location_id = l.id WHERE l.id IN (${idList(involvedLocations)})`)).rows : [];
+      const locationName = new Map(placeRows.map((row) => [Number(row.location_id), String(row.location_name)]));
+      const warehouseName = new Map(placeRows.filter((row) => row.warehouse_id !== null).map((row) => [Number(row.warehouse_id), String(row.warehouse_name)]));
+      const defaultWarehouse = new Map(placeRows.filter((row) => row.is_default).map((row) => [Number(row.location_id), Number(row.warehouse_id)]));
+      const place = (location: number, warehouse: number | null) => `${locationName.get(location) ?? "—"}${warehouse && warehouseName.has(warehouse) ? ` · ${warehouseName.get(warehouse)}` : ""}`;
+      type MovementRow = { order: string; date: string; type: string; reference: string; party: string; item: typeof allItems[number]; location: number; warehouseId: number | null; quantity: number };
+      const entries: MovementRow[] = [];
+      for (const row of moveRows.rows) {
+        const item = stockById.get(Number(row.item_id)), date = String(row.transfer_date);
+        if (!item || !inPeriod(date)) continue;
+        const location = Number(item.locationId), quantity = Number(row.quantity), from = Number(row.from_warehouse_id), to = Number(row.to_warehouse_id);
+        const order = `${date}|2|${String(row.id).padStart(10, "0")}`;
+        entries.push({ order: `${order}|1`, date, type: "Warehouse move", reference: String(row.reference), party: `To ${place(location, to)}`, item, location, warehouseId: from, quantity: -quantity });
+        entries.push({ order: `${order}|2`, date, type: "Warehouse move", reference: String(row.reference), party: `From ${place(location, from)}`, item, location, warehouseId: to, quantity });
+      }
+      const bySku = new Map(stockItems.map((item) => [`${item.locationId}|${String(item.sku).trim().toUpperCase()}`, item]));
+      for (const row of transferRows.rows) {
+        const date = String(row.transfer_date);
+        if (!inPeriod(date)) continue;
+        const source = Number(row.source_location_id), destination = Number(row.destination_location_id), sku = String(row.sku).trim().toUpperCase(), quantity = Number(row.quantity);
+        const order = `${date}|3|${String(row.id).padStart(10, "0")}`;
+        // Each side is listed for the inventory of this company it belongs to (both when the transfer is internal).
+        const sourceItem = Number(row.source_company_id) === companyId ? bySku.get(`${source}|${sku}`) : undefined;
+        const destinationItem = Number(row.destination_company_id) === companyId ? bySku.get(`${destination}|${sku}`) : undefined;
+        if (sourceItem) entries.push({ order: `${order}|1`, date, type: "Inventory transfer", reference: String(row.reference), party: `To ${place(destination, defaultWarehouse.get(destination) ?? null)}`, item: sourceItem, location: source, warehouseId: defaultWarehouse.get(source) ?? null, quantity: -quantity });
+        if (destinationItem) entries.push({ order: `${order}|2`, date, type: "Inventory transfer", reference: String(row.reference), party: `From ${place(source, defaultWarehouse.get(source) ?? null)}`, item: destinationItem, location: destination, warehouseId: defaultWarehouse.get(destination) ?? null, quantity });
+      }
+      rows = entries.filter((entry) => entry.quantity !== 0 && (!reportWarehouse || entry.warehouseId === reportWarehouse.id)).sort((a, b) => a.order.localeCompare(b.order)).map((entry) => {
+        const unitCost = inventoryCostFor(entry.item);
+        return { date: entry.date, status: entry.type, reference: entry.reference, party: entry.party, itemId: entry.item.id, ...inventoryAccountLinkFor(entry.item), itemNumber: entry.item.itemNumber || "—", sku: entry.item.sku, name: entry.item.name, warehouse: place(entry.location, entry.warehouseId), quantityIn: Math.max(0, entry.quantity), quantityOut: Math.max(0, -entry.quantity), unitCost, value: Math.round(entry.quantity * unitCost * 100) / 100 };
+      });
+      columns = [{ key: "date", label: "Date" }, { key: "status", label: "Type" }, { key: "reference", label: "Reference" }, { key: "party", label: "From / To" }, { key: "itemNumber", label: "Item No." }, { key: "sku", label: "SKU" }, { key: "name", label: "Item" }, { key: "warehouse", label: "Warehouse" }, { key: "quantityIn", label: "Qty In" }, { key: "quantityOut", label: "Qty Out" }, { key: "unitCost", label: "Unit Cost", ...money }, { key: "value", label: "Net Value", ...money }, { key: "account", label: "Inventory Asset Account" }];
     } else if (key === "negative-item-list") {
       title = "Negative Item List";
       rows = stockItems.filter((row) => Number(row.quantity) < 0).map((row) => ({ itemId: row.id, ...inventoryAccountLinkFor(row), itemNumber: row.itemNumber || "—", sku: row.sku, name: row.name, category: row.category || "General", inventory: locations.find((location) => location.id === row.locationId)?.name || "—", quantity: row.quantity, shortageQuantity: Math.abs(row.quantity), shortageValue: Math.abs(row.quantity) * inventoryCostFor(row), status: "Negative stock" })).sort((a, b) => a.quantity - b.quantity || a.name.localeCompare(b.name));
