@@ -77,7 +77,7 @@ function ImageField({ label, hint, value, maxWidth, onChange }: { label: string;
  * The person's own email signature for this company: closing line, name, the company logo, address, contact details and a brands
  * banner, added under every document and stock-list email they send.
  */
-export function EmailSignatureEditor({ companyId }: { companyId: number }) {
+export function EmailSignatureEditor({ companyId, onSaved }: { companyId: number; onSaved?: (enabled: boolean) => void }) {
   const [signature, setSignature] = useState<EmailSignature | null>(null);
   const [companyLogo, setCompanyLogo] = useState("");
   const [saved, setSaved] = useState(false);
@@ -101,7 +101,7 @@ export function EmailSignatureEditor({ companyId }: { companyId: number }) {
       const response = await fetch("/api/email-signatures", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, ...signature }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Could not save the signature.");
-      setSignature(data.signature); setSaved(true);
+      setSignature(data.signature); setSaved(true); onSaved?.(data.signature.enabled === true);
       toast.success(signature.enabled ? "Signature saved — it is added to your emails" : "Signature saved (turned off)");
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save the signature."); }
     finally { setBusy(false); }

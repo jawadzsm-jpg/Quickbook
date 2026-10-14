@@ -4185,6 +4185,10 @@ test("email templates: each user's own, shared ones usable by colleagues, change
   assert.deepEqual(parseEmailList("A@x.com; b@x.com,\nName <c@x.com> a@x.com nope mailto:d@x.com"), { valid: ["a@x.com", "b@x.com", "c@x.com", "d@x.com"], invalid: ["nope"] });
   assert.deepEqual(recipientBatches([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]]);
   assert.match(defaultEmailTemplate("purchase order").body, /Kindly confirm receipt/);
+  // With the sender's signature on, the standard wording stops before its closing (the signature gives it).
+  assert.match(defaultEmailTemplate("invoice").body, /Kind regards,\n\{sender\}\n\{company\}$/);
+  assert.match(defaultEmailTemplate("invoice", true).body, /just reply to this email\.$/);
+  assert.match(defaultEmailTemplate("purchase order", true).body, /Kindly confirm receipt\.$/);
 });
 
 test("documents are emailed with their PDF to any number of addresses, replies go to the sender, and every send is recorded", async () => {

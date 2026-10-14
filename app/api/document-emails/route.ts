@@ -5,7 +5,7 @@ import { requireCompanyAccess } from "@/lib/auth";
 import { friendlyEmailError } from "@/lib/email-errors";
 import { canEmailDocuments, EMAIL_BODY_MAX, EMAIL_SUBJECT_MAX, MAX_ATTACHMENT_BYTES, MAX_RECIPIENTS, RECIPIENTS_PER_MESSAGE, emailDocumentTypeValues, parseEmailList, recipientBatches, SUPPLIER_DOCUMENT_TYPES } from "@/lib/email-templates";
 import { checkDeliveries, emailDeliveryConfigured, sendDocumentEmail } from "@/lib/smtp";
-import { emailSignatureFor } from "@/lib/email-signature-server";
+import { emailSignatureFor, savedSignature } from "@/lib/email-signature-server";
 import { deliveryLabel, summarizeDelivery, type DeliveryCheck } from "@/lib/email-delivery";
 import { publicErrorMessage } from "@/lib/errors";
 import { consumeRateLimit } from "@/lib/rate-limit";
@@ -63,13 +63,14 @@ export async function GET(request: Request) {
   try {
     const document = await documentFor(companyId, Number(params.get("transactionId")));
     if (!document) return Response.json({ error: "Document not found." }, { status: 404 });
-    const [history, suggestions, configured] = await Promise.all([
+    const [history, suggestions, configured, signature] = await Promise.all([
       getDb().select().from(documentEmails).where(and(eq(documentEmails.companyId, companyId), eq(documentEmails.transactionId, document.id))).orderBy(desc(documentEmails.createdAt), desc(documentEmails.id)).limit(50),
       suggestedAddresses(companyId, document.party, document.type),
       emailDeliveryConfigured().catch(() => false),
+      savedSignature(companyId, user.id),
     ]);
     return Response.json({
-      configured, suggestions, sender: { name: user.fullName || user.email, email: user.email },
+      configured, suggestions, signatureOn: Boolean(signature?.signature.enabled), sender: { name: user.fullName || user.email, email: user.email },
       history: history.map((row) => ({ id: row.id, createdAt: row.createdAt, sentByName: row.sentByName, recipients: list(row.recipients), cc: list(row.cc), subject: row.subject, attachmentName: row.attachmentName, status: row.status, error: row.error, delivery: deliveryOf(row) })),
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return Response.json({ error: publicErrorMessage(error, "Could not load the email history.") }, { status: 500 }); }

@@ -43,7 +43,7 @@ function DeliveryLine({ companyId, item, onChecked }: { companyId: number; item:
     {problems.map((entry) => <p key={entry.id} className="break-words text-rose-600 dark:text-rose-400">{entry.recipient ? `${entry.recipient}: ` : ""}{entry.error}</p>)}
   </div>;
 }
-type Loaded = { configured: boolean; suggestions: { contact: string[]; previous: string[] }; sender: { name: string; email: string }; history: SentEmail[] };
+type Loaded = { configured: boolean; signatureOn: boolean; suggestions: { contact: string[]; previous: string[] }; sender: { name: string; email: string }; history: SentEmail[] };
 
 const BUILT_IN = "built-in";
 const day = (value: string) => {
@@ -83,8 +83,8 @@ function AddressField({ id, label, addresses, onChange, suggestions, placeholder
 }
 
 /** Create and edit email templates: each person's own, optionally shared with everyone in the company. */
-function TemplateEditor({ companyId, documentType, templates, onSaved, onUse }: { companyId: number; documentType: string; templates: Template[]; onSaved: () => void; onUse: (template: Template) => void }) {
-  const blank = { id: 0, name: "", documentType, ...defaultEmailTemplate(documentType), shared: false };
+function TemplateEditor({ companyId, documentType, signatureOn, templates, onSaved, onUse }: { companyId: number; documentType: string; signatureOn: boolean; templates: Template[]; onSaved: () => void; onUse: (template: Template) => void }) {
+  const blank = { id: 0, name: "", documentType, ...defaultEmailTemplate(documentType, signatureOn), shared: false };
   const [form, setForm] = useState<typeof blank | null>(null);
   const [busy, setBusy] = useState(false);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
@@ -158,9 +158,10 @@ export function DocumentEmailDialog({ open, onOpenChange, companyId, companyName
     company: companyName, sender: loaded?.sender.name ?? "", senderEmail: loaded?.sender.email ?? "",
   }), [companyName, document, loaded?.sender.email, loaded?.sender.name, partyName]);
   const fitting = templates.filter((template) => templateFits(template.documentType, document.type));
-  const apply = useCallback((id: string, list: Template[], fill: EmailValues) => {
+  const apply = useCallback((id: string, list: Template[], fill: EmailValues, signatureOn: boolean) => {
     const template = list.find((item) => String(item.id) === id);
-    const source = template ?? defaultEmailTemplate(document.type);
+    // The standard wording leaves out "Kind regards, name, company" when the sender's signature already gives it.
+    const source = template ?? defaultEmailTemplate(document.type, signatureOn);
     setTemplateId(template ? id : BUILT_IN);
     setSubject(fillEmailTemplate(source.subject, fill));
     setBody(fillEmailTemplate(source.body, fill));
@@ -195,7 +196,7 @@ export function DocumentEmailDialog({ open, onOpenChange, companyId, companyName
       const remembered = readLastTemplate(rememberKey);
       const fits = list.filter((template) => templateFits(template.documentType, document.type));
       const start = fits.some((template) => String(template.id) === remembered) ? remembered : fits.find((template) => template.documentType === document.type)?.id?.toString() ?? BUILT_IN;
-      apply(start, list, { ...values, sender: data.sender.name, senderEmail: data.sender.email });
+      apply(start, list, { ...values, sender: data.sender.name, senderEmail: data.sender.email }, data.signatureOn);
     }).catch((error) => { if (active) toast.error(error instanceof Error ? error.message : "Could not open the email."); });
     return () => { active = false; };
     // Load once per opening; later value changes must not overwrite what the person typed.
@@ -236,7 +237,7 @@ export function DocumentEmailDialog({ open, onOpenChange, companyId, companyName
       {loaded && !loaded.configured ? <div role="alert" className="flex gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"><TriangleAlert className="mt-0.5 size-4 shrink-0" />Emails are not set up yet. An All-Admin can set the email server (turboSMTP or another) in Admin Controls → Email server.</div> : null}
 
       {tab === "compose" ? <div className="space-y-4">
-        <div className="space-y-1.5"><Label>Template</Label><Select value={templateId} onValueChange={(value) => apply(value, templates, values)}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>
+        <div className="space-y-1.5"><Label>Template</Label><Select value={templateId} onValueChange={(value) => apply(value, templates, values, loaded?.signatureOn ?? false)}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>
           <SelectItem value={BUILT_IN}>Standard wording</SelectItem>
           {mine.length ? <><SelectSeparator /><SelectGroup><SelectLabel>My templates</SelectLabel>{mine.map((template) => <SelectItem key={template.id} value={String(template.id)}>{template.name}</SelectItem>)}</SelectGroup></> : null}
           {shared.length ? <><SelectSeparator /><SelectGroup><SelectLabel>Shared</SelectLabel>{shared.map((template) => <SelectItem key={template.id} value={String(template.id)}>{template.name}{template.ownerName ? ` · ${template.ownerName}` : ""}</SelectItem>)}</SelectGroup></> : null}
@@ -248,9 +249,9 @@ export function DocumentEmailDialog({ open, onOpenChange, companyId, companyName
         <label className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2.5 text-sm"><Checkbox checked={attach} onCheckedChange={(checked) => setAttach(checked === true)} /><FileText className="size-4 text-rose-600" /><span>Attach the PDF of this {typeLabel(document.type).toLowerCase()} <span className="text-muted-foreground">(as shown in the preview)</span></span></label>
       </div> : null}
 
-      {tab === "templates" ? <TemplateEditor companyId={companyId} documentType={document.type} templates={templates} onSaved={() => void loadTemplates().catch((error) => toast.error(error.message))} onUse={(template) => { apply(String(template.id), templates, values); setTab("compose"); }} /> : null}
+      {tab === "templates" ? <TemplateEditor companyId={companyId} documentType={document.type} signatureOn={loaded?.signatureOn ?? false} templates={templates} onSaved={() => void loadTemplates().catch((error) => toast.error(error.message))} onUse={(template) => { apply(String(template.id), templates, values, loaded?.signatureOn ?? false); setTab("compose"); }} /> : null}
 
-      {tab === "signature" ? <EmailSignatureEditor companyId={companyId} /> : null}
+      {tab === "signature" ? <EmailSignatureEditor companyId={companyId} onSaved={(signatureOn) => setLoaded((current) => current ? { ...current, signatureOn } : current)} /> : null}
 
       {tab === "history" ? (history.length ? <ul className="divide-y rounded-lg border">{history.map((item) => <li key={item.id} className="space-y-1 px-3 py-2.5 text-sm">
         <p className="flex flex-wrap items-center gap-2">{item.status === "sent" ? <CheckCircle2 className="size-4 text-emerald-600" /> : <TriangleAlert className="size-4 text-rose-600" />}<span className="font-medium">{item.status === "sent" ? "Sent" : "Failed"}</span><span className="text-muted-foreground">{sentAt(item.createdAt)} · {item.sentByName}</span></p>
