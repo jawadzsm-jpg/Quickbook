@@ -1,5 +1,6 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { companies, emailSignatures } from "@/db/schema";
@@ -40,9 +41,10 @@ function signatureForEmail(row: Awaited<ReturnType<typeof savedSignature>>, requ
   const signature: EmailSignature = row.signature;
   let base = "";
   try { base = appBaseUrl(request); } catch { /* No public address: the email goes without the images. */ }
-  // The update time keeps mail programs from showing an image the person has since replaced.
-  const link = (kind: string) => `${base}/api/email-signatures/image?t=${row.signature.imageToken}&k=${kind}&v=${encodeURIComponent(row.signature.updatedAt)}`;
-  const linked = base ? { logo: row.companyLogo ? link("logo") : undefined, banner: signature.bannerData ? link("banner") : undefined } : {};
+  // `v` is a hash of the image itself: the image route is cached by the CDN, so a replaced logo or banner (the logo is
+  // saved on the company, which changes no signature time) needs a new address.
+  const link = (kind: string, data: string) => `${base}/api/email-signatures/image?t=${row.signature.imageToken}&k=${kind}&v=${createHash("sha256").update(data).digest("base64url").slice(0, 16)}`;
+  const linked = base ? { logo: row.companyLogo ? link("logo", row.companyLogo) : undefined, banner: signature.bannerData ? link("banner", signature.bannerData) : undefined } : {};
   const logo = embedded("logo", row.companyLogo), banner = embedded("banner", signature.bannerData);
   const html = signatureHtml(signature, { logo: logo ? `cid:${logo.cid}` : undefined, banner: banner ? `cid:${banner.cid}` : undefined });
   return { text: signatureText(signature), html, linkedHtml: signatureHtml(signature, linked), images: [logo, banner].filter((image) => image !== null), logoUrl: linked.logo ?? "" };
