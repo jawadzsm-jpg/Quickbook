@@ -267,6 +267,8 @@ const navGroups = [
     { id: "item-logistics", label: "HS Code & Dimensions", icon: PackageCheck },
     { id: "inventory-check-reports", label: "Inventory Check Reports", icon: PackageCheck },
     { id: "transfers", label: "Stock Transfers", icon: ArrowRightLeft },
+  ] },
+  { label: "ACCOUNTANT", items: [
     { id: "banking", label: "Banking", icon: Landmark },
     { id: "journal-entries", label: "General Journal", icon: BookOpenCheck },
     { id: "accounts", label: "Chart of Accounts", icon: BookOpen },
