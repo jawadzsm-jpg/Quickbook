@@ -28,7 +28,9 @@ Use this file to locate implementation ownership without rescanning the whole re
 | --- | --- | --- |
 | Login/password | `login-screen.tsx`, `password-change-screen.tsx`, `password-reset-forms.tsx` (forgot password), `idle-sign-out.tsx` (automatic sign-out when idle), `change-password-dialog.tsx` (signed-in users change their own password) | `auth/session`, `auth/activity`, `auth/password-reset`, `login-branding` |
 | Main records and transactions | `enterprise-app.tsx` | `records` |
-| Company home/report cards | `enterprise-app.tsx`, `live-profit-loss-summary.tsx` | `reports`, `records` |
+| Company Home (task workflow) | `enterprise-app.tsx` (`WorkflowHome`) | `records` |
+| Dashboard (sidebar, period KPIs and drill-downs) | `business-dashboard.tsx`, `insights-activity.tsx`; period presets from `lib/report-period.ts` | `reports` (`business-final`, `sales-by-customer`, `purchases-by-vendor`, `sales-by-item`, `income-expense-graph`), `records` |
+| P&L live summary | `live-profit-loss-summary.tsx` | `reports` |
 | Announcements / My notes (sidebar → Overview) | `company-announcements.tsx`, `user-notes.tsx` | `announcements`, `user-notes` |
 | Email lists (sidebar → Overview; also Inventory Overview → Send) | `inventory-email-dialog.tsx` (`page`) | `email-lists`, `inventory-emails` |
 | Customer reporting | `customer-open-balance.tsx`, `active-customers-report.tsx`, `statement-layout.tsx` | `reports`, `records` |
@@ -200,7 +202,7 @@ Customer/vendor organization: `lib/contact-hierarchy.ts` validates parent and st
 
 - `lib/invoice-series.ts`: shared invoice format validation, rendering and settings revision; used by workspace settings, invoice creation and all inventory number previews. Persistent format/padding columns are introduced by migration `0083_custom_invoice_series.sql`.
 
-Insights daily activity is owned by `app/insights-activity.tsx`, mounted in the Insights tab of `app/enterprise-app.tsx`; its paginated entry-date query is in `app/api/records/route.ts`, using `lib/document-access-sql.ts` for shared document visibility.
+Insights daily activity is owned by `app/insights-activity.tsx`, mounted at the bottom of the Dashboard (`app/business-dashboard.tsx`); its paginated entry-date query is in `app/api/records/route.ts`, using `lib/document-access-sql.ts` for shared document visibility.
 
 Stock holds: `lib/stock-holds.ts` (active-hold rule, `heldByOthers`), `app/api/stock-holds/route.ts` (create/release, sales reps), `app/stock-holds.tsx` (hold dialog and Stock on hold panel used by `app/inventory-overview.tsx`). Enforcement is in `app/api/records/route.ts` (new documents and invoice edits), `lib/inventory-invoice-edit.ts` and `app/api/transfers/route.ts`. Table `stock_holds`, migration 0096.
 

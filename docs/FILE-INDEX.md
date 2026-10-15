@@ -20,6 +20,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/bank-box-placement.tsx` — Bank-details box (80×40 mm) placement on A4 pages: limits, HTML renderer, show/position/remark controls.
 - `app/brand-icons.tsx` — WhatsApp and Telegram logo icons for the share buttons.
 - `app/budget-report-library.tsx` — Budget report card library and budget trend chart.
+- `app/business-dashboard.tsx` — Sidebar Dashboard: period presets/custom range, KPI cards with prior-period change, position at period end, six-month income vs expenses, profit & VAT, top customers/suppliers/items, operations counts, drill-downs to reports; `/api/reports`.
 - `app/business-final-report.tsx` — Management overview report with sectioned metrics linking to detail reports.
 - `app/cargo-list.tsx` — Shared cargo/freight agent directory: add, edit, delete, search; `/api/cargos`.
 - `app/category-color-picker.tsx` — Palette picker for an item category's colour (or Auto); `/api/category-colors`.
@@ -50,7 +51,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/globals.css` — Global Tailwind v4 styles, dark mode, theme colour variables and app-wide styles.
 - `app/idle-sign-out.tsx` — Automatic sign-out when idle: activity tracking shared across tabs, final-minute countdown, sign-out; `/api/auth/activity`, `/api/auth/session`.
 - `app/income-tax-center.tsx` — Corporate income tax working papers (calculation, adjustments, file, reopen with PIN); `/api/income-tax`.
-- `app/insights-activity.tsx` — Transactions entered on a given day (entry vs document date, who entered); `/api/records`.
+- `app/insights-activity.tsx` — Dashboard list of transactions entered on a given day (entry vs document date, who entered); `/api/records`.
 - `app/inventory-check-reports.tsx` — Stock-count reports: create, edit, list; `/api/inventory-check-reports`.
 - `app/inventory-invoice-editor.tsx` — Inventory users' limited invoice editor: free lines, stock returns, serials, comments; `/api/records`.
 - `app/inventory-overview.tsx` — Inventory Overview: filters, coloured category groups, activity tabs (Incoming, New Arrival, Price Change, Just Sold, Today Offer), holds, one-line share bar (WhatsApp/Telegram/email/Edit/Excel); `/api/inventory-overview`.
