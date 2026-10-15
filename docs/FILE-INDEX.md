@@ -137,6 +137,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/vat-report-filters.tsx` — Column and VAT-code filters for VAT reports.
 - `app/vat-report-library.tsx` — VAT report card library.
 - `app/vat-report-table.tsx` — VAT report table renderer.
+- `app/vat-return-201.tsx` — VAT Management → VAT Return (VAT201): auto-filled boxes in the FTA template layout, per-box documents and VAT ledgers, inventory emirates, Excel (template) / PDF / print.
 - `app/vendor-center-error-boundary.tsx` — Error boundary that reloads the Vendor Center.
 - `app/vendor-report-filters.tsx` — Column filters for vendor report rows.
 - `app/vendor-report-library.tsx` — Vendor report card library.
@@ -300,6 +301,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/utils.ts` — `cn` class-name merge helper.
 - `lib/validation.ts` — ISO date check.
 - `lib/vat-report.ts` — VAT report keys, groups, filters, columns and summaries.
+- `lib/vat-return.ts` — VAT201 box mapping (VAT code, document type, inventory emirate), template totals and filling `public/templates/vat201-return-template.xlsx`.
 - `lib/vendor-bank.ts` — Supplier bank details on vendors: validation and printable lines.
 - `lib/vendor-report.ts` — Vendor/AP report keys, groups, summaries, supplier lookup and filters.
 - `lib/warehouses.ts` — Warehouse stock summaries (default warehouse = inventory total minus other warehouses), default-warehouse switching, document warehouse resolution, per-warehouse quantities and stock adjustment, and per-item warehouse breakdowns for lists.

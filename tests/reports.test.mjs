@@ -2552,3 +2552,126 @@ test("items unused for 90 days with no stock become inactive, with an audit entr
   assert.deepEqual(inactiveCodeMatches(inactive, "lap").map((row) => row.id), []);
   assert.deepEqual(inactiveCodeMatches(inactive, "ab").map((row) => row.id), []);
 });
+
+test("VAT201 return: boxes by VAT code and emirate, template totals, manual boxes and the filled Excel template", async () => {
+  const vatReturn = await vite.ssrLoadModule("/lib/vat-return.ts");
+  assert.equal(vatReturn.emirateFromText("Al Nahda, Dubai"), "dubai");
+  assert.equal(vatReturn.emirateFromText("Sheikh Zayed Road (Dubai) — Sharjah branch"), "sharjah");
+  assert.equal(vatReturn.emirateFromText("Al Hamra, RAK"), "ras-al-khaimah");
+  assert.equal(vatReturn.emirateFromText("Umm Al Qaiwain"), "umm-al-quwain");
+  assert.equal(vatReturn.emirateFromText("Rakuten tower"), "");
+  assert.equal(vatReturn.companyEmirate({ city: "", addressLine1: "Mussafah M-10", addressLine2: "" }), "abu-dhabi");
+
+  let id = 0;
+  const line = (number, type, subtotal, vatAmount, extra = {}) => ({ transactionId: extra.transactionId ?? ++id, number, type, status: "open", party: "Box test", date: "2026-09-10", locationId: 1, isImport: false, billId: null, isFreightCharge: false, vatCode: "STANDARD", vatRate: vatAmount ? 5 : 0, subtotal, freightCharge: 0, vatAmount, exchangeRate: 1, ...extra });
+  const invoice = line("INV-1", "invoice", 1000, 50);
+  const importBill = line("B-IM", "bill", 1000, 50, { isImport: true });
+  const lines = [
+    invoice, line("INV-1", "invoice", 200, 10, { transactionId: invoice.transactionId }),
+    line("CR-1", "credit memo", 100, 5),
+    line("INV-2", "invoice", 200, 10, { locationId: 2, exchangeRate: 2 }),
+    line("SR-1", "sales receipt", 300, 15, { locationId: 3 }),
+    line("INV-Z", "invoice", 250, 0, { vatCode: "ZERO" }),
+    line("INV-E", "invoice", 150, 0, { vatCode: "EXEMPT" }),
+    line("INV-O", "invoice", 80, 0, { vatCode: "OUT_OF_SCOPE" }),
+    line("INV-X", "invoice", 999, 49.95, { status: "cancelled" }),
+    line("B-1", "bill", 500, 25),
+    line("B-RC", "bill", 200, 10, { vatCode: "REVERSE_CHARGE" }),
+    importBill,
+    line("CHQ-1", "cheque", 1000, 50, { billId: importBill.transactionId }),
+    line("VC-1", "vendor credit", 100, 5),
+    line("QUO-1", "quotation", 100, 5),
+    line("INV-U", "invoice", 100, 5, { vatCode: "FOO" }),
+  ];
+  const adjustments = [
+    { id: 1, reference: "VAT-ADJ-1", adjustmentDate: "2026-09-10", direction: "decrease", amount: 2, reason: "Bad debt relief", locationId: 1 },
+    { id: 2, reference: "VAT-ADJ-2", adjustmentDate: "2026-09-10", direction: "increase", amount: 3, reason: "Correction", locationId: 2 },
+  ];
+  const codes = ["STANDARD:5", "ZERO:0", "EXEMPT:0", "REVERSE_CHARGE:5", "OUT_OF_SCOPE:0"].map((entry) => ({ code: entry.split(":")[0], rate: Number(entry.split(":")[1]) }));
+  const locations = [{ id: 1, name: "Dubai Shop", emirate: "dubai" }, { id: 2, name: "Sharjah Store", emirate: "sharjah" }, { id: 3, name: "Main", emirate: "" }];
+  const built = vatReturn.buildVat201({ lines, adjustments, codes, locations, companyEmirate: "abu-dhabi" });
+  const box = (key) => built.boxes[key];
+  assert.deepEqual(box("1a"), { amount: 300, vat: 15, adjustment: 0 }); // no inventory emirate → company emirate
+  assert.deepEqual(box("1b"), { amount: 1100, vat: 55, adjustment: 2 }); // credit memo nets; decrease reduces tax due
+  assert.deepEqual(box("1c"), { amount: 400, vat: 20, adjustment: -3 }); // USD at the document rate; increase is negative
+  for (const key of ["1d", "1e", "1f", "1g", "2", "7"]) assert.deepEqual(box(key), { amount: 0, vat: 0, adjustment: 0 }, key);
+  assert.deepEqual(box("3"), { amount: 200, vat: 10, adjustment: 0 });
+  assert.deepEqual(box("4"), { amount: 250, vat: 0, adjustment: 0 });
+  assert.deepEqual(box("5"), { amount: 150, vat: 0, adjustment: 0 });
+  assert.deepEqual(box("6"), { amount: 1000, vat: 50, adjustment: 0 });
+  assert.deepEqual(box("8"), { amount: 3400, vat: 150, adjustment: 1 });
+  assert.deepEqual(box("9"), { amount: 400, vat: 20, adjustment: 0 }); // vendor credit nets; bill-payment cheque not taxed twice
+  assert.deepEqual(box("10"), { amount: 1200, vat: 60, adjustment: 0 }); // reverse charge + imports recoverable
+  assert.deepEqual(box("11"), { amount: 1600, vat: 80, adjustment: 0 });
+  assert.deepEqual([box("12").amount, box("13").amount, box("14").amount], [151, 80, 71]);
+  assert.deepEqual({ lines: built.transactionLines, exceptions: built.exceptionLines }, { lines: 13, exceptions: 1 });
+  assert.deepEqual(built.sources["1b"].map((source) => [source.number, source.amount, source.vat, source.adjustment]), [["CR-1", -100, -5, 0], ["INV-1", 1200, 60, 0], ["VAT-ADJ-1", 0, 0, 2]]);
+  assert.deepEqual(built.sources["10"].map((source) => source.number), ["B-IM", "B-RC"]);
+  assert.equal(built.sources["1a"][0].inventory, "Main");
+
+  const manual = vatReturn.vat201Totals(built.boxes, built.unallocated, { touristAmount: 100, touristVat: 5, importAdjustmentAmount: 50, importAdjustmentVat: 2.5, box9Adjustment: -1 });
+  assert.deepEqual(manual["2"], { amount: -100, vat: -5, adjustment: 0 });
+  assert.deepEqual(manual["8"], { amount: 3350, vat: 147.5, adjustment: 1 });
+  assert.deepEqual([manual["11"].adjustment, manual["12"].amount, manual["13"].amount, manual["14"].amount], [-1, 148.5, 79, 69.5]);
+
+  const unplaced = vatReturn.buildVat201({ lines: [line("INV-N", "invoice", 100, 5, { locationId: 3 })], adjustments: [], codes, locations, companyEmirate: "" });
+  assert.deepEqual(unplaced.unallocated, { amount: 100, vat: 5, adjustment: 0 });
+  assert.deepEqual([unplaced.boxes["8"].vat, unplaced.boxes["14"].amount], [5, 5]);
+
+  const JSZip = (await import("jszip")).default;
+  const template = await readFile(`${root}public/templates/vat201-return-template.xlsx`);
+  const filled = await JSZip.loadAsync(await vatReturn.vat201Workbook(template, manual, "Box Test LLC · TRN 100000000000003 · 2026-07-01 to 2026-09-30"));
+  const sheet = await filled.file("xl/worksheets/sheet1.xml").async("string");
+  const cell = (ref) => sheet.match(new RegExp(`<c r="${ref}"[^>]*>(.*?)</c>`))?.[1];
+  assert.equal(cell("H15"), "<v>1100</v>");
+  assert.equal(cell("K15"), "<v>55</v>");
+  assert.equal(cell("O15"), "<v>2</v>");
+  assert.equal(cell("O17"), "<v>-3</v>");
+  assert.deepEqual([cell("I27"), cell("L27"), cell("H37"), cell("K37"), cell("N45")], ["<v>-100</v>", "<v>-5</v>", "<v>50</v>", "<v>2.5</v>", "<v>-1</v>"]);
+  assert.equal(cell("H39"), "<f>H13+H15+H17+H19+H21+H23+H25+H29+I27+H31+H33+H35+H37</f><v>3350</v>");
+  assert.equal(cell("H58"), "<f>H54-H56</f><v>69.5</v>");
+  assert.match(cell("D8"), /Box Test LLC · TRN 100000000000003/);
+  assert.match(sheet, /<sheetProtection /);
+  assert.ok(filled.file("xl/ctrlProps/ctrlProp1.xml"), "option buttons are kept");
+  assert.match(await filled.file("xl/workbook.xml").async("string"), /<calcPr fullCalcOnLoad="1"/);
+});
+
+test("VAT201 API: inventory emirates split Box 1, adjustments land in their emirate, Box 14 equals net VAT due", async () => {
+  const c = (await (await workspaces.POST(post({ type: "company", name: "VAT201 emirates", baseCurrency: "AED" }))).json()).company;
+  const cid = c.id, main = c.locations[0].id;
+  await database.query("UPDATE companies SET city=$1 WHERE id=$2", ["Abu Dhabi", cid]);
+  const [branch] = await db.insert(schema.inventoryLocations).values({ companyId: cid, name: "RAK Branch", code: `RAK${cid}`, invoicePrefix: `RAK${cid}` }).returning();
+  const add = async (number, type, subtotal, vatAmount, locationId, vatCode = "STANDARD") => {
+    const [record] = await db.insert(schema.transactions).values({ companyId: cid, locationId, type, number, party: "Emirate test", transactionDate: "2026-08-05", currency: "AED", exchangeRate: 1, subtotal, vatAmount, total: subtotal + vatAmount, baseTotal: subtotal + vatAmount }).returning();
+    await db.insert(schema.transactionLines).values({ transactionId: record.id, description: number, quantity: 1, subtotal, vatAmount, total: subtotal + vatAmount, vatCode, vatRate: vatAmount ? 5 : 0 });
+  };
+  await add("E-INV-1", "invoice", 1000, 50, main);
+  await add("E-INV-2", "invoice", 400, 20, branch.id);
+  await add("E-BILL-1", "bill", 600, 30, main);
+  const management = await vite.ssrLoadModule("/app/api/vat-management/route.ts");
+  const read = async () => { const response = await management.GET(new Request(`https://app.test/api/vat-management?companyId=${cid}&periodStart=2026-08-01&periodEnd=2026-08-31`)); assert.equal(response.status, 200, await response.clone().text()); return (await response.json()).summary; };
+  const before = await read();
+  assert.equal(before.vat201.company.emirate, "abu-dhabi");
+  assert.deepEqual([before.vat201.boxes["1a"].amount, before.vat201.boxes["1f"].amount], [1400, 0]);
+
+  const [user] = await db.insert(schema.appUsers).values({ fullName: "Emirate Admin", email: `emirate-${cid}@example.test`, passwordHash: "test", role: "admin" }).returning();
+  globalThis.__reportTestUser = { id: user.id, email: user.email, role: "all_admin", companyIds: [], mustChangePassword: false };
+  try {
+    assert.equal((await management.POST(post({ action: "emirate", companyId: cid, locationId: branch.id, emirate: "mars" }))).status, 400);
+    const saved = await management.POST(post({ action: "emirate", companyId: cid, locationId: branch.id, emirate: "ras-al-khaimah" }));
+    assert.equal(saved.status, 200, await saved.clone().text());
+    assert.equal((await saved.json()).location.emirate, "ras-al-khaimah");
+    const adjusted = await management.POST(post({ action: "adjust", companyId: cid, locationId: branch.id, adjustmentDate: "2026-08-20", reference: `E-ADJ-${cid}`, reason: "Bad debt relief", direction: "decrease", amount: 4 }));
+    assert.equal(adjusted.status, 201, await adjusted.clone().text());
+  } finally { delete globalThis.__reportTestUser; }
+  const after = await read();
+  const boxes = after.vat201.boxes;
+  assert.deepEqual(boxes["1a"], { amount: 1000, vat: 50, adjustment: 0 });
+  assert.deepEqual(boxes["1f"], { amount: 400, vat: 20, adjustment: 4 });
+  assert.deepEqual([boxes["8"].vat, boxes["8"].adjustment, boxes["12"].amount, boxes["13"].amount, boxes["14"].amount], [70, -4, 66, 30, 36]);
+  assert.equal(after.netVatDue, boxes["14"].amount);
+  assert.equal(after.boxes.box14, after.netVatDue);
+  assert.deepEqual(after.vat201.sources["1f"].map((source) => source.number), ["E-INV-2", `E-ADJ-${cid}`]);
+  assert.deepEqual(after.vat201.accounts.output.map((account) => account.name), ["VAT Payable"]);
+  assert.equal(after.vat201.inventories.find((inventory) => inventory.id === branch.id).emirate, "ras-al-khaimah");
+});

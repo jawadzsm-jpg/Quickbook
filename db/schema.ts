@@ -179,6 +179,8 @@ export const inventoryLocations = pgTable("inventory_locations", {
   invoiceNumberFormat: text("invoice_number_format").notNull().default("C{COMPANY}-{PREFIX}-INV-{NUMBER}"),
   invoiceNumberPadding: integer("invoice_number_padding").notNull().default(4),
   nextInvoiceNumber: integer("next_invoice_number").notNull().default(1),
+  // Emirate for VAT201 Box 1 (migration 0138): a lib/vat-return.ts key; empty follows the company's emirate.
+  emirate: text("emirate").notNull().default(""),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 }, (table) => [uniqueIndex("idx_inventory_locations_company_code").on(table.companyId, table.code)]);

@@ -1,24 +1,16 @@
-import { freightLineDocuments, vatTaxableValue } from "@/lib/vat-report";
-import { and, desc, eq, gte, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lte } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { accounts, auditLog, companies, inventoryLocations, journalEntries, journalLines, transactionLines, transactions, vatAdjustments, vatCodes, vatReturns } from "@/db/schema";
 import { canAccessCompany, requireApiUser, requireCompanyAccess } from "@/lib/auth";
 import { guardFiledPeriod } from "@/lib/period-lock";
 import { publicErrorMessage } from "@/lib/errors";
+import { buildVat201, companyEmirate, emirateName, isEmirateKey, uaeEmirates } from "@/lib/vat-return";
 
 const round = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
-const salesTypes = new Set(["invoice", "sales receipt", "statement charge", "credit memo"]);
-const purchaseTypes = new Set(["bill", "received item bill", "expense", "cheque", "credit card charge", "vendor credit"]);
-const excludedStatuses = new Set(["cancelled", "canceled", "void", "voided", "deleted", "draft"]);
-const reverseChargeCodes = new Set(["REVERSE", "REVERSE_CHARGE", "RCM"]);
 
 type VatBox = { amount: number; vat: number };
-
-function add(box: VatBox, amount: number, vat: number) {
-  box.amount = round(box.amount + amount);
-  box.vat = round(box.vat + vat);
-}
+const pair = (box: { amount: number; vat: number }): VatBox => ({ amount: box.amount, vat: box.vat });
 
 function filingDueDate(periodEnd: string) {
   const date = new Date(`${periodEnd}T00:00:00.000Z`);
@@ -28,17 +20,21 @@ function filingDueDate(periodEnd: string) {
 
 async function calculateVat(companyId: number, periodStart: string, periodEnd: string) {
   const db = getDb();
-  const [lines, adjustments, configuredCodes, companyRows] = await Promise.all([
+  const [lines, adjustments, configuredCodes, companyRows, locationRows, accountRows] = await Promise.all([
     db.select({
       transactionId: transactions.id,
-      isFreightCharge: transactionLines.isFreightCharge,
+      number: transactions.number,
       type: transactions.type,
       status: transactions.status,
+      party: transactions.party,
+      date: transactions.transactionDate,
+      locationId: transactions.locationId,
       isImport: transactions.isImport,
       billId: transactions.billId,
+      isFreightCharge: transactionLines.isFreightCharge,
       vatCode: transactionLines.vatCode,
       vatRate: transactionLines.vatRate,
-      taxableAmount: transactionLines.subtotal,
+      subtotal: transactionLines.subtotal,
       freightCharge: transactionLines.freightCharge,
       vatAmount: transactionLines.vatAmount,
       exchangeRate: transactions.exchangeRate,
@@ -49,89 +45,46 @@ async function calculateVat(companyId: number, periodStart: string, periodEnd: s
     )),
     db.select().from(vatAdjustments).where(and(eq(vatAdjustments.companyId, companyId), gte(vatAdjustments.adjustmentDate, periodStart), lte(vatAdjustments.adjustmentDate, periodEnd))),
     db.select({ code: vatCodes.code, rate: vatCodes.rate }).from(vatCodes).where(eq(vatCodes.companyId, companyId)),
-    db.select({ baseCurrency: companies.baseCurrency, trn: companies.trn }).from(companies).where(eq(companies.id, companyId)).limit(1),
+    db.select({ name: companies.name, baseCurrency: companies.baseCurrency, trn: companies.trn, city: companies.city, addressLine1: companies.addressLine1, addressLine2: companies.addressLine2 }).from(companies).where(eq(companies.id, companyId)).limit(1),
+    db.select({ id: inventoryLocations.id, name: inventoryLocations.name, emirate: inventoryLocations.emirate, active: inventoryLocations.active }).from(inventoryLocations).where(eq(inventoryLocations.companyId, companyId)).orderBy(asc(inventoryLocations.name)),
+    db.select({ id: accounts.id, code: accounts.code, name: accounts.name, systemRole: accounts.systemRole }).from(accounts).where(eq(accounts.companyId, companyId)),
   ]);
 
-  const box1: VatBox = { amount: 0, vat: 0 };
-  const box3: VatBox = { amount: 0, vat: 0 };
-  const box4: VatBox = { amount: 0, vat: 0 };
-  const box5: VatBox = { amount: 0, vat: 0 };
-  const box6: VatBox = { amount: 0, vat: 0 };
-  const box9: VatBox = { amount: 0, vat: 0 };
-  const box10: VatBox = { amount: 0, vat: 0 };
-  const knownCodes = new Map(configuredCodes.map((code) => [code.code.toUpperCase(), Number(code.rate)]));
+  const company = companyRows[0];
+  const defaultEmirate = company ? companyEmirate(company) : "";
+  const vat201 = buildVat201({ lines, adjustments, codes: configuredCodes, locations: locationRows, companyEmirate: defaultEmirate });
+  const { boxes, exceptionLines } = vat201;
+  const box1 = { amount: round(uaeEmirates.reduce((sum, emirate) => sum + boxes[emirate.box].amount, 0) + vat201.unallocated.amount), vat: round(uaeEmirates.reduce((sum, emirate) => sum + boxes[emirate.box].vat, 0) + vat201.unallocated.vat) };
   const blockingIssues: string[] = [];
   const warnings: string[] = [];
-  let exceptionLines = 0;
-  let transactionLineCount = 0;
-  const freightLines = freightLineDocuments(lines);
-
-  for (const line of lines) {
-    if (excludedStatuses.has(String(line.status).toLowerCase())) continue;
-    const isSale = salesTypes.has(line.type);
-    const isPurchase = purchaseTypes.has(line.type);
-    if (!isSale && !isPurchase) continue;
-    // A cheque allocated to a bill is a payment, not a second taxable purchase.
-    if (line.type === "cheque" && line.billId) continue;
-    const sign = ["credit memo", "vendor credit"].includes(line.type) ? -1 : 1;
-    const rate = Number(line.exchangeRate) || 1;
-    const taxableAmount = vatTaxableValue({ subtotal: line.taxableAmount, freightCharge: line.freightCharge, transactionId: line.transactionId }, freightLines);
-    const amount = round(sign * taxableAmount * rate);
-    const vat = round(sign * Number(line.vatAmount) * rate);
-    const code = String(line.vatCode || "").trim().toUpperCase();
-    const expectedRate = knownCodes.get(code);
-    transactionLineCount += 1;
-
-    if (!code || expectedRate === undefined) {
-      exceptionLines += 1;
-      continue;
-    }
-    const invalidCalculation = Math.abs(Number(line.vatAmount) - taxableAmount * Number(line.vatRate) / 100) > 0.011 || Math.abs(Number(line.vatRate) - expectedRate) > 0.001;
-    const invalidUaeTreatment = expectedRate !== 5 && !["ZERO", "EXEMPT", "OUT_OF_SCOPE"].includes(code);
-    if (invalidCalculation || invalidUaeTreatment || (code === "OUT_OF_SCOPE" && Math.abs(vat) > 0.001)) exceptionLines += 1;
-    if (code === "OUT_OF_SCOPE") {
-      continue;
-    }
-
-    if (isSale) {
-      if (code === "ZERO") add(box4, amount, 0);
-      else if (code === "EXEMPT") add(box5, amount, 0);
-      else add(box1, amount, vat);
-      continue;
-    }
-
-    if (line.isImport) {
-      add(box6, amount, vat);
-      add(box10, amount, vat);
-    } else if (reverseChargeCodes.has(code)) {
-      add(box3, amount, vat);
-      add(box10, amount, vat);
-    } else if (code !== "ZERO" && code !== "EXEMPT" && Math.abs(vat) > 0.001) {
-      add(box9, amount, vat);
-    }
-  }
-
   const adjustmentTotal = round(adjustments.reduce((sum, adjustment) => sum + (adjustment.direction === "increase" ? adjustment.amount : -adjustment.amount), 0));
-  const outputVat = round(box1.vat + box3.vat + box6.vat);
-  const inputVat = round(box9.vat + box10.vat);
-  const company = companyRows[0];
+  const outputVat = round(box1.vat + boxes["3"].vat + boxes["6"].vat);
+  const inputVat = round(boxes["9"].vat + boxes["10"].vat);
   if (company?.baseCurrency !== "AED") blockingIssues.push("UAE VAT returns must be prepared and filed in AED. Change the company base currency to AED before recording a filing.");
   if (!/^\d{15}$/.test(company?.trn ?? "")) blockingIssues.push("Add the company’s valid 15-digit UAE TRN in Company Setup before recording a filing.");
   if (exceptionLines) blockingIssues.push(`${exceptionLines} VAT line${exceptionLines === 1 ? " has" : "s have"} an unknown code or VAT calculation exception. Review the VAT exception reports.`);
-  if (adjustmentTotal) warnings.push("Manual VAT-due adjustments are included in the internal net position but must be mapped to the correct EmaraTax adjustment field before submission.");
-  if (Math.abs(box6.amount) > 0.001) warnings.push("Reconcile Box 6 with the import values auto-populated from UAE Customs in EmaraTax.");
-  warnings.push("Confirm the Box 1 standard-rated supplies allocation by Emirate in EmaraTax.");
+  if (Math.abs(vat201.unallocated.amount) > 0.001 || Math.abs(vat201.unallocated.adjustment) > 0.001) warnings.push("Some standard-rated supplies have no emirate. Set the emirate of each inventory in the VAT return below, or add the company city in Company Setup.");
+  if (adjustmentTotal) warnings.push("VAT adjustments are shown in the Box 1 Adjustment column of their inventory’s emirate. Confirm in EmaraTax that each one belongs there.");
+  if (Math.abs(boxes["6"].amount) > 0.001) warnings.push("Reconcile Box 6 with the import values auto-populated from UAE Customs in EmaraTax.");
+  warnings.push("Boxes 2 (tourist refunds) and 7 (import adjustments) are not recorded in EasyBook; enter them on the return if they apply.");
+  const role = (systemRole: string) => accountRows.filter((account) => account.systemRole === systemRole).map((account) => ({ id: account.id, code: String(account.code), name: account.name }));
 
   return {
     basis: "UAE VAT — date of supply (accrual)",
     currency: "AED",
     filingDueDate: filingDueDate(periodEnd),
-    boxes: { box1, box3, box4, box5, box6, box9, box10, box11: { amount: round(box9.amount + box10.amount), vat: inputVat }, box12: outputVat, box13: inputVat, box14: round(outputVat - inputVat) },
+    boxes: { box1, box3: pair(boxes["3"]), box4: pair(boxes["4"]), box5: pair(boxes["5"]), box6: pair(boxes["6"]), box9: pair(boxes["9"]), box10: pair(boxes["10"]), box11: pair(boxes["11"]), box12: boxes["12"].amount, box13: boxes["13"].amount, box14: boxes["14"].amount },
+    vat201: {
+      boxes, unallocated: vat201.unallocated, sources: vat201.sources,
+      company: { name: company?.name ?? "", trn: company?.trn ?? "", emirate: defaultEmirate, emirateName: emirateName(defaultEmirate) },
+      inventories: locationRows.map((location) => ({ id: location.id, name: location.name, active: location.active, emirate: isEmirateKey(location.emirate) ? location.emirate : "" })),
+      accounts: { output: role("OUTPUT_VAT"), input: role("INPUT_VAT") },
+    },
     outputVat,
     inputVat,
     adjustments: adjustmentTotal,
     netVatDue: round(outputVat - inputVat + adjustmentTotal),
-    transactionLines: transactionLineCount,
+    transactionLines: vat201.transactionLines,
     exceptionLines,
     reviewIssues: [...blockingIssues, ...warnings],
     blockingIssues,
@@ -169,6 +122,15 @@ async function updateVatManagement(request: Request) {
     if (!Number.isInteger(companyId) || companyId <= 0) return Response.json({ error: "Select a company." }, { status: 400 });
     if (!canAccessCompany(user, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
     const db = getDb();
+
+    if (action === "emirate") {
+      const emirate = String(payload.emirate ?? "");
+      if (!Number.isInteger(locationId) || locationId <= 0 || (emirate && !isEmirateKey(emirate))) return Response.json({ error: "Choose an inventory and a UAE emirate." }, { status: 400 });
+      const [location] = await db.update(inventoryLocations).set({ emirate }).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).returning();
+      if (!location) return Response.json({ error: "The selected inventory was not found." }, { status: 404 });
+      await db.insert(auditLog).values({ companyId, action: "updated", entityType: "inventory_emirate", entityId: location.id, details: `${location.name}: VAT201 emirate ${emirateName(emirate) || "follows the company"}` });
+      return Response.json({ location: { id: location.id, name: location.name, emirate: location.emirate } });
+    }
 
     if (action === "file") {
       const periodStart = String(payload.periodStart ?? "");
