@@ -185,7 +185,7 @@ Every report view supports a centered professional layout with category/search n
 - Currency or supplier filters.
 - Summary cards and charts.
 - Table sorting/inspection and linked drill-down to operational areas.
-- Memorised report settings per user and company. Supplier QuickReport and Supplier Open Balance keep the supplier they were saved for (`memorised_reports.supplier_id`, migration 0136) and reopen for that supplier.
+- Memorised report settings per user and company. Supplier QuickReport and Supplier Open Balance keep the supplier they were saved for (`memorised_reports.supplier_id`, migration 0137) and reopen for that supplier.
 - Selectable A4 portrait/landscape print and PDF output, with matching XLSX page setup, plus CSV export.
 - Movable stamps on relevant print/PDF views.
 
