@@ -11,6 +11,13 @@ import { ForgotPasswordForm, ResetPasswordForm } from "./password-reset-forms";
 import { IDLE_NOTICE_KEY } from "@/lib/idle-timeout";
 import type { PublicLoginBranding } from "@/lib/public-login-branding";
 
+const SERVER_UNAVAILABLE = "The server is unavailable right now. Please try again in a few minutes.";
+
+/** Reads a JSON reply; an empty or non-JSON body (the server crashed or could not be reached) becomes a plain message. */
+async function readJson(response: Response): Promise<Record<string, unknown>> {
+  try { return await response.json(); } catch { throw new Error(SERVER_UNAVAILABLE); }
+}
+
 export function LoginScreen({ branding: initialBranding, companies = [] }: { branding?: PublicLoginBranding; companies?: { id: number; name: string }[] }) {
   const [branding, setBranding] = useState(initialBranding);
   const [selectedCompanyId, setSelectedCompanyId] = useState(initialBranding?.id ?? 0);
@@ -39,8 +46,8 @@ export function LoginScreen({ branding: initialBranding, companies = [] }: { bra
     setError("");
     try {
       const response = await fetch(`/api/login-branding?companyId=${companyId}`, { cache: "no-store", signal: controller.signal });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Could not load the company login page.");
+      const result = await readJson(response);
+      if (!response.ok) throw new Error(String(result.error || "Could not load the company login page."));
       setBranding(result.branding as PublicLoginBranding);
       try { window.localStorage.setItem("comnet_login_company", String(companyId)); } catch { /* Storage is optional. */ }
     } catch (cause) {
@@ -81,20 +88,23 @@ export function LoginScreen({ branding: initialBranding, companies = [] }: { bra
     event.preventDefault(); setLoading(true); setError("");
     try {
       const response = await fetch("/api/auth/session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password, ...(mfaStep ? { mfaCode } : {}) }) });
-      const data = await response.json();
+      const data = await readJson(response);
       if (data.mfaRequired) {
         // The password was right; ask for the authenticator code (the error explains a wrong or missing code).
-        if (mfaStep) setError(data.error || "The code is incorrect."); else { setMfaStep(true); setMfaCode(""); }
+        if (mfaStep) setError(String(data.error || "The code is incorrect.")); else { setMfaStep(true); setMfaCode(""); }
         setLoading(false);
         return;
       }
-      if (!response.ok) throw new Error(data.error || "Sign in failed.");
+      if (!response.ok) throw new Error(String(data.error || "Sign in failed."));
       try {
         if (rememberEmail) window.localStorage.setItem("comnet_login_email", email);
         else window.localStorage.removeItem("comnet_login_email");
       } catch { /* Sign-in still works if storage is unavailable. */ }
       window.location.reload();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Sign in failed."); setLoading(false); }
+    } catch (cause) {
+      // fetch rejects with a TypeError when the server cannot be reached at all.
+      setError(cause instanceof TypeError ? SERVER_UNAVAILABLE : cause instanceof Error ? cause.message : "Sign in failed."); setLoading(false);
+    }
   }
 
   const backgroundColor = branding && /^#[0-9a-fA-F]{6}$/.test(branding.backgroundColor) ? branding.backgroundColor : "#f3f6fa";
