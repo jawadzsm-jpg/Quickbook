@@ -284,4 +284,6 @@ Administrator `PATCH` invoice details accepts `lineDetails[].pending: true` for 
 
 ### Insights entry-date activity
 
+Used by the Dashboard's **Transactions entered on this day** list.
+
 `GET /api/records?kind=transactions&companyId=…&locationId=…&enteredDate=YYYY-MM-DD&page=1` returns `records`, `total`, `page`, `pageSize` (50), `date` and `timeZone`. Entry dates use `createdAt` between UAE midnight inclusive and the next midnight exclusive, independently of the document date. Results are ordered newest first, with ID as a stable tie-breaker, and are not cached. Company authorization and inventory ownership are checked before reading; row counts use the same scope as rows. Sales ownership, pending-invoice permissions and inventory same-day bill restrictions remain enforced. Purchasing sees purchase/payment/cheque types; inventory sees invoices, POs and eligible receipts/bills; customization has no access. Admin/accountant and report-reading roles retain their existing document visibility.

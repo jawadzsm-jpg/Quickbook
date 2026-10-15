@@ -11,8 +11,8 @@ type Activity = { id: number; type: string; number: string; party: string; trans
 type Result = { key: string; records: Activity[]; total: number; pageSize: number; error?: string };
 const enteredTime = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Dubai", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
-export function InsightsActivity({ companyId, locationId, onOpen }: { companyId: number; locationId: number; onOpen: (id: number) => void }) {
-  const [date, setDate] = useState(dubaiDay);
+export function InsightsActivity({ companyId, locationId, onOpen, initialDate }: { companyId: number; locationId: number; onOpen: (id: number) => void; initialDate?: string }) {
+  const [date, setDate] = useState(() => initialDate || dubaiDay());
   const [page, setPage] = useState(1);
   const [refresh, setRefresh] = useState(0);
   const [result, setResult] = useState<Result | null>(null);
