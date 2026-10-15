@@ -18,6 +18,7 @@ const { normalizeComparableText, uppercaseText } = await sourceModule("../lib/te
 const { dueDateForPaymentTerms } = await sourceModule("../lib/payment-terms.ts");
 const { chequeAlignmentBounds, uaeChequeLayout, validChequeAlignment } = await sourceModule("../lib/uae-cheque-layouts.ts");
 const { countries } = await sourceModule("../lib/countries.ts");
+const { DEFAULT_TYPOGRAPHY, parseTypography, typographyVariables } = await sourceModule("../lib/app-typography.ts");
 const { partNumberInLine, generatedItemDescription, inventoryItemCondition, inventoryItemDetails, inventoryItemLine, inventoryItemTitle, inventoryShareDescription, inventorySocialShareText, invoiceItemDescription, itemSpecificationDescription, itemTitleWithSku } = await sourceModule("../lib/item-description.ts");
 const { isInvoiceItemSelectable } = await sourceModule("../lib/invoice-item-filter.ts");
 const { applyInlineFormat, applyLineFormat, inlineFormatsFor, telegramHtml, applyLink } = await sourceModule("../lib/share-format.ts");
@@ -1347,4 +1348,18 @@ test("performance: balances summed in SQL, one grouped receipt query, indexed pr
   assert.match(overview, /visibleCategories\.flatMap\(\(\[category, items, total\]\)/);
   assert.match(overview, /new IntersectionObserver/);
   assert.match(app, /shownRecords\.map\(\(r\) =>/);
+});
+
+test("app typography: only listed fonts and 80–140% text sizes are saved; variables fall back to the default", () => {
+  assert.deepEqual(parseTypography({ ...DEFAULT_TYPOGRAPHY, appFont: "cairo", appTextSidebar: 120 }), { ok: true, value: { ...DEFAULT_TYPOGRAPHY, appFont: "cairo", appTextSidebar: 120 } });
+  assert.equal(parseTypography({ ...DEFAULT_TYPOGRAPHY, appFont: "Comic Sans; color:red" }).ok, false);
+  assert.equal(parseTypography({ ...DEFAULT_TYPOGRAPHY, appTextBase: 300 }).ok, false);
+  assert.equal(parseTypography({ ...DEFAULT_TYPOGRAPHY, appTextForms: 100.5 }).ok, false);
+  assert.equal(parseTypography({ appFont: "" }).ok, false);
+  assert.equal(parseTypography(null).ok, false);
+  const vars = typographyVariables({ appFont: "cairo", appTextBase: 120, appTextTables: 999 });
+  assert.match(vars["--font-sans"], /^var\(--font-app-cairo\)/);
+  assert.equal(vars["--app-text-base"], "1.2");
+  assert.equal(vars["--app-text-tables"], "1");
+  assert.equal(vars["--app-text-print"], "1");
 });
