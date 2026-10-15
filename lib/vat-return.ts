@@ -80,6 +80,18 @@ export const vatPurchaseTypes = new Set(["bill", "received item bill", "expense"
 export const vatExcludedStatuses = new Set(["cancelled", "canceled", "void", "voided", "deleted", "draft"]);
 export const reverseChargeCodes = new Set(["REVERSE", "REVERSE_CHARGE", "RCM"]);
 
+/**
+ * VAT on a purchase that the supplier is not paid: reverse-charge lines and every line of an import (Boxes 3 and 6).
+ * The buyer self-assesses it, so it posts Dr Recoverable VAT / Cr VAT Payable and is left out of the amount owed.
+ */
+export function selfAssessedPurchaseVat(type: string, isImport: boolean, lines: Array<{ vatCode?: string | null; vatAmount: number | string }>) {
+  if (!vatPurchaseTypes.has(type)) return 0;
+  return round(lines.reduce((sum, line) => {
+    const code = String(line.vatCode || "").trim().toUpperCase();
+    return sum + (isImport || code === "IMPORT_GOODS" || reverseChargeCodes.has(code) ? Number(line.vatAmount) || 0 : 0);
+  }, 0));
+}
+
 const round = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 const emptyBox = (): Vat201Box => ({ amount: 0, vat: 0, adjustment: 0 });
 

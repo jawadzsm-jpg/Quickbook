@@ -114,7 +114,7 @@ The shared design is connected to sales and purchase documents, credit/refund do
 3. Select an order, receiving inventory, and partial/full line quantities.
 4. Save an item receipt or received-item bill.
 5. `purchase_receipt_allocations` records quantities against each order line.
-6. Inventory is increased; a bill also posts payable, inventory/expense, and input VAT effects.
+6. Inventory is increased; a bill also posts payable, inventory/expense, and input VAT effects (reverse-charge and import VAT also credits VAT Payable and is left out of the payable).
 7. Inventory Overview → Incoming links each remaining quantity to its Purchase Order. It shows whether the PO is ready to convert to a Bill or has a partial linked Bill; converted and fully received POs leave Incoming.
 7. The purchase order becomes partially received or received based on cumulative allocations.
 8. An administrator can reopen a linked supplier bill and edit its received quantity, price, VAT code, description, comments, serial number, freight, dates, and memo. The item remains tied to its original purchase-order line; stock, receipt allocation, VAT, payable balance, and journals are replaced atomically. Quantity cannot exceed the PO quantity remaining after other receipts, and reductions are blocked when the received stock has already been used.

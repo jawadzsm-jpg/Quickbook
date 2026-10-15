@@ -2675,3 +2675,63 @@ test("VAT201 API: inventory emirates split Box 1, adjustments land in their emir
   assert.deepEqual(after.vat201.accounts.output.map((account) => account.name), ["VAT Payable"]);
   assert.equal(after.vat201.inventories.find((inventory) => inventory.id === branch.id).emirate, "ras-al-khaimah");
 });
+
+test("Reverse-charge and import bills self-assess VAT: Dr Recoverable VAT / Cr VAT Payable, supplier owed the net", async () => {
+  const created = await workspaces.POST(post({ type: "company", name: "Reverse charge posting", baseCurrency: "AED" }));
+  const { company: workspace } = await created.json();
+  const cid = workspace.id, lid = workspace.locations[0].id;
+  const [supplier] = await db.insert(schema.contacts).values({ companyId: cid, type: "vendor", name: "Overseas Supplier", currency: "AED" }).returning();
+  const records = await vite.ssrLoadModule("/app/api/records/route.ts");
+  const save = (body) => records.POST(new Request("https://app.test/api/records", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "transactions", companyId: cid, locationId: lid, party: supplier.name, account: "Purchases", transactionDate: "2026-09-15", currency: "AED", exchangeRate: 1, ...body }) }));
+  const journal = async (id) => (await database.query("SELECT jl.account_name AS account, jl.debit, jl.credit FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.transaction_id=$1 ORDER BY jl.id", [id])).rows;
+  const rcmResponse = await save({ type: "bill", number: "RCM-1000", lines: [{ description: "Consulting from abroad", quantity: 1, unitPrice: 1000, vatCode: "REVERSE_CHARGE" }] });
+  assert.equal(rcmResponse.status, 201, await rcmResponse.clone().text());
+  const rcm = (await rcmResponse.json()).record;
+  assert.deepEqual([rcm.subtotal, rcm.vatAmount, rcm.total, rcm.baseTotal], [1000, 50, 1000, 1000]);
+  assert.deepEqual(await journal(rcm.id), [
+    { account: "Cost of Goods Sold", debit: 1000, credit: 0 },
+    { account: "Recoverable VAT", debit: 50, credit: 0 },
+    { account: "Accounts Payable", debit: 0, credit: 1000 },
+    { account: "VAT Payable", debit: 0, credit: 50 },
+  ]);
+  const importResponse = await save({ type: "bill", number: "IMPORT-2000", isImport: true, billOfEntryNumber: "BOE-1", airwayBillNumber: "AWB-1", lines: [{ description: "Imported goods", quantity: 2, unitPrice: 1000, vatCode: "IMPORT_GOODS" }] });
+  assert.equal(importResponse.status, 201, await importResponse.clone().text());
+  const imported = (await importResponse.json()).record;
+  assert.deepEqual([imported.isImport, imported.vatAmount, imported.total], [true, 100, 2000]);
+  assert.deepEqual(await journal(imported.id), [
+    { account: "Cost of Goods Sold", debit: 2000, credit: 0 },
+    { account: "Recoverable VAT", debit: 100, credit: 0 },
+    { account: "Accounts Payable", debit: 0, credit: 2000 },
+    { account: "VAT Payable", debit: 0, credit: 100 },
+  ]);
+  // A domestic STANDARD bill still owes the supplier its VAT.
+  const domestic = (await (await save({ type: "bill", number: "LOCAL-100", lines: [{ description: "Local supply", quantity: 1, unitPrice: 100, vatCode: "STANDARD" }] })).json()).record;
+  assert.equal(domestic.total, 105);
+  assert.deepEqual((await journal(domestic.id)).map((line) => line.account), ["Cost of Goods Sold", "Recoverable VAT", "Accounts Payable"]);
+  assert.equal((await database.query("SELECT balance FROM contacts WHERE id=$1", [supplier.id])).rows[0].balance, 3105);
+  const unpaid = await (await records.GET(new Request(`https://app.test/api/records?kind=unpaid-bills&companyId=${cid}&locationId=${lid}&party=${encodeURIComponent(supplier.name)}&currency=AED`))).json();
+  assert.equal(unpaid.records.find((entry) => entry.id === rcm.id).remaining, 1000);
+
+  // Returning half of the reverse-charge bill reverses both sides of the self-assessed VAT.
+  const sourceLineId = (await database.query("SELECT id FROM transaction_lines WHERE transaction_id=$1", [rcm.id])).rows[0].id;
+  const returnResponse = await save({ type: "vendor credit", number: "RCM-RETURN", billId: rcm.id, lines: [{ sourceLineId, quantity: 0.5 }] });
+  assert.equal(returnResponse.status, 201, await returnResponse.clone().text());
+  const returned = (await returnResponse.json()).record;
+  assert.equal(returned.total, 500);
+  const returnJournal = await journal(returned.id);
+  assert.deepEqual(returnJournal[0], { account: "Accounts Payable", debit: 500, credit: 0 });
+  assert.deepEqual(returnJournal.filter((line) => line.account.includes("VAT")), [
+    { account: "Recoverable VAT", debit: 0, credit: 25 },
+    { account: "VAT Payable", debit: 25, credit: 0 },
+  ]);
+
+  // VAT Position Summary: output VAT (Box 3 + Box 6) equals the VAT Payable ledger; input equals Recoverable VAT.
+  const response = await GET(new Request(`https://app.test/api/reports?type=vat-summary&companyId=${cid}&periodStart=2026-09-01&periodEnd=2026-09-30`));
+  assert.equal(response.status, 200, await response.clone().text());
+  const summary = Object.fromEntries((await response.json()).report.rows.map((row) => [row.position, row.amount]));
+  assert.deepEqual([summary.output, summary.input, summary.ledgerOutput, summary.outputDifference, summary.ledgerInput, summary.inputDifference], [125, 130, 125, 0, 130, 0]);
+  const vatManagement = await vite.ssrLoadModule("/app/api/vat-management/route.ts");
+  const vat201 = (await (await vatManagement.GET(new Request(`https://app.test/api/vat-management?companyId=${cid}&periodStart=2026-09-01&periodEnd=2026-09-30`))).json()).summary;
+  assert.deepEqual([vat201.boxes.box3, vat201.boxes.box6], [{ amount: 500, vat: 25 }, { amount: 2000, vat: 100 }]);
+  assert.equal(vat201.outputVat, summary.ledgerOutput);
+});
