@@ -689,6 +689,34 @@ test("purchase returns reduce the linked supplier bill and appear in the supplie
   assert.equal(remainingReturns.records.length, 0);
 });
 
+test("purchase returns of non-stock bill lines credit the expense the bill debited, not Accounts Payable", async () => {
+  const created = await workspaces.POST(post({ type: "company", name: "Non-stock purchase return", baseCurrency: "AED" }));
+  const { company: workspace } = await created.json();
+  const cid = workspace.id, lid = workspace.locations[0].id;
+  const [supplier] = await db.insert(schema.contacts).values({ companyId: cid, type: "vendor", name: "Service Supplier", currency: "AED" }).returning();
+  const records = await vite.ssrLoadModule("/app/api/records/route.ts");
+  const save = (body) => records.POST(new Request("https://app.test/api/records", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "transactions", companyId: cid, locationId: lid, party: supplier.name, account: "Purchases", transactionDate: "2026-09-20", currency: "AED", exchangeRate: 1, ...body }) }));
+  const journal = async (id) => (await database.query("SELECT jl.account_name AS account, jl.debit, jl.credit FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.transaction_id=$1 ORDER BY jl.id", [id])).rows;
+  const billResponse = await save({ type: "bill", number: "SERVICE-BILL", lines: [{ description: "Maintenance service", quantity: 2, unitPrice: 100, vatCode: "STANDARD" }] });
+  assert.equal(billResponse.status, 201, await billResponse.clone().text());
+  const bill = (await billResponse.json()).record;
+  assert.deepEqual(await journal(bill.id), [
+    { account: "Cost of Goods Sold", debit: 200, credit: 0 },
+    { account: "Recoverable VAT", debit: 10, credit: 0 },
+    { account: "Accounts Payable", debit: 0, credit: 210 },
+  ]);
+  const sourceLineId = (await database.query("SELECT id FROM transaction_lines WHERE transaction_id=$1", [bill.id])).rows[0].id;
+  const returnResponse = await save({ type: "vendor credit", number: "SERVICE-RETURN", billId: bill.id, lines: [{ sourceLineId, quantity: 1 }] });
+  assert.equal(returnResponse.status, 201, await returnResponse.clone().text());
+  const returned = (await returnResponse.json()).record;
+  assert.deepEqual(await journal(returned.id), [
+    { account: "Accounts Payable", debit: 105, credit: 0 },
+    { account: "Cost of Goods Sold", debit: 0, credit: 100 },
+    { account: "Recoverable VAT", debit: 0, credit: 5 },
+  ]);
+  assert.equal((await database.query("SELECT balance FROM contacts WHERE id=$1", [supplier.id])).rows[0].balance, 105);
+});
+
 test("UAE VAT reports include all company inventories, expense cheques and foreign card charges", async () => {
   const summary = await report("vat-summary");
   // VAT is rounded to cents per line, like posting and the VAT return.
@@ -2718,9 +2746,9 @@ test("Reverse-charge and import bills self-assess VAT: Dr Recoverable VAT / Cr V
   assert.equal(returnResponse.status, 201, await returnResponse.clone().text());
   const returned = (await returnResponse.json()).record;
   assert.equal(returned.total, 500);
-  const returnJournal = await journal(returned.id);
-  assert.deepEqual(returnJournal[0], { account: "Accounts Payable", debit: 500, credit: 0 });
-  assert.deepEqual(returnJournal.filter((line) => line.account.includes("VAT")), [
+  assert.deepEqual(await journal(returned.id), [
+    { account: "Accounts Payable", debit: 500, credit: 0 },
+    { account: "Cost of Goods Sold", debit: 0, credit: 500 },
     { account: "Recoverable VAT", debit: 0, credit: 25 },
     { account: "VAT Payable", debit: 25, credit: 0 },
   ]);
