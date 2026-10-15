@@ -301,7 +301,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/utils.ts` — `cn` class-name merge helper.
 - `lib/validation.ts` — ISO date check.
 - `lib/vat-report.ts` — VAT report keys, groups, filters, columns and summaries.
-- `lib/vat-return.ts` — VAT201 box mapping (VAT code, document type, inventory emirate), template totals and filling `public/templates/vat201-return-template.xlsx`.
+- `lib/vat-return.ts` — VAT201 box mapping (VAT code, document type, inventory emirate), template totals and filling `public/templates/vat201-return-template.xlsx`; `selfAssessedPurchaseVat` (reverse-charge/import VAT that posts to VAT Payable instead of the payable).
 - `lib/vendor-bank.ts` — Supplier bank details on vendors: validation and printable lines.
 - `lib/vendor-report.ts` — Vendor/AP report keys, groups, summaries, supplier lookup and filters.
 - `lib/warehouses.ts` — Warehouse stock summaries (default warehouse = inventory total minus other warehouses), default-warehouse switching, document warehouse resolution, per-warehouse quantities and stock adjustment, and per-item warehouse breakdowns for lists.

@@ -35,6 +35,7 @@ import { standardAccounts } from "@/lib/standard-accounts";
 import { cleanDeliveryAddress } from "@/lib/delivery-address";
 import { lineExtraTypes } from "@/lib/line-extras";
 import { activeVatCode } from "@/lib/standard-vat-codes";
+import { selfAssessedPurchaseVat } from "@/lib/vat-return";
 import { outOfScopeItemIds } from "@/lib/out-of-scope-items";
 import { OUT_OF_SCOPE_CODE, hasOutOfScopeItem, outOfScopeProblem, outOfScopeSalesTypes } from "@/lib/out-of-scope-rules";
 import { guardFiledPeriod, unlockedDocumentTypes } from "@/lib/period-lock";
@@ -1023,7 +1024,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       for (const [key, requested] of requestedByKey) if (requested > round((purchasedByKey.get(key) ?? 0) - (returnedByKey.get(key) ?? 0))) return Response.json({ error: "Return quantity exceeds the quantity remaining on the supplier bill. Refresh the return and try again." }, { status: 409 });
       rawLines = validatedLines;
       payload.party = sourceBill.party; payload.currency = sourceBill.currency; payload.exchangeRate = sourceBill.exchangeRate;
-      payload.account = sourceBill.account; payload.status = "open";
+      // A return of an imported bill reverses self-assessed VAT the same way the bill posted it.
+      payload.account = sourceBill.account; payload.status = "open"; payload.isImport = sourceBill.isImport;
       payload.memo = [String(payload.memo || ""), `Returned against bill ${sourceBill.number}`].filter(Boolean).join(" · ");
     }
     const requestedParty = String(payload.party ?? "").trim();
@@ -1174,7 +1176,10 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     }
     const subtotal = round(prepared.reduce((sum, line) => sum + line.subtotal, 0));
     const vatAmount = round(prepared.reduce((sum, line) => sum + line.vatAmount, 0));
-    const total = round(subtotal + vatAmount);
+    const isImport = payload.isImport === true || String(payload.isImport) === "true" || usesImportGoodsVat;
+    // Reverse-charge and import VAT is self-assessed, not owed to the supplier: the document total is what is payable.
+    const selfAssessedVat = selfAssessedPurchaseVat(type, isImport, prepared);
+    const total = round(subtotal + vatAmount - selfAssessedVat);
     const currency = String(payload.currency ?? "AED").trim().toUpperCase();
     const exchangeRate = Number(payload.exchangeRate ?? 1);
     if (!/^[A-Z]{3}$/.test(currency) || !Number.isFinite(exchangeRate) || exchangeRate <= 0) return Response.json({ error: "Choose a valid currency and exchange rate." }, { status: 400 });
@@ -1189,7 +1194,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     }
     const baseSubtotal = round(subtotal * exchangeRate);
     const baseVatAmount = round(vatAmount * exchangeRate);
-    const baseTotal = round(total * exchangeRate);
+    const baseSelfAssessedVat = round(selfAssessedVat * exchangeRate);
+    const baseTotal = selfAssessedVat ? round(baseSubtotal + baseVatAmount - baseSelfAssessedVat) : round(total * exchangeRate);
     const transactionDate = String(payload.transactionDate ?? new Date().toISOString().slice(0, 10));
     let number = String(payload.number ?? `${purchaseOrderId ? type === "bill" ? "BILL" : "REC" : "TX"}-${Date.now()}`);
     if (type === "customer payment") {
@@ -1335,7 +1341,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     }
     const values = {
       createdByUserId: replacing?.createdByUserId ?? (authorization.role === "sales" ? authorization.id : null), companyId, locationId: Number.isInteger(locationId) ? locationId : null, warehouseId: documentWarehouse?.id ?? null, number, type, party, employeeLoanContactId, billId, invoiceId, purchaseOrderId, salesSourceId,
-      salesman: String(payload.salesman ?? ""), isImport: payload.isImport === true || String(payload.isImport) === "true" || usesImportGoodsVat,
+      salesman: String(payload.salesman ?? ""), isImport,
       billOfEntryNumber: usesImportGoodsVat && type === "bill" ? billOfEntryNumber : "", airwayBillNumber: usesImportGoodsVat && type === "bill" ? airwayBillNumber : "",
       // Conversions copy the source's terms into the payload after the check above; blank customer terms mean due on receipt.
       transactionDate, dueDate: String(payload.dueDate ?? ""), terms: String(payload.terms ?? "").trim().slice(0, 200) || (customerTermsTypes.includes(type) ? defaultPaymentTerms : ""), paymentMethod, referenceNo,
@@ -1485,6 +1491,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
           ...[...assetCredits].map(([accountName, amount]) => ({ accountName, debit: Math.max(0, -amount), credit: Math.max(0, amount) })),
         );
       }
+      // UAE reverse charge: the self-assessed VAT is recoverable (debited above) and due to the FTA (VAT Payable).
+      if (baseSelfAssessedVat) baseLines.push({ accountName: linkedAccounts.OUTPUT_VAT ?? "VAT Payable", debit: type === "vendor credit" ? baseSelfAssessedVat : 0, credit: type === "vendor credit" ? 0 : baseSelfAssessedVat });
       const pnlRoleTypes: Record<string, string[]> = { SALES: ["Income"], OTHER_INCOME: ["Other Income", "Income"], COGS: ["Cost of Goods Sold"], PURCHASES: ["Expense", "Cost of Goods Sold"], EXPENSE: ["Expense", "Other Expense"], PAYROLL: ["Expense"] };
       // Names with no Chart of Accounts entry keep posting (companies without a full chart use default names), but a
       // name that belongs only to an inactive account must not receive new postings.

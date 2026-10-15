@@ -55,6 +55,7 @@ import { VendorReportTable } from "./vendor-report-table";
 import { VendorReportFilters } from "./vendor-report-filters";
 import { emptyVendorFilters, filterVendorReportRows, vendorColumnKind } from "@/lib/vendor-report";
 import { emptyVatFilters, filterVatRows, vatColumnKind, vatReportKeys, vatSummary } from "@/lib/vat-report";
+import { selfAssessedPurchaseVat } from "@/lib/vat-return";
 import { VatReportLibrary } from "@/app/vat-report-library";
 import { VatReportTable } from "@/app/vat-report-table";
 import { VatReportFilters } from "@/app/vat-report-filters";
@@ -1399,7 +1400,7 @@ export default function EnterpriseApp({ currentUser, edition = DEFAULT_EDITION }
       number: `BILL-${String(records.transactions.length + 1).padStart(4, "0")}`, party: String(record.party), salesman: String(record.salesman ?? ""),
       transactionDate: today(), dueDate: String(record.dueDate || today()), status: "open", account: defaultPostingAccount("bill", records.accounts, String(record.currency || baseCurrency)),
       vatRate: String(record.vatRate ?? "5"), currency: String(record.currency || baseCurrency), exchangeRate: String(record.exchangeRate || "1"),
-      billLocationId: String(locationId), transactionLocationId: String(locationId), isImport: Number(record.vatAmount) > 0 || record.isImport ? "true" : "false", freightCharges: "0", memo: String(record.memo ?? ""),
+      billLocationId: String(locationId), transactionLocationId: String(locationId), isImport: record.isImport ? "true" : "false", freightCharges: "0", memo: String(record.memo ?? ""),
     } : {
       type: "invoice", sourceTransactionId: String(record.id), sourceDocumentLabel: `${String(record.type)} ${String(record.number)}`,
       number: invoiceNumberPreview(activeCompanyId, location), party: String(record.party), salesman: String(record.salesman ?? ""),
@@ -3140,6 +3141,11 @@ function BillFields({ form, setForm, items, vendors, salesmen, accounts, locatio
   const freightVat = [...freightByTax.values()].reduce((sum, group) => sum + Math.round(group.amount * group.rate) / 100, 0);
   const totalVat = vat + freightVat;
   const total = subtotal + freightCharges + totalVat;
+  // Reverse-charge and import VAT is self-assessed on the VAT return; the supplier is owed the rest.
+  const selfAssessedVat = selfAssessedPurchaseVat("bill", form.isImport === "true", [
+    ...lines.filter(line => !line.pending).map((line) => ({ vatCode: line.vatCode, vatAmount: Math.round(Math.round(Number(line.quantity || 0) * Number(line.unitPrice || 0) * 100) / 100 * Number(line.vatRate || 0)) / 100 })),
+    ...[...freightByTax].map(([vatCode, group]) => ({ vatCode, vatAmount: Math.round(group.amount * group.rate) / 100 })),
+  ]);
   const payableAccounts = accounts.filter((account) => account.active && account.systemRole === "AP" && String(account.currency) === form.currency);
   const resolveBillPayableAccount = (next: Record<string, string>) => {
     const account = vendorPayableAccount(vendors, accounts, next.party, next.currency);
@@ -3199,7 +3205,7 @@ function BillFields({ form, setForm, items, vendors, salesmen, accounts, locatio
     <div className="grid gap-5 lg:grid-cols-[1fr_420px]">
       <div />
       <div className="space-y-4 rounded-xl border bg-slate-50 p-4">
-        <div className="space-y-3 text-sm"><div className="flex justify-between"><span className="text-slate-500">Total quantity</span><strong>{totalQuantity.toLocaleString()}</strong></div><div className="flex justify-between"><span className="text-slate-500">Subtotal</span><strong>{formatMoney(subtotal + freightCharges, form.currency)}</strong></div><div className="flex justify-between"><span className="text-slate-500">VAT</span><strong>{formatMoney(totalVat, form.currency)}</strong></div><div className="flex justify-between border-t pt-3 text-lg"><span className="font-bold">Total</span><strong>{formatMoney(total, form.currency)}</strong></div></div>
+        <div className="space-y-3 text-sm"><div className="flex justify-between"><span className="text-slate-500">Total quantity</span><strong>{totalQuantity.toLocaleString()}</strong></div><div className="flex justify-between"><span className="text-slate-500">Subtotal</span><strong>{formatMoney(subtotal + freightCharges, form.currency)}</strong></div><div className="flex justify-between"><span className="text-slate-500">VAT</span><strong>{formatMoney(totalVat, form.currency)}</strong></div>{selfAssessedVat > 0 && <div className="flex justify-between gap-3"><span className="text-slate-500">Reverse-charge VAT (self-assessed, posted to VAT Payable)</span><strong>−{formatMoney(selfAssessedVat, form.currency)}</strong></div>}<div className="flex justify-between border-t pt-3 text-lg"><span className="font-bold">{selfAssessedVat > 0 ? "Amount due to supplier" : "Total"}</span><strong>{formatMoney(total - selfAssessedVat, form.currency)}</strong></div></div>
       </div>
     </div>
   </div>;
