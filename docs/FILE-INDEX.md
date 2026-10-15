@@ -46,6 +46,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/escape-window-closer.tsx` — Escape or the close button closes the top dialog, asking Save/Keep editing/Discard when it has a save-like button; windows marked `data-no-save-prompt` (Workspace shortcuts) close without asking.
 - `app/financial-report-library.tsx` — Financial report card library.
 - `app/financial-report.tsx` — Financial report renderer with summaries, FX rates, account-history and document links.
+- `app/fonts.ts` — next/font Google fonts for Company Setup → Fonts & text; each defines `--font-app-<key>` on `<html>` and is not preloaded.
 - `app/globals.css` — Global Tailwind v4 styles, dark mode, theme colour variables and app-wide styles.
 - `app/idle-sign-out.tsx` — Automatic sign-out when idle: activity tracking shared across tabs, final-minute countdown, sign-out; `/api/auth/activity`, `/api/auth/session`.
 - `app/income-tax-center.tsx` — Corporate income tax working papers (calculation, adjustments, file, reopen with PIN); `/api/income-tax`.
@@ -67,7 +68,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/item-logistics-center.tsx` — HS code, country of origin and dimensions per item; `/api/item-logistics`, `/api/item-logistics-options`.
 - `app/item-search-select.tsx` — Searchable product combobox and item search/label helpers; optional inactive-item hint with Reactivate.
 - `app/journal-entry-center.tsx` — Manual multi-currency journal entry form for a company/inventory; posts to `/api/journal-entries`.
-- `app/layout.tsx` — Root layout: metadata, global styles and app-wide helpers (Escape closer, highlighters, attachments, period-lock PIN).
+- `app/layout.tsx` — Root layout: metadata, global styles, the font-variable classes from `app/fonts.ts`, and app-wide helpers (Escape closer, highlighters, attachments, period-lock PIN).
 - `app/letterhead-center.tsx` — Company Setup letterhead editor and preview; saves via `/api/company-setup/letterhead`.
 - `app/letterhead-page.tsx` — Shared letterhead rendering: brand header, draggable stamp, full A4 letterhead page and footer.
 - `app/letterhead-rich-editor.tsx` — Rich-text (contentEditable) editor for the letterhead body, returning text and HTML.
@@ -124,6 +125,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/today-offers.tsx` — Today Offer tab: running/scheduled offers, Add offer dialog, end/cancel; `/api/item-offers`.
 - `app/transfer-center.tsx` — Multi-line inventory transfers between locations/companies; `/api/transfers`.
 - `app/two-step-settings.tsx` — Account security → Two-step sign-in: QR setup, first code, backup codes, turn off; `/api/auth/mfa`.
+- `app/typography-settings.tsx` — Company Setup → Fonts & text: font choice, text-size sliders per app area, live preview, Reset; `/api/company-setup/branding` (`appTypography`).
 - `app/uae-bank-cheque.tsx` — Printable UAE bank cheque layout with editable cheque number.
 - `app/unpaid-bills.tsx` — Picker of a vendor's unpaid bills for a bill payment.
 - `app/unpaid-invoices.tsx` — Picker of a customer's unpaid invoices for a received payment.
@@ -172,6 +174,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/admin-pin.ts` — Admin/override PIN format, scrypt hashing and verification.
 - `lib/api-keys.ts` — Integration API tokens (`ebk_live_…`): generation, low-cost scrypt digest, reading Bearer/X-API-Key headers.
 - `lib/api.ts` — `apiRoute` wrapper (errors, idempotency, writes) and `readJsonBody` size/type limits. **DB**
+- `lib/app-typography.ts` — App font list, text-size areas and limits, validation, and the CSS variables applied on `<html>` (Company Setup → Fonts & text).
 - `lib/app-url.ts` — Public address for emailed links (NEXT_PUBLIC_APP_URL or Vercel production domain), never the Host header.
 - `lib/attachments.ts` — Attachment validation (3 MB per file, at most 10 files).
 - `lib/auth.ts` — **server** Sessions (with the idle sign-out check), cookies, password hashing, role permissions, `requireApiUser`, `requireCompanyAccess`, request IP. **DB**

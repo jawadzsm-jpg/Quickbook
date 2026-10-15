@@ -2,10 +2,11 @@ import { eq, ne, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { auditLog, companies } from "@/db/schema";
 import { canAccessCompany, isAdministrator, requireApiUser } from "@/lib/auth";
+import { parseTypography, type AppTypography } from "@/lib/app-typography";
 
 const imageFields = new Set(["logoData", "rightLogoData", "loginLogoData", "loginCompanyLogoData", "loginBackgroundData", "loginTopLogoData"]);
 const booleanFields = new Set(["loginBranding", "loginTopLogoHidden", "loginLogosSwapped"]);
-const fields = new Set([...imageFields, "loginDisplayName", "loginCopyrightYears", "loginBackgroundColor", "loginBranding", "loginLogoOffset", "loginTopLogoHidden", "loginLogosSwapped"]);
+const fields = new Set([...imageFields, "loginDisplayName", "loginCopyrightYears", "loginBackgroundColor", "loginBranding", "loginLogoOffset", "loginTopLogoHidden", "loginLogosSwapped", "appTypography"]);
 /** How far the sign-in EasyBook logo may move up or down, in px. */
 const LOGO_OFFSET_MAX = 150;
 
@@ -20,8 +21,14 @@ export async function PATCH(request: Request) {
     if (!Number.isSafeInteger(companyId) || companyId <= 0 || !canAccessCompany(user, companyId) || !isAdministrator(user)) {
       return Response.json({ error: "Company administrator access required." }, { status: 403 });
     }
-    if (typeof field !== "string" || !fields.has(field)) return Response.json({ error: "Choose a company logo or login page setting." }, { status: 400 });
-    if (booleanFields.has(field)) {
+    if (typeof field !== "string" || !fields.has(field)) return Response.json({ error: "Choose a company logo, login page, font or text size setting." }, { status: 400 });
+    // Fonts & text saves the font and every text size together: { appFont, appTextBase, appTextSidebar, … }.
+    let typography: AppTypography | undefined;
+    if (field === "appTypography") {
+      const parsed = parseTypography(value);
+      if (!parsed.ok) return Response.json({ error: parsed.error }, { status: 400 });
+      typography = parsed.value;
+    } else if (booleanFields.has(field)) {
       if (typeof value !== "boolean") return Response.json({ error: "Choose on or off for this login page setting." }, { status: 400 });
     } else if (field === "loginLogoOffset") {
       if (typeof value !== "number" || !Number.isInteger(value) || Math.abs(value) > LOGO_OFFSET_MAX) return Response.json({ error: `Move the logo at most ${LOGO_OFFSET_MAX} px up or down.` }, { status: 400 });
@@ -46,7 +53,8 @@ export async function PATCH(request: Request) {
       const [existing] = await db.select({ id: companies.id }).from(companies).where(eq(companies.id, companyId)).limit(1);
       if (!existing) return Response.json({ error: "Company not found." }, { status: 404 });
       if (field === "loginBranding" && value) await db.update(companies).set({ loginBranding: false }).where(ne(companies.id, companyId));
-      const change = field === "loginBranding" ? { loginBranding: value as boolean }
+      const change = typography ? typography
+        : field === "loginBranding" ? { loginBranding: value as boolean }
         : field === "loginLogoOffset" ? { loginLogoOffset: value as number }
         : field === "loginTopLogoData" ? { loginTopLogoData: value as string }
         : field === "loginTopLogoHidden" ? { loginTopLogoHidden: value as boolean }

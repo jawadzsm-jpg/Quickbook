@@ -24,7 +24,7 @@ export const CLEAR_SECTIONS = [
   { id: "email", group: "documents", label: "Email templates and sent emails", detail: "Email templates made in this company and the history of documents emailed to customers and suppliers." },
   { id: "notifications", group: "documents", label: "Notifications", detail: "In-app notifications for this company (cheque notices and PDC reminders) for every user." },
   { id: "settings", group: "settings", label: "VAT, currencies and company controls", detail: "VAT codes (the standard UAE codes are restored), exchange rates and company-level control settings." },
-  { id: "setup", group: "settings", label: "Company setup and templates", detail: "Logos, stamp, address, contact details, TRN, bank accounts and document-template settings. The company name and base currency are kept." },
+  { id: "setup", group: "settings", label: "Company setup and templates", detail: "Logos, stamp, address, contact details, TRN, bank accounts, document-template settings and the app font and text sizes. The company name and base currency are kept." },
 ] as const;
 
 export type ClearSection = typeof CLEAR_SECTIONS[number]["id"];

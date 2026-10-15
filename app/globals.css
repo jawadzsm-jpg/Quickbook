@@ -108,6 +108,42 @@ body {
   line-height: 1.5;
   min-width: 320px;
   text-rendering: optimizeLegibility;
+  font-size: calc(1rem * var(--app-text-base, 1));
+}
+
+/* App typography (Company Setup → Fonts & text, lib/app-typography.ts). The app sets --font-sans and the --app-text-* scales
+   (1 = default) on <html>; each area below re-derives Tailwind's text-size tokens from its own scale, so text-xs…text-4xl
+   follow the setting without editing components. Fixed sizes such as text-[11px] are not scaled. `.app-typography-scope`
+   is the Fonts & text preview, which sets the same variables on itself. */
+:root, .app-typography-scope,
+[data-sidebar="sidebar"], [data-app-text="sidebar"],
+table, [data-slot="table-container"], [data-app-text="tables"],
+input, textarea, select, label, [data-slot="label"], [data-slot="select-trigger"], [data-app-text="forms"],
+h1, h2, h3, h4, h5, h6, [data-slot="card-title"], [data-slot="dialog-title"], [data-slot="sheet-title"], [data-slot="alert-dialog-title"], [data-app-text="headings"],
+.document-print-surface, .rcm-page, .uae-cheque-sheet, .letterhead-page, [data-output-render], .custom-invoice {
+  --text-xs: calc(0.75rem * var(--app-text-scale, 1));
+  --text-sm: calc(0.875rem * var(--app-text-scale, 1));
+  --text-base: calc(1rem * var(--app-text-scale, 1));
+  --text-lg: calc(1.125rem * var(--app-text-scale, 1));
+  --text-xl: calc(1.25rem * var(--app-text-scale, 1));
+  --text-2xl: calc(1.5rem * var(--app-text-scale, 1));
+  --text-3xl: calc(1.875rem * var(--app-text-scale, 1));
+  --text-4xl: calc(2.25rem * var(--app-text-scale, 1));
+}
+:root, .app-typography-scope { --app-text-scale: var(--app-text-base, 1); }
+[data-sidebar="sidebar"], [data-app-text="sidebar"] { --app-text-scale: var(--app-text-sidebar, 1); }
+table, [data-slot="table-container"], [data-app-text="tables"] { --app-text-scale: var(--app-text-tables, 1); }
+input, textarea, select, label, [data-slot="label"], [data-slot="select-trigger"], [data-app-text="forms"] { --app-text-scale: var(--app-text-forms, 1); }
+h1, h2, h3, h4, h5, h6, [data-slot="card-title"], [data-slot="dialog-title"], [data-slot="sheet-title"], [data-slot="alert-dialog-title"], [data-app-text="headings"] { --app-text-scale: var(--app-text-headings, 1); }
+/* Printed business documents keep their own Layout Builder fonts and sizes. */
+.document-print-surface, .rcm-page, .uae-cheque-sheet, .letterhead-page, [data-output-render], .custom-invoice {
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --app-text-scale: 1; --app-text-base: 1; --app-text-sidebar: 1; --app-text-tables: 1; --app-text-forms: 1; --app-text-headings: 1;
+}
+@layer base {
+  /* Headings without a text-size class inherit their parent's size; the heading scale is applied relative to the base. */
+  :is(h1, h2, h3, h4, h5, h6) { font-size: calc(1em * var(--app-text-headings, 1) / var(--app-text-base, 1)); }
+  :is(.document-print-surface, .rcm-page, .uae-cheque-sheet, .letterhead-page, [data-output-render], .custom-invoice) { font-family: var(--font-sans); font-size: 1rem; }
 }
 
 /* Theme defaults live in the base layer so Tailwind utilities (text-sm, font-semibold, border-slate-200…) still win.
@@ -817,14 +853,14 @@ body {
     max-width: 100% !important;
     overflow: visible !important;
     break-inside: auto;
-    font-size: 8pt;
+    font-size: calc(8pt * var(--app-text-print, 1));
   }
   .report-dialog .report-table--compact { max-width: 680px !important; }
   .report-dialog .report-table [data-slot="table-container"] { overflow: visible !important; }
   .report-dialog .report-table table { width: 100% !important; table-layout: fixed; font-size: inherit; }
   .report-dialog .report-table th,
   .report-dialog .report-table td { padding: 4px 5px !important; line-height: 1.25; }
-  .report-dialog .report-table--wide { font-size: 7pt; }
+  .report-dialog .report-table--wide { font-size: calc(7pt * var(--app-text-print, 1)); }
   .report-dialog .report-table--wide th,
   .report-dialog .report-table--wide td { padding: 3px 4px !important; }
   .report-table thead { display: table-header-group; }

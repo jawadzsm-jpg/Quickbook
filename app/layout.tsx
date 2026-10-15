@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { appFontVariables } from "./fonts";
 import { AttachmentCapture } from "./attachment-capture";
 import { PeriodLockPinPrompt } from "./period-lock-pin";
 import { EscapeWindowCloser } from "./escape-window-closer";
@@ -32,7 +33,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className={appFontVariables}>
       <body className="antialiased">
         {children}
         <EscapeWindowCloser />

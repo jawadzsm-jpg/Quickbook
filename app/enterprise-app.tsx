@@ -144,7 +144,7 @@ import {
   Eye, ImageUp, LayoutDashboard, LogOut, PackageCheck, PackageSearch, PackageX, Palette, Paperclip, Pencil, Plus, Printer, ReceiptText, RefreshCw,
   Search, Settings, ShieldCheck, ShoppingCart, ClipboardList, Stamp, Sun, Moon, Table2, Trash2, Users, WalletCards, Percent, X,
   Truck,
-  ArrowDown, ArrowUp, FileCode2, LayoutTemplate, LogIn, Megaphone, NotebookPen, Mail, ArrowLeft } from "lucide-react";
+  ArrowDown, ArrowUp, FileCode2, LayoutTemplate, LogIn, Type, Megaphone, NotebookPen, Mail, ArrowLeft } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -192,6 +192,8 @@ import { VatManagementCenter } from "@/app/vat-management-center";
 import { RcmDeclarationGenerator } from "@/app/rcm-declaration-generator";
 
 import { SerialNumberSearch } from "./serial-number-search";
+import { TypographySettings } from "./typography-settings";
+import { DEFAULT_TYPOGRAPHY, typographyVariables, type AppTypography } from "@/lib/app-typography";
 
 type View = "announcements" | "my-notes" | "email-lists" | "cargos" | "serial-search" | "stock-pricing" | "dashboard" | "inventory-overview" | "sales" | "receive-payment" | "purchases" | "write-cheque" | "customers" | "warranties" | "vendors" | "inventory" | "customization-details" | "item-logistics" | "inventory-check-reports" | "transfers" | "banking" | "journal-entries" | "accounts" | "vat-management" | "rcm-declaration" | "employees" | "reports" | "companies" | "company-setup" | "letterhead" | "inventories" | "invoice-series" | "currencies" | "vat-codes" | "e-invoicing" | "admin-controls";
 type AppRole = "admin" | "accountant" | "sales" | "purchasing" | "inventory" | "customization" | "viewer";
@@ -229,7 +231,7 @@ type MinimizedEditorWindow = {
 };
 type InventoryLocation = { id: number; companyId: number; name: string; code: string; invoicePrefix: string; invoiceNumberFormat?: string; invoiceNumberPadding?: number; nextInvoiceNumber: number; receivable?: number; payable?: number };
 type CompanyWorkspace = { id: number; name: string; baseCurrency: string; locations: InventoryLocation[] };
-type CompanySetup = { id: number; name: string; baseCurrency: string; logoData: string; rightLogoData: string; loginBranding: boolean; loginLogoData: string; loginLogoOffset: number; loginTopLogoData: string; loginTopLogoHidden: boolean; loginLogosSwapped: boolean; loginCompanyLogoData: string; loginDisplayName: string; loginCopyrightYears: string; loginBackgroundData: string; loginBackgroundColor: string; documentDesign: string; letterheadDesign: string; documentLayout: string; stampData: string; addressLine1: string; addressLine2: string; city: string; country: string; phone: string; email: string; trn: string; einvoiceEnabled: boolean; peppolParticipantId: string; einvoiceAsp: string; einvoiceAspAccount: string; einvoiceGoLive: string; bankName: string; bankAccountName: string; bankAccountNumber: string; bankIban: string; bankSwift: string; bankCurrency: string; bankAccounts: string; bankStampData: string; bankRemark: string; stampPositions: string; documentTemplate: "classic" | "modern" | "minimal"; documentColor: string };
+type CompanySetup = { id: number; name: string; baseCurrency: string; logoData: string; rightLogoData: string; loginBranding: boolean; loginLogoData: string; loginLogoOffset: number; loginTopLogoData: string; loginTopLogoHidden: boolean; loginLogosSwapped: boolean; loginCompanyLogoData: string; loginDisplayName: string; loginCopyrightYears: string; loginBackgroundData: string; loginBackgroundColor: string; documentDesign: string; letterheadDesign: string; documentLayout: string; stampData: string; addressLine1: string; addressLine2: string; city: string; country: string; phone: string; email: string; trn: string; einvoiceEnabled: boolean; peppolParticipantId: string; einvoiceAsp: string; einvoiceAspAccount: string; einvoiceGoLive: string; bankName: string; bankAccountName: string; bankAccountNumber: string; bankIban: string; bankSwift: string; bankCurrency: string; bankAccounts: string; bankStampData: string; bankRemark: string; stampPositions: string; documentTemplate: "classic" | "modern" | "minimal"; documentColor: string } & AppTypography;
 type ReportData = { apLedger?: { currency: string; asOf: string; accounts: Array<{ id: number; label: string }>; supplierTotal: number; ledgerBalance: number; difference: number; scoped: boolean }; inventoryAging?: Array<{ band: string; items: number; quantity: number; value: number }>; inventoryLedger?: Array<{ accountId: number; account: string; stockValue: number; ledgerBalance: number; difference: number }>; inventoryScope?: "inventory" | "company"; warehouseOptions?: Array<{ id: number; name: string; locationId: number; locationName: string }>; warehouse?: { id: number; name: string; locationName: string }; budget?: BudgetBasis; financial?: FinancialReportData["financial"]; period?: ReportPeriod; pnl?: PnlMeta; summary?: PnlReport["summary"]; activeCustomers?: { canViewAccounts: boolean; asOf: string; count: number }; openBalance?: OpenBalanceData; statement?: StatementData; key?: string; companyId?: number; supplierId?: number; canEditPrices?: boolean; canViewAccounts?: boolean; accountLinkIssues?: string[]; vatCodes?: Array<{ code: string; name: string; rate: number }>; title: string; description?: string; generatedAt: string; currency: string; columns: Array<{ key: string; label: string; type?: "money" }>; rows: Array<Record<string, string | number>>; chart?: { labelKey: string; incomeKey: string; expenseKey: string; incomeLabel?: string; expenseLabel?: string } };
 type MemorisedReportRecord = { customer?: string; statementDate?: string; memo?: string; id: number; companyId: number; locationId: number | null; supplierId?: number | null; name: string; reportKey: string; category: ReportCategory; currency: string; periodStart: string; periodEnd: string; updatedAt: string };
 type ReportContext = { key: string; locationId: number; currency: string; periodStart: string; periodEnd: string; supplierId?: number; warehouseId?: number };
@@ -533,7 +535,7 @@ const financialLandscapeReportKeys = new Set(["business-final", "income-customer
 const currencies = ["AED", "USD", "EUR", "GBP", "SAR", "OMR", "QAR", "BHD", "KWD", "INR", "CNY", "HKD", "JPY", "CAD", "AUD", "CHF", "SGD", "NZD", "PKR", "BDT", "LKR", "MYR", "THB", "IDR", "KRW", "TRY", "ZAR"];
 const formatMoney = (value: unknown, currency = "AED") => new Intl.NumberFormat("en-AE", { style: "currency", currency, maximumFractionDigits: 2 }).format(Number(value ?? 0));
 const today = () => new Date().toISOString().slice(0, 10);
-const emptyCompanySetup = (id = 0, name = "Company", baseCurrency = "AED"): CompanySetup => ({ id, name, baseCurrency, logoData: "", rightLogoData: "", loginBranding: false, loginLogoData: "", loginLogoOffset: 0, loginTopLogoData: "", loginTopLogoHidden: false, loginLogosSwapped: false, loginCompanyLogoData: "", loginDisplayName: "", loginCopyrightYears: "1996-2021", loginBackgroundData: "", loginBackgroundColor: "#f3f6fa", documentDesign: "", letterheadDesign: "", documentLayout: "", stampData: "", addressLine1: "", addressLine2: "", city: "", country: "United Arab Emirates", phone: "", email: "", trn: "", einvoiceEnabled: false, peppolParticipantId: "", einvoiceAsp: "", einvoiceAspAccount: "", einvoiceGoLive: "", bankName: "", bankAccountName: "", bankAccountNumber: "", bankIban: "", bankSwift: "", bankCurrency: baseCurrency, bankAccounts: "", bankStampData: "", bankRemark: "", stampPositions: "", documentTemplate: "modern", documentColor: "#10b981" });
+const emptyCompanySetup = (id = 0, name = "Company", baseCurrency = "AED"): CompanySetup => ({ id, name, baseCurrency, ...DEFAULT_TYPOGRAPHY, logoData: "", rightLogoData: "", loginBranding: false, loginLogoData: "", loginLogoOffset: 0, loginTopLogoData: "", loginTopLogoHidden: false, loginLogosSwapped: false, loginCompanyLogoData: "", loginDisplayName: "", loginCopyrightYears: "1996-2021", loginBackgroundData: "", loginBackgroundColor: "#f3f6fa", documentDesign: "", letterheadDesign: "", documentLayout: "", stampData: "", addressLine1: "", addressLine2: "", city: "", country: "United Arab Emirates", phone: "", email: "", trn: "", einvoiceEnabled: false, peppolParticipantId: "", einvoiceAsp: "", einvoiceAspAccount: "", einvoiceGoLive: "", bankName: "", bankAccountName: "", bankAccountNumber: "", bankIban: "", bankSwift: "", bankCurrency: baseCurrency, bankAccounts: "", bankStampData: "", bankRemark: "", stampPositions: "", documentTemplate: "modern", documentColor: "#10b981" });
 type VatCodeOption = VatCodeRecord & { label: string };
 const defaultVatCodeOptions: VatCodeOption[] = [
   { id: -1, companyId: 0, code: "STANDARD", name: "Standard rated", label: "STANDARD · Standard rated · 5%", rate: 5, description: "Standard UAE VAT rate", active: true, system: true },
@@ -895,6 +897,14 @@ export default function EnterpriseApp({ currentUser, edition = DEFAULT_EDITION }
   useEffect(() => { if (activeCompanyId) loadExchangeRates(); }, [activeCompanyId, loadExchangeRates]);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (activeCompanyId) loadCompanySetup(); }, [activeCompanyId, loadCompanySetup]);
+  // Company Setup → Fonts & text: the company's font and text sizes, as CSS variables on <html> (app/globals.css).
+  const { appFont, appTextBase, appTextSidebar, appTextTables, appTextForms, appTextHeadings, appTextPrint } = companySetup;
+  useEffect(() => {
+    const root = document.documentElement;
+    const vars = typographyVariables({ appFont, appTextBase, appTextSidebar, appTextTables, appTextForms, appTextHeadings, appTextPrint });
+    for (const [name, value] of Object.entries(vars)) root.style.setProperty(name, value);
+    return () => { for (const name of Object.keys(vars)) root.style.removeProperty(name); };
+  }, [appFont, appTextBase, appTextSidebar, appTextTables, appTextForms, appTextHeadings, appTextPrint]);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (activeCompanyId) loadMemorisedReports(); }, [activeCompanyId, loadMemorisedReports]);
 
@@ -2790,7 +2800,7 @@ function ReportDialog({ onVatArea, canManageVatCodes, canOpenVatManagement, onPu
   </DialogContent></Dialog>;
 }
 
-type CompanySetupTab = "identity" | "stamp" | "bank" | "einvoicing" | "layout" | "login" | "clear";
+type CompanySetupTab = "identity" | "stamp" | "bank" | "einvoicing" | "layout" | "login" | "fonts" | "clear";
 
 function CompanySetupCenter({ setup, onSaved, canClearCompany, canSelectLoginBranding }: { canClearCompany: boolean; canSelectLoginBranding: boolean; setup: CompanySetup; onSaved: (setup: CompanySetup) => void | Promise<void> }) {
   const [form, setForm] = useState<CompanySetup>(setup);
@@ -2799,11 +2809,11 @@ function CompanySetupCenter({ setup, onSaved, canClearCompany, canSelectLoginBra
   // Laid out like Admin Controls: status cards, a tab bar and one section at a time (the tab is remembered).
   const setupTabs: Array<{ id: CompanySetupTab; label: string; icon: typeof Building2 }> = [
     { id: "identity", label: "Identity", icon: Building2 }, { id: "stamp", label: "Stamp", icon: Stamp }, { id: "bank", label: "Bank accounts", icon: Landmark },
-    { id: "einvoicing", label: "E-invoicing", icon: FileCode2 }, { id: "layout", label: "Layout Builder", icon: LayoutTemplate }, { id: "login", label: "Login page", icon: LogIn },
+    { id: "einvoicing", label: "E-invoicing", icon: FileCode2 }, { id: "layout", label: "Layout Builder", icon: LayoutTemplate }, { id: "login", label: "Login page", icon: LogIn }, { id: "fonts", label: "Fonts & text", icon: Type },
     ...(canClearCompany ? [{ id: "clear" as const, label: "Clear company", icon: Trash2 }] : []),
   ];
   const [setupTab, setSetupTabState] = useState<CompanySetupTab>(() => {
-    try { const saved = window.localStorage.getItem("comnet-company-setup-tab"); return saved && ["identity", "stamp", "bank", "einvoicing", "layout", "login", "clear"].includes(saved) && (saved !== "clear" || canClearCompany) ? saved as CompanySetupTab : "identity"; } catch { return "identity"; }
+    try { const saved = window.localStorage.getItem("comnet-company-setup-tab"); return saved && ["identity", "stamp", "bank", "einvoicing", "layout", "login", "fonts", "clear"].includes(saved) && (saved !== "clear" || canClearCompany) ? saved as CompanySetupTab : "identity"; } catch { return "identity"; }
   });
   const setSetupTab = (next: CompanySetupTab) => { setSetupTabState(next); try { window.localStorage.setItem("comnet-company-setup-tab", next); } catch { /* optional */ } };
   const update = (field: keyof CompanySetup, value: string) => setForm((current) => ({ ...current, [field]: value }));
@@ -2942,6 +2952,9 @@ function CompanySetupCenter({ setup, onSaved, canClearCompany, canSelectLoginBra
         <div className="mx-auto max-w-sm">{!form.loginLogosSwapped && !form.loginTopLogoHidden ? <Image src={form.loginTopLogoData || "/easybook-logo.png"} alt="Top logo preview" width={1200} height={800} unoptimized={Boolean(form.loginTopLogoData)} className="login-top-preview relative mx-auto my-2 h-24 w-auto max-w-full rounded-2xl object-contain" style={{ transform: `translateY(${form.loginLogoOffset}px)` }} /> : null}{form.loginLogoData ? <Image src={form.loginLogoData} alt="Upper login image preview" width={260} height={155} unoptimized className="mx-auto max-h-36 w-auto max-w-full object-contain" /> : null}{form.loginCompanyLogoData || form.logoData ? <Image src={form.loginCompanyLogoData || form.logoData} alt="Login company logo preview" width={260} height={95} unoptimized className="mx-auto mt-3 max-h-24 w-auto max-w-full object-contain" /> : <div className="flex flex-col items-center gap-2"><ShieldCheck className="size-10 text-blue-600" /><strong>{form.loginDisplayName || form.name}</strong></div>}{form.loginLogosSwapped && !form.loginTopLogoHidden ? <Image src={form.loginTopLogoData || "/easybook-logo.png"} alt="Top logo preview" width={1200} height={800} unoptimized={Boolean(form.loginTopLogoData)} className="login-top-preview relative mx-auto my-2 h-24 w-auto max-w-full rounded-2xl object-contain" style={{ transform: `translateY(${form.loginLogoOffset}px)` }} /> : null}<div className="mt-4 rounded-lg bg-white p-5 shadow"><strong>Log in to start your session</strong><div className="mt-3 rounded border bg-blue-50 p-2 text-left text-xs text-slate-400">Email address</div><div className="mt-2 rounded border bg-blue-50 p-2 text-left text-xs text-slate-400">Password</div></div><p className="mt-4 rounded bg-white/70 p-2 text-xs">Copyright © {form.loginCopyrightYears || "1996-2021"} {form.loginDisplayName || form.name} All rights reserved.</p></div>
       </div>
       </section>
+    </div>
+    <div role="tabpanel" id="setup-panel-fonts" aria-labelledby="setup-tab-fonts" hidden={setupTab !== "fonts"}>
+      <div id="setup-fonts" className="scroll-mt-24"><TypographySettings companyId={setup.id} setup={setup} disabled={saving || savingField !== null} onSaved={async (typography) => { setForm((current) => ({ ...current, ...typography })); await onSaved({ ...setup, ...typography }); }} /></div>
     </div>
     {canClearCompany && <div role="tabpanel" id="setup-panel-clear" aria-labelledby="setup-tab-clear" hidden={setupTab !== "clear"}>
       <div id="setup-clear" className="scroll-mt-24"><CompanyClearButton companyId={setup.id} companyName={setup.name} disabled={saving || savingField !== null} /></div>
