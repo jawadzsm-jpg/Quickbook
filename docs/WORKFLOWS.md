@@ -66,7 +66,7 @@ When an existing posting document is edited, the server reverses its prior ledge
 
 1. Create an estimate, quotation, proforma invoice, or sales order for a customer. Estimates, proforma invoices, and sales orders default the posting-account dropdown to that customer’s linked Accounts Receivable account in the document currency; invoices use the same default.
 2. These source documents remain non-posting.
-3. Open Sales Documents lists source lines with quantity still available to invoice.
+3. Open Sales Documents lists quotations, estimates, proforma invoices and sales orders with quantity still available to invoice; the same partial-invoicing panel shows on a saved one of these. A new invoice opens on the inventory chosen in the inventory picker, and that is the inventory it saves to.
 4. Choose a source, destination inventory, and partial or full quantities.
 5. Save an invoice. `sales_invoice_allocations` records each invoiced source line quantity.
 6. The source status becomes partially invoiced or completed as allocations accumulate.

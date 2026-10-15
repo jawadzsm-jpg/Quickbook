@@ -1,6 +1,6 @@
 import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
-import { auditLog, companies, inventoryLocations, memorisedReports } from "@/db/schema";
+import { auditLog, companies, contacts, inventoryLocations, memorisedReports } from "@/db/schema";
 import { canAccessCompany, requireApiUser } from "@/lib/auth";
 import { publicErrorMessage } from "@/lib/errors";
 
@@ -55,13 +55,20 @@ export async function POST(request: Request) {
       const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations).where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).limit(1);
       if (!location) return Response.json({ error: "Inventory not found for this company." }, { status: 400 });
     }
+    // Supplier reports reopen for the supplier they were saved with; other reports keep none.
+    const supplierId = ["supplier-quickreport", "supplier-open-balance"].includes(reportKey) ? Number(payload.supplierId) : null;
+    if (supplierId !== null) {
+      if (!Number.isSafeInteger(supplierId) || supplierId <= 0) return Response.json({ error: "Select a supplier." }, { status: 400 });
+      const [supplier] = await db.select({ id: contacts.id }).from(contacts).where(and(eq(contacts.id, supplierId), eq(contacts.companyId, companyId), eq(contacts.type, "vendor"))).limit(1);
+      if (!supplier) return Response.json({ error: "Supplier not found in this company." }, { status: 400 });
+    }
     const customer = ["customer-statements", "vendor-statements", "customer-open-balance", "customers-overdue-invoices"].includes(reportKey) ? String(payload.customer || "").slice(0, 300) : "";
     const memo = ["customer-statements", "vendor-statements", "customer-open-balance", "customers-overdue-invoices"].includes(reportKey) ? String(payload.memo || "").slice(0, 2000) : "";
     const statementDate = ["customer-statements", "vendor-statements", "customer-open-balance", "customers-overdue-invoices"].includes(reportKey) ? String(payload.statementDate || "") : "";
     if (statementDate && !/^\d{4}-\d{2}-\d{2}$/.test(statementDate)) return Response.json({ error: "Enter a valid statement date." }, { status: 400 });
     const now = new Date().toISOString();
-    const [record] = await db.insert(memorisedReports).values({ userId: user.id, companyId, locationId, name, reportKey, category, currency, periodStart, periodEnd, customer, statementDate, memo, updatedAt: now })
-      .onConflictDoUpdate({ target: [memorisedReports.userId, memorisedReports.companyId, memorisedReports.reportKey], set: { locationId, name, category, currency, periodStart, periodEnd, customer, statementDate, memo, updatedAt: now } })
+    const [record] = await db.insert(memorisedReports).values({ userId: user.id, companyId, locationId, supplierId, name, reportKey, category, currency, periodStart, periodEnd, customer, statementDate, memo, updatedAt: now })
+      .onConflictDoUpdate({ target: [memorisedReports.userId, memorisedReports.companyId, memorisedReports.reportKey], set: { locationId, supplierId, name, category, currency, periodStart, periodEnd, customer, statementDate, memo, updatedAt: now } })
       .returning();
     await db.insert(auditLog).values({ companyId, action: "memorised", entityType: "report", entityId: record.id, details: `${name} saved by ${user.email}` });
     return Response.json({ record });

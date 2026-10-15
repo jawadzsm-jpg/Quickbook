@@ -188,6 +188,7 @@ export const memorisedReports = pgTable("memorised_reports", {
   userId: integer("user_id").notNull().references(() => appUsers.id, { onDelete: "cascade" }),
   companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   locationId: integer("location_id").references(() => inventoryLocations.id, { onDelete: "set null" }),
+  supplierId: integer("supplier_id").references((): AnyPgColumn => contacts.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   reportKey: text("report_key").notNull(),
   customer: text("customer").notNull().default(""),
