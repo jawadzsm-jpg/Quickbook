@@ -260,7 +260,7 @@ const navGroups = [
     { id: "vendors", label: "Vendor Center", icon: Building2 },
     { id: "cargos", label: "Cargo List", icon: Truck },
   ] },
-  { label: "COMPANY", items: [
+  { label: "INVENTORY", items: [
     { id: "inventory", label: "Inventory", icon: PackageSearch },
     { id: "customization-details", label: "Customization Details", icon: PackageCheck },
     { id: "serial-search", label: "Serial Number Search", icon: Search },
