@@ -253,7 +253,6 @@ const navGroups = [
   { label: "CUSTOMERS", items: [
     { id: "sales", label: "Sales & Invoicing", icon: ReceiptText },
     { id: "customers", label: "Customer Center", icon: Users },
-    { id: "warranties", label: "Warranty / RMA", icon: ShieldCheck },
   ] },
   { label: "VENDORS", items: [
     { id: "purchases", label: "Purchases & Bills", icon: ShoppingCart },
@@ -268,6 +267,7 @@ const navGroups = [
     { id: "item-logistics", label: "HS Code & Dimensions", icon: PackageCheck },
     { id: "inventory-check-reports", label: "Inventory Check Reports", icon: PackageCheck },
     { id: "transfers", label: "Stock Transfers", icon: ArrowRightLeft },
+    { id: "warranties", label: "Warranty / RMA", icon: ShieldCheck },
   ] },
   { label: "ACCOUNTANT", items: [
     { id: "receive-payment", label: "Receive Payment", icon: CircleDollarSign },
