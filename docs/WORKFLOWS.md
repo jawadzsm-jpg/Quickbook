@@ -191,7 +191,8 @@ Deposits, cheques, credit-card charges, account transfers, cheque orders, and op
 3. The VAT center loads a company-wide period, independent of selected inventory.
 4. Accounting users review output/input tax, reverse charge, exceptions, and unassigned activity.
 5. Authorized users add adjustments and record VAT return/filing data.
-6. VAT reports and the Report Center read the same posted transaction and journal sources.
+6. Prepare the VAT201 return in VAT Management: pick the tax period, set each inventory's emirate once (or the company city), type Boxes 2 and 7 if they apply, open any box to check its documents and VAT account, then export the template Excel (or PDF/print) and enter the figures in EmaraTax.
+7. VAT reports and the Report Center read the same posted transaction and journal sources.
 
 ## 8. Warranty and packing workflows
 

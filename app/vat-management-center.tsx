@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { Vat201Return, type Vat201Data } from "./vat-return-201";
 
 type VatBox = { amount: number; vat: number };
 type VatSummary = {
@@ -18,6 +19,7 @@ type VatSummary = {
   currency: "AED";
   filingDueDate: string;
   boxes: { box1: VatBox; box3: VatBox; box4: VatBox; box5: VatBox; box6: VatBox; box9: VatBox; box10: VatBox; box11: VatBox; box12: number; box13: number; box14: number };
+  vat201?: Vat201Data;
   outputVat: number;
   inputVat: number;
   adjustments: number;
@@ -41,7 +43,7 @@ function currentQuarter() {
 
 const money = (value: number, currency: string) => new Intl.NumberFormat("en-AE", { style: "currency", currency, maximumFractionDigits: 2 }).format(value);
 
-export function VatManagementCenter({ companyId, companyName, locationId, locationName, canWrite, canManageCodes, onOpenReport, onManageCodes }: { companyId: number; companyName: string; locationId: number; locationName: string; currency: string; canWrite: boolean; canManageCodes: boolean; onOpenReport: (key: string, period: { start: string; end: string }) => void; onManageCodes: () => void }) {
+export function VatManagementCenter({ companyId, companyName, locationId, locationName, canWrite, canManageCodes, onOpenReport, onManageCodes, onOpenDocument }: { companyId: number; companyName: string; locationId: number; locationName: string; currency: string; canWrite: boolean; canManageCodes: boolean; onOpenReport: (key: string, period: { start: string; end: string }) => void; onManageCodes: () => void; onOpenDocument: (id: number) => void }) {
   const quarter = useMemo(() => currentQuarter(), []);
   const [periodStart, setPeriodStart] = useState(quarter.start);
   const [periodEnd, setPeriodEnd] = useState(quarter.end);
@@ -99,24 +101,14 @@ export function VatManagementCenter({ companyId, companyName, locationId, locati
     { title: "Reverse charge and imports", items: [["Reverse Charge List", "reverse-charge"]] },
   ] as const;
 
-  const vat201Rows: Array<{ box: string; label: string; value: VatBox }> = [
-    { box: "1", label: "Standard-rated supplies", value: summary.boxes.box1 },
-    { box: "3", label: "Reverse-charge supplies", value: summary.boxes.box3 },
-    { box: "4", label: "Zero-rated supplies", value: summary.boxes.box4 },
-    { box: "5", label: "Exempt supplies", value: summary.boxes.box5 },
-    { box: "6", label: "Goods imported into the UAE", value: summary.boxes.box6 },
-    { box: "9", label: "Standard-rated expenses", value: summary.boxes.box9 },
-    { box: "10", label: "Recoverable reverse-charge VAT", value: summary.boxes.box10 },
-    { box: "11", label: "Total recoverable inputs", value: summary.boxes.box11 },
-  ];
 
   return <div className="space-y-5">
     <section className="rounded-xl border bg-white p-5 shadow-sm">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between"><div className="flex items-center gap-3"><div className="brand-soft-icon grid size-11 place-items-center rounded-xl"><Percent className="size-5" /></div><div><div className="flex flex-wrap items-center gap-2"><h2 className="font-bold text-slate-900">UAE VAT Management</h2><Badge className="bg-emerald-100 text-emerald-800">VAT201</Badge></div><p className="text-sm text-slate-500">{companyName} · all inventories company-wide · AED · accrual basis</p><p className="mt-1 text-xs text-slate-400">Opened from {locationName}; filing deadline {summary.filingDueDate || "—"}</p></div></div><div className="grid grid-cols-[repeat(2,minmax(0,1fr))] items-end gap-3 sm:flex sm:flex-wrap"><div className="min-w-0 space-y-1"><Label className="text-xs">Tax period start</Label><Input type="date" value={periodStart} onChange={(event) => setPeriodStart(event.target.value)} /></div><div className="min-w-0 space-y-1"><Label className="text-xs">Tax period end</Label><Input type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} /></div><Button variant="outline" className="col-span-2" onClick={loadVat} disabled={loading}><RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />Refresh</Button></div></div>
-      {/* Two-up on phones so all four VAT boxes stay in view. */}<div className="mt-5 grid grid-cols-[repeat(2,minmax(0,1fr))] gap-2 sm:gap-3 xl:grid-cols-[repeat(4,minmax(0,1fr))]"><VatMetric label="Box 12 · Output VAT" value={summary.boxes.box12} currency="AED" /><VatMetric label="Box 13 · Recoverable VAT" value={summary.boxes.box13} currency="AED" /><VatMetric label="Internal adjustments" value={summary.adjustments} currency="AED" /><VatMetric label={summary.netVatDue < 0 ? "Net VAT recoverable" : "Net VAT payable"} value={Math.abs(summary.netVatDue)} currency="AED" strong /></div>
+      {/* Two-up on phones so all four VAT boxes stay in view. */}<div className="mt-5 grid grid-cols-[repeat(2,minmax(0,1fr))] gap-2 sm:gap-3 xl:grid-cols-[repeat(4,minmax(0,1fr))]"><VatMetric label="Box 12 · VAT due" value={summary.boxes.box12} currency="AED" /><VatMetric label="Box 13 · Recoverable VAT" value={summary.boxes.box13} currency="AED" /><VatMetric label="Internal adjustments" value={summary.adjustments} currency="AED" /><VatMetric label={summary.netVatDue < 0 ? "Net VAT recoverable" : "Net VAT payable"} value={Math.abs(summary.netVatDue)} currency="AED" strong /></div>
     </section>
 
-    <section className="overflow-hidden rounded-xl border bg-white shadow-sm"><div className="border-b p-5"><h3 className="font-bold text-slate-900">FTA VAT201 working summary</h3><p className="mt-1 text-sm text-slate-500">Amounts are converted to AED and rounded to the nearest fils. Confirm Box 1 allocation by Emirate in EmaraTax.</p></div><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead className="w-20">Box</TableHead><TableHead>Description</TableHead><TableHead className="text-right">Amount (AED)</TableHead><TableHead className="text-right">VAT (AED)</TableHead></TableRow></TableHeader><TableBody>{vat201Rows.map((row) => <TableRow key={row.box}><TableCell className="font-bold">{row.box}</TableCell><TableCell>{row.label}</TableCell><TableCell className="text-right">{money(row.value.amount, "AED")}</TableCell><TableCell className="text-right font-semibold">{money(row.value.vat, "AED")}</TableCell></TableRow>)}<TableRow className="bg-emerald-50"><TableCell className="font-bold">14</TableCell><TableCell className="font-bold">Payable tax for the period</TableCell><TableCell /><TableCell className="text-right font-black text-emerald-900">{money(summary.boxes.box14, "AED")}</TableCell></TableRow></TableBody></Table></div></section>
+    <Vat201Return companyId={companyId} periodStart={periodStart} periodEnd={periodEnd} data={summary.vat201} loading={loading} canWrite={canWrite} onOpenDocument={onOpenDocument} onChanged={loadVat} />
 
     <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
       <section className="overflow-hidden rounded-xl border bg-white shadow-sm"><div className="border-b p-5"><h3 className="font-bold text-slate-900">VAT reports and lists</h3><p className="mt-1 text-sm text-slate-500">Every report uses posted VAT codes, transaction lines and exchange rates.</p></div>{reportGroups.map((group) => <div key={group.title} className="border-b last:border-b-0"><div className="bg-slate-50 px-5 py-2 text-xs font-bold uppercase tracking-wider text-slate-500">{group.title}</div>{group.items.map(([label, key]) => <button key={key} onClick={() => onOpenReport(key, { start: periodStart, end: periodEnd })} className="flex w-full items-center gap-3 border-t px-5 py-3 text-left text-sm font-semibold text-slate-800 transition hover:bg-emerald-50 hover:text-emerald-800"><FileBarChart2 className="size-4 text-slate-400" /><span className="flex-1">{label}</span><ChevronRight className="size-4 text-slate-300" /></button>)}</div>)}</section>
