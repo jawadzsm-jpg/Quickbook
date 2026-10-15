@@ -299,7 +299,7 @@ export async function GET(request: Request) {
       if (!party) return Response.json({ error: "Select a customer." }, { status: 400 });
       const documents = await db.select({ id: transactions.id, type: transactions.type, number: transactions.number, transactionDate: transactions.transactionDate, total: transactions.total, currency: transactions.currency, memo: transactions.memo, inventory: inventoryLocations.name }).from(transactions)
         .leftJoin(inventoryLocations, eq(transactions.locationId, inventoryLocations.id))
-        .where(and(and(eq(transactions.companyId, companyId), documentVisibility(authorization)), eq(transactions.party, party), inArray(transactions.type, ["estimate", "proforma invoice", "sales order"]), sql`${transactions.convertedInvoiceId} IS NULL`, inArray(transactions.status, ["open", "draft", "pending", "overdue", "sent", "accepted", "approved", "partially invoiced"]),
+        .where(and(and(eq(transactions.companyId, companyId), documentVisibility(authorization)), eq(transactions.party, party), inArray(transactions.type, ["quotation", "estimate", "proforma invoice", "sales order"]), sql`${transactions.convertedInvoiceId} IS NULL`, inArray(transactions.status, ["open", "draft", "pending", "overdue", "sent", "accepted", "approved", "partially invoiced"]),
           sql`EXISTS (SELECT 1 FROM transaction_lines sl WHERE sl.transaction_id = ${transactions.id} AND sl.quantity > COALESCE((SELECT SUM(a.quantity) FROM sales_invoice_allocations a WHERE a.source_line_id = sl.id), 0))`))
         .orderBy(asc(transactions.transactionDate), asc(transactions.id));
       return Response.json({ documents }, { headers: { "Cache-Control": "no-store" } });
@@ -307,8 +307,8 @@ export async function GET(request: Request) {
     if (kind === "sales-invoicing") {
       if (!canAccessCompany(authorization, companyId)) return Response.json({ error: "You do not have access to this company." }, { status: 403 });
       const sourceId = Number(url.searchParams.get("sourceId"));
-      if (!Number.isSafeInteger(sourceId) || sourceId <= 0) return Response.json({ error: "Select an estimate, proforma invoice or sales order." }, { status: 400 });
-      const [source] = await db.select().from(transactions).where(and(eq(transactions.id, sourceId), and(eq(transactions.companyId, companyId), documentVisibility(authorization)), inArray(transactions.type, ["estimate", "proforma invoice", "sales order"])));
+      if (!Number.isSafeInteger(sourceId) || sourceId <= 0) return Response.json({ error: "Select a quotation, estimate, proforma invoice or sales order." }, { status: 400 });
+      const [source] = await db.select().from(transactions).where(and(eq(transactions.id, sourceId), and(eq(transactions.companyId, companyId), documentVisibility(authorization)), inArray(transactions.type, ["quotation", "estimate", "proforma invoice", "sales order"])));
       if (!source) return Response.json({ error: "Sales document not found." }, { status: 404 });
       const locations = await db.select({ id: inventoryLocations.id, name: inventoryLocations.name }).from(inventoryLocations).where(eq(inventoryLocations.companyId, companyId)).orderBy(asc(inventoryLocations.name));
       const selectedLocation = url.searchParams.has("locationId") ? locationId : source.locationId;
@@ -929,7 +929,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     if (salesSourceId !== null) {
       if (type !== "invoice" || replacing || payload.sourceTransactionId || !Number.isSafeInteger(salesSourceId) || salesSourceId <= 0) return Response.json({ error: "Select a valid source for this invoice." }, { status: 400 });
       const [source] = await db.select().from(transactions).where(and(eq(transactions.id, salesSourceId), eq(transactions.companyId, companyId))).for("update");
-      if (!source || !["estimate", "proforma invoice", "sales order"].includes(source.type)) return Response.json({ error: "Select an estimate, proforma invoice or sales order in this company." }, { status: 400 });
+      if (!source || !["quotation", "estimate", "proforma invoice", "sales order"].includes(source.type)) return Response.json({ error: "Select a quotation, estimate, proforma invoice or sales order in this company." }, { status: 400 });
       if (source.convertedInvoiceId || !["open", "draft", "pending", "overdue", "sent", "accepted", "approved", "partially invoiced"].includes(source.status)) return Response.json({ error: "This sales document is not open for invoicing." }, { status: 409 });
       sourceBankAccountKey = source.bankAccountKey;
       if (!Number.isSafeInteger(locationId) || locationId <= 0) return Response.json({ error: "Select an invoice inventory." }, { status: 400 });

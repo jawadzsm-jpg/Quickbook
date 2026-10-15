@@ -75,7 +75,7 @@ erDiagram
 | `specification_options` | Shared choice lists: item categories, specification names and values | `label` (or `__item_categories__`, `__specification_detail_names__`), `value`, `active` |
 | `category_colors` | Inventory Overview colour per category (shared) | `category` (unique, upper-case), `color` (palette id) |
 | `item_logistics_options` | HS code and country-of-origin choices | `type`, `value`, `label`, `hidden` |
-| `memorised_reports` | Saved report views per user | `report_key`, filters, period, customer, statement date |
+| `memorised_reports` | Saved report views per user | `report_key`, filters, period, customer, statement date, `supplier_id` (supplier reports; migration 0136, cleared if the supplier is deleted) |
 
 ## Contacts and items
 
