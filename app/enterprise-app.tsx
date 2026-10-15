@@ -252,7 +252,6 @@ const navGroups = [
   ] },
   { label: "CUSTOMERS", items: [
     { id: "sales", label: "Sales & Invoicing", icon: ReceiptText },
-    { id: "receive-payment", label: "Receive Payment", icon: CircleDollarSign },
     { id: "customers", label: "Customer Center", icon: Users },
     { id: "warranties", label: "Warranty / RMA", icon: ShieldCheck },
   ] },
@@ -271,6 +270,7 @@ const navGroups = [
     { id: "transfers", label: "Stock Transfers", icon: ArrowRightLeft },
   ] },
   { label: "ACCOUNTANT", items: [
+    { id: "receive-payment", label: "Receive Payment", icon: CircleDollarSign },
     { id: "banking", label: "Banking", icon: Landmark },
     { id: "journal-entries", label: "General Journal", icon: BookOpenCheck },
     { id: "accounts", label: "Chart of Accounts", icon: BookOpen },
