@@ -659,6 +659,16 @@ test("customization boxes: ONBOARD stays plain text, OTHERS gives saved upgrade 
   assert.equal(applyCustomizationUpgrades("ASUS | 8G", { ram: "8G" }, { ram: "16G UPGRADE" }), "ASUS | 16G UPGRADE");
   assert.equal(applyCustomizationUpgrades("ASUS | 15.6 INCH", { screen: "15.6 INCH" }, { screen: "QHD 240MHZ" }), "ASUS | 15.6 INCH | QHD 240MHZ");
   assert.equal(applyCustomizationUpgrades("ASUS | 16GB", { ram: "16GB" }, { ram: "" }), "ASUS | 16GB");
+  // RAM and Storage upgrade prices (excluding VAT, base currency) add to the item's price; Screen Details has none.
+  const { parseUpgradePrice, upgradesPrice } = await sourceModule("../lib/customization-options.ts");
+  assert.equal(parseUpgradePrice(""), 0);
+  assert.equal(parseUpgradePrice("1,250.456"), 1250.46);
+  assert.equal(parseUpgradePrice("-5"), null);
+  assert.equal(parseUpgradePrice("abc"), null);
+  const priced = { ram: [{ id: 1, value: "32GB UPGRADE", price: 150 }], storage: [{ id: 2, value: "1TB SSD UPGRADE", price: 99.5 }], screen: [{ id: 3, value: "QHD 240MHZ", price: 40 }] };
+  assert.equal(upgradesPrice(priced, { ram: "32GB UPGRADE", storage: "1TB SSD UPGRADE", screen: "QHD 240MHZ" }), 249.5);
+  assert.equal(upgradesPrice(priced, { ram: "", storage: "GONE" }), 0);
+  assert.equal(upgradesPrice(priced, undefined), 0);
 
   const page = readFileSync(new URL("../app/item-customization-center.tsx", import.meta.url), "utf8");
   const overview = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
@@ -673,6 +683,11 @@ test("customization boxes: ONBOARD stays plain text, OTHERS gives saved upgrade 
   assert.match(overview, /xml\(withUpgrades\(record, specificationText\(record\)\)\)/);
   assert.match(specOptions, /if \(isCustomizationScope\(row\.label\)\) continue;/);
   assert.match(api, /reading \? "inventory:read" : "customization:manage"/);
+  assert.match(api, /pricedCustomizationFields\.includes\(field\) \? parseUpgradePrice\(input\.price\) : 0/);
+  assert.match(readFileSync(new URL("../drizzle/0140_customization_upgrade_price.sql", import.meta.url), "utf8"), /ADD COLUMN IF NOT EXISTS "price" double precision DEFAULT 0 NOT NULL/);
+  assert.match(overview, /Number\(record\.salesPrice\) \+ \(record\.id === undefined \? 0 : upgradesPrice\(upgradeOptions, upgrades\[record\.id\]\)\)/);
+  assert.match(overview, /priceFor\(\{ id: record\.id, salesPrice: offer\.offerPrice \}\)/);
+  assert.match(page, /priceInput\(newPrice, setNewPrice/);
   // Product Customization users may delete upgrade options (DELETE is otherwise administrator-only); sales users read them.
   assert.match(readFileSync(new URL("../lib/auth.ts", import.meta.url), "utf8"), /user\.role === "customization" && new URL\(request\.url\)\.pathname === "\/api\/customization-options"/);
   assert.match(readFileSync(new URL("../lib/sales-access.ts", import.meta.url), "utf8"), /"\/api\/customization-options"/);
@@ -1234,7 +1249,7 @@ test("Excel export adds Today offer price and Offer ends columns only when an ex
   const ui = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
   assert.match(ui, /const offerColumns = showPrice && exportRecords\.some\(\(record\) => offerFor\(record\)\)/);
   assert.match(ui, /headers\.push\(`Today offer price\$\{mode === "include" \? " including 5% VAT" : mode === "zero" \? " \(0% VAT\)" : ""\}`, "Offer ends \(UAE time\)", "Offer quantity left"\)/);
-  assert.match(ui, /priceFor\(\{ salesPrice: offer\.offerPrice \}, mode\)/);
+  assert.match(ui, /priceFor\(\{ id: record\.id, salesPrice: offer\.offerPrice \}, mode\)/);
 });
 
 test("Inventory Overview copy buttons and Excel export follow the Warehouse filter", () => {

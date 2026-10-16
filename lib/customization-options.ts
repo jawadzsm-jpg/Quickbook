@@ -1,11 +1,14 @@
 // Upgrade options for the Product Customization Details RAM, Storage and Screen Details boxes. A box that says ONBOARD
 // (soldered, cannot be upgraded) stays plain text and gets no upgrade dropdown; a box that says OTHERS becomes a
 // dropdown of the saved options. Inventory Overview users pick from the same options for their copies (nothing saved).
-// Options are shared by all companies and stored in specification_options under the scopes below.
+// Options are shared by all companies and stored in specification_options under the scopes below. RAM and Storage
+// options may carry a price (excluding VAT, in the base currency of the company being viewed, like the selling price)
+// that Inventory Overview adds to the item's price when the upgrade is picked.
 
 export const customizationOptionFields = ["ram", "storage", "screen"] as const;
 export type CustomizationOptionField = typeof customizationOptionFields[number];
-export type CustomizationOptions = Record<CustomizationOptionField, Array<{ id: number; value: string }>>;
+export type CustomizationOption = { id: number; value: string; price: number };
+export type CustomizationOptions = Record<CustomizationOptionField, CustomizationOption[]>;
 export type CustomizationUpgrades = Partial<Record<CustomizationOptionField, string>>;
 
 export const customizationOptionScopes: Record<CustomizationOptionField, string> = {
@@ -13,6 +16,27 @@ export const customizationOptionScopes: Record<CustomizationOptionField, string>
   storage: "__customization_storage__",
   screen: "__customization_screen__",
 };
+
+/** Boxes whose upgrade options can have a price. */
+export const pricedCustomizationFields: readonly CustomizationOptionField[] = ["ram", "storage"];
+
+/** An upgrade price from user input: blank is 0; otherwise a number from 0 to 1,000,000 rounded to 2 decimals, or null when invalid. */
+export function parseUpgradePrice(value: unknown) {
+  const text = String(value ?? "").replace(/,/g, "").trim();
+  if (!text) return 0;
+  const price = Number(text);
+  return Number.isFinite(price) && price >= 0 && price <= 1_000_000 ? Math.round(price * 100) / 100 : null;
+}
+
+/** The total price of the picked upgrades (RAM and Storage options with a price; Screen Details has none). */
+export function upgradesPrice(options: CustomizationOptions, upgrades: CustomizationUpgrades | undefined) {
+  let total = 0;
+  for (const field of pricedCustomizationFields) {
+    const picked = String(upgrades?.[field] ?? "").trim();
+    if (picked) total += Number(options[field]?.find((option) => option.value === picked)?.price) || 0;
+  }
+  return Math.round(total * 100) / 100;
+}
 
 export const customizationFieldLabels: Record<CustomizationOptionField, string> = { ram: "RAM", storage: "Storage", screen: "Screen Details" };
 
