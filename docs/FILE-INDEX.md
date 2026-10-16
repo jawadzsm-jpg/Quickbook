@@ -37,7 +37,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/customer-sales-owner.tsx` — Assign a customer to a sales user; `/api/sales-work`.
 - `app/data-export-toolbar.tsx` — Global toolbar exporting visible report/transaction tables to Excel, CSV or PDF.
 - `app/delivery-note-template.tsx` — Delivery note print template with customer address and bilingual Customer TRN line.
-- `app/document-email-dialog.tsx` — Email a document with its PDF (History shows turboSMTP delivery status with Check delivery): template choice, unlimited To/Cc address chips with suggestions, message, Templates tab (own and shared templates with placeholders), Signature tab and send History; `/api/document-emails`, `/api/email-templates`.
+- `app/document-email-dialog.tsx` — Email a document with its PDF (no send history; earlier addresses suggested): template choice, unlimited To/Cc address chips with suggestions, message, Templates tab (own and shared templates with placeholders), Signature tab; `/api/document-emails`, `/api/email-templates`.
 - `app/document-extra-fields.tsx` — Document comments and serial number fields.
 - `app/edition-settings.tsx` — Admin Controls → EasyBook edition: choose the edition (All-Admin), usage, what blocks a downgrade; `/api/edition`.
 - `app/einvoicing-center.tsx` — UAE e-invoicing (Peppol/PINT-AE) readiness: company setup, customer/invoice readiness badges; `/api/company-setup`.
@@ -99,7 +99,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/rcm-declaration-generator.tsx` — Create, list and print UAE reverse-charge (RCM) declarations; `/api/rcm-declarations`, `/api/attachments`.
 - `app/record-attachments.tsx` — Lists and uploads attachments for a record; `/api/attachments`.
 - `app/record-permissions.tsx` — Role context for record delete rights and the invoice-items editor context.
-- `app/report-email-dialog.tsx` — Report Center Email: the report's A4 PDF (as exported) to any number of To/Cc addresses, standard wording with the report title and period, Signature tab and per-report History with delivery checks; `/api/report-emails`.
+- `app/report-email-dialog.tsx` — Report Center Email: the report's A4 PDF (as exported) to any number of To/Cc addresses, standard wording with the report title and period, Signature tab, earlier report addresses suggested (no send history); `/api/report-emails`.
 - `app/report-data-table.tsx` — List report table renderer.
 - `app/report-date-filter.tsx` — From/to date bar with Apply for reports.
 - `app/required-field-highlighter.tsx` — Outlines empty required fields in the active window after a failed save.
@@ -208,7 +208,8 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/document-print.ts` — Paper size and `@page` CSS from a document design.
 - `lib/document-vat.ts` — One VAT code per sales/purchase document (return lines excluded).
 - `lib/einvoice-readiness.ts` — UAE e-invoicing readiness: TRN format, company/customer (address, city)/invoice issue lists.
-- `lib/email-delivery.ts` — turboSMTP delivery statuses: labels, tone, worst-first summary, final statuses.
+- `lib/email-addresses.ts` — **server** The only thing kept of a sent document/report email: its addresses, one `document_emails` row per party, newest first, up to 50 (`rememberAddresses`, `rememberedAddresses`). **DB**
+- `lib/email-delivery.ts` — turboSMTP delivery statuses (test emails): labels, tone, worst-first summary, final statuses.
 - `lib/email-errors.ts` — Plain-language advice for SMTP failures (TLS/port mismatch, oversize message, sending limit, login rejected, unreachable, unverified sender).
 - `lib/email-templates.ts` — Email template placeholders, document types, standard wording, address-list parsing and per-message batching; who may email documents.
 - `lib/email-signature.ts` — Email signature fields and limits, request check (`readSignature`), plain-text and email-HTML rendering (`signatureText`, `signatureHtml`).

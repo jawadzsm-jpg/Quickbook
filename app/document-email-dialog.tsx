@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { CheckCircle2, FileText, History, Mail, Pencil, PenLine, Plus, RefreshCw, Send, Trash2, TriangleAlert, X } from "lucide-react";
-import { finalDelivery, type DeliveryCheck, type DeliveryTone } from "@/lib/email-delivery";
+import { FileText, Mail, Pencil, PenLine, Plus, Send, Trash2, TriangleAlert, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,40 +16,13 @@ import { EMAIL_DOCUMENT_TYPES, EMAIL_PLACEHOLDERS, MAX_ATTACHMENT_BYTES, default
 
 export type EmailDocument = { id: number; type: string; number: string; party: string; total: number; currency: string; transactionDate: string; dueDate: string };
 type Template = { id: number; name: string; documentType: string; subject: string; body: string; shared: boolean; mine: boolean; editable: boolean; ownerName: string | null };
-type Delivery = { canCheck: boolean; status: string; label: string; tone: DeliveryTone; checks: DeliveryCheck[]; checkedAt: string | null };
-export type SentEmail = { id: number; createdAt: string; sentByName: string; recipients: string[]; cc: string[]; subject: string; attachmentName: string; status: string; error: string; delivery?: Delivery };
-
-const toneClass: Record<DeliveryTone, string> = { good: "text-emerald-700 dark:text-emerald-300", waiting: "text-amber-700 dark:text-amber-300", bad: "text-rose-600 dark:text-rose-400", unknown: "text-muted-foreground" };
-
-/** turboSMTP delivery status of one sent email, with Check delivery (emails sent through the turboSMTP API only). */
-export function DeliveryLine({ companyId, item, onChecked }: { companyId: number; item: SentEmail; onChecked: (delivery: Delivery) => void }) {
-  const [checking, setChecking] = useState(false);
-  const delivery = item.delivery;
-  if (!delivery?.canCheck) return null;
-  const check = async () => {
-    setChecking(true);
-    try {
-      const response = await fetch("/api/document-emails", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, id: item.id }) });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || "Could not get the delivery status.");
-      onChecked(data.delivery);
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not get the delivery status.", { duration: 10_000 }); }
-    finally { setChecking(false); }
-  };
-  const problems = delivery.checks.filter((entry) => entry.error);
-  return <div className="space-y-1 text-xs">
-    <p className="flex flex-wrap items-center gap-2"><span className="text-muted-foreground">Delivery:</span><span className={`font-medium ${toneClass[delivery.tone]}`}>{delivery.label || "Not checked yet"}</span>{delivery.checkedAt ? <span className="text-muted-foreground">checked {sentAt(delivery.checkedAt)}</span> : null}{!finalDelivery(delivery.status) || !delivery.checkedAt ? <Button type="button" size="sm" variant="outline" className="h-6 px-2 text-xs" disabled={checking} onClick={() => void check()}><RefreshCw className={`size-3 ${checking ? "animate-spin" : ""}`} />{checking ? "Checking…" : "Check delivery"}</Button> : null}</p>
-    {problems.map((entry) => <p key={entry.id} className="break-words text-rose-600 dark:text-rose-400">{entry.recipient ? `${entry.recipient}: ` : ""}{entry.error}</p>)}
-  </div>;
-}
-type Loaded = { configured: boolean; signatureOn: boolean; suggestions: { contact: string[]; previous: string[] }; sender: { name: string; email: string }; history: SentEmail[] };
+type Loaded = { configured: boolean; signatureOn: boolean; suggestions: { contact: string[]; previous: string[] }; sender: { name: string; email: string } };
 
 const BUILT_IN = "built-in";
 const day = (value: string) => {
   const date = new Date(`${value}T00:00:00Z`);
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(date.getTime()) ? date.toLocaleDateString("en-GB", { timeZone: "UTC", day: "2-digit", month: "short", year: "numeric" }) : value;
 };
-export const sentAt = (value: string) => new Date(value.replace(" ", "T")).toLocaleString("en-GB", { timeZone: "Asia/Dubai", day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
 const lastTemplateKey = (companyId: number, type: string) => `comnet-email-template:${companyId}:${type}`;
 const readLastTemplate = (key: string) => { try { return window.localStorage.getItem(key) ?? ""; } catch { return ""; } };
 const writeLastTemplate = (key: string, value: string) => { try { window.localStorage.setItem(key, value); } catch { /* Only a convenience. */ } };
@@ -133,13 +105,14 @@ function TemplateEditor({ companyId, documentType, signatureOn, templates, onSav
 
 /**
  * Email a sales or purchase document with its PDF. Pick a template (or the built-in wording), add any number of To
- * and Cc addresses, check the message and send. Replies go to the sender. Every send is listed under History.
+ * and Cc addresses, check the message and send. Replies go to the sender. No history is kept: only the addresses,
+ * suggested next time.
  */
 export function DocumentEmailDialog({ open, onOpenChange, companyId, companyName, document, partyName, makePdf }: {
   open: boolean; onOpenChange: (open: boolean) => void; companyId: number; companyName: string; document: EmailDocument; partyName: string;
   makePdf: () => Promise<{ blob: Blob; fileName: string } | null>;
 }) {
-  const [tab, setTab] = useState<"compose" | "templates" | "signature" | "history">("compose");
+  const [tab, setTab] = useState<"compose" | "templates" | "signature">("compose");
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [templateId, setTemplateId] = useState(BUILT_IN);
@@ -174,7 +147,7 @@ export function DocumentEmailDialog({ open, onOpenChange, companyId, companyName
     setTemplates(data.templates);
     return data.templates as Template[];
   }, [companyId]);
-  const loadHistory = useCallback(async () => {
+  const loadDetails = useCallback(async () => {
     const response = await fetch(`/api/document-emails?companyId=${companyId}&transactionId=${document.id}`, { cache: "no-store" });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Could not load the email details.");
@@ -182,14 +155,14 @@ export function DocumentEmailDialog({ open, onOpenChange, companyId, companyName
     return data as Loaded;
   }, [companyId, document.id]);
 
-  // Opening: load templates, history and suggested addresses; start with the customer's or supplier's saved email
+  // Opening: load templates and suggested addresses; start with the customer's or supplier's saved email
   // and the template last used for this kind of document.
   useEffect(() => {
     if (!open) return;
     let active = true;
     // The loaders set state only after their requests finish, not synchronously in the effect.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    Promise.all([loadTemplates(), loadHistory()]).then(([list, data]) => {
+    Promise.all([loadTemplates(), loadDetails()]).then(([list, data]) => {
       if (!active) return;
       setTo(data.suggestions.contact);
       setCc([]); setShowCc(false); setAttach(true); setTab("compose");
@@ -219,7 +192,7 @@ export function DocumentEmailDialog({ open, onOpenChange, companyId, companyName
       }
       const response = await fetch("/api/document-emails", { method: "POST", body: form });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) { void loadHistory().catch(() => undefined); throw new Error(data.error || "The email could not be sent."); }
+      if (!response.ok) throw new Error(data.error || "The email could not be sent.");
       writeLastTemplate(rememberKey, templateId);
       toast.success(`Emailed ${typeLabel(document.type).toLowerCase()} ${document.number} to ${data.recipients} ${data.recipients === 1 ? "address" : "addresses"}`);
       onOpenChange(false);
@@ -228,8 +201,7 @@ export function DocumentEmailDialog({ open, onOpenChange, companyId, companyName
   };
 
   const mine = fitting.filter((template) => template.mine), shared = fitting.filter((template) => !template.mine);
-  const history = loaded?.history ?? [];
-  const tabs = [{ key: "compose", label: "Compose", icon: Mail }, { key: "templates", label: "Templates", icon: FileText }, { key: "signature", label: "Signature", icon: PenLine }, { key: "history", label: history.length ? `History (${history.length})` : "History", icon: History }] as const;
+  const tabs = [{ key: "compose", label: "Compose", icon: Mail }, { key: "templates", label: "Templates", icon: FileText }, { key: "signature", label: "Signature", icon: PenLine }] as const;
   return <Dialog open={open} onOpenChange={(next) => { if (!sending) onOpenChange(next); }}>
     <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-3xl">
       <DialogHeader><DialogTitle className="flex items-center gap-2"><Mail className="size-5 text-sky-600" />Email {typeLabel(document.type)} {document.number}</DialogTitle><DialogDescription>To {partyName || document.party} · {document.currency} {values.amount}</DialogDescription></DialogHeader>
@@ -252,14 +224,6 @@ export function DocumentEmailDialog({ open, onOpenChange, companyId, companyName
       {tab === "templates" ? <TemplateEditor companyId={companyId} documentType={document.type} signatureOn={loaded?.signatureOn ?? false} templates={templates} onSaved={() => void loadTemplates().catch((error) => toast.error(error.message))} onUse={(template) => { apply(String(template.id), templates, values, loaded?.signatureOn ?? false); setTab("compose"); }} /> : null}
 
       {tab === "signature" ? <EmailSignatureEditor companyId={companyId} onSaved={(signatureOn) => setLoaded((current) => current ? { ...current, signatureOn } : current)} /> : null}
-
-      {tab === "history" ? (history.length ? <ul className="divide-y rounded-lg border">{history.map((item) => <li key={item.id} className="space-y-1 px-3 py-2.5 text-sm">
-        <p className="flex flex-wrap items-center gap-2">{item.status === "sent" ? <CheckCircle2 className="size-4 text-emerald-600" /> : <TriangleAlert className="size-4 text-rose-600" />}<span className="font-medium">{item.status === "sent" ? "Sent" : "Failed"}</span><span className="text-muted-foreground">{sentAt(item.createdAt)} · {item.sentByName}</span></p>
-        <p className="break-words text-xs"><span className="text-muted-foreground">To:</span> {item.recipients.join(", ")}{item.cc.length ? <><span className="text-muted-foreground"> · Cc:</span> {item.cc.join(", ")}</> : null}</p>
-        <p className="truncate text-xs text-muted-foreground">{item.subject}{item.attachmentName ? ` · ${item.attachmentName}` : " · no attachment"}</p>
-        {item.error ? <p className="text-xs text-rose-600">{item.error}</p> : null}
-        <DeliveryLine companyId={companyId} item={item} onChecked={(delivery) => setLoaded((current) => current ? { ...current, history: current.history.map((entry) => entry.id === item.id ? { ...entry, delivery } : entry) } : current)} />
-      </li>)}</ul> : <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">This document has not been emailed yet.</div>) : null}
 
       {tab === "compose" ? <DialogFooter className="gap-2"><Button type="button" variant="outline" disabled={sending} onClick={() => onOpenChange(false)}>Cancel</Button><Button type="button" disabled={sending || !loaded || !loaded.configured || !to.length} onClick={() => void send()}><Send className="size-4" />{sending ? (attach ? "Preparing PDF and sending…" : "Sending…") : `Send${to.length + cc.length > 1 ? ` to ${to.length + cc.length}` : ""}`}</Button></DialogFooter> : null}
     </DialogContent>
