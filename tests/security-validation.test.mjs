@@ -1253,6 +1253,10 @@ test("Inventory Overview prints an A4 stock list that follows the Warehouse filt
   assert.match(ui, /warehouseLabel \|\| "All warehouses"/);
   assert.match(ui, /@page\{size:A4 \$\{printOrientation\};margin:12mm\}/);
   assert.match(ui, /aria-label="Print stock list"/);
+  // Print and the A4 orientation sit on the "Consolidated stock" heading line, before search, not in the share bar.
+  assert.match(ui, /Consolidated stock<\/h2>[\s\S]{0,800}aria-label="Print stock list"[\s\S]{0,400}aria-label="A4 print orientation"[\s\S]{0,900}placeholder="Search SKU, item, specs or inventory…"/);
+  const shareBar = ui.slice(ui.indexOf("{/* Share bar:"), ui.indexOf("exportExcel(\"zero\")"));
+  assert.doesNotMatch(shareBar, /Print stock list|A4 print orientation/);
 });
 
 test("email failures are explained in plain language and the login email can be sent again", () => {
@@ -1364,10 +1368,14 @@ test("share bar: brand icons, No VAT / Inc VAT / 0% VAT, one Excel menu, kept on
   assert.match(ui, /useState<VatMode>\("exclude"\)/);
   assert.match(ui, /<WhatsAppIcon \/>/);
   assert.match(ui, /<TelegramIcon \/>/);
-  assert.match(ui, /Hide qty<\/label>/);
+  assert.match(ui, /<Checkbox aria-label="Hide qty"[\s\S]{0,260}Hide <\/span>qty<\/label>/);
   assert.match(ui, /exportExcel\("exclude"\)[\s\S]*exportExcel\("include"\)[\s\S]*exportExcel\("zero"\)/);
-  assert.match(ui, /@container flex flex-wrap items-center gap-2 border-b px-4 py-2 whitespace-nowrap/);
-  assert.match(ui, /@max-\[90rem\]:hidden/);
+  assert.match(ui, /@container flex flex-wrap items-center gap-1\.5 border-b px-4 py-2 whitespace-nowrap/);
+  assert.match(ui, /@max-\[91rem\]:hidden/);
+  // Below the label width the left controls compact too (count only, eye-off icon, "+") so every control stays on one row.
+  assert.match(ui, /\{selectedRecords\.length\}<span className="@max-\[91rem\]:hidden">&nbsp;selected<\/span>/);
+  assert.match(ui, /<span className="@max-\[91rem\]:hidden">Price<\/span> \+<Input aria-label="Price increase"[\s\S]{0,300}?className="h-6 w-12 /);
+  assert.match(ui, /aria-label="Shown and shared price currency"[\s\S]{0,700}?className="h-8 w-16 /);
   assert.doesNotMatch(ui, /Excel no VAT|Excel \+ VAT<|Including VAT|Hide quantity/);
 });
 
