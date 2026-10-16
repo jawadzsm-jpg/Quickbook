@@ -22,6 +22,7 @@ const { DEFAULT_TYPOGRAPHY, parseTypography, typographyVariables } = await sourc
 const { partNumberInLine, generatedItemDescription, inventoryItemCondition, inventoryItemDetails, inventoryItemLine, inventoryItemTitle, inventoryShareDescription, inventorySocialShareText, invoiceItemDescription, itemSpecificationDescription, itemTitleWithSku } = await sourceModule("../lib/item-description.ts");
 const { isInvoiceItemSelectable } = await sourceModule("../lib/invoice-item-filter.ts");
 const { applyInlineFormat, applyLineFormat, inlineFormatsFor, telegramHtml, applyLink } = await sourceModule("../lib/share-format.ts");
+const { convertSharePrice, missingShareRateMessage, shareCurrencies, shareCurrencyOption, shareCurrencyRate, shareCurrencySymbol } = await sourceModule("../lib/share-currency.ts");
 const { companyEInvoiceIssues, customerEInvoiceStatus, invoiceEInvoiceStatus, isUaeTrn } = await sourceModule("../lib/einvoice-readiness.ts");
 const { calculatorResult } = await sourceModule("../lib/calculator.ts");
 const { contactAddressLines } = await sourceModule("../lib/contact-address.ts");
@@ -1472,4 +1473,37 @@ test("audit trail edits keep the entry's user in the By column", () => {
   assert.equal(keepAuditActor("no user", "Corrected"), "Corrected");
   const route = readFileSync(new URL("../app/api/audit-log/route.ts", import.meta.url), "utf8");
   assert.match(route, /const details = keepAuditActor\(entry\.details, text\)/);
+});
+
+test("Inventory Overview converts shown and shared prices to USD or EUR with the company's saved rates", () => {
+  assert.deepEqual([...shareCurrencies], ["USD", "EUR"]);
+  const rates = [{ currencyCode: "USD", rate: 3.6725, active: true }, { currencyCode: "EUR", rate: "4", active: true }, { currencyCode: "GBP", rate: 4.9, active: false }, { currencyCode: "INR", rate: 0 }];
+  assert.equal(shareCurrencyRate(rates, "AED", "USD"), 3.6725);
+  assert.equal(shareCurrencyRate(rates, "AED", "eur"), 4);
+  assert.equal(shareCurrencyRate(rates, "AED", "AED"), 1);
+  assert.equal(shareCurrencyRate(rates, "AED", "GBP"), null, "inactive rates are not used");
+  assert.equal(shareCurrencyRate(rates, "AED", "INR"), null, "a zero rate is missing");
+  assert.equal(shareCurrencyRate([], "AED", "USD"), null);
+  // Rates are AED per one foreign unit: AED 3,672.50 is USD 1,000; AED 1,050 (VAT included) is EUR 262.50.
+  assert.equal(convertSharePrice(3672.5, 3.6725), 1000);
+  assert.equal(convertSharePrice(1050, 4), 262.5);
+  assert.equal(convertSharePrice(100, 3.6725), 27.23);
+  assert.equal(convertSharePrice(100, 0), 0);
+  assert.equal(shareCurrencySymbol("USD"), "$");
+  assert.equal(shareCurrencySymbol("EUR"), "€");
+  assert.equal(shareCurrencySymbol("AED"), "");
+  assert.equal(shareCurrencyOption("EUR"), "EUR (€)");
+  assert.equal(shareCurrencyOption("AED"), "AED");
+  assert.match(missingShareRateMessage("EUR", "AED", "Comnet"), /No EUR exchange rate is saved for Comnet\. Add the EUR to AED rate in Currencies/);
+
+  const overview = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
+  assert.match(overview, /fetch\(`\/api\/exchange-rates\?companyId=\$\{companyId\}`/, "the company's saved rates are loaded");
+  assert.match(overview, /aria-label="Shown and shared price currency"/);
+  assert.match(overview, /toast\.error\(missingShareRateMessage\(/, "a missing rate is reported, not silently ignored");
+  assert.match(overview, /return shareCurrency && shareRate \? convertSharePrice\(priced, shareRate\) : priced;/, "the increase and VAT apply before the conversion");
+  // WhatsApp, Telegram and email copies (and the Send dialog, which uses the email copy) carry the picked currency code.
+  assert.match(overview, /offerShareText\(\{ channel, currency: priceCurrency,/);
+  assert.match(overview, /offerText\?\.price \?\? `\$\{priceCurrency\} \$\{plainMoney\(price\)\}/);
+  assert.match(overview, /itemsText=\{shareText\("email"\)/);
+  assert.doesNotMatch(overview, /`\$\{record\.currency\} \$\{/, "no shared price falls back to the base currency code");
 });

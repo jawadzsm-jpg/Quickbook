@@ -287,6 +287,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/search.ts` — Shared search (every word must match, any order) and highlight ranges.
 - `lib/secret-box.ts` — **server** AES-256-GCM encryption of stored secrets (SMTP_ENCRYPTION_KEY "v2", DATABASE_URL-derived "v1" still readable).
 - `lib/share-emoji.ts` — WhatsApp/Telegram emoji style presets.
+- `lib/share-currency.ts` — Inventory Overview share currency: USD/EUR options, saved-rate lookup, base-to-currency price conversion and the missing-rate message.
 - `lib/share-format.ts` — Share editor formatting (WhatsApp and Telegram markers, links) and `telegramHtml` for formatted Telegram paste.
 - `lib/sku-locks.ts` — SKU edit reservations and the `skuWrite` route wrapper. **DB**
 - `lib/smtp.ts` — **server** Encrypted email server settings (SMTP or turboSMTP API), connection check, invitation, password-reset, notification, test and document emails (PDF attached, Reply-To the sender, the sender's signature under the message, sent in batches). **DB**
