@@ -1,5 +1,6 @@
 "use client";
-import { BusinessDashboard } from "./business-dashboard";
+import dynamic from "next/dynamic";
+import { ScreenLoading } from "./screen-loading";
 import { defaultInvoiceNumberFormat, formatInvoiceNumber, invoiceSeriesError, invoiceSeriesRevision } from "@/lib/invoice-series";
 import { ContactOrganizationFields } from "./contact-organization-fields";
 import { WorkspaceShortcuts } from "./workspace-shortcuts";
@@ -10,24 +11,16 @@ import { matchesSearch } from "@/lib/search";
 import { WorkspaceOnlineUsers } from "./workspace-online-users";
 import { IdleSignOut } from "./idle-sign-out";
 import { ChangePasswordButton } from "./change-password-dialog";
-import { CompanyAnnouncements } from "./company-announcements";
-import { UserNotes } from "./user-notes";
-import { InventoryEmailDialog } from "./inventory-email-dialog";
 import { DEFAULT_EDITION, editionDetails, type Edition } from "@/lib/edition";
 import { WorkspaceNotifications } from "./workspace-notifications";
-import { PdcCheques } from "./pdc-cheques";
 import { defaultReminderAt, isoToUaeLocal, isPostDated, latestReminderAt } from "@/lib/cheque-reminders";
 import { useRecordRole, useCanDeleteRecord, InvoiceItemsEditorProvider, useInvoiceItemsEditor } from "./record-permissions";
 import { PurchaseWorkflowPanel, PurchaseRegisterSummary } from "./purchase-workflow-panel";
 import { SalesWorkflowPanel, SalesRegisterSummary } from "./sales-workflow-panel";
-import { AdminControlsCenter } from "./admin-controls";
 import { WarehouseManager } from "./warehouse-manager";
 import { WarehousePicker } from "./warehouse-picker";
-import { WarehouseTransfers } from "./warehouse-transfers";
 import { DataExportToolbar } from "./data-export-toolbar";
 import { CompanyDocumentProvider, useCompanyDocumentOutput } from "./company-document-output";
-import { IncomeTaxCenter } from "./income-tax-center";
-import { AccountantDocumentSettings } from "./accountant-document-settings";
 import { InvoiceStockReturn } from "./invoice-stock-return";
 import { InvoiceSerialEditor } from "./invoice-serial-editor";
 import { InventoryInvoiceEditor } from "./inventory-invoice-editor";
@@ -43,7 +36,6 @@ import { EInvoiceBadge, EInvoicingCenter, EInvoicingSettings } from "./einvoicin
 import { customerEInvoiceStatus, invoiceEInvoiceStatus } from "@/lib/einvoice-readiness";
 import { activeVatCode } from "@/lib/standard-vat-codes";
 import { OUT_OF_SCOPE_CODE, hasOutOfScopeItem } from "@/lib/out-of-scope-rules";
-import { SalesDailyWork } from "./sales-daily-work";
 import { CustomerSalesOwner } from "./customer-sales-owner";
 import { salesDocumentTypes, salesHandoffTypes } from "@/lib/sales-access";
 import { canEditInventoryDocument, canManagePendingInvoices, canReadDocument, dubaiDay } from "@/lib/document-access";
@@ -61,21 +53,13 @@ import { VatReportLibrary } from "@/app/vat-report-library";
 import { VatReportTable } from "@/app/vat-report-table";
 import { VatReportFilters } from "@/app/vat-report-filters";
 
-import { FinancialReport } from "./financial-report";
 import { FinancialReportLibrary } from "./financial-report-library";
 import type { FinancialReportData } from "@/lib/financial-reports";
-import { SharedOutOfStock } from "@/app/shared-out-of-stock";
 import { ReportDateFilter } from "./report-date-filter";
 import { reportPeriod, type ReportPeriod } from "@/lib/report-period";
 import { CompanyClearButton } from "./company-clear-button";
-import { LetterheadCenter } from "./letterhead-center";
-import { WarrantyCenter } from "./warranty-center";
 import { VendorCenterErrorBoundary } from "./vendor-center-error-boundary";
-import { CargoList } from "./cargo-list";
 
-import { ActiveCustomersReport } from "./active-customers-report";
-import { BusinessFinalReport } from "./business-final-report";
-import { CustomerOpenBalance } from "./customer-open-balance";
 import type { OpenBalanceData } from "@/lib/customer-open-balance";
 import { DocumentExtraFields } from "./document-extra-fields";
 import { lineExtraTypes } from "@/lib/line-extras";
@@ -88,7 +72,6 @@ import { BankAccountsEditor, BankRemarkField, BankStampPicker } from "./bank-acc
 import Image from "next/image";
 import { PaymentSalesRep } from "./payment-sales-rep";
 import { PaymentTermsPicker } from "./payment-terms-picker";
-import { UaeBankCheque } from "./uae-bank-cheque";
 import { PaidInvoiceStamp } from "./paid-invoice-stamp";
 import { bankAccountLabel, bankForCurrency, bankLines, companyBankAccounts, draftBankAccounts, type BankAccount } from "@/lib/bank-accounts";
 import { vendorBankFields, vendorBankLines } from "@/lib/vendor-bank";
@@ -103,7 +86,6 @@ import { PurchaseOrderReceiving } from "./purchase-order-receiving";
 import { UnpaidInvoices } from "./unpaid-invoices";
 import { UnpaidBills } from "./unpaid-bills";
 import { PurchaseReturnSource } from "./purchase-return-source";
-import { ProfitLossReport } from "./profit-loss-report";
 import { ReportEmailDialog } from "./report-email-dialog";
 import { canEmailDocuments } from "@/lib/email-templates";
 import { ProfitLossLibrary } from "./profit-loss-library";
@@ -125,7 +107,6 @@ import { AccountantReportLibrary, AccountantReportFilters } from "./accountant-r
 import { emptyAccountantFilters, filterAccountantRows, accountantDetailTarget, accountantReportKeys, accountantSummary } from "@/lib/accountant-report";
 import { ListReportLibrary, ListReportFilters } from "./list-report-library";
 import { emptyListFilters, filterListRows, listDetailTarget, listReportKeys, listSummary } from "@/lib/list-report";
-import { StaffSalarySheets } from "./staff-salary-sheets";
 import { EmployeeHrFields, EmployeeHrDetails } from "./employee-hr-fields";
 import { employeeDetailTarget, employeeReportKeys, employeeSummary as employeeReportSummary } from "@/lib/employee-report";
 import { convertInvoiceLines, invoiceCurrencyAmount, validDocumentRate, type PricedInvoiceLine } from "@/lib/invoice-pricing";
@@ -135,9 +116,8 @@ import { inferUaeChequeLayout, uaeChequeLayouts } from "@/lib/uae-cheque-layouts
 import { applyContactCurrency, customerReceivableAccount, vendorPayableAccount } from "@/lib/contact-currency";
 import { countries } from "@/lib/countries";
 import { generatedItemDescription, inventoryItemLine, inventoryShareDescription, type ItemSpecification } from "@/lib/item-description";
-import { SalesDocumentTemplate, salesDocumentModeForTransaction } from "./sales-document-template";
+import { salesDocumentModeForTransaction } from "@/lib/sales-document-mode";
 import { InvoiceAttachments } from "./invoice-attachments";
-import { CustomerPaymentReceipt } from "./customer-payment-receipt";
 import { PrintOrientationSelect, type PrintOrientation } from "@/components/print-orientation-select";
 import {
   AlertTriangle, ArrowRightLeft, BadgeDollarSign, BookOpen, BookOpenCheck, BookmarkPlus, Boxes, Building2, CheckCircle2, Copy,
@@ -171,10 +151,6 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Toaster, toast } from "sonner";
-import { MultiLineTransferCenter } from "@/app/transfer-center";
-import { StockPricing } from "@/app/stock-pricing";
-import { InventoryOverview } from "@/app/inventory-overview";
-import { InventoryCheckReports } from "@/app/inventory-check-reports";
 import { InventoryReportLibrary } from "@/app/inventory-report-library";
 import { InventoryReportTable } from "@/app/inventory-report-table";
 import { PurchaseReportLibrary } from "@/app/purchase-report-library";
@@ -184,18 +160,49 @@ import { SalesReportLibrary } from "@/app/sales-report-library";
 import { SalesReportTable } from "@/app/sales-report-table";
 import { SalesReportFilters } from "@/app/sales-report-filters";
 import { SalesReportStamp, type StampPagePreview } from "@/app/sales-report-stamp";
-import { ItemLogisticsCenter } from "@/app/item-logistics-center";
-import { ItemCustomizationCenter } from "@/app/item-customization-center";
-import { VatCodeCenter, type VatCodeRecord } from "@/app/vat-code-center";
-import { CurrencyRateCenter, type ExchangeRateRecord } from "@/app/currency-rate-center";
-import { JournalEntryCenter } from "@/app/journal-entry-center";
-import { VatManagementCenter } from "@/app/vat-management-center";
-import { RcmDeclarationGenerator } from "@/app/rcm-declaration-generator";
+import type { VatCodeRecord } from "@/app/vat-code-center";
+import type { ExchangeRateRecord } from "@/app/currency-rate-center";
 
-import { SerialNumberSearch } from "./serial-number-search";
-import { TypographySettings } from "./typography-settings";
 import { ConfirmDeleteDialog, DeleteDetailsList, useConfirmDelete, type DeleteDetail } from "./confirm-delete-dialog";
 import { DEFAULT_TYPOGRAPHY, typographyVariables, type AppTypography } from "@/lib/app-typography";
+
+// Screens open one at a time, so each loads in its own chunk on first use instead of with the app shell.
+const InventoryOverview = dynamic(() => import("@/app/inventory-overview").then((mod) => mod.InventoryOverview), { loading: ScreenLoading });
+const WarrantyCenter = dynamic(() => import("./warranty-center").then((mod) => mod.WarrantyCenter), { loading: ScreenLoading });
+const InventoryEmailDialog = dynamic(() => import("./inventory-email-dialog").then((mod) => mod.InventoryEmailDialog), { loading: ScreenLoading });
+const InventoryCheckReports = dynamic(() => import("@/app/inventory-check-reports").then((mod) => mod.InventoryCheckReports), { loading: ScreenLoading });
+const ItemCustomizationCenter = dynamic(() => import("@/app/item-customization-center").then((mod) => mod.ItemCustomizationCenter), { loading: ScreenLoading });
+const RcmDeclarationGenerator = dynamic(() => import("@/app/rcm-declaration-generator").then((mod) => mod.RcmDeclarationGenerator), { loading: ScreenLoading });
+const VatCodeCenter = dynamic(() => import("@/app/vat-code-center").then((mod) => mod.VatCodeCenter), { loading: ScreenLoading });
+const BusinessDashboard = dynamic(() => import("./business-dashboard").then((mod) => mod.BusinessDashboard), { loading: ScreenLoading });
+const MultiLineTransferCenter = dynamic(() => import("@/app/transfer-center").then((mod) => mod.MultiLineTransferCenter), { loading: ScreenLoading });
+const AdminControlsCenter = dynamic(() => import("./admin-controls").then((mod) => mod.AdminControlsCenter), { loading: ScreenLoading });
+const VatManagementCenter = dynamic(() => import("@/app/vat-management-center").then((mod) => mod.VatManagementCenter), { loading: ScreenLoading });
+const StaffSalarySheets = dynamic(() => import("./staff-salary-sheets").then((mod) => mod.StaffSalarySheets), { loading: ScreenLoading });
+const IncomeTaxCenter = dynamic(() => import("./income-tax-center").then((mod) => mod.IncomeTaxCenter), { loading: ScreenLoading });
+const JournalEntryCenter = dynamic(() => import("@/app/journal-entry-center").then((mod) => mod.JournalEntryCenter), { loading: ScreenLoading });
+const LetterheadCenter = dynamic(() => import("./letterhead-center").then((mod) => mod.LetterheadCenter), { loading: ScreenLoading });
+const CargoList = dynamic(() => import("./cargo-list").then((mod) => mod.CargoList), { loading: ScreenLoading });
+const ItemLogisticsCenter = dynamic(() => import("@/app/item-logistics-center").then((mod) => mod.ItemLogisticsCenter), { loading: ScreenLoading });
+const ProfitLossReport = dynamic(() => import("./profit-loss-report").then((mod) => mod.ProfitLossReport), { loading: ScreenLoading });
+const UaeBankCheque = dynamic(() => import("./uae-bank-cheque").then((mod) => mod.UaeBankCheque), { loading: ScreenLoading });
+const CompanyAnnouncements = dynamic(() => import("./company-announcements").then((mod) => mod.CompanyAnnouncements), { loading: ScreenLoading });
+const WarehouseTransfers = dynamic(() => import("./warehouse-transfers").then((mod) => mod.WarehouseTransfers), { loading: ScreenLoading });
+const StockPricing = dynamic(() => import("@/app/stock-pricing").then((mod) => mod.StockPricing), { loading: ScreenLoading });
+const CurrencyRateCenter = dynamic(() => import("@/app/currency-rate-center").then((mod) => mod.CurrencyRateCenter), { loading: ScreenLoading });
+const SerialNumberSearch = dynamic(() => import("./serial-number-search").then((mod) => mod.SerialNumberSearch), { loading: ScreenLoading });
+const UserNotes = dynamic(() => import("./user-notes").then((mod) => mod.UserNotes), { loading: ScreenLoading });
+const CustomerOpenBalance = dynamic(() => import("./customer-open-balance").then((mod) => mod.CustomerOpenBalance), { loading: ScreenLoading });
+const BusinessFinalReport = dynamic(() => import("./business-final-report").then((mod) => mod.BusinessFinalReport), { loading: ScreenLoading });
+const ActiveCustomersReport = dynamic(() => import("./active-customers-report").then((mod) => mod.ActiveCustomersReport), { loading: ScreenLoading });
+const FinancialReport = dynamic(() => import("./financial-report").then((mod) => mod.FinancialReport), { loading: ScreenLoading });
+const CustomerPaymentReceipt = dynamic(() => import("./customer-payment-receipt").then((mod) => mod.CustomerPaymentReceipt), { loading: ScreenLoading });
+const PdcCheques = dynamic(() => import("./pdc-cheques").then((mod) => mod.PdcCheques), { loading: ScreenLoading });
+const TypographySettings = dynamic(() => import("./typography-settings").then((mod) => mod.TypographySettings), { loading: ScreenLoading });
+const SharedOutOfStock = dynamic(() => import("@/app/shared-out-of-stock").then((mod) => mod.SharedOutOfStock), { loading: ScreenLoading });
+const AccountantDocumentSettings = dynamic(() => import("./accountant-document-settings").then((mod) => mod.AccountantDocumentSettings), { loading: ScreenLoading });
+const SalesDailyWork = dynamic(() => import("./sales-daily-work").then((mod) => mod.SalesDailyWork), { loading: ScreenLoading });
+const SalesDocumentTemplate = dynamic(() => import("./sales-document-template").then((mod) => mod.SalesDocumentTemplate), { loading: ScreenLoading });
 
 type View = "business-dashboard" | "announcements" | "my-notes" | "email-lists" | "cargos" | "serial-search" | "stock-pricing" | "dashboard" | "inventory-overview" | "sales" | "receive-payment" | "purchases" | "write-cheque" | "customers" | "warranties" | "vendors" | "inventory" | "customization-details" | "item-logistics" | "inventory-check-reports" | "transfers" | "banking" | "journal-entries" | "accounts" | "vat-management" | "rcm-declaration" | "employees" | "reports" | "companies" | "company-setup" | "letterhead" | "inventories" | "invoice-series" | "currencies" | "vat-codes" | "e-invoicing" | "admin-controls";
 type AppRole = "admin" | "accountant" | "sales" | "purchasing" | "inventory" | "customization" | "viewer";
@@ -933,8 +940,11 @@ export default function EnterpriseApp({ currentUser, edition = DEFAULT_EDITION }
   // Company-level records (especially Chart of Accounts) must still load when a
   // company temporarily has no active inventory location. Location-scoped lists
   // safely return empty rows for locationId 0, while accounts load company-wide.
+  // Wait until the inventory belongs to the selected company: loading first with the previous (or no) inventory and
+  // again once the effect above corrects it fetched every list twice on sign-in and on each company switch.
+  const locationReady = Boolean(activeCompany) && (!activeLocations.length || activeLocations.some((location) => location.id === activeLocationId));
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (activeCompanyId) loadData(); }, [activeCompanyId, activeLocationId, loadData]);
+  useEffect(() => { if (activeCompanyId && locationReady) loadData(); }, [activeCompanyId, activeLocationId, locationReady, loadData]);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (activeCompanyId) loadVatCodes(); }, [activeCompanyId, loadVatCodes]);
   // eslint-disable-next-line react-hooks/set-state-in-effect

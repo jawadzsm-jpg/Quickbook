@@ -73,26 +73,7 @@ const relatedDocumentOutputs: Partial<Record<SalesDocumentMode, SalesDocumentMod
   "cash-sales": ["cash-sales", "delivery-note", "packing-list"],
 };
 
-export function salesDocumentModeForTransaction(type: string): SalesDocumentMode | null {
-  switch (type.toLowerCase()) {
-    case "invoice": return "tax-invoice";
-    case "estimate": return "estimate";
-    case "proforma invoice": return "proforma-invoice";
-    case "sales order": return "sales-order";
-    case "bill": return "bill";
-    case "purchase order": return "purchase-order";
-    case "vendor credit":
-    case "purchase return": return "purchase-return";
-    case "credit memo":
-    case "credit note": return "credit-note";
-    case "refund": return "refund";
-    case "sales receipt": return "cash-sales";
-    case "quotation": return "quotation";
-    case "delivery note": return "delivery-note";
-    case "packing list": return "packing-list";
-    default: return null;
-  }
-}
+export { salesDocumentModeForTransaction } from "@/lib/sales-document-mode";
 
 // Each transaction type resolves its own active saved Company Setup template.
 // Invoice-like documents can also switch to the saved Delivery Note or Packing List

@@ -87,29 +87,27 @@ export async function markRequestSessionActive(request: Request) {
   await getDb().update(authSessions).set({ lastActiveAt: now, lastSeenAt: now }).where(eq(authSessions.tokenHash, tokenDigest(token)));
 }
 
-async function assignedCompanyIds(userId: number) {
-  const result = await getDb().execute(sql`SELECT company_id FROM app_user_companies WHERE user_id = ${userId} ORDER BY company_id`);
-  return result.rows.map((row) => Number(row.company_id)).filter((id) => Number.isInteger(id) && id > 0);
-}
-
 async function findSessionUser(token: string | undefined): Promise<SessionUser | null> {
   if (!token) return null;
+  // Every request checks its session, so the assigned companies come back in the same query (one database round trip
+  // instead of two), as a comma-separated list that parses the same way on Neon and PGlite.
   const [row] = await getDb().select({
     id: appUsers.id, fullName: appUsers.fullName, email: appUsers.email, avatarData: appUsers.avatarData, themeColor: appUsers.themeColor, appearanceMode: appUsers.appearanceMode, role: appUsers.role, mustChangePassword: appUsers.mustChangePassword,
     idleTimeoutMinutes: appUsers.idleTimeoutMinutes, lastActiveAt: authSessions.lastActiveAt,
+    assignedCompanies: sql<string | null>`(SELECT string_agg(company_id::text, ',' ORDER BY company_id) FROM app_user_companies WHERE user_id = ${appUsers.id})`,
   }).from(authSessions)
     .innerJoin(appUsers, eq(authSessions.userId, appUsers.id))
     .where(and(eq(authSessions.tokenHash, tokenDigest(token)), gt(authSessions.expiresAt, new Date().toISOString()), eq(appUsers.active, true)))
     .limit(1);
   if (!row) return null;
   // Automatic sign-out: a session unused for longer than the user's idle limit ends, even if the browser was asleep.
-  const { lastActiveAt, ...user } = row;
+  const { lastActiveAt, assignedCompanies, ...user } = row;
   if (user.idleTimeoutMinutes > 0 && Date.now() - new Date(lastActiveAt).getTime() > user.idleTimeoutMinutes * 60_000 + IDLE_SERVER_GRACE_MS) {
     await getDb().delete(authSessions).where(eq(authSessions.tokenHash, tokenDigest(token)));
     return null;
   }
   const role = user.role as AppRole;
-  const companyIds = role === "all_admin" ? [] : await assignedCompanyIds(user.id);
+  const companyIds = role === "all_admin" ? [] : String(assignedCompanies ?? "").split(",").map(Number).filter((id) => Number.isInteger(id) && id > 0);
   return { ...user, role, companyIds };
 }
 

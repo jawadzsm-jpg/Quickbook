@@ -45,7 +45,8 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/einvoicing-center.tsx` — UAE e-invoicing (Peppol/PINT-AE) readiness: company setup, customer/invoice readiness badges; `/api/company-setup`.
 - `app/employee-hr-fields.tsx` — Employee salary, loan and vacation fields and read-only view.
 - `app/employee-loan-linker.tsx` — Link an existing loan/advance payment to an employee; `/api/employee-loan-links`.
-- `app/enterprise-app.tsx` — Main client shell (~3,500 lines): navigation, centers, record forms, item list, reports, company setup, preferences, record delete/void dialog (details via `recordDeletionSummary`); `/api/records`, `/api/reports` and others.
+- `app/enterprise-app.tsx` — Main client shell (~3,500 lines; screens are `next/dynamic` imports): navigation, centers, record forms, item list, reports, company setup, preferences, record delete/void dialog (details via `recordDeletionSummary`); `/api/records`, `/api/reports` and others.
+- `app/enterprise-app-loader.tsx` — Loads the client shell as its own chunk (`next/dynamic`) so the sign-in page does not download it.
 - `app/escape-window-closer.tsx` — Escape or the close button closes the top dialog, asking Save/Keep editing/Discard when it has a save-like button; windows marked `data-no-save-prompt` (Workspace shortcuts) close without asking.
 - `app/financial-report-library.tsx` — Financial report card library.
 - `app/financial-report.tsx` — Financial report renderer with summaries, FX rates, account-history and document links.
@@ -82,7 +83,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/open-purchase-orders.tsx` — Picker of a vendor's open purchase orders to receive or bill; reads `/api/records`.
 - `app/open-sales-documents.tsx` — Picker of a customer's open orders/quotations to invoice; reads `/api/records`.
 - `app/page-stamps.tsx` — Draggable company, bank, status, copy and delivered stamps placed in mm on printed pages.
-- `app/page.tsx` — Server entry: login screen (or reset-link form), forced password change, or the application shell.
+- `app/page.tsx` — Server entry: login screen (or reset-link form), forced password change, or the application shell (through `enterprise-app-loader.tsx`).
 - `app/paid-invoice-stamp.tsx` — Green PAID stamp with UAE-time paid timestamp on paid invoices and payments.
 - `app/password-change-screen.tsx` — Forced temporary-password change screen; `/api/auth/session`.
 - `app/password-reset-forms.tsx` — Forgot-password request and reset-from-link forms; `/api/auth/password-reset`.
@@ -114,6 +115,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/sales-report-table.tsx` — Sales report table renderer.
 - `app/sales-source-invoicing.tsx` — Turns an order/quotation/delivery into an invoice with chosen lines; `/api/records`.
 - `app/sales-workflow-panel.tsx` — Sales quick-create buttons and sales register summary.
+- `app/screen-loading.tsx` — Placeholder shown while a lazily loaded screen downloads.
 - `app/search-highlighter.tsx` — Highlights search terms in lists with the CSS Custom Highlight API.
 - `app/serial-number-search.tsx` — Serial number lookup listing matching documents; `/api/serial-search`.
 - `app/shared-item-catalogue.tsx` — Browse items shared across companies and copy them in; `/api/shared-items`.
@@ -282,6 +284,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/report-stamp-preview.ts` — Approximates report PDF layout for the stamp placement preview.
 - `lib/report-stamp.ts` — Report stamp page size, movement and placement after the table.
 - `lib/sales-access.ts` — Sales role limits: allowed routes, document types, accounting handoff.
+- `lib/sales-document-mode.ts` — Document layout for a saved transaction type (`salesDocumentModeForTransaction`), kept apart from the template so the shell need not load it.
 - `lib/sales-invoicing.ts` — Converting orders/quotations into invoices (source lines, inventory lines, refresh). **DB**
 - `lib/sales-report.ts` — Sales report keys, groups, columns, customer lookup and filters.
 - `lib/search.ts` — Shared search (every word must match, any order) and highlight ranges.

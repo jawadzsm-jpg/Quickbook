@@ -179,6 +179,8 @@ Employee/HR reports require Administrator access. SMTP settings (`/api/email-set
 - Index time-window reads on growing tables (e.g. `audit_log (entity_type, created_at)`).
 - Large client tables render progressively: Inventory Overview and the Items list draw 150 rows, then load more as the user scrolls or presses **Show more**; filtering, selection, copy and export still use the full list.
 - Measured on 4,000 items / 30,000 documents / 90,000 journal lines (local PGlite): accounts list 300 → 59 ms, Inventory Overview API 230 → 160 ms; production gains are larger because fewer rows cross the network from Neon.
+- Keep the first download small. `app/page.tsx` renders the workspace through `app/enterprise-app-loader.tsx` (`next/dynamic`), so the sign-in and password-change pages do not load the application code. Inside `app/enterprise-app.tsx`, screens shown one at a time (Inventory Overview, Dashboard, Warranty, VAT, admin, report layouts, the document template, …) are `next/dynamic` imports with the `app/screen-loading.tsx` placeholder; add new screen-sized components the same way. Export libraries (ExcelJS, jsPDF, html2canvas, JSZip) are loaded with `import()` when used. Measured with `next build`: sign-in page 569 → 87 KB gzipped JavaScript, signed-in first load 604 → 361 KB.
+- Every database round trip counts: in production each query is a network round trip to Neon. The session check reads the user's assigned companies in the same query (`lib/auth.ts`), and the workspace loads its record lists once, after the selected inventory is valid for the company.
 
 ## Concurrency and consistency
 
