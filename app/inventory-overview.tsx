@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import { StockHoldDialog, StockHoldsPanel, heldTotals, type StockHold } from "./stock-holds";
 import { defaultShareEmoji, shareEmojiStyle, shareEmojiStyles } from "@/lib/share-emoji";
 import { applyInlineFormat, applyLineFormat, applyLink, inlineFormatsFor, telegramHtml, type FormatResult, type InlineFormat, type LineFormat } from "@/lib/share-format";
-import { inventoryItemCondition, inventoryItemLine, inventoryLineParts, partNumberInLine, inventorySocialShareText, itemSpecificationDescription } from "@/lib/item-description";
+import { inventoryItemCondition, inventoryItemLine, inventoryLineNameSku, inventoryLineParts, partNumberInLine, inventorySocialShareText, itemSpecificationDescription } from "@/lib/item-description";
 import { matchesSearch } from "@/lib/search";
 import { inactiveCodeMatches } from "@/lib/inactive-item-match";
 import { InactiveItemNotice } from "./inactive-item-notice";
@@ -611,9 +611,10 @@ export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCre
       // WhatsApp's Classic style keeps its plain detail lines; every other style marks them too.
       const lineEmoji = (mark: string) => channel === "email" || (channel === "whatsapp" && emoji.id === "classic") ? "" : mark;
       const marked = (mark: string, text: string) => lineEmoji(mark) ? `${lineEmoji(mark)} ${text}` : text;
+      const { name, sku } = inventoryLineNameSku(record);
       const title = channel === "email"
-        ? `***${inventoryItemLine(record.name, record.sku, description, record.itemNumber, false)}***`
-        : inventorySocialShareText(record.name, record.sku, description, channel, record.itemNumber, emoji);
+        ? `***${inventoryItemLine(name, sku, description, record.itemNumber, false)}***`
+        : inventorySocialShareText(name, sku, description, channel, record.itemNumber, emoji);
       const lines = [title];
       // Product Customization Details (Screen Details and the rest) stay out of shared copies.
       const details: string[] = [];
@@ -704,7 +705,7 @@ export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCre
     const bodyRows = exportRecords.map((record) => {
       const values: Array<{ value: unknown; type?: "Number"; style?: string }> = [
         { value: record.companyName }, { value: record.inventories.map((inventory) => inventory.locationName).join(", ") }, ...(warehouseFilter ? [{ value: warehouseLabel.split(" · ").slice(1).join(" · ") || warehouseLabel }] : []), { value: record.category, style: `Category-${categoryColor(record.category, categoryColors).id}` },
-        { value: record.itemNumber ?? "" }, { value: record.sku }, { value: record.name }, { value: withUpgrades(record, shareSpecificationText(record)) },
+        { value: record.itemNumber ?? "" }, { value: inventoryLineNameSku(record).sku }, { value: inventoryLineNameSku(record).name }, { value: withUpgrades(record, shareSpecificationText(record)) },
       ];
       if (showQuantity) values.push({ value: Number(record.quantity), type: "Number", style: "Number" });
       if (showPrice) values.push({ value: priceFor(record, mode), type: "Number", style: "Money" }, { value: priceCurrency });
@@ -738,7 +739,7 @@ export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCre
     const headers = ["Item No.", "SKU", "Item", "Specifications", "Inventory", ...(warehouseFilter ? ["Warehouse"] : []), ...(showQuantity ? ["Qty"] : []), ...(showPrice ? [`Price${vatLabels[vatMode]}`] : [])];
     const numeric = new Set(["Qty", `Price${vatLabels[vatMode]}`]);
     const warehouseName = warehouseLabel.split(" · ").slice(1).join(" · ") || warehouseLabel;
-    const body = list.map((record) => `<tr><td>${xml(record.itemNumber ?? "")}</td><td>${xml(record.sku)}</td><td><strong>${xml(record.name)}</strong></td><td>${xml(withUpgrades(record, specificationText(record)))}</td><td>${xml(record.inventories.map((inventory) => inventory.locationName).join(", "))}</td>${warehouseFilter ? `<td>${xml(warehouseName)}</td>` : ""}${showQuantity ? `<td class="num">${xml(plainMoney(Number(record.quantity)))}</td>` : ""}${showPrice ? `<td class="num">${xml(`${priceCurrency} ${money(priceFor(record))}`)}</td>` : ""}</tr>`).join("");
+    const body = list.map((record) => `<tr><td>${xml(record.itemNumber ?? "")}</td><td>${xml(inventoryLineNameSku(record).sku)}</td><td><strong>${xml(inventoryLineNameSku(record).name)}</strong></td><td>${xml(withUpgrades(record, specificationText(record)))}</td><td>${xml(record.inventories.map((inventory) => inventory.locationName).join(", "))}</td>${warehouseFilter ? `<td>${xml(warehouseName)}</td>` : ""}${showQuantity ? `<td class="num">${xml(plainMoney(Number(record.quantity)))}</td>` : ""}${showPrice ? `<td class="num">${xml(`${priceCurrency} ${money(priceFor(record))}`)}</td>` : ""}</tr>`).join("");
     const totalQuantity = list.reduce((sum, record) => sum + Number(record.quantity), 0);
     const footer = showQuantity ? `<tfoot><tr><td colspan="${headers.length - 1 - Number(showPrice)}">Total quantity</td><td class="num">${xml(plainMoney(totalQuantity))}</td>${showPrice ? "<td></td>" : ""}</tr></tfoot>` : "";
     const companies = [...new Set(list.map((record) => record.companyName))].join(", ");
@@ -911,7 +912,8 @@ export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCre
                 const out = Number(record.quantity) <= 0;
                 const low = Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint);
                 const held = heldOn(record);
-                const description = inventoryItemLine(record.name, record.sku, withUpgrades(record, shareSpecificationText(record, true)), record.itemNumber);
+                const line = inventoryLineNameSku(record);
+                const description = inventoryItemLine(line.name, line.sku, withUpgrades(record, shareSpecificationText(record, true)), record.itemNumber);
                 const canUpgrade = upgradeFields(record).length > 0;
                 const picked = Object.entries(upgrades[record.id] ?? {}).filter(([, value]) => value) as Array<[CustomizationOptionField, string]>;
                 const upgradeTotal = upgradeTotalFor(record.id);

@@ -19,7 +19,24 @@ export function inventoryItemTitle(name: unknown) {
   return capitalText(name);
 }
 
-const inventoryConditions = new Set(["BRAND NEW", "OPEN BOX", "REFURBISHED", "RENEWED", "USED"]);
+/** True when the item's Model specification is "NO" (the item has no model). */
+export function itemHasNoModel(specifications: unknown) {
+  try {
+    const parsed: unknown = typeof specifications === "string" ? JSON.parse(specifications || "[]") : specifications;
+    return Array.isArray(parsed) && parsed.some((specification) => capitalText(specification?.label) === "MODEL" && capitalText(specification?.value) === "NO");
+  } catch { return false; }
+}
+
+/**
+ * The name and SKU an Inventory Overview line is built from. With Model "NO" the saved name (Brand + Model) ends in
+ * that "NO" and the generated SKU would stand in for the model, so both are left out; saved items are not changed.
+ */
+export function inventoryLineNameSku(item: { name?: unknown; sku?: unknown; specifications?: unknown }) {
+  if (!itemHasNoModel(item.specifications)) return { name: item.name, sku: item.sku };
+  return { name: capitalText(item.name).replace(/(?:^|\s+)NO$/, ""), sku: "" };
+}
+
+const inventoryConditions =new Set(["BRAND NEW", "OPEN BOX", "REFURBISHED", "RENEWED", "USED"]);
 
 /** An item line's parts: identity (name and SKU), condition (BRAND NEW…) and the remaining details. */
 export function inventoryLineParts(name: unknown, sku: unknown, description: unknown, itemNumber?: unknown) {

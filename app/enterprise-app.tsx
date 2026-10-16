@@ -116,7 +116,7 @@ import { dueDateForPaymentTerms } from "@/lib/payment-terms";
 import { inferUaeChequeLayout, uaeChequeLayouts } from "@/lib/uae-cheque-layouts";
 import { applyContactCurrency, customerReceivableAccount, vendorPayableAccount } from "@/lib/contact-currency";
 import { countries } from "@/lib/countries";
-import { generatedItemDescription, inventoryItemLine, inventoryShareDescription, type ItemSpecification } from "@/lib/item-description";
+import { generatedItemDescription, inventoryItemLine, inventoryLineNameSku, inventoryShareDescription, type ItemSpecification } from "@/lib/item-description";
 import { salesDocumentModeForTransaction } from "@/lib/sales-document-mode";
 import { InvoiceAttachments } from "./invoice-attachments";
 import { PrintOrientationSelect, type PrintOrientation } from "@/components/print-orientation-select";
@@ -3637,6 +3637,7 @@ function ItemFields({ form, setForm, items, accounts, contacts, vatCodeOptions, 
   const draftValue = (label: string) => draftSpecifications.find((specification) => specification.label.trim().toLowerCase() === label)?.value ?? "";
   const draftName = form.name || [draftValue("brand"), draftValue("model") || draftValue("part number")].filter(Boolean).join(" ");
   const description = generatedItemDescription(draftSpecifications, draftName, form.sku, form.itemNumber);
+  const draftLine = inventoryLineNameSku({ name: draftName, sku: form.sku, specifications: draftSpecifications });
   const itemType = itemTypeOf(form.itemType);
   const typeInfo = itemTypeDetails[itemType];
   const standardLineItem = documentLineItemTypes.has(itemType);
@@ -3781,7 +3782,7 @@ function ItemFields({ form, setForm, items, accounts, contacts, vatCodeOptions, 
         </div>
         <Button type="button" variant="ghost" size="icon" disabled={count <= 1} aria-label={`Remove ${form[`specLabel${index}`] ?? "specification"}`} title="Remove detail" onClick={() => removeSpecification(index)} className="text-slate-400 hover:text-rose-600 max-sm:col-start-2 max-sm:row-start-1"><Trash2 className="size-4" /></Button>
       </div>)}</div>
-      <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-3"><p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Generated description</p><p className="mt-2 min-h-6 text-sm leading-6 text-slate-700">{inventoryItemLine(draftName, form.sku, description, form.itemNumber) || "Enter specification values to build the item description."}</p></div>
+      <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-3"><p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Generated description</p><p className="mt-2 min-h-6 text-sm leading-6 text-slate-700">{inventoryItemLine(draftLine.name, draftLine.sku, description, form.itemNumber) || "Enter specification values to build the item description."}</p></div>
     </section>
   </div>;
 }
