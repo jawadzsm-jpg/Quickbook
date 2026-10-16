@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bold, Code, Italic, List as ListIcon, ListOrdered, Quote, Strikethrough, Lock, Pencil, BadgeDollarSign, Boxes, CalendarClock, ChevronDown, Clock, Download, Eye, FileSpreadsheet, Mail, PackageCheck, PackageOpen, PackageX, PlaneLanding, Printer, RefreshCw, Rocket, Search, ShoppingCart, Trash2, TriangleAlert, UserRound, Warehouse, X, Tag, Underline, EyeOff, Link as LinkIcon } from "lucide-react";
+import { Bold, Code, Italic, List as ListIcon, ListOrdered, Quote, Strikethrough, Lock, Pencil, BadgeDollarSign, Boxes, CalendarClock, ChevronDown, Clock, Download, Eye, FileSpreadsheet, Mail, PackageCheck, PackageOpen, PackageX, PlaneLanding, Printer, RefreshCw, Rocket, Search, ShoppingCart, Trash2, TriangleAlert, UserRound, Warehouse, X, Tag, Underline, EyeOff, Link as LinkIcon, ArrowUpCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { FilePlus2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,7 @@ import { offerEndsText, offerRemaining, offerShareText } from "@/lib/item-offers
 import { categoryColor, categoryPalette } from "@/lib/category-colors";
 import { CategoryColorPicker } from "./category-color-picker";
 import type { PrintOrientation } from "@/components/print-orientation-select";
+import { applyCustomizationUpgrades, customizationBoxValue, customizationFieldLabels, customizationOptionFields, isOnboardValue, type CustomizationOptionField, type CustomizationOptions, type CustomizationUpgrades } from "@/lib/customization-options";
 import { InventoryEmailDialog } from "./inventory-email-dialog";
 
 
@@ -233,6 +234,25 @@ export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCre
   const [priceAdjust, setPriceAdjust] = useState<PriceAdjust>({ mode: "percent", value: "" });
   const [loadedAt, setLoadedAt] = useState(() => Date.now());
   const [detailRecord, setDetailRecord] = useState<ConsolidatedItem | null>(null);
+  // Upgrade picks (RAM, Storage, Screen Details options from Product Customization Details) per product, for this
+  // user's on-screen line, copies, print and Excel only; nothing is saved.
+  const [upgradeOptions, setUpgradeOptions] = useState<CustomizationOptions>({ ram: [], storage: [], screen: [] });
+  const [upgrades, setUpgrades] = useState<Record<number, CustomizationUpgrades>>({});
+  const [upgradeRecord, setUpgradeRecord] = useState<ConsolidatedItem | null>(null);
+  useEffect(() => {
+    let active = true;
+    fetch("/api/customization-options", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => { if (active && data?.options) setUpgradeOptions({ ram: [], storage: [], screen: [], ...data.options }); }).catch(() => { /* upgrades stay unavailable */ });
+    return () => { active = false; };
+  }, []);
+  // A box that says ONBOARD cannot be upgraded; the others offer their saved options.
+  const upgradeFields = (record: ConsolidatedItem) => customizationOptionFields.filter((field) => upgradeOptions[field].length && !isOnboardValue(customizationBoxValue(record, field)));
+  const withUpgrades = (record: ConsolidatedItem, text: string) => {
+    const picked = upgrades[record.id];
+    if (!picked || !Object.values(picked).some(Boolean)) return text;
+    const current = Object.fromEntries(customizationOptionFields.map((field) => [field, customizationBoxValue(record, field)]));
+    return applyCustomizationUpgrades(text, current, picked);
+  };
+  const pickUpgrade = (record: ConsolidatedItem, field: CustomizationOptionField, value: string) => setUpgrades((current) => ({ ...current, [record.id]: { ...current[record.id], [field]: value } }));
   // Cart: products and quantities to start an invoice, sales order, proforma or estimate (kept for this browser tab).
   const [cart, setCart] = useState<CartEntry[]>(() => { try { return JSON.parse(window.sessionStorage.getItem(cartStorageKey) || "[]") as CartEntry[]; } catch { return []; } });
   const [cartQuantities, setCartQuantities] = useState<Record<number, string>>({});
@@ -535,7 +555,7 @@ export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCre
     // Items on a running Today Offer share the struck-through normal price, the offer price and when the offer ends.
     const offerByItem = new Map(runningOffers(offers).map((offer) => [offer.itemId, offer]));
     const items = shareRecords.map((record) => {
-      const description = shareSpecificationText(record);
+      const description = withUpgrades(record, shareSpecificationText(record));
       const emoji = channel === "email" ? shareEmojiStyle("none") : emojiFor(channel, record.companyId);
       // WhatsApp's Classic style keeps its plain detail lines; every other style marks them too.
       const lineEmoji = (mark: string) => channel === "email" || (channel === "whatsapp" && emoji.id === "classic") ? "" : mark;
@@ -633,7 +653,7 @@ export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCre
     const bodyRows = exportRecords.map((record) => {
       const values: Array<{ value: unknown; type?: "Number"; style?: string }> = [
         { value: record.companyName }, { value: record.inventories.map((inventory) => inventory.locationName).join(", ") }, ...(warehouseFilter ? [{ value: warehouseLabel.split(" · ").slice(1).join(" · ") || warehouseLabel }] : []), { value: record.category, style: `Category-${categoryColor(record.category, categoryColors).id}` },
-        { value: record.itemNumber ?? "" }, { value: record.sku }, { value: record.name }, { value: shareSpecificationText(record) },
+        { value: record.itemNumber ?? "" }, { value: record.sku }, { value: record.name }, { value: withUpgrades(record, shareSpecificationText(record)) },
       ];
       if (showQuantity) values.push({ value: Number(record.quantity), type: "Number", style: "Number" });
       if (showPrice) values.push({ value: priceFor(record, mode), type: "Number", style: "Money" }, { value: record.currency });
@@ -667,7 +687,7 @@ export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCre
     const headers = ["Item No.", "SKU", "Item", "Specifications", "Inventory", ...(warehouseFilter ? ["Warehouse"] : []), ...(showQuantity ? ["Qty"] : []), ...(showPrice ? [`Price${vatLabels[vatMode]}`] : [])];
     const numeric = new Set(["Qty", `Price${vatLabels[vatMode]}`]);
     const warehouseName = warehouseLabel.split(" · ").slice(1).join(" · ") || warehouseLabel;
-    const body = list.map((record) => `<tr><td>${xml(record.itemNumber ?? "")}</td><td>${xml(record.sku)}</td><td><strong>${xml(record.name)}</strong></td><td>${xml(specificationText(record))}</td><td>${xml(record.inventories.map((inventory) => inventory.locationName).join(", "))}</td>${warehouseFilter ? `<td>${xml(warehouseName)}</td>` : ""}${showQuantity ? `<td class="num">${xml(plainMoney(Number(record.quantity)))}</td>` : ""}${showPrice ? `<td class="num">${xml(`${record.currency} ${money(priceFor(record))}`)}</td>` : ""}</tr>`).join("");
+    const body = list.map((record) => `<tr><td>${xml(record.itemNumber ?? "")}</td><td>${xml(record.sku)}</td><td><strong>${xml(record.name)}</strong></td><td>${xml(withUpgrades(record, specificationText(record)))}</td><td>${xml(record.inventories.map((inventory) => inventory.locationName).join(", "))}</td>${warehouseFilter ? `<td>${xml(warehouseName)}</td>` : ""}${showQuantity ? `<td class="num">${xml(plainMoney(Number(record.quantity)))}</td>` : ""}${showPrice ? `<td class="num">${xml(`${record.currency} ${money(priceFor(record))}`)}</td>` : ""}</tr>`).join("");
     const totalQuantity = list.reduce((sum, record) => sum + Number(record.quantity), 0);
     const footer = showQuantity ? `<tfoot><tr><td colspan="${headers.length - 1 - Number(showPrice)}">Total quantity</td><td class="num">${xml(plainMoney(totalQuantity))}</td>${showPrice ? "<td></td>" : ""}</tr></tfoot>` : "";
     const companies = [...new Set(list.map((record) => record.companyName))].join(", ");
@@ -831,7 +851,9 @@ export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCre
                 const out = Number(record.quantity) <= 0;
                 const low = Number(record.quantity) > 0 && Number(record.quantity) <= Number(record.reorderPoint);
                 const held = heldOn(record);
-                const description = inventoryItemLine(record.name, record.sku, shareSpecificationText(record, true), record.itemNumber);
+                const description = inventoryItemLine(record.name, record.sku, withUpgrades(record, shareSpecificationText(record, true)), record.itemNumber);
+                const canUpgrade = upgradeFields(record).length > 0;
+                const picked = Object.entries(upgrades[record.id] ?? {}).filter(([, value]) => value) as Array<[CustomizationOptionField, string]>;
                 const itemNumber = String(record.itemNumber ?? "").normalize("NFKC").trim().toLocaleUpperCase("en").replace(/^#/, "");
                 // The line is plain text (Details opens the product popup); the part number and #Item No. in it copy on hover or click.
                 const numberShown = Boolean(itemNumber) && description.endsWith(`#${itemNumber}`);
@@ -851,8 +873,10 @@ export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCre
                       {!warehouseFilter && record.inventories.flatMap((inventory) => (inventory.warehouses ?? []).filter((share) => share.quantity !== 0).map((share) => <span key={`${inventory.locationId}:${share.warehouseId}`} className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground" title={`${inventory.locationName} · ${share.name}`}>{share.name}<span className="font-semibold tabular-nums text-foreground">{share.quantity.toLocaleString()}</span></span>))}
                       {held > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 font-semibold text-amber-700 dark:text-amber-300"><Lock className="size-3" />{held.toLocaleString()} on hold</span>}
                       <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-violet-700 dark:bg-violet-500/10 dark:text-violet-200"><Clock className="size-3" />{receivedAge(record.latestReceivedAt)}</span>
+                      {picked.map(([field, value]) => <span key={field} className="inline-flex max-w-full items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 font-semibold text-emerald-700 dark:text-emerald-300" title={`${customizationFieldLabels[field]} upgrade (in your copies only)`}><ArrowUpCircle className="size-3 shrink-0" /><span className="truncate">{value}</span></span>)}
                       <span className="ml-auto flex shrink-0 items-center gap-1">
                         <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setDetailRecord(record)} aria-label={`View product customization details for ${record.name}`}><PackageOpen className="size-3.5" />Details</Button>
+                        {canUpgrade && <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setUpgradeRecord(record)} aria-label={`Choose upgrades for ${record.name}`}><ArrowUpCircle className="size-3.5" />Upgrade</Button>}
                         {canManageHolds && Number(record.quantity) > 0 && <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setHoldTarget(record)} aria-label={`Put ${record.name} on hold`}><Lock className="size-3.5" />Hold</Button>}
                         {onCreateDocument && <span className="ml-1 inline-flex items-center gap-1.5 rounded-lg bg-muted/60 p-0.5"><Input type="number" min="1" step="1" inputMode="numeric" aria-label={`Quantity of ${record.name} to add`} className="h-7 w-16 border-0 bg-background text-center text-sm" value={cartQuantities[record.id] ?? "1"} onChange={(event) => setCartQuantities((current) => ({ ...current, [record.id]: event.target.value }))} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addToCart(record); } }} /><Button type="button" size="sm" className="h-7 gap-1.5 bg-gradient-to-r from-rose-600 to-orange-500 px-2.5 text-xs font-semibold text-white hover:from-rose-700 hover:to-orange-600" onClick={() => addToCart(record)} aria-label={`Add ${record.name} to the cart`}><ShoppingCart className="size-3.5" />Add to Cart</Button></span>}
                       </span>
@@ -888,6 +912,7 @@ export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCre
         <div className="flex gap-2"><Button type="button" variant="outline" onClick={() => setEditor(null)}>Cancel</Button><Button type="button" disabled={!editor?.text.trim()} onClick={() => { if (!editor) return; void copyForChannel(editor.channel, editor.text); setEditor(null); }}>Copy {editor ? channelName(editor.channel) : ""}</Button></div>
       </DialogFooter>
     </DialogContent></Dialog>
+    <Dialog open={Boolean(upgradeRecord)} onOpenChange={(open) => { if (!open) setUpgradeRecord(null); }}><DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Upgrade</DialogTitle><DialogDescription>{upgradeRecord ? `${upgradeRecord.name} · SKU ${upgradeRecord.sku}. Changes your line, copies, print and Excel only; nothing is saved.` : ""}</DialogDescription></DialogHeader>{upgradeRecord ? <div className="space-y-3">{upgradeFields(upgradeRecord).map((field) => <label key={field} className="block space-y-1"><span className="text-sm font-semibold">{customizationFieldLabels[field]}</span><span className="block text-xs text-muted-foreground">Now: {customizationBoxValue(upgradeRecord, field) || "Not entered"}</span><select aria-label={`${customizationFieldLabels[field]} upgrade for ${upgradeRecord.name}`} className="h-9 w-full rounded-md border border-input bg-card px-2 text-sm text-foreground" value={upgrades[upgradeRecord.id]?.[field] ?? ""} onChange={(event) => pickUpgrade(upgradeRecord, field, event.target.value)}><option value="">As listed (no upgrade)</option>{upgradeOptions[field].map((option) => <option key={option.id} value={option.value}>{option.value}</option>)}</select></label>)}{customizationOptionFields.some((field) => !upgradeFields(upgradeRecord).includes(field) && isOnboardValue(customizationBoxValue(upgradeRecord, field))) ? <p className="text-xs text-muted-foreground">Onboard (cannot be upgraded): {customizationOptionFields.filter((field) => isOnboardValue(customizationBoxValue(upgradeRecord, field))).map((field) => customizationFieldLabels[field]).join(", ")}</p> : null}</div> : null}<DialogFooter className="gap-2"><Button type="button" variant="ghost" onClick={() => { if (upgradeRecord) setUpgrades((current) => { const next = { ...current }; delete next[upgradeRecord.id]; return next; }); }}>Clear upgrades</Button><Button type="button" onClick={() => setUpgradeRecord(null)}>Done</Button></DialogFooter></DialogContent></Dialog>
     <Dialog open={Boolean(detailRecord)} onOpenChange={(open) => { if (!open) setDetailRecord(null); }}><DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl"><DialogHeader><DialogTitle>Product Customization Details</DialogTitle><DialogDescription>{detailRecord ? `${detailRecord.name} · SKU ${detailRecord.sku} · Item #${detailRecord.itemNumber || "—"}` : "Product details"}</DialogDescription></DialogHeader>{detailRecord ? <div className="space-y-5"><div className="flex flex-wrap items-center gap-2"><Badge className="bg-amber-400 text-slate-950 hover:bg-amber-400">{receivedAge(detailRecord.latestReceivedAt)}</Badge>{detailRecord.inventories.map((inventory) => <Badge key={inventory.locationId} variant="outline">{inventory.locationName} · Qty {Number(inventory.quantity).toLocaleString()}</Badge>)}</div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{[["RAM", detailRecord.customizationRam || specificationValue(detailRecord, ["RAM", "Memory"])], ["Storage", detailRecord.customizationStorage || specificationValue(detailRecord, ["Storage", "SSD", "Hard Drive"])], ["Screen Details", detailRecord.customizationScreen || specificationValue(detailRecord, ["Screen", "Display", "Screen Size"])], ["Part Number", detailRecord.partNumber || specificationValue(detailRecord, ["Part Number", "MPN"])], ["Serial", detailRecord.itemSerialNumber], ["UPC No.", detailRecord.upcNumber], ["Quantity on hand", Number(detailRecord.quantity).toLocaleString()]].map(([label, value]) => <div key={label} className="rounded-lg border bg-muted/20 p-3"><span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{label}</span><p className="mt-1 break-words font-semibold">{value || "Not entered"}</p></div>)}</div><div className="rounded-lg border p-4"><h4 className="font-semibold">Full product specifications</h4><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">{specificationText(detailRecord) || "No specifications entered."}</p></div><div className="rounded-lg border p-4"><h4 className="font-semibold">Details for users</h4><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">{detailRecord.customizationDetails || "No customization details entered."}</p></div></div> : null}</DialogContent></Dialog>
   </div>;
 }

@@ -48,7 +48,7 @@ const vite = await createServer({
           const user = globalThis.__transferTestUser ?? { id: 1, email: "test@example.test", role: "all_admin", companyIds: [], mustChangePassword: false };
           if (user instanceof Response) return user;
           if (user.role === "sales" && !salesRouteAllowed(new URL(request.url).pathname, request.method)) return Response.json({ error: "Sales workspace only." }, { status: 403 });
-          if ((request.method === "DELETE" && !["/api/auth/session", "/api/sku-locks"].includes(new URL(request.url).pathname) && !(user.role === "inventory" && new URL(request.url).pathname === "/api/records") || required === true) && !isAdministrator(user)) return Response.json({ error: "Administrator required." }, { status: 403 });
+          if ((request.method === "DELETE" && !["/api/auth/session", "/api/sku-locks"].includes(new URL(request.url).pathname) && !(user.role === "inventory" && new URL(request.url).pathname === "/api/records") && !(user.role === "customization" && new URL(request.url).pathname === "/api/customization-options") || required === true) && !isAdministrator(user)) return Response.json({ error: "Administrator required." }, { status: 403 });
           if (typeof required === "string" && !hasPermission(user, required)) return Response.json({ error: "Permission denied." }, { status: 403 });
           return user;
         };
@@ -912,6 +912,43 @@ test('product customization details fall back to item specifications and save wi
   assert.deepEqual(Object.fromEntries(Object.entries(stored).filter(([key]) => key !== 'specifications')), { customization_ram: '16GB DDR5', customization_storage: '1TB SSD', customization_screen: '15.6 FHD IPS', part_number: 'PN-NEW', item_serial_number: 'SN-001', upc_number: '123456789012', customization_details: 'User can upgrade the second RAM slot.' });
   // Customization is not written into the item's specifications (they would show in its product line).
   assert.deepEqual(JSON.parse(stored.specifications), [{ label: 'RAM', value: '8GB' }, { label: 'Storage', value: '512GB SSD' }, { label: 'Part Number', value: 'PN-OLD' }]);
+});
+
+test('customization upgrade options: every reader lists them, only customization managers add, rename and delete', async () => {
+  const api = await vite.ssrLoadModule('/app/api/customization-options/route.ts');
+  const specs = await vite.ssrLoadModule('/app/api/spec-options/route.ts');
+  const send = (method, body) => api[method](new Request('https://app.test/api/customization-options', { method, headers: { origin: 'https://app.test', 'content-type': 'application/json' }, body: JSON.stringify(body) }));
+  const list = async () => (await (await api.GET(new Request('https://app.test/api/customization-options'))).json());
+  try {
+    globalThis.__transferTestUser = { id: 1, role: 'customization', companyIds: [] };
+    const added = await send('POST', { field: 'ram', value: ' 32gb   ram upgrade ' });
+    assert.equal(added.status, 201, await added.clone().text());
+    const option = (await added.json()).option;
+    assert.equal(option.value, '32GB RAM UPGRADE');
+    assert.equal((await send('POST', { field: 'ram', value: '32GB RAM UPGRADE' })).status, 409);
+    assert.equal((await send('POST', { field: 'cpu', value: 'I9' })).status, 400);
+    assert.equal((await send('POST', { field: 'screen', value: 'QHD with 240mhz' })).status, 201);
+    assert.equal((await send('PATCH', { field: 'ram', id: option.id, value: '64GB RAM UPGRADE' })).status, 200);
+    assert.equal((await send('PATCH', { field: 'storage', id: option.id, value: 'X' })).status, 404, 'an option is edited only in its own box');
+    let body = await list();
+    assert.equal(body.canManage, true);
+    assert.deepEqual(body.options.ram.map((entry) => entry.value), ['64GB RAM UPGRADE']);
+    assert.deepEqual(body.options.screen.map((entry) => entry.value), ['QHD WITH 240MHZ']);
+    // Upgrade options are not specification choices.
+    const choices = await (await specs.GET(new Request('https://app.test/api/spec-options'))).json();
+    assert.ok(!Object.keys(choices.options).some((label) => label.startsWith('__customization_')));
+    for (const role of ['sales', 'inventory', 'viewer']) {
+      globalThis.__transferTestUser = { id: 1, role, companyIds: [] };
+      body = await list();
+      assert.equal(body.canManage, false, role);
+      assert.equal(body.options.ram.length, 1, role);
+      assert.equal((await send('POST', { field: 'storage', value: '2TB SSD UPGRADE' })).status, 403, role);
+      assert.equal((await send('DELETE', { field: 'ram', id: option.id })).status, 403, role);
+    }
+    globalThis.__transferTestUser = { id: 1, role: 'customization', companyIds: [] };
+    assert.equal((await send('DELETE', { field: 'ram', id: option.id })).status, 200);
+    assert.deepEqual((await list()).options.ram, []);
+  } finally { delete globalThis.__transferTestUser; }
 });
 
 test('migration 0133 removes only the trailing specifications Product Customization appended, and logs them', async () => {

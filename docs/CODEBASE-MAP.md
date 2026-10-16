@@ -38,7 +38,7 @@ Use this file to locate implementation ownership without rescanning the whole re
 | Purchase receiving/returns | `open-purchase-orders.tsx`, `purchase-order-receiving.tsx`, `purchase-return-source.tsx` | `records` |
 | Payments | `unpaid-invoices.tsx`, `unpaid-bills.tsx`, `payment-terms-picker.tsx` | `records`, `payment-terms` |
 | Inventory overview/out of stock | `inventory-overview.tsx` (filters, activity tabs, share bar, Excel, inactive-item search hint via `inactive-item-notice.tsx`), `today-offers.tsx`, `stock-holds.tsx`, `category-color-picker.tsx`, `brand-icons.tsx`, `shared-out-of-stock.tsx`; rules in `lib/item-offers.ts`, `lib/category-colors.ts`, `lib/share-format.ts`, `lib/share-emoji.ts` | `inventory-overview`, `item-offers`, `stock-holds`, `category-colors`, `out-of-stock` |
-| Product Customization Details | `item-customization-center.tsx` | `item-customization` |
+| Product Customization Details | `item-customization-center.tsx`; upgrade options and ONBOARD/OTHERS rules in `lib/customization-options.ts` (also used by `inventory-overview.tsx` Upgrade picks) | `item-customization`, `customization-options` |
 | UAE e-invoicing readiness | `einvoicing-center.tsx`, `lib/einvoice-readiness.ts` | `company-setup` |
 | RCM declarations | `rcm-declaration-generator.tsx` | `rcm-declarations` |
 | Customer address/TRN on documents | `custom-invoice-template.tsx`, `delivery-note-template.tsx`, `customer-payment-receipt.tsx`, `statement-layout.tsx`, `layout-builder/company-data.ts`; `lib/contact-address.ts` | `records`, `reports` |
