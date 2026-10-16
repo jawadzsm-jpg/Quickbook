@@ -217,6 +217,8 @@ flowchart TD
 
 Vercel runs `npm run build`. `scripts/require-ci.mjs` verifies both named GitHub jobs for the exact commit and branch before `scripts/migrate.mjs` and `next build` run. If a linked private repository cannot be read through the anonymous GitHub API and no token is configured, the gate runs the local lint, test, and type-check suite before allowing the build.
 
+Server functions run in `sin1` (Singapore), set by `regions` in `vercel.json`, because the Neon database (Vercel-managed store, region fixed at creation) is in `sin1`. Every query is a network round trip, so functions in another region pay that distance per query: in `iad1` simple API routes measured ~0.65 s p75, about 200 ms per query. If the database ever moves, change `regions` to match it.
+
 ## Architectural constraints
 
 - Treat API routes as the server trust boundary. UI validation alone is insufficient.

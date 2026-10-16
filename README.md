@@ -354,7 +354,7 @@ GitHub Actions runs on every push, pull request to `main`, a weekly schedule, an
 - **Full source validation:** locked install, lint, tests, type check, and `build:ci`.
 - **CodeQL security analysis:** JavaScript/TypeScript `security-extended` analysis; any finding blocks release (`scripts/check-codeql.mjs`).
 
-Vercel installs with `npm ci --ignore-scripts` and runs `npm run build`. The production build waits until both required jobs succeed for the exact commit (`scripts/require-ci.mjs`), applies pending migrations, and then builds the application. Changes ship as one pull request per change into `main`. See [CI/CD](docs/ci-cd.md).
+Vercel installs with `npm ci --ignore-scripts` and runs `npm run build`. The production build waits until both required jobs succeed for the exact commit (`scripts/require-ci.mjs`), applies pending migrations, and then builds the application. Functions run in `sin1` (Singapore), the region of the Neon database, so each query stays in-region (`vercel.json` → `regions`). Changes ship as one pull request per change into `main`. See [CI/CD](docs/ci-cd.md).
 
 ## Documentation map
 
