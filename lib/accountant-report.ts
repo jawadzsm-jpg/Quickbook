@@ -67,7 +67,7 @@ export function accountantSummary(report: AccountantReportLike): { cards: Accoun
   }
 
   if (key === "audit-trail") {
-    return { cards: [number("Audit events", rows.length, "accent"), number("Created", count(rows, "action", "created"), "positive"), number("Updated", count(rows, "action", "updated")), number("Deleted / voided", count(rows, "action", "deleted") + count(rows, "action", "voided"), "negative"), number("Record types", unique(rows, "entity"))], note: "Audit events are immutable activity records for the selected period. Use Transaction History for a combined document and audit timeline." };
+    return { cards: [number("Audit events", rows.length, "accent"), number("Created", count(rows, "action", "created"), "positive"), number("Updated", count(rows, "action", "updated")), number("Deleted / voided", count(rows, "action", "deleted") + count(rows, "action", "voided"), "negative"), number("Record types", unique(rows, "entity"))], note: "Audit events are activity records for the selected period; only All-Admin users can correct or delete one, and each change is itself recorded. Use Transaction History for a combined document and audit timeline." };
   }
 
   if (key === "customer-credit-card-audit") {

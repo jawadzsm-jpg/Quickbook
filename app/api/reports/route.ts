@@ -17,13 +17,14 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { accounts, auditLog, billPaymentAllocations, companies, contacts, exchangeRates, inventoryLocations, invoicePaymentAllocations, items, journalEntries, journalLines, purchaseReceiptAllocations, salesInvoiceAllocations, transactionLines, transactions, vatCodes } from "../../../db/schema";
 import { stockPricingRows } from "@/lib/stock-pricing";
-import { canAccessCompany, hasPermission, isAdministrator, requireApiUser } from "@/lib/auth";
+import { canAccessCompany, hasPermission, isAdministrator, isGlobalAdmin, requireApiUser } from "@/lib/auth";
 import { inventoryAssetAccountLink, inventoryReportKeys } from "@/lib/inventory-report";
 import { contactAddressLines } from "@/lib/contact-address";
 import { purchaseDocumentAccount, purchaseRemainingLine, purchaseReportKeys } from "@/lib/purchase-report";
 import { salesDocumentAccounts, salesFulfilment, salesReportKeys } from "@/lib/sales-report";
 import { linkReportAccounts } from "@/lib/report-account-links";
 import { publicErrorMessage } from "@/lib/errors";
+import { auditActor } from "@/lib/audit-actor";
 
 type Row = Record<string, string | number | null>;
 const money = { type: "money" as const };
@@ -123,7 +124,6 @@ export async function GET(request: Request) {
     const lines = rawLines.filter(row => inPeriod(row.date));
     // Audit timestamps are filtered and shown on the Dubai calendar, not UTC.
     const dubaiStamp = (value: unknown) => { const date = new Date(String(value).replace(" ", "T").replace(/([+-]\d{2})$/, "$1:00")); if (Number.isNaN(date.getTime())) return { day: String(value).slice(0, 10), text: String(value) }; const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(date).replace(",", ""); return { day: parts.slice(0, 10), text: parts }; };
-    const auditActor = (details: unknown) => { try { const parsed = JSON.parse(String(details || "")) as Record<string, unknown>; return String(parsed.actorName || parsed.actorEmail || parsed.by || "") || "—"; } catch { const match = /by ([^\s,;]+@[^\s,;]+)/.exec(String(details || "")); return match?.[1] ?? "—"; } };
     const auditRows = rawAuditRows.filter(row => inPeriod(dubaiStamp(row.createdAt).day));
     const accountCandidates = new Map<string, typeof allAccounts>();
     for (const account of allAccounts) accountCandidates.set(account.name, [...(accountCandidates.get(account.name) ?? []), account]);
@@ -682,7 +682,8 @@ export async function GET(request: Request) {
       columns = [{ key: "account", label: "Account" }, { key: "date", label: "Date" }, { key: "reference", label: "Reference" }, { key: "description", label: "Description" }, { key: "debit", label: "Debit", ...money }, { key: "credit", label: "Credit", ...money }, { key: "balance", label: "Running Balance", ...money }];
     } else if (key === "audit-trail") {
       title = "Audit Trail";
-      rows = auditRows.map((entry) => ({ date: dubaiStamp(entry.createdAt).text, action: entry.action, entity: entry.entityType.replaceAll("_", " "), entityId: entry.entityId, actor: auditActor(entry.details), details: entry.details || "—" })).reverse();
+      // auditId (not a column, so not exported) lets All-Admin users edit or delete the entry through /api/audit-log.
+      rows = auditRows.map((entry) => ({ auditId: entry.id, date: dubaiStamp(entry.createdAt).text, action: entry.action, entity: entry.entityType.replaceAll("_", " "), entityId: entry.entityId, actor: auditActor(entry.details), details: entry.details || "—" })).reverse();
       columns = [{ key: "date", label: "Date / Time (Dubai)" }, { key: "action", label: "Action" }, { key: "entity", label: "Record Type" }, { key: "entityId", label: "Record ID" }, { key: "actor", label: "By" }, { key: "details", label: "Details" }];
     } else if (key === "customer-credit-card-audit") {
       title = "Customer Credit Card Audit Trail";
@@ -1458,7 +1459,7 @@ export async function GET(request: Request) {
     const budget = key.startsWith("budget-") ? { from: budgetStart, to: budgetEnd, baselineFrom: priorBudgetStart, baselineTo: priorBudgetEnd } : undefined;
     const budgetIssues = budget ? [...new Set(journal.filter(entry => ((entry.date >= budgetStart && entry.date <= budgetEnd) || (entry.date >= priorBudgetStart && entry.date <= priorBudgetEnd)) && !journalAccount(entry)).map(entry => `Account “${entry.account}” has no unique Chart of Accounts match. Its postings are excluded from baseline and actual totals; review the account mapping.`))] : [];
 
-    return Response.json({ report: { key, period, companyId, supplierId: supplierReport ? supplierId : undefined, canViewAccounts: hasPermission(authorization, "accounting:manage"), budget, accountLinkIssues: [...linkedAccounts.issues, ...budgetIssues, ...((accountantReportKeys.has(key) || listReportKeys.has(key)) ? accountantAccountIssues(linkedAccounts.rows, columns) : [])], vatCodes: vatReportKeys.has(key) ? configuredVatCodes.map(({ code, name, rate }) => ({ code, name, rate })) : undefined, title, generatedAt: new Date().toISOString(), currency: reportCurrency, columns, rows: linkedAccounts.rows, chart, summary, apLedger, inventoryLedger, inventoryAging, inventoryScope: inventoryLedger ? (scoped ? "inventory" : "company") : undefined, warehouseOptions, warehouse: reportWarehouse } }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ report: { key, period, companyId, supplierId: supplierReport ? supplierId : undefined, canEditAudit: key === "audit-trail" && isGlobalAdmin(authorization) ? true : undefined, canViewAccounts: hasPermission(authorization, "accounting:manage"), budget, accountLinkIssues: [...linkedAccounts.issues, ...budgetIssues, ...((accountantReportKeys.has(key) || listReportKeys.has(key)) ? accountantAccountIssues(linkedAccounts.rows, columns) : [])], vatCodes: vatReportKeys.has(key) ? configuredVatCodes.map(({ code, name, rate }) => ({ code, name, rate })) : undefined, title, generatedAt: new Date().toISOString(), currency: reportCurrency, columns, rows: linkedAccounts.rows, chart, summary, apLedger, inventoryLedger, inventoryAging, inventoryScope: inventoryLedger ? (scoped ? "inventory" : "company") : undefined, warehouseOptions, warehouse: reportWarehouse } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: publicErrorMessage(error, "Could not generate report.") }, { status: 500 });
   }

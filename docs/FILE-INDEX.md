@@ -15,6 +15,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/admin-backup-center.tsx` — Backup & recovery: history, download, integrity check, retention and schedule; `/api/admin-backups`.
 - `app/admin-controls.tsx` — Admin Controls shell with tabs Users & access, Security (override PIN, own password, share emoji switch), Email server, Backups, API & Integrations, EasyBook edition; `/api/admin-settings`.
 - `app/api-integrations.tsx` — API & Integrations: create/revoke API keys (shown once), last use, API address, OpenAPI link, curl/PHP/JS examples; `/api/api-keys`.
+- `app/audit-entry-editor.tsx` — All-Admin Edit / Delete buttons on Audit Trail report rows: details edit dialog and the shared delete confirmation (date/time, user, action, record, details); `/api/audit-log`.
 - `app/attachment-capture.tsx` — Global attachments picker in dialogs; uploads pending files to `/api/attachments` after a record is saved.
 - `app/bank-accounts-editor.tsx` — Bank stamp picker, bank remark field and multi-currency bank accounts editor.
 - `app/bank-box-placement.tsx` — Bank-details box (80×40 mm) placement on A4 pages: limits, HTML renderer, show/position/remark controls.
@@ -179,6 +180,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/api.ts` — `apiRoute` wrapper (errors, idempotency, writes) and `readJsonBody` size/type limits. **DB**
 - `lib/app-typography.ts` — App font list, text-size areas and limits, validation, and the CSS variables applied on `<html>` (Company Setup → Fonts & text).
 - `lib/app-url.ts` — Public address for emailed links (NEXT_PUBLIC_APP_URL or Vercel production domain), never the Host header.
+- `lib/audit-actor.ts` — Audit Trail "By" user read from an entry's details (`auditActor`) and kept when an All-Admin edits the text (`keepAuditActor`).
 - `lib/attachments.ts` — Attachment validation (3 MB per file, at most 10 files).
 - `lib/auth.ts` — **server** Sessions (with the idle sign-out check), cookies, password hashing, role permissions, `requireApiUser`, `requireCompanyAccess`, request IP. **DB**
 - `lib/backup-oidc.ts` — Authorizes the scheduled backup worker from OIDC JWT claims.

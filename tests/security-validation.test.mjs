@@ -28,6 +28,7 @@ const { contactAddressLines } = await sourceModule("../lib/contact-address.ts");
 const { API_TOKEN_PREFIX, apiTokenDigest, apiTokenFromHeaders, generateApiToken } = await sourceModule("../lib/api-keys.ts");
 const { decodeCursor, encodeCursor, parseProductQuery } = await sourceModule("../lib/public-api-query.ts");
 const { friendlyEmailError } = await sourceModule("../lib/email-errors.ts");
+const { auditActor, keepAuditActor } = await sourceModule("../lib/audit-actor.ts");
 const { autoCategoryColor, categoryColor, categoryColorKey, categoryPalette, isCategoryColor } = await sourceModule("../lib/category-colors.ts");
 const { OFFER_MAX_DAYS, canManageOffers, offerEndsText, offerRemaining, offerShareText, offerState, offerTime, validateOffer } = await sourceModule("../lib/item-offers.ts");
 
@@ -1422,7 +1423,7 @@ test("deletes: every delete asks for confirmation in the shared dialog, listing 
   assert.doesNotMatch(app, /window\.prompt/);
   for (const [name, call] of [["memorised report", /removeMemorisedReport[\s\S]{0,120}await confirmDelete\(/], ["inventory", /removeInventory = async[\s\S]{0,120}await confirmDelete\(/], ["specification choice", /const remove = async \(option: string\) => \{\n\s+if \(!\(await confirmDelete\(/]]) assert.match(app, call, `${name} delete is confirmed`);
 
-  const screens = ["admin-backup-center", "admin-controls", "api-integrations", "cargo-list", "company-announcements", "document-email-dialog", "inventory-email-dialog", "invoice-attachments", "item-customization-center", "item-logistics-center", "letterhead-center", "payment-terms-picker", "staff-salary-sheets", "user-notes", "user-role-center", "vat-code-center", "warehouse-manager", "warehouse-transfers", "warranty-center"];
+  const screens = ["admin-backup-center", "audit-entry-editor", "admin-controls", "api-integrations", "cargo-list", "company-announcements", "document-email-dialog", "inventory-email-dialog", "invoice-attachments", "item-customization-center", "item-logistics-center", "letterhead-center", "payment-terms-picker", "staff-salary-sheets", "user-notes", "user-role-center", "vat-code-center", "warehouse-manager", "warehouse-transfers", "warranty-center"];
   for (const screen of screens) {
     const source = read(`../app/${screen}.tsx`);
     assert.match(source, /useConfirmDelete\(\)/, `${screen} uses the shared delete dialog`);
@@ -1434,4 +1435,41 @@ test("deletes: every delete asks for confirmation in the shared dialog, listing 
     const source = read(`../app/${screen}.tsx`);
     assert.match(source, /<ConfirmDeleteDialog open=[\s\S]{0,700}details=\{/, `${screen} confirms with the shared dialog and details`);
   }
+});
+
+test("audit trail: only All-Admin edits or deletes entries, enforced by the API, with the shared delete dialog", () => {
+  const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
+  const route = read("../app/api/audit-log/route.ts");
+  assert.match(route, /requireCompanyAccess\(request, companyId, false, true\)/, "writes need company access and the same origin");
+  assert.match(route, /if \(!isGlobalAdmin\(user\)\) return json\(\{ error: "Only All-Admin users can edit or delete audit entries\." \}, 403\)/, "every other role gets 403");
+  assert.match(route, /export async function PATCH[\s\S]*?allAdminEntry\(request\)/, "edit is All-Admin only");
+  assert.match(route, /export async function DELETE[\s\S]*?allAdminEntry\(request\)/, "delete is All-Admin only");
+  assert.match(route, /eq\(auditLog\.id, id\), eq\(auditLog\.companyId, companyId\)/, "entries are scoped to the company");
+  assert.match(route, /set\(\{ details \}\)/, "edit changes only the details text");
+  assert.match(route, /payload\.expectedDetails !== entry\.details[\s\S]{0,120}409/, "stale edits are rejected");
+  assert.match(route, /action: "audit-entry-edited"[\s\S]*previousDetails: entry\.details/, "the previous text is kept on record");
+  assert.match(route, /action: "audit-entry-deleted"[\s\S]*details: entry\.details/, "the deleted entry is kept on record");
+  const reports = read("../app/api/reports/route.ts");
+  assert.match(reports, /canEditAudit: key === "audit-trail" && isGlobalAdmin\(authorization\)/, "only All-Admin sees the actions");
+  assert.match(reports, /auditId: entry\.id/, "rows carry the entry id");
+  assert.doesNotMatch(reports, /key: "auditId"/, "the id is not a report column, so exports leave it out");
+  const editor = read("../app/audit-entry-editor.tsx");
+  assert.match(editor, /useConfirmDelete\(\)/);
+  for (const label of ["Date / Time", "By", "Action", "Record", "Details / reason"]) assert.match(editor, new RegExp(`label: "${label}`), `the delete dialog shows ${label}`);
+  const app = read("../app/enterprise-app.tsx");
+  assert.match(app, /columns=\{report\.canEditAudit \? \[\.\.\.report\.columns, auditActionsColumn\] : report\.columns\}/, "the Actions column shows only when allowed and only on screen");
+  assert.match(app, /\{report\.canEditAudit && auditEditor\.dialogs\}/);
+});
+
+test("audit trail edits keep the entry's user in the By column", () => {
+  assert.equal(auditActor(JSON.stringify({ actorName: "Sara", reason: "x" })), "Sara");
+  assert.equal(auditActor("a@b.test edited in the Sales list by admin@comnet.local"), "admin@comnet.local");
+  assert.equal(auditActor("Corrected text (by Sara Khan)"), "Sara Khan");
+  assert.equal(auditActor("no user"), "—");
+  assert.equal(keepAuditActor("x by admin@comnet.local", "Corrected"), "Corrected (by admin@comnet.local)");
+  assert.equal(keepAuditActor("x by admin@comnet.local", "Corrected by other@comnet.local"), "Corrected by other@comnet.local");
+  assert.deepEqual(JSON.parse(keepAuditActor(JSON.stringify({ actorName: "Sara" }), JSON.stringify({ reason: "fixed" }))), { reason: "fixed", actorName: "Sara" });
+  assert.equal(keepAuditActor("no user", "Corrected"), "Corrected");
+  const route = readFileSync(new URL("../app/api/audit-log/route.ts", import.meta.url), "utf8");
+  assert.match(route, /const details = keepAuditActor\(entry\.details, text\)/);
 });
