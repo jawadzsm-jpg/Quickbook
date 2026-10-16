@@ -237,6 +237,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/income-tax.ts` — UAE corporate tax estimate (0%/9% with threshold): config, validation, calculation.
 - `lib/inventory-invoice-edit.ts` — Inventory users' limited invoice edits (line details, appended lines, comments). **DB**
 - `lib/inventory-report-filter.ts` — Hide-zero-quantity filter for inventory reports.
+- `lib/inventory-stock-tabs.ts` — Inventory list stock tabs (All items, In stock, Low stock, Item is inactive, Out of stock) and their counts; All items includes out-of-stock matches while searching.
 - `lib/inventory-report.ts` — Inventory report keys, groups, columns, filters, asset-account links, summaries.
 - `lib/invoice-item-filter.ts` — Which items can be picked on invoices.
 - `lib/invoice-pricing.ts` — Exchange-rate validation and re-pricing invoice lines when the rate changes.
