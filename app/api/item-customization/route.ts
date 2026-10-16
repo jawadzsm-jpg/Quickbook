@@ -3,6 +3,7 @@ import { getDb } from "@/db";
 import { auditLog, items } from "@/db/schema";
 import { hasPermission, requireCompanyAccess } from "@/lib/auth";
 import { skuWrite } from "@/lib/sku-locks";
+import { customizationSpecLabels } from "@/lib/customization-options";
 
 type Specification = { label?: unknown; value?: unknown };
 
@@ -41,9 +42,9 @@ export async function GET(request: Request) {
       const specs = specifications(row.specifications);
       return {
         ...row,
-        customizationRam: row.customizationRam || specificationValue(specs, ["RAM", "Memory"]),
-        customizationStorage: row.customizationStorage || specificationValue(specs, ["Storage", "SSD", "Hard Drive"]),
-        customizationScreen: row.customizationScreen || specificationValue(specs, ["Screen", "Display", "Screen Size"]),
+        customizationRam: row.customizationRam || specificationValue(specs, customizationSpecLabels.ram),
+        customizationStorage: row.customizationStorage || specificationValue(specs, customizationSpecLabels.storage),
+        customizationScreen: row.customizationScreen || specificationValue(specs, customizationSpecLabels.screen),
         partNumber: row.partNumber || specificationValue(specs, ["Part Number", "MPN"]),
       };
     }),

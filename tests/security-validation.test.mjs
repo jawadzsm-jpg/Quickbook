@@ -115,8 +115,8 @@ test("item identity appears once in titles and Item No. is reserved for invoice 
   assert.match(overview, /inventorySocialShareText\(record\.name, record\.sku, description, channel, record\.itemNumber, emoji\)/);
   // Shared copies leave out Product Customization Details (no "Screen:" line).
   assert.doesNotMatch(overview, /`Screen: \$\{/);
-  assert.match(overview, /const description = shareSpecificationText\(record\);/);
-  assert.match(overview, /\{ value: shareSpecificationText\(record\) \}/);
+  assert.match(overview, /const description = withUpgrades\(record, shareSpecificationText\(record\)\);/);
+  assert.match(overview, /\{ value: withUpgrades\(record, shareSpecificationText\(record\)\) \}/);
   assert.doesNotMatch(overview, /"Screen Details"\]/);
   assert.match(app, /const documentItemLineDescription = .*inventoryItemLine\(item\.name, item\.sku, inventoryShareDescription\(itemDisplayDescription\(item\), item\.itemNumber\)\)/);
   assert.match(overview, /w-full max-w-full whitespace-normal break-words.*\[overflow-wrap:anywhere\]/);
@@ -635,6 +635,40 @@ test("Customization Details has a dedicated role, secure writes, centered summar
   assert.match(page, /Drag to move product details/);
   assert.match(page, /dark:bg-amber-950/);
   assert.match(migration, /customization_details/);
+});
+
+test("customization boxes: ONBOARD stays plain text, OTHERS gives saved upgrade options, Inventory Overview applies picks to copies only", async () => {
+  const { applyCustomizationUpgrades, customizationBoxValue, isOnboardValue, isOthersValue, specificationBoxValue } = await sourceModule("../lib/customization-options.ts");
+  for (const value of ["RAM ONBOARD", "8gb on-board", "RAM ONBORAD"]) assert.equal(isOnboardValue(value), true, value);
+  assert.equal(isOnboardValue("16GB"), false);
+  assert.equal(isOthersValue(" others "), true);
+  assert.equal(isOthersValue("Other"), true);
+  assert.equal(isOthersValue("OTHERS 32GB"), false);
+  const specs = JSON.stringify([{ label: "RAM Capacity", value: "16GB" }, { label: "Screen Size", value: "15.6 INCH" }]);
+  assert.equal(specificationBoxValue(specs, "ram"), "16GB");
+  assert.equal(specificationBoxValue(specs, "storage"), "");
+  assert.equal(customizationBoxValue({ specifications: specs, customizationScreen: "" }, "screen"), "15.6 INCH");
+  assert.equal(customizationBoxValue({ specifications: specs, customizationRam: "RAM ONBOARD" }, "ram"), "RAM ONBOARD");
+  // The current value's part is replaced; an upgrade whose value is not in the line is added at the end.
+  assert.equal(applyCustomizationUpgrades("ASUS | 16GB | 512GB | 15.6 INCH", { ram: "16gb", storage: "1TB", screen: "15.6 INCH" }, { ram: "32GB RAM UPGRADE", storage: "2TB SSD UPGRADE", screen: "QHD WITH 240MHZ" }), "ASUS | 32GB RAM UPGRADE | 512GB | QHD WITH 240MHZ | 2TB SSD UPGRADE");
+  assert.equal(applyCustomizationUpgrades("ASUS | 16GB", { ram: "16GB" }, { ram: "" }), "ASUS | 16GB");
+
+  const page = readFileSync(new URL("../app/item-customization-center.tsx", import.meta.url), "utf8");
+  const overview = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
+  const specOptions = readFileSync(new URL("../app/api/spec-options/route.ts", import.meta.url), "utf8");
+  const api = readFileSync(new URL("../app/api/customization-options/route.ts", import.meta.url), "utf8");
+  assert.match(page, /if \(isOthersValue\(value\) \|\| chosen\)/);
+  assert.match(page, /Onboard · no upgrades/);
+  assert.match(page, /changeOption\("DELETE"/);
+  assert.match(overview, /!isOnboardValue\(customizationBoxValue\(record, field\)\)/);
+  assert.match(overview, /const description = withUpgrades\(record, shareSpecificationText\(record\)\)/);
+  assert.match(overview, /\{ value: withUpgrades\(record, shareSpecificationText\(record\)\) \}/);
+  assert.match(overview, /xml\(withUpgrades\(record, specificationText\(record\)\)\)/);
+  assert.match(specOptions, /if \(isCustomizationScope\(row\.label\)\) continue;/);
+  assert.match(api, /reading \? "inventory:read" : "customization:manage"/);
+  // Product Customization users may delete upgrade options (DELETE is otherwise administrator-only); sales users read them.
+  assert.match(readFileSync(new URL("../lib/auth.ts", import.meta.url), "utf8"), /user\.role === "customization" && new URL\(request\.url\)\.pathname === "\/api\/customization-options"/);
+  assert.match(readFileSync(new URL("../lib/sales-access.ts", import.meta.url), "utf8"), /"\/api\/customization-options"/);
 });
 
 test("Inventory Overview exposes read-only customization popups and received age to every inventory reader", () => {

@@ -3,6 +3,7 @@ import { getDb } from "../../../db";
 import { categoryColors, specificationOptions } from "../../../db/schema";
 import { savedCategoryColors } from "@/lib/category-colors-sql";
 import { specificationFields, specificationPresets } from "@/lib/specification-presets";
+import { isCustomizationScope } from "@/lib/customization-options";
 import { requireApiUser } from "@/lib/auth";
 import { normalizeComparableText, uppercaseText } from "@/lib/text-normalization";
 import { publicErrorMessage } from "@/lib/errors";
@@ -41,6 +42,8 @@ export async function GET(request: Request) {
     const categories = [...defaultCategories];
     const disabledCategories: string[] = [];
     for (const row of rows) {
+      // Customization upgrade options (/api/customization-options) are not specification choices.
+      if (isCustomizationScope(row.label)) continue;
       if (row.label === CATEGORY_SCOPE) {
         const value = uppercaseText(row.value);
         if (row.active && !includesComparable(categories, value)) categories.push(value);

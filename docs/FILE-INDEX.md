@@ -64,7 +64,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/invoice-serial-editor.tsx` — Append serial numbers to invoice/bill/receipt lines after the creation day; `/api/records`.
 - `app/invoice-stock-return.tsx` — Add an inventory-only stock return line to an invoice.
 - `app/inactive-item-notice.tsx` — "You have this item — it is in Inactive items" search hint with Open / Reactivate; `reactivateItem` (`/api/records` item-status).
-- `app/item-customization-center.tsx` — Product Customization Details (RAM, storage, screen, part/serial/UPC), layout, export; `/api/item-customization`.
+- `app/item-customization-center.tsx` — Product Customization Details (RAM, storage, screen, part/serial/UPC), ONBOARD/OTHERS boxes with the upgrade-options dropdown and manager, layout, export; `/api/item-customization`, `/api/customization-options`.
 - `app/item-import.tsx` — Inventory Import from CSV/XLSX with template download; `/api/records`.
 - `app/item-logistics-center.tsx` — HS code, country of origin and dimensions per item; `/api/item-logistics`, `/api/item-logistics-options`.
 - `app/item-search-select.tsx` — Searchable product combobox and item search/label helpers; optional inactive-item hint with Reactivate.
@@ -199,6 +199,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/customer-identity.ts` — Customer name/phone normalisation, international phone check, ~70% name similarity, duplicate detection.
 - `lib/customer-open-balance.ts` — Customer open balance report data. **DB**
 - `lib/customer-report.ts` — Customer report keys, summaries and detail targets.
+- `lib/customization-options.ts` — Customization upgrade options: RAM/Storage/Screen box fields and spec fallbacks, ONBOARD/OTHERS rules, option scopes, applying Inventory Overview upgrade picks to a product line.
 - `lib/dashboard-metrics.ts` — Dashboard KPIs from account balances.
 - `lib/delivery-address.ts` — Ship To address cleanup with a size cap.
 - `lib/document-access-sql.ts` — SQL visibility filter for documents by role/user. **DB**
