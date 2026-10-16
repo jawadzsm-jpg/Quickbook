@@ -4248,7 +4248,7 @@ test("email templates: each user's own, shared ones usable by colleagues, change
   assert.match(defaultEmailTemplate("purchase order", true).body, /Kindly confirm receipt\.$/);
 });
 
-test("documents are emailed with their PDF to any number of addresses, replies go to the sender, and every send is recorded", async () => {
+test("documents are emailed with their PDF to any number of addresses, replies go to the sender, and only the addresses are kept", async () => {
   const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Mail Co') RETURNING id")).rows[0].id;
   const accountant = (await database.query("INSERT INTO app_users (full_name, email, password_hash, role) VALUES ('Sara Accounts', 'sara@mail.test', 'test', 'accountant') RETURNING id")).rows[0].id;
   await database.query("INSERT INTO contacts (company_id, type, name, email) VALUES ($1, 'customer', 'Gulf Traders', 'buyer@gulf.test; ap@gulf.test')", [companyId]);
@@ -4283,7 +4283,7 @@ test("documents are emailed with their PDF to any number of addresses, replies g
   const many = Array.from({ length: 118 }, (_, index) => `person${index}@gulf.test`);
   const sent = await as("accountant", () => post({ to: ["buyer@gulf.test", "ap@gulf.test", ...many].join(", "), cc: "boss@mailco.test, buyer@gulf.test" }));
   assert.equal(sent.status, 200, await sent.clone().text());
-  assert.deepEqual(await sent.json(), { ok: true, id: (await database.query("SELECT max(id) AS id FROM document_emails")).rows[0].id, messages: 3, recipients: 121 });
+  assert.deepEqual(await sent.json(), { ok: true, messages: 3, recipients: 121 });
   assert.deepEqual(globalThis.__sentMail.map((mail) => mail.to.length), [50, 50, 20]);
   assert.deepEqual(globalThis.__sentMail.map((mail) => mail.cc ?? null), [["boss@mailco.test"], null, null], "an address already in To is not copied again");
   const [mail] = globalThis.__sentMail;
@@ -4294,9 +4294,11 @@ test("documents are emailed with their PDF to any number of addresses, replies g
   assert.equal(mail.attachments[0].filename, "Gulf_Traders_INV-77.pdf");
   assert.equal(mail.attachments[0].contentType, "application/pdf");
   assert.equal(mail.transport.port, 465); assert.equal(mail.transport.secure, true);
-  const history = (await as("accountant", () => details(invoice))).history;
-  assert.equal(history.length, 1);
-  assert.equal(history[0].status, "sent"); assert.equal(history[0].sentByName, "Sara Accounts"); assert.equal(history[0].recipients.length, 120); assert.deepEqual(history[0].cc, ["boss@mailco.test"]);
+  assert.equal((await as("accountant", () => details(invoice))).history, undefined, "no send history");
+  const kept = (await database.query("SELECT * FROM document_emails WHERE company_id = $1", [companyId])).rows;
+  assert.equal(kept.length, 1);
+  assert.deepEqual([kept[0].party, kept[0].transaction_id, kept[0].sent_by_user_id, kept[0].sent_by_name, kept[0].subject, kept[0].attachment_name, kept[0].cc], ["Gulf Traders", null, null, "", "", "", "[]"], "only the addresses are kept");
+  assert.equal(JSON.parse(kept[0].recipients).length, 50, "up to 50 addresses per party");
   assert.ok((await as("accountant", () => details(invoice))).suggestions.previous.includes("person0@gulf.test"), "earlier recipients are offered next time");
 
   // Without the PDF, with bad input, for the wrong roles or documents.
@@ -4313,7 +4315,7 @@ test("documents are emailed with their PDF to any number of addresses, replies g
   for (const role of ["sales", "viewer", "inventory", "purchasing"]) assert.equal((await as(role, () => post({ to: "buyer@gulf.test" }))).status, 403, role);
   assert.equal((await as("admin", () => post({ to: "sales@parts.test", transactionId: order }))).status, 200, "administrators email suppliers too");
 
-  // A rejected send is recorded with the reason, including partial sends.
+  // A rejected send shows the reason, including partial sends, and keeps nothing.
   globalThis.__mailFail = (message) => message.to.includes("person60@gulf.test");
   const failed = await as("accountant", () => post({ to: many.join(",") }));
   assert.equal(failed.status, 502);
@@ -4324,11 +4326,13 @@ test("documents are emailed with their PDF to any number of addresses, replies g
   assert.match(rejectedError, /rejected the SMTP username or password/);
   assert.match(rejectedError, /The attached PDF was 0\.00 MB; if the email goes through without the PDF, the server is refusing the attachment\.$/);
   delete globalThis.__mailFail;
-  const statuses = (await database.query("SELECT status, error FROM document_emails WHERE transaction_id = $1 ORDER BY id", [invoice])).rows;
-  assert.deepEqual(statuses.map((row) => row.status), ["sent", "sent", "failed", "failed"]);
+  const rows = (await database.query("SELECT party, recipients FROM document_emails WHERE company_id = $1 ORDER BY party", [companyId])).rows;
+  assert.deepEqual(rows.map((row) => row.party), ["Gulf Traders", "Parts Supplier"], "one row of addresses per party");
+  assert.equal(JSON.parse(rows[0].recipients)[0], "buyer@gulf.test", "the newest address first");
+  assert.ok(!rows[0].recipients.includes("person60@gulf.test"), "failed sends add nothing");
 });
 
-test("reports are emailed as their PDF, each report keeps its own history, and document histories stay separate", async () => {
+test("reports are emailed as their PDF and only the addresses are kept, offered for every report", async () => {
   const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Report Mail Co') RETURNING id")).rows[0].id;
   const userId = (await database.query("INSERT INTO app_users (full_name, email, password_hash, role) VALUES ('Rana Reports', 'rana@mail.test', 'test', 'accountant') RETURNING id")).rows[0].id;
   const route = await vite.ssrLoadModule("/app/api/report-emails/route.ts");
@@ -4356,12 +4360,11 @@ test("reports are emailed as their PDF, each report keeps its own history, and d
   assert.equal(globalThis.__sentMail[0].attachments[0].filename, "Sales_by_Customer.pdf");
   assert.deepEqual(globalThis.__sentMail[0].replyTo, { name: "Rana Reports", address: "rana@mail.test" });
   const first = await as("accountant", () => details("Sales by Customer"));
-  assert.equal(first.history.length, 1);
+  assert.equal(first.history, undefined, "no send history");
   assert.ok(first.suggestions.previous.includes("bank@lender.test"));
   const other = await as("accountant", () => details("Trial Balance"));
-  assert.equal(other.history.length, 0, "each report has its own history");
   assert.ok(other.suggestions.previous.includes("owner@reportmail.test"), "addresses used for any report are offered");
-  assert.equal((await database.query("SELECT transaction_id FROM document_emails WHERE company_id = $1", [companyId])).rows[0].transaction_id, null);
+  assert.deepEqual((await database.query("SELECT party, recipients, subject FROM document_emails WHERE company_id = $1", [companyId])).rows, [{ party: "Report · Sales by Customer", recipients: '["owner@reportmail.test","bank@lender.test","auditor@audit.test"]', subject: "" }]);
 
   assert.equal((await as("accountant", () => post({ to: "owner@reportmail.test" }, null))).status, 400, "the PDF is required");
   assert.equal((await as("accountant", () => post({ to: "owner@reportmail.test" }, new File(["<html>"], "x.pdf")))).status, 400);
@@ -4640,7 +4643,7 @@ test("turboSMTP API: settings choose the API, and documents are sent as JSON wit
   } finally { globalThis.fetch = realFetch; await database.query("DELETE FROM email_settings"); }
 });
 
-test("email delivery status: turboSMTP message IDs are kept, Check delivery saves the status and shows bounces", async () => {
+test("turboSMTP delivery checks: test emails can be checked; document emails keep no message IDs or history", async () => {
   const settingsRoute = await vite.ssrLoadModule("/app/api/email-settings/route.ts");
   const emailsRoute = await vite.ssrLoadModule("/app/api/document-emails/route.ts");
   const testDelivery = await vite.ssrLoadModule("/app/api/email-settings/delivery/route.ts");
@@ -4650,10 +4653,9 @@ test("email delivery status: turboSMTP message IDs are kept, Check delivery save
   await database.query("DELETE FROM email_settings");
   assert.equal((await settingsRoute.PATCH(json("/api/email-settings", "PATCH", { provider: "turbosmtp_api", apiRegion: "global", username: "ck", password: "cs", fromName: "Sales", fromEmail: "sales@comnet.test" }))).status, 200);
 
-  const realFetch = globalThis.fetch, urls = [];
-  let analytics = { status: "FAIL", recipient: "buyer@x.test", error: "550 5.1.1 mailbox does not exist", send_time: "2026-10-13 10:00:00" };
+  const realFetch = globalThis.fetch;
+  let analytics = {};
   globalThis.fetch = async (url) => {
-    urls.push(String(url));
     if (String(url).endsWith("/mail/send")) return Response.json({ message: "OK", mid: 98765 });
     return Response.json(analytics);
   };
@@ -4662,25 +4664,32 @@ test("email delivery status: turboSMTP message IDs are kept, Check delivery save
     for (const [key, value] of Object.entries({ companyId, transactionId, to: "buyer@x.test", cc: "", subject: "Invoice DLV-1", body: "Please find attached." })) form.set(key, String(value));
     const sent = await emailsRoute.POST(new Request("https://app.test/api/document-emails", { method: "POST", headers: { origin: "https://app.test" }, body: form }));
     assert.equal(sent.status, 200, await sent.clone().text());
-    const { id } = await sent.json();
-    assert.equal((await database.query("SELECT provider_message_ids FROM document_emails WHERE id = $1", [id])).rows[0].provider_message_ids, '["98765"]');
-
-    const history = async () => (await (await emailsRoute.GET(new Request(`https://app.test/api/document-emails?companyId=${companyId}&transactionId=${transactionId}`))).json()).history[0].delivery;
-    assert.deepEqual([(await history()).canCheck, (await history()).status], [true, ""], "not checked yet");
-    const checked = await emailsRoute.PATCH(json("/api/document-emails", "PATCH", { companyId, id }));
-    assert.equal(checked.status, 200, await checked.clone().text());
-    assert.equal(urls.at(-1), "https://pro.api.serversmtp.com/api/v2/analytics/98765");
-    const delivery = (await checked.json()).delivery;
-    assert.equal(delivery.status, "FAIL"); assert.equal(delivery.tone, "bad"); assert.match(delivery.label, /Bounced/);
-    assert.equal(delivery.checks[0].error, "550 5.1.1 mailbox does not exist");
-    assert.equal((await history()).status, "FAIL", "the status is saved for the history");
-    assert.equal((await emailsRoute.PATCH(json("/api/document-emails", "PATCH", { companyId: companyId + 1000, id }))).status, 404, "it is not found under another company");
+    assert.deepEqual((await database.query("SELECT provider_message_ids, recipients FROM document_emails WHERE company_id = $1", [companyId])).rows, [{ provider_message_ids: "[]", recipients: '["buyer@x.test"]' }]);
+    assert.equal(emailsRoute.PATCH, undefined, "no delivery check on sent documents");
 
     analytics = { status: "SUCCESS", recipient: "admin@x.test" };
     const test = await testDelivery.POST(json("/api/email-settings/delivery", "POST", { ids: ["111"] }));
     assert.equal((await test.json()).delivery.label, "Delivered");
     assert.equal((await testDelivery.POST(json("/api/email-settings/delivery", "POST", { ids: ["../x"] }))).status, 400);
   } finally { globalThis.fetch = realFetch; await database.query("DELETE FROM email_settings"); }
+});
+
+test("migration 0139 folds sent-email history into one address row per party and deletes the rest", async () => {
+  const company = (await database.query("INSERT INTO companies (name) VALUES ('Old History Co') RETURNING id")).rows[0].id;
+  const insert = (party, recipients, cc, status, at) => database.query("INSERT INTO document_emails (company_id, party, recipients, cc, subject, status, created_at) VALUES ($1, $2, $3, $4, 'Old subject', $5, $6)", [company, party, recipients, cc, status, at]);
+  await insert("Acme", '["a@x.test","b@x.test"]', '["c@x.test"]', "sent", "2026-01-01");
+  await insert("Acme", '["B@x.test","d@x.test"]', "[]", "sent", "2026-02-01");
+  await insert("Acme", '["failed@x.test"]', "[]", "failed", "2026-03-01");
+  await insert("Report · Trial Balance", '["owner@x.test"]', "[]", "sent", "2026-01-15");
+  await database.query("INSERT INTO audit_log (company_id, action, entity_type, entity_id, details) VALUES ($1, 'sent', 'inventory_email', 0, 'Stock email')", [company]);
+  const statements = (await readFile(new URL("../drizzle/0139_email_addresses_only.sql", import.meta.url), "utf8")).split("--> statement-breakpoint").map((part) => part.trim()).filter(Boolean);
+  for (const statement of statements) await database.query(statement);
+  const rows = (await database.query("SELECT party, recipients, subject, status, created_at::date::text AS day FROM document_emails WHERE company_id = $1 ORDER BY party", [company])).rows;
+  assert.deepEqual(rows.map((row) => [row.party, JSON.parse(row.recipients), row.subject, row.day]), [
+    ["Acme", ["b@x.test", "d@x.test", "a@x.test", "c@x.test"], "", "2026-02-01"],
+    ["Report · Trial Balance", ["owner@x.test"], "", "2026-01-15"],
+  ]);
+  assert.equal((await database.query("SELECT count(*)::int AS n FROM audit_log WHERE company_id = $1 AND entity_type = 'inventory_email'", [company])).rows[0].n, 0);
 });
 
 test("security: sign-in limits and lockout, passwordless accounts, two-step codes, PIN guessing, company isolation", async () => {

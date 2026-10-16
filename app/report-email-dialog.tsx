@@ -1,29 +1,29 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, FileText, History, Mail, PenLine, Send, TriangleAlert } from "lucide-react";
+import { FileText, Mail, PenLine, Send, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { AddressField, DeliveryLine, sentAt, type SentEmail } from "./document-email-dialog";
+import { AddressField } from "./document-email-dialog";
 import { EmailSignatureEditor } from "./email-signature-editor";
 import { defaultReportEmail, MAX_ATTACHMENT_BYTES } from "@/lib/email-templates";
 
-type Loaded = { configured: boolean; signatureOn: boolean; suggestions: { contact: string[]; previous: string[] }; sender: { name: string; email: string }; history: SentEmail[] };
+type Loaded = { configured: boolean; signatureOn: boolean; suggestions: { contact: string[]; previous: string[] }; sender: { name: string; email: string } };
 
 /**
  * Email any Report Center report as its A4 PDF (the same file as Export → PDF, with the stamp and orientation chosen).
- * Add any number of To and Cc addresses, check the wording and send; replies go to the sender, and every send is
- * listed under History for that report.
+ * Add any number of To and Cc addresses, check the wording and send; replies go to the sender. No history is kept:
+ * only the addresses, suggested next time.
  */
 export function ReportEmailDialog({ open, onOpenChange, companyId, companyName, title, period, makePdf }: {
   open: boolean; onOpenChange: (open: boolean) => void; companyId: number; companyName: string; title: string; period?: string;
   makePdf: () => Promise<{ blob: Blob; fileName: string }>;
 }) {
-  const [tab, setTab] = useState<"compose" | "signature" | "history">("compose");
+  const [tab, setTab] = useState<"compose" | "signature">("compose");
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [to, setTo] = useState<string[]>([]);
   const [cc, setCc] = useState<string[]>([]);
@@ -40,7 +40,7 @@ export function ReportEmailDialog({ open, onOpenChange, companyId, companyName, 
     return data as Loaded;
   }, [companyId, title]);
 
-  // Opening: load history and earlier addresses, and start with the standard wording for this report.
+  // Opening: load earlier addresses, and start with the standard wording for this report.
   useEffect(() => {
     if (!open) return;
     let active = true;
@@ -70,15 +70,14 @@ export function ReportEmailDialog({ open, onOpenChange, companyId, companyName, 
       form.set("pdf", pdf.blob, pdf.fileName);
       const response = await fetch("/api/report-emails", { method: "POST", body: form });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) { void load().catch(() => undefined); throw new Error(data.error || "The email could not be sent."); }
+      if (!response.ok) throw new Error(data.error || "The email could not be sent.");
       toast.success(`Emailed ${title} to ${data.recipients} ${data.recipients === 1 ? "address" : "addresses"}`);
       onOpenChange(false);
     } catch (error) { toast.error(error instanceof Error ? error.message : "The email could not be sent.", { duration: 15_000 }); }
     finally { setSending(false); }
   };
 
-  const history = loaded?.history ?? [];
-  const tabs = [{ key: "compose", label: "Compose", icon: Mail }, { key: "signature", label: "Signature", icon: PenLine }, { key: "history", label: history.length ? `History (${history.length})` : "History", icon: History }] as const;
+  const tabs = [{ key: "compose", label: "Compose", icon: Mail }, { key: "signature", label: "Signature", icon: PenLine }] as const;
   return <Dialog open={open} onOpenChange={(next) => { if (!sending) onOpenChange(next); }}>
     <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-3xl">
       <DialogHeader><DialogTitle className="flex items-center gap-2"><Mail className="size-5 text-sky-600" />Email {title}</DialogTitle><DialogDescription>{period ? `${period} · ` : ""}Sent as the A4 PDF, as exported</DialogDescription></DialogHeader>
@@ -94,14 +93,6 @@ export function ReportEmailDialog({ open, onOpenChange, companyId, companyName, 
       </div> : null}
 
       {tab === "signature" ? <EmailSignatureEditor companyId={companyId} onSaved={(signatureOn) => setLoaded((current) => current ? { ...current, signatureOn } : current)} /> : null}
-
-      {tab === "history" ? (history.length ? <ul className="divide-y rounded-lg border">{history.map((item) => <li key={item.id} className="space-y-1 px-3 py-2.5 text-sm">
-        <p className="flex flex-wrap items-center gap-2">{item.status === "sent" ? <CheckCircle2 className="size-4 text-emerald-600" /> : <TriangleAlert className="size-4 text-rose-600" />}<span className="font-medium">{item.status === "sent" ? "Sent" : "Failed"}</span><span className="text-muted-foreground">{sentAt(item.createdAt)} · {item.sentByName}</span></p>
-        <p className="break-words text-xs"><span className="text-muted-foreground">To:</span> {item.recipients.join(", ")}{item.cc.length ? <><span className="text-muted-foreground"> · Cc:</span> {item.cc.join(", ")}</> : null}</p>
-        <p className="truncate text-xs text-muted-foreground">{item.subject}{item.attachmentName ? ` · ${item.attachmentName}` : ""}</p>
-        {item.error ? <p className="text-xs text-rose-600">{item.error}</p> : null}
-        <DeliveryLine companyId={companyId} item={item} onChecked={(delivery) => setLoaded((current) => current ? { ...current, history: current.history.map((entry) => entry.id === item.id ? { ...entry, delivery } : entry) } : current)} />
-      </li>)}</ul> : <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">This report has not been emailed yet.</div>) : null}
 
       {tab === "compose" ? <DialogFooter className="gap-2"><Button type="button" variant="outline" disabled={sending} onClick={() => onOpenChange(false)}>Cancel</Button><Button type="button" disabled={sending || !loaded || !loaded.configured || !to.length} onClick={() => void send()}><Send className="size-4" />{sending ? "Preparing PDF and sending…" : `Send${to.length + cc.length > 1 ? ` to ${to.length + cc.length}` : ""}`}</Button></DialogFooter> : null}
     </DialogContent>

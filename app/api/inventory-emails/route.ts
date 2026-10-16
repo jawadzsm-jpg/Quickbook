@@ -1,6 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
-import { auditLog, emailListContacts } from "@/db/schema";
+import { emailListContacts } from "@/db/schema";
 import { isAdministrator, requireCompanyAccess } from "@/lib/auth";
 import { friendlyEmailError } from "@/lib/email-errors";
 import { canUseEmailList, emailListLabel, INVENTORY_EMAIL_MAX_RECIPIENTS, INVENTORY_EMAIL_REQUESTS_PER_HOUR, isEmailListType, personalizeEmail, personalPlaceholders } from "@/lib/email-lists";
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
   try {
     const signature = await emailSignatureFor(companyId, user.id, request);
     const { sent } = await sendDocumentEmail({ ...(personal ? { to: recipients.map((email) => [email]), personalize: (index: number) => ({ subject: personalizeEmail(subject, contacts[index]), body: personalizeEmail(body, contacts[index]) }) } : { to: recipientBatches(recipients), hidden: true }), cc: [], replyTo: user.email ? { name: user.fullName || user.email, address: user.email } : undefined, subject, body, signature, itemLines });
-    await db.insert(auditLog).values({ companyId, action: "sent", entityType: "inventory_email", entityId: 0, details: `Stock email "${subject.slice(0, 120)}" sent to ${recipients.length} address(es) of the ${emailListLabel(type)} by ${user.email}` });
+    // No record of the send is kept; the addresses stay in the list.
     return json({ ok: true, recipients: recipients.length, messages: sent });
   } catch (error) {
     const sentMessages = Number((error as { sentMessages?: number }).sentMessages ?? 0);
