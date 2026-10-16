@@ -12,6 +12,7 @@ import { defaultLetterhead, letterheadForDocument } from "@/lib/letterhead";
 import { normalizeWarrantyStatus, warrantyStatuses, type WarrantyStatus } from "@/lib/warranty-status";
 import { LetterheadBrand, LetterheadFooter, LetterheadStamp, type LetterheadCompany } from "./letterhead-page";
 import { toast } from "sonner";
+import { useConfirmDelete } from "./confirm-delete-dialog";
 
 type Company = LetterheadCompany & { letterheadDesign?: string; documentColor?: string };
 type Customer = { id: number; name: string; company: string; phone: string; email: string };
@@ -63,6 +64,7 @@ function readMinimizedDraft(companyId: number) {
 }
 
 export function WarrantyCenter({ companyId, company, canWrite, canDelete = false, onMinimize, initialPurchaseBillId = null, onInitialPurchaseBillHandled }: { companyId: number; company: Company; canWrite: boolean; canDelete?: boolean; onMinimize?: (label: string) => void; initialPurchaseBillId?: number | null; onInitialPurchaseBillHandled?: () => void }) {
+  const { confirmDelete, confirmDeleteDialog } = useConfirmDelete();
   const documentOutput=useCompanyDocumentOutput();
   const letterhead = letterheadForDocument(company.letterheadDesign, "warranty-slip");
   const stampDefault = letterhead?.showStamp ?? Boolean(company.stampData);
@@ -209,7 +211,7 @@ export function WarrantyCenter({ companyId, company, canWrite, canDelete = false
     finally { setBusy(false); }
   }
   async function deleteSlip(slip: Slip) {
-    if (!slip.id || !slip.updatedAt || !window.confirm(`Delete warranty receipt ${slip.number || `#${slip.id}`}? This cannot be undone.`)) return;
+    if (!slip.id || !slip.updatedAt || !(await confirmDelete({ title: `Delete warranty receipt ${slip.number || `#${slip.id}`}?`, details: [{ label: "Type", value: "Warranty / RMA receipt" }, { label: "Number", value: slip.number }, { label: "Date", value: slip.slipDate }, { label: "Customer", value: slip.customerName || slip.contactName }, { label: "Invoice", value: slip.invoiceNumber }, { label: "Item", value: [slip.brand, slip.model].filter(Boolean).join(" ") }, { label: "Serial number", value: slip.serialNumber }, { label: "Status", value: slip.status }], confirmLabel: "Delete receipt" }))) return;
     setBusy(true);
     try {
       const response = await fetch("/api/warranty-slips", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, id: slip.id, revision: slip.updatedAt }) });
@@ -258,7 +260,7 @@ export function WarrantyCenter({ companyId, company, canWrite, canDelete = false
   const supplierBills = purchaseBills.filter((bill) => bill.party.trim().toLocaleLowerCase() === selectedSupplier?.name.trim().toLocaleLowerCase());
   const filtered = slips.filter((slip) => (normalizeWarrantyStatus(slip.status) ?? slip.status) === activeStatus && [slip.number, slip.customerName, slip.customerCompany, slip.contactName, slip.invoiceNumber, slip.supplierName, slip.purchaseNumber, slip.brand, slip.model, slip.serialNumber, slip.status].some((value) => String(value || "").toLocaleLowerCase().includes(search.toLocaleLowerCase())));
 
-  return <section className="space-y-5">
+  return <section className="space-y-5">{confirmDeleteDialog}
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white p-5"><div><h2 className="text-lg font-bold">Warranty / RMA Slips</h2><p className="text-sm text-slate-500">Track supplier and customer returns with printable A4 service records</p></div><div className="flex gap-2"><Button type="button" variant="outline" onClick={backToList} disabled={!showForm || busy}>RMA list</Button>{canWrite && <Button type="button" onClick={createSlip} disabled={busy}><FilePlus2 className="size-4" />New RMA slip</Button>}</div></div>
     {!showForm ? <div className="rounded-xl border bg-white p-5">
       <div className="mb-4 grid grid-cols-[repeat(2,minmax(0,1fr))] gap-2 xl:grid-cols-[repeat(4,minmax(0,1fr))]" aria-label="RMA status">

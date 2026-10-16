@@ -5,6 +5,7 @@ import { ChangeEvent, useEffect, useState } from "react";
 import { Download, Paperclip, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { useConfirmDelete } from "./confirm-delete-dialog";
 
 type PendingFile = { fileName: string; mimeType: string; fileData: string; fileSize: number };
 type SavedFile = { id: number; file_name: string; file_size: number };
@@ -13,6 +14,7 @@ export function InvoiceAttachments({ companyId, invoiceId, pending, onPendingCha
   companyId: number; invoiceId?: number | null; pending?: PendingFile[];
   onPendingChange?: (files: PendingFile[]) => void; canEdit?: boolean; documentLabel?: string; entityType?: "transaction" | "employee" | "report" | "rcm_declaration" | "staff_salary_sheet";
 }) {
+  const { confirmDelete, confirmDeleteDialog } = useConfirmDelete();
   const canDelete = useCanDeleteRecord();
   const [saved, setSaved] = useState<SavedFile[]>([]);
   const [loading, setLoading] = useState(false);
@@ -54,6 +56,8 @@ export function InvoiceAttachments({ companyId, invoiceId, pending, onPendingCha
   }
 
   async function removeSaved(id: number) {
+    const file = saved.find((entry) => entry.id === id);
+    if (!(await confirmDelete({ title: `Remove attachment ${file?.file_name ?? ""}?`, description: "The file is permanently removed from this record.", details: [{ label: "Type", value: `${documentLabel} attachment` }, { label: "File", value: file?.file_name }, { label: "Size", value: file ? `${Math.max(1, Math.ceil(file.file_size / 1024))} KB` : "" }], confirmLabel: "Remove attachment" }))) return;
     setLoading(true);
     try {
       const response = await fetch("/api/attachments", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, id }) });
@@ -63,7 +67,7 @@ export function InvoiceAttachments({ companyId, invoiceId, pending, onPendingCha
     finally { setLoading(false); }
   }
 
-  return <section className="document-internal-only space-y-3 rounded-xl border border-border bg-background p-4 text-foreground" aria-label={`${documentLabel} attachments`}>
+  return <section className="document-internal-only space-y-3 rounded-xl border border-border bg-background p-4 text-foreground" aria-label={`${documentLabel} attachments`}>{confirmDeleteDialog}
     <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="flex items-center gap-2 text-sm font-semibold"><Paperclip className="size-4" />{documentLabel} attachments</h3><p className="text-xs text-muted-foreground">Up to 10 files, 3 MB each. Kept with this {documentLabel.toLowerCase()} and excluded from print and PDF.</p></div>
       {canEdit && <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent"><Paperclip className="size-4" />{loading ? "Working…" : "Add files"}<input type="file" multiple disabled={loading} accept="image/png,image/jpeg,image/webp,image/gif,.pdf,.txt,.csv,.xls,.xlsx,.doc,.docx" className="sr-only" onChange={addFiles} /></label>}</div>
     {error && <p role="alert" className="text-sm text-destructive">{error} <button type="button" className="underline" onClick={() => setRevision((value) => value + 1)}>Retry</button></p>}

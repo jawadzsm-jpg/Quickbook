@@ -28,6 +28,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/company-announcements.tsx` — Announcements page (sidebar → Overview): cards with Got it; admins post to all or chosen users, edit, end, remove; `/api/announcements`.
 - `app/company-clear-button.tsx` — Company Setup → Clear: grouped options with record counts, Select all, a summary of what will be cleared, typed company name and admin password; `/api/company-setup/clear`.
 - `app/company-document-output.tsx` — Context/hook for printing to A4 and exporting PDFs with the company's saved document design.
+- `app/confirm-delete-dialog.tsx` — Shared delete confirmation on the alert-dialog primitive: `ConfirmDeleteDialog` (controlled; details list, Also affected, Cancel, destructive Delete, optional extra fields), `DeleteDetailsList`, and the promise-based `useConfirmDelete()` used by every delete action.
 - `app/contact-organization-fields.tsx` — Contact status (active/inactive) and "Sub-account of" parent fields.
 - `app/copy-on-hover.tsx` — Copy-on-hover button with a fallback when the Clipboard API is unavailable.
 - `app/currency-rate-center.tsx` — Exchange rates and base currency per company; `/api/exchange-rates`, `/api/workspaces`.
@@ -43,7 +44,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/einvoicing-center.tsx` — UAE e-invoicing (Peppol/PINT-AE) readiness: company setup, customer/invoice readiness badges; `/api/company-setup`.
 - `app/employee-hr-fields.tsx` — Employee salary, loan and vacation fields and read-only view.
 - `app/employee-loan-linker.tsx` — Link an existing loan/advance payment to an employee; `/api/employee-loan-links`.
-- `app/enterprise-app.tsx` — Main client shell (~3,500 lines): navigation, centers, record forms, item list, reports, company setup, preferences; `/api/records`, `/api/reports` and others.
+- `app/enterprise-app.tsx` — Main client shell (~3,500 lines): navigation, centers, record forms, item list, reports, company setup, preferences, record delete/void dialog (details via `recordDeletionSummary`); `/api/records`, `/api/reports` and others.
 - `app/escape-window-closer.tsx` — Escape or the close button closes the top dialog, asking Save/Keep editing/Discard when it has a save-like button; windows marked `data-no-save-prompt` (Workspace shortcuts) close without asking.
 - `app/financial-report-library.tsx` — Financial report card library.
 - `app/financial-report.tsx` — Financial report renderer with summaries, FX rates, account-history and document links.

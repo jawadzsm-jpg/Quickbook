@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { type BackupSchedule } from '@/lib/backup-schedule';
+import { useConfirmDelete } from "./confirm-delete-dialog";
 
 type Backup={id:string;source:string;status:string;created_at:string;completed_at:string|null;filename:string;sha256:string|null;size_bytes:number|null;row_count:number|null;table_count:number|null;verified_at:string|null;error:string|null;expires_at:string|null};
 export type BackupStatus={lastCompletedAt:string|null;scheduleEnabled:boolean;nextRunAt:string|null};
@@ -12,6 +13,7 @@ type State={storageReady:boolean;workerLastSeen:string|null;schedule:(BackupSche
 const stamp=(date:string|null)=>date?new Date(date).toLocaleString('en-GB',{timeZone:'Asia/Dubai',dateStyle:'medium',timeStyle:'short'}):'—';
 const bytes=(size:number|null)=>size===null?'—':size<1024*1024?`${(size/1024).toFixed(1)} KB`:`${(size/1024/1024).toFixed(1)} MB`;
 export function AdminBackupCenter({companyId,companyName,onStatus}:{companyId:number;companyName:string;onStatus?:(status:BackupStatus)=>void}) {
+  const { confirmDelete, confirmDeleteDialog } = useConfirmDelete();
   const [state,setState]=useState<State|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState('');
   const [form,setForm]=useState<BackupSchedule>({enabled:false,frequency:'daily',startDate:new Date(Date.now()+4*3600000).toISOString().slice(0,10),time:'03:00',retentionDays:30});
   const [revision,setRevision]=useState(0),[dirty,setDirty]=useState(false);
@@ -20,7 +22,7 @@ export function AdminBackupCenter({companyId,companyName,onStatus}:{companyId:nu
   async function refresh(){if(dirty&&!window.confirm('Discard unsaved schedule changes and refresh?'))return;const d=await load();if(d?.schedule){setForm(d.schedule);setRevision(d.schedule.revision);setDirty(false);}}
   function update(patch:Partial<BackupSchedule>){setForm(f=>({...f,...patch}));setDirty(true);}
   async function action(action:string,id?:string){
-    if(busy)return;if(action==='delete'&&!window.confirm('Permanently delete this backup file? Your current company data will not change.'))return;
+    if(busy)return;if(action==='delete'){const b=state?.backups.find(entry=>entry.id===id);if(!(await confirmDelete({title:'Delete this backup file?',description:'The backup file is permanently deleted. Your current company data will not change.',details:[{label:'Type',value:'Company backup'},{label:'File',value:b?.filename},{label:'Created',value:b?stamp(b.created_at):''},{label:'Source',value:b?.source},{label:'Status',value:b?.status},{label:'Size',value:b?.size_bytes!=null?`${(b.size_bytes/1048576).toFixed(2)} MB`:''},{label:'Rows',value:b?.row_count!=null?String(b.row_count):''}],confirmLabel:'Delete backup'})))return;}
     setBusy(id?`${action}:${id}`:action);
     try{const r=await fetch('/api/admin-backups',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({companyId,action,id,schedule:form,revision})});const d=await r.json();if(!r.ok)throw Error(d.error||'Backup action failed.');toast.success(action==='create'?'Backup completed and verified.':action==='schedule'?'Backup schedule saved.':action==='verify'?'Integrity check passed.':'Backup deleted.');const latest=await load();if(action==='schedule'&&latest?.schedule){setForm(latest.schedule);setRevision(latest.schedule.revision);setDirty(false);}}
     catch(e){toast.error(e instanceof Error?e.message:'Backup action failed.');await load();}finally{setBusy('');}
@@ -28,7 +30,7 @@ export function AdminBackupCenter({companyId,companyName,onStatus}:{companyId:nu
   const completed=state?.backups.filter(b=>b.status==='completed')??[],latest=completed[0],running=state?.backups.some(b=>b.status==='running');
   useEffect(()=>{if(state)onStatus?.({lastCompletedAt:latest?.completed_at??null,scheduleEnabled:Boolean(state.schedule?.enabled),nextRunAt:state.schedule?.nextRunAt??null});},[state,latest,onStatus]);
   const heartbeatOld=state?.schedule?.enabled&&(!state.workerLastSeen||Date.now()-new Date(state.workerLastSeen).getTime()>30*60000);
-  return <section className="min-w-0 space-y-5 rounded-2xl border bg-card p-4 text-card-foreground shadow-sm sm:p-6" aria-label="Company backups">
+  return <section className="min-w-0 space-y-5 rounded-2xl border bg-card p-4 text-card-foreground shadow-sm sm:p-6" aria-label="Company backups">{confirmDeleteDialog}
     <header className="flex flex-wrap items-start justify-between gap-4"><div className="flex min-w-0 gap-3"><div className="rounded-xl bg-primary/10 p-3 text-primary"><Archive className="size-6" /></div><div><h2 className="text-xl font-semibold">Backup & recovery</h2><p className="mt-1 break-words text-sm text-muted-foreground">{companyName} · Private company backups · UAE time (UTC+04:00)</p></div></div><div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={Boolean(busy)} onClick={()=>void refresh()}><RefreshCw className="size-4" />Refresh</Button><Button type="button" disabled={!state?.storageReady||Boolean(busy)||running} onClick={()=>void action('create')}><Archive className="size-4" />{busy==='create'||running?'Creating backup…':'Back up now'}</Button></div></header>
     {error&&<p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
     <div className="grid gap-3 sm:grid-cols-3">{[{label:'Last completed backup',value:stamp(latest?.completed_at??null),detail:latest?`${bytes(latest.size_bytes)} · ${latest.row_count?.toLocaleString()} records`:'Create your first company backup'},{label:'Next scheduled backup',value:stamp(state?.schedule?.nextRunAt??null),detail:state?.schedule?.enabled?`${state.schedule.frequency} · UAE time`:'Automatic backups are paused'},{label:'Recent completed files',value:String(completed.length),detail:state?.storageReady?'Private storage connected':'Storage connection required'}].map(card=><div key={card.label} className="min-w-0 rounded-xl border bg-muted/20 p-4"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{card.label}</p><p className="mt-2 break-words text-lg font-semibold tabular-nums">{card.value}</p><p className="mt-1 text-xs text-muted-foreground">{card.detail}</p></div>)}</div>

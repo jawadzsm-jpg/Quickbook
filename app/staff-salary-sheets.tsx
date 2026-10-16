@@ -15,6 +15,7 @@ import { downloadPdfBlob } from "@/lib/document-output";
 import { staffSalaryFilename, staffSalaryTotals, type StaffLetterhead, type StaffSalaryData, type StaffSalaryLine, type StaffSalaryRecord } from "@/lib/staff-salary-sheet";
 import { staffSalaryPdf } from "@/lib/staff-salary-pdf";
 import { PrintOrientationSelect, type PrintOrientation } from "@/components/print-orientation-select";
+import { useConfirmDelete } from "./confirm-delete-dialog";
 
 type Employee = { id: number; name?: unknown; type?: unknown; currency?: unknown; salaryAmount?: unknown; status?: unknown };
 const blankLine = (): StaffSalaryLine => ({ employeeId: null, name: "", personalNumber: "", cardDetails: "", bankName: "", iban: "", salary: 0 });
@@ -26,6 +27,7 @@ function initial(company: StaffLetterhead & { baseCurrency?: string }): StaffSal
 const money = (value: number) => Number(value).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 // Renders a "Staff salary sheets" button (for the Employees & HR header) and the salary sheets dialog it opens.
 export function StaffSalarySheets({ company, employees, disabled }: { company: StaffLetterhead & { id: number; baseCurrency?: string; stampData?:string }; employees: Employee[]; disabled?: boolean }) {
+  const { confirmDelete, confirmDeleteDialog } = useConfirmDelete();
   const documentOutput=useCompanyDocumentOutput();
   const [stamp,setStamp]=useState({show:false,left:227,top:145});
   const [orientation,setOrientation]=useState<PrintOrientation>("landscape");
@@ -47,7 +49,7 @@ export function StaffSalarySheets({ company, employees, disabled }: { company: S
     finally { setBusy(false); }
   };
   const remove = async (record: StaffSalaryRecord) => {
-    if (!window.confirm(`Delete ${record.data.title} for ${record.data.month}?`)) return;
+    if (!(await confirmDelete({ title: `Delete salary sheet ${record.data.title}?`, details: [{ label: "Type", value: "Staff salary sheet" }, { label: "Title", value: record.data.title }, { label: "Reference", value: record.data.referenceNo }, { label: "Month", value: record.data.month }, { label: "Employees", value: `${record.data.lines.length}` }, { label: "Grand total", value: `${record.data.currency} ${staffSalaryTotals(record.data).grandTotal.toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }], confirmLabel: "Delete salary sheet" }))) return;
     setBusy(true);
     try { const response = await fetch("/api/staff-salary-sheets", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId: company.id, id: record.id, revision: record.revision }) }); const result = await response.json(); if (!response.ok) throw new Error(result.error); setRecords(current => current.filter(row => row.id !== record.id)); setMode("list"); toast.success("Salary sheet deleted."); }
     catch (error) { toast.error(error instanceof Error ? error.message : "Could not delete salary sheet."); }
@@ -64,7 +66,7 @@ export function StaffSalarySheets({ company, employees, disabled }: { company: S
     finally { setBusy(false); }
   };
   const leave = () => { if (mode === "edit" && !window.confirm("Discard unsaved salary sheet changes?")) return; setMode("list"); };
-  return <><Button type="button" variant="secondary" disabled={disabled} title="Monthly staff template with company letterhead, A4 print and PDF" onClick={() => { setOpen(true); setMode("list"); void load(); }}>Staff salary sheets</Button>
+  return <>{confirmDeleteDialog}<Button type="button" variant="secondary" disabled={disabled} title="Monthly staff template with company letterhead, A4 print and PDF" onClick={() => { setOpen(true); setMode("list"); void load(); }}>Staff salary sheets</Button>
     <Dialog open={open} onOpenChange={value => { if (busy) return; if (!value && mode === "edit" && !window.confirm("Discard unsaved salary sheet changes?")) return; setOpen(value); }}><DialogContent className="staff-salary-dialog max-h-[92dvh] overflow-y-auto sm:max-w-[min(1400px,96vw)]" onInteractOutside={event => event.preventDefault()}><DialogHeader><DialogTitle>{mode === "list" ? "Staff salary sheets" : `${mode === "edit" ? draft.id ? "Edit" : "New" : mode === "attachments" ? "Attachments for" : "View"} salary sheet${draft.id ? ` · HR-${draft.id}` : ""}`}</DialogTitle><DialogDescription>Saved under {company.name}. Documents do not post salary payments or change employee balances.</DialogDescription></DialogHeader>
     <div className="flex flex-wrap gap-2">{mode === "list" ? <><Button disabled={busy} onClick={() => { setDraft(initial(company)); setMode("edit"); }}><Plus className="size-4" />New salary sheet</Button><Button variant="outline" disabled={busy} onClick={() => void load()}>Refresh</Button></> : <Button variant="outline" disabled={busy} onClick={leave}>Back to saved sheets</Button>}{mode === "view" && <><Button variant="outline" disabled={busy} onClick={() => setMode("edit")}><Pencil className="size-4" />Edit</Button><PrintOrientationSelect value={orientation} onValueChange={value=>{setOrientation(value);setStamp(current=>({...current,left:value==='portrait'?145:227,top:value==='portrait'?230:145}));}} /><Button variant="outline" disabled={busy} onClick={() => void output(draft, true)}><Printer className="size-4" />Print A4</Button><Button disabled={busy} onClick={() => void output(draft, false)}><Download className="size-4" />PDF A4</Button><Button variant="outline" className="text-red-600" disabled={busy} onClick={() => void remove(draft)}><Trash2 className="size-4" />Delete</Button></>}</div>
     {documentOutput.enabled("Salary Sheet")&&<SalesReportStamp stampData={company.stampData||""} orientation={orientation} value={stamp} onChange={setStamp} />}

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ItemSearchSelect, itemSearchDetail, itemSearchFields } from "./item-search-select";
+import { useConfirmDelete } from "./confirm-delete-dialog";
 
 type WarehouseOption = { id: number; name: string; code: string; isDefault: boolean; active: boolean };
 type Share = { warehouseId: number; name: string; quantity: number };
@@ -22,6 +23,7 @@ const formatQuantity = (value: number) => value.toLocaleString("en-AE", { maximu
  * warehouses. Moves change warehouse stock only; the inventory total, cost and ledger stay the same.
  */
 export function WarehouseTransfers({ companyId, locationId, locationName, onMoved }: { companyId: number; locationId: number; locationName: string; onMoved?: () => void }) {
+  const { confirmDelete, confirmDeleteDialog } = useConfirmDelete();
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
   const [stock, setStock] = useState<StockItem[]>([]);
   const [moves, setMoves] = useState<Move[]>([]);
@@ -76,7 +78,7 @@ export function WarehouseTransfers({ companyId, locationId, locationName, onMove
   }
 
   async function reverse(move: Move) {
-    if (!window.confirm(`Reverse move ${move.reference}? ${formatQuantity(move.quantity)} × ${move.sku} goes back from ${nameOf(move.toWarehouseId)} to ${nameOf(move.fromWarehouseId)}.`)) return;
+    if (!(await confirmDelete({ title: `Reverse move ${move.reference}?`, description: "The warehouse move is deleted and its stock goes back. The inventory total, cost and accounts do not change.", details: [{ label: "Type", value: "Warehouse move" }, { label: "Reference", value: move.reference }, { label: "Date", value: move.transferDate }, { label: "Item", value: `${move.sku} · ${move.name}` }, { label: "Quantity", value: formatQuantity(move.quantity) }, { label: "From", value: nameOf(move.fromWarehouseId) }, { label: "To", value: nameOf(move.toWarehouseId) }, { label: "Moved by", value: move.createdByName }, { label: "Notes", value: move.notes }], affected: [`${formatQuantity(move.quantity)} × ${move.sku} goes back from ${nameOf(move.toWarehouseId)} to ${nameOf(move.fromWarehouseId)}.`], confirmLabel: "Reverse move" }))) return;
     setBusy(true);
     try {
       const response = await fetch("/api/warehouse-transfers", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, id: move.id }) });
@@ -88,7 +90,7 @@ export function WarehouseTransfers({ companyId, locationId, locationName, onMove
     finally { setBusy(false); }
   }
 
-  return <section className="rounded-xl border bg-card text-card-foreground shadow-sm" aria-label="Move stock between warehouses">
+  return <section className="rounded-xl border bg-card text-card-foreground shadow-sm" aria-label="Move stock between warehouses">{confirmDeleteDialog}
     <header className="flex flex-wrap items-start gap-3 border-b p-4 sm:p-5">
       <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><Warehouse className="size-5" /></div>
       <div className="min-w-0 flex-1 basis-60"><h2 className="font-bold">Move between warehouses · {locationName}</h2><p className="text-sm text-muted-foreground">Moves stock inside this inventory. The inventory total, cost and accounts do not change.</p></div>

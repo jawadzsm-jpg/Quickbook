@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
+import { useConfirmDelete } from "./confirm-delete-dialog";
 
 type Note = { id: number; body: string; done: boolean; createdAt: string; updatedAt: string };
 
@@ -15,6 +16,7 @@ const when = (value: string) => { const date = parseTime(value); return Number.i
 
 /** My notes page (sidebar → Overview): the signed-in user's private notes for the selected company. */
 export function UserNotes({ companyId }: { companyId: number }) {
+  const { confirmDelete, confirmDeleteDialog } = useConfirmDelete();
   const [notes, setNotes] = useState<Note[] | null>(null);
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState<{ id: number; body: string } | null>(null);
@@ -39,7 +41,7 @@ export function UserNotes({ companyId }: { companyId: number }) {
   const saveEdit = (event: FormEvent) => { event.preventDefault(); if (!editing) return; void run(async () => { await call("PATCH", { id: editing.id, action: "update", body: editing.body }); setEditing(null); }); };
 
   const open = notes?.filter((note) => !note.done).length ?? 0;
-  return <section aria-label="My notes" className="rounded-2xl border bg-card p-4 text-card-foreground shadow-sm">
+  return <section aria-label="My notes" className="rounded-2xl border bg-card p-4 text-card-foreground shadow-sm">{confirmDeleteDialog}
     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
       <p className="flex items-center gap-2 font-semibold"><NotebookPen className="size-4 text-amber-600" />My notes</p>
       <span className="text-xs text-muted-foreground">Only you see these · {notes ? `${open} open` : "…"}</span>
@@ -59,7 +61,7 @@ export function UserNotes({ companyId }: { companyId: number }) {
       </div>}
       {editing?.id !== note.id && <div className="flex shrink-0 [&_button]:size-8">
         <Button type="button" size="icon" variant="ghost" disabled={busy} aria-label="Edit note" title="Edit" onClick={() => setEditing({ id: note.id, body: note.body })}><Pencil className="size-3.5" /></Button>
-        <Button type="button" size="icon" variant="ghost" className="text-destructive" disabled={busy} aria-label="Delete note" title="Delete" onClick={() => { if (window.confirm("Delete this note?")) void run(() => call("PATCH", { id: note.id, action: "delete" })); }}><Trash2 className="size-3.5" /></Button>
+        <Button type="button" size="icon" variant="ghost" className="text-destructive" disabled={busy} aria-label="Delete note" title="Delete" onClick={() => void confirmDelete({ title: "Delete this note?", details: [{ label: "Type", value: note.done ? "Note · done" : "Note" }, { label: "Note", value: note.body.length > 200 ? `${note.body.slice(0, 200)}…` : note.body }, { label: "Last changed", value: when(note.updatedAt) }], confirmLabel: "Delete note" }).then((confirmed) => { if (confirmed) void run(() => call("PATCH", { id: note.id, action: "delete" })); })}><Trash2 className="size-3.5" /></Button>
       </div>}
     </li>)}</ul>}
   </section>;

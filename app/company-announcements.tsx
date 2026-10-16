@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { useConfirmDelete } from "./confirm-delete-dialog";
 
 type Active = { id: number; title: string; body: string; createdByName: string; createdAt: string; endsAt: string | null };
 type Managed = { id: number; title: string; body: string; audience: "all" | "users"; userIds: number[]; createdByName: string; createdAt: string; endsAt: string | null; removedAt: string | null; seenBy: number };
@@ -38,6 +39,7 @@ async function send(method: "POST" | "PATCH", body: Record<string, unknown>) {
  * an announcement to all users of the company or chosen users, edit it, end it or remove it.
  */
 export function CompanyAnnouncements({ companyId, canManage, standalone = false }: { companyId: number; canManage: boolean; standalone?: boolean }) {
+  const { confirmDelete, confirmDeleteDialog } = useConfirmDelete();
   const [active, setActive] = useState<Active[]>([]);
   const [managed, setManaged] = useState<Managed[]>([]);
   const [users, setUsers] = useState<CompanyUser[]>([]);
@@ -78,7 +80,7 @@ export function CompanyAnnouncements({ companyId, canManage, standalone = false 
     finally { setBusy(false); }
   };
   const remove = async (item: Managed) => {
-    if (!window.confirm(`Remove "${item.title}"? It disappears from the Announcements page and the bell for everyone.`)) return;
+    if (!(await confirmDelete({ title: `Remove announcement ${item.title}?`, description: "It disappears from the Announcements page and the bell for everyone.", details: [{ label: "Type", value: "Announcement" }, { label: "Title", value: item.title }, { label: "Message", value: item.body.length > 160 ? `${item.body.slice(0, 160)}…` : item.body }, { label: "Audience", value: item.audience === "all" ? "Everyone" : `${item.userIds.length} selected ${item.userIds.length === 1 ? "user" : "users"}` }, { label: "Posted by", value: item.createdByName }, { label: "Seen by", value: `${item.seenBy}` }], confirmLabel: "Remove announcement" }))) return;
     setBusy(true);
     try { await send("PATCH", { companyId, id: item.id, action: "remove" }); toast.success("Announcement removed"); await load(true); }
     catch (error) { toast.error(error instanceof Error ? error.message : "Could not remove the announcement."); }
@@ -86,7 +88,7 @@ export function CompanyAnnouncements({ companyId, canManage, standalone = false 
   };
 
   if (!active.length && !canManage && !standalone) return null;
-  return <section aria-label="Announcements" className="space-y-2">
+  return <section aria-label="Announcements" className="space-y-2">{confirmDeleteDialog}
     {standalone && !active.length ? <p className="rounded-2xl border border-dashed bg-card p-8 text-center text-sm text-muted-foreground">No announcements right now. New ones also appear in the notifications bell.</p> : null}
     {active.map((item) => <article key={item.id} className="flex gap-3 rounded-2xl border border-sky-300/60 bg-sky-50 p-4 text-sky-950 shadow-sm dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-50">
       <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-sky-500/15 text-sky-700 dark:text-sky-300"><Megaphone className="size-4" /></div>

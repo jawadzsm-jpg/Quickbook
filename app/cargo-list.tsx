@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cargoModes } from "@/lib/cargo";
 import { countries } from "@/lib/countries";
+import { useConfirmDelete } from "./confirm-delete-dialog";
 
 type Cargo = { id: number; name: string; telephone: string; mobile: string; email: string; modes: string[]; destinations: string[]; address: string; notes: string; createdByUserId: number | null; createdByName: string; createdAt: string };
 type Draft = { name: string; telephone: string; mobile: string; email: string; modes: string[]; destinations: string[]; address: string; notes: string };
@@ -17,6 +18,7 @@ const emptyDraft: Draft = { name: "", telephone: "", mobile: "", email: "", mode
 
 /** Shared cargo / freight agent list. Every user can add; the creator or an administrator can edit; administrators can delete. */
 export function CargoList({ companyId, isAdmin }: { companyId: number; isAdmin: boolean }) {
+  const { confirmDelete, confirmDeleteDialog } = useConfirmDelete();
   const [records, setRecords] = useState<Cargo[]>([]);
   const [userId, setUserId] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -77,7 +79,7 @@ export function CargoList({ companyId, isAdmin }: { companyId: number; isAdmin: 
     finally { setSaving(false); }
   };
   const remove = async (cargo: Cargo) => {
-    if (!window.confirm(`Delete ${cargo.name}? This cannot be undone.`)) return;
+    if (!(await confirmDelete({ title: `Delete cargo ${cargo.name}?`, description: "The cargo agent is removed from the shared list for everyone. This cannot be undone.", details: [{ label: "Type", value: "Cargo / freight agent" }, { label: "Name", value: cargo.name }, { label: "Telephone", value: cargo.telephone }, { label: "Mobile", value: cargo.mobile }, { label: "Email", value: cargo.email }, { label: "Modes", value: cargo.modes.join(", ") }, { label: "Destinations", value: cargo.destinations.join(", ") }, { label: "Added by", value: cargo.createdByName }], confirmLabel: "Delete cargo" }))) return;
     const response = await fetch(`/api/cargos?companyId=${companyId}&id=${cargo.id}`, { method: "DELETE" });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) return toast.error(data.error || "Could not delete the cargo.");
@@ -85,7 +87,7 @@ export function CargoList({ companyId, isAdmin }: { companyId: number; isAdmin: 
   };
   const listText = (values: string[]) => values.length ? values.join(", ") : "—";
 
-  return <section className="space-y-4 rounded-xl border bg-card p-4 text-card-foreground sm:p-5">
+  return <section className="space-y-4 rounded-xl border bg-card p-4 text-card-foreground sm:p-5">{confirmDeleteDialog}
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex items-center gap-3"><div className="brand-soft-icon grid size-10 place-items-center rounded-xl"><Truck className="size-5" /></div><div><h2 className="font-bold">Cargo list</h2><p className="text-sm text-muted-foreground">Cargo and freight agents shared by everyone in this company.</p></div></div>
       <Button type="button" onClick={() => open("new")}><Plus className="size-4" />Add cargo</Button>
