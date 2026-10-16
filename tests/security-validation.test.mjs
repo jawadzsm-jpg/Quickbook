@@ -1402,3 +1402,36 @@ test("app typography: only listed fonts and 80–140% text sizes are saved; vari
   assert.equal(vars["--app-text-tables"], "1");
   assert.equal(vars["--app-text-print"], "1");
 });
+
+test("deletes: every delete asks for confirmation in the shared dialog, listing the record's details first", () => {
+  const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
+  const dialog = read("../app/confirm-delete-dialog.tsx");
+  assert.match(dialog, /AlertDialog/, "the shared dialog is built on the alert-dialog primitive");
+  assert.match(dialog, /<AlertDialogCancel[^>]*>Cancel<\/AlertDialogCancel>/);
+  assert.match(dialog, /variant="destructive"/, "the confirm button is visibly destructive");
+  assert.match(dialog, /export function useConfirmDelete/);
+  assert.match(dialog, /details\.filter/, "empty detail rows are skipped");
+  assert.match(dialog, /Also affected/);
+
+  const app = read("../app/enterprise-app.tsx");
+  assert.match(app, /function recordDeletionSummary\(kind: Kind/, "record deletes list type, number or name, date, amount or balance");
+  assert.match(app, /<DeleteDetailsList details=\{pendingDeletion\?\.details\} affected=\{pendingDeletion\?\.affected\} \/>/);
+  assert.match(app, /Reason for deletion \(required\)/, "the record delete still needs a reason");
+  assert.match(app, /onDeletePurchaseReturn\(entry\.id, \{ \.\.\.entry, type: "purchase return"/);
+  assert.match(app, /<ConfirmDeleteDialog open=\{Boolean\(companyToDelete\)\}[^\n]*confirmDisabled=\{companyConfirmName\.trim\(\) !== companyToDelete\?\.name\}/, "company delete needs the typed name");
+  assert.doesNotMatch(app, /window\.prompt/);
+  for (const [name, call] of [["memorised report", /removeMemorisedReport[\s\S]{0,120}await confirmDelete\(/], ["inventory", /removeInventory = async[\s\S]{0,120}await confirmDelete\(/], ["specification choice", /const remove = async \(option: string\) => \{\n\s+if \(!\(await confirmDelete\(/]]) assert.match(app, call, `${name} delete is confirmed`);
+
+  const screens = ["admin-backup-center", "admin-controls", "api-integrations", "cargo-list", "company-announcements", "document-email-dialog", "inventory-email-dialog", "invoice-attachments", "item-customization-center", "item-logistics-center", "letterhead-center", "payment-terms-picker", "staff-salary-sheets", "user-notes", "user-role-center", "vat-code-center", "warehouse-manager", "warehouse-transfers", "warranty-center"];
+  for (const screen of screens) {
+    const source = read(`../app/${screen}.tsx`);
+    assert.match(source, /useConfirmDelete\(\)/, `${screen} uses the shared delete dialog`);
+    assert.match(source, /\{confirmDeleteDialog\}/, `${screen} renders the shared delete dialog`);
+    assert.match(source, /confirmDelete\(\{ ?title:[\s\S]{0,400}details: ?\[/, `${screen} lists the record's details`);
+    assert.doesNotMatch(source, /window\.confirm\([^)]*(Delete|Remove|Revoke|Reverse)/, `${screen} has no native delete confirm`);
+  }
+  for (const screen of ["inventory-check-reports", "journal-entry-center", "transfer-center", "vat-code-center"]) {
+    const source = read(`../app/${screen}.tsx`);
+    assert.match(source, /<ConfirmDeleteDialog open=[\s\S]{0,700}details=\{/, `${screen} confirms with the shared dialog and details`);
+  }
+});

@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useConfirmDelete } from "./confirm-delete-dialog";
 
 type WarehouseRow = { id: number; code: string; name: string; isDefault: boolean; active: boolean; itemCount: number; quantity: number };
 
@@ -13,6 +14,7 @@ const quantity = (value: number) => value.toLocaleString("en-AE", { maximumFract
 
 /** Management → Inventories: the warehouses inside one inventory. The default warehouse holds stock not placed in another warehouse. */
 export function WarehouseManager({ companyId, locationId, locationName, multiWarehouse = true }: { companyId: number; locationId: number; locationName: string; multiWarehouse?: boolean }) {
+  const { confirmDelete, confirmDeleteDialog } = useConfirmDelete();
   const [rows, setRows] = useState<WarehouseRow[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -58,10 +60,10 @@ export function WarehouseManager({ companyId, locationId, locationName, multiWar
     if (window.confirm(`Make "${row.name}" the default warehouse for ${locationName}? Stock not placed in another warehouse is counted here, and new documents will use it. No stock is moved.`)) void send("PATCH", { id: row.id, action: "setDefault" }, `"${row.name}" is now the default warehouse`);
   };
   const remove = (row: WarehouseRow) => {
-    if (window.confirm(`Remove warehouse "${row.name}"? Only warehouses without stock can be removed.`)) void send("DELETE", { id: row.id }, "Warehouse removed");
+    void confirmDelete({ title: `Remove warehouse ${row.name}?`, description: "Only warehouses without stock can be removed. This cannot be undone.", details: [{ label: "Type", value: row.isDefault ? "Warehouse · default" : "Warehouse" }, { label: "Name", value: row.name }, { label: "Code", value: row.code }, { label: "Inventory", value: locationName }, { label: "Items", value: `${row.itemCount}` }, { label: "Quantity", value: `${row.quantity}` }], confirmLabel: "Remove warehouse" }).then((confirmed) => { if (confirmed) void send("DELETE", { id: row.id }, "Warehouse removed"); });
   };
 
-  return <div className="mt-4 border-t pt-3" aria-label={`Warehouses in ${locationName}`}>
+  return <div className="mt-4 border-t pt-3" aria-label={`Warehouses in ${locationName}`}>{confirmDeleteDialog}
     <div className="flex items-center justify-between gap-2">
       <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><Warehouse className="size-3.5" />Warehouses{rows ? ` · ${rows.length}` : ""}</p>
       {!adding && canActivateMore && <Button type="button" size="sm" variant="ghost" className="h-7 px-2" disabled={busy} onClick={() => setAdding(true)}><Plus className="size-3.5" />Add warehouse</Button>}

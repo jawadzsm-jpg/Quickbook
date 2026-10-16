@@ -13,6 +13,7 @@ import { SmtpSettings } from "./smtp-settings";
 import { ApiIntegrations } from "./api-integrations";
 import { UserRoleCenter, type UserSummary } from "./user-role-center";
 import { EditionSettings } from "./edition-settings";
+import { useConfirmDelete } from "./confirm-delete-dialog";
 
 type Tab = "users" | "security" | "email" | "backups" | "api" | "edition";
 type Override = { id: number; entityId: number; details: string; createdAt: string };
@@ -38,6 +39,7 @@ function PasswordInput({ id, label, value, onChange, autoComplete, minLength, nu
 }
 
 function SecurityPanel({ companyId, companyName, currentUserEmail, onPinStatus }: { companyId: number; companyName: string; currentUserEmail: string; onPinStatus: (configured: boolean) => void }) {
+  const { confirmDelete, confirmDeleteDialog } = useConfirmDelete();
   const [pin, setPin] = useState<PinState | null>(null);
   const [saving, setSaving] = useState(false);
   const [currentPin, setCurrentPin] = useState("");
@@ -67,7 +69,7 @@ function SecurityPanel({ companyId, companyName, currentUserEmail, onPinStatus }
   async function savePin(event: FormEvent) {
     event.preventDefault();
     if (removing) {
-      if (!window.confirm(`Remove the admin PIN for ${companyName}? Negative-stock overrides will be blocked until a new PIN is set.`)) return;
+      if (!(await confirmDelete({ title: `Remove the admin PIN for ${companyName}?`, details: [{ label: "Type", value: "Admin security PIN" }, { label: "Company", value: companyName }, { label: "Last change", value: pin?.lastChange ? `${pin.lastChange.action} · ${pin.lastChange.createdAt}` : "" }], affected: ["Negative-stock overrides are blocked until a new PIN is set."], confirmLabel: "Remove PIN" }))) return;
     } else {
       if (!/^\d{4,12}$/.test(newPin)) return toast.error("The new PIN must contain 4 to 12 numbers.");
       if (newPin !== confirmPin) return toast.error("The new PIN and confirmation do not match.");
@@ -114,7 +116,7 @@ function SecurityPanel({ companyId, companyName, currentUserEmail, onPinStatus }
   }
   const strength = newPassword.length >= 16 && /[A-Z]/.test(newPassword) && /[0-9]/.test(newPassword) && /[^A-Za-z0-9]/.test(newPassword) ? "Strong" : newPassword.length >= 12 ? "Acceptable" : newPassword ? "Too short" : "";
 
-  return <div className="grid gap-5 xl:grid-cols-2">
+  return <div className="grid gap-5 xl:grid-cols-2">{confirmDeleteDialog}
     <section className="min-w-0 rounded-2xl border bg-card p-4 text-card-foreground shadow-sm sm:p-5 xl:col-span-2" aria-label="Share emoji">
       <div className="flex items-center justify-between gap-3"><div className="flex min-w-0 flex-1 gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-lg bg-sky-500/15 text-sky-700 dark:text-sky-300"><Smile className="size-5" /></div><div><h2 className="text-lg font-semibold">Share emoji</h2><p className="text-sm text-muted-foreground">Emoji in Inventory Overview WhatsApp and Telegram messages for {companyName}. Each user picks their own style; off shares plain text for everyone.</p></div></div>
         <label className="inline-flex shrink-0 items-center gap-2 text-sm font-medium"><Switch checked={shareEmojis} disabled={saving || !pin} onCheckedChange={(checked) => void setShareEmojis(checked)} aria-label="Share emoji on or off" />{shareEmojis ? "On" : "Off"}</label></div>

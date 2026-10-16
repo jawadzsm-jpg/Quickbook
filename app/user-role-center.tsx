@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DEFAULT_IDLE_TIMEOUT_MINUTES, idleTimeoutChoices, idleTimeoutLabel } from "@/lib/idle-timeout";
+import { useConfirmDelete } from "./confirm-delete-dialog";
 
 type Role = "all_admin" | "admin" | "accountant" | "sales" | "purchasing" | "inventory" | "customization" | "viewer";
 type Company = { id: number; name: string };
@@ -76,6 +77,7 @@ function CompanyPicker({ companies, value, disabled, onChange }: { companies: Co
 }
 
 export function UserRoleCenter({ onSummary }: { onSummary?: (summary: UserSummary) => void }) {
+  const { confirmDelete, confirmDeleteDialog } = useConfirmDelete();
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [drafts, setDrafts] = useState<Record<number, Draft>>({});
@@ -187,7 +189,7 @@ export function UserRoleCenter({ onSummary }: { onSummary?: (summary: UserSummar
 
   async function deleteUser(user: ManagedUser) {
     if (user.isCurrent) return;
-    if (!window.confirm(`Delete ${user.fullName || user.email}? This user will no longer be able to sign in. This action cannot be undone. Tip: Deactivate keeps the account for later.`)) return;
+    if (!(await confirmDelete({ title: `Delete user ${user.fullName || user.email}?`, description: "This user will no longer be able to sign in. This cannot be undone. Tip: Deactivate keeps the account for later.", details: [{ label: "Type", value: "User" }, { label: "Name", value: user.fullName }, { label: "Email", value: user.email }, { label: "Role", value: user.role.replace("_", " ") }, { label: "Companies", value: companies.filter((company) => user.companyIds.includes(company.id)).map((company) => company.name).join(", ") }, { label: "Status", value: user.active ? "Active" : "Inactive" }, { label: "Last sign-in", value: user.lastLoginAt || "Never" }], confirmLabel: "Delete user" }))) return;
     setBusyId(user.id);
     try {
       const response = await fetch("/api/admin-users", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: user.id }) });
@@ -255,7 +257,7 @@ export function UserRoleCenter({ onSummary }: { onSummary?: (summary: UserSummar
 
   const roleOptions = (selected: Role) => roles.filter((role) => assignableRole(role.value) || selected === role.value);
 
-  return <section className="min-w-0 rounded-2xl border bg-card text-card-foreground shadow-sm" aria-label="Users and access">
+  return <section className="min-w-0 rounded-2xl border bg-card text-card-foreground shadow-sm" aria-label="Users and access">{confirmDeleteDialog}
     <header className="flex flex-wrap items-start justify-between gap-4 border-b p-4 sm:p-5">
       <div className="min-w-0 flex-1 basis-80"><h2 className="text-lg font-semibold">Users & access</h2><p className="mt-1 text-sm text-muted-foreground">Add staff, choose their role and companies, and manage sign-in. Role and company changes sign the user out so the new access applies immediately. Auto sign-out ends a session after the chosen time without activity (15 minutes by default).{currentRole && !canManageAllAdmin ? " As a company Administrator you can add and manage non-administrator users of your companies; an All-Admin manages Administrators." : ""}</p></div>
       <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={loading} onClick={() => { if (dirtyCount && !window.confirm("Discard unsaved access changes and reload?")) return; void loadUsers(); }}><RefreshCw className="size-4" />Refresh</Button><Button type="button" onClick={openCreate}><Plus className="size-4" />Add user</Button></div>

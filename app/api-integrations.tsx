@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useConfirmDelete } from "./confirm-delete-dialog";
 
 type ApiKey = { id: number; name: string; keyPrefix: string; scopes: string[]; createdByName: string; createdAt: string; lastUsedAt: string | null; revokedAt: string | null; revokedByName: string };
 
@@ -21,6 +22,7 @@ async function copyText(text: string, label: string) {
 
 /** Admin Controls → API & Integrations: read-only API keys for websites, and how to connect. */
 export function ApiIntegrations({ companyId, companyName }: { companyId: number; companyName: string }) {
+  const { confirmDelete, confirmDeleteDialog } = useConfirmDelete();
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -58,7 +60,7 @@ export function ApiIntegrations({ companyId, companyName }: { companyId: number;
   }
 
   async function revoke(key: ApiKey) {
-    if (!window.confirm(`Revoke "${key.name}"? Any website using this key stops receiving data immediately. This cannot be undone.`)) return;
+    if (!(await confirmDelete({ title: `Revoke API key ${key.name}?`, description: "Any website using this key stops receiving data immediately. This cannot be undone.", details: [{ label: "Type", value: "API key" }, { label: "Name", value: key.name }, { label: "Key", value: `${key.keyPrefix}…` }, { label: "Scopes", value: key.scopes.join(", ") }, { label: "Created by", value: key.createdByName }, { label: "Created", value: key.createdAt }, { label: "Last used", value: key.lastUsedAt || "Never" }], confirmLabel: "Revoke key" }))) return;
     try {
       const response = await fetch("/api/api-keys", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, id: key.id }) });
       const data = await response.json();
@@ -75,7 +77,7 @@ export function ApiIntegrations({ companyId, companyName }: { companyId: number;
     { label: "JavaScript (server)", code: `const response = await fetch("${base}/products?updated_since=" + lastSync, {\n  headers: { Authorization: \`Bearer \${process.env.EASYBOOK_API_KEY}\` },\n});\nconst { data, has_more, next_cursor } = await response.json();` },
   ];
 
-  return <section className="space-y-4" aria-label="API & Integrations">
+  return <section className="space-y-4" aria-label="API & Integrations">{confirmDeleteDialog}
     <div className="rounded-2xl border bg-card p-4 shadow-sm sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 flex-1 basis-80 gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-xl bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-200"><Plug className="size-5" /></div><div className="min-w-0"><h2 className="font-semibold">API keys for {companyName}</h2><p className="text-sm text-muted-foreground">Websites (Shopify, WordPress, your own site) use a key to read this company&apos;s products, stock, prices and Today Offers. Keys are read-only.</p></div></div>

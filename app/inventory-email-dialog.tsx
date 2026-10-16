@@ -14,6 +14,7 @@ import { EmailSignatureEditor } from "./email-signature-editor";
 import { cleanEmailListCategory, defaultListEmail, defaultStockEmail, EMAIL_LIST_CATEGORY_MAX, EMAIL_LIST_CSV_MAX_BYTES, EMAIL_LIST_IDS_MAX, EMAIL_LIST_IMPORT_MAX, emailListCategories, emailListLabel, emailListsFor, inBatches, INVENTORY_EMAIL_MAX_RECIPIENTS, parseEmailListCsv, type EmailListContact, type EmailListOwner, type EmailListType } from "@/lib/email-lists";
 import { EMAIL_TEMPLATE_NAME_MAX, fillEmailTemplate, STOCK_EMAIL_TYPE, withoutSignOff } from "@/lib/email-templates";
 import { isValidEmail } from "@/lib/email-validation";
+import { useConfirmDelete } from "./confirm-delete-dialog";
 
 type Template = { id: number; name: string; documentType: string; subject: string; body: string; shared: boolean; editable: boolean };
 type Address = { name: string; company: string; category: string; email: string };
@@ -54,6 +55,7 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
   /** Shown as a page instead of a dialog: sending clears the selection rather than closing. */
   page?: boolean;
 }) {
+  const { confirmDelete, confirmDeleteDialog } = useConfirmDelete();
   const lists = useMemo(() => emailListsFor(role), [role]);
   const [type, setType] = useState<EmailListType>(lists[0] ?? "sales");
   const [contacts, setContacts] = useState<EmailListContact[] | null>(null);
@@ -220,7 +222,11 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
   };
   const removeSelected = () => {
     const ids = [...selected];
-    if (!ids.length || !window.confirm(`Remove ${count(ids.length)} ${ids.length === 1 ? "address" : "addresses"} from the ${emailListLabel(type)}? ${seesAll ? " This removes them for the users who added them." : ""}`)) return;
+    if (!ids.length) return;
+    const chosen = (contacts ?? []).filter((contact) => selected.has(contact.id));
+    void confirmDelete({ title: `Remove ${count(ids.length)} ${ids.length === 1 ? "address" : "addresses"}?`, description: `They are removed from the ${emailListLabel(type)}.${seesAll ? " This removes them for the users who added them." : ""}`, details: [{ label: "Type", value: `${emailListLabel(type)} addresses` }, { label: "Count", value: count(ids.length) }, { label: ids.length === 1 ? "Address" : "Addresses", value: chosen.slice(0, 8).map((contact) => [contact.name, contact.email].filter(Boolean).join(" · ")).join("; ") + (chosen.length > 8 ? `; and ${count(chosen.length - 8)} more` : "") }, { label: "Categories", value: [...new Set(chosen.map((contact) => contact.category).filter(Boolean))].join(", ") }], confirmLabel: ids.length === 1 ? "Remove address" : "Remove addresses" }).then((confirmed) => { if (confirmed) removeConfirmed(ids); });
+  };
+  const removeConfirmed = (ids: number[]) => {
     void run(async () => { const removed = await patchInBatches("remove", ids, {}, "removed"); setSelected(new Set()); toast.success(`${count(removed)} removed`); });
   };
   // Puts the selected addresses in a category ("" clears it); after adding to a category, that category is shown.
@@ -259,7 +265,9 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
   };
   const deleteCategory = (name: string) => {
     const count = categoryCount(name);
-    if (!window.confirm(`Delete the category ${name}?${count ? ` Its ${count} ${count === 1 ? "address stays" : "addresses stay"} in the list without a category.` : ""}${seesAll && view === "all" ? " This applies to every user's list." : ""}`)) return;
+    void confirmDelete({ title: `Delete category ${name}?`, description: seesAll && view === "all" ? "This applies to every user's list." : "Only the category is deleted.", details: [{ label: "Type", value: `${emailListLabel(type)} category` }, { label: "Name", value: name }, { label: "Addresses", value: `${count}` }], affected: count ? [`Its ${count} ${count === 1 ? "address stays" : "addresses stay"} in the list without a category.`] : [], confirmLabel: "Delete category" }).then((confirmed) => { if (confirmed) deleteCategoryConfirmed(name); });
+  };
+  const deleteCategoryConfirmed = (name: string) => {
     void run(async () => {
       showList(await call("/api/email-lists", "PATCH", { companyId, type, view, action: "deleteCategory", name }));
       if (category.toLowerCase() === name.toLowerCase()) { setCategory(ALL_CATEGORIES); setSelected(new Set()); }
@@ -393,7 +401,7 @@ export function InventoryEmailDialog({ open, onOpenChange, companyId, companyNam
     {editingSignature ? null : <div className="flex justify-end"><Button type="button" disabled={busy || !selected.size || assignTo !== null || !subject.trim() || !body.trim()} onClick={send}><Send className="size-4" />{busy ? "Working…" : `Send to ${count(selected.size)} ${selected.size === 1 ? "address" : "addresses"}`}</Button></div>}
   </section>;
 
-  return <Dialog open={open} onOpenChange={(next) => { if (!busy) onOpenChange(next); }}>
+  return <Dialog open={open} onOpenChange={(next) => { if (!busy) onOpenChange(next); }}>{confirmDeleteDialog}
     <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-5xl">
       <DialogHeader><DialogTitle className="flex items-center gap-2"><Mail className="size-5" />{itemCount ? "Email stock list" : "Email"}</DialogTitle><DialogDescription>{itemCount ? `${itemCount} ${itemCount === 1 ? "item" : "items"} from Inventory Overview.` : "No item selected: write your own message, e.g. news or items from your website."} Each address receives its own copy; recipients do not see each other, and replies come to {sender.email || "you"}.</DialogDescription></DialogHeader>
       {content}

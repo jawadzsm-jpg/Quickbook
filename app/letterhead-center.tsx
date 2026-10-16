@@ -10,6 +10,7 @@ import { createA4LetterheadPdfBlob, downloadPdfBlob } from "@/lib/document-outpu
 import { defaultLetterhead, footerStyles, letterheadDocuments, readLetterheads, type LetterheadTemplate } from "@/lib/letterhead";
 import { LetterheadPage, type LetterheadCompany } from "./letterhead-page";
 import { LetterheadRichEditor } from "./letterhead-rich-editor";
+import { useConfirmDelete } from "./confirm-delete-dialog";
 
 type Company = LetterheadCompany & { id: number; letterheadDesign: string };
 
@@ -24,6 +25,7 @@ function Toggle({ checked, onChange, label, hint, className = "" }: { checked: b
 }
 
 export function LetterheadCenter({ company, onSaved }: { company: Company; onSaved: (company: Company) => void }) {
+  const { confirmDelete, confirmDeleteDialog } = useConfirmDelete();
   const initial = readLetterheads(company.letterheadDesign);
   const [templates, setTemplates] = useState<LetterheadTemplate[]>(initial.templates);
   const [selectedId, setSelectedId] = useState(initial.templates[0]?.id || "");
@@ -45,8 +47,9 @@ export function LetterheadCenter({ company, onSaved }: { company: Company; onSav
     setTemplates((existing) => [...existing, template]);
     setSelectedId(template.id);
   };
-  const remove = () => {
+  const remove = async () => {
     if (!selected) return;
+    if (!(await confirmDelete({ title: `Delete letterhead ${selected.name}?`, description: "The letterhead is removed when you save the letterheads.", details: [{ label: "Type", value: "Letterhead template" }, { label: "Name", value: selected.name }, { label: "Heading", value: selected.heading }, { label: "Used on", value: selected.documents.map((document) => letterheadDocuments.find(([value]) => value === document)?.[1] ?? document).join(", ") || "No documents" }], affected: selected.documents.length ? ["Those documents stop using this letterhead."] : [], confirmLabel: "Delete letterhead" }))) return;
     const remaining = templates.filter((template) => template.id !== selected.id);
     setTemplates(remaining);
     setSelectedId(remaining[0]?.id || "");
@@ -96,7 +99,7 @@ export function LetterheadCenter({ company, onSaved }: { company: Company; onSav
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not create the PDF."); }
     finally { setPdfBusy(false); }
   };
-  return <section className="space-y-5">
+  return <section className="space-y-5">{confirmDeleteDialog}
     <div className="rounded-xl border bg-white p-5">
       <h2 className="text-lg font-bold">Letterhead generator</h2>
       <p className="text-sm text-slate-500">Create named letterheads, assign each to document areas, and print or download a full A4 page.</p>

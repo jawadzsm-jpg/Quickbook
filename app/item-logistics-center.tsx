@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 import { logisticsChoices, dimensionText, type LogisticsOption } from "@/lib/item-logistics";
 import { LogisticsChoice } from "./logistics-choice";
+import { useConfirmDelete } from "./confirm-delete-dialog";
 
 type LogisticsRecord = {
   id: number;
@@ -29,6 +30,7 @@ type LogisticsRecord = {
 };
 
 export function ItemLogisticsCenter({ companyId, companyName, locationId, locationName, canEdit, canDelete = false }: { companyId: number; companyName: string; locationId: number; locationName: string; canEdit: boolean; canDelete?: boolean }) {
+  const { confirmDelete, confirmDeleteDialog } = useConfirmDelete();
   const [minimized, setMinimized] = useState(false);
   const [choiceBusy, setChoiceBusy] = useState(false);
   const [options, setOptions] = useState<LogisticsOption[]>([]);
@@ -116,7 +118,7 @@ export function ItemLogisticsCenter({ companyId, companyName, locationId, locati
   }
   async function changeOption(option: LogisticsOption, method: "PATCH" | "DELETE", value?: string, label?: string) {
     if (!canEdit || choiceBusy || saving) return;
-    if (method === "DELETE" && !window.confirm(`Delete ${option.value} from this company's choices? Saved item and packing-list values will stay unchanged.`)) return;
+    if (method === "DELETE" && !(await confirmDelete({ title: `Delete choice ${option.value}?`, description: "The choice is removed from this company's list.", details: [{ label: "Type", value: option.type === "hs_code" ? "HS code choice" : "Country of origin choice" }, { label: "Value", value: option.value }, { label: "Label", value: option.label }, { label: "Company", value: companyName }], affected: ["Saved item and packing-list values stay unchanged."], confirmLabel: "Delete choice" }))) return;
     setChoiceBusy(true);
     try {
       const response = await fetch("/api/item-logistics-options", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, id: option.id, type: option.type, sourceValue: option.sourceValue, expectedValue: option.value, expectedLabel: option.label, value, label }) });
@@ -127,7 +129,7 @@ export function ItemLogisticsCenter({ companyId, companyName, locationId, locati
     } finally { setChoiceBusy(false); }
   }
   if (minimized) return <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-4 text-card-foreground"><div><strong>HS Code, COO &amp; Dimensions · Minimized</strong>{dirtyIds.size > 0 && <p className="text-sm text-muted-foreground">{dirtyIds.size} unsaved item(s)</p>}</div><Button variant="outline" onClick={() => setMinimized(false)}><Maximize2 className="size-4" />Restore</Button></section>;
-  return <div className="min-w-0 w-full space-y-5"><SkuLockNotice message={skuLock.message} />
+  return <div className="min-w-0 w-full space-y-5">{confirmDeleteDialog}<SkuLockNotice message={skuLock.message} />
     <section className="logistics-editor min-w-0 rounded-xl border bg-white shadow-sm">
       <div className="flex flex-col gap-4 border-b bg-slate-50 p-5 lg:flex-row lg:items-center lg:justify-between"><div className="flex items-center gap-3"><div className="grid size-11 place-items-center rounded-xl bg-blue-600 text-white"><PackageSearch className="size-5" /></div><div><h2 className="font-bold text-slate-900">HS Code, COO &amp; Dimensions</h2><p className="text-sm text-slate-500">{companyName} · {locationName}</p></div></div><div className="flex flex-wrap items-center gap-2"><Badge variant="outline" className="bg-white">{records.length} items</Badge>{dirtyIds.size ? <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">{dirtyIds.size} unsaved</Badge> : null}<Button type="button" variant="outline" onClick={() => setMinimized(true)}><Minus className="size-4" />Minimize</Button><Button type="button" variant="outline" onClick={() => { if (!dirtyIds.size || window.confirm("Discard unsaved item changes?")) void load(); }} disabled={loading || saving || choiceBusy}><RotateCcw className="size-4" />Reset</Button>{canEdit ? <Button type="button" onClick={() => void save()} disabled={!skuLock.ready || !dirtyIds.size || saving || choiceBusy}><Save className="size-4" />{saving ? "Saving…" : "Save Changes"}</Button> : null}</div></div>
       <div className="flex flex-col gap-3 border-b p-4 md:flex-row md:items-center md:justify-between"><div className="flex items-center gap-2 text-sm text-slate-600"><span>Show</span><Select value={pageSize} onValueChange={(value) => { setPageSize(value); setPage(1); }}><SelectTrigger className="w-20"><SelectValue /></SelectTrigger><SelectContent>{[25, 50, 100].map((value) => <SelectItem key={value} value={String(value)}>{value}</SelectItem>)}</SelectContent></Select><span>entries</span></div><div className="relative w-full md:max-w-sm"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Search items, SKU, HS code or COO" className="pl-9" /></div></div>

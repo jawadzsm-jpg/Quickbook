@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSepa
 import { Textarea } from "@/components/ui/textarea";
 import { EmailSignatureEditor } from "./email-signature-editor";
 import { EMAIL_DOCUMENT_TYPES, EMAIL_PLACEHOLDERS, MAX_ATTACHMENT_BYTES, defaultEmailTemplate, emailDocumentTypeLabel, fillEmailTemplate, parseEmailList, templateFits, type EmailValues } from "@/lib/email-templates";
+import { useConfirmDelete } from "./confirm-delete-dialog";
 
 export type EmailDocument = { id: number; type: string; number: string; party: string; total: number; currency: string; transactionDate: string; dueDate: string };
 type Template = { id: number; name: string; documentType: string; subject: string; body: string; shared: boolean; mine: boolean; editable: boolean; ownerName: string | null };
@@ -56,6 +57,7 @@ export function AddressField({ id, label, addresses, onChange, suggestions, plac
 
 /** Create and edit email templates: each person's own, optionally shared with everyone in the company. */
 function TemplateEditor({ companyId, documentType, signatureOn, templates, onSaved, onUse }: { companyId: number; documentType: string; signatureOn: boolean; templates: Template[]; onSaved: () => void; onUse: (template: Template) => void }) {
+  const { confirmDelete, confirmDeleteDialog } = useConfirmDelete();
   const blank = { id: 0, name: "", documentType, ...defaultEmailTemplate(documentType, signatureOn), shared: false };
   const [form, setForm] = useState<typeof blank | null>(null);
   const [busy, setBusy] = useState(false);
@@ -90,14 +92,14 @@ function TemplateEditor({ companyId, documentType, signatureOn, templates, onSav
     <label className="flex items-start gap-2 text-sm"><Checkbox checked={form.shared} onCheckedChange={(checked) => setForm({ ...form, shared: checked === true })} className="mt-0.5" /><span>Share with everyone in this company<span className="block text-xs text-muted-foreground">Others can use it; only you and administrators can change it.</span></span></label>
     <div className="flex justify-end gap-2"><Button type="button" variant="ghost" onClick={() => setForm(null)}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? "Saving…" : form.id ? "Save template" : "Add template"}</Button></div>
   </form>;
-  return <div className="space-y-3">
+  return <div className="space-y-3">{confirmDeleteDialog}
     <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm text-muted-foreground">Your templates and the ones shared with the company.</p><Button type="button" size="sm" onClick={() => setForm(blank)}><Plus className="size-4" />New template</Button></div>
     {templates.length ? <ul className="divide-y rounded-lg border">{templates.map((template) => <li key={template.id} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
       <div className="min-w-0 flex-1 basis-56"><p className="flex flex-wrap items-center gap-1.5 font-medium">{template.name}<Badge variant="outline" className="font-normal">{emailDocumentTypeLabel(template.documentType)}</Badge>{template.shared ? <Badge variant="secondary" className="font-normal">Shared{template.mine ? "" : ` · ${template.ownerName || "colleague"}`}</Badge> : null}</p><p className="truncate text-xs text-muted-foreground">{template.subject}</p></div>
       <div className="flex gap-1">
         {templateFits(template.documentType, documentType) ? <Button type="button" size="sm" variant="outline" onClick={() => onUse(template)}>Use</Button> : null}
         {template.editable ? <><Button type="button" size="icon" variant="ghost" aria-label={`Edit ${template.name}`} onClick={() => setForm({ id: template.id, name: template.name, documentType: template.documentType, subject: template.subject, body: template.body, shared: template.shared })}><Pencil className="size-4" /></Button>
-        <Button type="button" size="icon" variant="ghost" aria-label={`Delete ${template.name}`} disabled={busy} onClick={() => { if (window.confirm(`Delete the template “${template.name}”?`)) void call({ id: template.id, remove: true }, "Template deleted"); }}><Trash2 className="size-4" /></Button></> : null}
+        <Button type="button" size="icon" variant="ghost" aria-label={`Delete ${template.name}`} disabled={busy} onClick={() => void confirmDelete({ title: `Delete template ${template.name}?`, description: template.shared ? "The template is removed for everyone it is shared with. This cannot be undone." : "This cannot be undone.", details: [{ label: "Type", value: "Email template" }, { label: "Name", value: template.name }, { label: "Document", value: emailDocumentTypeLabel(template.documentType) }, { label: "Subject", value: template.subject }, { label: "Sharing", value: template.shared ? "Shared" : "Only me" }], confirmLabel: "Delete template" }).then((confirmed) => { if (confirmed) void call({ id: template.id, remove: true }, "Template deleted"); })}><Trash2 className="size-4" /></Button></> : null}
       </div>
     </li>)}</ul> : <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No templates yet. Add one to reuse your wording for every customer or supplier.</div>}
   </div>;
