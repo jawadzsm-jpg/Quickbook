@@ -669,6 +669,9 @@ test("customization boxes: ONBOARD stays plain text, OTHERS gives saved upgrade 
   assert.equal(upgradesPrice(priced, { ram: "32GB UPGRADE", storage: "1TB SSD UPGRADE", screen: "QHD 240MHZ" }), 249.5);
   assert.equal(upgradesPrice(priced, { ram: "", storage: "GONE" }), 0);
   assert.equal(upgradesPrice(priced, undefined), 0);
+  // A price typed in the Inventory Overview Upgrade dialog replaces that pick's option price.
+  assert.equal(upgradesPrice(priced, { ram: "32GB UPGRADE", storage: "1TB SSD UPGRADE" }, { ram: 200 }), 299.5);
+  assert.equal(upgradesPrice(priced, { storage: "1TB SSD UPGRADE" }, { ram: 200, storage: 0 }), 0);
 
   const page = readFileSync(new URL("../app/item-customization-center.tsx", import.meta.url), "utf8");
   const overview = readFileSync(new URL("../app/inventory-overview.tsx", import.meta.url), "utf8");
@@ -685,7 +688,9 @@ test("customization boxes: ONBOARD stays plain text, OTHERS gives saved upgrade 
   assert.match(api, /reading \? "inventory:read" : "customization:manage"/);
   assert.match(api, /pricedCustomizationFields\.includes\(field\) \? parseUpgradePrice\(input\.price\) : 0/);
   assert.match(readFileSync(new URL("../drizzle/0140_customization_upgrade_price.sql", import.meta.url), "utf8"), /ADD COLUMN IF NOT EXISTS "price" double precision DEFAULT 0 NOT NULL/);
-  assert.match(overview, /Number\(record\.salesPrice\) \+ \(record\.id === undefined \? 0 : upgradesPrice\(upgradeOptions, upgrades\[record\.id\]\)\)/);
+  assert.match(overview, /Number\(record\.salesPrice\) \+ \(record\.id === undefined \? 0 : upgradeTotalFor\(record\.id\)\)/);
+  assert.match(overview, /upgradesPrice\(upgradeOptions, upgrades\[id\], enteredPrices\(id\)\)/);
+  assert.match(overview, /pricedCustomizationFields\.includes\(field\) \? upgradePriceInput\(upgradeRecord, field\) : null/);
   assert.match(overview, /priceFor\(\{ id: record\.id, salesPrice: offer\.offerPrice \}\)/);
   assert.match(page, /priceInput\(newPrice, setNewPrice/);
   // Product Customization users may delete upgrade options (DELETE is otherwise administrator-only); sales users read them.
