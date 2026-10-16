@@ -213,6 +213,7 @@ Permissions are named (`workspace:read`, `inventory:read`, `inventory:manage`, `
 | `/api/records` | GET, POST, PATCH, DELETE | Permission by record kind and document type | Contacts, items, accounts and every transaction type; posting, conversion, editing, voiding |
 | `/api/journal-entries` | GET, POST, PATCH, DELETE | `accounting:manage` | Manual journals |
 | `/api/account-history` | GET | `accounting:manage` | Account transaction history |
+| `/api/audit-log` | PATCH, DELETE | All-Admin only | Edit the details of, or delete, one Audit Trail entry (kept on record as a new entry) |
 | `/api/attachments` | GET, POST, DELETE | Company `workspace:read` | Files attached to records |
 | `/api/sales-work` | GET, PATCH | Company access; Administrator for PATCH | Sales rep daily work; assign customer sales owner |
 | `/api/employee-loan-links` | GET, PATCH | Company Administrator | Link loans/advances to employees |
