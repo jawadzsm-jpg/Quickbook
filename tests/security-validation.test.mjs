@@ -20,7 +20,7 @@ const { dueDateForPaymentTerms } = await sourceModule("../lib/payment-terms.ts")
 const { chequeAlignmentBounds, uaeChequeLayout, validChequeAlignment } = await sourceModule("../lib/uae-cheque-layouts.ts");
 const { countries } = await sourceModule("../lib/countries.ts");
 const { DEFAULT_TYPOGRAPHY, parseTypography, typographyVariables } = await sourceModule("../lib/app-typography.ts");
-const { partNumberInLine, generatedItemDescription, inventoryItemCondition, inventoryItemDetails, inventoryItemLine, inventoryItemTitle, inventoryShareDescription, inventorySocialShareText, invoiceItemDescription, itemSpecificationDescription, itemTitleWithSku } = await sourceModule("../lib/item-description.ts");
+const { partNumberInLine, generatedItemDescription, inventoryItemCondition, inventoryItemDetails, inventoryItemLine, inventoryItemTitle, inventoryLineNameSku, itemHasNoModel, inventoryShareDescription, inventorySocialShareText, invoiceItemDescription, itemSpecificationDescription, itemTitleWithSku } = await sourceModule("../lib/item-description.ts");
 const { isInvoiceItemSelectable } = await sourceModule("../lib/invoice-item-filter.ts");
 const { applyInlineFormat, applyLineFormat, inlineFormatsFor, telegramHtml, applyLink } = await sourceModule("../lib/share-format.ts");
 const { convertSharePrice, missingShareRateMessage, shareCurrencies, shareCurrencyOption, shareCurrencyRate, shareCurrencySymbol } = await sourceModule("../lib/share-currency.ts");
@@ -115,7 +115,20 @@ test("item identity appears once in titles and Item No. is reserved for invoice 
   assert.match(app, /Generated SKU/);
   assert.match(records, /previewIdentity/);
   assert.match(records, /generatedItemDescription\(specifications, name, sku, itemNumber\)/);
-  assert.match(overview, /inventorySocialShareText\(record\.name, record\.sku, description, channel, record\.itemNumber, emoji\)/);
+  assert.match(overview, /inventorySocialShareText\(name, sku, description, channel, record\.itemNumber, emoji\)/);
+  // Model "NO": the line, shares, Print and Excel leave out the "NO" and the generated SKU; other items keep their SKU.
+  const noModel = JSON.stringify([{ label: "Brand", value: "WD PURPLE WD181PURP 18TB" }, { label: "Model", value: "no" }, { label: "Condition", value: "BRAND NEW" }]);
+  assert.equal(itemHasNoModel(noModel), true);
+  assert.equal(itemHasNoModel(JSON.stringify([{ label: "Model", value: "NOTEBOOK 14" }])), false);
+  assert.equal(itemHasNoModel("not json"), false);
+  const noModelLine = inventoryLineNameSku({ name: "WD PURPLE WD181PURP 18TB NO", sku: "EFDCF2", specifications: noModel });
+  assert.deepEqual(noModelLine, { name: "WD PURPLE WD181PURP 18TB", sku: "" });
+  assert.equal(inventoryItemLine(noModelLine.name, noModelLine.sku, "BRAND NEW", "13007"), "WD PURPLE WD181PURP 18TB | BRAND NEW | #13007");
+  assert.equal(inventorySocialShareText(noModelLine.name, noModelLine.sku, "BRAND NEW", "whatsapp", "13007"), "🔺 *WD PURPLE WD181PURP 18TB* 🔺 | ⚡ *BRAND NEW* ⚡ |");
+  assert.deepEqual(inventoryLineNameSku({ name: "DELL XPS", sku: "ABC123", specifications: "[]" }), { name: "DELL XPS", sku: "ABC123" });
+  assert.match(overview, /const line = inventoryLineNameSku\(record\);\s+const description = inventoryItemLine\(line\.name, line\.sku,/);
+  assert.match(overview, /\{ value: inventoryLineNameSku\(record\)\.sku \}, \{ value: inventoryLineNameSku\(record\)\.name \}/);
+  assert.match(overview, /xml\(inventoryLineNameSku\(record\)\.sku\)/);
   // Shared copies leave out Product Customization Details (no "Screen:" line).
   assert.doesNotMatch(overview, /`Screen: \$\{/);
   assert.match(overview, /const description = withUpgrades\(record, shareSpecificationText\(record\)\);/);
