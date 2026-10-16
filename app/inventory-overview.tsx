@@ -28,6 +28,7 @@ import { CategoryColorPicker } from "./category-color-picker";
 import type { PrintOrientation } from "@/components/print-orientation-select";
 import { applyCustomizationUpgrades, customizationBoxValue, customizationFieldLabels, customizationOptionFields, isOnboardValue, type CustomizationOptionField, type CustomizationOptions, type CustomizationUpgrades } from "@/lib/customization-options";
 import { InventoryEmailDialog } from "./inventory-email-dialog";
+import { convertSharePrice, missingShareRateMessage, shareCurrencies, shareCurrencyOption, shareCurrencyRate } from "@/lib/share-currency";
 
 
 type OverviewItem = {
@@ -232,6 +233,10 @@ export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCre
   const [priceMax, setPriceMax] = useState("");
   // Price adjustment for what is shown and shared (WhatsApp, Telegram, email, Excel); saved prices never change.
   const [priceAdjust, setPriceAdjust] = useState<PriceAdjust>({ mode: "percent", value: "" });
+  // Price currency for what is shown and shared: "" keeps the base currency; USD or EUR converts with the company's
+  // saved exchange rates (Currencies). Saved prices never change.
+  const [shareCurrency, setShareCurrency] = useState("");
+  const [exchangeRates, setExchangeRates] = useState<Array<{ currencyCode: string; rate: number; active?: boolean }>>([]);
   const [loadedAt, setLoadedAt] = useState(() => Date.now());
   const [detailRecord, setDetailRecord] = useState<ConsolidatedItem | null>(null);
   // Upgrade picks (RAM, Storage, Screen Details options from Product Customization Details) per product, for this
@@ -318,6 +323,13 @@ export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCre
     } finally {
       setLoading(false);
     }
+  }, [companyId]);
+
+  useEffect(() => {
+    if (!companyId) return;
+    let active = true;
+    fetch(`/api/exchange-rates?companyId=${companyId}`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => { if (active) setExchangeRates(Array.isArray(data?.rates) ? data.rates : []); }).catch(() => { if (active) setExchangeRates([]); });
+    return () => { active = false; };
   }, [companyId]);
 
   // Initial load synchronizes the overview with all persisted inventories.
@@ -413,10 +425,23 @@ export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCre
   }), [consolidatedRecords, inStockRecords]);
 
   const adjustValue = Number(priceAdjust.value) || 0;
+  // The overview lists one company, so every record shares its base currency.
+  const baseCurrency = records[0]?.currency || "AED";
+  const shareRate = shareCurrency ? shareCurrencyRate(exchangeRates, baseCurrency, shareCurrency) : 1;
+  const priceCurrency = shareCurrency && shareRate ? shareCurrency : baseCurrency;
+  const pickShareCurrency = (code: string) => {
+    if (code && !shareCurrencyRate(exchangeRates, baseCurrency, code)) {
+      toast.error(missingShareRateMessage(code, baseCurrency, records[0]?.companyName ?? ""));
+      return setShareCurrency("");
+    }
+    setShareCurrency(code);
+  };
+  // The increase applies in the base currency, then VAT, then the conversion to the picked currency.
   const priceFor = (record: { salesPrice: number | string }, mode: VatMode = vatMode) => {
     const base = Number(record.salesPrice);
     const adjusted = priceAdjust.mode === "percent" ? base * (1 + adjustValue / 100) : base + adjustValue;
-    return Math.round(Math.max(0, adjusted) * (mode === "include" ? 1.05 : 1) * 100) / 100;
+    const priced = Math.round(Math.max(0, adjusted) * (mode === "include" ? 1.05 : 1) * 100) / 100;
+    return shareCurrency && shareRate ? convertSharePrice(priced, shareRate) : priced;
   };
   const adjustLabel = adjustValue ? (priceAdjust.mode === "percent" ? ` +${adjustValue}%` : ` +${adjustValue}`) : "";
   const categoryOptions = useMemo(() => [...new Set(records.map((record) => record.category).filter(Boolean))].sort(), [records]);
@@ -571,10 +596,10 @@ export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCre
         details.push(channel === "email" ? `Quantity: ${quantity}` : marked(emoji.quantity, `Qty: ${quantity}`));
       }
       const offer = record.recordIds.map((id) => offerByItem.get(id)).find(Boolean);
-      const offerText = showPrice && offer ? offerShareText({ channel, currency: record.currency, normalPrice: priceFor(record), offerPrice: priceFor({ salesPrice: offer.offerPrice }), endsAt: offer.endsAt, vatLabel: vatLabels[vatMode], mark: channel !== "email" && emoji.id !== "none" ? "🔥" : "", remaining: offerRemaining(offer) }) : null;
+      const offerText = showPrice && offer ? offerShareText({ channel, currency: priceCurrency, normalPrice: priceFor(record), offerPrice: priceFor({ salesPrice: offer.offerPrice }), endsAt: offer.endsAt, vatLabel: vatLabels[vatMode], mark: channel !== "email" && emoji.id !== "none" ? "🔥" : "", remaining: offerRemaining(offer) }) : null;
       if (showPrice) {
         const price = priceFor(record);
-        const value = offerText?.price ?? `${record.currency} ${plainMoney(price)}${vatLabels[vatMode]}`;
+        const value = offerText?.price ?? `${priceCurrency} ${plainMoney(price)}${vatLabels[vatMode]}`;
         details.push(channel === "email" ? `Price: ${value}` : marked(emoji.price, value));
       }
       if (details.length) lines.push(details.join(" | "));
@@ -656,7 +681,7 @@ export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCre
         { value: record.itemNumber ?? "" }, { value: record.sku }, { value: record.name }, { value: withUpgrades(record, shareSpecificationText(record)) },
       ];
       if (showQuantity) values.push({ value: Number(record.quantity), type: "Number", style: "Number" });
-      if (showPrice) values.push({ value: priceFor(record, mode), type: "Number", style: "Money" }, { value: record.currency });
+      if (showPrice) values.push({ value: priceFor(record, mode), type: "Number", style: "Money" }, { value: priceCurrency });
       if (offerColumns) {
         const offer = offerFor(record);
         const remaining = offer ? offerRemaining(offer) : null;
@@ -687,7 +712,7 @@ export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCre
     const headers = ["Item No.", "SKU", "Item", "Specifications", "Inventory", ...(warehouseFilter ? ["Warehouse"] : []), ...(showQuantity ? ["Qty"] : []), ...(showPrice ? [`Price${vatLabels[vatMode]}`] : [])];
     const numeric = new Set(["Qty", `Price${vatLabels[vatMode]}`]);
     const warehouseName = warehouseLabel.split(" · ").slice(1).join(" · ") || warehouseLabel;
-    const body = list.map((record) => `<tr><td>${xml(record.itemNumber ?? "")}</td><td>${xml(record.sku)}</td><td><strong>${xml(record.name)}</strong></td><td>${xml(withUpgrades(record, specificationText(record)))}</td><td>${xml(record.inventories.map((inventory) => inventory.locationName).join(", "))}</td>${warehouseFilter ? `<td>${xml(warehouseName)}</td>` : ""}${showQuantity ? `<td class="num">${xml(plainMoney(Number(record.quantity)))}</td>` : ""}${showPrice ? `<td class="num">${xml(`${record.currency} ${money(priceFor(record))}`)}</td>` : ""}</tr>`).join("");
+    const body = list.map((record) => `<tr><td>${xml(record.itemNumber ?? "")}</td><td>${xml(record.sku)}</td><td><strong>${xml(record.name)}</strong></td><td>${xml(withUpgrades(record, specificationText(record)))}</td><td>${xml(record.inventories.map((inventory) => inventory.locationName).join(", "))}</td>${warehouseFilter ? `<td>${xml(warehouseName)}</td>` : ""}${showQuantity ? `<td class="num">${xml(plainMoney(Number(record.quantity)))}</td>` : ""}${showPrice ? `<td class="num">${xml(`${priceCurrency} ${money(priceFor(record))}`)}</td>` : ""}</tr>`).join("");
     const totalQuantity = list.reduce((sum, record) => sum + Number(record.quantity), 0);
     const footer = showQuantity ? `<tfoot><tr><td colspan="${headers.length - 1 - Number(showPrice)}">Total quantity</td><td class="num">${xml(plainMoney(totalQuantity))}</td>${showPrice ? "<td></td>" : ""}</tr></tfoot>` : "";
     const companies = [...new Set(list.map((record) => record.companyName))].join(", ");
@@ -816,6 +841,11 @@ export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCre
         <label className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-xs font-medium text-muted-foreground"><Checkbox checked={!showQuantity} onCheckedChange={(checked) => setShowQuantity(checked !== true)} />Hide qty</label>
         <label className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-xs font-medium text-muted-foreground"><Checkbox checked={!showPrice} onCheckedChange={(checked) => setShowPrice(checked !== true)} />Hide price</label>
         <div className="flex h-8 shrink-0 items-center gap-1 rounded-md border px-2 text-xs font-medium text-muted-foreground" role="group" aria-label="Increase shown and shared prices" title="Adds to the prices shown here and in WhatsApp, Telegram, email and Excel. Saved selling prices do not change.">Price +<Input aria-label="Price increase" type="number" min="0" step="0.01" inputMode="decimal" disabled={!showPrice} value={priceAdjust.value} onChange={(event) => setPriceAdjust({ ...priceAdjust, value: event.target.value })} placeholder="0" className="h-6 w-16 px-1.5 text-xs" /><select aria-label="Increase as percent or amount" disabled={!showPrice} value={priceAdjust.mode} onChange={(event) => setPriceAdjust({ ...priceAdjust, mode: event.target.value as PriceAdjust["mode"] })} className="h-6 rounded border border-input bg-card px-1 text-xs text-foreground"><option value="percent">%</option><option value="amount">amount</option></select></div>
+        {/* Price currency: the base currency, or USD / EUR at the company's saved exchange rate. */}
+        <select aria-label="Shown and shared price currency" title={shareCurrency ? `Prices converted from ${baseCurrency} to ${shareCurrency} at ${shareRate ?? "—"} ${baseCurrency} per 1 ${shareCurrency} (Currencies). Saved prices do not change.` : `Prices in ${baseCurrency}. Pick USD or EUR to convert with the company's saved exchange rates.`} disabled={!showPrice} value={shareCurrency && shareRate ? shareCurrency : ""} onChange={(event) => pickShareCurrency(event.target.value)} className="h-8 shrink-0 rounded-md border border-input bg-card px-2 text-xs font-medium text-foreground disabled:opacity-50">
+          <option value="">{baseCurrency}</option>
+          {shareCurrencies.filter((code) => code !== baseCurrency).map((code) => <option key={code} value={code}>{shareCurrencyOption(code)}{shareCurrencyRate(exchangeRates, baseCurrency, code) ? "" : " · no rate"}</option>)}
+        </select>
         {/* Shared price VAT format as a dropdown; No VAT (net) is the default. */}
         <select aria-label="Shared price VAT format" title={vatModes.find(([mode]) => mode === vatMode)?.[2]} disabled={!showPrice} value={vatMode} onChange={(event) => setVatMode(event.target.value as VatMode)} className="h-8 shrink-0 rounded-md border border-input bg-card px-2 text-xs font-medium text-foreground disabled:opacity-50">
           {vatModes.map(([mode, label, title]) => <option key={mode} value={mode} title={title}>{label}</option>)}
@@ -883,7 +913,7 @@ export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCre
                     </div>
                   </TableCell>
                   {showQuantity && <TableCell responsiveColumn="quantity" className="py-4 text-right"><span className={`block text-lg font-bold leading-tight tabular-nums ${out ? "text-rose-600 dark:text-rose-400" : low ? "text-amber-600 dark:text-amber-400" : "text-foreground"}`}>{Number(record.quantity).toLocaleString()}</span>{held > 0 ? <span className="mt-0.5 block whitespace-nowrap text-[11px] font-medium text-amber-700 dark:text-amber-300">{Math.max(0, Number(record.quantity) - held).toLocaleString()} free · {held.toLocaleString()} held</span> : <span className="mt-0.5 block text-[11px] text-muted-foreground">units</span>}</TableCell>}
-                  {showPrice && <TableCell responsiveColumn="price" className="py-4 text-right"><span className="block text-base font-bold leading-tight tabular-nums text-foreground">{money(priceFor(record), record.currency)}</span><span className={`mt-0.5 block whitespace-normal text-[11px] ${vatMode === "include" ? "font-semibold text-emerald-600 dark:text-emerald-400" : vatMode === "zero" ? "font-semibold text-sky-600 dark:text-sky-400" : "text-muted-foreground"}`}>{vatMode === "include" ? "VAT included" : vatMode === "zero" ? "0% VAT" : "excl. VAT"}</span></TableCell>}
+                  {showPrice && <TableCell responsiveColumn="price" className="py-4 text-right"><span className="block text-base font-bold leading-tight tabular-nums text-foreground">{money(priceFor(record), priceCurrency)}</span><span className={`mt-0.5 block whitespace-normal text-[11px] ${vatMode === "include" ? "font-semibold text-emerald-600 dark:text-emerald-400" : vatMode === "zero" ? "font-semibold text-sky-600 dark:text-sky-400" : "text-muted-foreground"}`}>{vatMode === "include" ? "VAT included" : vatMode === "zero" ? "0% VAT" : "excl. VAT"}</span></TableCell>}
                 </TableRow>;
               }),
             ])}
