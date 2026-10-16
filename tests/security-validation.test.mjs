@@ -12,6 +12,7 @@ const { isValidEmail } = await sourceModule("../lib/email-validation.ts");
 const { hashAdminPin, verifyAdminPin } = await sourceModule("../lib/admin-pin.ts");
 const { dashboardMetrics } = await sourceModule("../lib/dashboard-metrics.ts");
 const { filterZeroQohRows, hasInventoryQohFilter } = await sourceModule("../lib/inventory-report-filter.ts");
+const { inStockTab, stockTabCounts } = await sourceModule("../lib/inventory-stock-tabs.ts");
 const { linkReportAccounts } = await sourceModule("../lib/report-account-links.ts");
 const { filterRecordListByDate, recordListReport } = await sourceModule("../lib/record-list-export.ts");
 const { normalizeComparableText, uppercaseText } = await sourceModule("../lib/text-normalization.ts");
@@ -977,6 +978,21 @@ test("inventory report QOH option hides only zero rows", () => {
   assert.equal(filterZeroQohRows("inventory-valuation-detail", rows, false).length, 3);
   assert.equal(filterZeroQohRows("profit-loss", rows, true).length, 3);
   assert.deepEqual(filterZeroQohRows("pending-builds", [{ sku: "ZERO", onHand: 0 }, { sku: "ONE", onHand: 1 }], true).map((row) => row.sku), ["ONE"]);
+});
+
+test("inventory search shows out-of-stock matches under All items, never inactive ones", () => {
+  const items = [{ sku: "STOCK", quantity: 5, reorderPoint: 2 }, { sku: "LOW", quantity: 1, reorderPoint: 2 }, { sku: "ZERO", quantity: 0 }, { sku: "NEG", quantity: -1 }, { sku: "OFF", quantity: 3, status: "inactive" }];
+  const tab = (name, searching) => items.filter((item) => inStockTab(item, name, searching)).map((item) => item.sku);
+  assert.deepEqual(tab("all", false), ["STOCK", "LOW"]);
+  assert.deepEqual(tab("all", true), ["STOCK", "LOW", "ZERO", "NEG"]);
+  assert.deepEqual(tab("low", true), ["LOW"]);
+  assert.deepEqual(tab("zero", false), ["ZERO", "NEG"]);
+  assert.deepEqual(tab("inactive", true), ["OFF"]);
+  assert.deepEqual(stockTabCounts(items, false), { all: 2, in: 2, low: 1, inactive: 1, zero: 2 });
+  assert.deepEqual(stockTabCounts([{ quantity: 0 }], true), { all: 1, in: 0, low: 0, inactive: 0, zero: 1 });
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  assert.match(app, /records\.filter\(\(record\) => inStockTab\(record, stockFilter, searching\)\)/);
+  assert.match(app, /\{search && <button type="button" aria-label="Clear search"[^>]*onClick=\{\(\) => \{ setSearch\(""\); if \(kind === "items"\) setItemPage\(1\); \}\}/);
 });
 
 test("shared transaction lists filter inclusive dates and export professional columns", () => {
