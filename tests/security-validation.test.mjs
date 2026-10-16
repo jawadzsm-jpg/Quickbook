@@ -856,7 +856,7 @@ test("supplier bills have direct attachments and A4 template output with a movab
   assert.match(app, /documentLabel=\{documentTypeLabel\(attachmentRecord\.type\)\}/);
   assert.match(app, /"bill", "purchase order"/);
   assert.match(template, /bill: "Supplier Bill"/);
-  assert.match(template, /case "bill": return "bill"/);
+  assert.match(readFileSync(new URL("../lib/sales-document-mode.ts", import.meta.url), "utf8"), /case "bill": return "bill"/);
   assert.match(template, /const movableStamp = true/);
   assert.match(template, /createA4PdfBlob/);
   assert.match(attachmentApi, /purchaseAttachmentTypes\.has\(type\)\) return hasPermission\(user, "purchases:write"\)/);
@@ -943,7 +943,9 @@ test("dashboard totals use linked ledger accounts without counting payments as i
 
 test("Chart of Accounts loads even when a company has no active inventory location", () => {
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
-  assert.match(app, /useEffect\(\(\) => \{ if \(activeCompanyId\) loadData\(\); \}, \[activeCompanyId, activeLocationId, loadData\]\)/);
+  // A company without inventories is ready at once; one with inventories waits for a valid one (no duplicate first load).
+  assert.match(app, /const locationReady = Boolean\(activeCompany\) && \(!activeLocations\.length \|\| activeLocations\.some\(\(location\) => location\.id === activeLocationId\)\);/);
+  assert.match(app, /useEffect\(\(\) => \{ if \(activeCompanyId && locationReady\) loadData\(\); \}, \[activeCompanyId, activeLocationId, locationReady, loadData\]\)/);
   assert.doesNotMatch(app, /if \(activeCompanyId && activeLocationId\) loadData\(\)/);
 });
 
