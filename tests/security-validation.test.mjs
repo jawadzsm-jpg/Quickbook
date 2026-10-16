@@ -649,8 +649,13 @@ test("customization boxes: ONBOARD stays plain text, OTHERS gives saved upgrade 
   assert.equal(specificationBoxValue(specs, "storage"), "");
   assert.equal(customizationBoxValue({ specifications: specs, customizationScreen: "" }, "screen"), "15.6 INCH");
   assert.equal(customizationBoxValue({ specifications: specs, customizationRam: "RAM ONBOARD" }, "ram"), "RAM ONBOARD");
-  // The current value's part is replaced; an upgrade whose value is not in the line is added at the end.
-  assert.equal(applyCustomizationUpgrades("ASUS | 16GB | 512GB | 15.6 INCH", { ram: "16gb", storage: "1TB", screen: "15.6 INCH" }, { ram: "32GB RAM UPGRADE", storage: "2TB SSD UPGRADE", screen: "QHD WITH 240MHZ" }), "ASUS | 32GB RAM UPGRADE | 512GB | QHD WITH 240MHZ | 2TB SSD UPGRADE");
+  // Each upgrade replaces its own part in place (RAM, storage, resolution); graphics and the screen size stay.
+  const hp = "BRAND NEW | INTEL | 14TH GEN | CORE 3-100U | 8GB RAM | 512GB SSD | INTEL UHD GRAPHICS | 15.6 INCH | FHD (1920×1080) | DOS | SILVER";
+  assert.equal(applyCustomizationUpgrades(hp, { ram: "8GB", storage: "", screen: "15.6 INCH" }, { ram: "32GB UPGRADE", storage: "1TB SSD UPGRADE", screen: "QHD 240MHZ" }), "BRAND NEW | INTEL | 14TH GEN | CORE 3-100U | 32GB UPGRADE | 1TB SSD UPGRADE | INTEL UHD GRAPHICS | 15.6 INCH | QHD 240MHZ | DOS | SILVER");
+  assert.equal(applyCustomizationUpgrades("ASUS | 16GB DDR5 | 1TB NVME | RTX 4060 8GB GDDR6 | 16 INCH | WQXGA 165HZ", {}, { ram: "32GB RAM UPGRADE", storage: "2TB SSD UPGRADE", screen: "QHD WITH 240MHZ" }), "ASUS | 32GB RAM UPGRADE | 2TB SSD UPGRADE | RTX 4060 8GB GDDR6 | 16 INCH | QHD WITH 240MHZ");
+  // Without a matching part the box's current value is replaced; with neither the upgrade is added at the end.
+  assert.equal(applyCustomizationUpgrades("ASUS | 8G", { ram: "8G" }, { ram: "16G UPGRADE" }), "ASUS | 16G UPGRADE");
+  assert.equal(applyCustomizationUpgrades("ASUS | 15.6 INCH", { screen: "15.6 INCH" }, { screen: "QHD 240MHZ" }), "ASUS | 15.6 INCH | QHD 240MHZ");
   assert.equal(applyCustomizationUpgrades("ASUS | 16GB", { ram: "16GB" }, { ram: "" }), "ASUS | 16GB");
 
   const page = readFileSync(new URL("../app/item-customization-center.tsx", import.meta.url), "utf8");
