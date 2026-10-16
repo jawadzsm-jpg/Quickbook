@@ -28,12 +28,15 @@ export function parseUpgradePrice(value: unknown) {
   return Number.isFinite(price) && price >= 0 && price <= 1_000_000 ? Math.round(price * 100) / 100 : null;
 }
 
-/** The total price of the picked upgrades (RAM and Storage options with a price; Screen Details has none). */
-export function upgradesPrice(options: CustomizationOptions, upgrades: CustomizationUpgrades | undefined) {
+/**
+ * The total price of the picked upgrades (RAM and Storage; Screen Details has none): each pick's option price, or the
+ * price the Inventory Overview user entered for it (`prices`, not saved).
+ */
+export function upgradesPrice(options: CustomizationOptions, upgrades: CustomizationUpgrades | undefined, prices?: Partial<Record<CustomizationOptionField, number>>) {
   let total = 0;
   for (const field of pricedCustomizationFields) {
     const picked = String(upgrades?.[field] ?? "").trim();
-    if (picked) total += Number(options[field]?.find((option) => option.value === picked)?.price) || 0;
+    if (picked) total += prices?.[field] ?? (Number(options[field]?.find((option) => option.value === picked)?.price) || 0);
   }
   return Math.round(total * 100) / 100;
 }
