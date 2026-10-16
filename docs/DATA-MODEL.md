@@ -72,7 +72,7 @@ erDiagram
 | `warehouse_transfers` | Moves between warehouses of one inventory (migration 0110). They change only warehouse stock; `items.quantity`, cost and the ledger are unchanged, so no stock movement or journal is written | `location_id`, `item_id`, `from_warehouse_id`, `to_warehouse_id`, `quantity`, `reference`, `transfer_date`, `notes`, created by |
 | `vat_codes` | VAT codes per company | `code`, `rate`, `system`, `active` |
 | `exchange_rates` | Currency rates to the home currency | `currency_code`, `rate` |
-| `specification_options` | Shared choice lists: item categories, specification names and values | `label` (or `__item_categories__`, `__specification_detail_names__`, and the customization upgrade options `__customization_ram__`, `__customization_storage__`, `__customization_screen__`), `value`, `active` |
+| `specification_options` | Shared choice lists: item categories, specification names and values | `label` (or `__item_categories__`, `__specification_detail_names__`, and the customization upgrade options `__customization_ram__`, `__customization_storage__`, `__customization_screen__`), `value`, `price` (RAM / Storage upgrade price excluding VAT, in the viewed company's base currency; 0 otherwise, migration 0140), `active` |
 | `category_colors` | Inventory Overview colour per category (shared) | `category` (unique, upper-case), `color` (palette id) |
 | `item_logistics_options` | HS code and country-of-origin choices | `type`, `value`, `label`, `hidden` |
 | `memorised_reports` | Saved report views per user | `report_key`, filters, period, customer, statement date, `supplier_id` (supplier reports; migration 0137, cleared if the supplier is deleted) |

@@ -3,20 +3,21 @@ import { getDb } from "@/db";
 import { specificationOptions } from "@/db/schema";
 import { apiRoute, RequestError } from "@/lib/api";
 import { hasPermission, requireApiUser } from "@/lib/auth";
-import { customizationOptionFields, customizationOptionScopes, type CustomizationOptionField, type CustomizationOptions } from "@/lib/customization-options";
+import { customizationOptionFields, customizationOptionScopes, parseUpgradePrice, pricedCustomizationFields, type CustomizationOptionField, type CustomizationOptions } from "@/lib/customization-options";
 import { normalizeComparableText, uppercaseText } from "@/lib/text-normalization";
 
 // RAM, Storage and Screen Details upgrade options (shared by all companies). Every inventory reader lists them
-// (Inventory Overview picks); Product Customization users add, rename and delete them.
+// (Inventory Overview picks); Product Customization users add, rename, price and delete them. RAM and Storage options
+// have a price (excluding VAT, in the viewed company's base currency); Screen Details options keep 0.
 async function handle(request: Request) {
   const reading = request.method === "GET";
   const user = await requireApiUser(request, reading ? "inventory:read" : "customization:manage", !reading);
   if (user instanceof Response) return user;
   const db = getDb();
   if (reading) {
-    const rows = await db.select({ id: specificationOptions.id, label: specificationOptions.label, value: specificationOptions.value }).from(specificationOptions)
+    const rows = await db.select({ id: specificationOptions.id, label: specificationOptions.label, value: specificationOptions.value, price: specificationOptions.price }).from(specificationOptions)
       .where(and(inArray(specificationOptions.label, Object.values(customizationOptionScopes)), eq(specificationOptions.active, true))).orderBy(asc(specificationOptions.value));
-    const options = Object.fromEntries(customizationOptionFields.map((field) => [field, rows.filter((row) => row.label === customizationOptionScopes[field]).map(({ id, value }) => ({ id, value }))])) as CustomizationOptions;
+    const options = Object.fromEntries(customizationOptionFields.map((field) => [field, rows.filter((row) => row.label === customizationOptionScopes[field]).map(({ id, value, price }) => ({ id, value, price: Number(price) || 0 }))])) as CustomizationOptions;
     return Response.json({ options, canManage: hasPermission(user, "customization:manage") }, { headers: { "Cache-Control": "no-store" } });
   }
   const input = await request.json() as Record<string, unknown>;
@@ -34,10 +35,12 @@ async function handle(request: Request) {
   const value = uppercaseText(input.value).replace(/\s+/g, " ").slice(0, 120);
   if (!value) throw new RequestError("Enter the option text, e.g. 32GB RAM UPGRADE.");
   if (saved.some((row) => row.id !== previous?.id && normalizeComparableText(row.value) === normalizeComparableText(value))) throw new RequestError("This option already exists.", 409);
+  const price = pricedCustomizationFields.includes(field) ? parseUpgradePrice(input.price) : 0;
+  if (price === null) throw new RequestError("Enter the upgrade price as a number from 0, or leave it blank.");
   const [row] = previous
-    ? await db.update(specificationOptions).set({ value, active: true }).where(eq(specificationOptions.id, previous.id)).returning()
-    : await db.insert(specificationOptions).values({ label: scope, value, active: true }).returning();
-  return Response.json({ ok: true, option: { id: row.id, value: row.value } }, { status: previous ? 200 : 201 });
+    ? await db.update(specificationOptions).set({ value, price, active: true }).where(eq(specificationOptions.id, previous.id)).returning()
+    : await db.insert(specificationOptions).values({ label: scope, value, price, active: true }).returning();
+  return Response.json({ ok: true, option: { id: row.id, value: row.value, price: Number(row.price) || 0 } }, { status: previous ? 200 : 201 });
 }
 
 export const GET = apiRoute(handle);

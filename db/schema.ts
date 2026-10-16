@@ -400,6 +400,8 @@ export const specificationOptions = pgTable("specification_options", {
   id: serial("id").primaryKey(),
   label: text("label").notNull(),
   value: text("value").notNull(),
+  // Customization RAM / Storage upgrade price (lib/customization-options.ts); 0 for everything else.
+  price: doublePrecision("price").notNull().default(0),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 }, (table) => [uniqueIndex("idx_specification_options_label_value").on(table.label, table.value)]);

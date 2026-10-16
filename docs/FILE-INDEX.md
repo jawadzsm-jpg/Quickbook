@@ -204,7 +204,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/customer-identity.ts` — Customer name/phone normalisation, international phone check, ~70% name similarity, duplicate detection.
 - `lib/customer-open-balance.ts` — Customer open balance report data. **DB**
 - `lib/customer-report.ts` — Customer report keys, summaries and detail targets.
-- `lib/customization-options.ts` — Customization upgrade options: RAM/Storage/Screen box fields and spec fallbacks, ONBOARD/OTHERS rules, option scopes, applying Inventory Overview upgrade picks to a product line.
+- `lib/customization-options.ts` — Customization upgrade options: RAM/Storage/Screen box fields and spec fallbacks, ONBOARD/OTHERS rules, option scopes, RAM/Storage upgrade prices, applying Inventory Overview upgrade picks to a product line.
 - `lib/dashboard-metrics.ts` — Dashboard KPIs from account balances.
 - `lib/delivery-address.ts` — Ship To address cleanup with a size cap.
 - `lib/document-access-sql.ts` — SQL visibility filter for documents by role/user. **DB**
