@@ -1698,3 +1698,19 @@ test("security: password rules refuse common, patterned and personal passwords, 
   assert.match(routes[1], /passwordProblem\(newPassword, owner\)[\s\S]*const \[claimed\]/, "the reset link is checked before it is spent");
   assert.match(readFileSync(new URL("../app/api/auth/mfa/route.ts", import.meta.url), "utf8"), /consumeRateLimit\(`mfa-verify:\$\{user\.id\}`, 10, 900\)/);
 });
+
+test("items with stock and customers or vendors with a balance stay active; reactivating and employees are not checked", async () => {
+  const { itemInactivationProblem, contactInactivationProblem } = await sourceModule("../lib/inactivation-guard.ts");
+  assert.match(itemInactivationProblem({ status: "active", quantity: 1250.5, sku: "SKU-1", name: "Router" }, "inactive"), /^SKU-1 Router still has 1,250\.5 in stock\./);
+  assert.ok(itemInactivationProblem({ status: "active", quantity: -2, sku: "SKU-1", name: "Router" }, "inactive"), "negative stock counts");
+  assert.equal(itemInactivationProblem({ status: "active", quantity: 0 }, "inactive"), null);
+  assert.equal(itemInactivationProblem({ status: "inactive", quantity: 5 }, "active"), null, "reactivating is allowed");
+  assert.equal(itemInactivationProblem({ status: "active", quantity: 5 }, "active"), null, "ordinary edits are not blocked");
+  assert.match(contactInactivationProblem({ type: "vendor", status: "active", balance: -80, currency: "EUR" }, "inactive"), /vendor still has a balance of EUR -80\.00\. Pay or clear/);
+  assert.match(contactInactivationProblem({ type: "customer", status: "active", balance: 1500 }, "inactive"), /AED 1,500\.00\. Receive or credit/);
+  assert.equal(contactInactivationProblem({ type: "customer", status: "active", balance: 0.004 }, "inactive"), null);
+  assert.equal(contactInactivationProblem({ type: "employee", status: "active", balance: 900 }, "inactive"), null);
+  const route = readFileSync(new URL("../app/api/records/route.ts", import.meta.url), "utf8");
+  assert.equal(route.match(/itemInactivationProblem\(/g).length, 2, "item status button and full item edit");
+  assert.equal(route.match(/contactInactivationProblem\(/g).length, 2, "contact status button and full contact edit");
+});

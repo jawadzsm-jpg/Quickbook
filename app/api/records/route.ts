@@ -40,6 +40,7 @@ import { outOfScopeItemIds } from "@/lib/out-of-scope-items";
 import { OUT_OF_SCOPE_CODE, hasOutOfScopeItem, outOfScopeProblem, outOfScopeSalesTypes } from "@/lib/out-of-scope-rules";
 import { guardFiledPeriod, unlockedDocumentTypes } from "@/lib/period-lock";
 import { publicErrorMessage } from "@/lib/errors";
+import { contactInactivationProblem, itemInactivationProblem } from "@/lib/inactivation-guard";
 
 type RecordKind = "transactions" | "contacts" | "items" | "accounts";
 const defaultPaymentTerms = "Due on receipt";
@@ -2163,6 +2164,8 @@ async function handlePATCH(request: Request) {
         let organization;
         try { organization = contactOrganization(payload, current, rows, authorization.role === "sales" ? authorization.id : undefined); }
         catch (error) { throw new RequestError(publicErrorMessage(error, "Invalid contact status.")); }
+        const balanceProblem = contactInactivationProblem(current, organization.status);
+        if (balanceProblem) throw new RequestError(balanceProblem, 409);
         const [record] = await db.update(contacts).set({ status: organization.status }).where(and(eq(contacts.id, id), eq(contacts.companyId, companyId))).returning();
         await db.insert(auditLog).values({ companyId, action: "updated", entityType: "contact", entityId: id, details: JSON.stringify({ actorId: authorization.id, mode: "contact-status", before: current.status, after: organization.status }) });
         return Response.json({ record });
@@ -2215,6 +2218,8 @@ async function handlePATCH(request: Request) {
       let organization;
       try { organization = contactOrganization(payload, existing as typeof contacts.$inferSelect, contactRows, authorization.role === "sales" ? authorization.id : undefined); }
       catch (error) { throw new RequestError(publicErrorMessage(error, "Invalid contact organization.")); }
+      const balanceProblem = contactInactivationProblem(existing as typeof contacts.$inferSelect, organization.status);
+      if (balanceProblem) return Response.json({ error: balanceProblem }, { status: 409 });
       const changes: Record<string, string> = { name };
       for (const field of ["company", "billingName", "email", "phone", "whatsapp", "country", "trn", "reseller", "planet", "passport", "description"] as const) {
         if (payload[field] !== undefined) changes[field] = String(payload[field]).trim();
@@ -2237,12 +2242,16 @@ async function handlePATCH(request: Request) {
       if (payload.expectedStatus !== current.status) return Response.json({ error: "This item changed. Refresh the list and try again." }, { status: 409 });
       const status = payload.status as "active" | "inactive";
       if (current.status === status) return Response.json({ record: current });
+      const stockProblem = itemInactivationProblem(current, status);
+      if (stockProblem) return Response.json({ error: stockProblem }, { status: 409 });
       const [record] = await db.update(items).set({ status }).where(and(eq(items.id, id), eq(items.companyId, companyId))).returning();
       await db.insert(auditLog).values({ companyId, action: "updated", entityType: "item", entityId: id, details: JSON.stringify({ actor: { id: authorization.id, email: authorization.email }, mode: "item-status", before: current.status, after: status }) });
       return Response.json({ record });
     }
     const [existing] = await db.select().from(items).where(and(eq(items.id, id), eq(items.companyId, companyId)));
     if (!existing) return Response.json({ error: "Item not found." }, { status: 404 });
+    const stockProblem = itemInactivationProblem(existing, String(payload.status ?? existing.status));
+    if (stockProblem) return Response.json({ error: stockProblem }, { status: 409 });
     const specifications = Array.from({ length: 30 }, (_, index) => ({
       label: String(payload[`specLabel${index}`] ?? "").trim(),
       value: uppercaseText(payload[`specValue${index}`]),
