@@ -1,6 +1,7 @@
 import { and, asc, eq } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { accounts, journalEntries, journalLines, transactions, exchangeRates, invoicePaymentAllocations, billPaymentAllocations } from '@/db/schema';
+import { accountNativeTotals, accountRate, rowAccountId, tagRowCurrencies, type CurrencyTag } from './report-currency';
 import { previousYearDate, reportMonths, reportPeriod, reportToday } from './report-period';
 
 export const financialKeys = ['income-customer-summary','income-customer-detail','expenses-supplier-summary','expenses-supplier-detail','income-expense-graph','realised-gains-losses','unrealised-gains-losses','balance-sheet','balance-sheet-detail','balance-sheet-summary','balance-sheet-prev-year','net-worth-graph','cash-flow','cash-flow-forecast'];
@@ -22,7 +23,7 @@ export async function financialReport(companyId:number,locationId:number,currenc
  const db=getDb();
  const [chart,entries,docs,rates,invoiceAllocations,billAllocations]=await Promise.all([
   db.select().from(accounts).where(eq(accounts.companyId,companyId)).orderBy(asc(accounts.code)),
-  db.select({entryId:journalEntries.id,transactionId:journalEntries.transactionId,locationId:journalEntries.locationId,date:journalEntries.entryDate,reference:journalEntries.reference,account:journalLines.accountName,accountId:journalLines.accountId,debit:journalLines.debit,credit:journalLines.credit,entryCurrency:journalEntries.currency}).from(journalLines).innerJoin(journalEntries,eq(journalEntries.id,journalLines.journalEntryId)).where(and(eq(journalEntries.companyId,companyId),eq(journalEntries.posted,true))).orderBy(asc(journalEntries.entryDate),asc(journalLines.id)),
+  db.select({entryId:journalEntries.id,transactionId:journalEntries.transactionId,locationId:journalEntries.locationId,date:journalEntries.entryDate,reference:journalEntries.reference,account:journalLines.accountName,accountId:journalLines.accountId,debit:journalLines.debit,credit:journalLines.credit,originalDebit:journalLines.originalDebit,originalCredit:journalLines.originalCredit,entryCurrency:journalEntries.currency,exchangeRate:journalEntries.exchangeRate}).from(journalLines).innerJoin(journalEntries,eq(journalEntries.id,journalLines.journalEntryId)).where(and(eq(journalEntries.companyId,companyId),eq(journalEntries.posted,true))).orderBy(asc(journalEntries.entryDate),asc(journalLines.id)),
   db.select().from(transactions).where(eq(transactions.companyId,companyId)),
   db.select().from(exchangeRates).where(and(eq(exchangeRates.companyId,companyId),eq(exchangeRates.active,true))),
   db.select({paymentId:invoicePaymentAllocations.paymentId,documentId:invoicePaymentAllocations.invoiceId,amount:invoicePaymentAllocations.amount}).from(invoicePaymentAllocations).innerJoin(transactions,eq(transactions.id,invoicePaymentAllocations.paymentId)).where(eq(transactions.companyId,companyId)),
@@ -164,5 +165,10 @@ export async function financialReport(companyId:number,locationId:number,currenc
   }
  }
  result.financial.issues=[...issues];
+ // "Show other currencies": foreign documents and accounts carry their currency and rate (home per unit).
+ const home=String(currency).toUpperCase(),accountTags=new Map<number,CurrencyTag|null>();
+ const accountTag=(id:number)=>{if(accountTags.has(id))return accountTags.get(id)??null;const a=chart.find(x=>x.id===id);const code=String(a?.currency||home).toUpperCase();let tag:CurrencyTag|null=null;if(a&&code!==home){const current=rateFor(code);const totals=accountNativeTotals(selected.filter(e=>e.accountId===id&&(!to||e.date<=to)),code,home,current,Number(a.balance)||0);const rate=accountRate(totals,current);if(rate>0)tag={originalCurrency:code,originalRate:rate};}accountTags.set(id,tag);return tag;};
+ const tagFor=(row:Row)=>{const d=docMap.get(Number(row.transactionId)||0);if(d)return String(d.currency).toUpperCase()!==home&&Number(d.exchangeRate)>0?{originalCurrency:String(d.currency).toUpperCase(),originalRate:Number(d.exchangeRate)}:null;const id=rowAccountId(row);return id?accountTag(id):null;};
+ result.rows=tagRowCurrencies(result.rows,tagFor);result.financial.details=tagRowCurrencies(result.financial.details,tagFor);
  return Response.json({report:result},{headers:{'Cache-Control':'no-store'}});
 }

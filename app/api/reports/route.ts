@@ -6,6 +6,7 @@ import { listReportKeys } from "@/lib/list-report";
 import { accountantReportKeys, accountantAccountIssues } from "@/lib/accountant-report";
 import { vendorDocumentAccount, vendorReportKeys } from "@/lib/vendor-report";
 import { buildVatReport, vatReportKeys } from "@/lib/vat-report";
+import { accountNativeTotals, accountRate, rowAccountId, tagRowCurrencies, type CurrencyTag } from "@/lib/report-currency";
 import { bankingReportKeys } from "@/lib/banking-report";
 import { heldByOthers } from "@/lib/stock-holds";
 import { countries } from "@/lib/countries";
@@ -1460,6 +1461,34 @@ export async function GET(request: Request) {
       return { currency: apCurrency, asOf: payablesAsOf, accounts: apAccounts.map((account) => ({ id: account.id, label: `${account.code} · ${account.name}` })), supplierTotal: round2(supplierTotal), ledgerBalance: round2(ledger), difference: round2(supplierTotal - ledger), scoped };
     })() : undefined;
     const linkedAccounts = linkReportAccounts(rows, columns, allAccounts);
+    // "Show other currencies": tag rows of foreign-currency documents and accounts with their currency and rate (home per
+    // unit) so the screen can add their own-currency amount. Reports already in another currency are left as they are.
+    if (String(reportCurrency).toUpperCase() === String(currency).toUpperCase()) {
+      const homeCode = String(currency).toUpperCase();
+      const documentsById = new Map(rawTransactions.map((row) => [row.id, row]));
+      const accountsById = new Map(allAccounts.map((account) => [account.id, account]));
+      const accountTags = new Map<number, CurrencyTag | null>();
+      const accountTag = (id: number) => {
+        if (accountTags.has(id)) return accountTags.get(id) ?? null;
+        const account = accountsById.get(id);
+        const code = String(account?.currency || homeCode).toUpperCase();
+        let tag: CurrencyTag | null = null;
+        if (account && code !== homeCode) {
+          const currentRate = Number(currentRates.find((entry) => String(entry.currencyCode).toUpperCase() === code)?.rate) || 0;
+          const totals = accountNativeTotals(rawJournal.filter((entry) => entry.accountId === id && (!period.to || entry.date <= period.to)), code, homeCode, currentRate, Number(account.balance) || 0);
+          const rate = accountRate(totals, currentRate);
+          if (rate > 0) tag = { originalCurrency: code, originalRate: rate };
+        }
+        accountTags.set(id, tag);
+        return tag;
+      };
+      linkedAccounts.rows = tagRowCurrencies(linkedAccounts.rows, (row) => {
+        const document = documentsById.get(Number(row.transactionId) || 0);
+        if (document) return String(document.currency).toUpperCase() !== homeCode && Number(document.exchangeRate) > 0 ? { originalCurrency: String(document.currency).toUpperCase(), originalRate: Number(document.exchangeRate) } : null;
+        const accountId = rowAccountId(row);
+        return accountId ? accountTag(accountId) : null;
+      });
+    }
     const budget = key.startsWith("budget-") ? { from: budgetStart, to: budgetEnd, baselineFrom: priorBudgetStart, baselineTo: priorBudgetEnd } : undefined;
     const budgetIssues = budget ? [...new Set(journal.filter(entry => ((entry.date >= budgetStart && entry.date <= budgetEnd) || (entry.date >= priorBudgetStart && entry.date <= priorBudgetEnd)) && !journalAccount(entry)).map(entry => `Account “${entry.account}” has no unique Chart of Accounts match. Its postings are excluded from baseline and actual totals; review the account mapping.`))] : [];
 

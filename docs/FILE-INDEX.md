@@ -289,6 +289,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/report-attachments.ts` — Report key to attachment ID mapping.
 - `lib/report-export.ts` — Shared report export: overview, issues, CSV, Excel and PDF with letterhead and stamp.
 - `lib/report-period.ts` — Report date presets, Dubai today, validation, periods and month lists.
+- `lib/report-currency.ts` — Report Center "Show other currencies": foreign account own-currency totals, row currency tags (set by `/api/reports` and `lib/financial-reports.ts`) and the original-currency column.
 - `lib/report-zero-rows.ts` — Report Center "Hide zero rows": which rows are all zero in the shown columns, and the filtered report used by screen and exports.
 - `lib/report-presentation.ts` — Report column/row types, column kind/weight, duplicate definition removal.
 - `lib/report-stamp-preview.ts` — Approximates report PDF layout for the stamp placement preview.
