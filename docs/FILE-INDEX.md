@@ -249,7 +249,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/invoice-pricing.ts` — Exchange-rate validation and re-pricing invoice lines when the rate changes.
 - `lib/invoice-series.ts` — Invoice number format (`C{COMPANY}-{PREFIX}-INV-{NUMBER}`), padding, validation, revision.
 - `lib/invoice-stock-lines.ts` — Splits invoice lines into customer lines and stock-return lines.
-- `lib/item-cost.ts` — Average purchase cost from bills/receipts and VAT-aware home cost for cost of sales. **DB**
+- `lib/item-cost.ts` — Weighted average cost from bills/receipts and stock value adjustments (Items list, invoices, returns) and VAT-aware home cost for cost of sales. **DB**
 - `lib/inactive-item-match.ts` — `ITEM_IDLE_DAYS` (90), item part number (field or Part Number / MPN spec), and inactive-item matching by part number, SKU, item no. or UPC.
 - `lib/item-idle.ts` — **server** Makes items with no stock unused for 90 days inactive, with an audit entry per item; run by `/api/notifications/run`. **DB**
 - `lib/item-description.ts` — Item titles, condition, specification descriptions, invoice text and WhatsApp/Telegram product text.
@@ -297,7 +297,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/sales-invoicing.ts` — Converting orders/quotations into invoices (source lines, inventory lines, refresh). **DB**
 - `lib/sales-report.ts` — Sales report keys, groups, columns, customer lookup and filters.
 - `lib/search.ts` — Shared search (every word must match, any order) and highlight ranges.
-- `lib/stock-adjustment.ts` — Stock adjustment rules shared by screen and API: types, per-line quantity/value plan in home currency, totals and the balanced asset/adjustment journal.
+- `lib/stock-adjustment.ts` — Stock adjustment rules shared by screen and API: types, per-line quantity/value plan in home currency, totals, the balanced asset/adjustment journal, and how value adjustments restart the weighted average cost.
 - `lib/secret-box.ts` — **server** AES-256-GCM encryption of stored secrets (SMTP_ENCRYPTION_KEY "v2", DATABASE_URL-derived "v1" still readable).
 - `lib/share-emoji.ts` — WhatsApp/Telegram emoji style presets.
 - `lib/share-currency.ts` — Inventory Overview share currency: USD/EUR options, saved-rate lookup, base-to-currency price conversion and the missing-rate message.

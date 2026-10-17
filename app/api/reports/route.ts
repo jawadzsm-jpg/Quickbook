@@ -25,6 +25,7 @@ import { salesDocumentAccounts, salesFulfilment, salesReportKeys } from "@/lib/s
 import { linkReportAccounts } from "@/lib/report-account-links";
 import { publicErrorMessage } from "@/lib/errors";
 import { auditActor } from "@/lib/audit-actor";
+import { STOCK_ADJUSTMENT_TYPE, adjustmentCostLayer, weightedAverageTotals, weightedUnitCost, type CostLayer } from "@/lib/stock-adjustment";
 
 type Row = Record<string, string | number | null>;
 const money = { type: "money" as const };
@@ -110,7 +111,7 @@ export async function GET(request: Request) {
       db.select().from(items).where(and(eq(items.companyId, companyId), scoped ? eq(items.locationId, locationId) : undefined)).orderBy(asc(items.name)),
       db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(asc(accounts.code)),
       db.select({ transactionId: journalEntries.transactionId, date: journalEntries.entryDate, reference: journalEntries.reference, description: journalEntries.description, account: journalLines.accountName, accountId: journalLines.accountId, debit: journalLines.debit, credit: journalLines.credit, originalDebit: journalLines.originalDebit, originalCredit: journalLines.originalCredit, entryCurrency: journalEntries.currency, exchangeRate: journalEntries.exchangeRate }).from(journalLines).innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id)).where(journalFilter).orderBy(asc(journalEntries.entryDate), asc(journalLines.id)),
-      db.select({ lineId: transactionLines.id, transactionId: transactions.id, itemId: transactionLines.itemId, description: transactionLines.description, quantity: transactionLines.quantity, unitPrice: transactionLines.unitPrice, subtotal: transactionLines.subtotal, unitCost: transactionLines.unitCost, freightCharge: transactionLines.freightCharge, isFreightCharge: transactionLines.isFreightCharge, vatCode: transactionLines.vatCode, vatRate: transactionLines.vatRate, vatAmount: transactionLines.vatAmount, type: transactions.type, status: transactions.status, billId: transactions.billId, locationId: transactions.locationId, party: transactions.party, salesman: transactions.salesman, date: transactions.transactionDate, number: transactions.number, transactionCurrency: transactions.currency, exchangeRate: transactions.exchangeRate, isImport: transactions.isImport }).from(transactionLines).innerJoin(transactions, eq(transactionLines.transactionId, transactions.id)).where(and(eq(transactions.companyId, companyId), scoped ? eq(transactions.locationId, locationId) : undefined)),
+      db.select({ lineId: transactionLines.id, transactionId: transactions.id, itemId: transactionLines.itemId, description: transactionLines.description, lineComments: transactionLines.comments, transactionComments: transactions.comments, quantity: transactionLines.quantity, unitPrice: transactionLines.unitPrice, subtotal: transactionLines.subtotal, unitCost: transactionLines.unitCost, freightCharge: transactionLines.freightCharge, isFreightCharge: transactionLines.isFreightCharge, vatCode: transactionLines.vatCode, vatRate: transactionLines.vatRate, vatAmount: transactionLines.vatAmount, type: transactions.type, status: transactions.status, billId: transactions.billId, locationId: transactions.locationId, party: transactions.party, salesman: transactions.salesman, date: transactions.transactionDate, number: transactions.number, transactionCurrency: transactions.currency, exchangeRate: transactions.exchangeRate, isImport: transactions.isImport }).from(transactionLines).innerJoin(transactions, eq(transactionLines.transactionId, transactions.id)).where(and(eq(transactions.companyId, companyId), scoped ? eq(transactions.locationId, locationId) : undefined)),
       db.select().from(vatCodes).where(eq(vatCodes.companyId, companyId)).orderBy(asc(vatCodes.code)),
       db.select().from(exchangeRates).where(and(eq(exchangeRates.companyId, companyId), eq(exchangeRates.active, true))),
       db.select().from(inventoryLocations).where(eq(inventoryLocations.companyId, companyId)),
@@ -177,22 +178,19 @@ export async function GET(request: Request) {
     const rateMap = new Map(currentRates.map((rate) => [rate.currencyCode, Number(rate.rate)]));
     const entryAccountType = (entry: typeof journal[number]) => journalAccount(entry)?.type ?? "Unclassified";
     const inventoryAccountLinkFor = (item: typeof allItems[number]) => inventoryAssetAccountLink(item, allAccounts, currency);
-    const weightedInventoryCosts = new Map<number, { quantity: number; value: number }>();
     const closedDocument = (status: string) => ["cancelled", "canceled", "void", "voided", "deleted", "draft"].includes(String(status).toLowerCase());
-    for (const line of rawLines.filter((entry) => entry.itemId && !entry.isFreightCharge && ["bill", "item receipt"].includes(entry.type) && !closedDocument(entry.status))) {
+    // Stock is valued at the weighted average cost invoices use (lib/item-cost.ts): purchases since the item's latest
+    // value adjustment, on top of the quantity and value that adjustment set.
+    const costLayers: CostLayer[] = [];
+    for (const line of rawLines) {
+      if (!line.itemId) continue;
+      if (line.type === STOCK_ADJUSTMENT_TYPE) { const layer = adjustmentCostLayer(line); if (layer) costLayers.push(layer); continue; }
       const quantity = Number(line.quantity);
-      if (!line.itemId || quantity <= 0) continue;
-      const old = weightedInventoryCosts.get(line.itemId) ?? { quantity: 0, value: 0 };
-      weightedInventoryCosts.set(line.itemId, {
-        quantity: old.quantity + quantity,
-        value: old.value + (quantity * Number(line.unitPrice) + Number(line.freightCharge || 0)) * Number(line.exchangeRate),
-      });
+      if (line.isFreightCharge || !["bill", "item receipt"].includes(line.type) || closedDocument(line.status) || quantity <= 0) continue;
+      costLayers.push({ itemId: line.itemId, transactionId: line.transactionId, quantity, value: (quantity * Number(line.unitPrice) + Number(line.freightCharge || 0)) * Number(line.exchangeRate) });
     }
-    const inventoryCostFor = (item: typeof allItems[number]) => {
-      const weighted = weightedInventoryCosts.get(item.id);
-      const amount = weighted && weighted.quantity > 0 ? weighted.value / weighted.quantity : Number(item.lastPurchasePrice) || Number(item.cost) || 0;
-      return Math.round(amount * 100) / 100;
-    };
+    const weightedInventoryCosts = weightedAverageTotals(costLayers);
+    const inventoryCostFor = (item: typeof allItems[number]) => weightedUnitCost(weightedInventoryCosts.get(item.id)) ?? Math.round((Number(item.lastPurchasePrice) || Number(item.cost) || 0) * 100) / 100;
     let stockItems = allItems.filter((item) => item.itemType === "stock-part" && (item.status === "active" || Math.abs(Number(item.quantity)) > 0.000001));
     // Stock reports can be limited to one warehouse: items of that warehouse's inventory, with that warehouse's quantity.
     let warehouseOptions: Array<{ id: number; name: string; locationId: number; locationName: string }> | undefined;

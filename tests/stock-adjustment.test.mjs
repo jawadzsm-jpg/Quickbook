@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { adjustmentJournal, adjustmentTotals, planAdjustmentLine } from "../lib/stock-adjustment.ts";
+import { adjustmentCostLayer, adjustmentJournal, adjustmentTotals, adjustmentTypeComment, adjustmentTypeFromComment, planAdjustmentLine, weightedAverageTotals, weightedUnitCost } from "../lib/stock-adjustment.ts";
 
 const stock = { quantity: 10, unitCost: 5 };
 
@@ -38,4 +38,29 @@ test("the journal debits gaining asset accounts, credits losing ones and balance
   assert.equal(journal.find((line) => line.accountId === 2).originalDebit, 2);
   assert.deepEqual(adjustmentJournal([{ assetAccountId: 1, valueDifference: 0 }], 9, 1), []);
   assert.deepEqual(adjustmentTotals([{ valueDifference: -15 }, { valueDifference: 10.1 }]), { totalValue: -4.9, lineCount: 2 });
+});
+
+test("a value adjustment restarts the weighted average cost at its new value and quantity", () => {
+  const detail = (newQuantity, newValue) => JSON.stringify({ quantityOnHand: 10, newQuantity, currentValue: 50, newValue, unitCost: 5, newUnitCost: newValue / newQuantity });
+  const adjustment = adjustmentCostLayer({ itemId: 1, transactionId: 20, transactionComments: adjustmentTypeComment("value"), lineComments: detail(10, 80) });
+  assert.deepEqual(adjustment, { itemId: 1, transactionId: 20, quantity: 10, value: 80, reset: true });
+  // Quantity-only adjustments and unreadable lines leave the average alone.
+  assert.equal(adjustmentCostLayer({ itemId: 1, transactionId: 21, transactionComments: adjustmentTypeComment("quantity"), lineComments: detail(12, 60) }), null);
+  assert.equal(adjustmentCostLayer({ itemId: 1, transactionId: 22, transactionComments: adjustmentTypeComment("value"), lineComments: "not json" }), null);
+  assert.equal(adjustmentTypeFromComment(adjustmentTypeComment("quantity-value")), "quantity-value");
+
+  const before = { itemId: 1, transactionId: 10, quantity: 10, value: 50 };
+  const after = { itemId: 1, transactionId: 30, quantity: 10, value: 120 };
+  const other = { itemId: 2, transactionId: 5, quantity: 4, value: 20 };
+  // Purchases before the adjustment are replaced by it; ones after it average on top, whatever order the rows come in.
+  assert.equal(weightedUnitCost(weightedAverageTotals([before, adjustment]).get(1)), 8);
+  const totals = weightedAverageTotals([after, adjustment, other, before]);
+  assert.deepEqual(totals.get(1), { quantity: 20, value: 200 });
+  assert.equal(weightedUnitCost(totals.get(1)), 10);
+  assert.equal(weightedUnitCost(totals.get(2)), 5);
+  // Writing stock down to zero value gives a zero average; an adjustment to no stock leaves no average to use.
+  const zero = adjustmentCostLayer({ itemId: 1, transactionId: 40, transactionComments: adjustmentTypeComment("value"), lineComments: detail(10, 0) });
+  assert.equal(weightedUnitCost(weightedAverageTotals([before, zero]).get(1)), 0);
+  const empty = adjustmentCostLayer({ itemId: 1, transactionId: 40, transactionComments: adjustmentTypeComment("quantity-value"), lineComments: JSON.stringify({ newQuantity: 0, newValue: 0 }) });
+  assert.equal(weightedUnitCost(weightedAverageTotals([before, empty]).get(1)), undefined);
 });

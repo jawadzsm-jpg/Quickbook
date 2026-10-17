@@ -30,6 +30,46 @@ export const isAdjustmentType = (value: unknown): value is AdjustmentType => adj
 export const changesQuantity = (type: AdjustmentType) => type !== "value";
 export const changesValue = (type: AdjustmentType) => type !== "quantity";
 
+/** The posted adjustment's comments record its type. */
+export const adjustmentTypeComment = (type: AdjustmentType) => `Adjustment type: ${adjustmentTypeLabels[type]}`;
+export const adjustmentTypeFromComment = (comments: string): AdjustmentType => adjustmentTypes.find((type) => comments === adjustmentTypeComment(type)) ?? "quantity";
+/** Comments of the adjustments that set an item's total value (they reset its weighted average cost). */
+export const valueAdjustmentComments = adjustmentTypes.filter(changesValue).map(adjustmentTypeComment);
+
+/**
+ * One step of an item's weighted average cost, in posting order (transaction id). A purchase adds its quantity and
+ * home-currency value; a value adjustment replaces the running totals with the stock it set (new quantity and value).
+ */
+export type CostLayer = { itemId: number; transactionId: number; quantity: number; value: number; reset?: boolean };
+
+/**
+ * Weighted average totals per item: purchases since the item's latest value adjustment, on top of that adjustment's
+ * new quantity and value. With no value adjustment this is the plain purchase average; right after one, the average is
+ * exactly its new value ÷ new quantity. Quantity-only adjustments are valued at the average and do not change it.
+ */
+export function weightedAverageTotals(layers: Iterable<CostLayer>) {
+  const totals = new Map<number, { quantity: number; value: number }>();
+  for (const layer of [...layers].sort((a, b) => a.transactionId - b.transactionId)) {
+    const quantity = Number(layer.quantity) || 0, value = Number(layer.value) || 0;
+    const old = layer.reset ? { quantity: 0, value: 0 } : totals.get(layer.itemId) ?? { quantity: 0, value: 0 };
+    totals.set(layer.itemId, { quantity: old.quantity + quantity, value: old.value + value });
+  }
+  return totals;
+}
+
+/** The cost layer of a posted adjustment line, or null when it does not set the item's value (or its detail is unreadable). */
+export function adjustmentCostLayer(line: { itemId: number | null; transactionId: number; transactionComments: string; lineComments: string }): CostLayer | null {
+  if (!line.itemId || !valueAdjustmentComments.includes(line.transactionComments)) return null;
+  let detail: { newQuantity?: unknown; newValue?: unknown };
+  try { detail = JSON.parse(line.lineComments) as typeof detail; } catch { return null; }
+  const quantity = Number(detail?.newQuantity), value = Number(detail?.newValue);
+  if (!Number.isFinite(quantity) || !Number.isFinite(value) || quantity < 0 || value < 0) return null;
+  return { itemId: line.itemId, transactionId: line.transactionId, quantity, value, reset: true };
+}
+
+/** Unit cost from weighted totals (two decimals), or undefined when there is no quantity to average over. */
+export const weightedUnitCost = (totals: { quantity: number; value: number } | undefined) => totals && totals.quantity > 0 ? Math.round(totals.value / totals.quantity * 100) / 100 : undefined;
+
 /**
  * The effect of one line. Quantity adjustments value the difference at the item's current unit cost; value adjustments
  * set the item's total value (new value × exchange rate, home currency) and so its unit cost. Returns an error message

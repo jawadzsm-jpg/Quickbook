@@ -324,3 +324,54 @@ test("stock adjustments post quantity and multi-currency value changes and rever
   assert.equal(await quantity(b), 4);
   assert.equal((await database.query("SELECT count(*)::int AS count FROM transactions WHERE company_id = $1 AND type = 'inventory adjustment'", [companyId])).rows[0].count, 0);
 });
+
+test("a value adjustment sets the average cost used by invoices and the stock valuation, which reconciles with the ledger", async () => {
+  const workspaces = await vite.ssrLoadModule("/app/api/workspaces/route.ts");
+  const company = (await (await workspaces.POST(post({ type: "company", name: "Adjusted Cost Company", baseCurrency: "AED" }))).json()).company;
+  const companyId = company.id, locationId = company.locations[0].id;
+  const routes = await vite.ssrLoadModule("/app/api/stock-adjustments/route.ts");
+  const records = await vite.ssrLoadModule("/app/api/records/route.ts");
+  const reports = await vite.ssrLoadModule("/app/api/reports/route.ts");
+  const { averagePurchaseCosts, itemHomeCost } = await vite.ssrLoadModule("/lib/item-cost.ts");
+  const asset = (await database.query("INSERT INTO accounts (company_id, code, name, type, currency) VALUES ($1, 'AVG-1300', 'Adjusted stock', 'Other Current Asset', 'AED') RETURNING id", [companyId])).rows[0].id;
+  const account = (await database.query("INSERT INTO accounts (company_id, code, name, type, currency) VALUES ($1, 'AVG-5030', 'Adjusted cost test', 'Cost of Goods Sold', 'AED') RETURNING id", [companyId])).rows[0].id;
+  const item = (await database.query("INSERT INTO items (company_id, location_id, sku, name, quantity, cost, last_purchase_price, asset_account_id) VALUES ($1, $2, 'AVG-A', 'Average item', 10, 5, 5, $3) RETURNING id", [companyId, locationId, asset])).rows[0].id;
+  // A bill posted the usual way: the stock line and its inventory debit.
+  const bill = async (number, quantity, price) => {
+    const id = (await database.query("INSERT INTO transactions (company_id, location_id, number, type, party, transaction_date, status, subtotal, total) VALUES ($1, $2, $3, 'bill', 'Supplier', '2026-10-17', 'open', $4, $4) RETURNING id", [companyId, locationId, number, quantity * price])).rows[0].id;
+    await database.query("INSERT INTO transaction_lines (transaction_id, item_id, description, quantity, unit_price, subtotal, total) VALUES ($1, $2, 'Average item', $3, $4, $5, $5)", [id, item, quantity, price, quantity * price]);
+    const entry = (await database.query("INSERT INTO journal_entries (company_id, location_id, transaction_id, entry_date, reference) VALUES ($1, $2, $3, '2026-10-17', $4) RETURNING id", [companyId, locationId, id, number])).rows[0].id;
+    await database.query("INSERT INTO journal_lines (journal_entry_id, account_id, account_name, debit, credit) VALUES ($1, $2, 'Adjusted stock', $3, 0), ($1, NULL, 'Accounts Payable', 0, $3)", [entry, asset, quantity * price]);
+  };
+  const averageCost = async () => (await (await records.GET(new Request(`https://app.test/api/records?kind=items&companyId=${companyId}&locationId=${locationId}`))).json()).records.find((row) => row.id === item).averageCost;
+  const valuation = async () => {
+    const report = (await (await reports.GET(new Request(`https://app.test/api/reports?type=inventory-valuation-detail&companyId=${companyId}`))).json()).report;
+    const row = report.rows.find((entry) => entry.itemId === item), ledger = report.inventoryLedger.find((entry) => entry.accountId === asset);
+    return { cost: row.cost, value: row.value, stockValue: ledger.stockValue, ledgerBalance: ledger.ledgerBalance, difference: ledger.difference };
+  };
+  await bill("AVG-B1", 10, 5);
+  assert.deepEqual(await valuation(), { cost: 5, value: 50, stockValue: 50, ledgerBalance: 50, difference: 0 });
+
+  const valued = await routes.POST(post({ companyId, locationId, type: "value", date: "2026-10-17", accountId: account, currency: "AED", lines: [{ itemId: item, newValue: 80 }] }));
+  assert.equal(valued.status, 201, await valued.clone().text());
+  // The average restarts at the new value ÷ quantity: invoices, the Items list and the valuation all use 8.
+  assert.equal((await averagePurchaseCosts([item])).get(item), 8);
+  assert.equal(itemHomeCost({ id: item, cost: 5, lastPurchasePrice: 5 }, await averagePurchaseCosts([item])), 8);
+  assert.equal(await averageCost(), 8);
+  assert.deepEqual(await valuation(), { cost: 8, value: 80, stockValue: 80, ledgerBalance: 80, difference: 0 });
+  // A second value adjustment starts from the adjusted value.
+  const workspace = await (await routes.GET(new Request(`https://app.test/api/stock-adjustments?companyId=${companyId}&locationId=${locationId}`))).json();
+  assert.equal(workspace.items.find((row) => row.id === item).unitCost, 8);
+
+  // Later purchases average on top of the adjusted stock: (80 + 10 × 12) ÷ 20 = 10.
+  await bill("AVG-B2", 10, 12);
+  await database.query("UPDATE items SET quantity = 20 WHERE id = $1", [item]);
+  assert.equal(await averageCost(), 10);
+  assert.deepEqual(await valuation(), { cost: 10, value: 200, stockValue: 200, ledgerBalance: 200, difference: 0 });
+
+  // Deleting the adjustment returns to the plain purchase average and ledger.
+  const removed = await routes.DELETE(new Request("https://app.test/api/stock-adjustments", { method: "DELETE", headers: { origin: "https://app.test", "content-type": "application/json" }, body: JSON.stringify({ companyId, id: (await valued.json()).adjustment.id, reason: "Test reversal" }) }));
+  assert.equal(removed.status, 200, await removed.text());
+  assert.equal(await averageCost(), 8.5);
+  assert.deepEqual(await valuation(), { cost: 8.5, value: 170, stockValue: 170, ledgerBalance: 170, difference: 0 });
+});

@@ -9,14 +9,13 @@ import { averagePurchaseCosts, itemHomeCost } from "@/lib/item-cost";
 import { guardFiledPeriod } from "@/lib/period-lock";
 import { skuWrite } from "@/lib/sku-locks";
 import { adjustWarehouseStock, resolveDocumentWarehouse, warehouseQuantities, warehouseSummaries } from "@/lib/warehouses";
-import { MAX_ADJUSTMENT_LINES, STOCK_ADJUSTMENT_TYPE, adjustmentJournal, adjustmentTotals, adjustmentTypeLabels, changesValue, isAdjustmentType, planAdjustmentLine, roundMoney, type AdjustmentLinePlan, type AdjustmentType } from "@/lib/stock-adjustment";
+import { MAX_ADJUSTMENT_LINES, STOCK_ADJUSTMENT_TYPE, adjustmentJournal, adjustmentTypeComment, adjustmentTypeFromComment, adjustmentTotals, adjustmentTypeLabels, changesValue, isAdjustmentType, planAdjustmentLine, roundMoney, type AdjustmentLinePlan } from "@/lib/stock-adjustment";
 
 // Stock adjustments (Admin Controls → Stock adjustments): administrators change the quantity and/or total value of many
 // items of one inventory. Each adjustment is a transaction of type "inventory adjustment" with one line per item, stock
 // movements, and a balanced journal between the items' inventory asset accounts and the chosen adjustment account.
 
 type LineDetail = { sku: string; itemNumber: string; name: string; quantityOnHand: number; newQuantity: number; currentValue: number; newValue: number; unitCost: number; newUnitCost: number; oldCost: number; assetAccountId: number };
-const typeFromComments = (comments: string): AdjustmentType => (Object.entries(adjustmentTypeLabels).find(([, label]) => comments === `Adjustment type: ${label}`)?.[0] as AdjustmentType) ?? "quantity";
 const parseDetail = (comments: string): Partial<LineDetail> => { try { return JSON.parse(comments) as Partial<LineDetail>; } catch { return {}; } };
 const isoDate = (value: unknown): value is string => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
 const positiveId = (value: unknown) => { const id = Number(value); return Number.isSafeInteger(id) && id > 0 ? id : 0; };
@@ -81,7 +80,7 @@ export async function GET(request: Request) {
     const historyLines = history.length ? await db.select().from(transactionLines).where(inArray(transactionLines.transactionId, history.map((row) => row.id))).orderBy(asc(transactionLines.id)) : [];
     const locationNames = new Map(locations.map((location) => [location.id, location.name]));
     const adjustments = history.map((row) => ({
-      id: row.id, reference: row.number, date: row.transactionDate, type: typeFromComments(row.comments), account: row.account, memo: row.memo, currency: row.currency, exchangeRate: row.exchangeRate, totalValue: row.baseTotal, documentTotal: row.total,
+      id: row.id, reference: row.number, date: row.transactionDate, type: adjustmentTypeFromComment(row.comments), account: row.account, memo: row.memo, currency: row.currency, exchangeRate: row.exchangeRate, totalValue: row.baseTotal, documentTotal: row.total,
       locationId: row.locationId, locationName: locationNames.get(row.locationId ?? 0) ?? "", createdAt: row.createdAt,
       lines: historyLines.filter((line) => line.transactionId === row.id).map((line) => { const detail = parseDetail(line.comments); return { itemId: line.itemId, description: line.description, sku: detail.sku ?? "", quantityOnHand: detail.quantityOnHand ?? 0, newQuantity: detail.newQuantity ?? 0, quantityDifference: line.quantity, currentValue: detail.currentValue ?? 0, newValue: detail.newValue ?? 0, valueDifference: roundMoney((detail.newValue ?? 0) - (detail.currentValue ?? 0)), newUnitCost: detail.newUnitCost ?? line.unitCost }; }),
     }));
@@ -160,7 +159,7 @@ async function handlePOST(request: Request) {
   const documentTotal = roundMoney(totals.totalValue / exchangeRate);
   const [record] = await db.insert(transactions).values({
     companyId, locationId, warehouseId: warehouse.id, number: reference, type: STOCK_ADJUSTMENT_TYPE, party: adjustmentAccount.name, account: adjustmentAccount.name,
-    transactionDate: date, status: "posted", memo, comments: `Adjustment type: ${adjustmentTypeLabels[type]}`, subtotal: documentTotal, vatRate: 0, vatAmount: 0, total: documentTotal,
+    transactionDate: date, status: "posted", memo, comments: adjustmentTypeComment(type), subtotal: documentTotal, vatRate: 0, vatAmount: 0, total: documentTotal,
     currency, exchangeRate, baseTotal: totals.totalValue, createdByUserId: user.id,
   }).returning();
   for (const { item, plan, assetAccountId } of planned) {
@@ -212,7 +211,7 @@ async function handleDELETE(request: Request) {
     await adjustWarehouseStock(db, movement.warehouseId, movement.itemId, -movement.quantity);
   }
   // A value adjustment set the saved cost; put the earlier cost back unless something else changed it since.
-  if (changesValue(typeFromComments(record.comments))) for (const line of lines) {
+  if (changesValue(adjustmentTypeFromComment(record.comments))) for (const line of lines) {
     const detail = parseDetail(line.comments);
     const item = stock.find((row) => row.id === line.itemId);
     if (item && typeof detail.oldCost === "number" && Math.abs(item.cost - Number(detail.newUnitCost)) < 0.00005) await db.update(items).set({ cost: detail.oldCost }).where(eq(items.id, item.id));
