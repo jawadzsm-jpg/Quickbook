@@ -62,7 +62,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/inventory-email-dialog.tsx` — Inventory Overview "Send" dialog (also the sidebar's Email lists page with `page`): Sales/Purchase list, administrators' List of (my list / all users / one user), category filter, Set category and a Categories panel (add, rename, delete), search, select, add, CSV import, remove; stock-list templates ({items}); sends hidden (Bcc) via `/api/inventory-emails`. My signature opens the signature editor.
 - `app/inventory-report-library.tsx` — Inventory report card library.
 - `app/inventory-report-table.tsx` — Inventory report table renderer.
-- `app/invoice-attachments.tsx` — Attachment list and upload for invoices and other records; `/api/attachments`.
+- `app/invoice-attachments.tsx` — Attachment list and upload for invoices and other records, with a green file count, Open and Download; announces count changes (`ATTACHMENT_COUNT_EVENT`) for the register badges; `/api/attachments`.
 - `app/invoice-packing-list.tsx` — Invoice packing list (HS code, cartons, weights, CBM, origin, stamps); `/api/packing-lists`.
 - `app/invoice-serial-editor.tsx` — Append serial numbers to invoice/bill/receipt lines after the creation day; `/api/records`.
 - `app/invoice-stock-return.tsx` — Add an inventory-only stock return line to an invoice.
@@ -183,7 +183,8 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/app-typography.ts` — App font list, text-size areas and limits, validation, and the CSS variables applied on `<html>` (Company Setup → Fonts & text).
 - `lib/app-url.ts` — Public address for emailed links (NEXT_PUBLIC_APP_URL or Vercel production domain), never the Host header.
 - `lib/audit-actor.ts` — Audit Trail "By" user read from an entry's details (`auditActor`) and kept when an All-Admin edits the text (`keepAuditActor`).
-- `lib/attachments.ts` — Attachment validation (3 MB per file, at most 10 files).
+- `lib/attachment-compress.ts` — Browser-side attachment preparation: compresses JPG/PNG/WebP photos before upload.
+- `lib/attachments.ts` — Attachment validation (3 MB per file, at most 10 files) and gzip storage of non-image files (`packAttachmentData`, `attachmentBytes`).
 - `lib/auth.ts` — **server** Sessions (with the idle sign-out check), cookies, password hashing, role permissions, `requireApiUser`, `requireCompanyAccess`, request IP. **DB**
 - `lib/backup-oidc.ts` — Authorizes the scheduled backup worker from OIDC JWT claims.
 - `lib/backup-schedule.ts` — Backup schedule parsing (once/daily/weekly/monthly, retention) and next run in Asia/Dubai.

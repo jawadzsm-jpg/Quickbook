@@ -27,6 +27,7 @@ const { convertSharePrice, missingShareRateMessage, shareCurrencies, shareCurren
 const { companyEInvoiceIssues, customerEInvoiceStatus, invoiceEInvoiceStatus, isUaeTrn } = await sourceModule("../lib/einvoice-readiness.ts");
 const { calculatorResult } = await sourceModule("../lib/calculator.ts");
 const { contactAddressLines } = await sourceModule("../lib/contact-address.ts");
+const { attachmentBytes, packAttachmentData } = await sourceModule("../lib/attachments.ts");
 const { API_TOKEN_PREFIX, apiTokenDigest, apiTokenFromHeaders, generateApiToken } = await sourceModule("../lib/api-keys.ts");
 const { decodeCursor, encodeCursor, parseProductQuery } = await sourceModule("../lib/public-api-query.ts");
 const { friendlyEmailError } = await sourceModule("../lib/email-errors.ts");
@@ -1605,4 +1606,48 @@ test("Inventory Overview converts shown and shared prices to USD or EUR with the
   assert.match(overview, /offerText\?\.price \?\? `\$\{priceCurrency\} \$\{plainMoney\(price\)\}/);
   assert.match(overview, /itemsText=\{shareText\("email"\)/);
   assert.doesNotMatch(overview, /`\$\{record\.currency\} \$\{/, "no shared price falls back to the base currency code");
+});
+
+test("attachments: compressed at rest, counted without file data, green count badge, opened only on click", () => {
+  // Text-like files are gzipped when that saves space and come back byte-for-byte; images and incompressible files stay as sent.
+  const text = Buffer.from("Invoice line, serial 12345\n".repeat(400));
+  const packed = packAttachmentData(`data:text/csv;base64,${text.toString("base64")}`);
+  assert.match(packed, /^gzip:data:text\/csv;base64,/);
+  assert.ok(packed.length < text.length / 4);
+  assert.deepEqual(attachmentBytes(packed), text);
+  const image = `data:image/png;base64,${Buffer.from("png bytes").toString("base64")}`;
+  assert.equal(packAttachmentData(image), image);
+  const random = `data:application/pdf;base64,${Buffer.from(Array.from({ length: 2000 }, (_, index) => (index * 7919 + 13) % 251)).toString("base64")}`;
+  assert.deepEqual(attachmentBytes(packAttachmentData(random)), Buffer.from(random.split(",")[1], "base64"));
+  assert.deepEqual(attachmentBytes(image), Buffer.from("png bytes"));
+
+  const route = readFileSync(new URL("../app/api/attachments/route.ts", import.meta.url), "utf8");
+  assert.equal((route.match(/packAttachmentData\(String\(file\.fileData\)\)/g) || []).length, 2);
+  assert.match(readFileSync(new URL("../lib/record-attachments.ts", import.meta.url), "utf8"), /packAttachmentData\(file!\.fileData\)/);
+  assert.match(route, /new Uint8Array\(attachmentBytes\(String\(entry\.file_data\)\)\)/);
+  // Open shows only PDFs and images in the tab; every other type downloads.
+  assert.match(route, /const INLINE_TYPES = new Set\(\["application\/pdf", "image\/png", "image\/jpeg", "image\/webp", "image\/gif"\]\)/);
+  assert.match(route, /url\.searchParams\.get\("open"\) === "1" && INLINE_TYPES\.has/);
+  // The list reads names and sizes only; file contents are read by the attachmentId download/open request alone.
+  assert.match(route, /SELECT id, file_name, mime_type, file_size, created_at\s+FROM record_attachments/);
+  const records = readFileSync(new URL("../app/api/records/route.ts", import.meta.url), "utf8");
+  assert.match(records, /SELECT entity_id AS id, count\(\*\)::int AS count FROM record_attachments WHERE company_id = \$\{companyId\} AND entity_type = 'transaction'/);
+
+  // Photos are compressed in the browser by every upload point.
+  const compress = readFileSync(new URL("../lib/attachment-compress.ts", import.meta.url), "utf8");
+  assert.match(compress, /const MAX_DIMENSION = 2400;/);
+  assert.match(compress, /compressed\.size < file\.size \* 0\.95/);
+  for (const file of ["invoice-attachments.tsx", "attachment-capture.tsx", "vat-code-center.tsx"]) {
+    const source = readFileSync(new URL(`../app/${file}`, import.meta.url), "utf8");
+    assert.match(source, /prepareAttachment/, file);
+    assert.doesNotMatch(source, /readAsDataURL/, file);
+  }
+
+  // Rows with files show a green paperclip with the count; the attachments window keeps it current.
+  const panel = readFileSync(new URL("../app/invoice-attachments.tsx", import.meta.url), "utf8");
+  assert.match(panel, /new CustomEvent\(ATTACHMENT_COUNT_EVENT, \{ detail: \{ entityType, entityId: invoiceId, count: savedCount \} \}\)/);
+  assert.match(panel, /&open=1`\} target="_blank" rel="noopener noreferrer"/);
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  assert.match(app, /attachmentCount\(r\) \? "text-emerald-600/);
+  assert.match(app, /window\.addEventListener\(ATTACHMENT_COUNT_EVENT, update\)/);
 });

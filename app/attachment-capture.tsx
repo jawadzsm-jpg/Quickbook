@@ -2,6 +2,8 @@
 
 import { ChangeEvent, useEffect, useRef, useState } from "react";
 import { Paperclip, Trash2, X } from "lucide-react";
+import { toast } from "sonner";
+import { prepareAttachment } from "@/lib/attachment-compress";
 
 type PendingAttachment = { fileName: string; mimeType: string; fileData: string; fileSize: number };
 
@@ -61,14 +63,9 @@ export function AttachmentCapture() {
     const selected = Array.from(event.target.files ?? []).slice(0, Math.max(0, 10 - files.length));
     const next: PendingAttachment[] = [];
     for (const file of selected) {
-      if (file.size > 3_000_000) continue;
-      const fileData = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result ?? ""));
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-      next.push({ fileName: file.name, mimeType: file.type || "application/octet-stream", fileData, fileSize: file.size });
+      const prepared = await prepareAttachment(file);
+      if ("error" in prepared) { toast.error(prepared.error); continue; }
+      next.push(prepared);
     }
     setFiles((current) => [...current, ...next].slice(0, 10));
     event.target.value = "";
@@ -79,7 +76,7 @@ export function AttachmentCapture() {
     <div className="flex items-center justify-between border-b p-3"><div className="flex items-center gap-2"><Paperclip className="size-4" /><div><p className="text-sm font-semibold">Attachments</p><p className="text-xs text-slate-500">Invoice · Bill · Payment · Paid to · Employee</p></div></div><button type="button" aria-label="Clear attachments" onClick={() => setFiles([])} className="rounded p-1 text-slate-400 hover:bg-slate-100"><X className="size-4" /></button></div>
     <div className="space-y-3 p-3">
       <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed p-3 text-sm font-medium text-slate-700 hover:bg-slate-50"><Paperclip className="size-4" />Add files<input className="hidden" type="file" multiple accept="image/*,.pdf,.csv,.txt,.xls,.xlsx,.doc,.docx" onChange={selectFiles} /></label>
-      <p className="text-xs text-slate-500">Up to 10 files, 3 MB each. Files are saved when you save the record.</p>
+      <p className="text-xs text-slate-500">Up to 10 files, 3 MB each; photos are compressed automatically. Files are saved when you save the record.</p>
       {files.length ? <div className="max-h-40 space-y-1 overflow-y-auto">{files.map((file, index) => <div key={`${file.fileName}-${index}`} className="flex items-center gap-2 rounded-md bg-slate-50 px-2 py-2 text-xs"><span className="min-w-0 flex-1 truncate">{file.fileName}</span><span className="text-slate-400">{Math.ceil(file.fileSize / 1024)} KB</span><button type="button" aria-label={`Remove ${file.fileName}`} onClick={() => setFiles((current) => current.filter((_, position) => position !== index))} className="text-slate-400 hover:text-rose-600"><Trash2 className="size-3.5" /></button></div>)}</div> : null}
     </div>
   </div>;
