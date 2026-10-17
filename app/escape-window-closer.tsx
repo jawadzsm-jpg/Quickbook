@@ -41,9 +41,14 @@ const TRANSIENT_LAYER_SELECTOR = [
 ].join(",");
 
 type PendingClose = {
+  window: HTMLElement;
   closeControl: HTMLElement;
-  saveControl: HTMLButtonElement;
+  saveControls: HTMLButtonElement[];
+  tracked: boolean;
 };
+
+// Output buttons such as "Save as PDF" produce a file; they never save the window's edits.
+const OUTPUT_LABEL = /\b(pdf|print|download|e-?mail)\b/i;
 
 function isVisible(element: HTMLElement) {
   const style = window.getComputedStyle(element);
@@ -70,7 +75,7 @@ function findTextCloseButton(container: HTMLElement) {
 
   return buttons.find((button) => {
     const label = button.textContent?.trim().toLowerCase();
-    return label === "close" || label === "cancel";
+    return (label === "close" || label === "cancel") && !button.hasAttribute("data-not-close");
   });
 }
 
@@ -84,15 +89,42 @@ function findSaveButton(container: HTMLElement) {
     container.querySelectorAll<HTMLButtonElement>('button:not([disabled])')
   ).filter((button) => !button.closest("[data-no-save-prompt]"));
 
-  return buttons.find((button) =>
-    /^(save|create|add|update|post|transfer|receive)\b/i.test(
-      button.textContent?.trim() ?? ""
-    )
-  );
+  return buttons.find((button) => {
+    const label = button.textContent?.trim() ?? "";
+    return /^(save|create|add|update|post|transfer|receive)\b/i.test(label) && !OUTPUT_LABEL.test(label);
+  });
 }
 
+/**
+ * What closing this window would lose, or null when it can close straight away. Windows marked
+ * data-unsaved-tracking (customer and vendor document windows) report their own edits: each part holding unsaved
+ * edits carries data-unsaved, and its own save button carries data-save-changes. Untracked windows fall back to
+ * their first save-like button.
+ */
+function findUnsavedWork(container: HTMLElement) {
+  if (container.matches("[data-unsaved-tracking]")) {
+    const parts = [container, ...Array.from(container.querySelectorAll<HTMLElement>("[data-unsaved]"))]
+      .filter((part) => part.hasAttribute("data-unsaved"));
+    if (parts.length === 0) return null;
+    const saveControls = parts.flatMap((part) => {
+      const control = part.matches("[data-save-changes]") ? part : part.querySelector<HTMLElement>("[data-save-changes]");
+      return control instanceof HTMLButtonElement ? [control] : [];
+    });
+    return { saveControls, tracked: true };
+  }
+  const saveControl = findSaveButton(container);
+  return saveControl ? { saveControls: [saveControl], tracked: false } : null;
+}
+
+function pressSave(control: HTMLButtonElement) {
+  const form = control.form;
+  if (form && control.type === "submit") form.requestSubmit(control);
+  else control.click();
+}
+
+// Buttons marked data-not-close only cancel an inline edit (e.g. Ship To's Cancel); they leave the window open.
 function closeButtonFromTarget(target: EventTarget | null) {
-  if (!(target instanceof Element)) return null;
+  if (!(target instanceof Element) || target.closest("[data-not-close]")) return null;
   const matched = target.closest<HTMLElement>(CLOSE_SELECTOR);
   if (matched) return matched;
   const button = target.closest<HTMLButtonElement>('button:not([disabled])');
@@ -135,13 +167,13 @@ export function EscapeWindowCloser() {
 
   useEffect(() => {
     const requestClose = (topWindow: HTMLElement, closeControl: HTMLElement) => {
-      const saveControl = findSaveButton(topWindow);
-      if (!saveControl) {
+      const unsaved = findUnsavedWork(topWindow);
+      if (!unsaved) {
         bypassNextClose.current = true;
         closeControl.click();
         return;
       }
-      updatePendingClose({ closeControl, saveControl });
+      updatePendingClose({ window: topWindow, closeControl, ...unsaved });
     };
 
     const onKeyDown = (event: KeyboardEvent) => {
@@ -185,13 +217,13 @@ export function EscapeWindowCloser() {
       if (!closeControl) return;
       const topWindow = closeControl.closest<HTMLElement>(WINDOW_SELECTOR);
       if (!topWindow || !isVisible(topWindow)) return;
-      const saveControl = findSaveButton(topWindow);
-      if (!saveControl) return;
+      const unsaved = findUnsavedWork(topWindow);
+      if (!unsaved) return;
 
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
-      updatePendingClose({ closeControl, saveControl });
+      updatePendingClose({ window: topWindow, closeControl, ...unsaved });
     };
 
     document.addEventListener("keydown", onKeyDown, true);
@@ -210,13 +242,33 @@ export function EscapeWindowCloser() {
     target.closeControl.click();
   };
 
+  // Presses the window's own save buttons. A tracked window then closes once its edits are saved; it stays open
+  // when a save fails or cannot run (the part shows its own error), so nothing is lost.
   const saveChanges = () => {
     const target = pendingCloseRef.current;
     updatePendingClose(null);
     if (!target) return;
-    const form = target.saveControl.form;
-    if (form && target.saveControl.type === "submit") form.requestSubmit(target.saveControl);
-    else target.saveControl.click();
+    const ready = target.saveControls.filter((control) => !control.disabled);
+    ready.forEach(pressSave);
+    if (!target.tracked || ready.length === 0) return;
+    const started = Date.now();
+    const timer = window.setInterval(() => {
+      const open = target.window.isConnected && isVisible(target.window);
+      if (!open) return window.clearInterval(timer);
+      const unsaved = findUnsavedWork(target.window);
+      if (!unsaved) {
+        window.clearInterval(timer);
+        const closeControl = target.closeControl.isConnected
+          ? target.closeControl
+          : target.window.querySelector<HTMLElement>(CLOSE_SELECTOR) ?? findTextCloseButton(target.window);
+        if (!closeControl) return;
+        bypassNextClose.current = true;
+        closeControl.click();
+        return;
+      }
+      const saving = ready.some((control) => control.isConnected && control.disabled);
+      if ((!saving && Date.now() - started > 400) || Date.now() - started > 60_000) window.clearInterval(timer);
+    }, 100);
   };
 
   return (
@@ -225,7 +277,7 @@ export function EscapeWindowCloser() {
         <AlertDialogHeader>
           <AlertDialogTitle>Save before closing?</AlertDialogTitle>
           <AlertDialogDescription>
-            This window contains editable information. Save your changes, keep editing, or discard the changes and close it.
+            This window has unsaved changes. Save them, keep editing, or discard them and close the window.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

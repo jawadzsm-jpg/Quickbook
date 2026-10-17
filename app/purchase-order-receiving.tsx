@@ -80,7 +80,9 @@ export function PurchaseOrderReceiving({ orderId, companyId, onSaved, documentTy
     } catch (error) { setError(error instanceof Error ? error.message : "Could not create item receipt."); }
     finally { setSaving(false); }
   }
-  return <section className="document-internal-only rounded-xl border bg-card text-card-foreground p-4">
+  // Typed quantities, references, notes or files are unsaved edits ("Save before closing?" in the document window).
+  const unsaved = Object.values(quantities).some((value) => Number(value) > 0) || memo.trim() !== "" || (isBill && number.trim() !== defaultNumber.trim()) || billOfEntryNumber.trim() !== "" || airwayBillNumber.trim() !== "" || attachments.length > 0;
+  return <section className="document-internal-only rounded-xl border bg-card text-card-foreground p-4" data-unsaved={unsaved ? "" : undefined}>
     <h3 className="font-semibold">{documentType === "bill" ? "Enter bill for items received" : "Receive items from this purchase order"}</h3>
     <p className="mt-1 text-sm text-muted-foreground">Enter only the quantities delivered now. Remaining quantities stay on this PO for the next receipt.</p>
     <SkuLockNotice message={skuLock.message} />
@@ -105,7 +107,7 @@ export function PurchaseOrderReceiving({ orderId, companyId, onSaved, documentTy
       {hasImportGoodsVat && <InvoiceAttachments companyId={companyId} pending={attachments} onPendingChange={setAttachments} documentLabel="Bill" />}
       <label className="grid gap-2 text-sm">{documentType === "bill" ? "Additional bill notes" : "Receipt memo"}<Input disabled={saving} value={memo} onChange={(event) => setMemo(event.target.value)} /></label>
       {documentType === "bill" && <label className="grid gap-2 text-sm">Bill memo<textarea readOnly className="min-h-20 w-full rounded-md border bg-background p-3" value={[data.order.memo, memo, `Received from PO ${data.order.number}`].filter(Boolean).join(" · ")} /><span className="text-muted-foreground">The purchase order number is included automatically when you save.</span></label>}
-      <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={saving} onClick={() => setQuantities(Object.fromEntries(data.lines.map((line) => [line.id, String(line.remaining)])))}>Fill remaining quantities</Button><Button disabled={!skuLock.ready || saving || !data.lines.some((line) => line.remaining > 0)} type="submit"><Save className="size-4" />{saving ? "Saving…" : documentType === "bill" ? "Save Bill" : "Save Receipt"}</Button></div>
+      <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={saving} onClick={() => setQuantities(Object.fromEntries(data.lines.map((line) => [line.id, String(line.remaining)])))}>Fill remaining quantities</Button><Button data-save-changes disabled={!skuLock.ready || saving || !data.lines.some((line) => line.remaining > 0)} type="submit"><Save className="size-4" />{saving ? "Saving…" : documentType === "bill" ? "Save Bill" : "Save Receipt"}</Button></div>
     </form>}
   </section>;
 }
