@@ -4,6 +4,7 @@ import { getDb } from "@/db";
 import { appUsers, authSessions } from "@/db/schema";
 import { createSession, getRequestUser, hashPassword, requestIpAddress, revokeRequestSession, sameOrigin, sessionCookie, verifyPassword } from "@/lib/auth";
 import { checkSecondFactor } from "@/lib/mfa";
+import { passwordProblem } from "@/lib/password-policy";
 import { consumeRateLimit, limitLogin } from "@/lib/rate-limit";
 
 const LOCK_AFTER = 5;
@@ -66,6 +67,8 @@ export async function POST(request: Request) {
   await db.update(appUsers).set({ failedLoginAttempts: 0, lockedUntil: null, lastLoginAt, lastLoginIp: loginIp, lastLoginUserAgent: loginUserAgent, updatedAt: lastLoginAt }).where(eq(appUsers.id, user.id));
   // Expired sessions are only filtered on read; tidy this user's old ones at each sign-in.
   await db.delete(authSessions).where(and(eq(authSessions.userId, user.id), lt(authSessions.expiresAt, lastLoginAt)));
+  // A fresh session for every sign-in; any session this browser already had ends now.
+  await revokeRequestSession(request);
   const token = await createSession(user.id, loginIp);
   return Response.json({ user: { id: user.id, fullName: user.fullName, email: user.email, avatarData: user.avatarData, themeColor: user.themeColor, appearanceMode: user.appearanceMode, role: user.role, mustChangePassword: user.mustChangePassword } }, { headers: { "Set-Cookie": sessionCookie(token), ...noStore } });
 }
@@ -78,11 +81,13 @@ export async function PATCH(request: Request) {
   const payload = await request.json().catch(() => ({})) as Record<string, unknown>;
   const currentPassword = String(payload.currentPassword ?? "");
   const newPassword = String(payload.newPassword ?? "");
-  if (newPassword.length < 12 || newPassword.length > 128) return Response.json({ error: "The new password must contain 12 to 128 characters." }, { status: 400 });
+  const weakPassword = passwordProblem(newPassword, user);
+  if (weakPassword) return Response.json({ error: weakPassword }, { status: 400 });
   const budget = await consumeRateLimit(`password-change:${user.id}`, 5, 900);
   if (!budget.allowed) return Response.json({ error: "Too many attempts. Try again in 15 minutes." }, { status: 429, headers: { "Retry-After": String(budget.retryAfter) } });
   const [record] = await getDb().select().from(appUsers).where(eq(appUsers.id, user.id)).limit(1);
   if (!record || !(await verifyPassword(currentPassword, record.passwordHash))) return Response.json({ error: "The current password is incorrect." }, { status: 403 });
+  if (newPassword === currentPassword) return Response.json({ error: "Choose a new password that is different from the current one." }, { status: 400 });
   await getDb().update(appUsers).set({ passwordHash: await hashPassword(newPassword), mustChangePassword: false, updatedAt: new Date().toISOString() }).where(eq(appUsers.id, user.id));
   await getDb().delete(authSessions).where(eq(authSessions.userId, user.id));
   return Response.json({ ok: true }, { headers: { "Set-Cookie": sessionCookie("", 0), ...noStore } });

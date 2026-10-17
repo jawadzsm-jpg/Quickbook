@@ -11,6 +11,7 @@ import { defaultLetterhead, footerStyles, letterheadDocuments, readLetterheads, 
 import { LetterheadPage, type LetterheadCompany } from "./letterhead-page";
 import { LetterheadRichEditor } from "./letterhead-rich-editor";
 import { useConfirmDelete } from "./confirm-delete-dialog";
+import { wirePopupActions } from "@/lib/print-popup";
 
 type Company = LetterheadCompany & { id: number; letterheadDesign: string };
 
@@ -82,8 +83,8 @@ export function LetterheadCenter({ company, onSaved }: { company: Company; onSav
     const popup = window.open("", "_blank");
     if (!popup) return toast.error("Allow pop-ups to print the letterhead.");
     popup.opener = null;
-    popup.document.write(`<!doctype html><html><head><title>Letterhead</title><style>@page{size:A4 portrait;margin:0}html,body{margin:0;padding:0;background:white}.letterhead-page{width:210mm!important;height:297mm!important;break-after:page;print-color-adjust:exact;-webkit-print-color-adjust:exact}.letterhead-page:last-child{break-after:auto}.letterhead-drag-handle{display:none}.print-controls{padding:12px;background:#f1f5f9}@media print{.print-controls{display:none}}</style></head><body><div class="print-controls"><button onclick="window.print()">Print / Save PDF</button></div>${preview.current.innerHTML}</body></html>`);
-    popup.document.close();
+    popup.document.write(`<!doctype html><html><head><title>Letterhead</title><style>@page{size:A4 portrait;margin:0}html,body{margin:0;padding:0;background:white}.letterhead-page{width:210mm!important;height:297mm!important;break-after:page;print-color-adjust:exact;-webkit-print-color-adjust:exact}.letterhead-page:last-child{break-after:auto}.letterhead-drag-handle{display:none}.print-controls{padding:12px;background:#f1f5f9}@media print{.print-controls{display:none}}</style></head><body><div class="print-controls"><button data-popup-action="print">Print / Save PDF</button></div>${preview.current.innerHTML}</body></html>`);
+    popup.document.close(); wirePopupActions(popup);
     void Promise.all(Array.from(popup.document.images).map((image) => image.complete ? Promise.resolve() : image.decode().catch(() => undefined)))
       .then(() => window.setTimeout(() => { if (!popup.closed) popup.print(); }, 150));
   };

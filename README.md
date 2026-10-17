@@ -116,7 +116,7 @@ flowchart TD
 
 **Integration API** (`/api/v1`): read-only, one company per API key, keys stored as digests, 120 requests/min per key, `updated_since` change tracking through the `trg_items_updated_at` database trigger. See [docs/INTEGRATION-API.md](docs/INTEGRATION-API.md).
 
-**Security summary**: scrypt passwords and PINs; hashed session, reset and API tokens; 5 failed logins lock an account for 15 minutes; database-backed rate limits; encrypted SMTP password; CSP and frame/no-sniff headers (`next.config.ts`); CodeQL `security-extended` must pass before deployment.
+**Security summary**: scrypt passwords and PINs; hashed session, reset and API tokens; 5 failed logins lock an account for 15 minutes; database-backed rate limits; encrypted SMTP password; a nonce-based Content-Security-Policy for pages (`proxy.ts`) plus frame/no-sniff/HSTS headers (`next.config.ts`); password rules that refuse common and personal passwords; CodeQL `security-extended` must pass before deployment.
 
 ## Application workflow
 

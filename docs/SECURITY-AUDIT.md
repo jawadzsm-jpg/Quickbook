@@ -39,7 +39,7 @@ Verdicts:
 | A4 | Access control | PASS | See 5 and 13. **Also fixed:** the online-users list showed users of every company. It now shows only colleagues who share a company, plus All-Admins. |
 | A5 | Form sanitization | PASS | Server-side validation everywhere. **Fixed:** new records now enforce text limits (as edits already did) and at most 1,000 lines. SMTP settings have length limits. |
 | A6 | API endpoints | PASS | Authentication, Origin, company and permission checks on all 66 route files. |
-| A7 | Security headers | PARTIAL | **Added:** HSTS (2 years, preload), Cross-Origin-Opener-Policy, `object-src 'none'`, DNS-prefetch off. Removed `X-Powered-By`. **Open:** a `script-src` CSP needs per-request nonces for Next.js inline scripts; this is a separate change. |
+| A7 | Security headers | PASS | **Added:** HSTS (2 years, preload), Cross-Origin-Opener-Policy, `object-src 'none'`, DNS-prefetch off. Removed `X-Powered-By`. **Follow-up (October 2026):** a full nonce-based Content-Security-Policy for pages (`proxy.ts`, `script-src 'self' 'nonce-…' 'strict-dynamic'`, no `'unsafe-inline'`/`'unsafe-eval'` for scripts in production) and `script-src 'none'` for API responses. Print-popup buttons no longer use inline `onclick`. |
 | A8 | Debug mode / verbose errors | PASS | **Fixed:** 28 route files returned raw database errors to the browser, including SQL text, parameters and schema names (for example `?locationId=9999999999`). `publicErrorMessage` now replaces them with the route's message and logs only the SQLSTATE code. The local database mode is restricted to development. |
 | A9 | Unused packages | PASS (runtime) | Removed `@dnd-kit/modifiers`, `@dnd-kit/sortable`, `@dnd-kit/utilities`, `@hookform/resolvers` and `date-fns`. See open items for the old "sites" toolchain. |
 | A10 | Exposed files | PASS | `public/` holds only images and the favicon. No route serves files by path. `/.env` and `/.git` return 404. |
@@ -50,7 +50,16 @@ Verdicts:
 
 1. **Set `SMTP_ENCRYPTION_KEY` in Vercel production** (32+ random characters). Until it is set, encrypted secrets use a key derived from `DATABASE_URL`. Existing secrets stay readable after it is set and are re-encrypted the next time they are saved.
 2. **Row-level security** (item 14): plan it as its own change, with tests per table.
-3. **Content-Security-Policy `script-src` with nonces** (A7): add it through a `proxy.ts` nonce, after testing the print popups and the layout builder.
+3. ~~Content-Security-Policy `script-src` with nonces~~ (A7): done in the October 2026 follow-up below.
 4. **Old "sites" build toolchain:** `vinext`, `wrangler`, `@cloudflare/vite-plugin`, `@vitejs/plugin-rsc`, `@vitejs/plugin-react`, `react-server-dom-webpack`, plus `scripts/build-verified.sh`, `install-ci.sh`, `sites-env.sh` and `.openai/hosting.json`. These are development-only but carry most of the remaining `npm audit` advisories. Remove them if that hosting is no longer used. `drizzle-kit` and `eslint-config-next` have advisories with no non-downgrade fix (development only).
 5. **Database least privilege:** use a separate DML-only Neon role at runtime; keep the owner role for migrations.
 6. **SMTP host DNS changes:** the private-address check runs when settings are saved. A name that later resolves to a private address is not re-checked at send time. Only an All-Admin can set the host.
+
+## Follow-up hardening (October 2026)
+
+- **Content-Security-Policy with nonces** (A7, open item 3): see ARCHITECTURE.md → Security headers. Verified locally: sign-in, the workspace, a document window, PDF download, Excel and stamped PDF exports, layout-builder print, and PDF/image attachments opened in a tab, with no policy violations and without `'unsafe-eval'`.
+- **Password rules** for every new password (`lib/password-policy.ts`): common passwords with digits added, keyboard runs and passwords based on the person's email or name are refused; a change must differ from the current password. Existing passwords keep working.
+- **Two-step settings guess limit:** `/api/auth/mfa` checked the password (turn off) and codes without any limit, so a stolen unlocked session could guess the password outside the sign-in lockout. Now 10 checks per user per 15 minutes.
+- **Session rotation:** each sign-in ends the browser's earlier session.
+- **Reset links** are checked against the password rules before they are used.
+- Re-checked without changes: write routes all require same-origin requests (or GitHub OIDC for the scheduled jobs); sampled id-based updates and deletes all lock the row by id and company first; attachments follow document visibility and are served with `nosniff`; only `NEXT_PUBLIC_APP_URL` reaches the browser.

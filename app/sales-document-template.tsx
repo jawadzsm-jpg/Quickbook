@@ -27,6 +27,7 @@ import { contentBox, parseLayoutCollection, withoutPrices } from "@/lib/layout/s
 import { PAGE_STAMP_SIZE, clampPageStamp, type MovePageStamp } from "./page-stamps";
 import { useRecordRole } from "./record-permissions";
 import { readStampPositions, type DocumentStampPositions, type StampPlacement, type StampPositions } from "@/lib/stamp-positions";
+import { wirePopupActions } from "@/lib/print-popup";
 
 type RecordData = Record<string, string | number | boolean>;
 type Branding = TemplateBranding & CompanyBranding & { id?: number; documentDesign?: string; letterheadDesign?: string; documentLayout?: string; stampPositions?: string };
@@ -342,10 +343,10 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
         .custom-invoice table{table-layout:fixed!important}
       }
     </style></head><body>
-      <div class="print-toolbar"><button type="button" onclick="window.print()">Print</button><button type="button" onclick="window.close()">Close</button></div>
+      <div class="print-toolbar"><button type="button" data-popup-action="print">Print</button><button type="button" data-popup-action="close">Close</button></div>
       ${copies}
     </body></html>`);
-    popup.document.close();
+    popup.document.close(); wirePopupActions(popup);
 
     const triggerPrint = () => {
       if (popup.closed) return;
