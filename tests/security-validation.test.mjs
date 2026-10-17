@@ -1741,3 +1741,13 @@ test("Vendors page has no New Vendor button in the page header; the vendor list'
   assert.match(app, /<RecordView onEdit=\{onEdit\} view="vendors" kind="contacts"[^\n]*onCreate=\{onCreateVendor\}/);
   assert.match(app, /canWrite && !workflowRegister && <Button onClick=\{onCreate\}[^>]*><Plus className="size-4" \/>Add new<\/Button>/);
 });
+
+test("sidebar section headings show bold title-case names with icons, keeping the all-caps keys for saved open/closed state", () => {
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  for (const [key, title, icon] of [["OVERVIEW", "Overview", "LayoutGrid"], ["CUSTOMERS", "Customers", "Handshake"], ["VENDORS", "Vendors", "Store"], ["INVENTORY", "Inventory", "Package"], ["ACCOUNTANT", "Accountant", "Calculator"], ["MANAGEMENT", "Management", "BriefcaseBusiness"]]) {
+    assert.ok(app.includes(`{ label: "${key}", title: "${title}", icon: ${icon}, items: [`), key);
+  }
+  assert.match(app, /<SidebarGroupLabel asChild className="h-9 text-\[15px\] font-bold text-slate-100">/);
+  assert.match(app, /<group\.icon className="size-4 shrink-0 text-slate-400" aria-hidden="true" \/>\{group\.title\}/);
+  assert.match(app, /setNavGroupOpen\(group\.label, !groupOpen\)/, "open/closed state still keyed by the stable label");
+});
