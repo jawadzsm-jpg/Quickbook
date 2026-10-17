@@ -1714,3 +1714,10 @@ test("items with stock and customers or vendors with a balance stay active; reac
   assert.equal(route.match(/itemInactivationProblem\(/g).length, 2, "item status button and full item edit");
   assert.equal(route.match(/contactInactivationProblem\(/g).length, 2, "contact status button and full contact edit");
 });
+
+test("Vendors page has no New Vendor button in the page header; the vendor list's Add new button creates vendors", () => {
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  assert.match(app, /view !== "employees" && view !== "vendors" && canWriteCurrentView && <Button onClick=\{openCreate\}/);
+  assert.match(app, /<RecordView onEdit=\{onEdit\} view="vendors" kind="contacts"[^\n]*onCreate=\{onCreateVendor\}/);
+  assert.match(app, /canWrite && !workflowRegister && <Button onClick=\{onCreate\}[^>]*><Plus className="size-4" \/>Add new<\/Button>/);
+});
