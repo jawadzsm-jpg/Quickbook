@@ -68,7 +68,7 @@ The endpoint validates record-specific permission with `writePermission`, compan
 
 Invoice `POST` and details `PATCH` support negative quantities only for active stock items in the document's company/inventory with `unitPrice: 0`. The server forces zero VAT and derives new return-line cost from item cost (net of configured purchase VAT), converted using the invoice exchange rate. Stock and inventory/COGS postings are reversed for the signed quantity; customer totals and balances remain unchanged. Details PATCH accepts returns in `appendLines` and quantity corrections in `lineDetails`, with revision checks and consumed-stock safeguards. Existing lines cannot switch quantity direction. Other document types still require positive quantities. Packing and warranty endpoints reject negative invoice-line IDs as outgoing items.
 
-For a row-level item active/inactive change, `PATCH /api/records` accepts `kind: "items"`, `editMode: "item-status"`, `companyId`, `id`, `expectedStatus`, and `status`. It requires `inventory:manage`, checks the previous status, updates only status, and records the change in the audit log under the SKU write lock.
+For a row-level item active/inactive change, `PATCH /api/records` accepts `kind: "items"`, `editMode: "item-status"`, `companyId`, `id`, `expectedStatus`, and `status`. It requires `inventory:manage`, checks the previous status, refuses (409) to make an item with non-zero quantity on hand inactive (the full item edit applies the same rule, `lib/inactivation-guard.ts`), updates only status, and records the change in the audit log under the SKU write lock.
 
 Selected GET `kind` values beyond the four main record types are:
 
@@ -272,7 +272,7 @@ Save stores one working-paper configuration per company/period with optimistic r
 
 Contact POST/PATCH accepts `parentContactId` (positive ID, null/empty to remove) and `status` (`active` or `inactive`). Omitted PATCH values are preserved. Parent selection enforces company, contact type, sales ownership, cycle and active-parent checks within the contact write transaction. GET contact rows include `parentContactName` resolved only from rows visible to the user. Organization changes are audited; deleting a contact with children returns 409. These fields never update balances or ledger links.
 
-For list-row activation use contact PATCH `editMode: "contact-status"`, `status`, and `expectedStatus` with kind/id/companyId only. It preserves identity fields and balances, checks current status to reject stale writes with 409, and follows the same permissions and hierarchy rules.
+For list-row activation use contact PATCH `editMode: "contact-status"`, `status`, and `expectedStatus` with kind/id/companyId only. It preserves identity fields and balances, checks current status to reject stale writes with 409, refuses (409) to make a customer or vendor with a non-zero balance inactive (the full contact edit applies the same rule), and follows the same permissions and hierarchy rules.
 
 ### Invoice line pending transfers
 

@@ -237,6 +237,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/edition.ts` — EasyBook editions, their company/inventory/warehouse limits, downgrade blockers, limit message.
 - `lib/edition-server.ts` — **server** Current edition, usage counts, and the 409 limit response used by `/api/workspaces` and `/api/warehouses`. **DB**
 - `lib/idle-timeout.ts` — Automatic sign-out choices (default 15 minutes, 0 = never), validation, labels, server grace.
+- `lib/inactivation-guard.ts` — Items with stock and customers/vendors with a balance cannot be made inactive (messages for `/api/records`).
 - `lib/income-tax-data.ts` — Loads accounts and postings for the corporate tax estimate. **DB**
 - `lib/income-tax.ts` — UAE corporate tax estimate (0%/9% with threshold): config, validation, calculation.
 - `lib/inventory-invoice-edit.ts` — Inventory users' limited invoice edits (line details, appended lines, comments). **DB**

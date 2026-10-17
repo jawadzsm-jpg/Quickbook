@@ -3306,7 +3306,37 @@ test('vendor contacts save validated supplier bank details', async () => {
   } finally { delete globalThis.__transferTestUser; }
 });
 
-test('customer and vendor sub-accounts persist organization, protect scope and preserve balances', async () => {
+test('items with stock and customers with a balance cannot be made inactive until they are cleared', async () => {
+  const company = (await database.query("INSERT INTO companies(name) VALUES('Inactivation guard test') RETURNING id")).rows[0].id;
+  const location = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'GUARD','Guard inventory','GRD') RETURNING id",[company])).rows[0].id;
+  const api = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const patch = (values) => api.PATCH(new Request('https://app.test/api/records', {method:'PATCH', headers:{'content-type':'application/json'}, body: JSON.stringify({companyId:company,...values})}));
+  globalThis.__transferTestUser = {id:1,email:'admin@example.test',role:'admin',companyIds:[company],mustChangePassword:false};
+  try {
+    const item = (await database.query("INSERT INTO items(company_id,location_id,sku,name,quantity) VALUES($1,$2,'GUARD-1','Docking station',4) RETURNING id",[company,location])).rows[0].id;
+    const toggle = (status, expectedStatus) => patch({kind:'items',editMode:'item-status',id:item,expectedStatus,status});
+    const inStock = await toggle('inactive','active');
+    assert.equal(inStock.status,409);
+    assert.match((await inStock.json()).error,/GUARD-1 Docking station still has 4 in stock\. Sell, transfer or adjust the stock to zero/);
+    assert.equal((await patch({kind:'items',id:item,name:'Docking station',status:'inactive'})).status,409,'the full item edit is refused too');
+    await database.query("UPDATE items SET quantity=-1 WHERE id=$1",[item]);
+    assert.equal((await toggle('inactive','active')).status,409,'negative stock is still open stock');
+    assert.equal((await database.query("SELECT status FROM items WHERE id=$1",[item])).rows[0].status,'active');
+    await database.query("UPDATE items SET quantity=0 WHERE id=$1",[item]);
+    assert.equal((await toggle('inactive','active')).status,200,'zero stock can be made inactive');
+    await database.query("UPDATE items SET quantity=2 WHERE id=$1",[item]);
+    assert.equal((await toggle('active','inactive')).status,200,'reactivating is never blocked');
+
+    const customer = (await database.query("INSERT INTO contacts(company_id,type,name,company,currency,phone,whatsapp,balance) VALUES($1,'customer','Owing Buyer','Owing Buyer','USD','+971500030003','+971500030003',125.5) RETURNING id",[company])).rows[0].id;
+    const owing = await patch({kind:'contacts',editMode:'contact-status',id:customer,expectedStatus:'active',status:'inactive'});
+    assert.equal(owing.status,409);
+    assert.match((await owing.json()).error,/This customer still has a balance of USD 125\.50\. Receive or credit the balance/);
+    await database.query("UPDATE contacts SET balance=0.001 WHERE id=$1",[customer]);
+    assert.equal((await patch({kind:'contacts',editMode:'contact-status',id:customer,expectedStatus:'active',status:'inactive'})).status,200,'less than half a fil counts as settled');
+  } finally { delete globalThis.__transferTestUser; }
+});
+
+test('customer and vendor sub-accounts persist organization, protect scope, and stay active while they have a balance', async () => {
   const company = (await database.query("INSERT INTO companies(name) VALUES('Contact organization test') RETURNING id")).rows[0].id;
   const otherCompany = (await database.query("INSERT INTO companies(name) VALUES('Other contact organization') RETURNING id")).rows[0].id;
   const api = await vite.ssrLoadModule('/app/api/records/route.ts');
@@ -3328,10 +3358,17 @@ test('customer and vendor sub-accounts persist organization, protect scope and p
     const foreign = (await database.query("INSERT INTO contacts(company_id,type,name) VALUES($1,'vendor','Foreign Parent') RETURNING id",[otherCompany])).rows[0].id;
     assert.equal((await write('PATCH',{id:child.id,parentContactId:foreign})).status,400);
     assert.equal((await write('PATCH',{id:parent.id,status:'inactive'})).status,400);
+    // A vendor that is still owed money stays active; once the balance is cleared it can be made inactive.
+    const owed = await write('PATCH',{id:child.id,status:'inactive'});
+    assert.equal(owed.status,409);
+    assert.match((await owed.json()).error,/still has a balance of AED 350\.00\. Pay or clear the balance/);
+    assert.equal((await write('PATCH',{id:child.id,editMode:'contact-status',expectedStatus:'active',status:'inactive'})).status,409,'the status button is refused too');
+    assert.equal((await database.query('SELECT status FROM contacts WHERE id=$1',[child.id])).rows[0].status,'active');
+    await database.query('UPDATE contacts SET balance=0 WHERE id=$1',[child.id]);
     const response = await write('PATCH',{id:child.id,status:'inactive'});
     assert.equal(response.status,200,JSON.stringify(await response.clone().json()));
     const saved = (await response.json()).record;
-    assert.equal(saved.balance,350);assert.equal(saved.ledgerAccountId,child.ledgerAccountId);assert.equal(saved.parentContactId,parent.id);
+    assert.equal(saved.balance,0);assert.equal(saved.ledgerAccountId,child.ledgerAccountId);assert.equal(saved.parentContactId,parent.id);
     const location = (await database.query("INSERT INTO inventory_locations(company_id,code,name,invoice_prefix) VALUES($1,'CONTACT','Contact inventory','CON') RETURNING id",[company])).rows[0].id;
     const blocked = await write('POST',{kind:'transactions',type:'purchase order',locationId:location,party:child.name,number:'INACTIVE-PO',transactionDate:'2026-10-05',currency:'AED',exchangeRate:1,lines:[{description:'Service',quantity:1,unitPrice:10,vatCode:'ZERO'}]});
     assert.equal(blocked.status,409,JSON.stringify(await blocked.clone().json()));
@@ -3352,7 +3389,7 @@ test('customer and vendor sub-accounts persist organization, protect scope and p
     assert.equal((await write('PATCH',{id:child.id,editMode:'contact-status',expectedStatus:'active',status:'inactive'})).status,200);
     assert.equal((await write('PATCH',{id:child.id,editMode:'contact-status',expectedStatus:'active',status:'active'})).status,409);
     assert.equal((await write('PATCH',{id:child.id,editMode:'contact-status',expectedStatus:'inactive',status:'active',balance:0})).status,400);
-    assert.equal((await database.query('SELECT balance FROM contacts WHERE id=$1',[child.id])).rows[0].balance,350);
+    assert.equal((await database.query('SELECT balance FROM contacts WHERE id=$1',[child.id])).rows[0].balance,0);
 
     globalThis.__transferTestUser = {id:1,role:'viewer',companyIds:[company]};
     assert.equal((await write('PATCH',{id:child.id,status:'inactive'})).status,403);
