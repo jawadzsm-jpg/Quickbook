@@ -126,7 +126,8 @@ import {
   ChartColumnBig, Eye, ImageUp, LayoutDashboard, LogOut, PackageCheck, PackageSearch, PackageX, Palette, Paperclip, Pencil, Plus, Printer, ReceiptText, RefreshCw,
   Search, Settings, ShieldCheck, ShoppingCart, ClipboardList, Stamp, Sun, Moon, Table2, Trash2, Users, WalletCards, Percent, X,
   Truck,
-  ArrowDown, ArrowUp, FileCode2, LayoutTemplate, LogIn, Type, Megaphone, NotebookPen, Mail, ArrowLeft } from "lucide-react";
+  ArrowDown, ArrowUp, FileCode2, LayoutTemplate, LogIn, Type, Megaphone, NotebookPen, Mail, ArrowLeft,
+  LayoutGrid, Handshake, Store, Package, Calculator, BriefcaseBusiness } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -254,28 +255,29 @@ const invoiceNumberPreview = formatInvoiceNumber;
 
 const SIDEBAR_GROUPS_KEY = "comnet-sidebar-groups";
 
+// `label` is the stable key (saved open/closed state); `title` and `icon` are what the sidebar shows.
 const navGroups = [
   // Dashboard is a top-level sidebar link of its own, shown above the OVERVIEW section.
-  { label: "DASHBOARD", items: [
+  { label: "DASHBOARD", title: "Dashboard", icon: ChartColumnBig, items: [
     { id: "business-dashboard", label: "Dashboard", icon: ChartColumnBig },
   ] },
-  { label: "OVERVIEW", items: [
+  { label: "OVERVIEW", title: "Overview", icon: LayoutGrid, items: [
     { id: "dashboard", label: "Company Home", icon: LayoutDashboard },
     { id: "inventory-overview", label: "Inventory Overview", icon: Boxes },
     { id: "announcements", label: "Announcements", icon: Megaphone },
     { id: "my-notes", label: "My notes", icon: NotebookPen },
     { id: "email-lists", label: "Email lists", icon: Mail },
   ] },
-  { label: "CUSTOMERS", items: [
+  { label: "CUSTOMERS", title: "Customers", icon: Handshake, items: [
     { id: "sales", label: "Sales & Invoicing", icon: ReceiptText },
     { id: "customers", label: "Customer Center", icon: Users },
   ] },
-  { label: "VENDORS", items: [
+  { label: "VENDORS", title: "Vendors", icon: Store, items: [
     { id: "purchases", label: "Purchases & Bills", icon: ShoppingCart },
     { id: "vendors", label: "Vendor Center", icon: Building2 },
     { id: "cargos", label: "Cargo List", icon: Truck },
   ] },
-  { label: "INVENTORY", items: [
+  { label: "INVENTORY", title: "Inventory", icon: Package, items: [
     { id: "inventory", label: "Inventory", icon: PackageSearch },
     { id: "customization-details", label: "Customization Details", icon: PackageCheck },
     { id: "serial-search", label: "Serial Number Search", icon: Search },
@@ -285,7 +287,7 @@ const navGroups = [
     { id: "transfers", label: "Stock Transfers", icon: ArrowRightLeft },
     { id: "warranties", label: "Warranty / RMA", icon: ShieldCheck },
   ] },
-  { label: "ACCOUNTANT", items: [
+  { label: "ACCOUNTANT", title: "Accountant", icon: Calculator, items: [
     { id: "receive-payment", label: "Receive Payment", icon: CircleDollarSign },
     { id: "banking", label: "Banking", icon: Landmark },
     { id: "journal-entries", label: "General Journal", icon: BookOpenCheck },
@@ -295,7 +297,7 @@ const navGroups = [
     { id: "employees", label: "Employees & HR", icon: WalletCards },
     { id: "reports", label: "Reports", icon: FileBarChart2 },
   ] },
-  { label: "MANAGEMENT", items: [
+  { label: "MANAGEMENT", title: "Management", icon: BriefcaseBusiness, items: [
     { id: "companies", label: "Companies", icon: Building2 },
     { id: "company-setup", label: "Company Setup", icon: Settings },
     { id: "letterhead", label: "Letterhead Generator", icon: FileText },
@@ -1573,7 +1575,7 @@ export default function EnterpriseApp({ currentUser, edition = DEFAULT_EDITION }
         <SidebarContent className="px-2 py-3">
           {visibleNavGroups.map((group) => { if (group.label === "DASHBOARD") return <SidebarGroup key={group.label} className="pb-0"><SidebarMenu>{group.items.map((item) => <SidebarMenuItem key={item.id}><NavMenuButton tooltip={item.label} isActive={view === item.id} onClick={() => { setView(item.id as View); setSearch(""); }} className="brand-nav-item h-10 rounded-lg px-2.5 font-semibold text-slate-200 hover:bg-white/8 hover:text-white"><item.icon /><span>{item.label}</span></NavMenuButton></SidebarMenuItem>)}</SidebarMenu></SidebarGroup>; const current = group.items.some((item) => item.id === view); const groupOpen = current ? !(navClosedAt?.label === group.label && navClosedAt.view === view) : navOpen[group.label] ?? group.label === "OVERVIEW"; return (
             <SidebarGroup key={group.label}>
-              <SidebarGroupLabel asChild className="h-9 text-[13px] font-extrabold tracking-[.14em] text-slate-300"><button type="button" aria-expanded={groupOpen} onClick={() => { if (current) setNavClosedAt(groupOpen ? { label: group.label, view } : null); setNavGroupOpen(group.label, !groupOpen); }} className="w-full justify-between hover:bg-white/5 hover:text-white">{group.label}<ChevronDown className={`stroke-[2.5] transition-transform ${groupOpen ? "" : "-rotate-90"}`} /></button></SidebarGroupLabel>
+              <SidebarGroupLabel asChild className="h-9 text-[15px] font-bold text-slate-100"><button type="button" aria-expanded={groupOpen} onClick={() => { if (current) setNavClosedAt(groupOpen ? { label: group.label, view } : null); setNavGroupOpen(group.label, !groupOpen); }} className="w-full justify-between hover:bg-white/5 hover:text-white"><span className="flex items-center gap-2"><group.icon className="size-4 shrink-0 text-slate-400" aria-hidden="true" />{group.title}</span><ChevronDown className={`stroke-[2.5] transition-transform ${groupOpen ? "" : "-rotate-90"}`} /></button></SidebarGroupLabel>
               {/* A closed section still shows its icons when the sidebar is collapsed to icons. */}
               <SidebarGroupContent className={groupOpen ? undefined : "hidden group-data-[collapsible=icon]:block"}><SidebarMenu>
                 {group.items.map((item) => <SidebarMenuItem key={item.id}>
