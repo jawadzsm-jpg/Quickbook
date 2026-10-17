@@ -38,7 +38,12 @@ export function financialSummary({ key = "", rows, financial }: FinancialLike): 
     const income = key.startsWith("income-customer");
     cards = [money(income ? "Income" : "Expenses", sum(rows, "amount")), count(income ? "Customers / groups" : "Suppliers / groups", new Set(rows.map(row => row.name)).size), count(key.endsWith("detail") ? "Postings" : "Summary rows", rows.length)];
     note = "Posted income or expense, including reversals. Payments are not counted again as revenue or expenses. Unallocated entries have no linked customer or supplier.";
-  } else if (["realised-gains-losses", "unrealised-gains-losses"].includes(key)) {
+  } else if (key === "realised-gains-losses") {
+    note = "Posted to the Exchange Gain or Loss account. Positive amounts are gains, negative amounts are losses.";
+    const gains = rows.filter(row => typeof row.gainLoss === "number" && row.gainLoss > 0);
+    const losses = rows.filter(row => typeof row.gainLoss === "number" && row.gainLoss < 0);
+    cards = [money("Realised gains", sum(gains, "gainLoss")), money("Realised losses", sum(losses, "gainLoss")), money("Total realised gains & losses", sum(rows, "gainLoss")), count("Payments and journals", rows.length)];
+  } else if (key === "unrealised-gains-losses") {
     note = "Calculated exchange differences, not automatically posted to gain/loss accounts. Missing exchange rates are excluded from the calculated totals and counted separately.";
     const gains = rows.filter(row => typeof row.gainLoss === "number" && row.gainLoss > 0);
     const losses = rows.filter(row => typeof row.gainLoss === "number" && row.gainLoss < 0);

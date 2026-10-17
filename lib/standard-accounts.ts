@@ -66,5 +66,6 @@ export const standardAccounts: StandardAccount[] = [
   { code: "6600", name: "Miscellaneous Expense", type: "Expense" },
   { code: "7000", name: "Other Expense", type: "Other Expense" },
   { code: "7100", name: "Corporate Income Tax Expense", type: "Other Expense" },
+  { code: "7200", name: "Exchange Gain or Loss", type: "Other Expense", systemRole: "FX_GAIN_LOSS" },
   { code: "9999", name: "Suspense", type: "Other Current Asset", systemRole: "SUSPENSE" },
 ];

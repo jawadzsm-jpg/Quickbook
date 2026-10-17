@@ -89,6 +89,7 @@ Administrators can edit the customer, existing line quantity, unit price, VAT co
 2. The UI loads open invoices and remaining balances.
 3. Allocate one payment across one or several invoices.
 4. Saving creates the payment, `invoice_payment_allocations`, cash/receivable journal effect, customer balance update, and invoice status refresh.
+5. Foreign currency: the bank is debited at the payment rate and Accounts Receivable is credited at each invoice's booked rate; the difference posts to Exchange Gain or Loss (7200). Bill payments and cheques to Accounts Payable do the same on the payable side.
 
 ### Sales document output
 

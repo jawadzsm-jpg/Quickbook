@@ -50,6 +50,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/enterprise-app-loader.tsx` — Loads the client shell as its own chunk (`next/dynamic`) so the sign-in page does not download it.
 - `app/escape-window-closer.tsx` — Escape or the close button closes the top dialog, asking Save/Keep editing/Discard when it has unsaved edits. Windows marked `data-unsaved-tracking` (document windows) ask only while a part is marked `data-unsaved`, and Save changes presses that part's `data-save-changes` button and then closes. Other windows ask when they have a save-like button (never Save as PDF/Print/Download/Email); `data-no-save-prompt` windows close without asking; `data-not-close` buttons only cancel an inline edit.
 - `app/financial-report-library.tsx` — Financial report card library.
+- `app/fx-backfill-banner.tsx` — Realised Gains & Losses banner: past payments with unposted exchange differences and the Post exchange differences action; `/api/fx-gain-loss`.
 - `app/financial-report.tsx` — Financial report renderer with summaries, FX rates, account-history and document links.
 - `app/fonts.ts` — next/font Google fonts for Company Setup → Fonts & text; each defines `--font-app-<key>` on `<html>` and is not preloaded.
 - `app/globals.css` — Global Tailwind v4 styles, dark mode, theme colour variables and app-wide styles.
@@ -233,6 +234,8 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/errors.ts` — `RequestError`, database error codes, safe JSON error responses and `publicErrorMessage` (hides SQL/driver errors from browsers).
 - `lib/export.ts` — CSV cell quoting (blocks spreadsheet formulas) and HTML escaping.
 - `lib/financial-presentation.ts` — Financial report account links and summary cards.
+- `lib/fx-difference.ts` — Realised exchange difference rules: booked value less payment value of what a payment settles, and the payment journal with AR/AP at the booked value plus the Exchange Gain or Loss line.
+- `lib/fx-gain-loss.ts` — Exchange Gain or Loss account (role FX_GAIN_LOSS) link-or-create and the query for past payments not yet posted.
 - `lib/financial-reports.ts` — Financial report data (income/expense by party and others). **DB**
 - `lib/idempotency.ts` — Replays results of repeated `Idempotency-Key` requests inside the write transaction. **DB**
 - `lib/edition.ts` — EasyBook editions, their company/inventory/warehouse limits, downgrade blockers, limit message.

@@ -11,6 +11,7 @@ import { canEditInventoryDocument, canManagePendingInvoices, canReadDocument, du
 import { applyInventoryInvoiceEdit } from "@/lib/inventory-invoice-edit";
 import { averagePurchaseCosts, itemHomeCost } from "@/lib/item-cost";
 import { STOCK_ADJUSTMENT_TYPE } from "@/lib/stock-adjustment";
+import { ensureFxGainLossAccount, exchangeDifference, fxPaymentTypes, withExchangeDifference } from "@/lib/fx-gain-loss";
 import { heldByOthers, heldStockMessage } from "@/lib/stock-holds";
 import { documentVisibility } from "@/lib/document-access-sql";
 import { employeeHrForSave } from "@/lib/employee-hr-save";
@@ -66,7 +67,7 @@ function contactAddressFromPayload(payload: Record<string, unknown>, onlyGiven =
 }
 
 const fallbackVatRates: Record<string, number> = { STANDARD: 5, ZERO: 0, EXEMPT: 0, REVERSE_CHARGE: 5, IMPORT_GOODS: 5, OUT_OF_SCOPE: 0 };
-const accountRoles = ["BANK", "AR", "AP", "INVENTORY", "INPUT_VAT", "OUTPUT_VAT", "EQUITY", "SALES", "OTHER_INCOME", "COGS", "PURCHASES", "EXPENSE", "PAYROLL", "SUSPENSE"];
+const accountRoles = ["BANK", "AR", "AP", "INVENTORY", "INPUT_VAT", "OUTPUT_VAT", "EQUITY", "SALES", "OTHER_INCOME", "COGS", "PURCHASES", "EXPENSE", "PAYROLL", "SUSPENSE", "FX_GAIN_LOSS"];
 const accountTypeValues = new Set(["Income", "Expense", "Cost of Goods Sold", "Other Income", "Other Expense", "Fixed Asset", "Bank", "Loan", "Credit Card", "Equity", "Accounts Receivable", "Other Current Asset", "Other Asset", "Accounts Payable", "Other Current Liability", "Long Term Liability"]);
 const compatibleAccountTypes: Record<string, Set<string>> = {
   BANK: new Set(["Bank"]), AR: new Set(["Accounts Receivable"]), AP: new Set(["Accounts Payable"]),
@@ -1502,7 +1503,22 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
       }
       // UAE reverse charge: the self-assessed VAT is recoverable (debited above) and due to the FTA (VAT Payable).
       if (baseSelfAssessedVat) baseLines.push({ accountName: linkedAccounts.OUTPUT_VAT ?? "VAT Payable", debit: type === "vendor credit" ? baseSelfAssessedVat : 0, credit: type === "vendor credit" ? 0 : baseSelfAssessedVat });
-      const pnlRoleTypes: Record<string, string[]> = { SALES: ["Income"], OTHER_INCOME: ["Other Income", "Income"], COGS: ["Cost of Goods Sold"], PURCHASES: ["Expense", "Cost of Goods Sold"], EXPENSE: ["Expense", "Other Expense"], PAYROLL: ["Expense"] };
+      // Realised exchange difference: a foreign payment clears Accounts Receivable / Payable at the booked rate of the
+      // invoices or bills it settles; the difference posts to Exchange Gain or Loss (home currency).
+      if ((fxPaymentTypes as readonly string[]).includes(type)) {
+        const settled = type === "customer payment"
+          ? allocations.map((allocation) => ({ amount: allocation.amount, bookedRate: Number(lockedInvoices.find((invoice) => invoice.id === allocation.invoiceId)?.exchangeRate) }))
+          : billAllocations.map((allocation) => ({ amount: allocation.amount, bookedRate: Number(lockedBills.find((bill) => bill.id === allocation.billId)?.exchangeRate) }));
+        const difference = exchangeDifference(settled, exchangeRate);
+        const [home] = difference ? await db.select({ baseCurrency: companies.baseCurrency }).from(companies).where(eq(companies.id, companyId)).limit(1) : [];
+        if (home && home.baseCurrency.toUpperCase() !== currency) {
+          const fx = await ensureFxGainLossAccount(db, companyId, home.baseCurrency);
+          const control = type === "customer payment" ? { accountName: baseLines[1]?.accountName ?? "", side: "credit" as const } : { accountName: baseLines[0]?.accountName ?? "", side: "debit" as const };
+          baseLines = withExchangeDifference(baseLines, control, difference, { name: fx.name, id: fx.id });
+          if (!linkedRows.some((account) => account.id === fx.id)) linkedRows.push({ id: fx.id, name: fx.name, type: fx.type, systemRole: fx.systemRole, currency: fx.currency });
+        }
+      }
+      const pnlRoleTypes: Record<string, string[]> = { SALES: ["Income"], OTHER_INCOME: ["Other Income", "Income"], COGS: ["Cost of Goods Sold"], PURCHASES: ["Expense", "Cost of Goods Sold"], EXPENSE: ["Expense", "Other Expense"], PAYROLL: ["Expense"], FX_GAIN_LOSS: ["Other Expense", "Other Income", "Expense", "Income"] };
       // Names with no Chart of Accounts entry keep posting (companies without a full chart use default names), but a
       // name that belongs only to an inactive account must not receive new postings.
       const inactiveNames = new Set((await db.select({ name: accounts.name }).from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.active, false)))).map((account) => account.name));
