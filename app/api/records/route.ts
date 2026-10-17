@@ -561,7 +561,13 @@ export async function GET(request: Request) {
         .where(and(inArray(journalEntries.transactionId, chequeIds), sql`${journalLines.credit} > 0`)).orderBy(asc(journalLines.id));
       for (const row of bankRows) if (row.transactionId && !chequeBanks.has(row.transactionId)) chequeBanks.set(row.transactionId, row.accountName);
     }
-    return Response.json({ records: transactionRows.map((row) => ({ ...paymentDisplayRecord(row), ...(row.type === "cheque" ? { bankName: chequeBanks.get(row.id) ?? "" } : {}) })) });
+    // How many files each document has (a count only; file contents load when an attachment is opened).
+    const attachmentCounts = new Map<number, number>();
+    if (transactionRows.length) {
+      const counted = await db.execute(sql`SELECT entity_id AS id, count(*)::int AS count FROM record_attachments WHERE company_id = ${companyId} AND entity_type = 'transaction' AND entity_id IN (${sql.join(transactionRows.map((row) => sql`${row.id}`), sql`, `)}) GROUP BY entity_id`);
+      for (const row of counted.rows) attachmentCounts.set(Number(row.id), Number(row.count));
+    }
+    return Response.json({ records: transactionRows.map((row) => ({ ...paymentDisplayRecord(row), ...(row.type === "cheque" ? { bankName: chequeBanks.get(row.id) ?? "" } : {}), ...(attachmentCounts.has(row.id) ? { attachmentCount: attachmentCounts.get(row.id) } : {}) })) });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: error instanceof RequestError ? error.status : 500 });
   }

@@ -126,6 +126,9 @@
 - Supplier return receipts use the saved RMA reference and contain the supplier, linked bill number, purchase date, serial number, problem, return date, accessories, and supplier acknowledgment. Marking a return opens the receipt preview; A4 print/PDF require the saved return details. The customer service slip remains selectable, and company letterhead/stamp settings are reused.
 - Packing lists generated from invoice lines with editable cartons, references, weights, dimensions, quantities, and serial details.
 - Transaction and employee attachment upload, listing, download, and deletion with company/entity access checks.
+- **Attachment count:** in transaction registers (Sales, Purchases, Banking and others) the paperclip of a document that has files turns green with the number of attached files. It updates as soon as files are added or removed in the attachments window or the document window. The attachments panel shows the same green count.
+- **Automatic compression:** JPG, PNG and WebP photos are scaled to at most 2400 px on the longest side and re-encoded in the browser before upload (PNG becomes WebP so transparency is kept). The smaller of the original and the compressed file is kept, so photos up to 25 MB can be added when they compress under 3 MB. PDFs, text, CSV, Word and Excel files are stored gzip-compressed on the server when that saves at least 10%, and download unchanged.
+- **Files load only when opened:** pages and lists read only attachment names, sizes and counts. A file's contents are fetched only when **Open** (PDFs and images show in a new tab; other types download) or **Download** is clicked.
 
 ## Document output
 

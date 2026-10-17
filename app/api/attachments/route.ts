@@ -5,11 +5,12 @@ import { canEditInventoryDocument, canReadDocument } from "@/lib/document-access
 import { sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { hasPermission, isAdministrator, requireCompanyAccess } from "@/lib/auth";
-import { MAX_FILES, parseAttachment } from "@/lib/attachments";
+import { attachmentBytes, MAX_FILES, packAttachmentData, parseAttachment } from "@/lib/attachments";
 import { readJsonBody, RequestError } from "@/lib/api";
 
 type AttachmentInput = { fileName?: string; mimeType?: string; fileData?: string; fileSize?: number };
 
+const INLINE_TYPES = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp", "image/gif"]);
 const allowedTypes = new Set(["transaction", "employee", "vat_code", "report", "rcm_declaration", "staff_salary_sheet"]);
 // Who may add or remove attachments on a saved document: the permission that writes that kind of document.
 const salesAttachmentTypes = new Set(["invoice", "pending invoice", "quotation", "estimate", "proforma invoice", "sales order", "sales receipt", "credit memo", "statement charge", "finance charge", "customer payment"]);
@@ -54,11 +55,12 @@ export async function GET(request: Request) {
     const file = await getDb().execute(sql`SELECT file_name, mime_type, file_data FROM record_attachments WHERE id = ${attachmentId} AND company_id = ${companyId} AND entity_type = ${entityType} AND entity_id = ${entityId} LIMIT 1`);
     if (!file.rows.length) return Response.json({ error: "Attachment not found." }, { status: 404 });
     const entry = file.rows[0];
-    const encoded = String(entry.file_data).split(",", 2)[1];
     const filename = String(entry.file_name).replace(/[\r\n"\\]/g, "_");
-    return new Response(Buffer.from(encoded, "base64"), { headers: {
+    // ?open=1 shows PDFs and images in the browser tab (Open); everything else always downloads.
+    const inline = url.searchParams.get("open") === "1" && INLINE_TYPES.has(String(entry.mime_type));
+    return new Response(new Uint8Array(attachmentBytes(String(entry.file_data))), { headers: {
       "Content-Type": String(entry.mime_type),
-      "Content-Disposition": `attachment; filename="${filename.replace(/[^\x20-\x7e]/g, "_")}"; filename*=UTF-8''${encodeURIComponent(String(entry.file_name))}`,
+      "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${filename.replace(/[^\x20-\x7e]/g, "_")}"; filename*=UTF-8''${encodeURIComponent(String(entry.file_name))}`,
       "X-Content-Type-Options": "nosniff",
       "Cache-Control": "private, no-store",
     } });
@@ -108,7 +110,7 @@ export async function POST(request: Request) {
       if (!sheet.rows.length) return Response.json({ error: "Salary sheet not found." }, { status: 404 });
       const count = await db.execute(sql`SELECT count(*)::int AS total FROM record_attachments WHERE company_id = ${companyId} AND entity_type = ${entityType} AND entity_id = ${entityId}`);
       if (Number(count.rows[0]?.total ?? 0) + files.length > MAX_FILES) return Response.json({ error: "A record can have at most 10 attachments." }, { status: 409 });
-      const values = files.map((file) => sql`(${companyId}, ${entityType}, ${entityId}, ${String(file.fileName)}, ${String(file.mimeType)}, ${String(file.fileData)}, ${Number(file.fileSize)})`);
+      const values = files.map((file) => sql`(${companyId}, ${entityType}, ${entityId}, ${String(file.fileName)}, ${String(file.mimeType)}, ${packAttachmentData(String(file.fileData))}, ${Number(file.fileSize)})`);
       await db.execute(sql`INSERT INTO record_attachments (company_id, entity_type, entity_id, file_name, mime_type, file_data, file_size) VALUES ${sql.join(values, sql`, `)}`);
       return Response.json({ success: true }, { status: 201 });
     });
@@ -134,7 +136,7 @@ export async function POST(request: Request) {
   for (const file of files) {
     await db.execute(sql`
       INSERT INTO record_attachments (company_id, entity_type, entity_id, file_name, mime_type, file_data, file_size)
-      VALUES (${companyId}, ${entityType}, ${entityId}, ${String(file.fileName)}, ${String(file.mimeType)}, ${String(file.fileData)}, ${Number(file.fileSize)})
+      VALUES (${companyId}, ${entityType}, ${entityId}, ${String(file.fileName)}, ${String(file.mimeType)}, ${packAttachmentData(String(file.fileData))}, ${Number(file.fileSize)})
     `);
   }
   return Response.json({ success: true }, { status: 201 });

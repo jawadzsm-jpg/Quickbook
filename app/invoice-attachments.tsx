@@ -2,14 +2,19 @@
 import { useCanDeleteRecord } from "./record-permissions";
 
 import { ChangeEvent, useEffect, useState } from "react";
-import { Download, Paperclip, Trash2 } from "lucide-react";
+import { Download, ExternalLink, Paperclip, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useConfirmDelete } from "./confirm-delete-dialog";
+import { prepareAttachment } from "@/lib/attachment-compress";
 
 type PendingFile = { fileName: string; mimeType: string; fileData: string; fileSize: number };
 type SavedFile = { id: number; file_name: string; file_size: number };
 
+/** Fired with { entityType, entityId, count } whenever a record's saved attachment count is known or changes. */
+export const ATTACHMENT_COUNT_EVENT = "attachment-count";
+
+// Lists names and sizes only; a file's contents load when Open or Download is clicked.
 export function InvoiceAttachments({ companyId, invoiceId, pending, onPendingChange, canEdit = true, documentLabel = "Invoice", entityType = "transaction" }: {
   companyId: number; invoiceId?: number | null; pending?: PendingFile[];
   onPendingChange?: (files: PendingFile[]) => void; canEdit?: boolean; documentLabel?: string; entityType?: "transaction" | "employee" | "report" | "rcm_declaration" | "staff_salary_sheet";
@@ -20,6 +25,7 @@ export function InvoiceAttachments({ companyId, invoiceId, pending, onPendingCha
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
+  const [loaded, setLoaded] = useState(false);
   const url = `/api/attachments?companyId=${companyId}&entityType=${entityType}&entityId=${invoiceId}`;
   useEffect(() => {
     if (!invoiceId) return;
@@ -27,23 +33,28 @@ export function InvoiceAttachments({ companyId, invoiceId, pending, onPendingCha
     fetch(url, { signal: controller.signal }).then(async (response) => {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not load attachments.");
-      setSaved(data.attachments); setError("");
+      setSaved(data.attachments); setError(""); setLoaded(true);
     }).catch((cause) => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Could not load attachments."); });
     return () => controller.abort();
   }, [invoiceId, url, revision]);
+
+  const savedCount = saved.length;
+  useEffect(() => {
+    if (invoiceId && loaded) window.dispatchEvent(new CustomEvent(ATTACHMENT_COUNT_EVENT, { detail: { entityType, entityId: invoiceId, count: savedCount } }));
+  }, [entityType, invoiceId, savedCount, loaded]);
 
   async function addFiles(event: ChangeEvent<HTMLInputElement>) {
     const selected = Array.from(event.target.files ?? []);
     event.target.value = "";
     if (!selected.length) return;
     if (selected.length + saved.length + (pending?.length ?? 0) > 10) return toast.error(`Each ${documentLabel.toLowerCase()} can have up to 10 attachments.`);
-    if (selected.some((file) => !file.size || file.size > 3_000_000)) return toast.error("Each attachment must be between 1 byte and 3 MB.");
     setLoading(true);
     try {
-      const files = await Promise.all(selected.map(async (file) => ({
-        fileName: file.name, mimeType: file.type || "application/octet-stream", fileSize: file.size,
-        fileData: await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file); }),
-      })));
+      // Photos are compressed in the browser before upload; a file still over 3 MB is refused.
+      const prepared = await Promise.all(selected.map(prepareAttachment));
+      const failed = prepared.find((file) => "error" in file);
+      if (failed && "error" in failed) throw new Error(failed.error);
+      const files = prepared as PendingFile[];
       if (invoiceId) {
         const response = await fetch("/api/attachments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, entityType, entityId: invoiceId, attachments: files }) });
         const data = await response.json();
@@ -67,11 +78,12 @@ export function InvoiceAttachments({ companyId, invoiceId, pending, onPendingCha
     finally { setLoading(false); }
   }
 
-  return <section className="document-internal-only space-y-3 rounded-xl border border-border bg-background p-4 text-foreground" aria-label={`${documentLabel} attachments`}>{confirmDeleteDialog}
-    <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="flex items-center gap-2 text-sm font-semibold"><Paperclip className="size-4" />{documentLabel} attachments</h3><p className="text-xs text-muted-foreground">Up to 10 files, 3 MB each. Kept with this {documentLabel.toLowerCase()} and excluded from print and PDF.</p></div>
+  const count = saved.length + (pending?.length ?? 0);
+  return <section className={`document-internal-only space-y-3 rounded-xl border bg-background p-4 text-foreground ${count ? "border-emerald-500/60" : "border-border"}`} aria-label={`${documentLabel} attachments`}>{confirmDeleteDialog}
+    <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="flex items-center gap-2 text-sm font-semibold"><Paperclip className={`size-4 ${count ? "text-emerald-600 dark:text-emerald-400" : ""}`} />{documentLabel} attachments{count ? <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-semibold text-white" aria-label={`${count} attached`}>{count}</span> : null}</h3><p className="text-xs text-muted-foreground">Up to 10 files, 3 MB each; photos are compressed automatically. Kept with this {documentLabel.toLowerCase()} and excluded from print and PDF.</p></div>
       {canEdit && <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent"><Paperclip className="size-4" />{loading ? "Working…" : "Add files"}<input type="file" multiple disabled={loading} accept="image/png,image/jpeg,image/webp,image/gif,.pdf,.txt,.csv,.xls,.xlsx,.doc,.docx" className="sr-only" onChange={addFiles} /></label>}</div>
     {error && <p role="alert" className="text-sm text-destructive">{error} <button type="button" className="underline" onClick={() => setRevision((value) => value + 1)}>Retry</button></p>}
-    {[...saved.map((file) => ({ name: file.file_name, size: file.file_size, id: file.id })), ...(pending ?? []).map((file, index) => ({ name: file.fileName, size: file.fileSize, index }))].map((file) => <div key={"id" in file ? `saved-${file.id}` : `pending-${file.index}`} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm"><span className="min-w-0 flex-1 truncate">{file.name} <span className="text-muted-foreground">({Math.ceil(file.size / 1024)} KB){"index" in file ? ` · saves with ${documentLabel.toLowerCase()}` : ""}</span></span>{"id" in file && <a href={`${url}&attachmentId=${file.id}`} download aria-label={`Download ${file.name}`} className="text-emerald-700 hover:underline dark:text-emerald-400"><Download className="size-4" /></a>}{canEdit && (!("id" in file) || canDelete) && <Button type="button" size="icon" variant="ghost" disabled={loading} aria-label={`Remove ${file.name}`} onClick={() => "id" in file ? void removeSaved(file.id) : onPendingChange?.((pending ?? []).filter((_, index) => index !== file.index))}><Trash2 className="size-4 text-rose-600" /></Button>}</div>)}
+    {[...saved.map((file) => ({ name: file.file_name, size: file.file_size, id: file.id })), ...(pending ?? []).map((file, index) => ({ name: file.fileName, size: file.fileSize, index }))].map((file) => <div key={"id" in file ? `saved-${file.id}` : `pending-${file.index}`} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm"><span className="min-w-0 flex-1 truncate">{file.name} <span className="text-muted-foreground">({Math.ceil(file.size / 1024)} KB){"index" in file ? ` · saves with ${documentLabel.toLowerCase()}` : ""}</span></span>{"id" in file && <a href={`${url}&attachmentId=${file.id}&open=1`} target="_blank" rel="noopener noreferrer" aria-label={`Open ${file.name}`} title="Open" className="text-emerald-700 hover:underline dark:text-emerald-400"><ExternalLink className="size-4" /></a>}{"id" in file && <a href={`${url}&attachmentId=${file.id}`} download aria-label={`Download ${file.name}`} className="text-emerald-700 hover:underline dark:text-emerald-400"><Download className="size-4" /></a>}{canEdit && (!("id" in file) || canDelete) && <Button type="button" size="icon" variant="ghost" disabled={loading} aria-label={`Remove ${file.name}`} onClick={() => "id" in file ? void removeSaved(file.id) : onPendingChange?.((pending ?? []).filter((_, index) => index !== file.index))}><Trash2 className="size-4 text-rose-600" /></Button>}</div>)}
     {!saved.length && !pending?.length && !error && <p className="text-sm text-muted-foreground">No attachments yet.</p>}
   </section>;
 }

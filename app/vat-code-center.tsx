@@ -1,5 +1,6 @@
 "use client";
 import { useCompanyDocumentOutput } from "./company-document-output";
+import { prepareAttachment } from "@/lib/attachment-compress";
 
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { Download, Eye, FileText, Paperclip, Pencil, Percent, Plus, Printer, Stamp, Trash2 } from "lucide-react";
@@ -120,9 +121,9 @@ export function VatCodeCenter({ companyId, company, onChanged, onOpenDocument }:
     event.target.value = "";
     const attachments = [];
     for (const file of selected) {
-      if (file.size > 3_000_000) { toast.error(`${file.name} is larger than 3 MB.`); continue; }
-      const fileData = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result ?? "")); reader.onerror = reject; reader.readAsDataURL(file); });
-      attachments.push({ fileName: file.name, mimeType: file.type || "application/octet-stream", fileData, fileSize: file.size });
+      const prepared = await prepareAttachment(file);
+      if ("error" in prepared) { toast.error(prepared.error); continue; }
+      attachments.push(prepared);
     }
     if (!attachments.length) return;
     const response = await fetch("/api/attachments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyId, entityType: "vat_code", entityId: detail.code.id, attachments }) });
