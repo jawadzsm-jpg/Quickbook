@@ -287,6 +287,15 @@ export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCre
   const [cart, setCart] = useState<CartEntry[]>(() => { try { return JSON.parse(window.sessionStorage.getItem(cartStorageKey) || "[]") as CartEntry[]; } catch { return []; } });
   const [cartQuantities, setCartQuantities] = useState<Record<number, string>>({});
   useEffect(() => { try { window.sessionStorage.setItem(cartStorageKey, JSON.stringify(cart)); } catch { /* optional */ } }, [cart]);
+  // The share bar sticks just under the app header, whose height changes when it wraps on narrow screens.
+  const [headerHeight, setHeaderHeight] = useState(0);
+  useEffect(() => {
+    const header = document.querySelector<HTMLElement>(".app-header");
+    if (!header) return;
+    const observer = new ResizeObserver(() => setHeaderHeight(header.offsetHeight));
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
   const addToCart = (record: ConsolidatedItem) => {
     const quantity = Number(cartQuantities[record.id] ?? "1");
     if (!Number.isFinite(quantity) || quantity <= 0) return toast.error("Enter a quantity above zero.");
@@ -819,7 +828,7 @@ export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCre
 
     <StockHoldsPanel holds={holds} names={holdNames} canManage={canManageHolds} onReleased={() => void load()} />
 
-    <section className="overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm">
+    <section className="overflow-clip rounded-xl border bg-card text-card-foreground shadow-sm">
       {/* Header: title, print (with the A4 orientation), search and refresh. */}
       <div className="flex flex-wrap items-center gap-3 border-b px-4 py-3">
         <div className="min-w-0"><h2 className="text-base font-bold text-foreground">Consolidated stock</h2><p className="hidden truncate text-xs text-muted-foreground sm:block">All companies, inventories, item details, quantities and selling prices.</p></div>
@@ -868,8 +877,9 @@ export function InventoryOverview({ companyId, onOpenDocument, onOpenItem, onCre
           </DropdownMenu>
         </div>
       </div>}
-      {/* Share bar: price display options on the left, copy and export actions on the right. Labels collapse to icons before the row wraps. */}
-      <div className="@container flex flex-wrap items-center gap-1.5 border-b px-4 py-2 whitespace-nowrap [&_[data-slot=button]]:h-8 [&_[data-slot=button]]:gap-1.5 [&_[data-slot=button]]:px-2.5 [&_[data-slot=button]]:text-xs [&_[data-slot=button]_svg]:size-3.5">
+      {/* Share bar: price display options on the left, copy and export actions on the right. Labels collapse to icons before the row wraps.
+          It stays pinned under the app header while the product list scrolls. */}
+      <div style={{ top: headerHeight }} className="@container sticky z-10 flex flex-wrap items-center gap-1.5 border-b bg-card px-4 py-2 whitespace-nowrap shadow-[0_1px_0_var(--border)] [&_[data-slot=button]]:h-8 [&_[data-slot=button]]:gap-1.5 [&_[data-slot=button]]:px-2.5 [&_[data-slot=button]]:text-xs [&_[data-slot=button]_svg]:size-3.5">
         <span className={`inline-flex h-8 items-center rounded-md px-2.5 text-xs font-semibold tabular-nums ${selectedRecords.length ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`} title={`${selectedRecords.length} selected`}>{selectedRecords.length}<span className="@max-[91rem]:hidden">&nbsp;selected</span></span>
         <label title="Hide qty in what is shown and shared" className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-xs font-medium text-muted-foreground @max-[91rem]:gap-1 @max-[91rem]:px-1.5"><Checkbox aria-label="Hide qty" checked={!showQuantity} onCheckedChange={(checked) => setShowQuantity(checked !== true)} /><EyeOff className="hidden size-3.5 @max-[91rem]:block" /><span className="@max-[91rem]:hidden">Hide </span>qty</label>
         <label title="Hide price in what is shown and shared" className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-xs font-medium text-muted-foreground @max-[91rem]:gap-1 @max-[91rem]:px-1.5"><Checkbox aria-label="Hide price" checked={!showPrice} onCheckedChange={(checked) => setShowPrice(checked !== true)} /><EyeOff className="hidden size-3.5 @max-[91rem]:block" /><span className="@max-[91rem]:hidden">Hide </span>price</label>
