@@ -216,6 +216,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/document-access-sql.ts` — SQL visibility filter for documents by role/user. **DB**
 - `lib/document-access.ts` — Document permission rules (read, inventory edits, pending invoices, delete), Dubai day.
 - `lib/document-design.ts` — Legacy document template design: fields, custom boxes, saved templates per type.
+- `lib/document-quantity.ts` — Total Qty shown with the totals of invoices, proformas, estimates, sales orders, bills and purchase orders (freight and pending lines excluded).
 - `lib/document-output.ts` — Browser A4/letterhead PDF output, file names, save/open helpers.
 - `lib/document-print.ts` — Paper size and `@page` CSS from a document design.
 - `lib/document-vat.ts` — One VAT code per sales/purchase document (return lines excluded).

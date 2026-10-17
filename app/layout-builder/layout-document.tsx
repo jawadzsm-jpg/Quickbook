@@ -6,6 +6,7 @@ import { LetterheadBrand, LetterheadFooter } from "../letterhead-page";
 import { contentBox, type Layout, type LineColumn, type Overlay, type Row, type Section } from "@/lib/layout/schema";
 import { fontStacks } from "@/lib/layout/styles";
 import { arabicColumnLabel, arabicLabel, arabicTitle } from "@/lib/layout/arabic-labels";
+import { formatTotalQuantity } from "@/lib/document-quantity";
 
 // Pure renderer shared by the editor canvas, the print frame and PDF output. No hooks or browser APIs,
 // so it can also be rendered to static markup for printing.
@@ -120,6 +121,7 @@ export function SectionBody({ section, data, theme }: { section: Section; data: 
       </table>;
     }
     case "totals": return <table className="lb-totals" style={{ width: `${section.props.widthPercent}%` }}><tbody>
+      {data.totalQuantity !== undefined ? <tr><td>{bilingual("Total Qty", "totalQuantity")}</td><td>{formatTotalQuantity(data.totalQuantity)}</td></tr> : null}
       {section.props.rows.map((row) => <tr key={row.key} className={row.key === "total" || row.key === "balance" ? "lb-grand" : undefined}><td>{bilingual(<>{row.label} ({currencyMark})</>, row.key)}</td><td>{money(data.totals[row.key])}</td></tr>)}
     </tbody></table>;
     case "notes": return <><p className="lb-label">{section.props.label}</p>{section.props.text || data.message ? <RichText text={section.props.text || data.message} sideBySide={section.props.sideBySide} /> : <p className="lb-empty">No message</p>}</>;

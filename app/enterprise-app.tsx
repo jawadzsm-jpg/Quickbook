@@ -170,6 +170,7 @@ import type { ExchangeRateRecord } from "@/app/currency-rate-center";
 
 import { ConfirmDeleteDialog, DeleteDetailsList, useConfirmDelete, type DeleteDetail } from "./confirm-delete-dialog";
 import { DEFAULT_TYPOGRAPHY, typographyVariables, type AppTypography } from "@/lib/app-typography";
+import { documentTotalQuantity, formatTotalQuantity, showsTotalQuantity } from "@/lib/document-quantity";
 
 // Screens open one at a time, so each loads in its own chunk on first use instead of with the app shell.
 const InventoryOverview = dynamic(() => import("@/app/inventory-overview").then((mod) => mod.InventoryOverview), { loading: ScreenLoading });
@@ -3566,7 +3567,7 @@ function TransactionFields({ inactiveSource, bankChoices = [], form, setForm, on
         <Button type="button" variant="ghost" size="icon" aria-label={`Remove line ${index + 1}`} disabled={lines.length === 1 || linkedPurchaseOrderBill} onClick={() => setLines(lines.filter((_, position) => position !== index))} className="transaction-line-remove text-slate-400 hover:text-rose-600" title="Delete"><Trash2 className="size-4" /></Button>
       </div>)}</div>
       {["purchase order", "estimate", "proforma invoice", "sales order", "invoice"].includes(form.type) && <div className="flex justify-end pt-2"><Button type="button" onClick={addTransactionLine} className="brand-primary-button border-transparent font-semibold"><Plus className="size-4" />Add Line</Button></div>}
-      <div className="ml-auto grid max-w-xs gap-2 pt-2 text-sm"><div className="flex justify-between text-slate-500"><span>Subtotal</span><span>{formatMoney(subtotal, form.currency)}</span></div><div className="flex justify-between text-slate-500"><span>VAT</span><span>{formatMoney(vat, form.currency)}</span></div><div className="flex justify-between border-t pt-2 text-base font-bold"><span>Total</span><span>{formatMoney(subtotal + vat, form.currency)}</span></div></div>
+      <div className="ml-auto grid max-w-xs gap-2 pt-2 text-sm">{showsTotalQuantity(form.type) ? <div className="flex justify-between text-slate-500"><span>Total quantity</span><span>{formatTotalQuantity(documentTotalQuantity(lines))}</span></div> : null}<div className="flex justify-between text-slate-500"><span>Subtotal</span><span>{formatMoney(subtotal, form.currency)}</span></div><div className="flex justify-between text-slate-500"><span>VAT</span><span>{formatMoney(vat, form.currency)}</span></div><div className="flex justify-between border-t pt-2 text-base font-bold"><span>Total</span><span>{formatMoney(subtotal + vat, form.currency)}</span></div></div>
     </div>
     {["invoice", "sales receipt"].includes(form.type) && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 sm:col-span-2">
       <label className="flex cursor-pointer items-start gap-3"><Checkbox checked={form.allowNegativeStock === "true"} onCheckedChange={(checked) => setForm({ ...form, allowNegativeStock: checked === true ? "true" : "false", adminOverridePin: checked === true ? form.adminOverridePin ?? "" : "" })} /><span><span className="block text-sm font-semibold text-amber-950">Admin override: allow negative stock</span><span className="mt-1 block text-xs text-amber-800">Normally blocked when stock is insufficient. Configure or change the PIN in Management &gt; Admin Controls.</span></span></label>

@@ -145,3 +145,12 @@ test('PDF images are embedded at 300 dpi for their printed size, never enlarged'
   // Aspect ratio follows the tighter side.
   assert.deepEqual(pdfImagePixels(3000,3000,25.4,12.7),{width:150,height:150});
 });
+
+test("sales and purchase documents print a total quantity without freight or pending lines", async () => {
+  const { documentTotalQuantity, formatTotalQuantity, showsTotalQuantity } = await import("../lib/document-quantity.ts");
+  for (const type of ["invoice", "proforma invoice", "estimate", "sales order", "bill", "purchase order"]) assert.equal(showsTotalQuantity(type), true, type);
+  for (const type of ["credit memo", "sales receipt", "customer payment", undefined]) assert.equal(showsTotalQuantity(type), false, String(type));
+  const lines = [{ quantity: "3" }, { quantity: 2.5 }, { quantity: -1 }, { quantity: 1, isFreightCharge: true }, { quantity: 4, pending: true }, { quantity: "" }];
+  assert.equal(documentTotalQuantity(lines), 4.5);
+  assert.equal(formatTotalQuantity(1250.5), "1,250.5");
+});
