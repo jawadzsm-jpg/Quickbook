@@ -53,6 +53,9 @@ export async function skuKeys(input: LockInput, user: SessionUser) {
       const [item] = await db.select().from(items).where(eq(items.id, Number(line.itemId) || 0));
       if (item) await add(Number(line.destinationLocationId), item.sku);
     }
+  } else if (input.resource === "stock-adjustments") {
+    // New adjustments lock their lines' items (collected above); deleting one locks the items it changed.
+    if (Number(input.id) > 0) itemIds.push(...ids((await db.select().from(transactionLines).where(eq(transactionLines.transactionId, Number(input.id)))).map((l) => l.itemId)));
   } else if (input.resource === "inventory-check-reports") {
     if (Number(input.id) > 0) {
       const [report] = await db.select().from(inventoryCheckReports).where(eq(inventoryCheckReports.id, Number(input.id)));

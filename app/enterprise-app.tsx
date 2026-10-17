@@ -377,7 +377,7 @@ const viewTitles: Record<View, { title: string; sub: string }> = {
   currencies: { title: "Currencies", sub: "Set company currency and transaction currencies" },
   "vat-codes": { title: "VAT Codes", sub: "Manage tax rates and usage details for transaction dropdowns" },
   "e-invoicing": { title: "E-Invoicing (UAE)", sub: "Peppol / PINT-AE readiness, Accredited Service Provider and company settings" },
-  "admin-controls": { title: "Admin Controls", sub: "Users and access, security PIN, email server and company backups" },
+  "admin-controls": { title: "Admin Controls", sub: "Users and access, security PIN, stock adjustments, email server and company backups" },
 };
 
 const transactionTypes: Record<string, string[]> = {

@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { Archive, Eye, EyeOff, KeyRound, LayoutGrid, LockKeyhole, Mail, Plug, ShieldCheck, Smile, Users } from "lucide-react";
+import { Archive, Boxes, Eye, EyeOff, KeyRound, LayoutGrid, LockKeyhole, Mail, Plug, ShieldCheck, Smile, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,14 +14,16 @@ import { ApiIntegrations } from "./api-integrations";
 import { UserRoleCenter, type UserSummary } from "./user-role-center";
 import { EditionSettings } from "./edition-settings";
 import { useConfirmDelete } from "./confirm-delete-dialog";
+import { StockAdjustments } from "./stock-adjustments";
 
-type Tab = "users" | "security" | "email" | "backups" | "api" | "edition";
+type Tab = "users" | "security" | "stock" | "email" | "backups" | "api" | "edition";
 type Override = { id: number; entityId: number; details: string; createdAt: string };
 type PinState = { configured: boolean; lastChange: { action: string; createdAt: string } | null; overrides: Override[]; shareEmojis?: boolean };
 
 const tabs: Array<{ id: Tab; label: string; icon: typeof Users }> = [
   { id: "users", label: "Users & access", icon: Users },
   { id: "security", label: "Security", icon: LockKeyhole },
+  { id: "stock", label: "Stock adjustments", icon: Boxes },
   { id: "email", label: "Email server", icon: Mail },
   { id: "backups", label: "Backups", icon: Archive },
   { id: "api", label: "API & Integrations", icon: Plug },
@@ -164,9 +166,12 @@ export function AdminControlsCenter({ companyId, companyName, currentUserEmail, 
   const [pinConfigured, setPinConfigured] = useState<boolean | null>(null);
   const [smtpConfigured, setSmtpConfigured] = useState<boolean | null>(null);
   const [backup, setBackup] = useState<BackupStatus | null>(null);
+  // Stock adjustments load on first open, then stay mounted so lines being typed survive switching tabs.
+  const [stockOpened, setStockOpened] = useState(false);
 
   function select(next: Tab) {
     setTab(next);
+    if (next === "stock") setStockOpened(true);
     try { window.localStorage.setItem(tabStorageKey, next); } catch { /* the remembered tab is optional */ }
   }
 
@@ -185,6 +190,7 @@ export function AdminControlsCenter({ companyId, companyName, currentUserEmail, 
     {/* Panels stay mounted so unsaved edits survive switching tabs and the summary cards stay current. */}
     <div role="tabpanel" id="admin-panel-users" aria-labelledby="admin-tab-users" hidden={tab !== "users"}><UserRoleCenter onSummary={setUsers} /></div>
     <div role="tabpanel" id="admin-panel-security" aria-labelledby="admin-tab-security" hidden={tab !== "security"}><SecurityPanel key={companyId} companyId={companyId} companyName={companyName} currentUserEmail={currentUserEmail} onPinStatus={setPinConfigured} /></div>
+    <div role="tabpanel" id="admin-panel-stock" aria-labelledby="admin-tab-stock" hidden={tab !== "stock"}>{tab === "stock" || stockOpened ? <StockAdjustments key={companyId} companyId={companyId} companyName={companyName} /> : null}</div>
     {canManageEmail && <div role="tabpanel" id="admin-panel-email" aria-labelledby="admin-tab-email" hidden={tab !== "email"}><SmtpSettings onStatus={setSmtpConfigured} /></div>}
     <div role="tabpanel" id="admin-panel-backups" aria-labelledby="admin-tab-backups" hidden={tab !== "backups"}><AdminBackupCenter key={companyId} companyId={companyId} companyName={companyName} onStatus={setBackup} /></div>
     <div role="tabpanel" id="admin-panel-edition" aria-labelledby="admin-tab-edition" hidden={tab !== "edition"}>{tab === "edition" ? <EditionSettings /> : null}</div>

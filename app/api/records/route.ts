@@ -10,6 +10,7 @@ import { documentVatCodes, usesSingleVatCode } from "@/lib/document-vat";
 import { canEditInventoryDocument, canManagePendingInvoices, canReadDocument, dubaiDay } from "@/lib/document-access";
 import { applyInventoryInvoiceEdit } from "@/lib/inventory-invoice-edit";
 import { averagePurchaseCosts, itemHomeCost } from "@/lib/item-cost";
+import { STOCK_ADJUSTMENT_TYPE } from "@/lib/stock-adjustment";
 import { heldByOthers, heldStockMessage } from "@/lib/stock-holds";
 import { documentVisibility } from "@/lib/document-access-sql";
 import { employeeHrForSave } from "@/lib/employee-hr-save";
@@ -671,6 +672,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const oversized = oversizedText(payload);
     if (oversized) return Response.json({ error: `The ${oversized === "lines" || oversized === "list" ? "document has too many lines" : `"${oversized}" field is too long`}. Shorten it and try again.` }, { status: 400 });
     if (kind === "transactions") {
+      if (payload.type === STOCK_ADJUSTMENT_TYPE) return Response.json({ error: "Stock adjustments are changed in Management > Admin Controls > Stock adjustments." }, { status: 409 });
       if (authorization.role === "sales" && !salesDocumentTypes.includes(String(payload.type))) return Response.json({ error: "Sales users may create quotations, estimates, sales orders, proformas and invoices only." }, { status: 403 });
       if (payload.type === "pending invoice" && !canManagePendingInvoices(authorization)) return Response.json({ error: "Only administrators and accountants can create pending invoices." }, { status: 403 });
       if (authorization.role === "inventory" && !["bill", "received item bill", "item receipt", "purchase order"].includes(String(payload.type))) return Response.json({ error: "Inventory users may create bills, item receipts and purchase orders only." }, { status: 403 });
@@ -1584,6 +1586,7 @@ async function handlePATCH(request: Request) {
         const db = getDb();
         const [existing] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId))).for("update");
         if (!existing) return Response.json({ error: "Document not found." }, { status: 404 });
+        if (existing.type === STOCK_ADJUSTMENT_TYPE) return Response.json({ error: "Stock adjustments are changed in Management > Admin Controls > Stock adjustments." }, { status: 409 });
         if (!unlockedDocumentTypes.has(existing.type)) {
           const locked = await guardFiledPeriod(request, companyId, [existing.transactionDate, payload.transactionDate], `edit ${existing.type} ${existing.number}`, authorization);
           if (locked) return locked;
@@ -2442,6 +2445,7 @@ async function handleDELETE(request: Request) {
       const db = getDb();
       const [record] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId))).for("update");
       if (!record) return Response.json({ error: "Transaction not found." }, { status: 404 });
+      if (record.type === STOCK_ADJUSTMENT_TYPE) return Response.json({ error: "Stock adjustments are changed in Management > Admin Controls > Stock adjustments." }, { status: 409 });
       if (!unlockedDocumentTypes.has(record.type)) {
         const locked = await guardFiledPeriod(request, companyId, [record.transactionDate], `delete ${record.type} ${record.number}`, authorization);
         if (locked) return locked;

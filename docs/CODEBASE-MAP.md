@@ -44,6 +44,7 @@ Use this file to locate implementation ownership without rescanning the whole re
 | RCM declarations | `rcm-declaration-generator.tsx` | `rcm-declarations` |
 | Customer address/TRN on documents | `custom-invoice-template.tsx`, `delivery-note-template.tsx`, `customer-payment-receipt.tsx`, `statement-layout.tsx`, `layout-builder/company-data.ts`; `lib/contact-address.ts` | `records`, `reports` |
 | Item logistics/specs | `item-logistics-center.tsx`, item forms in `enterprise-app.tsx` | `item-logistics`, `item-logistics-options`, `spec-options` |
+| Stock adjustments (Admin Controls) | `stock-adjustments.tsx` in `admin-controls.tsx`; rules in `lib/stock-adjustment.ts` | `stock-adjustments` |
 | Stock pricing/revaluation | `stock-pricing.tsx`, `stock-revaluation.tsx` | `stock-pricing`, `stock-revaluation` |
 | Transfers | `transfer-center.tsx` | `transfers` |
 | Inventory checks | `inventory-check-reports.tsx` | `inventory-check-reports` |

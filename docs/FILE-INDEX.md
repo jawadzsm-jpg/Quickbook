@@ -13,7 +13,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/accountant-report-library.tsx` — Accountant (accounting review) report card library and its filters.
 - `app/active-customers-report.tsx` — Searchable active-customers report with links to customers, accounts and documents.
 - `app/admin-backup-center.tsx` — Backup & recovery: history, download, integrity check, retention and schedule; `/api/admin-backups`.
-- `app/admin-controls.tsx` — Admin Controls shell with tabs Users & access, Security (override PIN, own password, share emoji switch), Email server, Backups, API & Integrations, EasyBook edition; `/api/admin-settings`.
+- `app/admin-controls.tsx` — Admin Controls shell with tabs Users & access, Security (override PIN, own password, share emoji switch), Stock adjustments, Email server, Backups, API & Integrations, EasyBook edition; `/api/admin-settings`.
 - `app/api-integrations.tsx` — API & Integrations: create/revoke API keys (shown once), last use, API address, OpenAPI link, curl/PHP/JS examples; `/api/api-keys`.
 - `app/audit-entry-editor.tsx` — All-Admin Edit / Delete buttons on Audit Trail report rows: details edit dialog and the shared delete confirmation (date/time, user, action, record, details); `/api/audit-log`.
 - `app/attachment-capture.tsx` — Global attachments picker in dialogs; uploads pending files to `/api/attachments` after a record is saved.
@@ -122,6 +122,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/shared-item-catalogue.tsx` — Browse items shared across companies and copy them in; `/api/shared-items`.
 - `app/shared-out-of-stock.tsx` — Out-of-stock items that can be pulled from the shared catalogue; `/api/out-of-stock`.
 - `app/smtp-settings.tsx` — Email server settings: SMTP server (with presets) or turboSMTP API (consumer key/secret, region), Test connection and Send test email; `/api/email-settings`.
+- `app/stock-adjustments.tsx` — Admin Controls → Stock adjustments: Adjust Quantity/Value on Hand form (type, date, reference, account, inventory/warehouse, currency and rate, Find & Select Items, line grid, item info after adjustment, totals) and History with reverse; `/api/stock-adjustments`.
 - `app/staff-salary-sheets.tsx` — Staff salary sheets dialog: create, list, print; `/api/staff-salary-sheets`.
 - `app/statement-bank-box.tsx` — Movable bank-details box with remark for printed statements.
 - `app/statement-layout.tsx` — Statement filters and heading (company header, Statement for address/TRN, stamp).
@@ -296,6 +297,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/sales-invoicing.ts` — Converting orders/quotations into invoices (source lines, inventory lines, refresh). **DB**
 - `lib/sales-report.ts` — Sales report keys, groups, columns, customer lookup and filters.
 - `lib/search.ts` — Shared search (every word must match, any order) and highlight ranges.
+- `lib/stock-adjustment.ts` — Stock adjustment rules shared by screen and API: types, per-line quantity/value plan in home currency, totals and the balanced asset/adjustment journal.
 - `lib/secret-box.ts` — **server** AES-256-GCM encryption of stored secrets (SMTP_ENCRYPTION_KEY "v2", DATABASE_URL-derived "v1" still readable).
 - `lib/share-emoji.ts` — WhatsApp/Telegram emoji style presets.
 - `lib/share-currency.ts` — Inventory Overview share currency: USD/EUR options, saved-rate lookup, base-to-currency price conversion and the missing-rate message.
