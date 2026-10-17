@@ -123,10 +123,10 @@ export function UaeBankCheque({ record, lines, journal, companyName, revision, c
         <div><p className="font-bold text-slate-900">UAE Bank Cheque</p><p className="text-sm text-slate-500">Saved cheque {chequeNumber}</p></div>
         <Button type="button" variant="outline" onClick={printVoucher}><FileText className="size-4" />Print A4 voucher</Button>
       </div>
-      {canEditNumber && <div className="rounded-lg border bg-white p-3">
+      {canEditNumber && <div className="rounded-lg border bg-white p-3" data-unsaved={editingNumber && numberDraft.trim() !== chequeNumber ? "" : undefined}>
         <div className="flex flex-wrap items-end gap-2">
           <div className="min-w-56 flex-1 space-y-1"><Label htmlFor="saved-cheque-number" className="text-xs">Cheque number</Label><Input id="saved-cheque-number" value={numberDraft} disabled={!editingNumber || savingNumber} maxLength={100} onChange={(event) => { setNumberDraft(event.target.value); setNumberError(""); }} /></div>
-          {editingNumber ? <><Button type="button" size="sm" disabled={savingNumber} onClick={() => void saveChequeNumber()}><Check className="size-4" />{savingNumber ? "Saving…" : "Save number"}</Button><Button type="button" size="sm" variant="outline" disabled={savingNumber} onClick={() => { setNumberDraft(chequeNumber); setNumberError(""); setEditingNumber(false); }}><X className="size-4" />Cancel</Button></> : <Button type="button" size="sm" variant="outline" onClick={() => setEditingNumber(true)}><Pencil className="size-4" />Edit cheque number</Button>}
+          {editingNumber ? <><Button type="button" size="sm" data-save-changes disabled={savingNumber} onClick={() => void saveChequeNumber()}><Check className="size-4" />{savingNumber ? "Saving…" : "Save number"}</Button><Button type="button" size="sm" variant="outline" data-not-close disabled={savingNumber} onClick={() => { setNumberDraft(chequeNumber); setNumberError(""); setEditingNumber(false); }}><X className="size-4" />Cancel</Button></> : <Button type="button" size="sm" variant="outline" onClick={() => setEditingNumber(true)}><Pencil className="size-4" />Edit cheque number</Button>}
         </div>
         {numberError && <p role="alert" className="mt-2 text-xs font-medium text-red-600">{numberError}</p>}
       </div>}

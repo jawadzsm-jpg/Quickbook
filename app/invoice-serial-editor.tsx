@@ -21,8 +21,8 @@ export function InvoiceSerialEditor({ companyId, invoiceId, revision, lines, onS
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save serial numbers."); }
     finally { setSaving(false); }
   }
-  return <><Button onClick={() => setOpen(true)}>Add serial numbers</Button><Dialog open={open} onOpenChange={next => { if (!saving) setOpen(next); }}><DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl"><DialogTitle>Add {label} serial numbers</DialogTitle><DialogDescription>Existing serial numbers, items and amounts are preserved.</DialogDescription><SkuLockNotice message={lock.message} />
+  return <><Button onClick={() => setOpen(true)}>Add serial numbers</Button><Dialog open={open} onOpenChange={next => { if (!saving) setOpen(next); }}><DialogContent data-unsaved-tracking data-unsaved={Object.values(additions).some(value => value.trim()) ? "" : undefined} className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl"><DialogTitle>Add {label} serial numbers</DialogTitle><DialogDescription>Existing serial numbers, items and amounts are preserved.</DialogDescription><SkuLockNotice message={lock.message} />
     {lines.map(line => <label key={line.id} className="block min-w-0 space-y-2 rounded-lg border p-3 text-sm"><span className="block break-words font-semibold">{line.description}</span>{line.serialNumber && <span className="block whitespace-pre-wrap break-words text-muted-foreground">{line.serialNumber}</span>}<Textarea disabled={saving} placeholder="Additional serial numbers" value={additions[line.id] || ""} onChange={e => setAdditions({ ...additions, [line.id]: e.target.value })} /></label>)}
-    <Button disabled={saving || !lock.ready || !Object.values(additions).some(value => value.trim())} onClick={() => void save()}>{saving ? "Saving…" : "Save serial numbers"}</Button>
+    <Button data-save-changes disabled={saving || !lock.ready || !Object.values(additions).some(value => value.trim())} onClick={() => void save()}>{saving ? "Saving…" : "Save serial numbers"}</Button>
   </DialogContent></Dialog></>;
 }

@@ -957,8 +957,45 @@ test("Escape and close controls protect editable dialogs with save, discard, and
   assert.match(closer, /Keep editing/);
   assert.match(closer, /Discard &amp; close/);
   assert.match(closer, /Save changes/);
-  assert.match(closer, /form\.requestSubmit\(target\.saveControl\)/);
+  assert.match(closer, /form\.requestSubmit\(control\)/);
   assert.match(closer, /hasOpenTransientLayer\(\)/);
+});
+
+test("document windows ask before closing only with unsaved edits and Save changes uses the real save", () => {
+  const closer = readFileSync(new URL("../app/escape-window-closer.tsx", import.meta.url), "utf8");
+  const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
+  // "Save as PDF" (and Print / Download / Email) is output, never the window's save.
+  assert.match(closer, /const OUTPUT_LABEL = \/\\b\(pdf\|print\|download\|e-\?mail\)\\b\/i/);
+  assert.match(closer, /!OUTPUT_LABEL\.test\(label\)/);
+  // Tracked windows close straight away unless a part is marked data-unsaved; Save presses that part's data-save-changes.
+  assert.match(closer, /container\.matches\("\[data-unsaved-tracking\]"\)/);
+  assert.match(closer, /if \(parts\.length === 0\) return null;/);
+  assert.match(closer, /querySelector<HTMLElement>\("\[data-save-changes\]"\)/);
+  // After saving, the window closes once nothing is unsaved, and stays open when the save fails.
+  assert.match(closer, /if \(!unsaved\) \{\s*window\.clearInterval\(timer\);[\s\S]*?closeControl\.click\(\);/);
+  assert.match(closer, /target\.closest\("\[data-not-close\]"\)/);
+  // Both document windows (customer payments and every other customer/vendor document) are tracked.
+  assert.equal((app.match(/<DialogContent data-unsaved-tracking /g) || []).length, 2);
+  // Preview-only choices (stamps, bank box, copies, layout) are not marked as unsaved edits.
+  const template = readFileSync(new URL("../app/sales-document-template.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(template, /data-unsaved/);
+  // Each editor inside the window marks its own unsaved edits and save button.
+  assert.match(app, /data-unsaved=\{text\.trim\(\) !== saved\.trim\(\) \? "" : undefined\}/);
+  assert.match(app, /data-save-changes disabled=\{busy \|\| text\.trim\(\) === saved\.trim\(\)\}/);
+  for (const [file, unsaved] of [
+    ["purchase-order-receiving.tsx", /data-unsaved=\{unsaved \? "" : undefined\}/],
+    ["sales-source-invoicing.tsx", /data-unsaved=\{unsaved \? "" : undefined\}/],
+    ["uae-bank-cheque.tsx", /data-unsaved=\{editingNumber && numberDraft\.trim\(\) !== chequeNumber \? "" : undefined\}/],
+    ["inventory-invoice-editor.tsx", /data-unsaved-tracking data-unsaved=\{changed \? "" : undefined\}/],
+    ["invoice-serial-editor.tsx", /data-unsaved-tracking data-unsaved=/],
+  ]) {
+    const source = readFileSync(new URL(`../app/${file}`, import.meta.url), "utf8");
+    assert.match(source, unsaved, file);
+    assert.match(source, /data-save-changes/, file);
+  }
+  // A refresh after saving does not reopen a window that Save changes already closed.
+  assert.match(app, /setDetail\(\(current\) => current\?\.record\.id === id \? data : current\)/);
+  assert.doesNotMatch(app, /onChanged=\{\(\) => onOpenInvoice\(record\.id\)\}/);
 });
 
 test("dashboard totals use linked ledger accounts without counting payments as income or expense", () => {

@@ -95,7 +95,7 @@ export function InventoryInvoiceEditor({ companyId, locationId, invoiceId, revis
   return <>
     <Button onClick={() => setOpen(true)}><PackagePlus className="size-4" />Items &amp; serial numbers</Button>
     <Dialog open={open} onOpenChange={(next) => { if (!saving) { setOpen(next); if (!next) reset(); } }}>
-      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-4xl">
+      <DialogContent data-unsaved-tracking data-unsaved={changed ? "" : undefined} className="max-h-[92dvh] overflow-y-auto sm:max-w-4xl">
         <DialogHeader><DialogTitle>Invoice items &amp; serial numbers</DialogTitle><DialogDescription>Change the product on a line, add free (zero-price) lines, and record serial numbers and comments. Quantities, prices and the invoice total stay the same; stock updates automatically.</DialogDescription></DialogHeader>
         <SkuLockNotice message={lock.message} />
         <div className="space-y-3">
@@ -123,7 +123,7 @@ export function InventoryInvoiceEditor({ companyId, locationId, invoiceId, revis
           </div>)}
         </section>
         <div className="space-y-1"><Label htmlFor="inventory-invoice-comments">Invoice comments</Label><Textarea id="inventory-invoice-comments" disabled={saving} value={invoiceComments} onChange={(event) => setInvoiceComments(event.target.value)} maxLength={5000} /></div>
-        <DialogFooter><Button type="button" variant="outline" disabled={saving} onClick={() => { setOpen(false); reset(); }}>Cancel</Button><Button type="button" disabled={saving || !lock.ready || !changed || incompleteNewLine} onClick={() => void save()}>{saving ? "Saving…" : "Save changes"}</Button></DialogFooter>
+        <DialogFooter><Button type="button" variant="outline" disabled={saving} onClick={() => { setOpen(false); reset(); }}>Cancel</Button><Button type="button" data-save-changes disabled={saving || !lock.ready || !changed || incompleteNewLine} onClick={() => void save()}>{saving ? "Saving…" : "Save changes"}</Button></DialogFooter>
       </DialogContent>
     </Dialog>
   </>;
