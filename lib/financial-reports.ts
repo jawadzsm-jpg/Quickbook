@@ -158,6 +158,24 @@ export async function financialReport(companyId:number,locationId:number,currenc
    for(const r of positions){const month=String(r.dueDate)<asOf?asOf.slice(0,7):String(r.dueDate).slice(0,7),g=groups.get(month)||{month,inflow:0,outflow:0};if(Number(r.bookedValue)>0)g.inflow+=Number(r.bookedValue);else g.outflow-=Number(r.bookedValue);groups.set(month,g);}
    result.rows=[{month:'Opening cash',inflow:0,outflow:0,projected},...[...groups.values()].sort((a,b)=>a.month.localeCompare(b.month)).map(g=>{projected=round(projected+g.inflow-g.outflow);return {...g,inflow:round(g.inflow),outflow:round(g.outflow),projected};})];result.columns=[col('month','Due Month'),money('inflow','Expected Inflow'),money('outflow','Expected Outflow'),money('projected','Projected Cash')];
    result.financial.note='Forecast uses remaining posted receivables and payables at booked rates, including unapplied payments and credits; unposted settlement exchange differences are excluded. Overdue balances appear in the current month.';
+  }else if(key==='realised-gains-losses'){
+   // Realised gains and losses are what is posted to Exchange Gain or Loss: payments settling foreign invoices and bills
+   // at another rate than they were booked at, and journal entries to that account. Credits are gains.
+   result.title='Realised Gains & Losses';
+   const fxIds=new Set(chart.filter(a=>a.systemRole==='FX_GAIN_LOSS').map(a=>a.id));
+   const typeLabel=(type?:string)=>!type?'General Journal':type==='customer payment'?'Payment':type==='bill payment'?'Bill Pmt':type==='cheque'?'Bill Pmt -Cheque':type.replace(/\b\w/g,c=>c.toUpperCase());
+   const byEntry=new Map<number,Row>();
+   for(const e of selected.filter(e=>e.accountId&&fxIds.has(e.accountId)&&inRange(e.date))){
+    const d=docMap.get(e.transactionId||0);const old=byEntry.get(e.entryId);
+    if(old){old.gainLoss=round(Number(old.gainLoss)+e.credit-e.debit);continue;}
+    const outgoing=d&&['bill payment','vendor payment','cheque'].includes(d.type);
+    byEntry.set(e.entryId,{type:typeLabel(d?.type),date:e.date,reference:d?.number||e.reference,name:d?.party||'',transactionId:d?.id||0,realisedAmount:d?round((outgoing?-1:1)*Number(d.baseTotal)):'',exchangeRate:Number(d?.exchangeRate??e.exchangeRate??1),gainLoss:round(e.credit-e.debit)});
+   }
+   result.rows=[...byEntry.values()].sort((x,y)=>String(x.date).localeCompare(String(y.date))||String(x.reference).localeCompare(String(y.reference)));
+   result.financial.details=result.rows.map(r=>({...r,amount:r.gainLoss}));
+   result.columns=[col('type','Type'),col('date','Date'),col('reference','No.'),col('name','Name'),money('realisedAmount',`Realised Amount (${currency})`),col('exchangeRate','Exchange Rate'),money('gainLoss','Realised Gain/Loss')];
+   if(!fxIds.size)issues.add('No Exchange Gain or Loss account yet; it is created with the first foreign payment that has an exchange difference.');
+   result.financial.note='Posted to the Exchange Gain or Loss account: payments that settle foreign invoices and bills at a rate other than their booked rate, and journal entries to that account. Positive amounts are gains, negative amounts are losses.';
   }else{
    const realised=key==='realised-gains-losses';result.title=realised?'Realised Gains & Losses':'Unrealised Gains & Losses';result.rows=realised?settled:positions.filter(r=>r.currency!==currency);result.financial.details=result.rows.map(r=>({...r,amount:r.gainLoss}));
    result.columns=[...baseColumns,col('currency','Currency'),col('bookedRate','Booked Rate'),col('currentRate',realised?'Settlement Rate':'Current Rate'),money('bookedValue','Booked Value'),money('currentValue','Revalued Value'),money('gainLoss','Gain / Loss')];

@@ -54,6 +54,7 @@ Use this file to locate implementation ownership without rescanning the whole re
 | VAT | `vat-code-center.tsx`, `vat-management-center.tsx` | `vat-codes`, `vat-management` |
 | VAT reports | `vat-report-library.tsx`, `vat-report-table.tsx`, `vat-report-filters.tsx`, `lib/vat-report.ts`; exports in `lib/report-export.ts`, stamp in `sales-report-stamp.tsx` and `lib/report-stamp.ts` | `reports` |
 | Currency | `currency-rate-center.tsx` | `exchange-rates` |
+| Exchange gain or loss (Realised Gains & Losses) | `fx-backfill-banner.tsx`; posting in `app/api/records/route.ts` with `lib/fx-difference.ts`, `lib/fx-gain-loss.ts`; report in `lib/financial-reports.ts` | `fx-gain-loss`, `reports` |
 | Warranty/RMA | `warranty-center.tsx` | `warranty-slips` |
 | Packing lists | `invoice-packing-list.tsx` | `packing-lists` |
 | Sales document output | `sales-document-template.tsx`, `custom-invoice-template.tsx`, `delivery-note-template.tsx` | source transaction APIs |

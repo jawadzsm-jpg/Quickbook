@@ -1650,7 +1650,14 @@ test('all 14 financial reports reconcile posted accounts, settlements, dates and
  const flow=await get('cash-flow');const flowAmount=name=>flow.rows.find(r=>r.name===name).amount;
  assert.equal(flowAmount('Opening cash'),1000);assert.equal(flowAmount('Operating'),130);assert.equal(flowAmount('Investing'),-200);assert.equal(flowAmount('Internal transfers'),0);assert.equal(flowAmount('Closing cash'),930);
  assert.ok(flow.financial.details.some(r=>r.transactionId===payment.id));
- const realised=await get('realised-gains-losses');assert.deepEqual(realised.rows.map(r=>[r.reference,r.gainLoss,r.accountId]),[['AUD-PAY',40,ar.id],['AUD-CHQ',-20,ap.id]]);
+ // Realised gains and losses come from the Exchange Gain or Loss account: post the two older payments' differences first.
+ const fxRoute=await vite.ssrLoadModule('/app/api/fx-gain-loss/route.ts');
+ const fxPending=await (await fxRoute.GET(new Request(`https://app.test/api/fx-gain-loss?companyId=${cid}`))).json();assert.deepEqual(fxPending.payments.map(r=>[r.number,r.gainLoss]),[['AUD-PAY',40],['AUD-CHQ',-20]]);
+ assert.equal((await get('realised-gains-losses')).rows.length,0);
+ const fxPosted=await (await fxRoute.POST(post({companyId:cid}))).json();assert.deepEqual(fxPosted,{posted:2,gainLoss:20});
+ const realised=await get('realised-gains-losses');assert.deepEqual(realised.rows.map(r=>[r.type,r.reference,r.realisedAmount,r.exchangeRate,r.gainLoss]),[['Payment','AUD-PAY',160,4,40],['Bill Pmt -Cheque','AUD-CHQ',-80,4,-20]]);
+ const {sql:fxSql}=await import('drizzle-orm');const balanced=await db.execute(fxSql`SELECT sum(l.debit-l.credit)::float AS net FROM journal_lines l JOIN journal_entries j ON j.id=l.journal_entry_id WHERE j.company_id=${cid}`);assert.ok(Math.abs(balanced.rows[0].net)<1e-9);
+ assert.deepEqual((await (await fxRoute.POST(post({companyId:cid}))).json()),{posted:0,gainLoss:0});
  const unrealised=await get('unrealised-gains-losses');assert.deepEqual(unrealised.rows.map(r=>[r.reference,r.bookedValue,r.gainLoss]).sort(),[['AUD-BILL',-240,-160],['AUD-CREDIT',-30,-20],['AUD-INV',180,120]]);
  const forecast=await get('cash-flow-forecast');assert.equal(forecast.rows[0].projected,930);assert.equal(forecast.rows.at(-1).projected,840);
  assert.ok((await get('income-customer-detail')).rows.every(r=>r.accountId===revenue.id));

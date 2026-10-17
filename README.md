@@ -104,7 +104,7 @@ flowchart TD
 | Server entry | `app/page.tsx`, `app/layout.tsx` | Resolve the session cookie and render the login screen (or reset-link form), the forced password change, or the application shell |
 | Client shell | `app/enterprise-app.tsx` | Navigation, centers (customers, vendors, items, accounts, reports, company setup), record forms and cross-module state |
 | Screens | `app/*.tsx`, `app/layout-builder/` | Focused features: Inventory Overview, documents and templates, reports, admin, VAT, HR |
-| API | `app/api/**/route.ts` (76 routes) | JSON endpoints; every handler checks identity, permission, company scope and same-origin for writes |
+| API | `app/api/**/route.ts` (77 routes) | JSON endpoints; every handler checks identity, permission, company scope and same-origin for writes |
 | Domain | `lib/*.ts`, `lib/layout/` | Business rules, posting, VAT, reports, exports, permissions, email, backups, Integration API |
 | Data | `db/schema.ts`, `db/index.ts`, `drizzle/*.sql` | Drizzle schema, serializable write transactions, 108 SQL migrations |
 
@@ -161,7 +161,7 @@ Permissions are named (`workspace:read`, `inventory:read`, `inventory:manage`, `
 
 ## API endpoints
 
-76 route handlers under `app/api/`. All internal endpoints use the session cookie, return JSON, and require a same-origin request for writes. Methods, authorization and inputs for each are in [docs/API.md](docs/API.md); the external Integration API is in [docs/INTEGRATION-API.md](docs/INTEGRATION-API.md).
+77 route handlers under `app/api/`. All internal endpoints use the session cookie, return JSON, and require a same-origin request for writes. Methods, authorization and inputs for each are in [docs/API.md](docs/API.md); the external Integration API is in [docs/INTEGRATION-API.md](docs/INTEGRATION-API.md).
 
 **Identity and administration**
 
@@ -201,6 +201,7 @@ Permissions are named (`workspace:read`, `inventory:read`, `inventory:manage`, `
 | `/api/company-setup/clear` | POST | Administrator + password | Clear selected company data |
 | `/api/login-branding` | GET | Public | Safe login-page branding for a company |
 | `/api/vat-codes` | GET, POST, PATCH, DELETE | Company access; Administrator for writes | VAT codes |
+| `/api/fx-gain-loss` | GET, POST | `accounting:manage`; Administrator to post | Post past exchange differences to Exchange Gain or Loss |
 | `/api/exchange-rates` | GET, POST, PATCH | `workspace:read`; Administrator for writes | Currency rates |
 | `/api/payment-terms` | GET, POST, PATCH, DELETE | `sales:write` | Payment terms |
 | `/api/spec-options` | GET, POST, PATCH, DELETE | `inventory:read`; `inventory:manage` for writes | Categories, specification names and values (+ category colours) |

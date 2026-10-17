@@ -389,7 +389,7 @@ test('professional Chart of Accounts installer preserves existing records and li
   assert.equal(first.status,200,await first.clone().text());
   assert.ok((await first.json()).installed>40);
   const second=await install();
-  assert.deepEqual(await second.json(),{installed:0,total:58});
+  assert.deepEqual(await second.json(),{installed:0,total:59});
   const preserved=(await database.query('SELECT id,balance FROM accounts WHERE company_id=$1 AND code=$2',[companyId,'1000'])).rows[0];
   assert.deepEqual(preserved,{id:existing.id,balance:321});
   const child=(await database.query("SELECT child.name,parent.name AS parent FROM accounts child LEFT JOIN accounts parent ON parent.id=child.parent_account_id WHERE child.company_id=$1 AND child.code='6110'",[companyId])).rows[0];
@@ -567,6 +567,36 @@ test('customer payments debit the selected company bank and reject invalid depos
   const lines = (await database.query('SELECT jl.account_name, jl.debit, jl.credit FROM journal_lines jl JOIN journal_entries je ON je.id = jl.journal_entry_id WHERE je.transaction_id = $1 ORDER BY jl.id', [record.id])).rows;
   assert.deepEqual(lines, [{ account_name: 'Selected USD Bank', debit: 367.5, credit: 0 }, { account_name: 'Accounts Receivable - USD', debit: 0, credit: 367.5 }]);
   assert.equal((await database.query('SELECT balance FROM contacts WHERE company_id = $1', [companyId])).rows[0].balance, 0);
+});
+
+test('foreign payments clear receivables and payables at the booked rate and post the difference to Exchange Gain or Loss', async () => {
+  const companyId = (await database.query("INSERT INTO companies (name) VALUES ('FX posting test') RETURNING id")).rows[0].id;
+  const locationId = (await database.query("INSERT INTO inventory_locations (company_id,name,code,invoice_prefix) VALUES ($1,'Main','FXP','FXP') RETURNING id", [companyId])).rows[0].id;
+  await database.query("INSERT INTO accounts (company_id, code, name, type, system_role, currency) VALUES ($1,'B-USD','NBD-USD','Bank',NULL,'USD'), ($1,'AR-USD','Accounts Receivable - USD','Accounts Receivable','AR','USD'), ($1,'AP-USD','Accounts Payable - USD','Accounts Payable','AP','USD'), ($1,'S1','Sales Revenue','Income','SALES','AED'), ($1,'P1','Purchases','Expense','PURCHASES','AED')", [companyId]);
+  await database.query("INSERT INTO contacts (company_id, type, name, currency) VALUES ($1,'customer','FX Customer','USD'), ($1,'vendor','FX Vendor','USD')", [companyId]);
+  const insertDocument = async (number, type, party, rate, account, lines) => {
+    const id = (await database.query("INSERT INTO transactions (company_id, location_id, number, type, party, account, transaction_date, status, subtotal, total, currency, exchange_rate, base_total) VALUES ($1,$2,$3,$4,$5,$6,'2026-09-01','open',1000,1000,'USD',$7,$8) RETURNING id", [companyId, locationId, number, type, party, account, rate, 1000 * rate])).rows[0].id;
+    const entry = (await database.query("INSERT INTO journal_entries (company_id, location_id, transaction_id, entry_date, reference, currency, exchange_rate) VALUES ($1,$2,$3,'2026-09-01',$4,'USD',$5) RETURNING id", [companyId, locationId, id, number, rate])).rows[0].id;
+    for (const [name, debit, credit] of lines) await database.query("INSERT INTO journal_lines (journal_entry_id, account_name, debit, credit) VALUES ($1,$2,$3,$4)", [entry, name, debit, credit]);
+    return id;
+  };
+  const invoice = await insertDocument('FX-INV', 'invoice', 'FX Customer', 3.6735, 'Accounts Receivable - USD', [['Accounts Receivable - USD', 3673.5, 0], ['Sales Revenue', 0, 3673.5]]);
+  const bill = await insertDocument('FX-BILL', 'bill', 'FX Vendor', 3.67, 'Accounts Payable - USD', [['Purchases', 3670, 0], ['Accounts Payable - USD', 0, 3670]]);
+  const { POST } = await vite.ssrLoadModule('/app/api/records/route.ts');
+  const save = (body) => POST(new Request('https://app.test/api/records', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'transactions', companyId, locationId, currency: 'USD', transactionDate: '2026-09-20', lines: [{ description: 'Settlement', quantity: 1, unitPrice: 1000, unitCost: 0, vatCode: 'ZERO' }], ...body }) }));
+  const received = await save({ type: 'customer payment', number: 'FX-PAY', party: 'FX Customer', account: 'NBD-USD', exchangeRate: 3.67, invoiceIds: [invoice] });
+  assert.equal(received.status, 201, await received.clone().text());
+  const paid = await save({ type: 'bill payment', number: 'FX-BP', party: 'FX Vendor', account: 'NBD-USD', exchangeRate: 3.6725, billIds: [bill] });
+  assert.equal(paid.status, 201, await paid.clone().text());
+  const lines = async (number) => (await database.query("SELECT jl.account_name, jl.debit, jl.credit FROM journal_lines jl JOIN journal_entries je ON je.id = jl.journal_entry_id JOIN transactions t ON t.id = je.transaction_id WHERE t.company_id = $1 AND t.number = $2 ORDER BY jl.id", [companyId, number])).rows;
+  assert.deepEqual(await lines('FX-PAY'), [{ account_name: 'NBD-USD', debit: 3670, credit: 0 }, { account_name: 'Accounts Receivable - USD', debit: 0, credit: 3673.5 }, { account_name: 'Exchange Gain or Loss', debit: 3.5, credit: 0 }]);
+  assert.deepEqual(await lines('FX-BP'), [{ account_name: 'Accounts Payable - USD', debit: 3670, credit: 0 }, { account_name: 'NBD-USD', debit: 0, credit: 3672.5 }, { account_name: 'Exchange Gain or Loss', debit: 2.5, credit: 0 }]);
+  const balance = async (name) => (await database.query("SELECT coalesce(sum(jl.debit - jl.credit), 0)::float AS net FROM journal_lines jl JOIN journal_entries je ON je.id = jl.journal_entry_id JOIN accounts a ON a.id = jl.account_id WHERE je.company_id = $1 AND a.name = $2", [companyId, name])).rows[0].net;
+  assert.equal(await balance('Accounts Receivable - USD'), 0);
+  assert.equal(await balance('Accounts Payable - USD'), 0);
+  assert.equal(await balance('Exchange Gain or Loss'), 6);
+  const fx = (await database.query("SELECT code, type, system_role, currency FROM accounts WHERE company_id = $1 AND name = 'Exchange Gain or Loss'", [companyId])).rows;
+  assert.deepEqual(fx, [{ code: '7200', type: 'Other Expense', system_role: 'FX_GAIN_LOSS', currency: 'AED' }]);
 });
 
 test('cheques credit the chosen currency bank and debit the selected AP or expense account', async () => {
