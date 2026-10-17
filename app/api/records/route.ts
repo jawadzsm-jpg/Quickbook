@@ -1424,6 +1424,11 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
           totals.set(accountName, round((totals.get(accountName) ?? 0) + difference));
         }
       };
+      // Bills (and purchase returns, which copy the bill's account) store the payable control account, so non-stock
+      // lines fall back to COGS/Purchases; a bill whose account is an expense account debits that account instead.
+      const billPurchaseFallback = postingAccountRole === "AP"
+        ? (linkedAccounts.COGS ?? linkedAccounts.PURCHASES ?? "Cost of Goods Sold")
+        : (record.account || linkedAccounts.PURCHASES || "Purchases");
       if (["invoice", "sales receipt"].includes(type)) {
         const salesFallback = linkedAccounts.SALES ?? "Sales Revenue";
         const incomeTotals = new Map<string, number>();
@@ -1435,9 +1440,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
           ...(baseVatAmount ? [{ accountName: linkedAccounts.OUTPUT_VAT ?? "VAT Payable", debit: 0, credit: baseVatAmount }] : []),
         ];
       } else if (type === "bill") {
-        const purchaseFallback = postingAccountRole === "AP"
-          ? (linkedAccounts.COGS ?? linkedAccounts.PURCHASES ?? "Cost of Goods Sold")
-          : (record.account || linkedAccounts.PURCHASES || "Purchases");
+        const purchaseFallback = billPurchaseFallback;
         const inventoryFallback = linkedAccounts.INVENTORY ?? "Inventory Asset";
         const purchaseTotals = new Map<string, number>();
         for (const line of prepared) {
@@ -1454,7 +1457,8 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
           { accountName: linkedAccounts.AP ?? "Accounts Payable", debit: 0, credit: baseTotal },
         ];
       } else if (type === "vendor credit") {
-        const purchaseFallback = record.account || linkedAccounts.PURCHASES || "Purchases";
+        // Credit the same account the bill debited, never the payable account itself.
+        const purchaseFallback = billPurchaseFallback;
         const inventoryFallback = linkedAccounts.INVENTORY ?? "Inventory Asset";
         const returnTotals = new Map<string, number>();
         for (const line of prepared) {
