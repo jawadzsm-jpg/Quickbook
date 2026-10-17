@@ -1621,7 +1621,7 @@ export default function EnterpriseApp({ currentUser, edition = DEFAULT_EDITION }
             </Popover>
             <Badge variant="outline" className="hidden sm:inline-flex">{baseCurrency}</Badge>
             <Select value={String(activeLocationId || "")} onValueChange={(value) => { setActiveLocationId(Number(value)); setSearch(""); }}><SelectTrigger aria-label="Active inventory" className="w-[min(165px,42vw)] sm:w-[165px]"><SelectValue placeholder="Inventory" /></SelectTrigger><SelectContent>{activeLocations.map((location) => <SelectItem key={location.id} value={String(location.id)}>{location.name}</SelectItem>)}</SelectContent></Select>
-            {!managementView && view !== "purchases" && view !== "sales" && view !== "employees" && canWriteCurrentView && <Button onClick={openCreate} className="brand-primary-button font-semibold"><Plus className="size-4" /><span className="hidden sm:inline">{createLabel}</span></Button>}
+            {!managementView && view !== "purchases" && view !== "sales" && view !== "employees" && view !== "vendors" && canWriteCurrentView && <Button onClick={openCreate} className="brand-primary-button font-semibold"><Plus className="size-4" /><span className="hidden sm:inline">{createLabel}</span></Button>}
           </div>
           <div data-export-slot="page" className="flex w-full justify-end empty:hidden" />
         </header>
