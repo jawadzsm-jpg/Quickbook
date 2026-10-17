@@ -20,9 +20,14 @@ const nextConfig: NextConfig = {
         // Keep other sites' windows from scripting this one; print previews opened by the app still work.
         { key: "Cross-Origin-Opener-Policy", value: "same-origin-allow-popups" },
         { key: "X-DNS-Prefetch-Control", value: "off" },
-        // object-src blocks plugins/embeds. A script-src allowlist needs per-request nonces for Next.js inline scripts
-        // and is a separate change.
-        { key: "Content-Security-Policy", value: "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'" },
+        { key: "X-Permitted-Cross-Domain-Policies", value: "none" },
+      ],
+    }, {
+      // Pages get a nonce-based script policy from proxy.ts. API responses (JSON, attachment downloads and PDFs/images
+      // opened in a tab) never need scripts. object-src blocks plugins/embeds.
+      source: "/api/:path*",
+      headers: [
+        { key: "Content-Security-Policy", value: "script-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'" },
       ],
     }];
   },

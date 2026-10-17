@@ -4810,6 +4810,44 @@ test("security: sign-in limits and lockout, passwordless accounts, two-step code
   assert.equal(publicErrorMessage(new Error("Select a company."), "x"), "Select a company.");
 });
 
+test("security: a new session at each sign-in, password rules, reset links survive rejected passwords, two-step guess limit", async () => {
+  const session = await vite.ssrLoadModule("/app/api/auth/session/route.ts");
+  const reset = await vite.ssrLoadModule("/app/api/auth/password-reset/route.ts");
+  const mfaRoute = await vite.ssrLoadModule("/app/api/auth/mfa/route.ts");
+  const { hashPassword } = await vite.ssrLoadModule("/lib/password.ts");
+  const { createHash } = await import("node:crypto");
+  const request = (url, method, body, cookie = "") => new Request(`https://app.test${url}`, { method, headers: { origin: "https://app.test", host: "app.test", "content-type": "application/json", "x-forwarded-for": "203.0.113.44", ...(cookie ? { cookie } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const password = "amber river lantern 7";
+  const userId = (await database.query("INSERT INTO app_users (email, full_name, password_hash, role) VALUES ('rotate@example.test', 'Rotate Person', $1, 'viewer') RETURNING id", [await hashPassword(password)])).rows[0].id;
+  const signIn = async (cookie = "") => { const response = await session.POST(request("/api/auth/session", "POST", { email: "rotate@example.test", password }, cookie)); assert.equal(response.status, 200); return response.headers.get("set-cookie").split(";")[0]; };
+
+  // Signing in again from the same browser ends the session it already had.
+  const first = await signIn();
+  const second = await signIn(first);
+  assert.notEqual(first, second);
+  assert.equal((await session.GET(request("/api/auth/session", "GET", undefined, first))).status, 401, "the earlier session ended");
+  assert.equal((await session.GET(request("/api/auth/session", "GET", undefined, second))).status, 200);
+
+  // Password rules: common passwords with numbers added, the person's own email or name, and the current password are refused.
+  const change = (newPassword) => session.PATCH(request("/api/auth/session", "PATCH", { currentPassword: password, newPassword }, second));
+  for (const weak of ["Password2026!", "P@ssw0rd1234", "rotate-2026-x", "123456789012", "aaaaaaaaaaaaaaa", password]) assert.equal((await change(weak)).status, 400, weak);
+
+  // A reset link is checked against its owner before it is used, so a refused password does not spend the link.
+  const token = "R".repeat(43);
+  await database.query("INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, now() + interval '30 minutes')", [userId, createHash("sha256").update(token).digest("hex")]);
+  const weakReset = await reset.PATCH(request("/api/auth/password-reset", "PATCH", { token, newPassword: "rotate@example.test1" }));
+  assert.equal(weakReset.status, 400); assert.match((await weakReset.json()).error, /email address or name/);
+  assert.equal((await reset.PATCH(request("/api/auth/password-reset", "PATCH", { token, newPassword: "quiet maple orbit 42" }))).status, 200, "the same link still works with a good password");
+  assert.equal((await session.GET(request("/api/auth/session", "GET", undefined, second))).status, 401, "a reset ends every session");
+
+  // Two-step settings check the password and codes outside the sign-in lockout, so they have their own limit.
+  const fresh = (await session.POST(request("/api/auth/session", "POST", { email: "rotate@example.test", password: "quiet maple orbit 42" }))).headers.get("set-cookie").split(";")[0];
+  const statuses = [];
+  for (let attempt = 0; attempt < 11; attempt++) statuses.push((await mfaRoute.POST(request("/api/auth/mfa", "POST", { action: "enable", code: "000000" }, fresh))).status);
+  assert.deepEqual(statuses.slice(0, 10), Array(10).fill(409));
+  assert.equal(statuses[10], 429, "the 11th check in 15 minutes waits");
+});
+
 test("upcoming PDC reminders: shown in the bell before they are due, to All-Admins, Admins and Accountants", async () => {
   const route = await vite.ssrLoadModule("/app/api/notifications/route.ts");
   const companyId = (await database.query("INSERT INTO companies (name) VALUES ('Upcoming PDC Co') RETURNING id")).rows[0].id;

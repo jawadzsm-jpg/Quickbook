@@ -22,6 +22,7 @@ import { defaultLetterhead, letterheadFooterLines, letterheadForDocument, type L
 import type { LetterheadCompany } from "./letterhead-page";
 
 import { dimensionText } from "@/lib/item-logistics";
+import { wirePopupActions } from "@/lib/print-popup";
 
 type InvoiceLine = { id: number; itemId: number | null; itemNumber: string | null; sku: string | null; description: string; invoicedQuantity: number; unitPrice: number; packedQuantity: number; remainingQuantity: number; hsCode: string | null; countryOfOrigin: string | null; dimensionText: string | null; lengthCm: number; widthCm: number; heightCm: number; unitWeightKg: number };
 type PackedLine = { id: number; packingListId: number; invoiceLineId: number; itemNumber: string; sku: string; description: string; hsCode: string; countryOfOrigin: string; packedQuantity: number; unitsPerCarton: number; cartonCount: number; cartonReference: string; grossWeightKg: number; cartonWeightKg: number; dimensionText: string; lengthCm: number; widthCm: number; heightCm: number; cbmPerCarton: number; totalCbm: number };
@@ -373,8 +374,8 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
     const popup = window.open("", "_blank");
     if (!popup) return toast.error("Allow pop-ups to print the HS Code Summary.");
     popup.opener = null;
-    popup.document.write(`<!doctype html><html><head><title>HS Code Summary - ${escapeHtml(list.number)}</title><style>${document.styles}</style><style>body{margin:0;padding:10mm;background:#fff}.print-toolbar{display:flex;justify-content:flex-end;gap:8px;width:${hsOrientation === "landscape" ? 277 : 190}mm;margin:0 auto 8px}.print-toolbar button{padding:7px 14px}</style></head><body><div class="print-toolbar"><button onclick="window.print()">Print</button><button onclick="window.close()">Close</button></div>${document.html}</body></html>`);
-    popup.document.close();
+    popup.document.write(`<!doctype html><html><head><title>HS Code Summary - ${escapeHtml(list.number)}</title><style>${document.styles}</style><style>body{margin:0;padding:10mm;background:#fff}.print-toolbar{display:flex;justify-content:flex-end;gap:8px;width:${hsOrientation === "landscape" ? 277 : 190}mm;margin:0 auto 8px}.print-toolbar button{padding:7px 14px}</style></head><body><div class="print-toolbar"><button data-popup-action="print">Print</button><button data-popup-action="close">Close</button></div>${document.html}</body></html>`);
+    popup.document.close(); wirePopupActions(popup);
   }
 
   async function downloadHsCodeSummaryPdf(list: PackingList) {
@@ -408,8 +409,8 @@ export function InvoicePackingListDialog({ open, onOpenChange, companyId, compan
     const popup = window.open("", "_blank");
     if (!popup) return toast.error("Allow pop-ups to print the packing list.");
     popup.opener = null;
-    popup.document.write(`<!doctype html><html><head><title>${escapeHtml(list.number)}</title><style>${document.styles}</style><style>body{margin:0;padding:8mm;background:#fff}.print-toolbar{display:flex;justify-content:flex-end;gap:8px;width:${packingOrientation === "landscape" ? 281 : 194}mm;margin:0 auto 8px}.print-toolbar button{padding:7px 14px}@media print{body{padding:0}}</style></head><body><div class="print-toolbar"><button onclick="window.print()">Print</button><button onclick="window.close()">Close</button></div>${document.html}</body></html>`);
-    popup.document.close();
+    popup.document.write(`<!doctype html><html><head><title>${escapeHtml(list.number)}</title><style>${document.styles}</style><style>body{margin:0;padding:8mm;background:#fff}.print-toolbar{display:flex;justify-content:flex-end;gap:8px;width:${packingOrientation === "landscape" ? 281 : 194}mm;margin:0 auto 8px}.print-toolbar button{padding:7px 14px}@media print{body{padding:0}}</style></head><body><div class="print-toolbar"><button data-popup-action="print">Print</button><button data-popup-action="close">Close</button></div>${document.html}</body></html>`);
+    popup.document.close(); wirePopupActions(popup);
   }
 
   async function downloadListPdf(list: PackingList) {

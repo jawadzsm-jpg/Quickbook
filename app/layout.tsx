@@ -27,6 +27,9 @@ export const viewport: Viewport = {
   ],
 };
 
+// Every page renders per request so it carries that request's Content-Security-Policy nonce (proxy.ts).
+export const dynamic = "force-dynamic";
+
 export default function RootLayout({
   children,
 }: Readonly<{

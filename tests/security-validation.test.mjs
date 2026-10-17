@@ -1188,7 +1188,7 @@ test("forgot password sends single-use, expiring, hashed reset links without rev
   // Same answer for known and unknown emails, and the token is claimed atomically before the password changes.
   assert.match(route, /return Response\.json\(\{ ok: true, message: sentMessage \}/);
   assert.match(route, /isNull\(passwordResetTokens\.usedAt\), gt\(passwordResetTokens\.expiresAt, now\)/);
-  assert.match(route, /newPassword\.length < 12 \|\| newPassword\.length > 128/);
+  assert.match(route, /passwordProblem\(newPassword, owner\)/);
   assert.match(route, /lockedUntil: null[\s\S]*delete\(authSessions\)\.where\(eq\(authSessions\.userId, user\.id\)\)/);
   assert.match(login, /Forgot password\?/);
   assert.match(login, /searchParams\.get\("reset"\)[\s\S]*searchParams\.delete\("reset"\)/);
@@ -1650,4 +1650,51 @@ test("attachments: compressed at rest, counted without file data, green count ba
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   assert.match(app, /attachmentCount\(r\) \? "text-emerald-600/);
   assert.match(app, /window\.addEventListener\(ATTACHMENT_COUNT_EVENT, update\)/);
+});
+
+test("security headers: pages run only nonce-tagged scripts, API responses run none, and print popups need no inline handlers", async () => {
+  const { pageContentSecurityPolicy, newCspNonce } = await sourceModule("../lib/content-security-policy.ts");
+  const nonce = newCspNonce();
+  assert.match(nonce, /^[A-Za-z0-9+/]{22}==$/);
+  assert.notEqual(nonce, newCspNonce(), "a new nonce for every request");
+  const policy = pageContentSecurityPolicy(nonce);
+  const directive = (name) => policy.split("; ").find((part) => part.startsWith(`${name} `));
+  assert.equal(directive("script-src"), `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`, "no 'unsafe-inline' or 'unsafe-eval' for scripts in production");
+  for (const rule of ["default-src 'self'", "object-src 'none'", "base-uri 'self'", "form-action 'self'", "frame-ancestors 'none'", "img-src 'self' data: blob:", "connect-src 'self'", "upgrade-insecure-requests"]) assert.ok(policy.includes(rule), rule);
+  assert.match(pageContentSecurityPolicy(nonce, true), /'strict-dynamic' 'unsafe-eval'/, "development only: React's error stacks use eval");
+  assert.doesNotMatch(pageContentSecurityPolicy(nonce, true), /upgrade-insecure-requests/, "local http://localhost keeps working");
+
+  const proxy = readFileSync(new URL("../proxy.ts", import.meta.url), "utf8");
+  assert.match(proxy, /export function proxy\(request: NextRequest\)/);
+  assert.match(proxy, /requestHeaders\.set\("Content-Security-Policy", policy\)/, "Next.js reads the nonce from the request header");
+  assert.match(proxy, /response\.headers\.set\("Content-Security-Policy", policy\)/);
+  assert.match(proxy, /\(\?!api\/\|_next\/static\|_next\/image/);
+  assert.match(readFileSync(new URL("../app/layout.tsx", import.meta.url), "utf8"), /export const dynamic = "force-dynamic";/, "every page renders with its request's nonce");
+  const config = readFileSync(new URL("../next.config.ts", import.meta.url), "utf8");
+  assert.match(config, /source: "\/api\/:path\*"[\s\S]*script-src 'none'; frame-ancestors 'none'/);
+  for (const header of ["X-Content-Type-Options", "X-Frame-Options", "Referrer-Policy", "Permissions-Policy", "Strict-Transport-Security", "Cross-Origin-Opener-Policy"]) assert.ok(config.includes(`key: "${header}"`), header);
+
+  // window.open("") popups inherit the page policy, so their Print / Close buttons are wired by the opener.
+  for (const file of ["warranty-center", "letterhead-center", "invoice-packing-list", "customer-payment-receipt", "rcm-declaration-generator", "sales-document-template"]) {
+    const source = readFileSync(new URL(`../app/${file}.tsx`, import.meta.url), "utf8");
+    assert.doesNotMatch(source, /\son[a-z]+="/, `${file}: no inline event handlers`);
+    assert.match(source, /popup\.document\.close\(\); wirePopupActions\(popup\);/, file);
+  }
+  assert.match(readFileSync(new URL("../app/sales-document-template.tsx", import.meta.url), "utf8"), /data-popup-action="print"[\s\S]*data-popup-action="close"/);
+});
+
+test("security: password rules refuse common, patterned and personal passwords, and every password route uses them", async () => {
+  const { passwordProblem } = await sourceModule("../lib/password-policy.ts");
+  for (const weak of ["short", "Password2026!", "P@ssw0rd!2026", "qwertyuiop12", "123456789012", "abcdefghijklm", "aaaaaaaaaaaa", "Welcome@2026", "EasyBook2026!", "Dubai#2026#2026"]) assert.ok(passwordProblem(weak), weak);
+  assert.ok(passwordProblem("x".repeat(129) + "abcde"), "at most 128 characters");
+  assert.match(passwordProblem("maria.santos1990", { email: "maria.santos@example.com" }), /email address or name/);
+  assert.match(passwordProblem("Santos!Santos!1", { fullName: "Maria Santos" }), /email address or name/);
+  for (const strong of ["amber river lantern 7", "correct horse battery 9", "CN-4f9a0c1e7b2d3a6f!", "Tr4vel-Kettle-Moon"]) assert.equal(passwordProblem(strong, { email: "maria@example.com", fullName: "Maria Santos" }), null, strong);
+
+  const routes = ["app/api/auth/session/route.ts", "app/api/auth/password-reset/route.ts", "app/api/admin-users/route.ts"].map((file) => readFileSync(new URL(`../${file}`, import.meta.url), "utf8"));
+  for (const source of routes) { assert.match(source, /passwordProblem\(/); assert.doesNotMatch(source, /length < 12/); }
+  assert.match(routes[0], /newPassword === currentPassword/, "a new password must differ from the current one");
+  assert.match(routes[0], /await revokeRequestSession\(request\);\n\s+const token = await createSession/, "signing in replaces the browser's earlier session");
+  assert.match(routes[1], /passwordProblem\(newPassword, owner\)[\s\S]*const \[claimed\]/, "the reset link is checked before it is spent");
+  assert.match(readFileSync(new URL("../app/api/auth/mfa/route.ts", import.meta.url), "utf8"), /consumeRateLimit\(`mfa-verify:\$\{user\.id\}`, 10, 900\)/);
 });

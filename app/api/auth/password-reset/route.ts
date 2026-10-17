@@ -8,6 +8,7 @@ import { emailDeliveryConfigured, sendPasswordReset } from "@/lib/smtp";
 import { after } from "next/server";
 import { appBaseUrl } from "@/lib/app-url";
 import { consumeRateLimit } from "@/lib/rate-limit";
+import { passwordProblem } from "@/lib/password-policy";
 
 const RESET_MINUTES = 30;
 const MAX_LINKS_PER_HOUR = 3;
@@ -51,11 +52,18 @@ export async function PATCH(request: Request) {
   const payload = await request.json().catch(() => ({})) as Record<string, unknown>;
   const token = String(payload.token ?? "");
   const newPassword = String(payload.newPassword ?? "");
-  if (newPassword.length < 12 || newPassword.length > 128) return Response.json({ error: "The new password must contain 12 to 128 characters." }, { status: 400 });
   const invalid = Response.json({ error: "This reset link is invalid or has expired. Request a new one." }, { status: 400 });
   if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return invalid;
   const db = getDb();
   const now = new Date().toISOString();
+  // Check the password against the link's owner before using the link, so a rejected password does not spend it.
+  const [owner] = await db.select({ email: appUsers.email, fullName: appUsers.fullName }).from(passwordResetTokens)
+    .innerJoin(appUsers, eq(appUsers.id, passwordResetTokens.userId))
+    .where(and(eq(passwordResetTokens.tokenHash, tokenDigest(token)), isNull(passwordResetTokens.usedAt), gt(passwordResetTokens.expiresAt, now)))
+    .limit(1);
+  if (!owner) return invalid;
+  const weakPassword = passwordProblem(newPassword, owner);
+  if (weakPassword) return Response.json({ error: weakPassword }, { status: 400 });
   // Claiming the token in one UPDATE makes each link single-use even under concurrent requests.
   const [claimed] = await db.update(passwordResetTokens).set({ usedAt: now })
     .where(and(eq(passwordResetTokens.tokenHash, tokenDigest(token)), isNull(passwordResetTokens.usedAt), gt(passwordResetTokens.expiresAt, now)))

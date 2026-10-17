@@ -4,6 +4,7 @@ import { getDb } from "@/db";
 import { appUsers } from "@/db/schema";
 import { getRequestUser, sameOrigin, verifyPassword } from "@/lib/auth";
 import { backupCodesLeft, checkSecondFactor, mfaCleared } from "@/lib/mfa";
+import { consumeRateLimit } from "@/lib/rate-limit";
 import { decryptSecret, encryptSecret } from "@/lib/secret-box";
 import { newBackupCodes, newTotpSecret, otpauthUri, verifyTotp } from "@/lib/totp";
 
@@ -39,6 +40,12 @@ async function handlePost(request: Request) {
   const payload = await request.json().catch(() => ({})) as Record<string, unknown>;
   const action = String(payload.action ?? "");
   const code = String(payload.code ?? "").trim();
+  // Codes and the password are checked here outside the sign-in lockout, so guesses have their own limit:
+  // 10 per user per 15 minutes (a stolen, unlocked session cannot guess the password or the codes).
+  if (["enable", "backup-codes", "disable"].includes(action)) {
+    const budget = await consumeRateLimit(`mfa-verify:${user.id}`, 10, 900);
+    if (!budget.allowed) return Response.json({ error: "Too many attempts. Try again in 15 minutes." }, { status: 429, headers: { "Cache-Control": "no-store", "Retry-After": String(budget.retryAfter) } });
+  }
   const db = getDb();
   const save = (values: Partial<typeof appUsers.$inferInsert>) => db.update(appUsers).set({ ...values, updatedAt: new Date().toISOString() }).where(eq(appUsers.id, user.id));
 
