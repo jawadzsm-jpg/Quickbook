@@ -39,6 +39,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/customer-sales-owner.tsx` — Assign a customer to a sales user; `/api/sales-work`.
 - `app/data-export-toolbar.tsx` — Global toolbar exporting visible report/transaction tables to Excel, CSV or PDF.
 - `app/delivery-note-template.tsx` — Delivery note print template with customer address and bilingual Customer TRN line.
+- `app/devtools-deterrent.tsx` — Production-only deterrent: blocks the page right-click menu (not in text fields) and DevTools / view-source shortcuts; access control stays on the server.
 - `app/document-email-dialog.tsx` — Email a document with its PDF (no send history; earlier addresses suggested): template choice, unlimited To/Cc address chips with suggestions, message, Templates tab (own and shared templates with placeholders), Signature tab; `/api/document-emails`, `/api/email-templates`.
 - `app/document-extra-fields.tsx` — Document comments and serial number fields.
 - `app/edition-settings.tsx` — Admin Controls → EasyBook edition: choose the edition (All-Admin), usage, what blocks a downgrade; `/api/edition`.
@@ -72,7 +73,7 @@ When you add, rename, split or remove a file, update its line here in the same c
 - `app/item-logistics-center.tsx` — HS code, country of origin and dimensions per item; `/api/item-logistics`, `/api/item-logistics-options`.
 - `app/item-search-select.tsx` — Searchable product combobox and item search/label helpers; optional inactive-item hint with Reactivate.
 - `app/journal-entry-center.tsx` — Manual multi-currency journal entry form for a company/inventory; posts to `/api/journal-entries`.
-- `app/layout.tsx` — Root layout: metadata, global styles, the font-variable classes from `app/fonts.ts`, and app-wide helpers (Escape closer, highlighters, attachments, period-lock PIN).
+- `app/layout.tsx` — Root layout: metadata, global styles, the font-variable classes from `app/fonts.ts`, and app-wide helpers (Escape closer, highlighters, attachments, period-lock PIN, Inspect deterrent).
 - `app/letterhead-center.tsx` — Company Setup letterhead editor and preview; saves via `/api/company-setup/letterhead`.
 - `app/letterhead-page.tsx` — Shared letterhead rendering: brand header, draggable stamp, full A4 letterhead page and footer.
 - `app/letterhead-rich-editor.tsx` — Rich-text (contentEditable) editor for the letterhead body, returning text and HTML.
@@ -208,6 +209,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/customization-options.ts` — Customization upgrade options: RAM/Storage/Screen box fields and spec fallbacks, ONBOARD/OTHERS rules, option scopes, RAM/Storage upgrade prices, applying Inventory Overview upgrade picks to a product line.
 - `lib/dashboard-metrics.ts` — Dashboard KPIs from account balances.
 - `lib/delivery-address.ts` — Ship To address cleanup with a size cap.
+- `lib/devtools-shortcuts.ts` — Which key combinations open DevTools or page source (`isDevtoolsShortcut`).
 - `lib/document-access-sql.ts` — SQL visibility filter for documents by role/user. **DB**
 - `lib/document-access.ts` — Document permission rules (read, inventory edits, pending invoices, delete), Dubai day.
 - `lib/document-design.ts` — Legacy document template design: fields, custom boxes, saved templates per type.

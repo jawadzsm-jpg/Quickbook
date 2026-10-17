@@ -28,6 +28,7 @@ const { companyEInvoiceIssues, customerEInvoiceStatus, invoiceEInvoiceStatus, is
 const { calculatorResult } = await sourceModule("../lib/calculator.ts");
 const { contactAddressLines } = await sourceModule("../lib/contact-address.ts");
 const { attachmentBytes, packAttachmentData } = await sourceModule("../lib/attachments.ts");
+const { isDevtoolsShortcut } = await sourceModule("../lib/devtools-shortcuts.ts");
 const { API_TOKEN_PREFIX, apiTokenDigest, apiTokenFromHeaders, generateApiToken } = await sourceModule("../lib/api-keys.ts");
 const { decodeCursor, encodeCursor, parseProductQuery } = await sourceModule("../lib/public-api-query.ts");
 const { friendlyEmailError } = await sourceModule("../lib/email-errors.ts");
@@ -1650,4 +1651,23 @@ test("attachments: compressed at rest, counted without file data, green count ba
   const app = readFileSync(new URL("../app/enterprise-app.tsx", import.meta.url), "utf8");
   assert.match(app, /attachmentCount\(r\) \? "text-emerald-600/);
   assert.match(app, /window\.addEventListener\(ATTACHMENT_COUNT_EVENT, update\)/);
+});
+
+test("DevTools deterrent blocks Inspect shortcuts and the page right-click menu, not text editing", () => {
+  const key = (code, mods = {}, key = "") => ({ key: key || code.replace(/^Key/, "").toLowerCase(), code, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...mods });
+  for (const event of [
+    key("F12", {}, "F12"),
+    key("KeyI", { ctrlKey: true, shiftKey: true }), key("KeyJ", { ctrlKey: true, shiftKey: true }), key("KeyC", { ctrlKey: true, shiftKey: true }),
+    key("KeyI", { metaKey: true, altKey: true }, "ˆ"), key("KeyJ", { metaKey: true, altKey: true }, "∆"), key("KeyC", { metaKey: true, altKey: true }, "ç"),
+    key("KeyC", { metaKey: true, shiftKey: true }), key("KeyU", { ctrlKey: true }), key("KeyU", { metaKey: true, altKey: true }),
+  ]) assert.equal(isDevtoolsShortcut(event), true, JSON.stringify(event));
+  // Copy, paste, select all, find, print and underline in editable fields keep working.
+  for (const [event, editable] of [
+    [key("KeyC", { ctrlKey: true })], [key("KeyC", { metaKey: true })], [key("KeyV", { ctrlKey: true })], [key("KeyA", { metaKey: true })],
+    [key("KeyF", { ctrlKey: true })], [key("KeyP", { metaKey: true })], [key("KeyI", { ctrlKey: true })], [key("KeyU", { ctrlKey: true }), true],
+  ]) assert.equal(isDevtoolsShortcut(event, editable), false, JSON.stringify(event));
+  const source = readFileSync(new URL("../app/devtools-deterrent.tsx", import.meta.url), "utf8");
+  assert.match(source, /if \(!isEditable\(event\.target\)\) event\.preventDefault\(\);/);
+  assert.match(source, /process\.env\.NODE_ENV === "development" && process\.env\.NEXT_PUBLIC_DEVTOOLS_DETERRENT !== "1"/);
+  assert.match(readFileSync(new URL("../app/layout.tsx", import.meta.url), "utf8"), /<DevtoolsDeterrent \/>/);
 });
