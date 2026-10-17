@@ -43,6 +43,7 @@ Full detail: [docs/FEATURES.md](docs/FEATURES.md).
 - Items with SKU/item number, category (with colours), specifications, Product Customization Details, part/serial/UPC, HS code, country of origin, dimensions/weight, reorder points, GL accounts and VAT codes.
 - **Inventory Overview**: consolidated stock across companies and inventories with filters, coloured category groups, activity tabs (Incoming, New Arrival, Price Change, Just Sold, **Today Offer**), stock holds for sales reps, and a one-line share bar (WhatsApp/Telegram with logos and emoji styles, email, editor with WhatsApp- and Telegram-style formatting, Excel with No VAT / + VAT / 0% VAT).
 - **Today Offer**: time-limited offer prices with start/end, shown in the overview, shares, Excel and the Integration API.
+- **Stock adjustments** (Admin Controls): adjust quantity, total value or both for many items at once, in any company currency, posted to stock and a balanced journal.
 - Transfers between inventories/companies, stock counts (inventory checks), stock pricing, revaluation, shared item catalogue across companies, serial number search, Inventory Import (CSV/XLSX), SKU edit locks.
 
 **Accounting, VAT and tax**
@@ -103,7 +104,7 @@ flowchart TD
 | Server entry | `app/page.tsx`, `app/layout.tsx` | Resolve the session cookie and render the login screen (or reset-link form), the forced password change, or the application shell |
 | Client shell | `app/enterprise-app.tsx` | Navigation, centers (customers, vendors, items, accounts, reports, company setup), record forms and cross-module state |
 | Screens | `app/*.tsx`, `app/layout-builder/` | Focused features: Inventory Overview, documents and templates, reports, admin, VAT, HR |
-| API | `app/api/**/route.ts` (56 routes) | JSON endpoints; every handler checks identity, permission, company scope and same-origin for writes |
+| API | `app/api/**/route.ts` (76 routes) | JSON endpoints; every handler checks identity, permission, company scope and same-origin for writes |
 | Domain | `lib/*.ts`, `lib/layout/` | Business rules, posting, VAT, reports, exports, permissions, email, backups, Integration API |
 | Data | `db/schema.ts`, `db/index.ts`, `drizzle/*.sql` | Drizzle schema, serializable write transactions, 108 SQL migrations |
 
@@ -160,7 +161,7 @@ Permissions are named (`workspace:read`, `inventory:read`, `inventory:manage`, `
 
 ## API endpoints
 
-56 route handlers under `app/api/`. All internal endpoints use the session cookie, return JSON, and require a same-origin request for writes. Methods, authorization and inputs for each are in [docs/API.md](docs/API.md); the external Integration API is in [docs/INTEGRATION-API.md](docs/INTEGRATION-API.md).
+76 route handlers under `app/api/`. All internal endpoints use the session cookie, return JSON, and require a same-origin request for writes. Methods, authorization and inputs for each are in [docs/API.md](docs/API.md); the external Integration API is in [docs/INTEGRATION-API.md](docs/INTEGRATION-API.md).
 
 **Identity and administration**
 
@@ -233,6 +234,7 @@ Permissions are named (`workspace:read`, `inventory:read`, `inventory:manage`, `
 | `/api/item-logistics-options` | GET, POST, PATCH, DELETE | Company access | HS code / origin choice lists |
 | `/api/inventory-check-reports` | GET, POST, PATCH, DELETE | `inventory:read`; Administrator to edit/delete | Stock counts |
 | `/api/stock-pricing` | GET, PATCH | `inventory:read`; role-checked writes | Bulk sales/GRN prices |
+| `/api/stock-adjustments` | GET, POST, DELETE | Administrator | Adjust quantity/value on hand (multi-item, multi-currency) |
 | `/api/stock-revaluation` | GET, POST | `inventory:read`; role-checked writes | Cost revaluation |
 | `/api/transfers` | GET, POST, PATCH, DELETE | `inventory:read`; `inventory:transfer` | Stock transfers |
 | `/api/shared-items` | GET, POST | `inventory:read`; `inventory:manage` | Shared catalogue across companies |

@@ -158,6 +158,14 @@ The shared design is connected to sales and purchase documents, credit/refund do
 3. The report retains line snapshots and can compare the same item across accessible companies.
 4. Administrator update/delete paths use SKU locks to avoid conflicting quantity work.
 
+### Stock adjustment
+
+1. An administrator opens Admin Controls → Stock adjustments and picks the type (Quantity, Total Value, or Quantity and Total Value), date, reference, adjustment account (default 5030 Inventory Adjustments), inventory (and warehouse for quantity types), and currency with its exchange rate.
+2. Find & Select Items adds several items at once (or one from the search). Each line takes a new quantity or the difference; value types take the new total value in the chosen currency.
+3. The screen shows each line's value difference, the item info after adjustment and the total; the selected items are SKU-locked.
+4. Saving re-reads stock (409 if a quantity changed), converts values to home currency and writes the `inventory adjustment` document, stock movements, item quantities (and saved cost for value types) and one balanced journal between the items' inventory asset accounts and the adjustment account. Filed periods ask for the Admin PIN.
+5. History lists adjustments with their lines; Delete (with a reason) reverses stock, cost and journal unless the added stock was already used.
+
 ### Pricing and revaluation
 
 - Stock Pricing loads current sale/GRN prices. Batch save includes expected old values and returns `409` when another update won the race.

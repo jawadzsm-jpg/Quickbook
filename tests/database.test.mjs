@@ -270,3 +270,57 @@ test("new companies copy only main accounts at zero and start with no history", 
     assert.equal((await database.query(`SELECT count(*)::int AS count FROM ${table} WHERE company_id=$1`, [result.company.id])).rows[0].count, 0);
   }
 });
+
+test("stock adjustments post quantity and multi-currency value changes and reverse cleanly", async () => {
+  const workspaces = await vite.ssrLoadModule("/app/api/workspaces/route.ts");
+  const company = (await (await workspaces.POST(post({ type: "company", name: "Stock Adjustment Company", baseCurrency: "AED" }))).json()).company;
+  const companyId = company.id, locationId = company.locations[0].id;
+  const routes = await vite.ssrLoadModule("/app/api/stock-adjustments/route.ts");
+  const records = await vite.ssrLoadModule("/app/api/records/route.ts");
+  const a = (await database.query("INSERT INTO items (company_id, location_id, sku, name, quantity, cost) VALUES ($1, $2, 'ADJ-A', 'Adjust A', 10, 5) RETURNING id", [companyId, locationId])).rows[0].id;
+  const b = (await database.query("INSERT INTO items (company_id, location_id, sku, name, quantity, cost) VALUES ($1, $2, 'ADJ-B', 'Adjust B', 4, 5) RETURNING id", [companyId, locationId])).rows[0].id;
+  const account = (await database.query("INSERT INTO accounts (company_id, code, name, type, currency) VALUES ($1, 'ADJ-5030', 'Stock adjustment test', 'Cost of Goods Sold', 'AED') RETURNING id", [companyId])).rows[0].id;
+  await database.query("INSERT INTO exchange_rates (company_id, currency_code, rate) VALUES ($1, 'USD', 3.6725) ON CONFLICT DO NOTHING", [companyId]);
+  const workspace = await (await routes.GET(new Request(`https://app.test/api/stock-adjustments?companyId=${companyId}&locationId=${locationId}`))).json();
+  assert.equal(workspace.items.find((item) => item.id === a).unitCost, 5, JSON.stringify(workspace).slice(0, 400));
+  const balance = async (id) => (await database.query("SELECT coalesce(sum(l.debit - l.credit), 0)::float AS value FROM journal_lines l JOIN journal_entries e ON e.id = l.journal_entry_id WHERE e.transaction_id = $1", [id])).rows[0].value;
+  const quantity = async (id) => (await database.query("SELECT quantity FROM items WHERE id = $1", [id])).rows[0].quantity;
+
+  const created = await routes.POST(post({ companyId, locationId, type: "quantity", date: "2026-10-17", reference: "ADJ-T1", accountId: account, currency: "AED", lines: [{ itemId: a, newQuantity: 7, expectedQuantity: 10 }, { itemId: b, quantityDifference: 2, expectedQuantity: 4 }] }));
+  const result = await created.json();
+  assert.equal(created.status, 201, JSON.stringify(result));
+  assert.equal(result.adjustment.totalValue, -5);
+  assert.equal(await quantity(a), 7);
+  assert.equal(await quantity(b), 6);
+  assert.ok(Math.abs(await balance(result.adjustment.id)) < 1e-9);
+  const credited = await database.query("SELECT l.debit, l.credit FROM journal_lines l JOIN journal_entries e ON e.id = l.journal_entry_id WHERE e.transaction_id = $1 AND l.account_id = $2", [result.adjustment.id, account]);
+  assert.deepEqual(credited.rows, [{ debit: 5, credit: 0 }]);
+  assert.equal((await database.query("SELECT count(*)::int AS count FROM inventory_movements WHERE transaction_id = $1", [result.adjustment.id])).rows[0].count, 2);
+
+  const duplicate = await routes.POST(post({ companyId, locationId, type: "quantity", date: "2026-10-17", reference: "adj-t1", accountId: account, lines: [{ itemId: a, newQuantity: 6 }] }));
+  assert.equal(duplicate.status, 409);
+  const stale = await routes.POST(post({ companyId, locationId, type: "quantity", date: "2026-10-17", accountId: account, lines: [{ itemId: a, newQuantity: 6, expectedQuantity: 10 }] }));
+  assert.equal(stale.status, 409);
+  assert.equal(await quantity(a), 7);
+
+  const valued = await routes.POST(post({ companyId, locationId, type: "value", date: "2026-10-17", accountId: account, currency: "USD", exchangeRate: 3.6725, lines: [{ itemId: a, newValue: 10 }] }));
+  const valuedResult = await valued.json();
+  assert.equal(valued.status, 201, JSON.stringify(valuedResult));
+  assert.equal(valuedResult.adjustment.totalValue, 1.73);
+  const entry = (await database.query("SELECT currency, exchange_rate FROM journal_entries WHERE transaction_id = $1", [valuedResult.adjustment.id])).rows[0];
+  assert.deepEqual(entry, { currency: "USD", exchange_rate: 3.6725 });
+  assert.equal((await database.query("SELECT cost FROM items WHERE id = $1", [a])).rows[0].cost, 5.2471);
+
+  const generic = await records.POST(post({ kind: "transactions", type: "inventory adjustment", companyId, locationId, party: "x", lines: [] }));
+  assert.equal(generic.status, 409);
+
+  const del = (body) => new Request("https://app.test/api/stock-adjustments", { method: "DELETE", headers: { origin: "https://app.test", "content-type": "application/json" }, body: JSON.stringify(body) });
+  assert.equal((await routes.DELETE(del({ companyId, id: result.adjustment.id }))).status, 400);
+  const removed = await routes.DELETE(del({ companyId, id: valuedResult.adjustment.id, reason: "Test reversal" }));
+  assert.equal(removed.status, 200, await removed.text());
+  assert.equal((await database.query("SELECT cost FROM items WHERE id = $1", [a])).rows[0].cost, 5);
+  assert.equal((await routes.DELETE(del({ companyId, id: result.adjustment.id, reason: "Test reversal" }))).status, 200);
+  assert.equal(await quantity(a), 10);
+  assert.equal(await quantity(b), 4);
+  assert.equal((await database.query("SELECT count(*)::int AS count FROM transactions WHERE company_id = $1 AND type = 'inventory adjustment'", [companyId])).rows[0].count, 0);
+});
