@@ -324,3 +324,24 @@ test("stock adjustments post quantity and multi-currency value changes and rever
   assert.equal(await quantity(b), 4);
   assert.equal((await database.query("SELECT count(*)::int AS count FROM transactions WHERE company_id = $1 AND type = 'inventory adjustment'", [companyId])).rows[0].count, 0);
 });
+
+test("a cheque paying a bill through Accounts Payable is not counted as a second purchase", async () => {
+  const workspaces = await vite.ssrLoadModule("/app/api/workspaces/route.ts");
+  const company = (await (await workspaces.POST(post({ type: "company", name: "Cheque Purchase Company", baseCurrency: "AED" }))).json()).company;
+  const id = company.id, location = company.locations[0].id;
+  const payable = (await database.query("SELECT name FROM accounts WHERE company_id = $1 AND system_role = 'AP' AND currency = 'AED'", [id])).rows[0].name;
+  const insert = (number, type, account, subtotal, billId = null) => database.query("INSERT INTO transactions (company_id, location_id, number, type, party, account, transaction_date, status, subtotal, total, base_total, bill_id) VALUES ($1, $2, $3, $4, 'Supplier', $5, '2026-10-01', 'paid', $6, $6, $6, $7) RETURNING id", [id, location, number, type, account, subtotal, billId]);
+  const bill = (await insert("BILL-1", "bill", payable, 1000)).rows[0].id;
+  await insert("BILL-2", "bill", payable, 500);
+  await insert("CHQ-LINKED", "cheque", payable, 1000, bill);
+  await insert("CHQ-AP", "cheque", payable, 500);
+  await insert("CHQ-EXPENSE", "cheque", "Operating Expenses", 200);
+  const { GET } = await vite.ssrLoadModule("/app/api/reports/route.ts");
+  const report = async (type) => (await (await GET(new Request(`https://app.test/api/reports?companyId=${id}&locationId=${location}&type=${type}&periodStart=2026-01-01&periodEnd=2026-12-31`))).json()).report;
+  const final = await report("business-final");
+  assert.equal(final.rows.find((row) => row.metric === "Purchase spend").amount, 1700);
+  const bySupplier = await report("purchases-by-vendor");
+  assert.equal(bySupplier.rows.reduce((sum, row) => sum + Number(row.purchases ?? 0), 0), 1700);
+  const detail = await report("purchases-by-supplier-detail");
+  assert.deepEqual(detail.rows.map((row) => row.number).sort(), ["BILL-1", "BILL-2", "CHQ-EXPENSE"]);
+});
