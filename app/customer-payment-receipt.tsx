@@ -11,6 +11,7 @@ import { defaultLetterhead, letterheadForDocument } from "@/lib/letterhead";
 import { InvoiceAttachments } from "./invoice-attachments";
 import { contactAddressLines } from "@/lib/contact-address";
 import { LetterheadBrand, LetterheadFooter, LetterheadStamp, type LetterheadCompany } from "./letterhead-page";
+import { wirePopupActions } from "@/lib/print-popup";
 
 type RecordData = Record<string, string | number | boolean | null | undefined>;
 type PaymentCompany = LetterheadCompany & {
@@ -97,8 +98,8 @@ export function CustomerPaymentReceipt({ record, lines, company, contact, canEdi
     popup.opener = null;
     const appStyles = Array.from(document.querySelectorAll<HTMLLinkElement | HTMLStyleElement>('link[rel="stylesheet"], style')).map((node) => node.outerHTML).join("");
     const printablePage = withoutPreviewScale(page);
-    popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${fileName}</title>${appStyles}<style>@page{size:A4 ${orientation};margin:0}html,body{margin:0!important;padding:0!important;background:#fff!important;color:#0f172a!important;font-family:Arial,sans-serif}.payment-receipt-page{width:${landscape ? 297 : 210}mm!important;height:${landscape ? 210 : 297}mm!important;overflow:hidden!important;margin:0!important;transform:none!important;box-shadow:none!important;background:#fff!important;color:#0f172a!important}.letterhead-stamp{cursor:default!important}.print-controls{padding:10px;background:#0f172a}@media print{.print-controls{display:none!important}}</style></head><body><div class="print-controls"><button onclick="window.print()">Print / Save PDF</button></div>${printablePage.outerHTML}</body></html>`);
-    popup.document.close();
+    popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${fileName}</title>${appStyles}<style>@page{size:A4 ${orientation};margin:0}html,body{margin:0!important;padding:0!important;background:#fff!important;color:#0f172a!important;font-family:Arial,sans-serif}.payment-receipt-page{width:${landscape ? 297 : 210}mm!important;height:${landscape ? 210 : 297}mm!important;overflow:hidden!important;margin:0!important;transform:none!important;box-shadow:none!important;background:#fff!important;color:#0f172a!important}.letterhead-stamp{cursor:default!important}.print-controls{padding:10px;background:#0f172a}@media print{.print-controls{display:none!important}}</style></head><body><div class="print-controls"><button data-popup-action="print">Print / Save PDF</button></div>${printablePage.outerHTML}</body></html>`);
+    popup.document.close(); wirePopupActions(popup);
   };
 
   const download = async () => {

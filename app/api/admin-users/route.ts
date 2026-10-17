@@ -3,6 +3,7 @@ import { and, asc, count, eq, sql } from "drizzle-orm";
 import { getDb, withWriteTransaction } from "@/db";
 import { appUsers, authSessions, companies } from "@/db/schema";
 import { appRoles, hashPassword, type AppRole, type SessionUser } from "@/lib/auth";
+import { passwordProblem } from "@/lib/password-policy";
 import { canManage, companyIdsForUser, isCompanyAdmin, outOfScope, requireUserManager, roleNames } from "@/lib/user-management";
 import { sendUserInvitation } from "@/lib/smtp";
 import { friendlyEmailError } from "@/lib/email-errors";
@@ -79,7 +80,8 @@ export async function POST(request: Request) {
   if (!fullName || !isValidEmail(email) || !validRole(role)) return Response.json({ error: "Enter a name, valid email and role." }, { status: 400 });
   if (!canManage(administrator, role, companyIds)) return outOfScope();
   if (role !== "all_admin" && !(await validateCompanyIds(companyIds))) return Response.json({ error: "Assign at least one valid company to this user." }, { status: 400 });
-  if (password.length < 12 || password.length > 128) return Response.json({ error: "Temporary password must contain 12 to 128 characters." }, { status: 400 });
+  const weakPassword = passwordProblem(password, { email, fullName });
+  if (weakPassword) return Response.json({ error: `Temporary password: ${weakPassword}` }, { status: 400 });
   if (phone.length > 32 || whatsapp.length > 32) return Response.json({ error: "Phone numbers must contain 32 characters or fewer." }, { status: 400 });
   if (!validAvatar(avatarData)) return Response.json({ error: "Use a PNG, JPEG or WebP picture smaller than 800 KB." }, { status: 400 });
   const [existing] = await getDb().select({ active: appUsers.active }).from(appUsers).where(sql`lower(${appUsers.email}) = ${email}`).limit(1);
@@ -146,7 +148,8 @@ export async function PATCH(request: Request) {
   }
   if (payload.password !== undefined) {
     const password = String(payload.password);
-    if (password.length < 12 || password.length > 128) return Response.json({ error: "Temporary password must contain 12 to 128 characters." }, { status: 400 });
+    const weakPassword = passwordProblem(password, { email: target.email, fullName: target.fullName });
+    if (weakPassword) return Response.json({ error: `Temporary password: ${weakPassword}` }, { status: 400 });
     updates.passwordHash = await hashPassword(password); updates.mustChangePassword = true;
   }
   if (payload.fullName !== undefined) {

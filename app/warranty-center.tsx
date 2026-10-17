@@ -13,6 +13,7 @@ import { normalizeWarrantyStatus, warrantyStatuses, type WarrantyStatus } from "
 import { LetterheadBrand, LetterheadFooter, LetterheadStamp, type LetterheadCompany } from "./letterhead-page";
 import { toast } from "sonner";
 import { useConfirmDelete } from "./confirm-delete-dialog";
+import { wirePopupActions } from "@/lib/print-popup";
 
 type Company = LetterheadCompany & { letterheadDesign?: string; documentColor?: string };
 type Customer = { id: number; name: string; company: string; phone: string; email: string };
@@ -244,8 +245,8 @@ export function WarrantyCenter({ companyId, company, canWrite, canDelete = false
     if (!popup) return toast.error("Allow pop-ups to print the warranty slip.");
     popup.opener = null;
     const pageWidth = orientation === "landscape" ? 297 : 210, pageHeight = orientation === "landscape" ? 210 : 297;
-    popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${fileTitle.replace(/[<>&"]/g, "")}</title><style>@page{size:A4 ${orientation};margin:0}html,body{margin:0;padding:0;background:#fff;font-family:Arial,sans-serif}*{box-sizing:border-box}.warranty-page{position:relative!important;width:${pageWidth}mm!important;height:${pageHeight}mm!important;margin:0!important;border:0!important;background:#fff;color:#0f172a;box-shadow:none!important;print-color-adjust:exact;-webkit-print-color-adjust:exact}.letterhead-stamp{cursor:default!important}.print-controls{padding:10px}@media print{.print-controls{display:none}}</style></head><body><div class="print-controls"><button onclick="window.print()">Print</button></div>${page.current.outerHTML}</body></html>`);
-    popup.document.close();
+    popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${fileTitle.replace(/[<>&"]/g, "")}</title><style>@page{size:A4 ${orientation};margin:0}html,body{margin:0;padding:0;background:#fff;font-family:Arial,sans-serif}*{box-sizing:border-box}.warranty-page{position:relative!important;width:${pageWidth}mm!important;height:${pageHeight}mm!important;margin:0!important;border:0!important;background:#fff;color:#0f172a;box-shadow:none!important;print-color-adjust:exact;-webkit-print-color-adjust:exact}.letterhead-stamp{cursor:default!important}.print-controls{padding:10px}@media print{.print-controls{display:none}}</style></head><body><div class="print-controls"><button data-popup-action="print">Print</button></div>${page.current.outerHTML}</body></html>`);
+    popup.document.close(); wirePopupActions(popup);
     void Promise.all(Array.from(popup.document.images).map((image) => image.complete ? Promise.resolve() : image.decode().catch(() => undefined)))
       .then(() => window.setTimeout(() => { if (!popup.closed) popup.print(); }, 150));
   }

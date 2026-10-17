@@ -199,6 +199,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/category-colors.ts` — 12-colour category palette (light/dark classes, export hex), automatic colour from name, lookup.
 - `lib/company-clear.ts` — Clear company options (groups, labels, details), legacy `contacts` mapping, Stock-needs-Transactions selection rule.
 - `lib/company-backups.ts` — Company backups to private Blob storage: create, verify, download, delete, expire, scheduled runs. **DB**
+- `lib/content-security-policy.ts` — Page Content-Security-Policy (per-request script nonce, used by `proxy.ts`).
 - `lib/contact-address.ts` — Customer/vendor postal address as printable lines.
 - `lib/contact-currency.ts` — Applies a contact's currency/rate and picks the matching AR/AP control account.
 - `lib/contact-hierarchy.ts` — Parent/child contact tree.
@@ -264,6 +265,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/out-of-scope-items.ts` — Items bought outside VAT scope. **DB**
 - `lib/out-of-scope-rules.ts` — Out-of-scope purchases must be sold out of scope; sales document checks.
 - `lib/password.ts` — The only password implementation: async scrypt hashing and verification, 128-character limit.
+- `lib/password-policy.ts` — `passwordProblem`: rules for new passwords (length, common/patterned passwords, email or name).
 - `lib/cheque-reminders.ts` — PDC reminder rules in UAE time: post-dated check, default reminder (7 days before, 09:00), datetime-local conversion, "due in" text.
 - `lib/notifications.ts` — **server** Notification recipients (company admins and accountants), cheque notices, due PDC reminders, email delivery of pending notices (failed ones retried up to 3 attempts, one connection per run). **DB**
 - `lib/payment-terms.ts` — Due date from transaction date and payment terms.
@@ -275,6 +277,7 @@ Modules marked **server** import `server-only`; **DB** modules query the databas
 - `lib/profit-loss.ts` — Profit & Loss report data with item activity and warnings. **DB**
 - `lib/public-api-query.ts` — Integration API query parsing (limit, cursor, updated_since, category, inventory, status) and cursor encoding.
 - `lib/public-api.ts` — **server** Integration API: key authentication, 120/min rate limit, JSON errors, products and categories queries. **DB**
+- `lib/print-popup.ts` — `wirePopupActions`: Print/Close buttons in print popups without inline handlers (CSP).
 - `lib/public-login-branding.ts` — **server** Companies and branding for the public login page. **DB**
 - `lib/purchase-report.ts` — Purchase report keys, groups, columns, supplier lookup and filters.
 - `lib/rate-limit.ts` — Database-backed rate limiting (`consumeRateLimit`, `limitLogin`, `rateLimitBlocked` for failure-only limits). **DB**

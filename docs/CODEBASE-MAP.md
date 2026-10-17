@@ -20,6 +20,7 @@ Use this file to locate implementation ownership without rescanning the whole re
 | `tests/` | Node release gates and focused security/domain tests; browser specs under `tests/browser/` |
 | `.github/workflows/ci-cd.yml` | CI and CodeQL definitions |
 | `next.config.ts` | Next.js configuration and response security headers |
+| `proxy.ts` | Per-request Content-Security-Policy nonce for pages (`lib/content-security-policy.ts`) |
 | `vercel.json` | Vercel install/build commands and Git deployment setting |
 
 ## Application screen ownership
@@ -64,7 +65,7 @@ Use this file to locate implementation ownership without rescanning the whole re
 
 | Concern | Files |
 | --- | --- |
-| Sessions and authorization | `lib/auth.ts`, `lib/password.ts`, `lib/admin-pin.ts`, `lib/idle-timeout.ts` |
+| Sessions and authorization | `lib/auth.ts`, `lib/password.ts`, `lib/password-policy.ts`, `lib/admin-pin.ts`, `lib/idle-timeout.ts` |
 | Integration API (websites) | `app/api/v1/*`, `lib/public-api.ts`, `lib/public-api-query.ts`, `lib/api-keys.ts`, `lib/openapi.ts`; keys UI `app/api-integrations.tsx` + `app/api/api-keys` |
 | API body/errors/validation | `lib/api.ts`, `lib/errors.ts`, `lib/validation.ts`, `lib/email-validation.ts` |
 | Inventory write locking | `lib/sku-locks.ts` and `app/use-sku-lock.tsx` |
