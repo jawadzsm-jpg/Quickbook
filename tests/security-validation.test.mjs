@@ -1421,7 +1421,10 @@ test("share bar: brand icons, No VAT / Inc VAT / 0% VAT, one Excel menu, kept on
   assert.match(ui, /<TelegramIcon \/>/);
   assert.match(ui, /<Checkbox aria-label="Hide qty"[\s\S]{0,260}Hide <\/span>qty<\/label>/);
   assert.match(ui, /exportExcel\("exclude"\)[\s\S]*exportExcel\("include"\)[\s\S]*exportExcel\("zero"\)/);
-  assert.match(ui, /@container flex flex-wrap items-center gap-1\.5 border-b px-4 py-2 whitespace-nowrap/);
+  assert.match(ui, /@container sticky z-10 flex flex-wrap items-center gap-1\.5 border-b bg-card px-4 py-2 whitespace-nowrap/);
+  // The bar stays pinned just under the app header (measured, since the header wraps on narrow screens) while the list scrolls.
+  assert.match(ui, /<div style=\{\{ top: headerHeight \}\} className="@container sticky/);
+  assert.match(ui, /new ResizeObserver\(\(\) => setHeaderHeight\(header\.offsetHeight\)\)/);
   assert.match(ui, /@max-\[91rem\]:hidden/);
   // Below the label width the left controls compact too (count only, eye-off icon, "+") so every control stays on one row.
   assert.match(ui, /\{selectedRecords\.length\}<span className="@max-\[91rem\]:hidden">&nbsp;selected<\/span>/);
