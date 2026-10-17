@@ -1,6 +1,7 @@
 import { bankForDocument, type CompanyBankFields } from "@/lib/bank-accounts";
 import type { DocumentData, DocumentLine } from "@/lib/layout/document-data";
 import { contactAddressLines } from "@/lib/contact-address";
+import { documentTotalQuantity, showsTotalQuantity } from "@/lib/document-quantity";
 
 
 export type CompanyBranding = {
@@ -49,6 +50,7 @@ export function transactionDocumentData(record: RecordData, lines: RecordData[],
     currency: text(record.currency) || "AED",
     lines: documentLines,
     totals: { subtotal: number(record.subtotal), vat: number(record.vatAmount), total, paid, balance: record.balance !== undefined ? number(record.balance) : round(total - paid) },
+    ...(showsTotalQuantity(record.type) ? { totalQuantity: documentTotalQuantity(documentLines) } : {}),
     message: text(record.memo), terms: "", status: text(record.status),
   };
 }

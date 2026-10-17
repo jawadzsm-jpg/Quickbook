@@ -15,6 +15,8 @@ export type DocumentData = {
   currency: string;
   lines: DocumentLine[];
   totals: { subtotal: number; vat: number; total: number; paid: number; balance: number };
+  /** Sum of line quantities, printed above the totals on invoices, proformas, estimates, sales orders, bills and purchase orders. */
+  totalQuantity?: number;
   message: string;
   terms: string;
   status: string;

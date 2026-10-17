@@ -5,6 +5,7 @@ const fieldLabels: Record<string, string> = {
   number: "رقم الفاتورة", date: "التاريخ", dueDate: "تاريخ الاستحقاق", terms: "شروط الدفع",
   salesman: "مندوب المبيعات", trn: "الرقم الضريبي", reference: "المرجع", source: "المستند المصدر", status: "الحالة",
   subtotal: "المجموع الفرعي", vat: "ضريبة القيمة المضافة", total: "الإجمالي", paid: "المدفوع", balance: "الرصيد المستحق",
+  totalQuantity: "إجمالي الكمية",
 };
 
 const titles: Record<string, string> = {
