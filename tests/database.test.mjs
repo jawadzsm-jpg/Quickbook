@@ -345,3 +345,22 @@ test("a cheque paying a bill through Accounts Payable is not counted as a second
   const detail = await report("purchases-by-supplier-detail");
   assert.deepEqual(detail.rows.map((row) => row.number).sort(), ["BILL-1", "BILL-2", "CHQ-EXPENSE"]);
 });
+
+test("reports tag foreign-currency accounts with their own-currency balance", async () => {
+  const workspaces = await vite.ssrLoadModule("/app/api/workspaces/route.ts");
+  const company = (await (await workspaces.POST(post({ type: "company", name: "Currency Report Company", baseCurrency: "AED" }))).json()).company;
+  const id = company.id, location = company.locations[0].id;
+  await database.query("INSERT INTO exchange_rates (company_id, currency_code, rate) VALUES ($1, 'USD', 3.67) ON CONFLICT DO NOTHING", [id]);
+  const usd = (await database.query("INSERT INTO accounts (company_id, code, name, type, currency) VALUES ($1, 'NBD-USD', 'NBD-USD', 'Bank', 'USD') RETURNING id", [id])).rows[0].id;
+  const equity = (await database.query("SELECT id FROM accounts WHERE company_id = $1 AND type = 'Equity' LIMIT 1", [id])).rows[0].id;
+  const journals = await vite.ssrLoadModule("/app/api/journal-entries/route.ts");
+  const posted = await journals.POST(post({ companyId: id, locationId: location, entryDate: "2026-10-01", reference: "FX-1", description: "USD capital", currency: "USD", exchangeRate: 3.67, lines: [{ accountId: usd, debit: 1000 }, { accountId: equity, credit: 1000 }] }));
+  assert.equal(posted.status, 201, await posted.text());
+  const { GET } = await vite.ssrLoadModule("/app/api/reports/route.ts");
+  const report = (await (await GET(new Request(`https://app.test/api/reports?companyId=${id}&locationId=${location}&type=balance-sheet-detail&periodStart=2026-01-01&periodEnd=2026-12-31`))).json()).report;
+  const row = report.rows.find((entry) => entry.account === "NBD-USD");
+  assert.ok(row, JSON.stringify(report.rows.map((entry) => entry.account)));
+  assert.equal(row.originalCurrency, "USD", JSON.stringify(row));
+  assert.equal(Math.round(Number(row.amount) / row.originalRate * 100) / 100, 1000);
+  assert.equal(report.rows.filter((entry) => entry.originalCurrency).every((entry) => entry.originalCurrency !== "AED"), true);
+});

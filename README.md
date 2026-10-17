@@ -51,7 +51,7 @@ Full detail: [docs/FEATURES.md](docs/FEATURES.md).
 - VAT codes, VAT return periods and filing with period locks (Admin PIN override), UAE **e-invoicing (Peppol/PINT-AE) readiness**, corporate income tax working papers.
 
 **Reports and output**
-- 121 reports across Profit & Loss, Financial, Budgets, Accountant, Lists, Employees & HR, Banking, VAT, Customers, Sales, Vendors, Purchases and Inventory; memorised reports, drill-down, summaries, **Hide zero rows** in every report (screen and exports).
+- 121 reports across Profit & Loss, Financial, Budgets, Accountant, Lists, Employees & HR, Banking, VAT, Customers, Sales, Vendors, Purchases and Inventory; memorised reports, drill-down, summaries, **Hide zero rows** and **Show other currencies** (own-currency amounts of foreign documents and accounts) in every report (screen and exports).
 - A4 print and PDF, Excel and CSV export, report stamps and bank boxes.
 
 **HR and operations**
