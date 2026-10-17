@@ -273,9 +273,13 @@ test("inventory loads independently, aggregates history in SQL, and paginates lo
   assert.match(app, /onRefresh=\{currentKind === "items" \? refreshItems : loadData\}/);
   assert.match(app, /const inventoryPageSize = 100;/);
   assert.match(app, /Showing \{\(visibleItemPage - 1\) \* inventoryPageSize \+ 1\}/);
-  assert.match(recordsRoute, /value: sql<number>`coalesce\(sum\(/);
+  // Average cost comes from the shared weighted average, summed in SQL per item and document.
+  const itemCost = readFileSync(new URL("../lib/item-cost.ts", import.meta.url), "utf8");
+  assert.match(recordsRoute, /await weightedPurchaseTotals\(records\.map/);
+  assert.match(itemCost, /value: sql<number>`coalesce\(sum\(/);
+  assert.match(itemCost, /\.groupBy\(transactionLines\.itemId, transactions\.id\)/);
   assert.match(recordsRoute, /onPo: sql<number>`coalesce\(sum\(greatest\(0,/);
-  assert.equal((recordsRoute.match(/\.groupBy\(transactionLines\.itemId\)/g) || []).length >= 2, true);
+  assert.match(recordsRoute, /\.groupBy\(transactionLines\.itemId\)/);
   assert.match(readFileSync(new URL("../drizzle/0070_inventory_read_indexes.sql", import.meta.url), "utf8"), /idx_transactions_company_location_type_status/);
   assert.doesNotMatch(recordsRoute, /const purchaseCostLines = await/);
   assert.doesNotMatch(recordsRoute, /const openPoLines = await/);

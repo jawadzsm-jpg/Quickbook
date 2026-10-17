@@ -9,7 +9,8 @@ import { salesDocumentTypes, salesHandoffTypes } from "@/lib/sales-access";
 import { documentVatCodes, usesSingleVatCode } from "@/lib/document-vat";
 import { canEditInventoryDocument, canManagePendingInvoices, canReadDocument, dubaiDay } from "@/lib/document-access";
 import { applyInventoryInvoiceEdit } from "@/lib/inventory-invoice-edit";
-import { averagePurchaseCosts, itemHomeCost } from "@/lib/item-cost";
+import { averagePurchaseCosts, itemHomeCost, weightedPurchaseTotals } from "@/lib/item-cost";
+import { STOCK_ADJUSTMENT_TYPE, weightedUnitCost } from "@/lib/stock-adjustment";
 import { heldByOthers, heldStockMessage } from "@/lib/stock-holds";
 import { documentVisibility } from "@/lib/document-access-sql";
 import { employeeHrForSave } from "@/lib/employee-hr-save";
@@ -465,22 +466,8 @@ export async function GET(request: Request) {
         const [sku, itemNumber] = await Promise.all([createUniqueItemSku(), createUniqueItemNumber()]);
         return Response.json({ sku, itemNumber }, { headers: { "Cache-Control": "no-store" } });
       }
-      const [records, purchaseCosts, openPurchaseOrders] = await Promise.all([
+      const [records, openPurchaseOrders] = await Promise.all([
         db.select().from(items).where(and(eq(items.companyId, companyId), eq(items.locationId, locationId))).orderBy(asc(items.name)),
-        db.select({
-        itemId: transactionLines.itemId,
-        quantity: sql<number>`coalesce(sum(${transactionLines.quantity}), 0)`,
-        value: sql<number>`coalesce(sum((${transactionLines.quantity} * ${transactionLines.unitPrice} + ${transactionLines.freightCharge}) * ${transactions.exchangeRate}), 0)`,
-      }).from(transactionLines)
-        .innerJoin(transactions, eq(transactionLines.transactionId, transactions.id))
-        .where(and(
-          and(eq(transactions.companyId, companyId), documentVisibility(authorization)),
-          eq(transactions.locationId, locationId),
-          inArray(transactions.type, ["bill", "item receipt"]),
-          // Cancelled, void and draft purchases do not set the average cost.
-          sql`lower(${transactions.status}) NOT IN ('cancelled', 'canceled', 'void', 'voided', 'deleted', 'draft')`,
-          sql`${transactionLines.itemId} IS NOT NULL`,
-        )).groupBy(transactionLines.itemId),
         db.select({
           itemId: transactionLines.itemId,
           onPo: sql<number>`coalesce(sum(greatest(0, ${transactionLines.quantity} - coalesce((select sum(pra.quantity) from purchase_receipt_allocations pra where pra.order_line_id = ${transactionLines.id}), 0))), 0)`,
@@ -489,15 +476,15 @@ export async function GET(request: Request) {
         .where(and(and(eq(transactions.companyId, companyId), documentVisibility(authorization)), eq(transactions.locationId, locationId), eq(transactions.type, "purchase order"), inArray(transactions.status, ["open", "pending", "overdue", "partially received"]), sql`${transactionLines.itemId} IS NOT NULL`))
         .groupBy(transactionLines.itemId),
       ]);
-      const weightedCosts = new Map(purchaseCosts.flatMap((row) => row.itemId ? [[row.itemId, { quantity: Number(row.quantity), value: Number(row.value) }] as const] : []));
+      // Average cost: the same weighted average invoices and stock reports use (purchases since the latest value adjustment).
+      const weightedCosts = await weightedPurchaseTotals(records.map((item) => item.id));
       const onPoByItem = new Map(openPurchaseOrders.flatMap((row) => row.itemId ? [[row.itemId, Number(row.onPo)] as const] : []));
       // Items bought outside the scope of VAT; sales documents lock their VAT code to OUT_OF_SCOPE.
       const outOfScope = await outOfScopeItemIds(companyId, records.map((item) => item.id));
       // Per-warehouse quantities, only for inventories with more than one warehouse.
       const warehouseShares = await itemWarehouseBreakdown(db, records.map((item) => ({ id: item.id, locationId: Number(item.locationId), quantity: Number(item.quantity) })));
       return Response.json({ records: records.map((item) => {
-        const weighted = weightedCosts.get(item.id);
-        const averageCost = weighted && weighted.quantity > 0 ? round(weighted.value / weighted.quantity) : round(Number(item.lastPurchasePrice) || Number(item.cost) || 0);
+        const averageCost = weightedUnitCost(weightedCosts.get(item.id)) ?? round(Number(item.lastPurchasePrice) || Number(item.cost) || 0);
         return { ...item, averageCost, onPo: round(onPoByItem.get(item.id) ?? 0), outOfScope: outOfScope.has(item.id), ...(warehouseShares.has(item.id) ? { warehouses: warehouseShares.get(item.id) } : {}) };
       }) });
     }
@@ -671,6 +658,7 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     const oversized = oversizedText(payload);
     if (oversized) return Response.json({ error: `The ${oversized === "lines" || oversized === "list" ? "document has too many lines" : `"${oversized}" field is too long`}. Shorten it and try again.` }, { status: 400 });
     if (kind === "transactions") {
+      if (payload.type === STOCK_ADJUSTMENT_TYPE) return Response.json({ error: "Stock adjustments are changed in Management > Admin Controls > Stock adjustments." }, { status: 409 });
       if (authorization.role === "sales" && !salesDocumentTypes.includes(String(payload.type))) return Response.json({ error: "Sales users may create quotations, estimates, sales orders, proformas and invoices only." }, { status: 403 });
       if (payload.type === "pending invoice" && !canManagePendingInvoices(authorization)) return Response.json({ error: "Only administrators and accountants can create pending invoices." }, { status: 403 });
       if (authorization.role === "inventory" && !["bill", "received item bill", "item receipt", "purchase order"].includes(String(payload.type))) return Response.json({ error: "Inventory users may create bills, item receipts and purchase orders only." }, { status: 403 });
@@ -1584,6 +1572,7 @@ async function handlePATCH(request: Request) {
         const db = getDb();
         const [existing] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId))).for("update");
         if (!existing) return Response.json({ error: "Document not found." }, { status: 404 });
+        if (existing.type === STOCK_ADJUSTMENT_TYPE) return Response.json({ error: "Stock adjustments are changed in Management > Admin Controls > Stock adjustments." }, { status: 409 });
         if (!unlockedDocumentTypes.has(existing.type)) {
           const locked = await guardFiledPeriod(request, companyId, [existing.transactionDate, payload.transactionDate], `edit ${existing.type} ${existing.number}`, authorization);
           if (locked) return locked;
@@ -2442,6 +2431,7 @@ async function handleDELETE(request: Request) {
       const db = getDb();
       const [record] = await db.select().from(transactions).where(and(eq(transactions.id, id), eq(transactions.companyId, companyId))).for("update");
       if (!record) return Response.json({ error: "Transaction not found." }, { status: 404 });
+      if (record.type === STOCK_ADJUSTMENT_TYPE) return Response.json({ error: "Stock adjustments are changed in Management > Admin Controls > Stock adjustments." }, { status: 409 });
       if (!unlockedDocumentTypes.has(record.type)) {
         const locked = await guardFiledPeriod(request, companyId, [record.transactionDate], `delete ${record.type} ${record.number}`, authorization);
         if (locked) return locked;
