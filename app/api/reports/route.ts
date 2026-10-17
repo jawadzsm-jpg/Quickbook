@@ -172,6 +172,10 @@ export async function GET(request: Request) {
     const scopedTransactions = allTransactions.filter((row) => !Number.isInteger(locationId) || locationId <= 0 || row.locationId === locationId);
     const salesTypes = new Set(["invoice", "sales receipt", "statement charge", "finance charge"]);
     const purchaseTypes = new Set(["bill", "received item bill", "expense", "cheque", "credit card charge", "vendor credit"]);
+    // A cheque that pays a bill (linked to it, or posted against an Accounts Payable account) is a supplier payment, not a
+    // second purchase: the bill already counted the goods.
+    const payableAccountNames = new Set(allAccounts.filter((account) => account.systemRole === "AP" || account.type === "Accounts Payable").map((account) => account.name));
+    const isPurchaseDocument = (row: { type: string; billId: number | null; account: string }) => purchaseTypes.has(row.type) && !(row.type === "cheque" && (row.billId || payableAccountNames.has(row.account)));
     const baseSubtotal = (row: typeof allTransactions[number]) => Math.round(Number(row.subtotal) * Number(row.exchangeRate) * 100) / 100;
     const purchaseSubtotal = (row: typeof allTransactions[number]) => (row.type === "vendor credit" ? -1 : 1) * baseSubtotal(row);
     const rateMap = new Map(currentRates.map((rate) => [rate.currencyCode, Number(rate.rate)]));
@@ -424,7 +428,7 @@ export async function GET(request: Request) {
     if (key.startsWith("average-days-to-pay")) { const selected = customerSettlements.filter(row => inPeriod(row.paymentDate)); customerSettlements.splice(0, customerSettlements.length, ...selected); }
     const supplierTypes = new Set(["bill", "received item bill", "expense", "cheque", "bill payment", "vendor payment", "vendor credit", "purchase order", "item receipt"]);
     const supplierActivities = (vendorCurrencyReportKeys.has(key) ? vendorCurrencyTransactions : scopedTransactions).filter((row) => supplierTypes.has(row.type));
-    const payableAccounts = new Set(allAccounts.filter((account) => account.systemRole === "AP" || account.type === "Accounts Payable").map((account) => account.name));
+    const payableAccounts = payableAccountNames;
     const supplierImpact = (row: typeof allTransactions[number]) => {
       const amount = vendorCurrencyReportKeys.has(key) ? row.total : row.baseTotal;
       if (vendorReportKeys.has(key)) {
@@ -457,7 +461,7 @@ export async function GET(request: Request) {
       // Same bases as the Sales and Purchases reports: closed documents excluded, returns netted; a cheque that pays a
       // bill is a payment, not a second purchase.
       const sales = salesWithReturns.reduce((sum, row) => sum + salesSign(row) * baseSubtotal(row), 0);
-      const purchases = scopedTransactions.filter((row) => purchaseTypes.has(row.type) && !closedDocument(row.status) && !(row.type === "cheque" && row.billId)).reduce((sum, row) => sum + purchaseSubtotal(row), 0);
+      const purchases = scopedTransactions.filter((row) => isPurchaseDocument(row) && !closedDocument(row.status)).reduce((sum, row) => sum + purchaseSubtotal(row), 0);
       const income = ledgerRows.filter((row) => incomeTypes.has(row.type)).reduce((sum, row) => sum - row.balance, 0);
       const expenses = ledgerRows.filter((row) => expenseTypes.has(row.type)).reduce((sum, row) => sum + row.balance, 0);
       const netIncome = income - expenses;
@@ -536,7 +540,7 @@ export async function GET(request: Request) {
         const name = key === "profit-loss-job" ? locationNames.get(row.locationId ?? 0) ?? "Unassigned" : row.type;
         const old = grouped.get(name) ?? { income: 0, expenses: 0 };
         if (salesTypes.has(row.type)) old.income += baseSubtotal(row);
-        if (purchaseTypes.has(row.type)) old.expenses += purchaseSubtotal(row);
+        if (isPurchaseDocument(row)) old.expenses += purchaseSubtotal(row);
         grouped.set(name, old);
       });
       rows = [...grouped].map(([name, value]) => ({ name, ...value, netIncome: value.income - value.expenses }));
@@ -549,18 +553,18 @@ export async function GET(request: Request) {
       const income = key === "income-customer-summary";
       title = income ? "Income by Customer Summary" : "Expenses by Supplier Summary";
       const grouped = new Map<string, number>();
-      scopedTransactions.filter((row) => income ? salesTypes.has(row.type) : purchaseTypes.has(row.type)).forEach((row) => grouped.set(row.party, (grouped.get(row.party) ?? 0) + (income ? baseSubtotal(row) : purchaseSubtotal(row))));
+      scopedTransactions.filter((row) => income ? salesTypes.has(row.type) : isPurchaseDocument(row)).forEach((row) => grouped.set(row.party, (grouped.get(row.party) ?? 0) + (income ? baseSubtotal(row) : purchaseSubtotal(row))));
       rows = [...grouped].map(([name, amount]) => ({ name, amount })).sort((a, b) => b.amount - a.amount);
       columns = [{ key: "name", label: income ? "Customer" : "Supplier" }, { key: "amount", label: income ? "Income" : "Expenses", ...money }];
     } else if (key === "income-customer-detail" || key === "expenses-supplier-detail") {
       const income = key === "income-customer-detail";
       title = income ? "Income by Customer Detail" : "Expenses by Supplier Detail";
-      rows = scopedTransactions.filter((row) => income ? salesTypes.has(row.type) : purchaseTypes.has(row.type)).map((row) => ({ date: row.transactionDate, number: row.number, name: row.party, type: row.type, currency: row.currency, amount: income ? baseSubtotal(row) : purchaseSubtotal(row) }));
+      rows = scopedTransactions.filter((row) => income ? salesTypes.has(row.type) : isPurchaseDocument(row)).map((row) => ({ date: row.transactionDate, number: row.number, name: row.party, type: row.type, currency: row.currency, amount: income ? baseSubtotal(row) : purchaseSubtotal(row) }));
       columns = [{ key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "name", label: income ? "Customer" : "Supplier" }, { key: "type", label: "Type" }, { key: "currency", label: "Currency" }, { key: "amount", label: income ? "Income" : "Expenses", ...money }];
     } else if (key === "income-expense-graph") {
       title = "Income & Expense Graph";
       const months = new Map<string, { income: number; expenses: number }>();
-      scopedTransactions.forEach((row) => { const month = row.transactionDate.slice(0, 7); const old = months.get(month) ?? { income: 0, expenses: 0 }; if (salesTypes.has(row.type)) old.income += baseSubtotal(row); if (purchaseTypes.has(row.type)) old.expenses += purchaseSubtotal(row); months.set(month, old); });
+      scopedTransactions.forEach((row) => { const month = row.transactionDate.slice(0, 7); const old = months.get(month) ?? { income: 0, expenses: 0 }; if (salesTypes.has(row.type)) old.income += baseSubtotal(row); if (isPurchaseDocument(row)) old.expenses += purchaseSubtotal(row); months.set(month, old); });
       rows = [...months].sort(([a], [b]) => a.localeCompare(b)).map(([month, value]) => ({ month, ...value, net: value.income - value.expenses }));
       columns = [{ key: "month", label: "Month" }, { key: "income", label: "Income", ...money }, { key: "expenses", label: "Expenses", ...money }, { key: "net", label: "Net", ...money }];
       chart = { labelKey: "month", incomeKey: "income", expenseKey: "expenses" };
@@ -1090,13 +1094,13 @@ export async function GET(request: Request) {
       title = "Purchases by Supplier Detail";
       // Bills, received-item bills, expenses, cheques and card charges; purchase returns (vendor credits) are negative.
       const sign = (row: typeof allTransactions[number]) => row.type === "vendor credit" ? -1 : 1;
-      rows = scopedTransactions.filter((row) => purchaseTypes.has(row.type) && !closedDocument(row.status)).map((row) => ({ transactionId: row.id, ...purchaseAccountFor(row.id), supplier: row.party, date: row.transactionDate, number: row.number, type: row.type === "vendor credit" ? "purchase return" : row.type, status: row.status, currency: row.currency, documentAmount: `${row.currency} ${(sign(row) * Number(row.subtotal)).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, subtotal: purchaseSubtotal(row), vat: sign(row) * row.vatAmount * row.exchangeRate, total: sign(row) * row.baseTotal }));
+      rows = scopedTransactions.filter((row) => isPurchaseDocument(row) && !closedDocument(row.status)).map((row) => ({ transactionId: row.id, ...purchaseAccountFor(row.id), supplier: row.party, date: row.transactionDate, number: row.number, type: row.type === "vendor credit" ? "purchase return" : row.type, status: row.status, currency: row.currency, documentAmount: `${row.currency} ${(sign(row) * Number(row.subtotal)).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, subtotal: purchaseSubtotal(row), vat: sign(row) * row.vatAmount * row.exchangeRate, total: sign(row) * row.baseTotal }));
       columns = [{ key: "supplier", label: "Supplier" }, { key: "date", label: "Date" }, { key: "number", label: "No." }, { key: "type", label: "Type" }, { key: "status", label: "Status" }, { key: "currency", label: "Document currency" }, { key: "documentAmount", label: "Document amount ex VAT" }, { key: "account", label: "Payable / Payment Account" }, { key: "subtotal", label: "Purchases ex VAT", ...money }, { key: "vat", label: "VAT", ...money }, { key: "total", label: "Total", ...money }];
     } else if (key === "purchases-by-rep-summary" || key === "purchases-by-rep-detail") {
       const detail = key === "purchases-by-rep-detail";
       title = detail ? "Purchases by Sales Rep Detail" : "Purchases by Sales Rep Summary";
       // Bills, received-item bills, expenses and vendor credits (negative), by the Sales Rep saved on each document.
-      const purchases = scopedTransactions.filter((row) => purchaseTypes.has(row.type) && !closedDocument(row.status));
+      const purchases = scopedTransactions.filter((row) => isPurchaseDocument(row) && !closedDocument(row.status));
       const sign = (row: typeof allTransactions[number]) => row.type === "vendor credit" ? -1 : 1;
       if (detail) {
         rows = purchases.map((row) => ({ transactionId: row.id, ...purchaseAccountFor(row.id), salesman: row.salesman || "Unassigned", date: row.transactionDate, number: row.number, supplier: row.party, type: row.type, status: row.status, currency: row.currency, subtotal: purchaseSubtotal(row), vat: sign(row) * row.vatAmount * row.exchangeRate, total: sign(row) * row.baseTotal }));
@@ -1111,7 +1115,7 @@ export async function GET(request: Request) {
       title = key === "purchases-by-vendor" ? "Purchases by Supplier Summary" : "Supplier Balance Summary";
       if (key === "purchases-by-vendor") {
         const grouped = new Map<string, { documents: number; purchases: number; returns: number; vat: number; total: number; last: string }>();
-        scopedTransactions.filter((row) => purchaseTypes.has(row.type) && !closedDocument(row.status)).forEach((row) => {
+        scopedTransactions.filter((row) => isPurchaseDocument(row) && !closedDocument(row.status)).forEach((row) => {
           const old = grouped.get(row.party) ?? { documents: 0, purchases: 0, returns: 0, vat: 0, total: 0, last: "" };
           const isReturn = row.type === "vendor credit", sign = isReturn ? -1 : 1;
           old.documents += 1;
