@@ -127,8 +127,9 @@ export function SectionBody({ section, data, theme }: { section: Section; data: 
     case "notes": return <><p className="lb-label">{section.props.label}</p>{section.props.text || data.message ? <RichText text={section.props.text || data.message} sideBySide={section.props.sideBySide} /> : <p className="lb-empty">No message</p>}</>;
     case "terms": return <><p className="lb-label">{section.props.label}</p>{section.props.text || data.terms ? <RichText text={section.props.text || data.terms} sideBySide={section.props.sideBySide} /> : <p className="lb-empty">No terms</p>}</>;
     case "bankDetails": {
-      const { bank } = data.company;
-      return <><p className="lb-label">{section.props.label}</p><Lines lines={[bank.name, bank.accountName && `Account name: ${bank.accountName}`, bank.accountNumber && `Account no.: ${bank.accountNumber}`, bank.iban && `IBAN: ${bank.iban}`, bank.swift && `SWIFT: ${bank.swift}`].filter(Boolean) as string[]} empty="Add bank details in Company Setup" />{bank.stamp && <img className="lb-bank-stamp" src={bank.stamp} alt="" />}</>;
+      const banks = data.company.banks?.length ? data.company.banks : [data.company.bank];
+      const { stamp } = data.company.bank;
+      return <><p className="lb-label">{section.props.label}</p>{banks.map((bank, index) => <div key={index} style={index ? { marginTop: "2mm" } : undefined}><Lines lines={[bank.name, bank.accountName && `Account name: ${bank.accountName}`, bank.accountNumber && `Account no.: ${bank.accountNumber}`, bank.iban && `IBAN: ${bank.iban}`, bank.swift && `SWIFT: ${bank.swift}`].filter(Boolean) as string[]} empty="Add bank details in Company Setup" /></div>)}{stamp && <img className="lb-bank-stamp" src={stamp} alt="" />}</>;
     }
     case "signature": return <span className="lb-signature" style={{ width: `${section.props.lineWidthMm}mm` }}>{section.props.label}</span>;
     case "text": return <RichText text={section.props.text} sideBySide={section.props.sideBySide} />;

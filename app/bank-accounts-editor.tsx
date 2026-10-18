@@ -46,7 +46,7 @@ const newBankId = () => `bank-${crypto.randomUUID().replaceAll("-", "").slice(0,
 
 /**
  * Extra company bank accounts: any number, in any currency, several per currency allowed. Documents print the account
- * matching their currency; when a currency has more than one account, the one ticked "Print on documents" is used.
+ * matching their currency; when a currency has more than one account, every one ticked "Print on documents" is printed.
  */
 export function BankAccountsEditor({ value, defaultCurrency, onChange, disabled }: { value: string; defaultCurrency: string; onChange: (value: string) => void; disabled?: boolean }) {
   const accounts = draftBankAccounts(value);
@@ -54,12 +54,12 @@ export function BankAccountsEditor({ value, defaultCurrency, onChange, disabled 
   const update = (id: string, patch: Partial<BankAccount>) => save(accounts.map((account) => account.id === id ? { ...account, ...patch } : account));
   const used = new Set([defaultCurrency.toUpperCase(), ...accounts.map((account) => account.currency)]);
   const nextCurrency = ["USD", "EUR", "GBP", "SAR", "AED", "INR", "OMR", "QAR", "KWD", "BHD"].find((code) => !used.has(code)) ?? (defaultCurrency.toUpperCase() || "USD");
-  // Accounts sharing a currency (the default account counts too) need one chosen to print on documents.
+  // Accounts sharing a currency (the default account counts too) are ticked to print on documents; several may be ticked.
   const sameCurrency = (currency: string) => accounts.filter((entry) => entry.currency === currency).length + (currency && currency === defaultCurrency.toUpperCase() ? 1 : 0);
-  const choosePrinted = (account: BankAccount, checked: boolean) => save(accounts.map((entry) => entry.currency !== account.currency ? entry : { ...entry, primary: entry.id === account.id && checked ? true : undefined }));
+  const choosePrinted = (account: BankAccount, checked: boolean) => update(account.id, { primary: checked ? true : undefined });
   return <div className="mt-5 grid gap-3 border-t pt-4">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <div><h3 className="font-semibold">Bank accounts by currency</h3><p className="text-sm text-muted-foreground">Add as many accounts as you need, in any currency. Documents show the account matching their currency; when a currency has more than one, tick the one to print. The account above ({defaultCurrency || "default"}) is used when no currency matches.</p></div>
+      <div><h3 className="font-semibold">Bank accounts by currency</h3><p className="text-sm text-muted-foreground">Add as many accounts as you need, in any currency. Documents show the account matching their currency; when a currency has more than one, tick every account to print (each ticked account shows on the document). The account above ({defaultCurrency || "default"}) is used when no currency matches.</p></div>
       <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => save([...accounts, { id: newBankId(), currency: nextCurrency, bankName: "", accountName: "", accountNumber: "", iban: "", swift: "" }])}><Plus className="size-4" />Add bank account</Button>
     </div>
     {accounts.map((account) => <div key={account.id} className="grid gap-3 rounded-lg border p-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-[6rem_repeat(5,minmax(0,1fr))_auto] 2xl:items-end">

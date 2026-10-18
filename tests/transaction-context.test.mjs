@@ -3652,7 +3652,7 @@ test('company bank accounts by currency are validated, saved by accountants and 
   const usd={id:'usd',currency:'usd',bankName:'Mashreq',accountName:'Co',accountNumber:'1',iban:'ae01',swift:'boml'};
   try { globalThis.__transferTestUser={id:9,role:'accountant',companyIds:[companyId]};
     assert.equal((await patch({bankAccounts:JSON.stringify([usd,{...usd,id:'usd2'}])})).status,200,'two accounts in one currency are allowed');
-    assert.equal((await patch({bankAccounts:JSON.stringify([{...usd,primary:true},{...usd,id:'usd2',primary:true}])})).status,400,'only one may print per currency');
+    assert.equal((await patch({bankAccounts:JSON.stringify([{...usd,primary:true},{...usd,id:'usd2',primary:true}])})).status,200,'several may print per currency');
     assert.equal((await patch({bankAccounts:JSON.stringify([{...usd,currency:'XX'}])})).status,400);
     const saved=await patch({bankAccounts:JSON.stringify([usd])});assert.equal(saved.status,200,JSON.stringify(await saved.clone().json()));
     assert.deepEqual(JSON.parse((await saved.json()).record.bankAccounts),[{id:'usd',currency:'USD',bankName:'Mashreq',accountName:'Co',accountNumber:'1',iban:'AE01',swift:'BOML'}]);
@@ -4057,6 +4057,11 @@ test("a sales document can print a chosen company bank account", async () => {
   assert.equal((await saved.json()).record.bankAccountKey, "usd2");
   assert.equal((await choose(invoice, "default")).status, 200, "the main bank account can be chosen");
   assert.equal((await choose(invoice, "missing")).status, 400, "only the company's own accounts");
+  const several = await choose(invoice, "usd2, usd1,usd2");
+  assert.equal(several.status, 200, await several.clone().text());
+  assert.equal((await several.json()).record.bankAccountKey, "usd2,usd1", "several accounts, in the order picked");
+  assert.equal((await choose(invoice, "usd1,missing")).status, 400);
+  assert.equal((await choose(invoice, "default,usd1,usd2,default,usd1")).status, 200);
   assert.equal((await choose(bill, "usd2")).status, 400, "purchase documents print the supplier's bank");
   const receipt = (await database.query("INSERT INTO transactions (company_id, type, number, party, total, subtotal, transaction_date, status, currency) VALUES ($1, 'sales receipt', 'BANK-SR-1', 'Customer', 50, 50, '2026-10-12', 'paid', 'USD') RETURNING id", [company])).rows[0].id;
   const receiptSaved = await choose(receipt, "usd2");
@@ -4074,7 +4079,12 @@ test("a sales document can print a chosen company bank account", async () => {
   assert.deepEqual(companyBankAccounts(setup).map((account) => account.id), ["default", "usd1", "usd2"]);
   assert.equal(bankForDocument(setup, "USD", "").bankName, "Mashreq", "automatic: the first USD account");
   assert.equal(bankForDocument(setup, "USD", "usd2").bankName, "ADCB");
-  assert.equal(bankForDocument(setup, "USD", "default").bankName, "ENBD", "the main AED account on a USD invoice when chosen");
+  assert.equal(bankForDocument(setup, "USD", "default").bankName, "Mashreq", "a pick in another currency is ignored: USD invoices print USD accounts only");
+  assert.equal(bankForDocument(setup, "AED", "usd2").bankName, "ENBD", "an AED invoice never prints a USD account");
+  assert.equal(bankForDocument(setup, "EUR", "usd2").bankName, "ADCB", "no EUR account: any account may be picked");
+  const { banksForDocument } = await vite.ssrLoadModule("/lib/bank-accounts.ts");
+  assert.deepEqual(banksForDocument(setup, "USD", "usd2,usd1").map((account) => account.bankName), ["ADCB", "Mashreq"]);
+  assert.deepEqual(banksForDocument(setup, "USD", "gone,usd1").map((account) => account.bankName), ["Mashreq"], "removed accounts are skipped");
   assert.equal(bankForDocument(setup, "USD", "removed").bankName, "Mashreq", "a removed account falls back to the currency rule");
   const { transactionDocumentData } = await vite.ssrLoadModule("/app/layout-builder/company-data.ts");
   const branding = { name: "Co", logoData: "", phone: "", trn: "", addressLine1: "", addressLine2: "", city: "", country: "", ...setup };

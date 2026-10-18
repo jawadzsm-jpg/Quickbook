@@ -7,7 +7,7 @@ import { LetterheadBrand, LetterheadFooter, LetterheadStamp } from './letterhead
 import { defaultLetterhead, type LetterheadTemplate } from '@/lib/letterhead';
 import { defaultElementProperties, type DocumentDesign } from '@/lib/document-design';
 import { invoiceItemDescription } from '@/lib/item-description';
-import { bankForDocument, bankLines, type CompanyBankFields } from '@/lib/bank-accounts';
+import { banksForDocument, documentBankLines, type CompanyBankFields } from '@/lib/bank-accounts';
 import { contactAddressLines } from '@/lib/contact-address';
 import { documentTotalQuantity, formatTotalQuantity, showsTotalQuantity } from '@/lib/document-quantity';
 type Data = Record<string, string | number | boolean>;
@@ -114,8 +114,9 @@ export function CustomInvoiceTemplate({content,design,record,lines,setup,contact
  const money=(v:unknown)=>Number(v||0).toLocaleString('en-US',{minimumFractionDigits:design.printTrailingZeros?design.decimals:0,maximumFractionDigits:design.decimals});
  const values:Record<string,unknown>={number:record.number,date:record.transactionDate,billTo:[contact?.billingName||contact?.company||record.party,...contactAddressLines(contact),String(contact?.trn??'').trim()?`TRN ${String(contact?.trn).trim()}`:''].filter(Boolean).join('\n'),shipTo:record.deliveryAddress||contact?.shippingAddress||contactAddressLines(contact).join('\n')||'',terms:record.terms||contact?.paymentTerms||'',dueDate:record.dueDate,salesman:record.salesman,trn:setup.trn,source:record.sourceDocumentNumber||'',subtotal:record.subtotal,vatAmount:record.vatAmount,total:record.total,balance:record.balance??(record.status==='paid'?0:record.total),message:design.message,disclaimer:design.disclaimer};
  // Bank details follow the document currency (customer currency), falling back to the company's default account.
- const bankAccount=billingDocument(record.type)?bankForDocument(setup,String(record.currency||setup.baseCurrency||''),record.bankAccountKey):null;
- values.bankDetails=bankLines(bankAccount).join('\n');
+ const bankAccounts=billingDocument(record.type)?banksForDocument(setup,String(record.currency||setup.baseCurrency||''),record.bankAccountKey):[];
+ const bankAccount=bankAccounts[0]??null;
+ values.bankDetails=documentBankLines(bankAccounts).join('\n');
  const textFooter=footer.filter(f=>['message','disclaimer'].includes(f.key)||f.key.startsWith('custom-footer-')||(f.key==='bankDetails'&&values.bankDetails));
  // The bank stamp belongs to the account printed for the document currency and only shows with those bank details.
  const bankStamp=showBankStamp&&textFooter.some(f=>f.key==='bankDetails')?bankAccount?.stampData??'':'';

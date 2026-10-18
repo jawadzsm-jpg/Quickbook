@@ -74,7 +74,7 @@ import Image from "next/image";
 import { PaymentSalesRep } from "./payment-sales-rep";
 import { PaymentTermsPicker } from "./payment-terms-picker";
 import { PaidInvoiceStamp } from "./paid-invoice-stamp";
-import { bankAccountLabel, bankForCurrency, bankLines, companyBankAccounts, draftBankAccounts, type BankAccount } from "@/lib/bank-accounts";
+import { bankAccountLabel, banksForCurrency, companyBankAccounts, documentBankKeys, documentBankLines, documentBankRemark, draftBankAccounts, MAX_DOCUMENT_BANK_ACCOUNTS, type BankAccount } from "@/lib/bank-accounts";
 import { vendorBankFields, vendorBankLines } from "@/lib/vendor-bank";
 import { StatementFilters, StatementHeading, type StatementData } from "./statement-layout";
 import { STATEMENT_BANK_BOX_WIDTH_MM, StatementBankBox, statementContentWidthMm, type StatementBankBoxValue } from "./statement-bank-box";
@@ -2659,14 +2659,14 @@ function ReportDialog({ onVatArea, canManageVatCodes, canOpenVatManagement, onPu
   const reportStamp = { show: agingStamp.show, left: Math.min(stampMaxLeft, agingStamp.left), top: Math.min(stampMaxTop, agingStamp.top) };
   // Customer and supplier statements can print the bank account for the statement currency, after the table.
   const customerStatement = report.key === "customer-statements" || report.key === "vendor-statements";
-  const statementBankAccount = customerStatement ? bankForCurrency(setup, report.currency) : null;
-  const statementBankLines = statementBankAccount ? bankLines(statementBankAccount) : null;
+  const statementBankAccounts = customerStatement ? banksForCurrency(setup, report.currency) : [];
+  const statementBankLines = statementBankAccounts.length ? documentBankLines(statementBankAccounts) : null;
   // Vendor statements for one supplier can also print that supplier's saved bank details.
   const supplierStatement = report.key === "vendor-statements";
   const supplierBankLines = supplierStatement && report.statement?.partyBank?.length ? report.statement.partyBank : null;
   const boxLeft = (left: number) => Math.max(0, Math.min(statementContentWidthMm(stampLandscape) - STATEMENT_BANK_BOX_WIDTH_MM, left));
   const bankBoxes = [
-    ...(customerStatement && statementBank.show && statementBankLines ? [{ title: "Bank details", lines: statementBankLines, remark: statementBank.remark ?? statementBankAccount?.remark ?? "", left: boxLeft(statementBank.left) }] : []),
+    ...(customerStatement && statementBank.show && statementBankLines ? [{ title: "Bank details", lines: statementBankLines, remark: statementBank.remark ?? documentBankRemark(statementBankAccounts), left: boxLeft(statementBank.left) }] : []),
     ...(supplierBankLines && supplierBank.show ? [{ title: "Supplier bank details", lines: supplierBankLines, remark: supplierBank.remark ?? "", left: boxLeft(supplierBank.left) }] : []),
   ];
   // Statements print and export with the letterhead assigned to statements (logos, heading, contact and footer).
@@ -2841,7 +2841,7 @@ function ReportDialog({ onVatArea, canManageVatCodes, canOpenVatManagement, onPu
     {report.key === "budget-actual-graph" && <BudgetTrend rows={visibleRows} currency={report.currency} />}
     {report.chart && !isBudgetReport && visibleRows.length > 0 && <div className="rounded-xl border bg-slate-50 p-5">{isSalesReport && <p className="mb-3 text-xs text-muted-foreground">Latest {chartRows.length} of {visibleRows.length} matching months · full data is shown below and included in exports</p>}<div className="mb-4 flex gap-5 text-xs font-semibold"><span className="flex items-center gap-2"><span className="size-3 rounded-sm bg-emerald-500" />{report.chart.incomeLabel ?? "Income / Assets"}</span><span className="flex items-center gap-2"><span className="size-3 rounded-sm bg-amber-500" />{report.chart.expenseLabel ?? "Expenses / Liabilities"}</span></div><div className="grid min-h-56 grid-cols-6 items-end gap-3 md:grid-cols-12">{chartRows.map((row, index) => <div key={index} className="flex min-w-0 flex-col items-center gap-2"><div className="flex h-44 w-full items-end justify-center gap-1"><div className="w-1/2 rounded-t bg-emerald-500" style={{ height: `${Math.max(2, Math.abs(Number(row[report.chart!.incomeKey] ?? 0)) / chartMax * 100)}%` }} title={formatMoney(row[report.chart!.incomeKey], report.currency)} /><div className="w-1/2 rounded-t bg-amber-500" style={{ height: `${Math.max(2, Math.abs(Number(row[report.chart!.expenseKey] ?? 0)) / chartMax * 100)}%` }} title={formatMoney(row[report.chart!.expenseKey], report.currency)} /></div><span className="max-w-full truncate text-[11px] text-slate-500">{String(row[report.chart!.labelKey] ?? "")}</span></div>)}</div></div>}
     {report.key === "business-final" ? <BusinessFinalReport rows={report.rows} currency={report.currency} onOpenReport={onOpenReport} /> : report.financial ? <FinancialReport key={report.generatedAt} report={report as FinancialReportData} onOpen={onOpenSource} /> : report.pnl ? <ProfitLossReport key={report.generatedAt} report={report as PnlReport} company={companyName} loading={loading} onOpen={onOpenSource} onOpenItem={onInventoryItem} onOpenArea={onProfitLossArea} orientation={printOrientation} stamp={reportStamp.show && setup.stampData ? { data: setup.stampData, left: reportStamp.left, top: reportStamp.top } : undefined} onApply={(from, to) => onStatementApply({ from, to, currency: report.currency, customer: "", statementDate: "", memo: "" })} /> : report.activeCustomers ? <ActiveCustomersReport key={report.generatedAt} rows={report.rows} companyId={report.companyId!} canViewAccounts={report.activeCustomers.canViewAccounts} count={report.activeCustomers.count} onCustomer={onCustomer} onOpenSource={onOpenSource} /> : report.openBalance ? <CustomerOpenBalance key={report.generatedAt} data={report.openBalance} rows={report.rows} currency={report.currency} companyId={report.companyId!} loading={loading} onApply={onStatementApply} onOpen={onOpenSource} onCustomer={onCustomer} /> : isVendorReport ? <VendorReportTable rows={visibleRows} columns={report.columns} currency={report.currency} renderCell={reportCell} emptyText={report.rows.length ? "Adjust the supplier, account, status, document type or search filters." : "No vendor records match this company, inventory, currency and period."} /> : isVatReport ? <VatReportTable rows={visibleRows} columns={report.columns} currency={report.currency} renderCell={reportCell} emptyText={report.rows.length ? "Adjust the code, tax direction, account, status or search filters." : "No VAT records match this company and reporting period."} /> : isSalesReport ? <SalesReportTable rows={visibleRows} columns={report.columns} currency={report.currency} renderCell={reportCell} emptyText={report.rows.length ? "Adjust the customer, rep, account, status or search filters." : "No sales records match this company, inventory and period."} /> : isPurchaseReport ? <PurchaseReportTable rows={visibleRows} columns={report.columns} currency={report.currency} renderCell={reportCell} emptyText={report.rows.length ? "Adjust the search, supplier, account or status filters." : "No purchase records match this company, inventory and period."} /> : isInventoryReport ? <InventoryReportTable rows={visibleRows} columns={report.columns} currency={report.currency} renderCell={reportCell} emptyText={report.rows.length ? "Adjust the search, account, status or zero-QOH filters to see stock." : "No active stock items are available for this company and inventory."} /> : <ReportDataTable rows={visibleRows} columns={report.canEditAudit ? [...report.columns, auditActionsColumn] : report.columns} currency={report.currency} renderCell={reportCell} emptyText={hideZeroQoh && report.rows.length ? "All zero-QOH rows are hidden." : "No posted data is available for this report."} />}
-    {customerStatement && <StatementBankBox currency={report.currency} lines={statementBankLines} defaultRemark={statementBankAccount?.remark ?? ""} value={statementBank} onChange={setStatementBank} landscape={stampLandscape} />}
+    {customerStatement && <StatementBankBox currency={report.currency} lines={statementBankLines} defaultRemark={documentBankRemark(statementBankAccounts)} value={statementBank} onChange={setStatementBank} landscape={stampLandscape} />}
     {supplierStatement && <StatementBankBox title="Supplier bank details" currency={report.currency} lines={supplierBankLines} defaultRemark="" value={supplierBank} onChange={setSupplierBank} landscape={stampLandscape} toggleLabel={`Supplier bank details${report.statement?.customer ? ` (${report.statement.customer})` : ""}`} missingText={report.statement?.customer ? "No bank details saved for this supplier. Add them in Vendor Center → Edit." : "Select one vendor in the statement filters to include their bank details."} remarkLabel="Note on this statement" remarkHint="Optional note printed under the supplier bank details. Drag the box sideways or type Left; it prints after the statement table." />}
     {/* Before the letterhead footer: statements print the stamp in the flow under the table; other reports place it absolutely. */}
     {stampReport && reportStamp.show && setup.stampData && <div className="sales-report-print-stamp"><LetterheadStamp template={{ ...defaultLetterhead(), showStamp: true, stampLeft: reportStamp.left, stampTop: reportStamp.top }} company={setup} maxLeft={stampMaxLeft} maxTop={stampMaxTop} pageWidthMm={stampLandscape ? 297 : 210} onMove={(left, top) => setAgingStamp({ ...agingStamp, left, top })} /></div>}
@@ -3432,17 +3432,19 @@ function NavMenuButton({ onClick, ...props }: ComponentProps<typeof SidebarMenuB
 
 const bankChoiceDocumentTypes = ["quotation", "estimate", "proforma invoice", "sales order", "invoice", "pending invoice", "sales receipt", "credit memo"];
 
-/** Bank account printed on a sales document; shown when the company has more than one account. "" is Automatic. */
+/** Bank accounts printed on a sales document; shown when the document currency has more than one. "" (none picked) is Automatic. */
 function DocumentBankSelect({ value, currency, choices, onChange }: { value: string; currency: string; choices: BankAccount[]; onChange: (bankAccountKey: string) => void }) {
-  if (choices.length < 2) return null;
-  return <div className="space-y-2">
-    <Label htmlFor="document-bank-account">Bank account</Label>
-    <Select value={choices.some((account) => account.id === value) ? value : "auto"} onValueChange={(next) => onChange(next === "auto" ? "" : next)}>
-      <SelectTrigger id="document-bank-account" className="w-full"><SelectValue /></SelectTrigger>
-      <SelectContent><SelectItem value="auto">Automatic ({currency || "document currency"} account)</SelectItem>{choices.map((account) => <SelectItem key={account.id} value={account.id}>{bankAccountLabel(account)}</SelectItem>)}</SelectContent>
-    </Select>
-    <p className="text-xs text-muted-foreground">Printed in the document&apos;s bank details. You can change it later from the document preview.</p>
-  </div>;
+  // Only accounts in the document currency are offered (every account when the company has none in that currency).
+  const matching = choices.filter((account) => account.currency === currency.toUpperCase());
+  const offered = matching.length ? matching : choices;
+  const chosen = documentBankKeys(value).filter((key) => offered.some((account) => account.id === key));
+  if (offered.length < 2) return null;
+  const toggle = (id: string, checked: boolean) => onChange((checked ? [...chosen, id] : chosen.filter((key) => key !== id)).join(","));
+  return <fieldset className="space-y-2">
+    <legend className="text-sm font-medium">Bank accounts</legend>
+    <div className="grid gap-1.5 sm:grid-cols-2">{offered.map((account) => <label key={account.id} className="flex min-w-0 items-center gap-2 rounded-md border px-3 py-2 text-sm"><input type="checkbox" className="size-4 accent-primary" checked={chosen.includes(account.id)} disabled={!chosen.includes(account.id) && chosen.length >= MAX_DOCUMENT_BANK_ACCOUNTS} onChange={(event) => toggle(account.id, event.target.checked)} /><span className="min-w-0 truncate">{bankAccountLabel(account)}</span></label>)}</div>
+    <p className="text-xs text-muted-foreground">{chosen.length ? `${chosen.length} picked; each prints in the document's bank details.` : `None picked: the ${currency || "document currency"} accounts ticked in Company Setup print.`} You can change it later from the document preview.</p>
+  </fieldset>;
 }
 
 /**

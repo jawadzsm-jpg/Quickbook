@@ -1,7 +1,7 @@
 // Company bank accounts by currency. The legacy single bank fields on the company remain the default
 // account; `bankAccounts` (JSON) adds any number of further accounts in any currency, several per currency allowed, so
-// documents can show the account that matches the customer's currency. When a currency has several accounts, the one
-// marked `primary` prints on documents. Each account may carry its own bank stamp image (`bankStampData`
+// documents can show the account that matches the customer's currency. When a currency has several accounts, every one
+// marked `primary` (ticked "Print this account") prints on documents in that currency; a document can also pick its own. Each account may carry its own bank stamp image (`bankStampData`
 // for the default account, `stampData` on the others) and a remark (`bankRemark` / `remark`), such as payment
 // instructions, printed with that account's details.
 
@@ -22,7 +22,7 @@ export function parseBankAccounts(value: unknown): BankAccount[] {
   if (value === undefined || value === null || value === "") return [];
   const raw = typeof value === "string" ? JSON.parse(value) : value;
   if (!Array.isArray(raw)) throw new Error("Invalid bank accounts.");
-  const ids = new Set<string>(); const primaryCurrencies = new Set<string>();
+  const ids = new Set<string>();
   return raw.map((entry: Record<string, unknown>) => {
     if (!entry || typeof entry !== "object") throw new Error("Invalid bank account.");
     const id = String(entry.id ?? "");
@@ -43,10 +43,7 @@ export function parseBankAccounts(value: unknown): BankAccount[] {
     const remark = String(entry.remark ?? "").trim();
     if (remark.length > MAX_BANK_REMARK_LENGTH) throw new Error(`Keep the ${currency} bank remark under ${MAX_BANK_REMARK_LENGTH} characters.`);
     if (remark) account.remark = remark;
-    if (entry.primary === true) {
-      if (primaryCurrencies.has(currency)) throw new Error(`Choose only one ${currency} account to print on documents.`);
-      primaryCurrencies.add(currency); account.primary = true;
-    }
+    if (entry.primary === true) account.primary = true;
     return account;
   });
 }
@@ -70,7 +67,7 @@ function defaultAccount(company: CompanyBankFields): BankAccount | null {
 }
 
 /**
- * The account to print for a document currency: the account marked to print for that currency, otherwise the default
+ * The first account to print for a document currency: the account marked to print for that currency, otherwise the default
  * account when it is in that currency, otherwise the first account in that currency, otherwise the default account.
  */
 export function bankForCurrency(company: CompanyBankFields, currency: string | undefined): BankAccount | null {
@@ -80,25 +77,67 @@ export function bankForCurrency(company: CompanyBankFields, currency: string | u
   return matching.find((account) => account.primary) ?? (fallback?.currency === wanted && wanted ? fallback : matching[0]) ?? fallback;
 }
 
+/** Every account to print for a document currency: all ticked accounts in that currency, otherwise `bankForCurrency`. */
+export function banksForCurrency(company: CompanyBankFields, currency: string | undefined): BankAccount[] {
+  const wanted = String(currency ?? "").toUpperCase();
+  const ticked = wanted ? readBankAccounts(company.bankAccounts).filter((account) => account.currency === wanted && account.primary) : [];
+  if (ticked.length) return ticked;
+  const single = bankForCurrency(company, currency);
+  return single ? [single] : [];
+}
+
 /** Every company bank account a document can print: the main account (id "default") first, then the extra accounts. */
 export function companyBankAccounts(company: CompanyBankFields): BankAccount[] {
   const main = defaultAccount(company);
   return [...(main ? [main] : []), ...readBankAccounts(company.bankAccounts)];
 }
 
+/** Most bank accounts one document can print together. */
+export const MAX_DOCUMENT_BANK_ACCOUNTS = 5;
+
+/** The account ids saved on a document (`bankAccountKey`, comma-separated, in print order); empty follows its currency. */
+export function documentBankKeys(bankAccountKey: unknown): string[] {
+  return [...new Set(String(bankAccountKey ?? "").split(",").map((key) => key.trim()).filter(Boolean))];
+}
+
 /**
- * The account to print on one document: the account chosen on it (`bankAccountKey`), otherwise the account for its
- * currency. A chosen account that was since removed from Company Setup falls back to the currency rule.
+ * The accounts to print on one document: the accounts chosen on it (`bankAccountKey`), otherwise the ticked accounts for
+ * its currency. Only accounts offered for its currency count (`bankChoicesForCurrency`), so an AED invoice never prints a
+ * USD account; chosen accounts since removed from Company Setup are skipped too. With none left the currency rule applies.
  */
+export function banksForDocument(company: CompanyBankFields, currency: string | undefined, bankAccountKey: unknown): BankAccount[] {
+  const accounts = bankChoicesForCurrency(company, currency);
+  const chosen = documentBankKeys(bankAccountKey).map((key) => accounts.find((account) => account.id === key)).filter(Boolean) as BankAccount[];
+  return chosen.length ? chosen : banksForCurrency(company, currency);
+}
+
+/** The first account printed on one document (its bank stamp prints with the bank details). */
 export function bankForDocument(company: CompanyBankFields, currency: string | undefined, bankAccountKey: unknown): BankAccount | null {
-  const key = String(bankAccountKey ?? "");
-  return (key && companyBankAccounts(company).find((account) => account.id === key)) || bankForCurrency(company, currency);
+  return banksForDocument(company, currency, bankAccountKey)[0] ?? null;
+}
+
+/** Accounts offered for a document: those in its currency; when the company has none in that currency, every account. */
+export function bankChoicesForCurrency(company: CompanyBankFields, currency: string | undefined): BankAccount[] {
+  const accounts = companyBankAccounts(company);
+  const wanted = String(currency ?? "").toUpperCase();
+  const matching = accounts.filter((account) => account.currency === wanted);
+  return matching.length ? matching : accounts;
 }
 
 /** Short label for choosing an account: bank, currency and the end of the account number or IBAN. */
 export function bankAccountLabel(account: BankAccount): string {
   const number = account.accountNumber || account.iban;
   return [account.bankName || account.accountName || "Bank account", account.currency, number && `…${number.slice(-4)}`, account.id === "default" && "main"].filter(Boolean).join(" · ");
+}
+
+/** Bank box lines for several accounts, a blank line between accounts. */
+export function documentBankLines(accounts: BankAccount[]): string[] {
+  return accounts.flatMap((account, index) => [...(index ? ["\u00a0"] : []), ...bankLines(account)]);
+}
+
+/** The Company Setup remarks of several accounts, one per line. */
+export function documentBankRemark(accounts: BankAccount[]): string {
+  return [...new Set(accounts.map((account) => account.remark?.trim()).filter(Boolean))].join("\n");
 }
 
 export function bankLines(account: BankAccount | null): string[] {

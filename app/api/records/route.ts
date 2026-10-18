@@ -1,6 +1,6 @@
 import { defaultReminderAt, isPostDated, reminderBeforeCheque, uaeLocalToIso } from "@/lib/cheque-reminders";
 import { notifyChequeWritten } from "@/lib/notifications";
-import { companyBankAccounts } from "@/lib/bank-accounts";
+import { companyBankAccounts, documentBankKeys, MAX_DOCUMENT_BANK_ACCOUNTS } from "@/lib/bank-accounts";
 import { adjustWarehouseStock, itemWarehouseBreakdown, resolveDocumentWarehouse, warehouseDocumentTypes, warehouseQuantities, type DocumentWarehouse } from "@/lib/warehouses";
 import { formatInvoiceNumber, invoiceSeriesError } from "@/lib/invoice-series";
 import { contactOrganization } from "@/lib/contact-hierarchy";
@@ -56,6 +56,15 @@ function errorMessage(error: unknown) {
 
 const round = (value: number) => Math.round(value * 100) / 100;
 /** Customer/vendor postal address fields from a request; `onlyGiven` keeps fields the request leaves out (edits). */
+/** Bank accounts chosen for a sales document must be the company's own (Company Setup), at most five. */
+async function invalidDocumentBankKeys(companyId: number, bankAccountKey: string): Promise<string | null> {
+  const keys = documentBankKeys(bankAccountKey);
+  if (keys.length > MAX_DOCUMENT_BANK_ACCOUNTS) return `Choose up to ${MAX_DOCUMENT_BANK_ACCOUNTS} bank accounts for one document.`;
+  const [company] = await getDb().select({ bankName: companies.bankName, bankAccountNumber: companies.bankAccountNumber, bankIban: companies.bankIban, bankCurrency: companies.bankCurrency, baseCurrency: companies.baseCurrency, bankAccounts: companies.bankAccounts }).from(companies).where(eq(companies.id, companyId)).limit(1);
+  const accounts = company ? companyBankAccounts(company) : [];
+  return keys.every((key) => accounts.some((account) => account.id === key)) ? null : "Choose the company's bank accounts from Company Setup.";
+}
+
 function contactAddressFromPayload(payload: Record<string, unknown>, onlyGiven = false) {
   const fields = { addressLine1: 180, addressLine2: 180, city: 80, region: 80, postalCode: 20 } as const;
   const values: Partial<Record<keyof typeof fields, string>> = {};
@@ -1342,10 +1351,10 @@ async function saveNewRecord(request: Request, replacing?: typeof transactions.$
     let bankAccountKey = replacing?.bankAccountKey ?? sourceBankAccountKey;
     if (!shipToDocumentTypes.includes(type)) bankAccountKey = "";
     else if (typeof payload.bankAccountKey === "string" && (authorization.role === "accountant" || isAdministrator(authorization))) {
-      const requested = payload.bankAccountKey.trim();
+      const requested = documentBankKeys(payload.bankAccountKey).join(",");
       if (requested && requested !== bankAccountKey) {
-        const [company] = await db.select({ bankName: companies.bankName, bankAccountNumber: companies.bankAccountNumber, bankIban: companies.bankIban, bankCurrency: companies.bankCurrency, baseCurrency: companies.baseCurrency, bankAccounts: companies.bankAccounts }).from(companies).where(eq(companies.id, companyId)).limit(1);
-        if (!company || !companyBankAccounts(company).some((account) => account.id === requested)) return Response.json({ error: "Choose one of the company's bank accounts from Company Setup." }, { status: 400 });
+        const error = await invalidDocumentBankKeys(companyId, requested);
+        if (error) return Response.json({ error }, { status: 400 });
       }
       bankAccountKey = requested;
     }
@@ -1626,17 +1635,17 @@ async function handlePATCH(request: Request) {
           await db.insert(auditLog).values({ companyId, action: "updated", entityType: "transaction", entityId: id, details: JSON.stringify({ mode: "delivery-address", actorId: authorization.id, number: existing.number, before: existing.deliveryAddress, after: deliveryAddress }) });
           return Response.json({ record });
         }
-        // Bank account printed on a saved sales document: "" follows the document currency, otherwise one of the company's
-        // bank accounts from Company Setup. Only the printed bank box changes; amounts, lines and postings are untouched.
+        // Bank accounts printed on a saved sales document: "" follows the document currency, otherwise up to five of the
+        // company's bank accounts from Company Setup (comma-separated ids, in print order). Only the printed bank box changes; amounts, lines and postings are untouched.
         if (payload.editMode === "bank-account") {
           if (Object.keys(payload).some(key => !["kind", "id", "companyId", "editMode", "bankAccountKey"].includes(key)) || typeof payload.bankAccountKey !== "string") return Response.json({ error: "Send the bank account only." }, { status: 400 });
           if (!shipToDocumentTypes.includes(existing.type)) return Response.json({ error: "This document does not print company bank details." }, { status: 400 });
           // Sales users never receive the company's bank details, so the choice belongs to accountants and administrators.
           if (authorization.role !== "accountant" && !isAdministrator(authorization)) return Response.json({ error: "Only an accountant or administrator can change the bank account on documents." }, { status: 403 });
-          const bankAccountKey = payload.bankAccountKey.trim();
+          const bankAccountKey = documentBankKeys(payload.bankAccountKey).join(",");
           if (bankAccountKey) {
-            const [company] = await db.select({ bankName: companies.bankName, bankAccountNumber: companies.bankAccountNumber, bankIban: companies.bankIban, bankCurrency: companies.bankCurrency, baseCurrency: companies.baseCurrency, bankAccounts: companies.bankAccounts }).from(companies).where(eq(companies.id, companyId)).limit(1);
-            if (!company || !companyBankAccounts(company).some((account) => account.id === bankAccountKey)) return Response.json({ error: "Choose one of the company's bank accounts from Company Setup." }, { status: 400 });
+            const error = await invalidDocumentBankKeys(companyId, bankAccountKey);
+            if (error) return Response.json({ error }, { status: 400 });
           }
           if (bankAccountKey === existing.bankAccountKey) return Response.json({ record: existing });
           const [record] = await db.update(transactions).set({ bankAccountKey }).where(eq(transactions.id, id)).returning();
