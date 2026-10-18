@@ -21,7 +21,7 @@ import { LayoutDocument } from "./layout-builder/layout-document";
 import { layoutCss } from "@/lib/layout/styles";
 import { DocumentEmailDialog } from "./document-email-dialog";
 import { canEmailDocuments } from "@/lib/email-templates";
-import { bankAccountLabel, bankForCurrency, bankForDocument, bankLines, companyBankAccounts } from "@/lib/bank-accounts";
+import { bankAccountLabel, bankChoicesForCurrency, banksForCurrency, banksForDocument, documentBankKeys, documentBankLines, documentBankRemark, MAX_DOCUMENT_BANK_ACCOUNTS } from "@/lib/bank-accounts";
 import { vendorBankLines } from "@/lib/vendor-bank";
 import { contentBox, parseLayoutCollection, withoutPrices } from "@/lib/layout/schema";
 import { PAGE_STAMP_SIZE, clampPageStamp, type MovePageStamp } from "./page-stamps";
@@ -92,8 +92,8 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
   const [savingStamps, setSavingStamps] = useState(false);
   // The bank box remark defaults to the account's remark from Company Setup; edits here apply to this document only.
   const [bankRemarkEdit, setBankRemarkEdit] = useState<string | null>(null);
-  // Bank account printed on this document: "" follows its currency; a choice is saved on the document (accountants
-  // and administrators). Every template and the packing list read the record with this choice applied.
+  // Bank accounts printed on this document: "" follows its currency; a choice (one or more ids, comma-separated) is saved
+  // on the document (accountants and administrators). Every template and the packing list read the record with this choice applied.
   const [bankKey, setBankKey] = useState(String(record.bankAccountKey ?? ""));
   const [savingBank, setSavingBank] = useState(false);
   const documentRecord = useMemo(() => ({ ...record, bankAccountKey: bankKey }), [record, bankKey]);
@@ -167,9 +167,13 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
   const companyPlacement = { ...stamp, ...clampPageStamp("company", stamp.left, stamp.top, stampArea.width, stampArea.height) };
   const bankPlacement = { ...bankBox, ...clampPageStamp("bank", bankBox.left, bankBox.top, stampArea.width, stampArea.height) };
   const documentCurrency = String(record.currency || setup.baseCurrency || "").toUpperCase();
-  // The bank box shows the account for the document currency, typed in Company Setup, plus its remark.
-  const bankAccount = bankBoxApplies && !supplierBankMode ? bankForDocument(setup, documentCurrency, bankKey) : null;
-  const bankChoices = companyBankAccounts(setup);
+  // The bank box shows the accounts chosen on the document, else the ticked accounts for its currency, plus their remarks.
+  const bankAccounts = bankBoxApplies && !supplierBankMode ? banksForDocument(setup, documentCurrency, bankKey) : [];
+  const bankAccount = bankAccounts[0] ?? null;
+  // Only accounts in the document currency are offered (every account when the company has none in that currency).
+  const bankChoices = bankChoicesForCurrency(setup, documentCurrency);
+  const chosenBankKeys = documentBankKeys(bankKey).filter((key) => bankChoices.some((account) => account.id === key));
+  const automaticBanks = banksForCurrency(setup, documentCurrency);
   const chooseBank = async (next: string) => {
     const previous = bankKey;
     setBankKey(next); setBankRemarkEdit(null); setSavingBank(true);
@@ -177,15 +181,15 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
       const response = await fetch("/api/records", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "transactions", id: Number(record.id), companyId: Number(record.companyId), editMode: "bank-account", bankAccountKey: next }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not save the bank account.");
-      toast.success(next ? "Bank account saved on this document" : "This document follows its currency's bank account again");
+      toast.success(next ? "Bank accounts saved on this document" : "This document follows its currency's bank accounts again");
     } catch (error) { setBankKey(previous); toast.error(error instanceof Error ? error.message : "Could not save the bank account."); }
     finally { setSavingBank(false); }
   };
   const supplierName = String(contact?.company || contact?.name || record.party || "supplier");
   const supplierBankLines = supplierBankMode ? vendorBankLines(contact ?? {}) : [];
-  const bankBoxLines = supplierBankMode ? (supplierBankLines.length ? supplierBankLines : null) : bankAccount ? bankLines(bankAccount) : null;
+  const bankBoxLines = supplierBankMode ? (supplierBankLines.length ? supplierBankLines : null) : bankAccounts.length ? documentBankLines(bankAccounts) : null;
   const bankBoxTitle = supplierBankMode ? "Supplier bank details" : "Bank details";
-  const bankRemark = bankRemarkEdit ?? (supplierBankMode ? "" : bankAccount?.remark ?? "");
+  const bankRemark = bankRemarkEdit ?? (supplierBankMode ? "" : documentBankRemark(bankAccounts));
   const bankBoxShown = Boolean(bankBoxLines) && bankBox.show;
   // A delivered invoice prints DELIVERED (with the delivery date) below the status stamp, on the right.
   const deliveredAt = String(record.type) === "invoice" && record.deliveredAt ? String(record.deliveredAt) : "";
@@ -474,21 +478,26 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
       {copyPlacement?.show && copyLabel && <div className="flex flex-wrap items-center gap-4"><span className="w-32 font-medium">Copy label</span><label className="flex items-center gap-2">Left (mm)<input type="number" min="0" max={Math.floor(stampArea.width - PAGE_STAMP_SIZE.copy.width)} className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={copyPlacement.left} onChange={(event) => setCopyLabel({ ...copyLabel, left: Math.max(0, Number(event.target.value) || 0) })} /></label><label className="flex items-center gap-2">Top (mm)<input type="number" min="0" max={Math.floor(stampArea.height - PAGE_STAMP_SIZE.copy.height)} className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={copyPlacement.top} onChange={(event) => setCopyLabel({ ...copyLabel, top: Math.max(0, Number(event.target.value) || 0) })} /></label></div>}
       {statusPlacement?.show && statusText && statusStamp && <div className="flex flex-wrap items-center gap-4"><span className="w-32 font-medium">Status stamp</span><label className="flex items-center gap-2">Left (mm)<input type="number" min="0" max={Math.floor(stampArea.width - PAGE_STAMP_SIZE.status.width)} className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={statusPlacement.left} onChange={(event) => setStatusStamp({ ...statusStamp, left: Math.max(0, Number(event.target.value) || 0) })} /></label><label className="flex items-center gap-2">Top (mm)<input type="number" min="0" max={Math.floor(stampArea.height - PAGE_STAMP_SIZE.status.height)} className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={statusPlacement.top} onChange={(event) => setStatusStamp({ ...statusStamp, top: Math.max(0, Number(event.target.value) || 0) })} /></label></div>}
       {bankBoxShown && <div className="flex flex-wrap items-center gap-4"><span className="w-32 font-medium">{supplierBankMode ? "Supplier bank box" : `Bank box (${documentCurrency})`}</span><label className="flex items-center gap-2">Left (mm)<input type="number" min="0" max={Math.floor(stampArea.width - PAGE_STAMP_SIZE.bank.width)} className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={bankPlacement.left} onChange={(event) => setBankBox({ ...bankBox, left: Math.max(0, Number(event.target.value) || 0) })} /></label><label className="flex items-center gap-2">Top (mm)<input type="number" min="0" max={Math.floor(stampArea.height - PAGE_STAMP_SIZE.bank.height)} className="h-9 w-24 rounded-md border bg-background px-3 text-foreground" value={bankPlacement.top} onChange={(event) => setBankBox({ ...bankBox, top: Math.max(0, Number(event.target.value) || 0) })} /></label></div>}
-      {(bankApplies || bankBoxShown) && !supplierBankMode && canChooseBank && bankChoices.length > 1 && <div className="grid gap-2 text-sm" role="group" aria-label="Bank account on this document">
-        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Bank account on this document</span>
+      {(bankApplies || bankBoxShown) && !supplierBankMode && canChooseBank && bankChoices.length > 1 && <div className="grid gap-2 text-sm" role="group" aria-label="Bank accounts on this document">
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Bank accounts on this document</span>
         <div className="flex flex-wrap gap-2">
-          {[{ id: "", title: "Automatic", detail: `${documentCurrency} account` }, ...bankChoices.map((account) => ({ id: account.id, title: account.bankName || account.accountName || "Bank account", detail: [account.currency, (account.accountNumber || account.iban) && `…${(account.accountNumber || account.iban).slice(-4)}`, account.id === "default" && "main"].filter(Boolean).join(" · ") }))].map((choice) => {
-            const active = (bankChoices.some((account) => account.id === bankKey) ? bankKey : "") === choice.id;
-            return <Button key={choice.id || "automatic"} type="button" size="sm" variant={active ? "default" : "outline"} aria-pressed={active} disabled={savingBank || !record.id} title={choice.id ? bankAccountLabel(bankChoices.find((account) => account.id === choice.id)!) : `Automatic: ${bankForCurrency(setup, documentCurrency) ? bankAccountLabel(bankForCurrency(setup, documentCurrency)!) : `${documentCurrency} account`}`} onClick={() => { if (!active) void chooseBank(choice.id); }} className="h-auto min-w-0 max-w-full flex-col items-start gap-0 px-3 py-1.5 text-left">
-              <span className="max-w-64 truncate font-semibold">{choice.title}</span>
-              <span className={`text-[11px] font-normal ${active ? "opacity-80" : "text-muted-foreground"}`}>{choice.detail}</span>
+          <Button type="button" size="sm" variant={chosenBankKeys.length ? "outline" : "default"} aria-pressed={!chosenBankKeys.length} disabled={savingBank || !record.id} title={`Automatic: ${automaticBanks.length ? automaticBanks.map(bankAccountLabel).join(", ") : `${documentCurrency} account`}`} onClick={() => { if (chosenBankKeys.length) void chooseBank(""); }} className="h-auto min-w-0 max-w-full flex-col items-start gap-0 px-3 py-1.5 text-left">
+            <span className="font-semibold">Automatic</span>
+            <span className={`text-[11px] font-normal ${chosenBankKeys.length ? "text-muted-foreground" : "opacity-80"}`}>Ticked {documentCurrency} accounts</span>
+          </Button>
+          {bankChoices.map((account) => {
+            const active = chosenBankKeys.includes(account.id);
+            const next = active ? chosenBankKeys.filter((key) => key !== account.id) : [...chosenBankKeys, account.id];
+            return <Button key={account.id} type="button" size="sm" variant={active ? "default" : "outline"} aria-pressed={active} disabled={savingBank || !record.id || (!active && chosenBankKeys.length >= MAX_DOCUMENT_BANK_ACCOUNTS)} title={bankAccountLabel(account)} onClick={() => void chooseBank(next.join(","))} className="h-auto min-w-0 max-w-full flex-col items-start gap-0 px-3 py-1.5 text-left">
+              <span className="max-w-64 truncate font-semibold">{active ? "✓ " : ""}{account.bankName || account.accountName || "Bank account"}</span>
+              <span className={`text-[11px] font-normal ${active ? "opacity-80" : "text-muted-foreground"}`}>{[account.currency, (account.accountNumber || account.iban) && `…${(account.accountNumber || account.iban).slice(-4)}`, account.id === "default" && "main"].filter(Boolean).join(" · ")}</span>
             </Button>;
           })}
         </div>
-        <span className="text-xs text-muted-foreground">Saved on this document. Automatic uses the {documentCurrency} account from Company Setup{bankForCurrency(setup, documentCurrency) ? ` (${bankForCurrency(setup, documentCurrency)!.bankName || "main account"})` : ""}.</span>
+        <span className="text-xs text-muted-foreground">Pick one or more accounts (up to {MAX_DOCUMENT_BANK_ACCOUNTS}); each prints in the bank box, in the order picked. Automatic prints the {documentCurrency} accounts ticked in Company Setup{automaticBanks.length ? ` (${automaticBanks.map((account) => account.bankName || "main account").join(", ")})` : ""}.</span>
       </div>}
       {bankBoxShown && <label className="grid gap-1"><span className="font-medium">{supplierBankMode ? "Note on this document" : "Remark on this document"}</span><textarea rows={2} maxLength={500} className="w-full rounded-md border bg-background px-3 py-2 text-foreground" value={bankRemark} placeholder="Payment note, correspondent bank instructions…" onChange={(event) => setBankRemarkEdit(event.target.value)} /><span className="text-xs text-muted-foreground">{supplierBankMode ? "Optional note printed under the supplier's bank details, for this document only." : <>Starts with the chosen account&apos;s remark from Company Setup. Changes here apply to this document only.</>}</span></label>}
-      {companyPlacement.show && setup.stampData || bankBoxShown ? <span className="text-xs text-muted-foreground">Drag the company stamp and the bank box anywhere on the first page, or type Left / Top in mm from the top-left of the printable area. {supplierBankMode ? "The supplier bank box shows the bank details saved on this vendor." : <>The bank box shows {bankKey ? "the bank account chosen for this document" : `the ${documentCurrency} account from Company Setup`}.</>} Save stamp positions to use these settings on every {salesDocumentTitles[activeMode]}.</span> : null}
+      {companyPlacement.show && setup.stampData || bankBoxShown ? <span className="text-xs text-muted-foreground">Drag the company stamp and the bank box anywhere on the first page, or type Left / Top in mm from the top-left of the printable area. {supplierBankMode ? "The supplier bank box shows the bank details saved on this vendor." : <>The bank box shows {chosenBankKeys.length ? "the bank accounts chosen for this document" : `the ${documentCurrency} accounts from Company Setup`}.</>} Save stamp positions to use these settings on every {salesDocumentTitles[activeMode]}.</span> : null}
     </div>}
     {signedInvoiceCopies ? <div className="document-internal-only mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">Choose Customer Copy, Inventory Copy or Both copies; Print, Save as PDF and Download use that choice (Both downloads two PDFs). Copies have signature areas. Customer copies hide zero-price and stock-return lines.</div> : null}
     <div ref={fitRef} className="relative min-w-0">
@@ -499,6 +508,6 @@ export function SalesDocumentTemplate({ mode, record, lines, contact, setup, onS
     {emailOpen && builderLayout && builderCopies ? <div ref={emailPaperRef} className="invoice-screen-only pointer-events-none absolute top-0" style={{ left: -100000 }} aria-hidden="true" inert><style>{layoutCss(outputLayout ?? builderLayout)}</style><div className="layout-paper relative bg-white" style={{ width: `${contentBox(builderLayout.page).pageWidth}mm`, minHeight: `${contentBox(builderLayout.page).pageHeight}mm`, padding: `${builderLayout.page.margins.top}mm ${builderLayout.page.margins.right}mm ${builderLayout.page.margins.bottom}mm ${builderLayout.page.margins.left}mm` }}><LayoutDocument layout={outputLayout ?? builderLayout} data={builderCopies.customer} mode="print" /></div></div> : null}
     {canEmail ? <DocumentEmailDialog open={emailOpen} onOpenChange={setEmailOpen} companyId={Number(record.companyId)} companyName={String(setup.name || "")} partyName={customerName} makePdf={makeEmailPdf}
       document={{ id: Number(record.id), type: String(record.type), number: referenceNumber, party: String(record.party ?? ""), total: Number(record.total || 0), currency: String(record.currency || "AED"), transactionDate: String(record.transactionDate ?? ""), dueDate: String(record.dueDate ?? "") }} /> : null}
-    {connectedPackingList ? <InvoicePackingListDialog bankAccountKey={bankKey} open={packingOpen} onOpenChange={setPackingOpen} companyId={Number(record.companyId)} companyName={String(setup.name || "Company")} setup={setup} invoiceId={Number(record.id)} initialView={packingView} stampPositions={savedPositions} onSaveStampPositions={setup.id && (setup.stampData || bankForCurrency(setup, documentCurrency)) ? persistStampPositions : undefined} savingStampPositions={savingStamps} /> : null}
+    {connectedPackingList ? <InvoicePackingListDialog bankAccountKey={bankKey} open={packingOpen} onOpenChange={setPackingOpen} companyId={Number(record.companyId)} companyName={String(setup.name || "Company")} setup={setup} invoiceId={Number(record.id)} initialView={packingView} stampPositions={savedPositions} onSaveStampPositions={setup.id && (setup.stampData || automaticBanks.length) ? persistStampPositions : undefined} savingStampPositions={savingStamps} /> : null}
   </>;
 }

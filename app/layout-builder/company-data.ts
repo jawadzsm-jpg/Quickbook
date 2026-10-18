@@ -1,4 +1,4 @@
-import { bankForDocument, type CompanyBankFields } from "@/lib/bank-accounts";
+import { banksForDocument, type CompanyBankFields } from "@/lib/bank-accounts";
 import type { DocumentData, DocumentLine } from "@/lib/layout/document-data";
 import { contactAddressLines } from "@/lib/contact-address";
 import { documentTotalQuantity, showsTotalQuantity } from "@/lib/document-quantity";
@@ -14,13 +14,14 @@ const text = (value: unknown) => value === null || value === undefined ? "" : St
 const number = (value: unknown) => { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : 0; };
 const round = (value: number) => Math.round(value * 100) / 100;
 
-/** Company details for a document; bank details are the account chosen on it, else the one for its currency. */
+/** Company details for a document; bank details are the accounts chosen on it, else the ones for its currency. */
 export function companyDocumentData(setup: CompanyBranding, currency?: string, bankAccountKey?: unknown): DocumentData["company"] {
-  const bank = bankForDocument(setup, currency || setup.bankCurrency || setup.baseCurrency, bankAccountKey);
+  const banks = banksForDocument(setup, currency || setup.bankCurrency || setup.baseCurrency, bankAccountKey).map((account) => ({ name: account.bankName, accountName: account.accountName, accountNumber: account.accountNumber, iban: account.iban, swift: account.swift, stamp: account.stampData ?? "" }));
   return {
     name: setup.name, addressLines: [setup.addressLine1, setup.addressLine2, [setup.city, setup.country].filter(Boolean).join(", ")].filter((line) => line.trim()),
     phone: setup.phone, email: setup.email ?? "", trn: setup.trn, leftLogo: setup.logoData, rightLogo: setup.rightLogoData ?? "", stamp: setup.stampData ?? "",
-    bank: { name: bank?.bankName ?? "", accountName: bank?.accountName ?? "", accountNumber: bank?.accountNumber ?? "", iban: bank?.iban ?? "", swift: bank?.swift ?? "", stamp: bank?.stampData ?? "" },
+    bank: banks[0] ?? { name: "", accountName: "", accountNumber: "", iban: "", swift: "", stamp: "" },
+    ...(banks.length > 1 ? { banks } : {}),
   };
 }
 

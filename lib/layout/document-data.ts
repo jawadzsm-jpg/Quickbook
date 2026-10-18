@@ -7,8 +7,10 @@ export type DocumentStamp = { kind: "company" | "bank" | "status" | "copy" | "de
 
 /** Everything a layout needs to render one document. Real invoices and the editor's mock data share this shape. */
 export type DocumentLine = { sku: string; description: string; quantity: number; unitPrice: number; serialNumber: string; comments: string; subtotal: number; vatRate: number; vatAmount: number; total: number };
+export type DocumentBank = { name: string; accountName: string; accountNumber: string; iban: string; swift: string; stamp: string };
+
 export type DocumentData = {
-  company: { name: string; addressLines: string[]; phone: string; email: string; trn: string; leftLogo: string; rightLogo: string; stamp: string; bank: { name: string; accountName: string; accountNumber: string; iban: string; swift: string; stamp: string } };
+  company: { name: string; addressLines: string[]; phone: string; email: string; trn: string; leftLogo: string; rightLogo: string; stamp: string; bank: DocumentBank; /** Every account printed when the document shows more than one (the first is `bank`). */ banks?: DocumentBank[] };
   billTo: string[];
   shipTo: string[];
   details: Partial<Record<DetailField, string>>;
